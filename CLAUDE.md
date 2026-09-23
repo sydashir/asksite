@@ -40,6 +40,11 @@ Read this whole file at the start of every session. These rules override default
 - GitHub account: always `sydashir` for this project. This Mac also has `dev778d` logged in for another project — never log it out, delete it or change its settings.
 - Before any GitHub operation run `gh auth switch --user sydashir`; afterwards run `gh auth switch --user dev778d` to restore it. Git uses gh as its credential helper for github.com, so the active gh account is the one that pushes.
 
+# Process Management & Memory Constraints
+  - ALWAYS gracefully shut down llama-server, watchman, and node (Metro/Expo) dev servers before exiting a task, running a new server instance, or restarting the environment.
+  - Do NOT leave orphaned processes running in the background. Use killall or pkill to verify your spawned servers are dead before moving to the next step.
+  - Safety scope: only stop processes this project started — target them by PID or by an exact command pattern that includes this repo's path (e.g. `pkill -f "/Users/ashir/Documents/workk2/web_maker/"`). Never run a bare `killall node` or `pkill node`: this Mac also runs the user's other projects (e.g. dmchat-tg) on node, and they must not be touched.
+
 ## Security
 
 - API keys never go into git, logs, chat output, screenshots or client-side code.

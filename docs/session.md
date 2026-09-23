@@ -14,7 +14,10 @@ Last updated: 2026-09-23
 
 ## Next steps
 
-1. Plan 1 (renderer) written, reviewed and verified: `docs/superpowers/plans/2026-09-23-renderer-core.md` (18 tasks). Waiting for user approval + execution mode (subagent-driven recommended). Executes on branch `plan1-renderer`. Then plans 2–4: hosting + publish, AI generation, questionnaire + approval.
+1. Plan 1 (renderer) EXECUTING, subagent-driven, on branch `plan1-renderer` (user approved 2026-09-23). Moderated stages: A = Tasks 1–7, B = Tasks 8–14 + QA checkpoint, C = Tasks 15–17 + whole-branch review + full QA + Task 18 checks. Moderator (main session) pushes; agents never push or run gh.
+   - Recovery: ledger `.superpowers/sdd/progress.md`, shared log `.superpowers/sdd/build-log.md`, briefs/reports in `.superpowers/sdd/`, reusable stage script `~/.claude/projects/-Users-ashir-Documents-workk2-web-maker/072d5ae3-5e24-4502-8d9b-6e9b37ab7404/workflows/scripts/renderer-build-stage-wf_a9eb888e-a28.js` (args: stage, from, to, base, qa, final, fixFirst).
+   - Status 2026-09-24: Tasks 1–3 complete (Task 3 with amendment A1: AI copy Latin-script only; verified by moderator). Stage A continues with Tasks 4–7.
+   Then plans 2–4: hosting + publish, AI generation, questionnaire + approval.
 2. Repo done. GitHub work: `gh auth switch --user sydashir`, then switch back to `dev778d` after.
 3. Domain: deferred by the user (2026-09-23). Reminder when chosen: Public Suffix List review takes weeks, submit early.
 4. Accounts, user will provide when asked: Anthropic API key at plan 3 (~$20–50 prepaid credits; Pro/Max subscription cannot be used — Consumer Terms ban automated access except via API key, verified 2026-09-23); Cloudflare account at plan 2 (free plan fits the pilot). Later: Resend, Geoapify. Keys go only in Cloudflare secrets / gitignored `.dev.vars`.
