@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
+import * as htmlModule from "../src/html.ts";
 import { fragment, html, safeUrl, SafeHtml, trusted } from "../src/html.ts";
 
 const PAYLOAD = `<img src=x onerror="alert(1)">'&`;
+const JS = "javascript:alert(1)";
 
 describe("html tagged template", () => {
   it("escapes text interpolations", () => {
@@ -67,11 +69,76 @@ describe("html tagged template", () => {
 
   it("returns SafeHtml", () => {
     expect(html`<p></p>`).toBeInstanceOf(SafeHtml);
+    expect(trusted(" open")).toBeInstanceOf(SafeHtml);
+  });
+});
+
+describe("html composition and context tracking", () => {
+  it("refuses an html fragment between attributes, because its values were escaped as text", () => {
+    expect(() => html`<a${html` href="${JS}"`}>x</a>`).toThrow("double-quoted attribute value or trusted() markup");
+    expect(() => html`<p${html` onclick="${"alert(1)"}"`}>x</p>`).toThrow("double-quoted attribute value or trusted() markup");
+    expect(() => html`<details${html` open`}>`).toThrow("double-quoted attribute value or trusted() markup");
+    expect(() => html`<details${new SafeHtml(" open")}>`).toThrow("double-quoted attribute value or trusted() markup");
+  });
+
+  it("still allows trusted() markup or nothing between attributes", () => {
+    expect(String(html`<details name="faq"${trusted(" open")}>`)).toBe(`<details name="faq" open>`);
+    expect(String(html`<details name="faq"${false}${null}${undefined}>`)).toBe(`<details name="faq">`);
+  });
+
+  it("refuses a template that ends inside a tag or an attribute value", () => {
+    expect(() => html`<a`).toThrow("must not end inside a tag");
+    expect(() => html`<a href="`).toThrow("must not end inside a tag");
+    expect(() => html`<a title='x`).toThrow("must not end inside a tag");
+    expect(() => html`<details${trusted(" open")}`).toThrow("must not end inside a tag");
+  });
+
+  it("refuses a partial-tag fragment spliced into text (the mirror case)", () => {
+    expect(() => html`${html`<a`} href="${JS}">x</a>`).toThrow("must not end inside a tag");
+    expect(() => html`${html`<p`} onclick="${"alert(1)"}">x</p>`).toThrow("must not end inside a tag");
+  });
+
+  it("refuses a value in an attribute whose name it cannot see", () => {
+    expect(() => html`<a${trusted(" href")}="${JS}">x</a>`).toThrow("Cannot tell which attribute");
+    expect(() => html`<p "${"x"}">x</p>`).toThrow("Cannot tell which attribute");
+  });
+
+  it("never interpolates inside a <style> or <script> element", () => {
+    expect(() => html`<style>:root{--c:${"x"}}</style>`).toThrow("inside a <style> element");
+    expect(() => html`<script>${"x"}</script>`).toThrow("inside a <script> element");
+    expect(() => html`<SCRIPT type="application/ld+json">${new SafeHtml("{}")}</SCRIPT>`).toThrow("inside a <script> element");
+    expect(() => html`<style media="print">${false}</style>`).toThrow("inside a <style> element");
+    expect(() => html`${html`<style>`}${"x"}</style>`).toThrow("must not end inside a <style> element");
+  });
+
+  it("still places a whole <style> or <script> element built as SafeHtml, and escapes text after one", () => {
+    const style = new SafeHtml("<style>a{color:red}</style>");
+    const script = new SafeHtml(`<script type="application/ld+json">{}</script>`);
+    expect(String(html`<head>${style}${script}<title>${"A & B"}</title></head>`)).toBe(
+      `<head><style>a{color:red}</style><script type="application/ld+json">{}</script><title>A &amp; B</title></head>`,
+    );
+    expect(String(html`<style>a{}</style><p>${"<b>"}</p>`)).toBe("<style>a{}</style><p>&lt;b&gt;</p>");
+  });
+
+  it("tracks single-quoted attribute values, so a > inside one does not end the tag", () => {
+    expect(String(html`<p title='a>b' class="${`" onmouseover="alert(1)`}">x</p>`)).toBe(
+      `<p title='a>b' class="&quot; onmouseover=&quot;alert(1)">x</p>`,
+    );
+    expect(() => html`<a href='${safeUrl("https://example.com")}'>x</a>`).toThrow("double-quoted attribute value");
+  });
+
+  it("is not confused by quotes inside a comment", () => {
+    expect(String(html`<!-- don't --><p title="it's > ${`" onmouseover="alert(1)`}">x</p>`)).toBe(
+      `<!-- don't --><p title="it's > &quot; onmouseover=&quot;alert(1)">x</p>`,
+    );
+    expect(() => html`<!-- ${"x"} -->`).toThrow("inside a comment");
   });
 });
 
 describe("safeUrl", () => {
   it("accepts http, https, tel and mailto", () => {
+    expect(String(safeUrl("http://example.com/"))).toBe("http://example.com/");
+    expect(String(safeUrl("https://example.com/a?b=1"))).toBe("https://example.com/a?b=1");
     expect(String(safeUrl("tel:+15125550142"))).toBe("tel:+15125550142");
     expect(String(safeUrl("mailto:a@example.com"))).toBe("mailto:a@example.com");
   });
@@ -79,6 +146,9 @@ describe("safeUrl", () => {
     expect(() => safeUrl("javascript:alert(1)")).toThrow("Unsafe URL rejected");
     expect(() => safeUrl(" JAVASCRIPT:alert(1)")).toThrow("Unsafe URL rejected");
     expect(() => safeUrl("http://example.com", ["https:"])).toThrow("Unsafe URL rejected");
+  });
+  it("is the only way (with fragment) to make a SafeUrl: the class is not exported", () => {
+    expect(Object.keys(htmlModule)).not.toContain("SafeUrl");
   });
   it("escapes & in a URL attribute", () => {
     expect(String(html`<a href="${safeUrl("https://example.com/?a=1&b=2")}">x</a>`)).toBe(
