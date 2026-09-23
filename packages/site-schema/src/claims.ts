@@ -44,15 +44,22 @@ export const NEEDS_A_FACT: ReadonlyArray<{ readonly pattern: RegExp; readonly ba
  */
 export const HIDDEN_IN_COPY = /(?![\uFE0E\uFE0F])\p{Default_Ignorable_Code_Point}|(?<!\p{Emoji})[\uFE0E\uFE0F]/u;
 
-/** The words in `text` that state a claim the owner's facts do not back (empty when the text is fine). */
+// HTML shows a run of whitespace as one space and U+2010/U+2011 look like "-" (en/em dashes do not).
+const asReadOnPage = (text: string): string => text.replace(/\s+/g, " ").replace(/[\u2010\u2011]/g, "-");
+
+/**
+ * The words in `text` that state a claim the owner's facts do not back (empty when the text is
+ * fine), matched as a reader sees the page; the copy itself is not changed.
+ */
 export function unbackedClaims(text: string, facts: Facts): string[] {
+  const page = asReadOnPage(text);
   const found: string[] = [];
   for (const pattern of NEVER_IN_COPY) {
-    const match = pattern.exec(text);
+    const match = pattern.exec(page);
     if (match) found.push(match[0]);
   }
   for (const { pattern, backedBy } of NEEDS_A_FACT) {
-    const match = pattern.exec(text);
+    const match = pattern.exec(page);
     if (match && !backedBy(facts)) found.push(match[0]);
   }
   return found;

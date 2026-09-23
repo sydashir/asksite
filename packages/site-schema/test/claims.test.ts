@@ -65,6 +65,35 @@ describe("unbackedClaims", () => {
   });
 
   it.each([
+    ["We answer around  the clock", "around the clock"], // doubled spaces: HTML shows one
+    ["Same  day service", "Same day"],
+    ["Five  star service", "Five star"],
+    ["No  charge for a visit", "No charge"],
+    ["Award  winning crew", "Award winning"],
+    ["Call any  time", "any time"],
+    ["We answer around\u00A0the clock", "around the clock"], // U+00A0 no-break space
+    ["Same\u2011day service", "Same-day"], // U+2011 non-breaking hyphen
+    ["Five\u2010star service", "Five-star"], // U+2010 hyphen
+  ])("reads %j as the page shows it and finds %j", (text, claim) => {
+    expect(unbackedClaims(text, NONE)).toEqual([claim]);
+  });
+
+  it.each([
+    "Hassle-free booking",
+    "Hassle\u2010free booking", // U+2010 hyphen (NFKC turns U+2011 into this)
+    "Hassle\u2011free booking", // U+2011 non-breaking hyphen
+  ])("does not read the free in %j as a free offer", (text) => {
+    expect(unbackedClaims(text, NONE)).toEqual([]);
+  });
+
+  it.each([
+    "Estimates\u2014free", // U+2014 em dash
+    "Estimates\u2013free", // U+2013 en dash
+  ])("still reads free after a dash in %j", (text) => {
+    expect(unbackedClaims(text, NONE)).toEqual(["free"]);
+  });
+
+  it.each([
     'A lone " mark',
     '" autofocus onfocus="alert(document.cookie)', // attribute breakouts the renderer must escape (Task 15's XSS fixture)
     '<iframe srcdoc="<script>alert(document.domain)</script>"></iframe>',
@@ -88,9 +117,9 @@ describe("unbackedClaims", () => {
 
 describe("HIDDEN_IN_COPY", () => {
   it.each([
-    "Licen͏sed and insu͏red", // U+034F combining grapheme joiner splits "Licensed"/"insured"
-    "Bon️ded crew", // U+FE0F variation selector splits "Bonded"
-    "Satisfaction guaran︀teed", // U+FE00 variation selector splits "guaranteed"
+    "Licen\u034Fsed and insu\u034Fred", // U+034F combining grapheme joiner splits "Licensed"/"insured"
+    "Bon\uFE0Fded crew", // U+FE0F variation selector splits "Bonded"
+    "Satisfaction guaran\uFE00teed", // U+FE00 variation selector splits "guaranteed"
     "Friendly \u034F team", // U+034F on its own between spaces
     "Warm welcome \u2764\uFE00", // U+FE00 is not an emoji presentation selector
     "Leak fixed \u2714\uFE0F\uFE0F", // a second U+FE0F follows a selector, not an emoji
@@ -148,15 +177,26 @@ describe("SiteDocument rejects AI copy that states facts the owner did not give"
     '"Best cleaners in Boise!" - Sarah K.',
     "‘Best cleaners ever!’ - Sarah",
     "Satisfaction guaranteed",
-    "Licen͏sed and insu͏red",
-    "Bon️ded crew",
-    "Satisfaction guaran︀teed",
+    "Licen\u034Fsed and insu\u034Fred",
+    "Bon\uFE0Fded crew",
+    "Satisfaction guaran\uFE00teed",
     "Friendly \u034F team",
   ])("%j", (claim) => {
     const faq = [{ question: "Why us?", answer: claim }];
     const result = SiteDocument.safeParse({ ...MINIMAL_DOC, copy: { ...MINIMAL_DOC.copy, faq } });
     expect(result.success).toBe(false);
     expect(result.error?.issues.map((i) => i.path.join("."))).toEqual(["copy.faq.0.answer"]);
+  });
+
+  it("checks copy as the page shows it and keeps the copy as written", () => {
+    const faq = [{ question: "Why us?", answer: "There is no  charge for a visit" }]; // HTML shows one space
+    const doc = { ...MINIMAL_DOC, copy: { ...MINIMAL_DOC.copy, faq } };
+    const result = SiteDocument.safeParse(doc);
+    expect(result.success ? [] : result.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`)).toEqual([
+      `copy.faq.0.answer: Copy states something the owner's facts do not back: "no charge"`,
+    ]);
+    const backed = SiteDocument.parse({ ...doc, facts: { ...base, freeEstimates: true } });
+    expect(backed.copy.faq[0]?.answer).toBe("There is no  charge for a visit");
   });
 });
 
