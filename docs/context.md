@@ -21,9 +21,12 @@ A small business answers a questionnaire. The Claude API returns structured JSON
 
 ## User decisions (2026-09-23)
 
+- **Scope: option C** — one niche, invite-only (we approve every site), no editor, ~3 weeks. Then add niches one at a time. The user told the boss.
+- **Launch niche: US home services & trades** (plumbers, HVAC, electricians, roofers, cleaners, landscapers).
+- Build order: four separately testable plans — (1) renderer, (2) hosting + publish, (3) AI generation, (4) questionnaire + approval screen.
+
 - Market: **US**.
-- Niche: **any** — whatever the client tells us. Not locked to one vertical.
-- Scope: **maximum** — a full-featured tool, no compromise on quality.
+- (Superseded by option C above) Earlier answers: any niche, maximum scope.
 - Team: **the user + Claude**. Note: every earlier estimate already assumed "one engineer + Claude Code", so this does not shorten any estimate.
 - Engine: Claude API, not Cursor.
 

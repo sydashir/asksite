@@ -10,14 +10,14 @@ Last updated: 2026-09-23
 
 ## Top open issue
 
-- **Scope decision needed from the user.** Full scope (any niche, paid self-serve, editor) re-estimated at ~783h / ~20 weeks. The boss was told ~2 weeks MVP. The user must choose a scope before the build starts; see options reported 2026-09-23.
+- Scope decided: option C (one niche: US home services & trades; invite-only; no editor; ~3 weeks). Boss informed by the user.
 
 ## Next steps
 
-1. User picks scope (full ~20 wk / invite-only pilot ~13 wk / narrower). Then tell the boss.
+1. Plan 1 (renderer) written, reviewed and verified: `docs/superpowers/plans/2026-09-23-renderer-core.md` (18 tasks). Waiting for user approval + execution mode (subagent-driven recommended). Executes on branch `plan1-renderer`. Then plans 2–4: hosting + publish, AI generation, questionnaire + approval.
 2. Repo done. GitHub work: `gh auth switch --user sydashir`, then switch back to `dev778d` after.
 3. Domain: deferred by the user (2026-09-23). Reminder when chosen: Public Suffix List review takes weeks, submit early.
-4. Accounts: Anthropic API (key in `.env` only), Cloudflare (Workers Paid, R2), Resend, Geoapify.
+4. Accounts, user will provide when asked: Anthropic API key at plan 3 (~$20–50 prepaid credits; Pro/Max subscription cannot be used — Consumer Terms ban automated access except via API key, verified 2026-09-23); Cloudflare account at plan 2 (free plan fits the pilot). Later: Resend, Geoapify. Keys go only in Cloudflare secrets / gitignored `.dev.vars`.
 5. Decide the any-niche questionnaire approach.
 6. Kick off the build.
 
