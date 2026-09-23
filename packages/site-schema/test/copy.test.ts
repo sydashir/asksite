@@ -1,0 +1,84 @@
+import { describe, expect, it } from "vitest";
+import { Copy, COPY_LIMITS } from "../src/copy.ts";
+
+const valid = {
+  heroHeadline: "Fast, friendly plumbing in Austin",
+  heroSubheadline: "Leaks, clogs and water heaters fixed right the first time.",
+  ctaText: "Get a free quote",
+  serviceDescriptions: [{ service: "Drain cleaning", description: "We clear stubborn drains without tearing up your yard." }],
+};
+
+const issues = (input: unknown) => {
+  const result = Copy.safeParse(input);
+  return result.success ? [] : result.error.issues.map((i) => `${i.path.join(".")}: ${i.code}`);
+};
+
+describe("Copy", () => {
+  it("parses valid copy and fills defaults", () => {
+    const copy = Copy.parse(valid);
+    expect(copy.faq).toEqual([]);
+    expect(copy.sectionIntros).toEqual({});
+  });
+
+  it.each(Object.entries({ heroHeadline: 80, heroSubheadline: 160, ctaText: 24, about: 480 }))(
+    "caps %s at %i characters",
+    (field, max) => {
+      expect(issues({ ...valid, [field]: "a".repeat(max) })).toEqual([]);
+      expect(issues({ ...valid, [field]: "a".repeat(max + 1) })).toEqual([`${field}: too_big`]);
+    },
+  );
+
+  it("caps section intros, service descriptions and FAQ items", () => {
+    expect(issues({ ...valid, sectionIntros: { faq: "a".repeat(141) } })).toEqual(["sectionIntros.faq: too_big"]);
+    expect(issues({ ...valid, serviceDescriptions: [{ service: "Drains", description: "a".repeat(161) }] })).toEqual([
+      "serviceDescriptions.0.description: too_big",
+    ]);
+    expect(issues({ ...valid, faq: [{ question: "a".repeat(81), answer: "b" }] })).toEqual(["faq.0.question: too_big"]);
+    expect(issues({ ...valid, faq: [{ question: "a", answer: "b".repeat(321) }] })).toEqual(["faq.0.answer: too_big"]);
+    expect(issues({ ...valid, faq: Array(9).fill({ question: "a", answer: "b" }) })).toEqual(["faq: too_big"]);
+  });
+
+  it("has no AI intro for reviews or the service area", () => {
+    expect(issues({ ...valid, sectionIntros: { testimonials: "Real reviews" } })).toEqual(["sectionIntros: unrecognized_keys"]);
+    expect(issues({ ...valid, sectionIntros: { serviceArea: "All of Texas" } })).toEqual(["sectionIntros: unrecognized_keys"]);
+  });
+
+  it("exposes the limits for the AI prompt (plan 3)", () => {
+    expect(COPY_LIMITS.heroHeadline).toBe(80);
+  });
+
+  it.each([
+    "Call (512) 555-0142 today",
+    "Drain cleaning from $89",
+    "Licence ROC 300933",
+    "Serving Austin since 1998",
+    "Email us at office@example.com",
+    "Visit https://evil.example.com",
+    "Visit www.evil.example.com",
+    "Call ２０８ ５５５ ０１０７",
+    "Only ＄８９",
+    "Only €89",
+    "Call ٥١٢",
+    "Half price, just ½ off",
+  ])("rejects a fact smuggled into copy: %j", (headline) => {
+    expect(issues({ ...valid, heroHeadline: headline })).toEqual(["heroHeadline: custom"]);
+  });
+
+  it("rejects control and invisible characters", () => {
+    expect(issues({ ...valid, heroHeadline: "Visit ww​w.evil.example" })).toEqual(["heroHeadline: custom"]);
+    expect(issues({ ...valid, heroHeadline: "Mop‮etis" })).toEqual(["heroHeadline: custom"]);
+  });
+
+  it("normalises compatibility characters before checking", () => {
+    expect(Copy.parse({ ...valid, ctaText: "Ｃａｌｌ ｕｓ" }).ctaText).toBe("Call us");
+  });
+
+  it("rejects fact fields placed in copy", () => {
+    expect(issues({ ...valid, phone: "+15125550142" })).toEqual([": unrecognized_keys"]);
+  });
+
+  it("trims whitespace and rejects empty strings", () => {
+    expect(Copy.parse({ ...valid, ctaText: "  Call us  " }).ctaText).toBe("Call us");
+    expect(issues({ ...valid, ctaText: "   " })).toEqual(["ctaText: too_small"]);
+  });
+});
