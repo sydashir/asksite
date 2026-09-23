@@ -69,6 +69,33 @@ describe("Copy", () => {
     expect(issues({ ...valid, heroHeadline: "Mop‮etis" })).toEqual(["heroHeadline: custom"]);
   });
 
+  it.each([
+    "五百元", // "five hundred yuan": numerals and currency written as Han letters
+    "十年经验", // "ten years' experience"
+    "Уборка", // Cyrillic
+    "Καθαρισμός", // Greek
+    "Licensed and b\u043Ended", // U+043E is Cyrillic small letter o, which looks like Latin "o"
+  ])("rejects letters outside the Latin script: %j", (headline) => {
+    expect(issues({ ...valid, heroHeadline: headline })).toEqual(["heroHeadline: custom"]);
+  });
+
+  it("says copy must use Latin script", () => {
+    const result = Copy.safeParse({ ...valid, heroHeadline: "Уборка" });
+    expect(result.success ? [] : result.error.issues.map((i) => i.message)).toEqual([
+      expect.stringContaining("Latin script"),
+    ]);
+  });
+
+  it.each([
+    "café repairs",
+    "Fast — friendly service",
+    "We’re ‘quick’ and “careful”",
+    "Clean homes ✨",
+    "Leak fixed ✔️", // emoji with variation selector U+FE0F (Inherited script)
+  ])("accepts Latin letters, accents, typographic punctuation and emoji: %j", (headline) => {
+    expect(issues({ ...valid, heroHeadline: headline })).toEqual([]);
+  });
+
   it("normalises compatibility characters before checking", () => {
     expect(Copy.parse({ ...valid, ctaText: "Ｃａｌｌ ｕｓ" }).ctaText).toBe("Call us");
   });

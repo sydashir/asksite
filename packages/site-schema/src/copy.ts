@@ -1,13 +1,21 @@
 import { z } from "zod";
 
-// AI-written prose only. Every string has a hard length cap, is NFKC-normalised (so "＄８９"
-// becomes "$89" before it is checked) and may not contain a number in any script, a currency
-// symbol, "@", a link, or a control/invisible character: prices, phone numbers, licence numbers,
-// years, emails and URLs are facts, so copy structurally cannot state one. Worded claims
-// ("licensed", "free", "since") are checked against the owner's facts in claims.ts.
+// AI-written prose only. Every string has a hard length cap and is NFKC-normalised (so "＄８９"
+// becomes "$89" before it is checked), then rejected if it contains:
+// - a character Unicode classes as a number (\p{N}, e.g. "5", "٥", "½"), a currency symbol
+//   (\p{Sc}), "@", "http:", "https:" or "www.";
+// - a control or invisible formatting character (\p{Cc}, \p{Cf});
+// - any character outside the Latin, Common (punctuation, symbols, emoji) and Inherited
+//   (combining marks) scripts. Other scripts can write numbers and prices as letters ("五百元")
+//   and have letters that look Latin (Cyrillic "о", U+043E).
+// So copy cannot write a price, phone number, licence number, year or email in digits or symbols,
+// or a link that starts "http:", "https:" or "www.". Not caught here: bare domains ("acme.com")
+// and numbers spelled with Latin letters ("five", "XII"). Worded claims ("licensed", "free",
+// "since") are checked against the owner's facts in claims.ts.
 // The renderer reads facts only from `facts`.
 const FACT_LIKE = /[\p{N}\p{Sc}@]|https?:|www\./iu;
 const HIDDEN_CHARACTER = /[\p{Cc}\p{Cf}]/u;
+const NON_LATIN_SCRIPT = /[^\p{Script=Latin}\p{Script=Common}\p{Script=Inherited}]/u;
 
 export const prose = (max: number) =>
   z
@@ -19,7 +27,13 @@ export const prose = (max: number) =>
     .refine((s) => !FACT_LIKE.test(s), {
       error: "Copy must not contain numbers, currency symbols, @ or links; facts come from the owner",
     })
-    .refine((s) => !HIDDEN_CHARACTER.test(s), { error: "Copy must not contain control or invisible characters" });
+    .refine((s) => !HIDDEN_CHARACTER.test(s), { error: "Copy must not contain control or invisible characters" })
+    .refine((s) => !NON_LATIN_SCRIPT.test(s), {
+      error: "AI copy must use Latin script only; other scripts can spell out numbers and prices",
+      // Runs only if every check above passed, so a non-Latin digit such as "٥" is reported once.
+      // It changes which message is shown, never whether a string is rejected.
+      when: (payload) => payload.issues.length === 0,
+    });
 
 export const COPY_LIMITS = {
   heroHeadline: 80,
