@@ -41,13 +41,17 @@ A small business answers a questionnaire. The Claude API returns structured JSON
 - 238h / 6 weeks — invite-only pilot, 10 section variants, 3 themes. Three independent estimates: 236, 237, 240h. [research-agent]
 - 178h / 4.5 weeks — after scope cuts, corrected by hands-on repo checks. [research-agent]
 - 118–133h / ~3 weeks — after the precompiled-stylesheet fix; 4 variants, one niche, no editor. 113h with one variant. [research-agent]
+- **783h / ~20 weeks (range 700–900h)** — full 2026-09-23 scope: US, any niche, paid self-serve, editor, billing, custom domains, abuse, accessibility. Three independent estimates: 583, 713, 769h; reconciled up because each missed work the others counted. Nothing built or measured yet. [inferred] Workflow `wf_dde65daa-3f3`.
+  - Phases: P1 internal demo 80h (wk 2) → P2 design system + all sections 198h (wk 7) → P3 questions, accounts, photos, leads 159h (wk 10.9) → P4 safety, admin, SEO, invite-only pilot 100h (wk 13.4) → P5 editor 84h (wk 15.5) → P6 billing, domains, launch 91h + buffer (wk ~19.6).
+  - P1 is an internal demo only: no questionnaire, accounts, editor or contact form; not safe to show strangers.
 
 ## Architecture (decided)
 
 - **Generation:** Claude Messages API with structured outputs. One call returns JSON. The model never writes raw HTML. API key billing only.
   - Anthropic Commercial Terms permit powering products for our own customers; Consumer Terms forbid automated use of Pro/Max logins. [research-agent, 2026-09-16]
   - Prices on 2026-09-16 per million tokens: Opus 5 $5 in / $25 out; Sonnet 5 $2 / $10; Haiku 4.5 $1 / $5. [verified via claude-api skill + research-agent]
-  - Opus 5.5 now exists. Its pricing has not been checked. [unverified]
+  - Opus 5.5 (`claude-opus-5-5`): $4 in / $20 out per million tokens, cache hits $0.20. [verified 2026-09-23 against the saved official pricing page] Thinking cannot be turned off on Opus 5.5 [research-agent]. The page also notes Sonnet 5's $2/$10 was introductory pricing — watch for changes.
+  - Recommended (not yet decided): Opus 5.5 at low effort for generation, Sonnet 5 as fallback and for side tasks. Estimated $0.04–0.14 per site; worst case ~$0.52 with 3 regenerations. [inferred — token counts assumed, no live calls made]
 - **Rendering:** vendored AstroWind section markup, filled by string interpolation. No per-site build.
   - Tailwind compiled **once** across all our sections into one shared stylesheet: 46,223 B raw / 7,874 B gzip. [research-agent]
   - Per-site colours and fonts = 12 CSS variables in an inline `<style>` block; the shared sheet stays identical for everyone. Tested in headless Chrome by a research agent. [research-agent]
@@ -127,7 +131,9 @@ Nice to add: logo, brand colours (with "choose for me"), photos, years in busine
 
 After first preview: pick from 3 headlines, pick from 3 looks, swap photos, add FAQ, reorder/hide sections, connect own domain.
 
-Open: "any niche" means the fixed per-vertical modules in the old plan no longer fit. Approach undecided.
+Any-niche approach (recommended, not yet approved by the user): **capabilities, not verticals.** Claude turns the owner's free-text business type into yes/no capabilities (customers visit you, you travel, appointments, menu, price list, packages, products, portfolio, team, licensed trade, classes/events, custom quotes, donations), shown as editable tags. Each capability opens a fixed question block and a fixed section. Claude writes questions only for 3–5 niche FAQs and up to 3 quote-form fields. Owners write every fact; the renderer reads prices, hours, licences, team and testimonials straight from owner input; a claim checker strips unbacked numbers/claims. [research-agent]
+
+New sections any niche needs: price list/menu, booking/order link-out, service-area location, credentials strip, events schedule, products with buy links (build); portfolio, team, packages, about, how-it-works, CTA, stats (port from AstroWind). AstroWind has no menu, price list, booking, hours, events, shop or credentials section. [research-agent]
 
 ## Risks to design for (US)
 

@@ -10,11 +10,11 @@ Last updated: 2026-09-23
 
 ## Top open issue
 
-- **Scope vs timeline conflict.** The boss was told ~2 weeks MVP. The user's 2026-09-23 answers (US, any niche, full-featured, no quality compromise) are a bigger build. A full-scope re-estimate was started on 2026-09-23. Do not quote a new number until it is done and reviewed.
+- **Scope decision needed from the user.** Full scope (any niche, paid self-serve, editor) re-estimated at ~783h / ~20 weeks. The boss was told ~2 weeks MVP. The user must choose a scope before the build starts; see options reported 2026-09-23.
 
 ## Next steps
 
-1. Finish and review the full-scope re-estimate.
+1. User picks scope (full ~20 wk / invite-only pilot ~13 wk / narrower). Then tell the boss.
 2. Repo done. GitHub work: `gh auth switch --user sydashir`, then switch back to `dev778d` after.
 3. Domain: deferred by the user (2026-09-23). Reminder when chosen: Public Suffix List review takes weeks, submit early.
 4. Accounts: Anthropic API (key in `.env` only), Cloudflare (Workers Paid, R2), Resend, Geoapify.
