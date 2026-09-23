@@ -71,6 +71,21 @@ describe("SiteDocument", () => {
     expect(issues(reviewed)).toEqual(["layout: The layout must include every section that shows owner facts; missing: testimonials"]);
   });
 
+  it("never lets the layout hide the owner's hero photo behind the wrong variant", () => {
+    const withHeroPhoto = {
+      ...doc,
+      facts: {
+        ...doc.facts,
+        heroPhoto: { url: "https://example.com/hero.jpg", alt: "Our team cleaning a kitchen", width: 1200, height: 800 },
+      },
+    };
+    expect(issues(withHeroPhoto)).toEqual([
+      'layout: The layout must use the hero "photo" variant when the owner gave a hero photo; the AI cannot hide an owner fact',
+    ]);
+    const photoVariant = { ...withHeroPhoto, layout: [{ id: "hero", variant: "photo" }, ...doc.layout.slice(1)] };
+    expect(issues(photoVariant)).toEqual([]);
+  });
+
   it("lists the fact sections for the facts given", () => {
     expect(factSections(Facts.parse(doc.facts))).toEqual(["services", "serviceArea", "contact"]);
     expect(factSections(Facts.parse({ ...doc.facts, insured: true, photos: [] }))).toEqual([

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { Facts, proseIn, SiteDocument, unbackedClaims, type SiteDocumentInput } from "../src/index.ts";
+import { Facts, HIDDEN_IN_COPY, proseIn, SiteDocument, unbackedClaims, type SiteDocumentInput } from "../src/index.ts";
 
 const base: SiteDocumentInput["facts"] = {
   businessName: "Mop",
@@ -30,6 +30,9 @@ describe("unbackedClaims", () => {
     "Highly rated by neighbors",
     "Real reviews from real neighbors",
     "“Best cleaners ever!” said Sarah",
+    '"Best cleaners in Boise!" - Sarah K.',
+    'Our customers call us "the best cleaners in Boise."',
+    "‘Best cleaners ever!’ - Sarah",
     "Satisfaction guaranteed",
     "Every job comes with a warranty",
     "The lowest prices in town",
@@ -75,6 +78,20 @@ describe("unbackedClaims", () => {
   });
 });
 
+describe("HIDDEN_IN_COPY", () => {
+  it.each([
+    "Licen͏sed and insu͏red", // U+034F combining grapheme joiner splits "Licensed"/"insured"
+    "Bon️ded crew", // U+FE0F variation selector splits "Bonded"
+    "Satisfaction guaran︀teed", // U+FE00 variation selector splits "guaranteed"
+  ])("matches %j", (text) => {
+    expect(HIDDEN_IN_COPY.test(text)).toBe(true);
+  });
+
+  it("does not match plain Latin prose", () => {
+    expect(HIDDEN_IN_COPY.test("Licensed and insured, friendly local team.")).toBe(false);
+  });
+});
+
 const MINIMAL_DOC: SiteDocumentInput = {
   facts: base,
   copy: {
@@ -107,7 +124,12 @@ describe("SiteDocument rejects AI copy that states facts the owner did not give"
     "Free estimates, no hidden fees",
     "Five-star rated, award-winning, BBB accredited",
     "“Best cleaners ever!” said Sarah",
+    '"Best cleaners in Boise!" - Sarah K.',
+    "‘Best cleaners ever!’ - Sarah",
     "Satisfaction guaranteed",
+    "Licen͏sed and insu͏red",
+    "Bon️ded crew",
+    "Satisfaction guaran︀teed",
   ])("%j", (claim) => {
     const faq = [{ question: "Why us?", answer: claim }];
     const result = SiteDocument.safeParse({ ...MINIMAL_DOC, copy: { ...MINIMAL_DOC.copy, faq } });

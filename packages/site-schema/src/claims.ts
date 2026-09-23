@@ -11,7 +11,9 @@ import type { Facts } from "./facts.ts";
 export const NEVER_IN_COPY: readonly RegExp[] = [
   /\bbond(s|ed)?\b/i, // California B&P Code 7071.13 forbids mentioning the contractor bond in advertising
   /\b(certified|accredited|award[- ]winning|top[- ]rated|five[- ]star|rated|ratings?|bbb)\b/i,
-  /\b(reviews?|says?|said)\b|[“”„«»]/i, // real reviews are owner facts; no quotes invented in copy
+  /\b(reviews?|says?|said)\b|["“”„«»‘]/i, // real reviews are owner facts; no quotes invented in copy.
+  // Straight " and curly opening ‘ are included (LLM/JSON output favours straight quotes); curly
+  // closing ’ is left out because it doubles as the apostrophe, e.g. "customer's" or "don't".
   /\b(guarantee[ds]?|warrant(y|ies|ied))\b/i,
   /\b(cheapest|lowest|dollars?|bucks|cents)\b/i,
   /\b((twen|thir|for|fif|six|seven|eigh|nine)ty|hundreds?|thousands?|millions?)\b/i, // spelled-out numbers
@@ -27,6 +29,19 @@ export const NEEDS_A_FACT: ReadonlyArray<{ readonly pattern: RegExp; readonly ba
   { pattern: /\b(emergenc\w*|a?round[- ]the[- ]clock|day or night|any ?time)\b/i, backedBy: (facts) => facts.emergency247 },
   { pattern: /(?<![\w-])free\b|\bno[- ](charge|cost)\b|\bcomplimentary\b/i, backedBy: (facts) => facts.freeEstimates },
 ];
+
+/**
+ * A default-ignorable code point copy.ts's own HIDDEN_CHARACTER (\p{Cc}, \p{Cf}) does not catch:
+ * a combining mark or variation selector that is Script=Inherited but not Cc/Cf, e.g. U+034F
+ * COMBINING GRAPHEME JOINER or a U+FE00-U+FE0F variation selector. Left in place, one of these can
+ * sit inside a word — "Licen͏sed" still reads and renders as "Licensed" — while splitting it
+ * apart for NEVER_IN_COPY/NEEDS_A_FACT's word-boundary regexes, so an unbacked claim slips through
+ * invisibly. The global rule is that copy may not contain an invisible character at all, so
+ * document.ts rejects any prose string containing one of these outright, whether or not it lands
+ * inside a claim word. Checked only here, not in copy.ts, so a legitimate variation-selector emoji
+ * such as "❤️" still parses through the `Copy` schema alone.
+ */
+export const HIDDEN_IN_COPY = /\p{Default_Ignorable_Code_Point}/u;
 
 /** The words in `text` that state a claim the owner's facts do not back (empty when the text is fine). */
 export function unbackedClaims(text: string, facts: Facts): string[] {

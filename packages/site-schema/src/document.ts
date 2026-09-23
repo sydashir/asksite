@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { proseIn, unbackedClaims } from "./claims.ts";
+import { HIDDEN_IN_COPY, proseIn, unbackedClaims } from "./claims.ts";
 import { Copy } from "./copy.ts";
 import { Facts } from "./facts.ts";
 import { Layout, type SectionId } from "./layout.ts";
@@ -40,7 +40,30 @@ export const SiteDocument = z
       });
     }
 
+    // The "photo" hero variant is the only one that renders facts.heroPhoto; "centered" shows no
+    // image. Without this, an AI-chosen "centered" hero can hide an owner's photo everywhere but
+    // JSON-LD, even though the layout technically lists every factSections() id.
+    const hero = doc.layout.find((s) => s.id === "hero");
+    if (doc.facts.heroPhoto !== undefined && hero?.variant !== "photo") {
+      ctx.addIssue({
+        code: "custom",
+        path: ["layout"],
+        message: 'The layout must use the hero "photo" variant when the owner gave a hero photo; the AI cannot hide an owner fact',
+      });
+    }
+
     for (const [path, text] of proseIn(doc.copy)) {
+      // Checked ahead of unbackedClaims: a hidden default-ignorable mark can sit inside a claim
+      // word (e.g. "Licen͏sed") and defeat NEVER_IN_COPY/NEEDS_A_FACT's word-boundary
+      // regexes, so this is rejected outright rather than relying on the claim check to catch it.
+      if (HIDDEN_IN_COPY.test(text)) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["copy", ...path],
+          message: "Copy must not contain an invisible character",
+        });
+      }
+
       const claims = unbackedClaims(text, doc.facts);
       if (claims.length > 0) {
         ctx.addIssue({
