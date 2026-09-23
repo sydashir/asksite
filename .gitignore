@@ -1,0 +1,19 @@
+# Secrets
+.env
+.env.*
+!.env.example
+.dev.vars
+*.pem
+*.key
+
+# Dependencies and build output
+node_modules/
+dist/
+.wrangler/
+.astro/
+
+# OS / editor
+.DS_Store
+
+# Local Claude settings
+.claude/settings.local.json
