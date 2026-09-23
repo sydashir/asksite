@@ -71,19 +71,14 @@ describe("SiteDocument", () => {
     expect(issues(reviewed)).toEqual(["layout: The layout must include every section that shows owner facts; missing: testimonials"]);
   });
 
-  it("never lets the layout hide the owner's hero photo behind the wrong variant", () => {
-    const withHeroPhoto = {
-      ...doc,
-      facts: {
-        ...doc.facts,
-        heroPhoto: { url: "https://example.com/hero.jpg", alt: "Our team cleaning a kitchen", width: 1200, height: 800 },
-      },
-    };
-    expect(issues(withHeroPhoto)).toEqual([
-      'layout: The layout must use the hero "photo" variant when the owner gave a hero photo; the AI cannot hide an owner fact',
-    ]);
-    const photoVariant = { ...withHeroPhoto, layout: [{ id: "hero", variant: "photo" }, ...doc.layout.slice(1)] };
-    expect(issues(photoVariant)).toEqual([]);
+  it("never lets the layout hide the owner's hero photo, whatever hero variant the AI picks", () => {
+    const heroPhoto = { url: "https://example.com/hero.jpg", alt: "Our team cleaning a kitchen", width: 1200, height: 800 };
+    const withHeroPhoto = { ...doc, facts: { ...doc.facts, heroPhoto } };
+    expect(doc.layout[0]).toEqual({ id: "hero", variant: "centered" });
+    expect(issues(withHeroPhoto)).toEqual([]);
+    expect(SiteDocument.parse(withHeroPhoto).layout).toEqual([{ id: "hero", variant: "photo" }, ...doc.layout.slice(1)]);
+    // Without a hero photo both variants render the same text-only hero, so the AI's choice stands.
+    expect(SiteDocument.parse(doc).layout).toEqual(doc.layout);
   });
 
   it("lists the fact sections for the facts given", () => {

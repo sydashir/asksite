@@ -11,9 +11,12 @@ import type { Facts } from "./facts.ts";
 export const NEVER_IN_COPY: readonly RegExp[] = [
   /\bbond(s|ed)?\b/i, // California B&P Code 7071.13 forbids mentioning the contractor bond in advertising
   /\b(certified|accredited|award[- ]winning|top[- ]rated|five[- ]star|rated|ratings?|bbb)\b/i,
-  /\b(reviews?|says?|said)\b|["“”„«»‘]/i, // real reviews are owner facts; no quotes invented in copy.
-  // Straight " and curly opening ‘ are included (LLM/JSON output favours straight quotes); curly
-  // closing ’ is left out because it doubles as the apostrophe, e.g. "customer's" or "don't".
+  /\b(reviews?|says?|said)\b|[“”„«»‘]/i, // real reviews are owner facts; no quotes invented in copy
+  // (’ is left out: it doubles as the apostrophe, as in "don’t").
+  // A phrase in straight quotes: an opening " directly followed by a letter, then a closing ".
+  // A lone " or one that closes and reopens an HTML attribute (" onfocus="…) quotes nobody; the
+  // renderer escapes it like any other character.
+  /"[a-z][^"]*"/i,
   /\b(guarantee[ds]?|warrant(y|ies|ied))\b/i,
   /\b(cheapest|lowest|dollars?|bucks|cents)\b/i,
   /\b((twen|thir|for|fif|six|seven|eigh|nine)ty|hundreds?|thousands?|millions?)\b/i, // spelled-out numbers
@@ -31,17 +34,15 @@ export const NEEDS_A_FACT: ReadonlyArray<{ readonly pattern: RegExp; readonly ba
 ];
 
 /**
- * A default-ignorable code point copy.ts's own HIDDEN_CHARACTER (\p{Cc}, \p{Cf}) does not catch:
- * a combining mark or variation selector that is Script=Inherited but not Cc/Cf, e.g. U+034F
- * COMBINING GRAPHEME JOINER or a U+FE00-U+FE0F variation selector. Left in place, one of these can
- * sit inside a word — "Licen͏sed" still reads and renders as "Licensed" — while splitting it
- * apart for NEVER_IN_COPY/NEEDS_A_FACT's word-boundary regexes, so an unbacked claim slips through
- * invisibly. The global rule is that copy may not contain an invisible character at all, so
- * document.ts rejects any prose string containing one of these outright, whether or not it lands
- * inside a claim word. Checked only here, not in copy.ts, so a legitimate variation-selector emoji
- * such as "❤️" still parses through the `Copy` schema alone.
+ * The invisible characters copy.ts lets through: U+034F COMBINING GRAPHEME JOINER and the
+ * variation selectors U+FE00-U+FE0F and U+E0100-U+E01EF (default-ignorable, Script=Inherited, not
+ * \p{Cc}/\p{Cf}). Inside a word one splits it for the claim and link checks while the page still
+ * shows the whole word ("Licen\u034Fsed" reads "Licensed"), so document.ts rejects copy that
+ * contains any of them. The one exception is U+FE0E/U+FE0F directly after an emoji, which picks
+ * the emoji's text or colour form (✔ then U+FE0F). After NFKC the only emoji that are letters
+ * or digits are the digits 0-9, which copy bans, so an allowed selector never sits inside a word.
  */
-export const HIDDEN_IN_COPY = /\p{Default_Ignorable_Code_Point}/u;
+export const HIDDEN_IN_COPY = /(?![\uFE0E\uFE0F])\p{Default_Ignorable_Code_Point}|(?<!\p{Emoji})[\uFE0E\uFE0F]/u;
 
 /** The words in `text` that state a claim the owner's facts do not back (empty when the text is fine). */
 export function unbackedClaims(text: string, facts: Facts): string[] {

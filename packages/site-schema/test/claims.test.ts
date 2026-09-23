@@ -64,6 +64,14 @@ describe("unbackedClaims", () => {
     expect(unbackedClaims("Careful cleaners for busy households. Hassle-free booking, one-off or weekly.", NONE)).toEqual([]);
   });
 
+  it.each([
+    'A lone " mark',
+    '" autofocus onfocus="alert(document.cookie)', // attribute breakouts the renderer must escape (Task 15's XSS fixture)
+    '<iframe srcdoc="<script>alert(document.domain)</script>"></iframe>',
+  ])("does not read a straight quote that opens no quoted phrase as a testimonial: %j", (text) => {
+    expect(unbackedClaims(text, NONE)).toEqual([]);
+  });
+
   it("walks every prose string except the repeated service names", () => {
     const copy = SiteDocument.parse(MINIMAL_DOC).copy;
     expect(proseIn(copy).map(([path]) => path.join("."))).toEqual([
@@ -83,12 +91,25 @@ describe("HIDDEN_IN_COPY", () => {
     "Licen͏sed and insu͏red", // U+034F combining grapheme joiner splits "Licensed"/"insured"
     "Bon️ded crew", // U+FE0F variation selector splits "Bonded"
     "Satisfaction guaran︀teed", // U+FE00 variation selector splits "guaranteed"
+    "Friendly \u034F team", // U+034F on its own between spaces
+    "Warm welcome \u2764\uFE00", // U+FE00 is not an emoji presentation selector
+    "Leak fixed \u2714\uFE0F\uFE0F", // a second U+FE0F follows a selector, not an emoji
   ])("matches %j", (text) => {
     expect(HIDDEN_IN_COPY.test(text)).toBe(true);
   });
 
   it("does not match plain Latin prose", () => {
     expect(HIDDEN_IN_COPY.test("Licensed and insured, friendly local team.")).toBe(false);
+  });
+
+  it.each([
+    "Leak fixed \u2714\uFE0F", // U+FE0F after an emoji selects its colour form
+    "Friendly team \u2764\uFE0F",
+    "Cool comfort \u2744\uFE0F",
+    "Tidy work \u2714\uFE0E", // U+FE0E after an emoji selects its text form
+    "Press #\uFE0F\u20E3", // keycap sequence
+  ])("does not match an emoji's presentation selector: %j", (text) => {
+    expect(HIDDEN_IN_COPY.test(text)).toBe(false);
   });
 });
 
@@ -130,10 +151,25 @@ describe("SiteDocument rejects AI copy that states facts the owner did not give"
     "Licen͏sed and insu͏red",
     "Bon️ded crew",
     "Satisfaction guaran︀teed",
+    "Friendly \u034F team",
   ])("%j", (claim) => {
     const faq = [{ question: "Why us?", answer: claim }];
     const result = SiteDocument.safeParse({ ...MINIMAL_DOC, copy: { ...MINIMAL_DOC.copy, faq } });
     expect(result.success).toBe(false);
     expect(result.error?.issues.map((i) => i.path.join("."))).toEqual(["copy.faq.0.answer"]);
+  });
+});
+
+describe("SiteDocument keeps AI copy the checks have no reason to reject", () => {
+  it.each([
+    "Leak fixed \u2714\uFE0F", // Copy accepts emoji (copy.test.ts), so a whole page must too
+    "Friendly team \u2764\uFE0F",
+    "Cool comfort \u2744\uFE0F",
+    '" autofocus onfocus="alert(document.cookie)', // Task 15's XSS fixture puts these in AI copy
+    '<iframe srcdoc="<script>alert(document.domain)</script>"></iframe>',
+  ])("%j", (text) => {
+    const faq = [{ question: "Why us?", answer: text }];
+    const result = SiteDocument.safeParse({ ...MINIMAL_DOC, copy: { ...MINIMAL_DOC.copy, faq } });
+    expect(result.success ? [] : result.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`)).toEqual([]);
   });
 });

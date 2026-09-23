@@ -11,11 +11,10 @@ import { z } from "zod";
 // So copy cannot write a price, phone number, licence number, year or email in digits or symbols,
 // or a link that starts "http:", "https:" or "www.". Not caught here: bare domains ("acme.com")
 // and numbers spelled with Latin letters ("five", "XII"). Worded claims ("licensed", "free",
-// "since") are checked against the owner's facts in claims.ts. Also not caught here: a
-// default-ignorable combining mark or variation selector (Script=Inherited but not \p{Cc}/\p{Cf},
-// e.g. U+034F COMBINING GRAPHEME JOINER or a U+FE00-U+FE0F variation selector) — claims.ts's
-// HIDDEN_IN_COPY rejects those instead, once the full SiteDocument is checked, so that a
-// legitimate variation-selector emoji such as "❤️" still parses through Copy alone.
+// "since") are checked against the owner's facts in claims.ts. Also not caught here: U+034F
+// COMBINING GRAPHEME JOINER and the variation selectors (default-ignorable, Script=Inherited, not
+// \p{Cc}/\p{Cf}). claims.ts's HIDDEN_IN_COPY rejects them when the whole SiteDocument is checked,
+// except an emoji's own presentation selector (✔ then U+FE0F), which both checks accept.
 // The renderer reads facts only from `facts`.
 const FACT_LIKE = /[\p{N}\p{Sc}@]|https?:|www\./iu;
 const HIDDEN_CHARACTER = /[\p{Cc}\p{Cf}]/u;

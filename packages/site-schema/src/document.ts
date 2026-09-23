@@ -2,7 +2,7 @@ import { z } from "zod";
 import { HIDDEN_IN_COPY, proseIn, unbackedClaims } from "./claims.ts";
 import { Copy } from "./copy.ts";
 import { Facts } from "./facts.ts";
-import { Layout, type SectionId } from "./layout.ts";
+import { Layout, type LayoutSection, type SectionId } from "./layout.ts";
 import { Theme } from "./theme.ts";
 
 /**
@@ -19,6 +19,14 @@ export function factSections(facts: Facts): SectionId[] {
 
 export const SiteDocument = z
   .strictObject({ facts: Facts, copy: Copy, layout: Layout, theme: Theme })
+  // The hero shows the owner's hero photo only in its "photo" variant, so a hero photo decides the
+  // variant and the AI's layout can never hide it. Without a hero photo both variants render the
+  // same text-only hero, so the AI's choice stands.
+  .overwrite((doc) =>
+    doc.facts.heroPhoto === undefined
+      ? doc
+      : { ...doc, layout: doc.layout.map((s): LayoutSection => (s.id === "hero" ? { id: "hero", variant: "photo" } : s)) },
+  )
   .superRefine((doc, ctx) => {
     const names = doc.facts.services.map((s) => s.name);
     const described = doc.copy.serviceDescriptions.map((d) => d.service);
@@ -40,22 +48,9 @@ export const SiteDocument = z
       });
     }
 
-    // The "photo" hero variant is the only one that renders facts.heroPhoto; "centered" shows no
-    // image. Without this, an AI-chosen "centered" hero can hide an owner's photo everywhere but
-    // JSON-LD, even though the layout technically lists every factSections() id.
-    const hero = doc.layout.find((s) => s.id === "hero");
-    if (doc.facts.heroPhoto !== undefined && hero?.variant !== "photo") {
-      ctx.addIssue({
-        code: "custom",
-        path: ["layout"],
-        message: 'The layout must use the hero "photo" variant when the owner gave a hero photo; the AI cannot hide an owner fact',
-      });
-    }
-
     for (const [path, text] of proseIn(doc.copy)) {
-      // Checked ahead of unbackedClaims: a hidden default-ignorable mark can sit inside a claim
-      // word (e.g. "Licen͏sed") and defeat NEVER_IN_COPY/NEEDS_A_FACT's word-boundary
-      // regexes, so this is rejected outright rather than relying on the claim check to catch it.
+      // A hidden mark can split a claim word (e.g. "Licen\u034Fsed") so that the claim check below
+      // misses it, so copy containing one is rejected outright.
       if (HIDDEN_IN_COPY.test(text)) {
         ctx.addIssue({
           code: "custom",
@@ -75,7 +70,7 @@ export const SiteDocument = z
     }
   });
 
-/** Parsed document: defaults applied, every string trimmed and length-checked. */
+/** Parsed document: defaults applied, every string trimmed and length-checked, hero photo shown. */
 export type SiteDocument = z.infer<typeof SiteDocument>;
 /** What callers may pass in (optional arrays and flags may be omitted). */
 export type SiteDocumentInput = z.input<typeof SiteDocument>;
