@@ -7,7 +7,7 @@ import type { Facts } from "./facts.ts";
 // Word lists catch the usual phrasings, not every paraphrase: plan 4's approval screen still
 // shows the owner every sentence before a page is published.
 //
-// A multi-word claim's two halves may be joined by a hyphen, a space, or a dash character: figure
+// The words of a multi-word claim may be joined by a hyphen, a space, or a dash character: figure
 // dash (U+2012), en dash (U+2013), em dash (U+2014) or minus sign (U+2212), so "award-winning"
 // and "award" + U+2013 + "winning" read the same way. asReadOnPage below does NOT fold en/em dash
 // to a hyphen (A2: they usually separate two clauses, not join one compound word), so this class
@@ -36,7 +36,7 @@ export const NEEDS_A_FACT: ReadonlyArray<{ readonly pattern: RegExp; readonly ba
   { pattern: /\blicen[cs]\w*/i, backedBy: (facts) => facts.licences.length > 0 },
   { pattern: /\binsur\w*/i, backedBy: (facts) => facts.insured },
   {
-    pattern: /\b(emergenc\w*|a?round[-\u2012\u2013\u2014\u2212 ]the[-\u2012\u2013\u2014\u2212 ]clock|day or night|any ?time)\b/i,
+    pattern: /\b(emergenc\w*|a?round[-\u2012\u2013\u2014\u2212 ]the[-\u2012\u2013\u2014\u2212 ]clock|day[-\u2012\u2013\u2014\u2212 ]or[-\u2012\u2013\u2014\u2212 ]night|any[-\u2012\u2013\u2014\u2212 ]?time)\b/i,
     backedBy: (facts) => facts.emergency247,
   },
   { pattern: /(?<![\w-])free\b|\bno[-\u2012\u2013\u2014\u2212 ](charge|cost)\b|\bcomplimentary\b/i, backedBy: (facts) => facts.freeEstimates },

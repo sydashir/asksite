@@ -98,6 +98,7 @@ describe("unbackedClaims", () => {
     ["We answer around\u00A0the clock", "around the clock"], // U+00A0 no-break space
     ["Same\u2011day service", "Same-day"], // U+2011 non-breaking hyphen
     ["Five\u2010star service", "Five-star"], // U+2010 hyphen
+    ["Help day\u2011or\u2011night", "day-or-night"], // U+2011 non-breaking hyphen
   ])("reads %j as the page shows it and finds %j", (text, claim) => {
     expect(unbackedClaims(text, NONE)).toEqual([claim]);
   });
@@ -130,6 +131,15 @@ describe("unbackedClaims", () => {
     "allows a dash-joined multi-word claim only when the owner's facts back it: %j",
     (text) => {
       expect(unbackedClaims(text, NONE).length).toBeGreaterThan(0);
+      expect(unbackedClaims(text, ALL)).toEqual([]);
+    },
+  );
+
+  it.each(["-", ...DASHES].flatMap((d) => ["day" + d + "or" + d + "night", "any" + d + "time"]))(
+    "allows the emergency claim %j, joined by a hyphen or dash, only when the owner's facts back it",
+    (claim) => {
+      const text = "Call us " + claim + " for a burst pipe";
+      expect(unbackedClaims(text, NONE)).toEqual([claim]);
       expect(unbackedClaims(text, ALL)).toEqual([]);
     },
   );
@@ -212,6 +222,8 @@ describe("SiteDocument rejects AI copy that states facts the owner did not give"
     "Just ＄８９",
     "Visit mopboise.com",
     "Emergency cleaning around the clock",
+    "Reliable day-or-night plumbing across Boise.",
+    "Call us any-time for a clogged drain.",
     "Free estimates, no hidden fees",
     "Five-star rated, award-winning, BBB accredited",
     "“Best cleaners ever!” said Sarah",
