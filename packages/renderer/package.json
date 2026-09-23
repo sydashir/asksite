@@ -1,0 +1,12 @@
+{
+  "name": "@asksite/renderer",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@asksite/site-schema": "workspace:*"
+  }
+}
