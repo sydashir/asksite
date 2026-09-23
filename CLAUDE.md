@@ -37,6 +37,8 @@ Read this whole file at the start of every session. These rules override default
 - Commit only as `sydashir` <meetashirr@gmail.com>. Set this as the repo-local git config, never global.
 - No Claude co-author lines, no "Generated with" lines, no AI attribution of any kind.
 - Commit messages: 3 words maximum.
+- GitHub account: always `sydashir` for this project. This Mac also has `dev778d` logged in for another project — never log it out, delete it or change its settings.
+- Before any GitHub operation run `gh auth switch --user sydashir`; afterwards run `gh auth switch --user dev778d` to restore it. Git uses gh as its credential helper for github.com, so the active gh account is the one that pushes.
 
 ## Security
 

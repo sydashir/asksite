@@ -31,3 +31,4 @@ Append-only. Newest at the bottom.
 - Flagged: these answers exceed the scope behind the ~2-week figure given to the boss. Full-scope re-estimate started.
 - Rules written to `CLAUDE.md`. Created `docs/context.md`, `docs/session.md`, `docs/journal.md`, and `.gitignore` for secrets.
 - User created `github.com/sydashir/asksite` (private). Folder initialised as a git repo with repo-local identity `sydashir` <meetashirr@gmail.com>. Found the active gh account is `dev778d`; pushed with sydashir's token for that command only. Domain deferred.
+- User rule: use sydashir for this project via `gh auth switch`, never touch dev778d. Added to CLAUDE.md; switch back to dev778d after each GitHub operation.

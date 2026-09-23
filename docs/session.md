@@ -15,7 +15,7 @@ Last updated: 2026-09-23
 ## Next steps
 
 1. Finish and review the full-scope re-estimate.
-2. Repo done. Push as sydashir explicitly — the active gh account on this Mac is dev778d.
+2. Repo done. GitHub work: `gh auth switch --user sydashir`, then switch back to `dev778d` after.
 3. Domain: deferred by the user (2026-09-23). Reminder when chosen: Public Suffix List review takes weeks, submit early.
 4. Accounts: Anthropic API (key in `.env` only), Cloudflare (Workers Paid, R2), Resend, Geoapify.
 5. Decide the any-niche questionnaire approach.

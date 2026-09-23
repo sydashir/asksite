@@ -12,7 +12,7 @@ Status labels used below:
 
 - `github.com/sydashir/asksite`, private, created 2026-09-23. Local folder: `/Users/ashir/Documents/workk2/web_maker`.
 - Git identity is repo-local: `sydashir` <meetashirr@gmail.com>.
-- This Mac has two GitHub accounts logged in; the **active gh account is `dev778d`**. Push as sydashir explicitly (use `gh auth token --user sydashir` for the push), never as the active account.
+- This Mac has two GitHub accounts logged in. `dev778d` is the user's other project and normally active — leave it alone. For this repo: `gh auth switch --user sydashir` before GitHub work, `gh auth switch --user dev778d` after. Git's credential helper for github.com is `gh auth git-credential` (checked 2026-09-23), so the active gh account is the one that pushes.
 - Repo name is not the product brand; brand and domain are undecided.
 
 ## The product
