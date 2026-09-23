@@ -6,11 +6,17 @@ import type { Facts } from "./facts.ts";
 // claim only when the owner's facts back it, and never mentions a claim no fact can back.
 // Word lists catch the usual phrasings, not every paraphrase: plan 4's approval screen still
 // shows the owner every sentence before a page is published.
+//
+// A multi-word claim's two halves may be joined by a hyphen, a space, or a dash character: figure
+// dash (U+2012), en dash (U+2013), em dash (U+2014) or minus sign (U+2212), so "award-winning"
+// and "award" + U+2013 + "winning" read the same way. asReadOnPage below does NOT fold en/em dash
+// to a hyphen (A2: they usually separate two clauses, not join one compound word), so this class
+// is spelled out wherever a pattern below joins two words.
 
 /** Claims no owner fact backs: rejected in copy whatever the facts say. */
 export const NEVER_IN_COPY: readonly RegExp[] = [
   /\bbond(s|ed)?\b/i, // California B&P Code 7071.13 forbids mentioning the contractor bond in advertising
-  /\b(certified|accredited|award[- ]winning|top[- ]rated|five[- ]star|rated|ratings?|bbb)\b/i,
+  /\b(certified|accredited|award[-\u2012\u2013\u2014\u2212 ]winning|top[-\u2012\u2013\u2014\u2212 ]rated|five[-\u2012\u2013\u2014\u2212 ]star|rated|ratings?|bbb)\b/i,
   /\b(reviews?|says?|said)\b|[“”„«»‘]/i, // real reviews are owner facts; no quotes invented in copy
   // (’ is left out: it doubles as the apostrophe, as in "don’t").
   // A phrase in straight quotes: an opening " directly followed by a letter, then a closing ".
@@ -21,7 +27,7 @@ export const NEVER_IN_COPY: readonly RegExp[] = [
   /\b(cheapest|lowest|dollars?|bucks|cents)\b/i,
   /\b((twen|thir|for|fif|six|seven|eigh|nine)ty|hundreds?|thousands?|millions?)\b/i, // spelled-out numbers
   /\b(since|years?|decades?|established|founded|generations?)\b/i, // time in business comes from yearFounded
-  /\b(same[- ]day|next[- ]day|weekends?|(mon|tues|wednes|thurs|fri|satur|sun)days?)\b/i, // hours are facts
+  /\b(same[-\u2012\u2013\u2014\u2212 ]day|next[-\u2012\u2013\u2014\u2212 ]day|weekends?|(mon|tues|wednes|thurs|fri|satur|sun)days?)\b/i, // hours are facts
   /\b[a-z0-9-]+\.(com|net|org|us|biz|info|co|io)\b/i, // bare web addresses
 ];
 
@@ -29,8 +35,11 @@ export const NEVER_IN_COPY: readonly RegExp[] = [
 export const NEEDS_A_FACT: ReadonlyArray<{ readonly pattern: RegExp; readonly backedBy: (facts: Facts) => boolean }> = [
   { pattern: /\blicen[cs]\w*/i, backedBy: (facts) => facts.licences.length > 0 },
   { pattern: /\binsur\w*/i, backedBy: (facts) => facts.insured },
-  { pattern: /\b(emergenc\w*|a?round[- ]the[- ]clock|day or night|any ?time)\b/i, backedBy: (facts) => facts.emergency247 },
-  { pattern: /(?<![\w-])free\b|\bno[- ](charge|cost)\b|\bcomplimentary\b/i, backedBy: (facts) => facts.freeEstimates },
+  {
+    pattern: /\b(emergenc\w*|a?round[-\u2012\u2013\u2014\u2212 ]the[-\u2012\u2013\u2014\u2212 ]clock|day or night|any ?time)\b/i,
+    backedBy: (facts) => facts.emergency247,
+  },
+  { pattern: /(?<![\w-])free\b|\bno[-\u2012\u2013\u2014\u2212 ](charge|cost)\b|\bcomplimentary\b/i, backedBy: (facts) => facts.freeEstimates },
 ];
 
 /**

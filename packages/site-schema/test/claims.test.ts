@@ -60,6 +60,30 @@ describe("unbackedClaims", () => {
     expect(unbackedClaims(text, ALL)).toEqual([]);
   });
 
+  const ONLY = {
+    licences: Facts.parse({ ...base, licences: [{ label: "Idaho contractor", number: "RCE-1" }] }),
+    insured: Facts.parse({ ...base, insured: true }),
+    emergency247: Facts.parse({ ...base, emergency247: true }),
+    freeEstimates: Facts.parse({ ...base, freeEstimates: true }),
+  };
+  /** Every other backing fact set, but not this one: catches a checker that reads the wrong fact. */
+  const ALL_BUT = {
+    licences: Facts.parse({ ...base, insured: true, emergency247: true, freeEstimates: true }),
+    insured: Facts.parse({ ...base, licences: [{ label: "Idaho contractor", number: "RCE-1" }], emergency247: true, freeEstimates: true }),
+    emergency247: Facts.parse({ ...base, licences: [{ label: "Idaho contractor", number: "RCE-1" }], insured: true, freeEstimates: true }),
+    freeEstimates: Facts.parse({ ...base, licences: [{ label: "Idaho contractor", number: "RCE-1" }], insured: true, emergency247: true }),
+  };
+
+  it.each([
+    ["Our licensed team", "licensed", "licences"],
+    ["Fully insured for your peace of mind", "insured", "insured"],
+    ["Emergency cleanups around the clock", "Emergency", "emergency247"],
+    ["Get a free quote", "free", "freeEstimates"],
+  ] as const)("allows %j when only its own fact (%s) is set, and rejects it when every other fact is set instead", (text, word, fact) => {
+    expect(unbackedClaims(text, ONLY[fact])).toEqual([]);
+    expect(unbackedClaims(text, ALL_BUT[fact])).toEqual([word]);
+  });
+
   it("leaves ordinary sales copy alone", () => {
     expect(unbackedClaims("Careful cleaners for busy households. Hassle-free booking, one-off or weekly.", NONE)).toEqual([]);
   });
@@ -92,6 +116,23 @@ describe("unbackedClaims", () => {
   ])("still reads free after a dash in %j", (text) => {
     expect(unbackedClaims(text, NONE)).toEqual(["free"]);
   });
+
+  const DASHES = ["\u2013", "\u2014", "\u2012", "\u2212"]; // en dash, em dash, figure dash, minus sign
+
+  it.each(DASHES.flatMap((d) => ["Same" + d + "day service", "Five" + d + "star service", "Award" + d + "winning crew", "Next" + d + "day repairs"]))(
+    "never allows a multi-word claim joined by a dash character: %j",
+    (text) => {
+      expect(unbackedClaims(text, ALL)).not.toEqual([]);
+    },
+  );
+
+  it.each(DASHES.flatMap((d) => ["Round" + d + "the" + d + "clock help", "No" + d + "charge visit"]))(
+    "allows a dash-joined multi-word claim only when the owner's facts back it: %j",
+    (text) => {
+      expect(unbackedClaims(text, NONE).length).toBeGreaterThan(0);
+      expect(unbackedClaims(text, ALL)).toEqual([]);
+    },
+  );
 
   it.each([
     'A lone " mark',

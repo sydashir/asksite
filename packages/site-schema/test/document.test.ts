@@ -71,6 +71,13 @@ describe("SiteDocument", () => {
     expect(issues(reviewed)).toEqual(["layout: The layout must include every section that shows owner facts; missing: testimonials"]);
   });
 
+  it("never lets the layout hide the owner's gallery when there are photos", () => {
+    const photos = [{ url: "https://example.com/a.jpg", alt: "Finished job", width: 800, height: 600 }];
+    const withPhotos = { ...doc, facts: { ...doc.facts, photos } };
+    expect(issues(withPhotos)).toEqual(["layout: The layout must include every section that shows owner facts; missing: gallery"]);
+    expect(issues({ ...withPhotos, layout: [...doc.layout, { id: "gallery", variant: "grid" }] })).toEqual([]);
+  });
+
   it("never lets the layout hide the owner's hero photo, whatever hero variant the AI picks", () => {
     const heroPhoto = { url: "https://example.com/hero.jpg", alt: "Our team cleaning a kitchen", width: 1200, height: 800 };
     const withHeroPhoto = { ...doc, facts: { ...doc.facts, heroPhoto } };
@@ -89,6 +96,22 @@ describe("SiteDocument", () => {
       "contact",
       "trust",
     ]);
+  });
+
+  it.each([
+    ["licences", { licences: [{ label: "Texas RMP", number: "TX-1" }] }],
+    ["insured", { insured: true }],
+    ["yearFounded", { yearFounded: 1998 }],
+    ["emergency247", { emergency247: true }],
+  ] as const)("adds trust when only %s is set", (_fact, patch) => {
+    expect(factSections(Facts.parse({ ...doc.facts, ...patch }))).toEqual(["services", "serviceArea", "contact", "trust"]);
+  });
+
+  it("adds gallery for photos and testimonials for testimonials, each on its own", () => {
+    const photos = [{ url: "https://example.com/a.jpg", alt: "Finished job", width: 800, height: 600 }];
+    expect(factSections(Facts.parse({ ...doc.facts, photos }))).toEqual(["services", "serviceArea", "contact", "gallery"]);
+    const testimonials = [{ quote: "Spotless every time.", name: "Ana" }];
+    expect(factSections(Facts.parse({ ...doc.facts, testimonials }))).toEqual(["services", "serviceArea", "contact", "testimonials"]);
   });
 
   it("rejects copy that states a claim the facts do not back", () => {
