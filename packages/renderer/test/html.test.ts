@@ -113,6 +113,10 @@ describe("html composition and context tracking", () => {
     expect(() => html`<p "${"x"}">x</p>`).toThrow("double-quoted attribute value or trusted() markup");
   });
 
+  it("threads the context through array items: a value after trusted() markup lands where that markup left it", () => {
+    expect(() => html`${[trusted('<a href="'), JS]}">x</a>`).toThrow("needs a SafeUrl");
+  });
+
   it("never interpolates inside a <style> or <script> element", () => {
     expect(() => html`<style>:root{--c:${"x"}}</style>`).toThrow("inside a <style> element");
     expect(() => html`<script>${"x"}</script>`).toThrow("inside a <script> element");
@@ -410,6 +414,7 @@ const CORPUS: readonly (readonly string[])[] = [
   shape`<!---->${_}`,
   shape`<!-- a --!>${_}`,
   shape`<!-- a --!-- ${_} -->${_}`,
+  shape`<!-- a --!-> ${_} -->${_}`,
   shape`<!-- a -- ${_} --->${_}`,
   shape`<!-- a -!> ${_} -->`,
   shape`<!-- a -- > ${_} -->`,
@@ -448,6 +453,8 @@ const CORPUS: readonly (readonly string[])[] = [
   shape`<p title=""${_}>`,
   shape`<p title=''/${_}>`,
   shape`<p title="x"/>${_}`,
+  shape`<p a=b>${_}`,
+  shape`<p a=>${_}`,
   // Whitespace: only tab, LF, FF, CR and space separate; NBSP and VT do not.
   shape`<p\ttitle="${_}">`,
   shape`<p\ftitle="${_}">`,
@@ -460,6 +467,7 @@ const CORPUS: readonly (readonly string[])[] = [
   // Attribute names, self-closing tags and case.
   shape`<p ${_}>`,
   shape`<p a ${_}>`,
+  shape`<p a >${_}`,
   shape`<p a${_}>`,
   shape`<p =${_}>`,
   shape`<p a/b="${_}">`,
