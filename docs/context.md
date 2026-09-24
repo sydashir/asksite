@@ -22,6 +22,8 @@ A small business answers a questionnaire. The Claude API returns structured JSON
 ## User decisions (2026-09-23)
 
 - **Scope: option C** — one niche, invite-only (we approve every site), no editor, ~3 weeks. Then add niches one at a time. The user told the boss.
+- **v1 editing (user decision 2026-09-24):** after the preview the owner can switch between a few looks (palette + font presets), edit any wording in a side panel, swap photos, and hide/reorder sections, then click Publish (a human approves before it goes live). Estimated +20–30h (~+1 week) on top of the ~3-week plan [inferred, earlier estimate; re-estimate when planning]. Built in a later plan (questionnaire/editor), not inside Plan 1.
+  - Design points to settle in that plan: (1) owner-controlled hide/reorder needs an explicit owner flag in the schema — Plan 1 decision #16 forbids the AI layout from hiding owner-fact sections, and that must stay true for the AI; (2) wording edited by the owner is owner-authored, so decide whether AI-copy rules (no numbers etc.) apply to it — it must still be escaped; (3) editing reuses the questionnaire's forms.
 - **Launch niche: US home services & trades** (plumbers, HVAC, electricians, roofers, cleaners, landscapers).
 - Build order: four separately testable plans — (1) renderer, (2) hosting + publish, (3) AI generation, (4) questionnaire + approval screen.
 
