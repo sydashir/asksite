@@ -39,6 +39,7 @@ Read this whole file at the start of every session. These rules override default
 - Commit messages: 3 words maximum.
 - GitHub account: always `sydashir` for this project. This Mac also has `dev778d` logged in for another project — never log it out, delete it or change its settings.
 - Merging (user instruction 2026-09-24): after a build stage passes its reviews, the moderator's own verification (tests, typecheck, identity/message checks) and QA where the stage has QA, merge the build branch into `main` (fast-forward only, no merge commits) and push both. Never merge work with an open Critical/Important finding or a known regression.
+- Parallel sessions: each extra session works in its own git worktree (its own folder and branch), never in this folder. If `main` moved while a branch was being built, the branch first merges `main` into itself (message "Sync with main"), re-runs every check, and is re-reviewed; then `main` fast-forwards to it. No rebases or force-pushes on pushed branches.
 - Before any GitHub operation run `gh auth switch --user sydashir`; afterwards run `gh auth switch --user dev778d` to restore it. Git uses gh as its credential helper for github.com, so the active gh account is the one that pushes.
 
 # Process Management & Memory Constraints
