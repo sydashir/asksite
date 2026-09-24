@@ -8,11 +8,19 @@ import type { VariantOf } from "@asksite/site-schema";
 import type { RenderContext } from "../context.ts";
 import { formatPhone, mailtoUrl, telUrl } from "../format.ts";
 import { html, type SafeHtml } from "../html.ts";
+import { icon } from "../icons.ts";
 import { headline, sectionShell } from "../ui.ts";
 import { DOM_ID } from "./ids.ts";
 
 const LABEL = "block text-sm font-medium text-heading";
 const FIELD = "mt-1 block min-h-12 w-full rounded-lg border border-muted bg-white px-4 py-3 text-base text-default";
+// WebKit draws a native <select> at its own font-based height (23-25 px) and ignores its padding,
+// so the select drops the native look and draws its own arrow; pr-12 keeps a long service name
+// clear of it. The arrow inherits the wrapper's text colour (no colour class of its own), so
+// forced-colours mode recolours it with the text, as it does a native arrow.
+const SELECT_WRAPPER = "relative mt-1 text-default";
+const SELECT = "block min-h-12 w-full appearance-none rounded-lg border border-muted bg-white py-3 pr-12 pl-4 text-base text-default";
+const SELECT_ARROW = "pointer-events-none absolute top-1/2 right-4 h-5 w-5 -translate-y-1/2";
 
 export function renderContact(ctx: RenderContext, _variant: VariantOf<"contact">): SafeHtml {
   const { facts, copy } = ctx.doc;
@@ -26,11 +34,11 @@ export function renderContact(ctx: RenderContext, _variant: VariantOf<"contact">
 <div class="mb-6"><label for="contact-name" class="${LABEL}">Name</label><input id="contact-name" name="name" type="text" autocomplete="name" required maxlength="80" class="${FIELD}"></div>
 <div class="mb-6"><label for="contact-phone" class="${LABEL}">Phone</label><input id="contact-phone" name="phone" type="tel" autocomplete="tel" required maxlength="30" class="${FIELD}"></div>
 <div class="mb-6"><label for="contact-email" class="${LABEL}">Email (optional)</label><input id="contact-email" name="email" type="email" autocomplete="email" maxlength="254" class="${FIELD}"></div>
-<div class="mb-6"><label for="contact-service" class="${LABEL}">Service needed (optional)</label><select id="contact-service" name="service" class="${FIELD}">
+<div class="mb-6"><label for="contact-service" class="${LABEL}">Service needed (optional)</label><div class="${SELECT_WRAPPER}"><select id="contact-service" name="service" class="${SELECT}">
 <option value="">Choose a service</option>
 ${facts.services.map((s) => html`<option>${s.name}</option>`)}
 <option>Something else</option>
-</select></div>
+</select>${icon("chevron-down", SELECT_ARROW)}</div></div>
 <div class="mb-6"><label for="contact-message" class="${LABEL}">How can we help? (optional)</label><textarea id="contact-message" name="message" rows="4" maxlength="2000" class="${FIELD}"></textarea></div>
 <div class="absolute -left-[9999px] h-px w-px overflow-hidden" aria-hidden="true"><label for="contact-website">Leave this field empty</label><input id="contact-website" name="website" type="text" tabindex="-1" autocomplete="off"></div>
 <div class="mt-8 grid"><button type="submit" class="btn-primary">Send request</button></div>

@@ -77,6 +77,18 @@ describe("contact", () => {
     expect(out).toContain("<option>Something else</option>");
   });
 
+  it("draws the service select like the text fields, with its own decorative arrow", () => {
+    // WebKit draws a native select at its own font-based height (23-25 px) and ignores its padding.
+    const selectClasses = out.match(/<select id="contact-service" name="service" class="([^"]*)">/)?.[1]?.split(" ");
+    expect(selectClasses).toEqual(expect.arrayContaining(["appearance-none", "min-h-12", "rounded-lg", "border-muted", "py-3", "pl-4", "pr-12"]));
+    // The arrow sits over the select without taking clicks from it and is hidden from assistive tech.
+    // It inherits the text colour, so forced-colours (high-contrast) mode recolours it with the text.
+    const arrowClasses = out.match(/<\/select><svg class="([^"]*)" viewBox="0 0 24 24" aria-hidden="true">/)?.[1]?.split(" ") ?? [];
+    expect(arrowClasses).toEqual(expect.arrayContaining(["pointer-events-none", "absolute"]));
+    expect(arrowClasses.filter((c) => c.startsWith("text-"))).toEqual([]);
+    expect(out).toContain('<div class="relative mt-1 text-default"><select id="contact-service"');
+  });
+
   it("has a hidden, unfocusable honeypot", () => {
     expect(out).toContain('aria-hidden="true"><label for="contact-website">Leave this field empty</label><input id="contact-website" name="website" type="text" tabindex="-1" autocomplete="off">');
   });

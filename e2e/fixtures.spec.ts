@@ -182,3 +182,14 @@ test("XSS payloads never execute", async ({ page }) => {
   const ld = await page.locator('script[type="application/ld+json"]').first().textContent();
   expect(JSON.parse(ld ?? "{}").name).toBe("<img src=x onerror=alert(1)>");
 });
+
+test("the service select has the same size and shape as the text fields", async ({ page }) => {
+  await open(page, "plumber-austin");
+  const shape = (selector: string) =>
+    page.locator(selector).evaluate((el) => {
+      const style = getComputedStyle(el);
+      const box = el.getBoundingClientRect();
+      return { width: box.width, height: box.height, radius: style.borderTopLeftRadius, paddingTop: style.paddingTop, paddingLeft: style.paddingLeft };
+    });
+  expect(await shape("#contact-service")).toEqual(await shape("#contact-name"));
+});
