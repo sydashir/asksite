@@ -2,7 +2,7 @@ import { z } from "zod";
 import { HIDDEN_IN_COPY, proseIn, unbackedClaims } from "./claims.ts";
 import { Copy } from "./copy.ts";
 import { Facts } from "./facts.ts";
-import { Layout, type LayoutSection, type SectionId } from "./layout.ts";
+import { Layout, OwnerHidden, type LayoutSection, type SectionId } from "./layout.ts";
 import { Theme } from "./theme.ts";
 
 /**
@@ -18,7 +18,7 @@ export function factSections(facts: Facts): SectionId[] {
 }
 
 export const SiteDocument = z
-  .strictObject({ facts: Facts, copy: Copy, layout: Layout, theme: Theme })
+  .strictObject({ facts: Facts, copy: Copy, layout: Layout, theme: Theme, hidden: OwnerHidden.default([]) })
   // The hero shows the owner's hero photo only in its "photo" variant, so a hero photo decides the
   // variant and the AI's layout can never hide it. Without a hero photo both variants render the
   // same text-only hero, so the AI's choice stands.

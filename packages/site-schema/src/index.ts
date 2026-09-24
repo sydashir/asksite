@@ -19,6 +19,15 @@ export {
   type Day,
   type Trade,
 } from "./facts.ts";
-export { Layout, LayoutSection, SECTION_VARIANTS, type SectionId, type VariantOf } from "./layout.ts";
+export {
+  HIDEABLE_SECTIONS,
+  Layout,
+  LayoutSection,
+  OwnerHidden,
+  SECTION_VARIANTS,
+  type HideableSectionId,
+  type SectionId,
+  type VariantOf,
+} from "./layout.ts";
 export { FONT_IDS, PALETTE_IDS, Theme, type FontId, type PaletteId } from "./theme.ts";
 export { isSafeUrl, LINK_SCHEMES, type UrlScheme } from "./url.ts";

@@ -14,6 +14,8 @@ export function hasContent(doc: SiteDocument, id: SectionId): boolean {
   }
 }
 
+/** Layout sections that render: they have content and the owner did not hide them (amendment A6). */
 export function visibleSections(doc: SiteDocument): LayoutSection[] {
-  return doc.layout.filter((section) => hasContent(doc, section.id));
+  const hidden: ReadonlySet<SectionId> = new Set(doc.hidden);
+  return doc.layout.filter((section) => hasContent(doc, section.id) && !hidden.has(section.id));
 }

@@ -42,3 +42,15 @@ export const Layout = z
 
 export type LayoutSection = z.infer<typeof LayoutSection>;
 export type Layout = z.infer<typeof Layout>;
+
+/**
+ * Amendment A6. Sections the OWNER may hide from the page. Hero, services and contact are not
+ * here: every page must say what the business does and how to reach it.
+ */
+export const HIDEABLE_SECTIONS = ["trust", "testimonials", "gallery", "about", "serviceArea", "faq"] as const;
+export type HideableSectionId = (typeof HIDEABLE_SECTIONS)[number];
+/** Sections the OWNER chose to hide. Never produced by the AI. */
+export const OwnerHidden = z
+  .array(z.enum(HIDEABLE_SECTIONS))
+  .max(HIDEABLE_SECTIONS.length)
+  .refine((ids) => new Set(ids).size === ids.length, { error: "A section can be hidden only once" });
