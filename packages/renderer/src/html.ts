@@ -16,9 +16,14 @@ export class SafeHtml {
   }
 }
 
-// Output of trusted(): the only markup allowed between attributes. Not exported, so an html``
-// fragment (whose values were escaped as text, not checked as attributes) can never pass for it.
+// Output of trusted(): markup from our own source, which html reads like its own literal text. The
+// only markup allowed between attributes. Not exported, so an html`` fragment (whose values were
+// escaped as text, not checked as attributes) can never pass for it.
 class TrustedHtml extends SafeHtml {}
+
+// Only safeUrl() and fragment() hold this key, so no code outside this module can make a SafeUrl,
+// not even through safeUrl(x).constructor.
+const MINT = Symbol("SafeUrl");
 
 /**
  * A URL whose scheme has been checked. The only value `html` accepts in a URL attribute (href, src,
@@ -26,11 +31,16 @@ class TrustedHtml extends SafeHtml {}
  */
 class SafeUrl {
   readonly #href: string;
-  constructor(href: string) {
+  constructor(key: symbol, href: string) {
+    if (key !== MINT) throw new Error("Only safeUrl() and fragment() can make a SafeUrl");
     this.#href = href;
   }
   toString(): string {
     return this.#href;
+  }
+  /** The href of a real SafeUrl; undefined for anything else, even an object given SafeUrl's prototype. */
+  static hrefOf(value: unknown): string | undefined {
+    return typeof value === "object" && value !== null && #href in value ? value.#href : undefined;
   }
 }
 export type { SafeUrl };
@@ -45,71 +55,253 @@ export function trusted(markup: string): SafeHtml {
 /** Validate an absolute URL; throws on anything else, so an unsafe URL can never be rendered. */
 export function safeUrl(input: string, allowed?: readonly UrlScheme[]): SafeUrl {
   if (!isSafeUrl(input, allowed)) throw new Error(`Unsafe URL rejected: ${JSON.stringify(input)}`);
-  return new SafeUrl(input);
+  return new SafeUrl(MINT, input);
 }
 
 /** In-page link to one of our own element ids, e.g. "#services". */
 export function fragment(id: string): SafeUrl {
   if (!/^[a-z][a-z0-9-]*$/.test(id)) throw new Error(`Invalid fragment id: ${JSON.stringify(id)}`);
-  return new SafeUrl(`#${id}`);
+  return new SafeUrl(MINT, `#${id}`);
 }
 
-// "script" and "style" mean inside that element's content, which the browser runs as JavaScript or
-// CSS: escaping cannot make a value safe there.
-type State = "text" | "tag" | "comment" | "script" | "style";
-type Context = {
-  state: State;
-  tag: string; // lower-cased name of the tag being written ("" for an end tag or <!doctype>)
-  quote: "" | '"' | "'"; // the quote that opened the attribute value we are in, "" outside one
-  attr: string; // lower-cased name of that attribute, "" when the literal does not show it
+// The states of the WHATWG HTML tokenizer (https://html.spec.whatwg.org/multipage/parsing.html#tokenization)
+// that decide where a value lands. States that never change that are folded into a neighbour:
+// markup declaration open and raw text's end-tag states (look-aheads in advance()), character
+// references, the comment less-than-sign states, and the DOCTYPE sub-states (every one ends at ">").
+// "rcdata" is the text of <title> and <textarea>; "rawtext" the text of <style>, <script>, <xmp>,
+// <iframe>, <noembed>, <noframes> and <noscript>.
+type State =
+  | "data"
+  | "rcdata"
+  | "rawtext"
+  | "tagOpen"
+  | "endTagOpen"
+  | "tagName"
+  | "beforeAttributeName"
+  | "attributeName"
+  | "afterAttributeName"
+  | "beforeAttributeValue"
+  | "attributeValueDoubleQuoted"
+  | "attributeValueSingleQuoted"
+  | "attributeValueUnquoted"
+  | "afterAttributeValueQuoted"
+  | "selfClosingStartTag"
+  | "bogusComment"
+  | "commentStart"
+  | "commentStartDash"
+  | "comment"
+  | "commentEndDash"
+  | "commentEnd"
+  | "commentEndBang"
+  | "doctype";
+
+/** Where the markup written so far has left the tokenizer. */
+export type Context = {
+  readonly state: State;
+  readonly tag: string; // name of the tag being written ("/p" for an end tag), or of the rcdata/rawtext element we are in
+  readonly attr: string; // name of the attribute being written
 };
 
-const INSIDE: Record<Exclude<State, "text">, string> = {
-  tag: "a tag",
-  comment: "a comment",
-  script: "a <script> element",
-  style: "a <style> element",
-};
+/** Every template starts in text. */
+export const START: Context = { state: "data", tag: "", attr: "" };
 
-// The attribute name just before `="` or `='`, allowing spaces around "=" as HTML does.
-const ATTRIBUTE_NAME = /([^\s"'<>\/=]+)\s*=\s*$/;
-const TAG_NAME = /^[a-z][^\s/>]*/i;
-const END_TAG = { script: /^<\/script[\s/>]/i, style: /^<\/style[\s/>]/i };
+// Elements whose text the tree builder has the tokenizer read as RCDATA or RAWTEXT (<script>'s
+// script-data state differs from RAWTEXT only after "<", which advance() refuses there).
+// <noscript> is RAWTEXT because browsers run with scripting on.
+const TEXT_ELEMENTS = new Map<string, "rcdata" | "rawtext">([
+  ["title", "rcdata"],
+  ["textarea", "rcdata"],
+  ["style", "rawtext"],
+  ["script", "rawtext"],
+  ["xmp", "rawtext"],
+  ["iframe", "rawtext"],
+  ["noembed", "rawtext"],
+  ["noframes", "rawtext"],
+  ["noscript", "rawtext"],
+]);
 
-// Tracks where the end of the markup written so far is: in text, inside a tag (and inside a quoted
-// attribute value, where ">" does not end the tag), inside a comment, or inside a <script> or <style>.
-function advance(context: Context, literal: string): Context {
-  let { state, tag, quote, attr } = context;
-  for (let i = 0; i < literal.length; i++) {
-    const c = literal[i];
-    if (state === "text") {
-      if (literal.startsWith("<!--", i)) {
-        state = "comment";
-        i += 3;
-      } else if (c === "<") {
-        state = "tag";
-        tag = TAG_NAME.exec(literal.slice(i + 1))?.[0].toLowerCase() ?? "";
+const WHITESPACE = new Set(["\t", "\n", "\f", "\r", " "]); // "\r" too: the input stream turns CR into LF
+const ENDS_TAG_NAME = new Set([...WHITESPACE, "/", ">"]);
+const isAsciiAlpha = (c: string) => /^[a-zA-Z]$/.test(c);
+const lower = (s: string) => s.replace(/[A-Z]/g, (c) => c.toLowerCase()); // the tokenizer lower-cases ASCII only
+
+/**
+ * Reads `markup` from `context` the way the WHATWG tokenizer does and returns where it ends. Throws
+ * on the markup whose context the tree builder decides instead: "<" inside a text element other
+ * than its end tag (inside <svg>, or a <select> that ignores the element, a browser reads a tag
+ * there), CDATA sections (read as text only inside <svg> or <math>) and <plaintext>.
+ * Exported, with START, so a test can compare it with a spec-compliant tokenizer.
+ */
+export function advance(context: Context, markup: string): Context {
+  let { state, tag, attr } = context;
+  // A start or end tag has just ended: back to text, or into the element's own text.
+  const afterTag = (): State => {
+    if (tag === "plaintext") throw new Error("html templates do not support <plaintext>");
+    return TEXT_ELEMENTS.get(tag) ?? "data";
+  };
+  for (let i = 0; i < markup.length; i++) {
+    const c = markup.charAt(i);
+    const space = WHITESPACE.has(c);
+    switch (state) {
+      case "data":
+        if (c === "<") state = "tagOpen";
+        break;
+      case "rcdata":
+      case "rawtext": {
+        if (c !== "<") break;
+        const endTag = `</${tag}`;
+        if (lower(markup.slice(i, i + endTag.length)) !== endTag || !ENDS_TAG_NAME.has(markup.charAt(i + endTag.length))) {
+          throw new Error(`An html template may only write "<" inside a <${tag}> element to close it`);
+        }
+        state = "tagName";
+        tag = `/${tag}`;
+        i += endTag.length - 1;
+        break;
       }
-    } else if (state === "comment") {
-      if (literal.startsWith("-->", i)) {
-        state = "text";
-        i += 2;
-      }
-    } else if (state === "script" || state === "style") {
-      if (c === "<" && END_TAG[state].test(literal.slice(i))) {
-        state = "tag";
-        tag = "";
-      }
-    } else if (quote) {
-      if (c === quote) quote = "";
-    } else if (c === '"' || c === "'") {
-      quote = c;
-      attr = ATTRIBUTE_NAME.exec(literal.slice(0, i))?.[1]?.toLowerCase() ?? "";
-    } else if (c === ">") {
-      state = tag === "script" || tag === "style" ? tag : "text";
+      case "tagOpen":
+        if (c === "!") {
+          // Markup declaration open.
+          if (markup.startsWith("--", i + 1)) {
+            state = "commentStart";
+            i += 2;
+          } else if (lower(markup.slice(i + 1, i + 8)) === "doctype") {
+            state = "doctype";
+            i += 7;
+          } else if (markup.startsWith("[CDATA[", i + 1)) {
+            throw new Error("html templates do not support CDATA sections");
+          } else state = "bogusComment";
+        } else if (c === "/") state = "endTagOpen";
+        else if (isAsciiAlpha(c)) {
+          state = "tagName";
+          tag = lower(c);
+        } else if (c === "?") state = "bogusComment";
+        else {
+          state = "data";
+          i--; // reconsume
+        }
+        break;
+      case "endTagOpen":
+        if (isAsciiAlpha(c)) {
+          state = "tagName";
+          tag = `/${lower(c)}`;
+        } else state = c === ">" ? "data" : "bogusComment";
+        break;
+      case "tagName":
+        if (space) state = "beforeAttributeName";
+        else if (c === "/") state = "selfClosingStartTag";
+        else if (c === ">") state = afterTag();
+        else tag += lower(c);
+        break;
+      case "beforeAttributeName":
+        if (c === "/") state = "selfClosingStartTag";
+        else if (c === ">") state = afterTag();
+        else if (!space) {
+          state = "attributeName"; // "=" here starts a name too
+          attr = lower(c);
+        }
+        break;
+      case "attributeName":
+        if (space) state = "afterAttributeName";
+        else if (c === "/") state = "selfClosingStartTag";
+        else if (c === ">") state = afterTag();
+        else if (c === "=") state = "beforeAttributeValue";
+        else attr += lower(c);
+        break;
+      case "afterAttributeName":
+        if (c === "/") state = "selfClosingStartTag";
+        else if (c === ">") state = afterTag();
+        else if (c === "=") state = "beforeAttributeValue";
+        else if (!space) {
+          state = "attributeName";
+          attr = lower(c);
+        }
+        break;
+      case "beforeAttributeValue":
+        // A quote opens a value only here.
+        if (c === '"') state = "attributeValueDoubleQuoted";
+        else if (c === "'") state = "attributeValueSingleQuoted";
+        else if (c === ">") state = afterTag();
+        else if (!space) state = "attributeValueUnquoted";
+        break;
+      case "attributeValueDoubleQuoted":
+        if (c === '"') state = "afterAttributeValueQuoted";
+        break;
+      case "attributeValueSingleQuoted":
+        if (c === "'") state = "afterAttributeValueQuoted";
+        break;
+      case "attributeValueUnquoted":
+        if (space) state = "beforeAttributeName";
+        else if (c === ">") state = afterTag();
+        break;
+      case "afterAttributeValueQuoted":
+      case "selfClosingStartTag":
+        if (c === ">") state = afterTag();
+        else {
+          state = "beforeAttributeName";
+          i--; // reconsume
+        }
+        break;
+      case "bogusComment":
+      case "doctype":
+        if (c === ">") state = "data";
+        break;
+      case "commentStart":
+        state = c === "-" ? "commentStartDash" : c === ">" ? "data" : "comment";
+        break;
+      case "commentStartDash":
+        state = c === "-" ? "commentEnd" : c === ">" ? "data" : "comment";
+        break;
+      case "comment":
+        if (c === "-") state = "commentEndDash";
+        break;
+      case "commentEndDash":
+        state = c === "-" ? "commentEnd" : "comment";
+        break;
+      case "commentEnd":
+        state = c === ">" ? "data" : c === "!" ? "commentEndBang" : c === "-" ? "commentEnd" : "comment";
+        break;
+      case "commentEndBang":
+        state = c === "-" ? "commentEndDash" : c === ">" ? "data" : "comment";
+        break;
     }
   }
-  return { state, tag, quote, attr };
+  return { state, tag, attr };
+}
+
+// What a value may be at each state: "text" and "rcdata" escape text (text also takes markup),
+// "attributes" (between attributes) takes only trusted() markup, "quotedValue" is a double-quoted
+// attribute value, and "closed", "tagName" and "otherValue" take nothing at all.
+type Slot = "text" | "rcdata" | "closed" | "tagName" | "attributes" | "quotedValue" | "otherValue";
+const SLOT: Record<State, Slot> = {
+  data: "text",
+  rcdata: "rcdata",
+  rawtext: "closed",
+  tagOpen: "tagName",
+  endTagOpen: "tagName",
+  tagName: "tagName",
+  beforeAttributeName: "attributes",
+  attributeName: "attributes",
+  afterAttributeName: "attributes",
+  afterAttributeValueQuoted: "attributes",
+  selfClosingStartTag: "attributes",
+  beforeAttributeValue: "otherValue",
+  attributeValueSingleQuoted: "otherValue",
+  attributeValueUnquoted: "otherValue",
+  attributeValueDoubleQuoted: "quotedValue",
+  bogusComment: "closed",
+  commentStart: "closed",
+  commentStartDash: "closed",
+  comment: "closed",
+  commentEndDash: "closed",
+  commentEnd: "closed",
+  commentEndBang: "closed",
+  doctype: "closed",
+};
+
+function inside({ state, tag }: Context): string {
+  if (state === "rcdata" || state === "rawtext") return `a <${tag}> element`;
+  if (state === "doctype") return "a <!DOCTYPE>";
+  return SLOT[state] === "closed" ? "a comment" : "a tag";
 }
 
 // Attributes a browser fetches or navigates to: only a SafeUrl may be interpolated.
@@ -120,49 +312,67 @@ const URL_ATTRIBUTES = new Set(["href", "src", "action", "formaction", "poster",
 const isNeverInterpolated = (attr: string) =>
   attr.startsWith("on") || attr === "style" || attr === "srcset" || attr === "imagesrcset" || attr === "srcdoc";
 
-function interpolate(value: Value, context: Context): string {
-  const { state, quote, attr } = context;
-  if (state !== "text" && state !== "tag") throw new Error(`Nothing may be interpolated inside ${INSIDE[state]}`);
-  if (quote && attr === "") throw new Error("Cannot tell which attribute this value is in");
-  if (quote && isNeverInterpolated(attr)) throw new Error(`The ${attr} attribute never takes an interpolated value`);
-  if (value === false || value === null || value === undefined) {
-    if (quote && URL_ATTRIBUTES.has(attr)) throw new Error(`Missing URL for ${attr}`);
-    return "";
-  }
-  if (state === "text") {
-    if (value instanceof SafeHtml) return value.toString();
-    if (Array.isArray(value)) return value.map((v: Value) => interpolate(v, context)).join("");
-    return escapeText(String(value));
-  }
-  if (quote !== '"') {
-    // Between attributes only trusted() literals (e.g. a boolean attribute) are allowed.
-    if (!quote && value instanceof TrustedHtml) return value.toString();
-    throw new Error("Interpolation inside a tag must be a double-quoted attribute value or trusted() markup");
-  }
+const isNothing = (value: Value): value is false | null | undefined => value === false || value === null || value === undefined;
+
+const IN_TAG = "Interpolation inside a tag must be a double-quoted attribute value or trusted() markup";
+
+function attributeValue(value: Value, attr: string): string {
+  if (isNeverInterpolated(attr)) throw new Error(`The ${attr} attribute never takes an interpolated value`);
   if (URL_ATTRIBUTES.has(attr)) {
-    if (!(value instanceof SafeUrl)) throw new Error(`The ${attr} attribute needs a SafeUrl`);
-    return escapeAttr(value.toString());
+    if (isNothing(value)) throw new Error(`Missing URL for ${attr}`);
+    const href = SafeUrl.hrefOf(value);
+    if (href === undefined) throw new Error(`The ${attr} attribute needs a SafeUrl`);
+    return escapeAttr(href);
   }
+  if (isNothing(value)) return "";
   if (value instanceof SafeHtml || Array.isArray(value)) throw new Error(`Markup is not allowed in the ${attr} attribute`);
   return escapeAttr(String(value));
 }
 
+/** Renders `value` for where `context` says it lands, and returns the context after it. */
+function interpolate(value: Value, context: Context): [string, Context] {
+  const slot = SLOT[context.state];
+  if (slot === "closed") throw new Error(`Nothing may be interpolated inside ${inside(context)}`);
+  if (slot === "tagName") throw new Error("Nothing may be interpolated in a tag name");
+  if (slot === "otherValue") throw new Error(IN_TAG);
+  if (slot === "quotedValue") return [attributeValue(value, context.attr), context];
+  if (isNothing(value)) return ["", context];
+  // trusted() markup is read like the template's own text, so it can never leave a wrong context.
+  if (value instanceof TrustedHtml && slot !== "rcdata") return [value.toString(), advance(context, value.toString())];
+  if (slot === "attributes") throw new Error(IN_TAG);
+  if (Array.isArray(value)) {
+    return value.reduce<[string, Context]>(
+      ([out, at], item: Value) => {
+        const [markup, next] = interpolate(item, at);
+        return [out + markup, next];
+      },
+      ["", context],
+    );
+  }
+  if (value instanceof SafeHtml) {
+    if (slot === "rcdata") throw new Error(`Markup is not allowed inside ${inside(context)}`);
+    return [value.toString(), context];
+  }
+  return [escapeText(String(value)), context];
+}
+
 /**
- * Tagged template that escapes every interpolation for where it lands:
- * text nodes -> escapeText, double-quoted attributes -> escapeAttr, URL attributes -> SafeUrl only,
- * between attributes -> trusted() only, event-handler/style/srcset/srcdoc attributes, comments and
- * <script>/<style> content -> never. A template must end in text, so a fragment cannot leave the
- * template it is spliced into tracking the wrong context.
+ * Tagged template that escapes every interpolation for where the WHATWG tokenizer puts it:
+ * text and <title>/<textarea> text -> escapeText, double-quoted attribute values -> escapeAttr, URL
+ * attributes -> SafeUrl only, between attributes -> trusted() only; tag names, other attribute
+ * values, event-handler/style/srcset/srcdoc attributes, comments, doctypes and <style>/<script>
+ * content -> never. A template must end in text, so a fragment cannot leave the template it is
+ * spliced into tracking the wrong context.
  */
 export function html(strings: TemplateStringsArray, ...values: Value[]): SafeHtml {
-  let context = advance({ state: "text", tag: "", quote: "", attr: "" }, strings[0] ?? "");
   let out = strings[0] ?? "";
+  let context = advance(START, out);
   values.forEach((value, i) => {
-    out += interpolate(value, context);
+    const [markup, after] = interpolate(value, context);
     const literal = strings[i + 1] ?? "";
-    context = advance(context, literal);
-    out += literal;
+    out += markup + literal;
+    context = advance(after, literal);
   });
-  if (context.state !== "text") throw new Error(`An html template must not end inside ${INSIDE[context.state]}`);
+  if (context.state !== "data") throw new Error(`An html template must not end inside ${inside(context)}`);
   return new SafeHtml(out);
 }

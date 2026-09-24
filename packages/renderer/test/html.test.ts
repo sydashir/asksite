@@ -1,9 +1,15 @@
+import { Parser, TokenizerMode, type DefaultTreeAdapterMap, type Token } from "parse5";
 import { describe, expect, it } from "vitest";
 import * as htmlModule from "../src/html.ts";
-import { fragment, html, safeUrl, SafeHtml, trusted } from "../src/html.ts";
+import { advance, fragment, html, safeUrl, SafeHtml, START, trusted, type Context } from "../src/html.ts";
 
 const PAYLOAD = `<img src=x onerror="alert(1)">'&`;
 const JS = "javascript:alert(1)";
+// Breaks out of a double-quoted attribute value unless it is escaped.
+const BREAKOUT = `" onmouseover="alert(1)`;
+// Breaks out of an unquoted value, or of a quoted one that was mistaken for text, without a quote.
+const UNQUOTED_BREAKOUT = " onmouseover=alert(1)//";
+const NEUTRALISED = "&quot; onmouseover=&quot;alert(1)";
 
 describe("html tagged template", () => {
   it("escapes text interpolations", () => {
@@ -75,22 +81,25 @@ describe("html tagged template", () => {
 
 describe("html composition and context tracking", () => {
   it("refuses an html fragment between attributes, because its values were escaped as text", () => {
-    expect(() => html`<a${html` href="${JS}"`}>x</a>`).toThrow("double-quoted attribute value or trusted() markup");
-    expect(() => html`<p${html` onclick="${"alert(1)"}"`}>x</p>`).toThrow("double-quoted attribute value or trusted() markup");
-    expect(() => html`<details${html` open`}>`).toThrow("double-quoted attribute value or trusted() markup");
-    expect(() => html`<details${new SafeHtml(" open")}>`).toThrow("double-quoted attribute value or trusted() markup");
+    expect(() => html`<a ${html` href="${JS}"`}>x</a>`).toThrow("double-quoted attribute value or trusted() markup");
+    expect(() => html`<p ${html` onclick="${"alert(1)"}"`}>x</p>`).toThrow("double-quoted attribute value or trusted() markup");
+    expect(() => html`<details name="faq"${html` open`}>`).toThrow("double-quoted attribute value or trusted() markup");
+    expect(() => html`<details name="faq"${new SafeHtml(" open")}>`).toThrow("double-quoted attribute value or trusted() markup");
   });
 
   it("still allows trusted() markup or nothing between attributes", () => {
     expect(String(html`<details name="faq"${trusted(" open")}>`)).toBe(`<details name="faq" open>`);
     expect(String(html`<details name="faq"${false}${null}${undefined}>`)).toBe(`<details name="faq">`);
+    expect(String(html`<input type="checkbox"${trusted(" checked")}${trusted(" disabled")}>`)).toBe(
+      `<input type="checkbox" checked disabled>`,
+    );
   });
 
   it("refuses a template that ends inside a tag or an attribute value", () => {
     expect(() => html`<a`).toThrow("must not end inside a tag");
     expect(() => html`<a href="`).toThrow("must not end inside a tag");
     expect(() => html`<a title='x`).toThrow("must not end inside a tag");
-    expect(() => html`<details${trusted(" open")}`).toThrow("must not end inside a tag");
+    expect(() => html`<details name="faq"${trusted(" open")}`).toThrow("must not end inside a tag");
   });
 
   it("refuses a partial-tag fragment spliced into text (the mirror case)", () => {
@@ -98,9 +107,10 @@ describe("html composition and context tracking", () => {
     expect(() => html`${html`<p`} onclick="${"alert(1)"}">x</p>`).toThrow("must not end inside a tag");
   });
 
-  it("refuses a value in an attribute whose name it cannot see", () => {
-    expect(() => html`<a${trusted(" href")}="${JS}">x</a>`).toThrow("Cannot tell which attribute");
-    expect(() => html`<p "${"x"}">x</p>`).toThrow("Cannot tell which attribute");
+  it("knows every attribute name: it reads trusted() markup and refuses a value inside a name", () => {
+    expect(() => html`<a ${trusted(" href")}="${JS}">x</a>`).toThrow("needs a SafeUrl");
+    expect(() => html`<p ${trusted(" on")}click="${"alert(1)"}">x</p>`).toThrow("never takes an interpolated value");
+    expect(() => html`<p "${"x"}">x</p>`).toThrow("double-quoted attribute value or trusted() markup");
   });
 
   it("never interpolates inside a <style> or <script> element", () => {
@@ -135,6 +145,353 @@ describe("html composition and context tracking", () => {
   });
 });
 
+describe("A5: the tracker follows the WHATWG tokenizer instead of guessing", () => {
+  it("neutralises a quote inside an attribute name (<p a'b …>)", () => {
+    expect(String(html`<p a'b c="it's > ${BREAKOUT}">`)).toBe(`<p a'b c="it's > ${NEUTRALISED}">`);
+  });
+
+  it("neutralises a quote inside an unquoted value (data-x=it's)", () => {
+    expect(String(html`<p data-x=it's c="it's > ${BREAKOUT}">`)).toBe(`<p data-x=it's c="it's > ${NEUTRALISED}">`);
+  });
+
+  it("ends a comment at <!--> as browsers do", () => {
+    expect(String(html`<!--><p title="--> ${BREAKOUT}">`)).toBe(`<!--><p title="--> ${NEUTRALISED}">`);
+  });
+
+  it("ends a comment at --!> as browsers do", () => {
+    expect(String(html`<!-- a --!><p title="--> ${BREAKOUT}">`)).toBe(`<!-- a --!><p title="--> ${NEUTRALISED}">`);
+  });
+
+  it("ends a comment at <!---> as browsers do", () => {
+    expect(String(html`<!---><p title="${BREAKOUT}">`)).toBe(`<!---><p title="${NEUTRALISED}">`);
+  });
+
+  it("fails closed at a tag-name position, even for trusted() markup or nothing", () => {
+    expect(() => html`<${trusted("script")}>${"alert(1)"}</script>`).toThrow("Nothing may be interpolated in a tag name");
+    expect(() => html`<${"img src=x onerror=alert(1)"}>`).toThrow("Nothing may be interpolated in a tag name");
+    expect(() => html`</${"p"}>`).toThrow("Nothing may be interpolated in a tag name");
+    expect(() => html`<p${false}>`).toThrow("Nothing may be interpolated in a tag name");
+    // The A4 tests' literals with no space after the tag name are tag-name positions too.
+    expect(() => html`<a${html` href="${JS}"`}>x</a>`).toThrow("Nothing may be interpolated in a tag name");
+    expect(() => html`<p${html` onclick="${"alert(1)"}"`}>x</p>`).toThrow("Nothing may be interpolated in a tag name");
+    expect(() => html`<details${html` open`}>`).toThrow("Nothing may be interpolated in a tag name");
+    expect(() => html`<details${new SafeHtml(" open")}>`).toThrow("Nothing may be interpolated in a tag name");
+    expect(() => html`<details${trusted(" open")}`).toThrow("Nothing may be interpolated in a tag name");
+    expect(() => html`<a${trusted(" href")}="${JS}">x</a>`).toThrow("Nothing may be interpolated in a tag name");
+  });
+
+  it("treats a=b=\"…\" as an unquoted value, where nothing may be interpolated", () => {
+    expect(() => html`<p a=b="${UNQUOTED_BREAKOUT}">`).toThrow("double-quoted attribute value");
+  });
+
+  it("knows a no-break space does not end a tag name", () => {
+    expect(() => html`<p title="${UNQUOTED_BREAKOUT}">`).toThrow("Nothing may be interpolated in a tag name");
+  });
+
+  it("reads trusted() markup like template text", () => {
+    expect(() => html`${trusted("<script>")}${"alert(1)"}</script>`).toThrow("inside a <script> element");
+    expect(String(html`<a ${trusted('title="')}>${BREAKOUT}">x</a>`)).toBe(`<a title=">${NEUTRALISED}">x</a>`);
+    expect(() => html`<a ${trusted("hr")}ef="${JS}">x</a>`).toThrow("needs a SafeUrl");
+  });
+
+  it("tracks <title> and <textarea> text: text is escaped, markup is refused", () => {
+    expect(String(html`<title>${"</title><script>alert(1)</script>"}</title>`)).toBe(
+      "<title>&lt;/title&gt;&lt;script&gt;alert(1)&lt;/script&gt;</title>",
+    );
+    expect(String(html`<textarea>${["a", "<b>"]}</textarea>`)).toBe("<textarea>a&lt;b&gt;</textarea>");
+    expect(() => html`<title>${html`<b>x</b>`}</title>`).toThrow("Markup is not allowed inside a <title> element");
+    expect(() => html`<title>${"x"}`).toThrow("must not end inside a <title> element");
+  });
+
+  it("compares attribute names ASCII-lower-cased, as the tokenizer does", () => {
+    expect(() => html`<A HREF="${JS}">x</A>`).toThrow("needs a SafeUrl");
+    expect(() => html`<link IMAGESRCSET="${"x"}">`).toThrow("never takes an interpolated value");
+    expect(() => html`<svg><use xlink:href="${JS}"/></svg>`).toThrow("needs a SafeUrl");
+  });
+});
+
+// ---- Differential test against parse5 (MIT), a spec-compliant tokenizer and tree builder ----
+
+// Marks an interpolation point in a corpus shape.
+const _ = null;
+/** The literal parts of a template, split where values would be interpolated. */
+const shape = (strings: TemplateStringsArray, ..._points: unknown[]): readonly string[] => strings;
+/** A unique marker (lower-case ASCII letters, so it is text, a name or a value wherever it lands). */
+const marker = (i: number) => `zqmark${String.fromCharCode(97 + i)}`;
+
+// parse5's tree builder switches its tokenizer into RCDATA/RAWTEXT for <title>, <style> and the
+// rest exactly as a browser does, so the recorder reads text mode from the tokenizer itself.
+const TEXT_MODES = new Map<number, string>([
+  [TokenizerMode.RCDATA, "rcdata"],
+  [TokenizerMode.RAWTEXT, "rawtext"],
+  [TokenizerMode.SCRIPT_DATA, "rawtext"],
+  [TokenizerMode.PLAINTEXT, "plaintext"],
+]);
+
+/** Records, for each marker, where parse5's tokenizer put it. */
+class MarkerRecorder extends Parser<DefaultTreeAdapterMap> {
+  readonly landed = new Map<string, string>();
+  readonly #source: string;
+  readonly #markers: readonly string[];
+  #text = "text";
+
+  constructor(source: string, markers: readonly string[]) {
+    super({ sourceCodeLocationInfo: true });
+    this.#source = source;
+    this.#markers = markers;
+  }
+
+  #see(where: string, label: (m: string) => string): void {
+    for (const m of this.#markers) if (where.includes(m) && !this.landed.has(m)) this.landed.set(m, label(m));
+  }
+
+  #seeTag(token: Token.TagToken): void {
+    this.#see(token.tagName, () => "tag name");
+    for (const { name, value } of token.attrs) {
+      this.#see(name, (m) => (name.startsWith(m) ? "new attribute name" : `attribute name after ${name.slice(0, name.indexOf(m))}`));
+      // The token does not keep the quote, so read it from the source: name, "=", then the quote if any.
+      const at = token.location?.attrs?.[name];
+      const source = at ? this.#source.slice(at.startOffset, at.endOffset) : "";
+      const quote = /^[\t\n\f\r ]*=[\t\n\f\r ]*(["']?)/.exec(source.slice(name.length))?.[1] || "unquoted";
+      this.#see(value, () => `${quote} value of ${name}`);
+    }
+  }
+
+  override onStartTag(token: Token.TagToken): void {
+    this.#seeTag(token);
+    super.onStartTag(token);
+    const mode = TEXT_MODES.get(this.tokenizer.state);
+    if (mode) this.#text = `${mode} <${token.tagName}>`;
+  }
+
+  override onEndTag(token: Token.TagToken): void {
+    this.#seeTag(token);
+    this.#text = "text"; // inside RCDATA/RAWTEXT the only end tag the tokenizer emits is the closing one
+    super.onEndTag(token);
+  }
+
+  override onCharacter(token: Token.CharacterToken): void {
+    this.#see(token.chars, () => this.#text);
+    super.onCharacter(token);
+  }
+
+  override onComment(token: Token.CommentToken): void {
+    this.#see(token.data, () => "comment");
+    super.onComment(token);
+  }
+
+  override onDoctype(token: Token.DoctypeToken): void {
+    this.#see(`${token.name} ${token.publicId} ${token.systemId}`, () => "doctype");
+    super.onDoctype(token);
+  }
+}
+
+/** Where parse5 puts a marker placed at each interpolation point. */
+function parse5Contexts(literals: readonly string[]): string[] {
+  const markers = literals.slice(1).map((_literal, i) => marker(i));
+  const source = literals.map((literal, i) => literal + (markers[i] ?? "")).join("");
+  const recorder = new MarkerRecorder(source, markers);
+  recorder.tokenizer.write(source, true);
+  return markers.map((m) => recorder.landed.get(m) ?? "lost");
+}
+
+/** The same labels for our tracker's context. */
+function label({ state, tag, attr }: Context): string {
+  switch (state) {
+    case "data":
+      return "text";
+    case "rcdata":
+    case "rawtext":
+      return `${state} <${tag}>`;
+    case "tagOpen":
+    case "endTagOpen":
+    case "tagName":
+      return "tag name";
+    case "beforeAttributeName":
+    case "afterAttributeName":
+    case "afterAttributeValueQuoted":
+    case "selfClosingStartTag":
+      return "new attribute name";
+    case "attributeName":
+      return `attribute name after ${attr}`;
+    case "beforeAttributeValue":
+    case "attributeValueUnquoted":
+      return `unquoted value of ${attr}`;
+    case "attributeValueDoubleQuoted":
+      return `" value of ${attr}`;
+    case "attributeValueSingleQuoted":
+      return `' value of ${attr}`;
+    case "doctype":
+      return "doctype";
+    default:
+      return "comment";
+  }
+}
+
+/** Our tracker's context at each interpolation point, reading the same markers parse5 reads. */
+function ourContexts(literals: readonly string[]): string[] {
+  let context = advance(START, literals[0] ?? "");
+  return literals.slice(1).map((literal, i) => {
+    const here = label(context);
+    context = advance(advance(context, marker(i)), literal);
+    return here;
+  });
+}
+
+const CORPUS: readonly (readonly string[])[] = [
+  // Text, and "<" that does not open a tag.
+  shape`${_}`,
+  shape`<p>${_}</p>${_}`,
+  shape`a < ${_}`,
+  shape`a <3 ${_}`,
+  shape`<<p>${_}`,
+  // Tag-name positions.
+  shape`<${_}>`,
+  shape`<p${_}>`,
+  shape`a<${_} b="c">`,
+  shape`</${_}>`,
+  shape`</p${_}>`,
+  // End tags (their attributes are tokenized too) and bogus comments.
+  shape`</>${_}`,
+  shape`</ ${_}>${_}`,
+  shape`</3 ${_}>${_}`,
+  shape`</p ${_}>`,
+  shape`</p title="${_}">${_}`,
+  shape`<? ${_} ?>${_}`,
+  shape`<!x ${_}>${_}`,
+  shape`<!- ${_} ->${_}`,
+  shape`<![cdata[ ${_} ]]>${_}`,
+  // Comments, with every ending browsers accept.
+  shape`<!--${_}-->${_}`,
+  shape`<!---${_}-->${_}`,
+  shape`<!-->${_}`,
+  shape`<!--->${_}`,
+  shape`<!---->${_}`,
+  shape`<!-- a --!>${_}`,
+  shape`<!-- a --!-- ${_} -->${_}`,
+  shape`<!-- a -- ${_} --->${_}`,
+  shape`<!-- a -!> ${_} -->`,
+  shape`<!-- a -- > ${_} -->`,
+  shape`<!-- <!-- ${_} --> ${_}`,
+  shape`<!-- a- ${_}- -->${_}`,
+  shape`<!--><p title="--> ${_}">`,
+  shape`<!-- a --!><p title="--> ${_}">`,
+  shape`<!---><p title="${_}">`,
+  shape`<!-- don't --><p title="it's > ${_}">`,
+  // DOCTYPE: every DOCTYPE state ends at ">", even inside a quoted identifier.
+  shape`<!DOCTYPE html>${_}`,
+  shape`<!doctype ${_}>`,
+  shape`<!DOCTYPE html PUBLIC "a>b" ${_}`,
+  shape`<!DocType html SYSTEM 'x'>${_}`,
+  // Quotes inside attribute names.
+  shape`<p a'b c="it's > ${_}">`,
+  shape`<p a"b c='x ${_}'>`,
+  shape`<p "${_}">`,
+  shape`<p '=x ${_}>`,
+  shape`<p a<b="${_}">`,
+  // Quotes inside unquoted values, and a=b="…".
+  shape`<p data-x=it's c="it's > ${_}">`,
+  shape`<p a=b"c d="${_}">`,
+  shape`<p a=b'c ${_}>`,
+  shape`<p a=b="${_}">`,
+  shape`<p a=b='x' c="${_}">`,
+  shape`<p a=${_}>`,
+  shape`<p a=x${_}>`,
+  shape`<p a=/b="${_}">`,
+  // Double, single and unquoted values.
+  shape`<p title="${_}" class='${_}' id=${_}>`,
+  shape`<p title="a'b ${_}">`,
+  shape`<p title='a"b ${_}'>`,
+  shape`<p title="a>b" class="${_}">${_}`,
+  shape`<p title='a>b' class="${_}">`,
+  shape`<p title=""${_}>`,
+  shape`<p title=''/${_}>`,
+  shape`<p title="x"/>${_}`,
+  // Whitespace: only tab, LF, FF, CR and space separate; NBSP and VT do not.
+  shape`<p\ttitle="${_}">`,
+  shape`<p\ftitle="${_}">`,
+  shape`<p\rtitle="${_}">`,
+  shape`<p\r\ntitle\r\n=\r\n"${_}">`,
+  shape`<p title="${_}">`,
+  shape`<p title\u000b="${_}">`,
+  shape`<p title = '${_}'>`,
+  shape`<p \n\n a \t = \f ${_}>`,
+  // Attribute names, self-closing tags and case.
+  shape`<p ${_}>`,
+  shape`<p a ${_}>`,
+  shape`<p a${_}>`,
+  shape`<p =${_}>`,
+  shape`<p a/b="${_}">`,
+  shape`<P CLASS="${_}" ${_}>`,
+  shape`<p Key="${_}">`,
+  shape`<br/${_}>`,
+  shape`<br / ${_}>`,
+  shape`<img src="x"/${_}>`,
+  // Raw text (<style>, <script> and friends) and RCDATA (<title>, <textarea>).
+  shape`<style>${_}</style>${_}`,
+  shape`<script>${_}</script>${_}`,
+  shape`<SCRIPT type="application/ld+json">${_}</SCRIPT >${_}`,
+  shape`<style/>${_}</style>`,
+  shape`<script>"</script>"${_}`,
+  shape`<style>a'b</style>${_}`,
+  shape`<style>p{content:"x"}</style ><p title="${_}">`,
+  shape`<style>a{}</style/>${_}`,
+  shape`<style>a</style foo="x>y">${_}`,
+  shape`<title>it's "quoted" ${_}</title>${_}`,
+  shape`<Title>${_}</TITLE\t>${_}`,
+  shape`<textarea>${_}</textarea>`,
+  shape`<xmp>${_}</xmp>`,
+  shape`<iframe>${_}</iframe>`,
+  shape`<noembed>${_}</noembed>`,
+  shape`<noframes>${_}</noframes>`,
+  shape`<noscript>${_}</noscript>`,
+];
+
+describe("A5: the tracker agrees with parse5 8.0.1 at every interpolation point (differential)", () => {
+  it("has a corpus of at least 40 shapes, and parse5 finds every marker", () => {
+    expect(CORPUS.length).toBeGreaterThanOrEqual(40);
+    expect(CORPUS.flatMap(parse5Contexts)).not.toContain("lost");
+  });
+
+  for (const literals of CORPUS) {
+    it(`agrees on ${JSON.stringify(literals.join("${…}"))}`, () => {
+      expect(ourContexts(literals)).toEqual(parse5Contexts(literals));
+    });
+  }
+});
+
+describe("A5: fails closed where the tree, not the tokenizer, decides the context", () => {
+  it("refuses '<' inside a text element, which <svg> or <select> would read as a tag", () => {
+    // The same literal lands in text or in an attribute value depending on an enclosing <svg>.
+    expect(parse5Contexts(shape`<style><p title="</style>${_}">`)).toEqual(["text"]);
+    expect(parse5Contexts(shape`<svg><style><p title="</style>${_}">`)).toEqual([`" value of title`]);
+    expect(() => html`<svg><style><p title="</style>${BREAKOUT}">`).toThrow(`"<" inside a <style> element`);
+    expect(parse5Contexts(shape`<svg><title><p title="</title>${_}">`)).toEqual([`" value of title`]);
+    expect(() => html`<svg><title><p title="</title>${BREAKOUT}">`).toThrow(`"<" inside a <title> element`);
+    expect(parse5Contexts(shape`<title><p title="</title><script>${_}</script>`)).toEqual(["rawtext <script>"]);
+    expect(() => html`<title><p title="</title><script>${"alert(1)//"}"></script>`).toThrow(`"<" inside a <title> element`);
+    expect(() => html`<style>a</styles>b</style>`).toThrow(`"<" inside a <style> element`);
+  });
+
+  it("refuses a text element that a <select> would ignore", () => {
+    expect(parse5Contexts(shape`<select><style>${_}</style></select>`)).toEqual(["text"]);
+    expect(() => html`<select><style>${"x"}</style></select>`).toThrow("inside a <style> element");
+  });
+
+  it("refuses script-data escapes, where </script> may not end the script", () => {
+    expect(parse5Contexts(shape`<script>/*<!--<script>*/;/*</script>*/${_}</script>`)).toEqual(["rawtext <script>"]);
+    expect(() => html`<script>/*<!--<script>*/;/*</script>*/${"alert(1)"}</script>`).toThrow(`"<" inside a <script> element`);
+  });
+
+  it("refuses CDATA sections and <plaintext>", () => {
+    expect(parse5Contexts(shape`<svg><![CDATA[${_}]]></svg>`)).toEqual(["text"]);
+    expect(parse5Contexts(shape`<![CDATA[${_}]]>`)).toEqual(["comment"]);
+    expect(() => html`<svg><![CDATA[${"x"}]]></svg>`).toThrow("CDATA");
+    expect(parse5Contexts(shape`<plaintext>${_}</plaintext>`)).toEqual(["plaintext <plaintext>"]);
+    expect(() => html`<plaintext>${"x"}`).toThrow("<plaintext>");
+  });
+});
+
 describe("safeUrl", () => {
   it("accepts http, https, tel and mailto", () => {
     expect(String(safeUrl("http://example.com/"))).toBe("http://example.com/");
@@ -149,6 +506,17 @@ describe("safeUrl", () => {
   });
   it("is the only way (with fragment) to make a SafeUrl: the class is not exported", () => {
     expect(Object.keys(htmlModule)).not.toContain("SafeUrl");
+  });
+  it("cannot be minted at runtime through safeUrl(x).constructor", () => {
+    const SafeUrlClass = safeUrl("https://example.com/").constructor as new (...args: unknown[]) => unknown;
+    expect(() => new SafeUrlClass(JS)).toThrow("Only safeUrl() and fragment() can make a SafeUrl");
+    expect(() => new SafeUrlClass(Symbol("SafeUrl"), JS)).toThrow("Only safeUrl() and fragment() can make a SafeUrl");
+  });
+  it("refuses an object that only borrows SafeUrl's prototype", () => {
+    const forged: unknown = Object.assign(Object.create(Object.getPrototypeOf(fragment("x")) as object) as object, {
+      toString: () => JS,
+    });
+    expect(() => html`<a href="${forged as ReturnType<typeof safeUrl>}">x</a>`).toThrow("needs a SafeUrl");
   });
   it("escapes & in a URL attribute", () => {
     expect(String(html`<a href="${safeUrl("https://example.com/?a=1&b=2")}">x</a>`)).toBe(
