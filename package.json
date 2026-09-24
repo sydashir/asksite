@@ -9,7 +9,8 @@
   "scripts": {
     "build:css": "pnpm --filter @asksite/renderer run build:css",
     "typecheck": "tsc -p .",
-    "test": "pnpm build:css && vitest run"
+    "test": "pnpm build:css && vitest run",
+    "render": "pnpm build:css && node scripts/render-fixture.ts"
   },
   "devDependencies": {
     "@asksite/renderer": "workspace:*",
