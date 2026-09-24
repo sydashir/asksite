@@ -312,11 +312,17 @@ const URL_ATTRIBUTES = new Set(["href", "src", "action", "formaction", "poster",
 const isNeverInterpolated = (attr: string) =>
   attr.startsWith("on") || attr === "style" || attr === "srcset" || attr === "imagesrcset" || attr === "srcdoc";
 
+// SVG animation elements copy values/from/to/by into the attribute they animate, which can be the
+// href of the <a> around them (<set attributeName="href" to="javascript:…">): none of their
+// attributes takes an interpolated value.
+const ANIMATION_ELEMENTS = new Set(["animate", "animatecolor", "animatemotion", "animatetransform", "set"]);
+
 const isNothing = (value: Value): value is false | null | undefined => value === false || value === null || value === undefined;
 
 const IN_TAG = "Interpolation inside a tag must be a double-quoted attribute value or trusted() markup";
 
-function attributeValue(value: Value, attr: string): string {
+function attributeValue(value: Value, { tag, attr }: Context): string {
+  if (ANIMATION_ELEMENTS.has(tag)) throw new Error(`The SVG <${tag}> animation element never takes an interpolated value`);
   if (isNeverInterpolated(attr)) throw new Error(`The ${attr} attribute never takes an interpolated value`);
   if (URL_ATTRIBUTES.has(attr)) {
     if (isNothing(value)) throw new Error(`Missing URL for ${attr}`);
@@ -335,7 +341,7 @@ function interpolate(value: Value, context: Context): [string, Context] {
   if (slot === "closed") throw new Error(`Nothing may be interpolated inside ${inside(context)}`);
   if (slot === "tagName") throw new Error("Nothing may be interpolated in a tag name");
   if (slot === "otherValue") throw new Error(IN_TAG);
-  if (slot === "quotedValue") return [attributeValue(value, context.attr), context];
+  if (slot === "quotedValue") return [attributeValue(value, context), context];
   if (isNothing(value)) return ["", context];
   // trusted() markup is read like the template's own text, so it can never leave a wrong context.
   if (value instanceof TrustedHtml && slot !== "rcdata") return [value.toString(), advance(context, value.toString())];
@@ -360,9 +366,9 @@ function interpolate(value: Value, context: Context): [string, Context] {
  * Tagged template that escapes every interpolation for where the WHATWG tokenizer puts it:
  * text and <title>/<textarea> text -> escapeText, double-quoted attribute values -> escapeAttr, URL
  * attributes -> SafeUrl only, between attributes -> trusted() only; tag names, other attribute
- * values, event-handler/style/srcset/srcdoc attributes, comments, doctypes and <style>/<script>
- * content -> never. A template must end in text, so a fragment cannot leave the template it is
- * spliced into tracking the wrong context.
+ * values, event-handler/style/srcset/srcdoc attributes, any attribute of an SVG animation element,
+ * comments, doctypes and <style>/<script> content -> never. A template must end in text, so a
+ * fragment cannot leave the template it is spliced into tracking the wrong context.
  */
 export function html(strings: TemplateStringsArray, ...values: Value[]): SafeHtml {
   let out = strings[0] ?? "";

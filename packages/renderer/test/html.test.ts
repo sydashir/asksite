@@ -210,6 +210,35 @@ describe("A5: the tracker follows the WHATWG tokenizer instead of guessing", () 
   });
 });
 
+describe("A5 round 2: no attribute of an SVG animation element takes a value", () => {
+  // <animate> and <set> copy values/from/to/by into the attribute they animate, which can be the
+  // href of the <a> around them: a plain string there becomes a link target that runs script.
+  const REFUSED = "animation element never takes an interpolated value";
+
+  it("refuses the values, from, to and by that would animate an href", () => {
+    expect(() => html`<svg><a><animate attributeName="href" values="${JS}"/><text>x</text></a></svg>`).toThrow(REFUSED);
+    expect(() => html`<svg><a><set attributeName="href" to="${JS}"/><text>x</text></a></svg>`).toThrow(REFUSED);
+    expect(() => html`<svg><a><animate attributeName="xlink:href" from="${JS}" to="#x"/></a></svg>`).toThrow(REFUSED);
+    expect(() => html`<svg><a><animate attributeName="href" by="${JS}"/></a></svg>`).toThrow(REFUSED);
+  });
+
+  it("refuses every other attribute of one, and a SafeUrl or nothing as well", () => {
+    expect(() => html`<svg><a><set attributeName="${"href"}" to="javascript:void(0)"/></a></svg>`).toThrow(REFUSED);
+    expect(() => html`<svg><animate href="${fragment("link")}" attributeName="href"/></svg>`).toThrow(REFUSED);
+    expect(() => html`<svg><set dur="${"1s"}"/></svg>`).toThrow(REFUSED);
+    expect(() => html`<svg><set to="${safeUrl("https://example.com/")}"/></svg>`).toThrow(REFUSED);
+    expect(() => html`<svg><set to="${false}"/></svg>`).toThrow(REFUSED);
+  });
+
+  it("covers every SVG animation element, in any case, even when trusted() markup opens it", () => {
+    expect(() => html`<svg><animateTransform by="${JS}"/></svg>`).toThrow(REFUSED);
+    expect(() => html`<svg><animateMotion values="${JS}"/></svg>`).toThrow(REFUSED);
+    expect(() => html`<svg><animateColor to="${JS}"/></svg>`).toThrow(REFUSED);
+    expect(() => html`<svg><SET TO="${JS}"/></svg>`).toThrow(REFUSED);
+    expect(() => html`<svg><a>${trusted("<set")} to="${JS}"/></a></svg>`).toThrow(REFUSED);
+  });
+});
+
 // ---- Differential test against parse5 (MIT), a spec-compliant tokenizer and tree builder ----
 
 // Marks an interpolation point in a corpus shape.
@@ -245,27 +274,34 @@ class MarkerRecorder extends Parser<DefaultTreeAdapterMap> {
     for (const m of this.#markers) if (where.includes(m) && !this.landed.has(m)) this.landed.set(m, label(m));
   }
 
-  #seeTag(token: Token.TagToken): void {
+  /** `element` is "<p>" for a start tag and "</p>" for an end tag. */
+  #seeTag(token: Token.TagToken, element: string): void {
     this.#see(token.tagName, () => "tag name");
     for (const { name, value } of token.attrs) {
-      this.#see(name, (m) => (name.startsWith(m) ? "new attribute name" : `attribute name after ${name.slice(0, name.indexOf(m))}`));
-      // The token does not keep the quote, so read it from the source: name, "=", then the quote if any.
-      const at = token.location?.attrs?.[name];
-      const source = at ? this.#source.slice(at.startOffset, at.endOffset) : "";
-      const quote = /^[\t\n\f\r ]*=[\t\n\f\r ]*(["']?)/.exec(source.slice(name.length))?.[1] || "unquoted";
-      this.#see(value, () => `${quote} value of ${name}`);
+      const where = (m: string) => (name.startsWith(m) ? "new attribute name" : `attribute name after ${name.slice(0, name.indexOf(m))}`);
+      this.#see(name, (m) => `${where(m)} in ${element}`);
+      this.#see(value, () => `${this.#quote(token, name)} value of ${name} in ${element}`);
     }
   }
 
+  // The token does not keep the quote, so read it from the source: name, "=", then the quote if any.
+  #quote(token: Token.TagToken, name: string): string {
+    const at = token.location?.attrs?.[name];
+    const source = at ? this.#source.slice(at.startOffset, at.endOffset) : "";
+    const found = /^[\t\n\f\r ]*=[\t\n\f\r ]*(["']?)/.exec(source.slice(name.length));
+    if (!found) throw new Error(`parse5 gave no source location for the value of ${name}: ${JSON.stringify(source)}`);
+    return found[1] || "unquoted";
+  }
+
   override onStartTag(token: Token.TagToken): void {
-    this.#seeTag(token);
+    this.#seeTag(token, `<${token.tagName}>`);
     super.onStartTag(token);
     const mode = TEXT_MODES.get(this.tokenizer.state);
     if (mode) this.#text = `${mode} <${token.tagName}>`;
   }
 
   override onEndTag(token: Token.TagToken): void {
-    this.#seeTag(token);
+    this.#seeTag(token, `</${token.tagName}>`);
     this.#text = "text"; // inside RCDATA/RAWTEXT the only end tag the tokenizer emits is the closing one
     super.onEndTag(token);
   }
@@ -297,6 +333,7 @@ function parse5Contexts(literals: readonly string[]): string[] {
 
 /** The same labels for our tracker's context. */
 function label({ state, tag, attr }: Context): string {
+  const element = `<${tag}>`; // tag is "/p" in an end tag, so this is "</p>" there
   switch (state) {
     case "data":
       return "text";
@@ -311,16 +348,16 @@ function label({ state, tag, attr }: Context): string {
     case "afterAttributeName":
     case "afterAttributeValueQuoted":
     case "selfClosingStartTag":
-      return "new attribute name";
+      return `new attribute name in ${element}`;
     case "attributeName":
-      return `attribute name after ${attr}`;
+      return `attribute name after ${attr} in ${element}`;
     case "beforeAttributeValue":
     case "attributeValueUnquoted":
-      return `unquoted value of ${attr}`;
+      return `unquoted value of ${attr} in ${element}`;
     case "attributeValueDoubleQuoted":
-      return `" value of ${attr}`;
+      return `" value of ${attr} in ${element}`;
     case "attributeValueSingleQuoted":
-      return `' value of ${attr}`;
+      return `' value of ${attr} in ${element}`;
     case "doctype":
       return "doctype";
     default:
@@ -445,6 +482,15 @@ const CORPUS: readonly (readonly string[])[] = [
   shape`<noembed>${_}</noembed>`,
   shape`<noframes>${_}</noframes>`,
   shape`<noscript>${_}</noscript>`,
+  // SVG animation elements, whose attributes the tracker must place on the right element. <svg> is
+  // safe in this corpus only because none of these shapes has a text element or CDATA, the two
+  // things foreign content tokenizes differently.
+  shape`<svg><a><animate attributeName="href" values="${_}"/></a></svg>${_}`,
+  shape`<svg><a><set attributeName=href to='${_}'/></a></svg>`,
+  shape`<svg><animateTransform by=${_} /></svg>`,
+  shape`<SVG><AnimateMotion FROM = "${_}"></SVG>`,
+  shape`<svg><a href="#x" ${_}><animate ${_}/></a></svg>`,
+  shape`<svg><animate a'b to="${_}"/></svg>`,
 ];
 
 describe("A5: the tracker agrees with parse5 8.0.1 at every interpolation point (differential)", () => {
@@ -464,9 +510,9 @@ describe("A5: fails closed where the tree, not the tokenizer, decides the contex
   it("refuses '<' inside a text element, which <svg> or <select> would read as a tag", () => {
     // The same literal lands in text or in an attribute value depending on an enclosing <svg>.
     expect(parse5Contexts(shape`<style><p title="</style>${_}">`)).toEqual(["text"]);
-    expect(parse5Contexts(shape`<svg><style><p title="</style>${_}">`)).toEqual([`" value of title`]);
+    expect(parse5Contexts(shape`<svg><style><p title="</style>${_}">`)).toEqual([`" value of title in <p>`]);
     expect(() => html`<svg><style><p title="</style>${BREAKOUT}">`).toThrow(`"<" inside a <style> element`);
-    expect(parse5Contexts(shape`<svg><title><p title="</title>${_}">`)).toEqual([`" value of title`]);
+    expect(parse5Contexts(shape`<svg><title><p title="</title>${_}">`)).toEqual([`" value of title in <p>`]);
     expect(() => html`<svg><title><p title="</title>${BREAKOUT}">`).toThrow(`"<" inside a <title> element`);
     expect(parse5Contexts(shape`<title><p title="</title><script>${_}</script>`)).toEqual(["rawtext <script>"]);
     expect(() => html`<title><p title="</title><script>${"alert(1)//"}"></script>`).toThrow(`"<" inside a <title> element`);
