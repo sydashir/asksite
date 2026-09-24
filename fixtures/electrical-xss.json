@@ -1,0 +1,61 @@
+{
+  "facts": {
+    "businessName": "<img src=x onerror=alert(1)>",
+    "trade": "electrical",
+    "phone": "+13035550126",
+    "email": "owner@example.com",
+    "location": {
+      "streetAddress": "<svg onload=alert(1)>",
+      "city": "\"><script>alert(1)</script>",
+      "state": "CO",
+      "postalCode": "80202"
+    },
+    "serviceArea": {
+      "places": ["</li><script>alert(1)</script>", "' onmouseover='alert(1)"],
+      "note": "<a href=\"javascript:alert(1)\">x</a>"
+    },
+    "hours": [{ "days": ["Monday"], "opens": "08:00", "closes": "17:00" }],
+    "services": [
+      { "name": "<script>alert(1)</script>", "startingPrice": 99 },
+      { "name": "\" autofocus onfocus=\"alert(1)" }
+    ],
+    "licences": [{ "label": "\"><iframe src=javascript:alert(1)>", "number": "</style><script>x</script>" }],
+    "insured": true,
+    "yearFounded": 2005,
+    "emergency247": false,
+    "testimonials": [
+      { "quote": "</script><script>alert(1)</script><!--", "name": "<b onclick=alert(1)>Bo</b>", "location": "<!-- -->" }
+    ],
+    "heroPhoto": { "url": "https://images.example.com/hero.jpg?a=1&b=\"x\"", "alt": "\" onerror=\"alert(1)", "width": 1600, "height": 900 },
+    "photos": [
+      { "url": "https://images.example.com/p.jpg", "alt": "<script>alert(1)</script>", "width": 1200, "height": 900, "caption": "<img src=x onerror=alert(1)>" }
+    ],
+    "socialLinks": [{ "network": "facebook", "url": "https://www.facebook.com/?q=<script>" }]
+  },
+  "copy": {
+    "heroHeadline": "<script>alert(document.domain)</script>",
+    "heroSubheadline": "\" autofocus onfocus=\"alert(document.cookie)",
+    "ctaText": "<a href=javascript:x>",
+    "about": "</p><img src=x onerror=alert(document.cookie)>",
+    "sectionIntros": { "services": "<style>body{display:none}</style>", "faq": "]]><!--<script>alert(document.domain)</script>" },
+    "serviceDescriptions": [
+      { "service": "<script>alert(1)</script>", "description": "<iframe srcdoc=\"<script>alert(document.domain)</script>\"></iframe>" },
+      { "service": "\" autofocus onfocus=\"alert(1)", "description": "{{constructor.constructor('alert(document.domain)')()}}" }
+    ],
+    "faq": [
+      { "question": "</summary><script>alert(document.domain)</script>", "answer": "</script><script>alert(document.domain)</script>" }
+    ]
+  },
+  "layout": [
+    { "id": "hero", "variant": "photo" },
+    { "id": "trust", "variant": "band" },
+    { "id": "services", "variant": "compact" },
+    { "id": "testimonials", "variant": "grid" },
+    { "id": "gallery", "variant": "grid" },
+    { "id": "about", "variant": "plain" },
+    { "id": "serviceArea", "variant": "split" },
+    { "id": "faq", "variant": "accordion" },
+    { "id": "contact", "variant": "card" }
+  ],
+  "theme": { "palette": "blue-yellow", "font": "sturdy" }
+}

@@ -1,0 +1,32 @@
+{
+  "facts": {
+    "businessName": "Mop",
+    "trade": "cleaning",
+    "phone": "+12085550107",
+    "email": "hi@mop.example.com",
+    "location": { "city": "Boise", "state": "ID" },
+    "serviceArea": { "places": ["Boise"] },
+    "services": [{ "name": "House cleaning" }, { "name": "Move-out cleaning" }]
+  },
+  "copy": {
+    "heroHeadline": "Clean homes",
+    "heroSubheadline": "Careful cleaners for busy Boise households.",
+    "ctaText": "Book",
+    "serviceDescriptions": [
+      { "service": "House cleaning", "description": "Weekly or one-off." },
+      { "service": "Move-out cleaning", "description": "Get your deposit back." }
+    ]
+  },
+  "layout": [
+    { "id": "hero", "variant": "photo" },
+    { "id": "trust", "variant": "light" },
+    { "id": "services", "variant": "cards" },
+    { "id": "testimonials", "variant": "grid" },
+    { "id": "gallery", "variant": "grid" },
+    { "id": "about", "variant": "plain" },
+    { "id": "serviceArea", "variant": "split" },
+    { "id": "faq", "variant": "accordion" },
+    { "id": "contact", "variant": "card" }
+  ],
+  "theme": { "palette": "green-amber", "font": "clean" }
+}

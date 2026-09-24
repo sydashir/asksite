@@ -1,0 +1,498 @@
+{
+  "facts": {
+    "businessName": "Longhorn Storm Restoration Roofing, Gutters, Siding & Window",
+    "trade": "roofing",
+    "phone": "+12145550163",
+    "email": "estimates.and.insurance.claims.department@longhornstormrestoration.example.com",
+    "location": {
+      "streetAddress": "Suite Four Hundred, Longhorn Storm Restoration Plaza, shingle metal tile slate f",
+      "city": "North Richland Hills tile slate flashing",
+      "state": "TX",
+      "postalCode": "76180"
+    },
+    "serviceArea": {
+      "places": [
+        "NORTHRICHLANDHILLSWATAUGAHALTOMCITYAREAS",
+        "Place B hail wind shingle metal tile sla",
+        "Place C wind shingle metal tile slate fl",
+        "Place D shingle metal tile slate flashin",
+        "Place E metal tile slate flashing gutter",
+        "Place F tile slate flashing gutter downs",
+        "Place G slate flashing gutter downspoutx",
+        "Place H flashing gutter downspout underl",
+        "Place I gutter downspout underlayment ri",
+        "Place J downspout underlayment ridge ven",
+        "Place K underlayment ridge vent deckingx",
+        "Place L ridge vent decking inspection es",
+        "Place M vent decking inspection estimate",
+        "Place N decking inspection estimate insu",
+        "Place O inspection estimate insurance cl",
+        "Place P estimate insurance claim replace",
+        "Place Q insurance claim replacement repa",
+        "Place R claim replacement repair leak at",
+        "Place S replacement repair leak attic ve",
+        "Place T repair leak attic ventilation si",
+        "Place U leak attic ventilation siding sk",
+        "Place V attic ventilation siding skyligh",
+        "Place W ventilation siding skylight chim",
+        "Place X siding skylight chimney valley d",
+        "Place Y skylight chimney valley drip edg",
+        "Place Z chimney valley drip edge fasciax",
+        "Place [ valley drip edge fascia soffit c",
+        "Place \\ drip edge fascia soffit crew car",
+        "Place ] edge fascia soffit crew carefulx",
+        "Place ^ fascia soffit crew careful hones"
+      ],
+      "note": "Within two hours of Dallas flashing gutter downspout underlayment ridge vent dec"
+    },
+    "hours": [
+      {
+        "days": [
+          "Monday"
+        ],
+        "opens": "06:00",
+        "closes": "21:30"
+      },
+      {
+        "days": [
+          "Tuesday"
+        ],
+        "opens": "06:00",
+        "closes": "21:30"
+      },
+      {
+        "days": [
+          "Wednesday"
+        ],
+        "opens": "06:00",
+        "closes": "21:30"
+      },
+      {
+        "days": [
+          "Thursday"
+        ],
+        "opens": "06:00",
+        "closes": "21:30"
+      },
+      {
+        "days": [
+          "Friday"
+        ],
+        "opens": "06:00",
+        "closes": "21:30"
+      },
+      {
+        "days": [
+          "Saturday"
+        ],
+        "opens": "06:00",
+        "closes": "21:30"
+      },
+      {
+        "days": [
+          "Sunday"
+        ],
+        "opens": "06:00",
+        "closes": "21:30"
+      }
+    ],
+    "services": [
+      {
+        "name": "HAILSTORMDAMAGEINSPECTIONANDREROOFINGJOB",
+        "startingPrice": 100000
+      },
+      {
+        "name": "Service B hail wind shingle metal tile s",
+        "startingPrice": 100000
+      },
+      {
+        "name": "Service C wind shingle metal tile slatex",
+        "startingPrice": 100000
+      },
+      {
+        "name": "Service D shingle metal tile slate flash",
+        "startingPrice": 100000
+      },
+      {
+        "name": "Service E metal tile slate flashing gutt",
+        "startingPrice": 100000
+      },
+      {
+        "name": "Service F tile slate flashing gutter dow",
+        "startingPrice": 100000
+      },
+      {
+        "name": "Service G slate flashing gutter downspou",
+        "startingPrice": 100000
+      },
+      {
+        "name": "Service H flashing gutter downspout unde",
+        "startingPrice": 100000
+      },
+      {
+        "name": "Service I gutter downspout underlaymentx",
+        "startingPrice": 100000
+      },
+      {
+        "name": "Service J downspout underlayment ridge v",
+        "startingPrice": 100000
+      },
+      {
+        "name": "Service K underlayment ridge vent deckin",
+        "startingPrice": 100000
+      },
+      {
+        "name": "Service L ridge vent decking inspectionx",
+        "startingPrice": 100000
+      }
+    ],
+    "licences": [
+      {
+        "label": "Licence A storm hail wind shingle metalx",
+        "number": "RCATREGISTRATIONNUMBER00000001"
+      },
+      {
+        "label": "Licence B hail wind shingle metal tile s",
+        "number": "RCAT-XXXXXXXXXXXXXXXXXXXXXXXXX"
+      },
+      {
+        "label": "Licence C wind shingle metal tile slatex",
+        "number": "RCAT-XXXXXXXXXXXXXXXXXXXXXXXXX"
+      },
+      {
+        "label": "Licence D shingle metal tile slate flash",
+        "number": "RCAT-XXXXXXXXXXXXXXXXXXXXXXXXX"
+      },
+      {
+        "label": "Licence E metal tile slate flashing gutt",
+        "number": "RCAT-XXXXXXXXXXXXXXXXXXXXXXXXX"
+      }
+    ],
+    "insured": true,
+    "yearFounded": 1850,
+    "emergency247": true,
+    "freeEstimates": true,
+    "testimonials": [
+      {
+        "quote": "Storm hail wind shingle metal tile slate flashing gutter downspout underlayment ridge vent decking inspection estimate insurance claim replacement repair leak attic ventilation siding skylight chimney valley drip edge fascia soffit crew careful honest neighborly thorough reliable storm hail wind shingle metal tile slat",
+        "name": "MAXIMILIANALEXANDERVONHOHENZOLLERNSMITHS",
+        "location": "Fort Worth storm hail wind shingle metal"
+      },
+      {
+        "quote": "Hail wind shingle metal tile slate flashing gutter downspout underlayment ridge vent decking inspection estimate insurance claim replacement repair leak attic ventilation siding skylight chimney valley drip edge fascia soffit crew careful honest neighborly thorough reliable storm hail wind shingle metal tile slate flas",
+        "name": "Reviewer B hail wind shingle metal tilex",
+        "location": "Fort Worth hail wind shingle metal tilex"
+      },
+      {
+        "quote": "Wind shingle metal tile slate flashing gutter downspout underlayment ridge vent decking inspection estimate insurance claim replacement repair leak attic ventilation siding skylight chimney valley drip edge fascia soffit crew careful honest neighborly thorough reliable storm hail wind shingle metal tile slate flashingx",
+        "name": "Reviewer C wind shingle metal tile slate",
+        "location": "Fort Worth wind shingle metal tile slate"
+      },
+      {
+        "quote": "Shingle metal tile slate flashing gutter downspout underlayment ridge vent decking inspection estimate insurance claim replacement repair leak attic ventilation siding skylight chimney valley drip edge fascia soffit crew careful honest neighborly thorough reliable storm hail wind shingle metal tile slate flashing gutte",
+        "name": "Reviewer D shingle metal tile slate flas",
+        "location": "Fort Worth shingle metal tile slate flas"
+      },
+      {
+        "quote": "Metal tile slate flashing gutter downspout underlayment ridge vent decking inspection estimate insurance claim replacement repair leak attic ventilation siding skylight chimney valley drip edge fascia soffit crew careful honest neighborly thorough reliable storm hail wind shingle metal tile slate flashing gutter downsp",
+        "name": "Reviewer E metal tile slate flashing gut",
+        "location": "Fort Worth metal tile slate flashing gut"
+      },
+      {
+        "quote": "Tile slate flashing gutter downspout underlayment ridge vent decking inspection estimate insurance claim replacement repair leak attic ventilation siding skylight chimney valley drip edge fascia soffit crew careful honest neighborly thorough reliable storm hail wind shingle metal tile slate flashing gutter downspout un",
+        "name": "Reviewer F tile slate flashing gutter do",
+        "location": "Fort Worth tile slate flashing gutter do"
+      },
+      {
+        "quote": "Slate flashing gutter downspout underlayment ridge vent decking inspection estimate insurance claim replacement repair leak attic ventilation siding skylight chimney valley drip edge fascia soffit crew careful honest neighborly thorough reliable storm hail wind shingle metal tile slate flashing gutter downspout underla",
+        "name": "Reviewer G slate flashing gutter downspo",
+        "location": "Fort Worth slate flashing gutter downspo"
+      },
+      {
+        "quote": "Flashing gutter downspout underlayment ridge vent decking inspection estimate insurance claim replacement repair leak attic ventilation siding skylight chimney valley drip edge fascia soffit crew careful honest neighborly thorough reliable storm hail wind shingle metal tile slate flashing gutter downspout underlaymentx",
+        "name": "Reviewer H flashing gutter downspout und",
+        "location": "Fort Worth flashing gutter downspout und"
+      },
+      {
+        "quote": "Gutter downspout underlayment ridge vent decking inspection estimate insurance claim replacement repair leak attic ventilation siding skylight chimney valley drip edge fascia soffit crew careful honest neighborly thorough reliable storm hail wind shingle metal tile slate flashing gutter downspout underlayment ridge ven",
+        "name": "Reviewer I gutter downspout underlayment",
+        "location": "Fort Worth gutter downspout underlayment"
+      },
+      {
+        "quote": "Downspout underlayment ridge vent decking inspection estimate insurance claim replacement repair leak attic ventilation siding skylight chimney valley drip edge fascia soffit crew careful honest neighborly thorough reliable storm hail wind shingle metal tile slate flashing gutter downspout underlayment ridge vent decki",
+        "name": "Reviewer J downspout underlayment ridgex",
+        "location": "Fort Worth downspout underlayment ridgex"
+      },
+      {
+        "quote": "Underlayment ridge vent decking inspection estimate insurance claim replacement repair leak attic ventilation siding skylight chimney valley drip edge fascia soffit crew careful honest neighborly thorough reliable storm hail wind shingle metal tile slate flashing gutter downspout underlayment ridge vent decking inspect",
+        "name": "Reviewer K underlayment ridge vent decki",
+        "location": "Fort Worth underlayment ridge vent decki"
+      },
+      {
+        "quote": "Ridge vent decking inspection estimate insurance claim replacement repair leak attic ventilation siding skylight chimney valley drip edge fascia soffit crew careful honest neighborly thorough reliable storm hail wind shingle metal tile slate flashing gutter downspout underlayment ridge vent decking inspection estimatex",
+        "name": "Reviewer L ridge vent decking inspection",
+        "location": "Fort Worth ridge vent decking inspection"
+      }
+    ],
+    "heroPhoto": {
+      "url": "https://picsum.photos/seed/longhorn-hero/2400/1350",
+      "alt": "Crew installing hail wind shingle metal tile slate flashing gutter downspout underlayment ridge vent decking inspection estim",
+      "width": 2400,
+      "height": 1350
+    },
+    "photos": [
+      {
+        "url": "https://picsum.photos/seed/longhorn-1/1200/900",
+        "alt": "Photo of storm hail wind shingle metal tile slate flashing gutter downspout underlayment ridge vent decking inspection estima",
+        "width": 1200,
+        "height": 900,
+        "caption": "Caption storm hail wind shingle metal tile slate flashing gutter downspout under"
+      },
+      {
+        "url": "https://picsum.photos/seed/longhorn-2/1200/900",
+        "alt": "Photo of hail wind shingle metal tile slate flashing gutter downspout underlayment ridge vent decking inspection estimate ins",
+        "width": 1200,
+        "height": 900,
+        "caption": "Caption hail wind shingle metal tile slate flashing gutter downspout underlaymen"
+      },
+      {
+        "url": "https://picsum.photos/seed/longhorn-3/1200/900",
+        "alt": "Photo of wind shingle metal tile slate flashing gutter downspout underlayment ridge vent decking inspection estimate insuranc",
+        "width": 1200,
+        "height": 900,
+        "caption": "Caption wind shingle metal tile slate flashing gutter downspout underlayment rid"
+      },
+      {
+        "url": "https://picsum.photos/seed/longhorn-4/1200/900",
+        "alt": "Photo of shingle metal tile slate flashing gutter downspout underlayment ridge vent decking inspection estimate insurance cla",
+        "width": 1200,
+        "height": 900,
+        "caption": "Caption shingle metal tile slate flashing gutter downspout underlayment ridge ve"
+      },
+      {
+        "url": "https://picsum.photos/seed/longhorn-5/1200/900",
+        "alt": "Photo of metal tile slate flashing gutter downspout underlayment ridge vent decking inspection estimate insurance claim repla",
+        "width": 1200,
+        "height": 900,
+        "caption": "Caption metal tile slate flashing gutter downspout underlayment ridge vent decki"
+      },
+      {
+        "url": "https://picsum.photos/seed/longhorn-6/1200/900",
+        "alt": "Photo of tile slate flashing gutter downspout underlayment ridge vent decking inspection estimate insurance claim replacement",
+        "width": 1200,
+        "height": 900,
+        "caption": "Caption tile slate flashing gutter downspout underlayment ridge vent decking ins"
+      },
+      {
+        "url": "https://picsum.photos/seed/longhorn-7/1200/900",
+        "alt": "Photo of slate flashing gutter downspout underlayment ridge vent decking inspection estimate insurance claim replacement repa",
+        "width": 1200,
+        "height": 900,
+        "caption": "Caption slate flashing gutter downspout underlayment ridge vent decking inspecti"
+      },
+      {
+        "url": "https://picsum.photos/seed/longhorn-8/1200/900",
+        "alt": "Photo of flashing gutter downspout underlayment ridge vent decking inspection estimate insurance claim replacement repair lea",
+        "width": 1200,
+        "height": 900,
+        "caption": "Caption flashing gutter downspout underlayment ridge vent decking inspection est"
+      },
+      {
+        "url": "https://picsum.photos/seed/longhorn-9/1200/900",
+        "alt": "Photo of gutter downspout underlayment ridge vent decking inspection estimate insurance claim replacement repair leak attic v",
+        "width": 1200,
+        "height": 900,
+        "caption": "Caption gutter downspout underlayment ridge vent decking inspection estimate ins"
+      },
+      {
+        "url": "https://picsum.photos/seed/longhorn-10/1200/900",
+        "alt": "Photo of downspout underlayment ridge vent decking inspection estimate insurance claim replacement repair leak attic ventilat",
+        "width": 1200,
+        "height": 900,
+        "caption": "Caption downspout underlayment ridge vent decking inspection estimate insurancex"
+      },
+      {
+        "url": "https://picsum.photos/seed/longhorn-11/1200/900",
+        "alt": "Photo of underlayment ridge vent decking inspection estimate insurance claim replacement repair leak attic ventilation siding",
+        "width": 1200,
+        "height": 900,
+        "caption": "Caption underlayment ridge vent decking inspection estimate insurance claim repl"
+      },
+      {
+        "url": "https://picsum.photos/seed/longhorn-12/1200/900",
+        "alt": "Photo of ridge vent decking inspection estimate insurance claim replacement repair leak attic ventilation siding skylight chi",
+        "width": 1200,
+        "height": 900,
+        "caption": "Caption ridge vent decking inspection estimate insurance claim replacement repai"
+      }
+    ],
+    "socialLinks": [
+      {
+        "network": "facebook",
+        "url": "https://www.facebook.com/longhorn-storm-restoration-roofing-gutters-siding-and-windows"
+      },
+      {
+        "network": "instagram",
+        "url": "https://www.instagram.com/longhorn-storm-restoration-roofing-gutters-siding-and-windows"
+      },
+      {
+        "network": "google",
+        "url": "https://www.google.com/longhorn-storm-restoration-roofing-gutters-siding-and-windows"
+      },
+      {
+        "network": "yelp",
+        "url": "https://www.yelp.com/longhorn-storm-restoration-roofing-gutters-siding-and-windows"
+      },
+      {
+        "network": "nextdoor",
+        "url": "https://www.nextdoor.com/longhorn-storm-restoration-roofing-gutters-siding-and-windows"
+      },
+      {
+        "network": "youtube",
+        "url": "https://www.youtube.com/longhorn-storm-restoration-roofing-gutters-siding-and-windows"
+      },
+      {
+        "network": "linkedin",
+        "url": "https://www.linkedin.com/longhorn-storm-restoration-roofing-gutters-siding-and-windows"
+      }
+    ]
+  },
+  "copy": {
+    "heroHeadline": "Unbelievablyweathertightroofreplacements for every hailstorm across North Texas!",
+    "heroSubheadline": "Wind shingle metal tile slate flashing gutter downspout underlayment ridge vent decking inspection estimate insurance claim replacement repair leak attic ventil",
+    "ctaText": "Schedule a free estimate",
+    "about": "Metal tile slate flashing gutter downspout underlayment ridge vent decking inspection estimate insurance claim replacement repair leak attic ventilation siding skylight chimney valley drip edge fascia soffit crew careful honest neighborly thorough reliable storm hail wind shingle metal tile slate flashing gutter downspout underlayment ridge vent decking inspection estimate insurance claim replacement repair leak attic ventilation siding skylight chimney valley drip edge fasci",
+    "sectionIntros": {
+      "services": "Storm hail wind shingle metal tile slate flashing gutter downspout underlayment ridge vent decking inspection estimate insurance claim repla",
+      "gallery": "Hail wind shingle metal tile slate flashing gutter downspout underlayment ridge vent decking inspection estimate insurance claim replacement",
+      "faq": "Wind shingle metal tile slate flashing gutter downspout underlayment ridge vent decking inspection estimate insurance claim replacement repa",
+      "contact": "Shingle metal tile slate flashing gutter downspout underlayment ridge vent decking inspection estimate insurance claim replacement repair le"
+    },
+    "serviceDescriptions": [
+      {
+        "service": "HAILSTORMDAMAGEINSPECTIONANDREROOFINGJOB",
+        "description": "Storm hail wind shingle metal tile slate flashing gutter downspout underlayment ridge vent decking inspection estimate insurance claim replacement repair leak a"
+      },
+      {
+        "service": "Service B hail wind shingle metal tile s",
+        "description": "Hail wind shingle metal tile slate flashing gutter downspout underlayment ridge vent decking inspection estimate insurance claim replacement repair leak attic v"
+      },
+      {
+        "service": "Service C wind shingle metal tile slatex",
+        "description": "Wind shingle metal tile slate flashing gutter downspout underlayment ridge vent decking inspection estimate insurance claim replacement repair leak attic ventil"
+      },
+      {
+        "service": "Service D shingle metal tile slate flash",
+        "description": "Shingle metal tile slate flashing gutter downspout underlayment ridge vent decking inspection estimate insurance claim replacement repair leak attic ventilation"
+      },
+      {
+        "service": "Service E metal tile slate flashing gutt",
+        "description": "Metal tile slate flashing gutter downspout underlayment ridge vent decking inspection estimate insurance claim replacement repair leak attic ventilation sidingx"
+      },
+      {
+        "service": "Service F tile slate flashing gutter dow",
+        "description": "Tile slate flashing gutter downspout underlayment ridge vent decking inspection estimate insurance claim replacement repair leak attic ventilation siding skylig"
+      },
+      {
+        "service": "Service G slate flashing gutter downspou",
+        "description": "Slate flashing gutter downspout underlayment ridge vent decking inspection estimate insurance claim replacement repair leak attic ventilation siding skylight ch"
+      },
+      {
+        "service": "Service H flashing gutter downspout unde",
+        "description": "Flashing gutter downspout underlayment ridge vent decking inspection estimate insurance claim replacement repair leak attic ventilation siding skylight chimneyx"
+      },
+      {
+        "service": "Service I gutter downspout underlaymentx",
+        "description": "Gutter downspout underlayment ridge vent decking inspection estimate insurance claim replacement repair leak attic ventilation siding skylight chimney valley dr"
+      },
+      {
+        "service": "Service J downspout underlayment ridge v",
+        "description": "Downspout underlayment ridge vent decking inspection estimate insurance claim replacement repair leak attic ventilation siding skylight chimney valley drip edge"
+      },
+      {
+        "service": "Service K underlayment ridge vent deckin",
+        "description": "Underlayment ridge vent decking inspection estimate insurance claim replacement repair leak attic ventilation siding skylight chimney valley drip edge fascia so"
+      },
+      {
+        "service": "Service L ridge vent decking inspectionx",
+        "description": "Ridge vent decking inspection estimate insurance claim replacement repair leak attic ventilation siding skylight chimney valley drip edge fascia soffit crew car"
+      }
+    ],
+    "faq": [
+      {
+        "question": "Storm hail wind shingle metal tile slate flashing gutter downspout underlayment?",
+        "answer": "Shingle metal tile slate flashing gutter downspout underlayment ridge vent decking inspection estimate insurance claim replacement repair leak attic ventilation siding skylight chimney valley drip edge fascia soffit crew careful honest neighborly thorough reliable storm hail wind shingle metal tile slate flashing gutte"
+      },
+      {
+        "question": "Hail wind shingle metal tile slate flashing gutter downspout underlayment ridge?",
+        "answer": "Metal tile slate flashing gutter downspout underlayment ridge vent decking inspection estimate insurance claim replacement repair leak attic ventilation siding skylight chimney valley drip edge fascia soffit crew careful honest neighborly thorough reliable storm hail wind shingle metal tile slate flashing gutter downsp"
+      },
+      {
+        "question": "Wind shingle metal tile slate flashing gutter downspout underlayment ridge vent?",
+        "answer": "Tile slate flashing gutter downspout underlayment ridge vent decking inspection estimate insurance claim replacement repair leak attic ventilation siding skylight chimney valley drip edge fascia soffit crew careful honest neighborly thorough reliable storm hail wind shingle metal tile slate flashing gutter downspout un"
+      },
+      {
+        "question": "Shingle metal tile slate flashing gutter downspout underlayment ridge vent deck?",
+        "answer": "Slate flashing gutter downspout underlayment ridge vent decking inspection estimate insurance claim replacement repair leak attic ventilation siding skylight chimney valley drip edge fascia soffit crew careful honest neighborly thorough reliable storm hail wind shingle metal tile slate flashing gutter downspout underla"
+      },
+      {
+        "question": "Metal tile slate flashing gutter downspout underlayment ridge vent decking insp?",
+        "answer": "Flashing gutter downspout underlayment ridge vent decking inspection estimate insurance claim replacement repair leak attic ventilation siding skylight chimney valley drip edge fascia soffit crew careful honest neighborly thorough reliable storm hail wind shingle metal tile slate flashing gutter downspout underlaymentx"
+      },
+      {
+        "question": "Tile slate flashing gutter downspout underlayment ridge vent decking inspection?",
+        "answer": "Gutter downspout underlayment ridge vent decking inspection estimate insurance claim replacement repair leak attic ventilation siding skylight chimney valley drip edge fascia soffit crew careful honest neighborly thorough reliable storm hail wind shingle metal tile slate flashing gutter downspout underlayment ridge ven"
+      },
+      {
+        "question": "Slate flashing gutter downspout underlayment ridge vent decking inspection esti?",
+        "answer": "Downspout underlayment ridge vent decking inspection estimate insurance claim replacement repair leak attic ventilation siding skylight chimney valley drip edge fascia soffit crew careful honest neighborly thorough reliable storm hail wind shingle metal tile slate flashing gutter downspout underlayment ridge vent decki"
+      },
+      {
+        "question": "Flashing gutter downspout underlayment ridge vent decking inspection estimate i?",
+        "answer": "Underlayment ridge vent decking inspection estimate insurance claim replacement repair leak attic ventilation siding skylight chimney valley drip edge fascia soffit crew careful honest neighborly thorough reliable storm hail wind shingle metal tile slate flashing gutter downspout underlayment ridge vent decking inspect"
+      }
+    ]
+  },
+  "layout": [
+    {
+      "id": "hero",
+      "variant": "photo"
+    },
+    {
+      "id": "trust",
+      "variant": "band"
+    },
+    {
+      "id": "services",
+      "variant": "cards"
+    },
+    {
+      "id": "testimonials",
+      "variant": "masonry"
+    },
+    {
+      "id": "gallery",
+      "variant": "grid"
+    },
+    {
+      "id": "about",
+      "variant": "plain"
+    },
+    {
+      "id": "serviceArea",
+      "variant": "split"
+    },
+    {
+      "id": "faq",
+      "variant": "accordion"
+    },
+    {
+      "id": "contact",
+      "variant": "card"
+    }
+  ],
+  "theme": {
+    "palette": "charcoal-red",
+    "font": "friendly"
+  }
+}

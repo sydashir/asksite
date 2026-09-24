@@ -1,0 +1,85 @@
+{
+  "facts": {
+    "businessName": "Reliable Rooter Plumbing",
+    "trade": "plumbing",
+    "phone": "+15125550142",
+    "email": "office@reliablerooter.example.com",
+    "location": { "streetAddress": "4100 S Congress Ave", "city": "Austin", "state": "TX", "postalCode": "78745" },
+    "serviceArea": {
+      "places": ["Austin", "Round Rock", "Pflugerville", "Cedar Park", "Georgetown", "Kyle", "Buda"],
+      "note": "Within 30 miles of downtown Austin"
+    },
+    "hours": [
+      { "days": ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"], "opens": "07:30", "closes": "18:00" },
+      { "days": ["Saturday"], "opens": "08:00", "closes": "14:00" }
+    ],
+    "services": [
+      { "name": "Drain cleaning", "startingPrice": 89 },
+      { "name": "Water heater repair & install", "startingPrice": 149 },
+      { "name": "Leak detection" },
+      { "name": "Sewer line repair" },
+      { "name": "Fixture installation", "startingPrice": 120 }
+    ],
+    "licences": [{ "label": "Texas master plumber", "number": "M-40123" }],
+    "insured": true,
+    "yearFounded": 1998,
+    "emergency247": true,
+    "freeEstimates": true,
+    "testimonials": [
+      { "quote": "Our water heater died on a Sunday night and they had a new one in by Monday lunch. Fair price, clean work, and they hauled the old tank away.", "name": "Dana P.", "location": "Round Rock, TX" },
+      { "quote": "Found a slab leak two other companies missed. Explained everything before starting.", "name": "Luis M.", "location": "Austin, TX" },
+      { "quote": "On time, polite, and the kitchen drain has been perfect since.", "name": "Priya S." }
+    ],
+    "heroPhoto": { "url": "https://picsum.photos/seed/rooter-van/1600/900", "alt": "Reliable Rooter service van parked outside a home", "width": 1600, "height": 900 },
+    "photos": [
+      { "url": "https://picsum.photos/seed/rooter-1/1200/900", "alt": "New tankless water heater mounted on a garage wall", "width": 1200, "height": 900, "caption": "Tankless water heater, Round Rock" },
+      { "url": "https://picsum.photos/seed/rooter-2/1200/900", "alt": "Replaced copper pipes under a kitchen sink", "width": 1200, "height": 900, "caption": "Kitchen repipe" },
+      { "url": "https://picsum.photos/seed/rooter-3/1200/900", "alt": "Camera inspection screen showing a clear sewer line", "width": 1200, "height": 900 },
+      { "url": "https://picsum.photos/seed/rooter-4/1200/900", "alt": "New bathroom vanity and faucet", "width": 1200, "height": 900, "caption": "Bathroom fixture swap" },
+      { "url": "https://picsum.photos/seed/rooter-5/1200/900", "alt": "Excavated yard with new sewer pipe", "width": 1200, "height": 900 },
+      { "url": "https://picsum.photos/seed/rooter-6/1200/900", "alt": "Technician checking a water pressure gauge", "width": 1200, "height": 900 }
+    ],
+    "socialLinks": [
+      { "network": "google", "url": "https://www.google.com/maps/search/?api=1&query=Reliable+Rooter+Plumbing+Austin" },
+      { "network": "facebook", "url": "https://www.facebook.com/reliablerooterplumbing" },
+      { "network": "yelp", "url": "https://www.yelp.com/biz/reliable-rooter-plumbing-austin" }
+    ]
+  },
+  "copy": {
+    "heroHeadline": "Austin plumbers who show up and fix it right",
+    "heroSubheadline": "From clogged drains to burst pipes, our licensed team gets your water flowing again without the runaround.",
+    "ctaText": "Get a free quote",
+    "about": "Reliable Rooter is a family plumbing company. We explain the problem, give you a clear price before any work starts, and clean up after ourselves. Most of our work comes from neighbors who told their neighbors.",
+    "sectionIntros": {
+      "services": "Repairs and installs for homes across the Austin area.",
+      "gallery": "A few recent jobs.",
+      "faq": "Straight answers before you call.",
+      "contact": "Tell us what is going on and we will call you back."
+    },
+    "serviceDescriptions": [
+      { "service": "Drain cleaning", "description": "We clear kitchen, bath and main line clogs and tell you what caused them." },
+      { "service": "Water heater repair & install", "description": "Tank and tankless water heaters repaired or replaced, old unit hauled away." },
+      { "service": "Leak detection", "description": "Electronic leak detection finds hidden leaks before they ruin floors and walls." },
+      { "service": "Sewer line repair", "description": "Camera inspection first, then the least disruptive repair for your yard." },
+      { "service": "Fixture installation", "description": "Faucets, toilets, disposals and showers installed properly the first time." }
+    ],
+    "faq": [
+      { "question": "Do you charge for estimates?", "answer": "No. We give you a clear written price before any work starts, and there is no charge if you decide not to go ahead." },
+      { "question": "Can you come out for an emergency?", "answer": "Yes. Call us any time, day or night, and a plumber will call you back right away to help you shut off the water and get someone out." },
+      { "question": "Do you clean up after the job?", "answer": "Always. We use floor covers, take away old parts and leave your home the way we found it." },
+      { "question": "Which areas do you cover?", "answer": "Austin and the surrounding towns listed below. If you are just outside that area, call and ask." }
+    ]
+  },
+  "layout": [
+    { "id": "hero", "variant": "photo" },
+    { "id": "trust", "variant": "band" },
+    { "id": "services", "variant": "cards" },
+    { "id": "testimonials", "variant": "grid" },
+    { "id": "gallery", "variant": "grid" },
+    { "id": "about", "variant": "plain" },
+    { "id": "serviceArea", "variant": "split" },
+    { "id": "faq", "variant": "accordion" },
+    { "id": "contact", "variant": "card" }
+  ],
+  "theme": { "palette": "navy-orange", "font": "clean" }
+}

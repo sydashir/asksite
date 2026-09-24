@@ -1,0 +1,79 @@
+{
+  "facts": {
+    "businessName": "Desert Air Heating & Cooling",
+    "trade": "hvac",
+    "phone": "+16025550118",
+    "email": "service@desertair.example.com",
+    "location": { "city": "Phoenix", "state": "AZ", "postalCode": "85016" },
+    "serviceArea": { "places": ["Phoenix", "Scottsdale", "Tempe", "Mesa", "Chandler", "Glendale"] },
+    "hours": [
+      { "days": ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"], "opens": "07:00", "closes": "19:00" },
+      { "days": ["Saturday", "Sunday"], "opens": "00:00", "closes": "23:59" }
+    ],
+    "services": [
+      { "name": "AC repair", "startingPrice": 79 },
+      { "name": "AC replacement" },
+      { "name": "Heat pump service" },
+      { "name": "Furnace repair" },
+      { "name": "Duct cleaning", "startingPrice": 299 },
+      { "name": "Thermostat installation" },
+      { "name": "Maintenance plans", "startingPrice": 15 },
+      { "name": "Indoor air quality" }
+    ],
+    "licences": [
+      { "label": "Arizona ROC", "number": "ROC 999001" },
+      { "label": "Arizona ROC (dual)", "number": "ROC 999002" }
+    ],
+    "insured": true,
+    "yearFounded": 2011,
+    "emergency247": true,
+    "testimonials": [
+      { "quote": "AC quit in July. They were here in two hours and had it running before dinner.", "name": "Marco R.", "location": "Tempe, AZ" },
+      { "quote": "They talked us out of a full replacement we did not need. Rare honesty.", "name": "Jen W.", "location": "Scottsdale, AZ" },
+      { "quote": "Fast, friendly, fair.", "name": "Al K." },
+      { "quote": "The maintenance plan has paid for itself. They catch small problems before the summer heat turns them into big ones, and the techs always explain what they found and show us photos.", "name": "Rosa T.", "location": "Mesa, AZ" },
+      { "quote": "Clean install, great crew, and they registered the warranty for us.", "name": "Dev P.", "location": "Chandler, AZ" }
+    ],
+    "photos": [
+      { "url": "https://picsum.photos/seed/desert-1/1200/900", "alt": "New condenser unit on a concrete pad", "width": 1200, "height": 900, "caption": "Condenser replacement" },
+      { "url": "https://picsum.photos/seed/desert-2/1200/900", "alt": "Technician checking refrigerant pressure", "width": 1200, "height": 900 },
+      { "url": "https://picsum.photos/seed/desert-3/1200/900", "alt": "Smart thermostat on a hallway wall", "width": 1200, "height": 900, "caption": "Smart thermostat" },
+      { "url": "https://picsum.photos/seed/desert-4/1200/900", "alt": "Clean air ducts after service", "width": 1200, "height": 900 }
+    ]
+  },
+  "copy": {
+    "heroHeadline": "Cool again today, not next week",
+    "heroSubheadline": "Fast AC and heating repair across the Valley from a local, licensed team.",
+    "ctaText": "Book a visit",
+    "sectionIntros": {
+      "services": "Heating, cooling and air quality for Valley homes.",
+      "faq": "Answers to the questions we hear most."
+    },
+    "serviceDescriptions": [
+      { "service": "AC repair", "description": "Diagnosis and repair for all major AC brands." },
+      { "service": "AC replacement", "description": "Right-sized systems with clear options and no pressure." },
+      { "service": "Heat pump service", "description": "Tune-ups and repairs that keep heat pumps efficient." },
+      { "service": "Furnace repair", "description": "Safe, fast furnace fixes for cold desert nights." },
+      { "service": "Duct cleaning", "description": "Cleaner ducts for better airflow and less dust." },
+      { "service": "Thermostat installation", "description": "Smart and programmable thermostats set up for you." },
+      { "service": "Maintenance plans", "description": "Seasonal check-ups with priority booking." },
+      { "service": "Indoor air quality", "description": "Filters, purifiers and humidity control." }
+    ],
+    "faq": [
+      { "question": "Can you come out for an emergency?", "answer": "Yes. Call any time, day or night, and we will get a technician on the way." },
+      { "question": "Can you service any brand?", "answer": "We repair and maintain all major brands of air conditioners, heat pumps and furnaces." },
+      { "question": "Should I repair or replace?", "answer": "We will show you both options with honest pros and cons, then you decide." }
+    ]
+  },
+  "layout": [
+    { "id": "hero", "variant": "centered" },
+    { "id": "services", "variant": "compact" },
+    { "id": "trust", "variant": "light" },
+    { "id": "testimonials", "variant": "masonry" },
+    { "id": "gallery", "variant": "grid" },
+    { "id": "serviceArea", "variant": "split" },
+    { "id": "faq", "variant": "open" },
+    { "id": "contact", "variant": "card" }
+  ],
+  "theme": { "palette": "blue-yellow", "font": "sturdy" }
+}
