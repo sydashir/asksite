@@ -1,0 +1,16 @@
+{
+  "name": "@asksite/core",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@asksite/site-schema": "workspace:*",
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "@asksite/renderer": "workspace:*"
+  }
+}

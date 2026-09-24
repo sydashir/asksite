@@ -16,6 +16,7 @@
     "check": "pnpm typecheck && pnpm test && pnpm test:e2e"
   },
   "devDependencies": {
+    "@asksite/core": "workspace:*",
     "@asksite/renderer": "workspace:*",
     "@asksite/site-schema": "workspace:*",
     "@axe-core/playwright": "4.13.0",
