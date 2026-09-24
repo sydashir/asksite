@@ -25,6 +25,11 @@ class TrustedHtml extends SafeHtml {}
 // not even through safeUrl(x).constructor.
 const MINT = Symbol("SafeUrl");
 
+// The href of a real SafeUrl; undefined for anything else, even an object given SafeUrl's prototype.
+// Set inside the class, the only place that can read #href, but kept off it: a static method could
+// be replaced through safeUrl(x).constructor, switching the check off for every later template.
+let hrefOf: (value: unknown) => string | undefined;
+
 /**
  * A URL whose scheme has been checked. The only value `html` accepts in a URL attribute (href, src,
  * action, …). Exported as a type only, so safeUrl() and fragment() are the only ways to make one.
@@ -38,9 +43,8 @@ class SafeUrl {
   toString(): string {
     return this.#href;
   }
-  /** The href of a real SafeUrl; undefined for anything else, even an object given SafeUrl's prototype. */
-  static hrefOf(value: unknown): string | undefined {
-    return typeof value === "object" && value !== null && #href in value ? value.#href : undefined;
+  static {
+    hrefOf = (value) => (typeof value === "object" && value !== null && #href in value ? value.#href : undefined);
   }
 }
 export type { SafeUrl };
@@ -66,8 +70,9 @@ export function fragment(id: string): SafeUrl {
 
 // The states of the WHATWG HTML tokenizer (https://html.spec.whatwg.org/multipage/parsing.html#tokenization)
 // that decide where a value lands. States that never change that are folded into a neighbour:
-// markup declaration open and raw text's end-tag states (look-aheads in advance()), character
-// references, the comment less-than-sign states, and the DOCTYPE sub-states (every one ends at ">").
+// markup declaration open and raw text's end-tag states (look-aheads in advance(), which throw when
+// the markup ends before they can decide), character references, the comment less-than-sign
+// states, and the DOCTYPE sub-states (every one ends at ">").
 // "rcdata" is the text of <title> and <textarea>; "rawtext" the text of <style>, <script>, <xmp>,
 // <iframe>, <noembed>, <noframes> and <noscript>.
 type State =
@@ -125,11 +130,21 @@ const ENDS_TAG_NAME = new Set([...WHITESPACE, "/", ">"]);
 const isAsciiAlpha = (c: string) => /^[a-zA-Z]$/.test(c);
 const lower = (s: string) => s.replace(/[A-Z]/g, (c) => c.toLowerCase()); // the tokenizer lower-cases ASCII only
 
+// After "<!" the tokenizer looks ahead for "--", "DOCTYPE" (any ASCII case) or "[CDATA[". True when
+// `ahead` stops (the markup ends) while it could still become one of them.
+const isProperPrefix = (text: string, word: string) => text.length < word.length && word.startsWith(text);
+const endsBeforeDeclaration = (ahead: string) =>
+  isProperPrefix(ahead, "--") || isProperPrefix(lower(ahead), "doctype") || isProperPrefix(ahead, "[CDATA[");
+
 /**
  * Reads `markup` from `context` the way the WHATWG tokenizer does and returns where it ends. Throws
  * on the markup whose context the tree builder decides instead: "<" inside a text element other
  * than its end tag (inside <svg>, or a <select> that ignores the element, a browser reads a tag
  * there), CDATA sections (read as text only inside <svg> or <math>) and <plaintext>.
+ * html() reads each literal and each trusted() value as a separate part, so `markup` may stop where
+ * the next part goes on. advance() therefore also throws when `markup` ends before a look-ahead can
+ * decide ("<!" and part of "--", "DOCTYPE" or "[CDATA[", or part of a text element's end tag):
+ * markup read in parts reaches the context it reaches read whole, or throws.
  * Exported, with START, so a test can compare it with a spec-compliant tokenizer.
  */
 export function advance(context: Context, markup: string): Context {
@@ -160,14 +175,18 @@ export function advance(context: Context, markup: string): Context {
       }
       case "tagOpen":
         if (c === "!") {
-          // Markup declaration open.
-          if (markup.startsWith("--", i + 1)) {
+          // Markup declaration open: the next seven characters decide what "<!" opens.
+          const ahead = markup.slice(i + 1, i + 8);
+          if (endsBeforeDeclaration(ahead)) {
+            throw new Error(`"<!${ahead}" is cut off before it shows whether it opens a comment, a DOCTYPE or a CDATA section`);
+          }
+          if (ahead.startsWith("--")) {
             state = "commentStart";
             i += 2;
-          } else if (lower(markup.slice(i + 1, i + 8)) === "doctype") {
+          } else if (lower(ahead) === "doctype") {
             state = "doctype";
             i += 7;
-          } else if (markup.startsWith("[CDATA[", i + 1)) {
+          } else if (ahead === "[CDATA[") {
             throw new Error("html templates do not support CDATA sections");
           } else state = "bogusComment";
         } else if (c === "/") state = "endTagOpen";
@@ -326,7 +345,7 @@ function attributeValue(value: Value, { tag, attr }: Context): string {
   if (isNeverInterpolated(attr)) throw new Error(`The ${attr} attribute never takes an interpolated value`);
   if (URL_ATTRIBUTES.has(attr)) {
     if (isNothing(value)) throw new Error(`Missing URL for ${attr}`);
-    const href = SafeUrl.hrefOf(value);
+    const href = hrefOf(value);
     if (href === undefined) throw new Error(`The ${attr} attribute needs a SafeUrl`);
     return escapeAttr(href);
   }
@@ -343,7 +362,8 @@ function interpolate(value: Value, context: Context): [string, Context] {
   if (slot === "otherValue") throw new Error(IN_TAG);
   if (slot === "quotedValue") return [attributeValue(value, context), context];
   if (isNothing(value)) return ["", context];
-  // trusted() markup is read like the template's own text, so it can never leave a wrong context.
+  // trusted() markup is read like the template's own text. advance() reads it as its own part, which
+  // reaches the context the whole text would reach, or throws (see advance()).
   if (value instanceof TrustedHtml && slot !== "rcdata") return [value.toString(), advance(context, value.toString())];
   if (slot === "attributes") throw new Error(IN_TAG);
   if (Array.isArray(value)) {

@@ -322,10 +322,14 @@ class MarkerRecorder extends Parser<DefaultTreeAdapterMap> {
   }
 }
 
+/** A shape's literals joined, with the marker for each interpolation point in its place. */
+const sourceOf = (literals: readonly string[]): string =>
+  literals.map((literal, i) => literal + (i < literals.length - 1 ? marker(i) : "")).join("");
+
 /** Where parse5 puts a marker placed at each interpolation point. */
 function parse5Contexts(literals: readonly string[]): string[] {
   const markers = literals.slice(1).map((_literal, i) => marker(i));
-  const source = literals.map((literal, i) => literal + (markers[i] ?? "")).join("");
+  const source = sourceOf(literals);
   const recorder = new MarkerRecorder(source, markers);
   recorder.tokenizer.write(source, true);
   return markers.map((m) => recorder.landed.get(m) ?? "lost");
@@ -538,6 +542,97 @@ describe("A5: fails closed where the tree, not the tokenizer, decides the contex
   });
 });
 
+// ---- A5 round 3: html() reads each literal and each trusted() value as its own part ----
+
+const CUT_OFF = "is cut off before it shows whether it opens a comment, a DOCTYPE or a CDATA section";
+
+describe("A5 round 3: a look-ahead cut off by the end of a part fails closed", () => {
+  // Breaks out of an unquoted value into a new attribute, with no quote to escape.
+  const LIVE = "x onmouseover=alert(1) ";
+
+  it('refuses trusted() markup that ends in "<!" or "<!-", which the next part can make a comment', () => {
+    // Read whole, "<!--" opens a comment that "-- >" does not end, so the value lands unquoted.
+    expect(parse5Contexts(shape`<!-- > <p title="--> <p a=${_}">`)).toEqual(["unquoted value of a in <p>"]);
+    expect(() => html`${trusted("<!-")}- > <p title="--> <p a=${LIVE}">`).toThrow(CUT_OFF);
+    expect(() => html`${[trusted("<b>"), trusted("<!")]}-- > <p title="--> <p a=${LIVE}">`).toThrow(CUT_OFF);
+  });
+
+  it('refuses trusted() markup that ends in "<![" inside <svg>, which the next part can make a CDATA section', () => {
+    expect(parse5Contexts(shape`<svg><![CDATA[> <p title="]]><p a=${_}">`)).toEqual(["unquoted value of a in <p>"]);
+    expect(() => html`<svg>${trusted("<![")}CDATA[> <p title="]]><p a=${LIVE}">`).toThrow(CUT_OFF);
+  });
+
+  it('refuses "<!" followed by only a proper prefix of "--", "DOCTYPE" or "[CDATA[" at the end of a part', () => {
+    for (const rest of ["", "-", "d", "DOC", "docTYP", "[", "[CDATA"]) {
+      expect(() => advance(START, `<!${rest}`), rest).toThrow(CUT_OFF);
+    }
+  });
+
+  it("reads a markup declaration as before when the part holds enough to decide it", () => {
+    expect(advance(START, "<!--").state).toBe("commentStart");
+    expect(advance(START, "<!-x").state).toBe("bogusComment");
+    expect(advance(START, "<!DocType").state).toBe("doctype");
+    expect(advance(START, "<!docx").state).toBe("bogusComment");
+    expect(advance(START, "<![cdata").state).toBe("bogusComment"); // "[CDATA[" is matched case-sensitively
+    expect(advance(START, "<!x").state).toBe("bogusComment");
+    expect(String(html`${trusted("<!-- a -->")}<p>${"b"}</p>`)).toBe("<!-- a --><p>b</p>");
+  });
+});
+
+/** A small seeded generator (mulberry32), so the random corpus is the same on every run. */
+function seededRandom(seed: number): () => number {
+  let a = seed;
+  return () => {
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+describe("A5 round 3: markup read in two parts reaches the context it reaches read whole, or throws", () => {
+  const read = (...parts: string[]): string => {
+    try {
+      return JSON.stringify(parts.reduce((context, part) => advance(context, part), START));
+    } catch {
+      return "throws";
+    }
+  };
+
+  /** Every split of every prefix of `markup` that does not throw and reads differently from the prefix read whole. */
+  function splitMismatches(markup: string): string[] {
+    const found: string[] = [];
+    for (let end = 0; end <= markup.length; end++) {
+      const whole = read(markup.slice(0, end));
+      for (let at = 0; at <= end; at++) {
+        const split = read(markup.slice(0, at), markup.slice(at, end));
+        if (split !== "throws" && split !== whole) {
+          found.push(`${JSON.stringify(markup.slice(0, at))} + ${JSON.stringify(markup.slice(at, end))}: ${split}, whole ${whole}`);
+        }
+      }
+    }
+    return found;
+  }
+
+  const summary = (mismatches: readonly string[]) => ({ count: mismatches.length, first: mismatches.slice(0, 3) });
+  const NONE = { count: 0, first: [] };
+
+  it("holds at every split of every prefix of the differential corpus", () => {
+    expect(summary(CORPUS.map(sourceOf).flatMap(splitMismatches))).toEqual(NONE);
+  });
+
+  it("holds at every split of every prefix of 1,000 seeded random strings of HTML-significant pieces", () => {
+    const PIECES = [
+      "<", "</", "<!", "<!-", "!", "-", "--", ">", "/", "=", '"', "'", " ", "\n", "?", "[", "[CDATA[", "CDA", "TA[", "]]>",
+      "doc", "DOCTYPE", "type", "a", "p", "title", "style", "<p ", "title=", "<svg>", "<style>", "</style>", "<title>", "</title>",
+    ];
+    const random = seededRandom(20260924);
+    const pick = () => PIECES[Math.floor(random() * PIECES.length)] ?? "";
+    const strings = Array.from({ length: 1000 }, () => Array.from({ length: 1 + Math.floor(random() * 8) }, pick).join(""));
+    expect(summary(strings.flatMap(splitMismatches))).toEqual(NONE);
+  });
+});
+
 describe("safeUrl", () => {
   it("accepts http, https, tel and mailto", () => {
     expect(String(safeUrl("http://example.com/"))).toBe("http://example.com/");
@@ -557,6 +652,20 @@ describe("safeUrl", () => {
     const SafeUrlClass = safeUrl("https://example.com/").constructor as new (...args: unknown[]) => unknown;
     expect(() => new SafeUrlClass(JS)).toThrow("Only safeUrl() and fragment() can make a SafeUrl");
     expect(() => new SafeUrlClass(Symbol("SafeUrl"), JS)).toThrow("Only safeUrl() and fragment() can make a SafeUrl");
+  });
+  it("cannot be switched off by patching the class that safeUrl(x).constructor exposes", () => {
+    const SafeUrlClass = safeUrl("https://example.com/").constructor as unknown as Record<string, unknown>;
+    const saved = Object.getOwnPropertyDescriptor(SafeUrlClass, "hrefOf");
+    try {
+      SafeUrlClass.hrefOf = String;
+      expect(() => html`<a href="${JS}">x</a>`).toThrow("needs a SafeUrl");
+      expect(() => html`<form action="${"javascript:alert(2)"}"></form>`).toThrow("needs a SafeUrl");
+    } finally {
+      if (saved) Object.defineProperty(SafeUrlClass, "hrefOf", saved);
+      else delete SafeUrlClass.hrefOf;
+    }
+    // Nothing else to patch either: the class has no static members.
+    expect(Object.getOwnPropertyNames(SafeUrlClass).sort()).toEqual(["length", "name", "prototype"]);
   });
   it("refuses an object that only borrows SafeUrl's prototype", () => {
     const forged: unknown = Object.assign(Object.create(Object.getPrototypeOf(fragment("x")) as object) as object, {
