@@ -1,0 +1,6 @@
+/* Applied only while taking full-page screenshots: the phone call bar is position:sticky,
+   which would paint it over whatever sits at the bottom of the first screen. Static puts it
+   at its natural place at the end of the page, so no content is hidden in the baseline. */
+.sticky {
+  position: static !important;
+}

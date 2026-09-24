@@ -8,13 +8,18 @@
   },
   "scripts": {
     "build:css": "pnpm --filter @asksite/renderer run build:css",
-    "typecheck": "tsc -p .",
+    "typecheck": "tsc -p . && tsc -p e2e",
     "test": "pnpm build:css && vitest run",
-    "render": "pnpm build:css && node scripts/render-fixture.ts"
+    "test:e2e": "pnpm build:css && playwright test",
+    "e2e:install": "playwright install --only-shell chromium webkit",
+    "render": "pnpm build:css && node scripts/render-fixture.ts",
+    "check": "pnpm typecheck && pnpm test && pnpm test:e2e"
   },
   "devDependencies": {
     "@asksite/renderer": "workspace:*",
     "@asksite/site-schema": "workspace:*",
+    "@axe-core/playwright": "4.13.0",
+    "@playwright/test": "1.63.0",
     "@types/node": "24.13.6",
     "html-validate": "11.16.0",
     "typescript": "7.0.2",
