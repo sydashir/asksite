@@ -93,6 +93,19 @@ for (const name of FIXTURES) {
       expect(await sidewaysScroll(page)).toBe(0);
     });
 
+    test("still reflows at 320 px after any service is chosen in the contact form", async ({ page }) => {
+      test.skip(!isPhoneProject(page), "checked once per engine, in the phone projects");
+      await page.setViewportSize({ width: 320, height: 800 });
+      const select = page.locator("#contact-service");
+      const scrolled: Record<string, number> = {};
+      for (const label of await select.locator("option").allTextContents()) {
+        await select.selectOption({ label });
+        const sideways = await sidewaysScroll(page);
+        if (sideways > 0) scrolled[label] = sideways;
+      }
+      expect(scrolled).toEqual({});
+    });
+
     test("keyboard focus is never hidden under the call bar (WCAG 2.4.11)", async ({ page }) => {
       test.skip(!isPhoneProject(page), "the call bar only shows below 768 px");
       expect(await focusHiddenByCallBar(page)).toEqual([]);

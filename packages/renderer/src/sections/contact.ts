@@ -17,9 +17,11 @@ const FIELD = "mt-1 block min-h-12 w-full rounded-lg border border-muted bg-whit
 // WebKit draws a native <select> at its own font-based height (23-25 px) and ignores its padding,
 // so the select drops the native look and draws its own arrow; pr-12 keeps a long service name
 // clear of it. The arrow inherits the wrapper's text colour (no colour class of its own), so
-// forced-colours mode recolours it with the text, as it does a native arrow.
+// forced-colours mode recolours it with the text, as it does a native arrow. truncate: WebKit counts
+// a chosen option's whole text as page width (a 40-character name scrolled a 320 px page 107 px
+// sideways), so the select clips it; Chromium also draws an ellipsis there, WebKit does not.
 const SELECT_WRAPPER = "relative mt-1 text-default";
-const SELECT = "block min-h-12 w-full appearance-none rounded-lg border border-muted bg-white py-3 pr-12 pl-4 text-base text-default";
+const SELECT = "block min-h-12 w-full appearance-none truncate rounded-lg border border-muted bg-white py-3 pr-12 pl-4 text-base text-default";
 const SELECT_ARROW = "pointer-events-none absolute top-1/2 right-4 h-5 w-5 -translate-y-1/2";
 
 export function renderContact(ctx: RenderContext, _variant: VariantOf<"contact">): SafeHtml {

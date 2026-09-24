@@ -81,6 +81,8 @@ describe("contact", () => {
     // WebKit draws a native select at its own font-based height (23-25 px) and ignores its padding.
     const selectClasses = out.match(/<select id="contact-service" name="service" class="([^"]*)">/)?.[1]?.split(" ");
     expect(selectClasses).toEqual(expect.arrayContaining(["appearance-none", "min-h-12", "rounded-lg", "border-muted", "py-3", "pl-4", "pr-12"]));
+    // WebKit counts a chosen option's whole text as page width, so a long service name must be clipped.
+    expect(selectClasses).toContain("truncate");
     // The arrow sits over the select without taking clicks from it and is hidden from assistive tech.
     // It inherits the text colour, so forced-colours (high-contrast) mode recolours it with the text.
     const arrowClasses = out.match(/<\/select><svg class="([^"]*)" viewBox="0 0 24 24" aria-hidden="true">/)?.[1]?.split(" ") ?? [];
