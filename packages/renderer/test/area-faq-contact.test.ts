@@ -81,6 +81,12 @@ describe("contact", () => {
     expect(out).toContain('aria-hidden="true"><label for="contact-website">Leave this field empty</label><input id="contact-website" name="website" type="text" tabindex="-1" autocomplete="off">');
   });
 
+  it("moves the owner's email to the next line whole, never splitting an address that fits", () => {
+    const mailClasses = out.match(/<a class="([^"]*)" href="mailto:office@example.com">/)?.[1]?.split(" ");
+    expect(mailClasses).toContain("wrap-anywhere");
+    expect(mailClasses).not.toContain("break-all");
+  });
+
   it("uses the AI call-to-action as the heading", () => {
     expect(out).toContain(">Get a free quote</h2>");
     expect(String(renderContact(makeContext(MINIMAL), "card"))).toContain(">Book a clean</h2>");
