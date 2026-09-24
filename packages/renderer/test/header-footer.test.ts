@@ -19,6 +19,12 @@ describe("header", () => {
     expect(minimalHrefs).toEqual(["#services", "#service-area", "#contact"]);
   });
 
+  it("keeps each desktop nav label on one line, and the links compact below 1280 px", () => {
+    const classes = [...out.matchAll(/<li><a class="(inline-flex[^"]*)" href="#/g)].map((m) => (m[1] ?? "").split(" "));
+    expect(classes).toHaveLength(7);
+    for (const list of classes) expect(list).toEqual(expect.arrayContaining(["whitespace-nowrap", "px-2", "text-sm", "xl:text-base"]));
+  });
+
   it("uses a native <details> menu, not JavaScript", () => {
     expect(out).toContain('<details class="group relative lg:hidden">');
     expect(out).toContain('<span class="sr-only">Menu</span>');

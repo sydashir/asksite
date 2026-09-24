@@ -6,6 +6,10 @@ import { fragment, html, type SafeHtml } from "../html.ts";
 import { icon } from "../icons.ts";
 import { DOM_ID, NAV_LABEL } from "./ids.ts";
 
+// Desktop nav labels never wrap ("Our / work" looks broken). Below xl (1280 px) the links are
+// smaller and tighter, so a long business name keeps room beside all seven of them.
+const DESKTOP_LINK = "inline-flex min-h-11 items-center whitespace-nowrap rounded-md px-2 text-sm font-medium text-default hover:text-primary xl:text-base";
+
 export function renderHeader(ctx: RenderContext): SafeHtml {
   const { facts } = ctx.doc;
   const phone = formatPhone(facts.phone);
@@ -19,7 +23,7 @@ export function renderHeader(ctx: RenderContext): SafeHtml {
 <a class="mr-auto min-w-0 font-heading text-lg font-bold leading-tight text-heading sm:text-xl" href="${fragment(DOM_ID.hero)}">${facts.businessName}</a>
 ${links.length > 0 && html`<nav aria-label="Main" class="order-last lg:order-none">
 <ul class="hidden items-center gap-1 lg:flex">
-${links.map((l) => html`<li><a class="inline-flex min-h-11 items-center rounded-md px-3 font-medium text-default hover:text-primary" href="${l.href}">${l.label}</a></li>`)}
+${links.map((l) => html`<li><a class="${DESKTOP_LINK}" href="${l.href}">${l.label}</a></li>`)}
 </ul>
 <details class="group relative lg:hidden">
 <summary class="flex h-11 w-11 cursor-pointer list-none items-center justify-center rounded-md text-heading hover:bg-gray-100 [&::-webkit-details-marker]:hidden">
