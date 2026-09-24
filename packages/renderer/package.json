@@ -6,10 +6,15 @@
   "exports": {
     ".": "./src/index.ts"
   },
+  "scripts": {
+    "build:css": "tailwindcss -i styles/input.css -o styles/site.css --minify"
+  },
   "dependencies": {
     "@asksite/site-schema": "workspace:*"
   },
   "devDependencies": {
-    "parse5": "8.0.1"
+    "@tailwindcss/cli": "4.3.3",
+    "parse5": "8.0.1",
+    "tailwindcss": "4.3.3"
   }
 }

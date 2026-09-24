@@ -7,8 +7,9 @@
     "node": ">=24.8.0"
   },
   "scripts": {
+    "build:css": "pnpm --filter @asksite/renderer run build:css",
     "typecheck": "tsc -p .",
-    "test": "vitest run"
+    "test": "pnpm build:css && vitest run"
   },
   "devDependencies": {
     "@types/node": "24.13.6",
