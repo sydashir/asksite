@@ -45,12 +45,13 @@ export const NEEDS_A_FACT: ReadonlyArray<{ readonly pattern: RegExp; readonly ba
   },
   {
     // The full-week phrase, backed by 24/7 service or by opening hours on every day (A8c): "seven days
-    // a/per/each/every week", "seven days of the week", "seven days/week", and "seven days" right
-    // after "open" or "open all". Not caught (known): "seven-day service", which reads the same as
-    // "seven-day turnaround". Refused without those facts even when it says how often, not when
-    // ("water the sod seven days a week"): the owner sees the message and rephrases.
+    // a/per/each/every week", "seven days of the week" and "seven days/week". Not caught (known):
+    // "seven-day service", which reads the same as "seven-day turnaround", and "open seven days",
+    // which reads the same as "keep the vents open seven days" (A8c-2). Refused without those facts
+    // even when it says how often, not when ("water the sod seven days a week"): the owner sees the
+    // message and rephrases.
     pattern:
-      /\b(seven[-\u2012\u2013\u2014\u2212 ]days?([-\u2012\u2013\u2014\u2212 ](a|per|each|every)[-\u2012\u2013\u2014\u2212 ]|[-\u2012\u2013\u2014\u2212 ]of[-\u2012\u2013\u2014\u2212 ]the[-\u2012\u2013\u2014\u2212 ]| ?\/ ?)week|(?<=\bopen[-\u2012\u2013\u2014\u2212 ](all[-\u2012\u2013\u2014\u2212 ])?)seven[-\u2012\u2013\u2014\u2212 ]days)\b/i,
+      /\bseven[-\u2012\u2013\u2014\u2212 ]days?([-\u2012\u2013\u2014\u2212 ](a|per|each|every)[-\u2012\u2013\u2014\u2212 ]|[-\u2012\u2013\u2014\u2212 ]of[-\u2012\u2013\u2014\u2212 ]the[-\u2012\u2013\u2014\u2212 ]| ?\/ ?)week\b/i,
     backedBy: (facts) => facts.emergency247 || opensEveryDay(facts),
   },
   { pattern: /(?<![\w-])free\b|\bno[-\u2012\u2013\u2014\u2212 ](charge|cost)\b|\bcomplimentary\b/i, backedBy: (facts) => facts.freeEstimates },

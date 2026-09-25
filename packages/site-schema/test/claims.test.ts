@@ -61,8 +61,6 @@ describe("unbackedClaims", () => {
     ["Open seven days a week", "seven days a week"],
     ["seven-day-a-week service", "seven-day-a-week"],
     ["seven days per week", "seven days per week"],
-    ["Open seven days", "seven days"],
-    ["We are open all seven days", "seven days"],
     ["Here seven days each week", "seven days each week"],
     ["Seven days every week", "Seven days every week"],
     ["Open seven days of the week", "seven days of the week"],
@@ -97,7 +95,6 @@ describe("unbackedClaims", () => {
     ["Open seven days a week", "seven days a week", "emergency247"],
     ["seven-day-a-week service", "seven-day-a-week", "emergency247"],
     ["seven days per week", "seven days per week", "emergency247"],
-    ["Open seven days", "seven days", "emergency247"],
     ["Here seven days each week", "seven days each week", "emergency247"],
     ["Open seven days of the week", "seven days of the week", "emergency247"],
     ["Help seven days/week", "seven days/week", "emergency247"],
@@ -125,7 +122,6 @@ describe("unbackedClaims", () => {
     "Open seven days a week",
     "seven-day-a-week service",
     "seven days per week",
-    "Open seven days",
     "Here seven days each week",
     "Open seven days of the week",
     "Help seven days/week",
@@ -140,7 +136,6 @@ describe("unbackedClaims", () => {
       ["seven days a week"],
       ["seven-day-a-week"],
       ["seven days per week"],
-      ["seven days"],
       ["seven days each week"],
       ["seven days of the week"],
       ["seven days/week"],
@@ -179,6 +174,18 @@ describe("unbackedClaims", () => {
     "Here for you every day", // left open by A8, A8b and A8c
     "Seven-day turnaround on most quotes", // why "seven-day service" stays uncaught (A8c)
     "Fast seven-day service", // known gap, recorded in A8c
+    "Open seven days", // known gap, recorded in A8c-2: reads the same as the sentences below
+    "We are open all seven days", // known gap, recorded in A8c-2
+    "Keep the vents open seven days after painting", // A8c-2: the "open seven days" form refused these
+    "Booking slots open seven days ahead",
+    "Leave the windows open seven days so the plaster dries",
+    "The trench stays open seven days at most",
+    "Our quotes stay open seven days.",
+    "We hold your booking open seven days while you decide.",
+    "Leave the garage door open seven days while the epoxy cures.",
+    "The new driveway can open seven days after paving.",
+    "Bids open seven days before the deadline.",
+    "Keep the vents open—seven days after painting—so the paint cures", // U+2014 em dash, a joiner
     "Book seven days ahead",
     "Leave the windows open. Seven days is enough to dry the plaster",
     "We reopen seven days after a storm",
@@ -400,6 +407,7 @@ describe("SiteDocument keeps AI copy the checks have no reason to reject", () =>
     "Leak fixed \u2714\uFE0F", // Copy accepts emoji (copy.test.ts), so a whole page must too
     "Friendly team \u2764\uFE0F",
     "Cool comfort \u2744\uFE0F",
+    "Keep the vents open seven days after painting.", // A8c-2: not a claim about opening hours
     '" autofocus onfocus="alert(document.cookie)', // Task 15's XSS fixture puts these in AI copy
     '<iframe srcdoc="<script>alert(document.domain)</script>"></iframe>',
   ])("%j", (text) => {
