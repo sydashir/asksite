@@ -15,13 +15,21 @@ import { foldLookalikes } from "./lookalikes.ts";
 // clauses, not join one compound word), so this class is spelled out wherever a pattern below
 // joins two words.
 //
-// Claims are matched with every combining mark removed (A9) and every Latin look-alike read as the A-Z
-// letters it looks like (A9b, foldLookalikes in lookalikes.ts), so an accent ("lícensed"), a mark between
-// two words ("Award" + " " + U+0336 + "winning") or a look-alike letter ("lıcensed", "ƒree", "ŁICENSED")
-// hides no claim. Claims are also matched as typed, as before A9 (A9b round 1): the fold can join two
-// words the page shows apart, because it reads U+01C0 "ǀ", which looks like "|", as "l" ("ǀBondedǀ") and
-// removes a mark between two words ("Top" + U+0336 + "rated"). So the fold only ever adds a claim.
-// Phonetic letters and small capitals ("ɪnsured", "ᴄertified") never get here: Copy refuses them.
+// Claims are matched on the page read two ways (A9, A9b, A9c), and a claim either reading finds counts:
+// - as typed, as before A9, so every claim the checker found before A9 is still found;
+// - folded (foldLookalikes in lookalikes.ts): composed (NFC), with every combining mark removed that is not part
+//   of a precomposed letter, the look-alikes listed in lookalikes.ts read as the A-Z letters they look like, and
+//   the click letters read as punctuation. So an overlay mark inside a word or between two words ("Licen" +
+//   U+0336 + "sed", "Award" + " " + U+0336 + "winning"), a look-alike letter ("lıcensed", "ƒree", "ŁICENSED")
+//   or a click letter ("ǀCertifiedǀ", where "ǀ" looks like "|") hides no claim. The fold alone would join two
+//   words the page shows apart ("Top" + U+0336 + "rated"), so the typed reading stays: the fold only ever adds a claim.
+// Phonetic letters, small capitals and letters that look like digits ("ɪnsured", "ᴄertified", "Ƨ") never get
+// here: Copy refuses them.
+// Accepted residuals (the approval screen is the backstop): a precomposed accented letter is read as typed, so
+// a deliberately accented claim word ("lícensed", "frée") is not caught (A9c), as before A9; a letter the table
+// does not list ("Ɛ", "Ʌ") or a symbol ("fr℮℮", "L¡censed"); a combining Latin small letter used as a letter
+// ("Lic" + U+0364 + "nsed"); ASCII "l" or "|" for "I" and a click letter for "l" ("CERTlFlED", "ǀicensed"); and the
+// phrasings the word lists do not cover.
 
 /** Claims no owner fact backs: rejected in copy whatever the facts say. */
 export const NEVER_IN_COPY: readonly RegExp[] = [
@@ -91,17 +99,26 @@ const OTHER_DASH = /(?![-\u2010-\u2014])[\p{Pd}\u2043\u23AF\u2500\u2501\u30FC\uF
 export const asReadOnPage = (text: string): string =>
   text.replace(/\s+/g, " ").replace(/[\u2010\u2011]/g, "-").replace(OTHER_DASH, "\u2014");
 
+/** The page read as typed and folded (see the top of this file). */
+function readings(text: string): readonly string[] {
+  return [asReadOnPage(text), asReadOnPage(foldLookalikes(text))];
+}
+
 /**
  * The words in `text` that state a claim the owner's facts do not back (empty when the text is
- * fine), matched as a reader sees the page, read two ways: as typed, and folded, with every combining
- * mark removed and every look-alike read as A-Z letters (A9, A9b). A claim either reading finds counts,
- * so every word the typed reading alone finds is found. A found word is shown as typed when the typed
- * reading finds it, so the owner can find it in the copy, otherwise folded; the copy itself is not changed.
+ * fine), matched as a reader sees the page, read the two ways above. A claim either reading finds counts,
+ * so every word the typed reading alone finds is found. A found word is shown from the first reading that
+ * finds it, as typed when it can be, so the owner can find it in the copy; the copy itself is not changed.
  */
 export function unbackedClaims(text: string, facts: Facts): string[] {
-  const typed = asReadOnPage(text);
-  const folded = asReadOnPage(foldLookalikes(text));
-  const claim = (pattern: RegExp): string | undefined => (pattern.exec(typed) ?? pattern.exec(folded))?.[0];
+  const read = readings(text);
+  const claim = (pattern: RegExp): string | undefined => {
+    for (const reading of read) {
+      const word = pattern.exec(reading)?.[0];
+      if (word !== undefined) return word;
+    }
+    return undefined;
+  };
   const found: string[] = [];
   for (const pattern of NEVER_IN_COPY) {
     const word = claim(pattern);

@@ -3,15 +3,18 @@ import { z } from "zod";
 // AI-written prose only. Every string has a hard length cap and is NFKC-normalised (so "＄８９"
 // becomes "$89" before it is checked), then rejected if it contains:
 // - a character Unicode classes as a number (\p{N}, e.g. "5", "٥", "½"), a currency symbol
-//   (\p{Sc}), "@", "http:", "https:" or "www.";
+//   (\p{Sc}), "@", "http:", "https:" or "www.", or a Latin letter that looks like a digit ("Ƨ", "Ƽ";
+//   DIGIT_LETTER below, A9c);
 // - a control or invisible formatting character (\p{Cc}, \p{Cf});
 // - any character outside the Latin, Common (punctuation, symbols, emoji) and Inherited
 //   (combining marks) scripts. Other scripts can write numbers and prices as letters ("五百元")
 //   and have letters that look Latin (Cyrillic "о", U+043E);
-// - a letter from a block never used in real English copy, whose letters can pass for A-Z letters
-//   (A9b): phonetic letters and small capitals such as "ɪ", "ᴄ" and "ʟɪᴄᴇɴꜱᴇᴅ" (NON_ENGLISH_LETTER below).
-//   Every other Latin letter passes: "café", "Bjørn", "Łukasz", "Straße", "Hawaiʻi" (U+02BB ʻokina).
-//   claims.ts reads the look-alikes among them ("ı", "ƒ", "Ł") as A-Z letters (lookalikes.ts).
+// - a letter from a phonetic block, whose letters can pass for A-Z letters (A9b, A9c): phonetic letters and
+//   small capitals such as "ɪ", "ᴄ", "ꬶ" and "ʟɪᴄᴇɴꜱᴇᴅ" (NON_ENGLISH_LETTER below). Accepted residual: a name
+//   written with such a letter is refused too ("Wewətanagok", with ə).
+//   Every other Latin letter passes: "café", "Bjørn", "Łukasz", "Straße", "Hawaiʻi" (U+02BB ʻokina), and the glottal
+//   stop "ʔ" of official US place names ("dukMéʔem wáťa").
+//   claims.ts reads the look-alikes listed in lookalikes.ts ("ı", "ƒ", "Ł") as A-Z letters.
 // So copy cannot write a price, phone number, licence number, year or email in digits or symbols,
 // or a link that starts "http:", "https:" or "www.". Not caught here: bare domains ("acme.com")
 // and numbers spelled with Latin letters ("five", "XII"). Worded claims ("licensed", "free",
@@ -21,21 +24,30 @@ import { z } from "zod";
 // except an emoji's own presentation selector (✔ then U+FE0F), which both checks accept.
 // The renderer reads facts only from `facts`.
 const FACT_LIKE = /[\p{N}\p{Sc}@]|https?:|www\./iu;
+
+/**
+ * Latin letters that look like a digit (A9c): every Latin letter whose skeleton in confusables.txt (UTS #39, Version
+ * 18.0.0 of 2026-08-06, https://www.unicode.org/Public/18.0.0/security/confusables.txt, Unicode License v3, notice in
+ * THIRD_PARTY_NOTICES.md), with combining marks removed, is one ASCII digit: Ƨ U+01A7 "2", Ʒ U+01B7 "3", ƻ U+01BB
+ * "2" (with a stroke), Ƽ U+01BC "5", Ǯ U+01EE "3" (Ʒ with a caron), Ȝ U+021C "3", Ȣ U+0222 and ȣ U+0223 "8", and in
+ * Latin Extended-D, which NON_ENGLISH_LETTER refuses anyway, Ꝛ U+A75A "2", Ꝫ U+A76A "3", Ꝯ U+A76E and ꝯ U+A76F "9",
+ * Ɜ U+A7AB "3". Matched case-sensitively: the other case of most of them (ƨ, ȝ, ǯ) looks like no digit.
+ */
+const DIGIT_LETTER = /[\u01A7\u01B7\u01BB\u01BC\u01EE\u021C\u0222\u0223\uA75A\uA76A\uA76E\uA76F\uA7AB]/u;
 const HIDDEN_CHARACTER = /[\p{Cc}\p{Cf}]/u;
 const NON_LATIN_SCRIPT = /[^\p{Script=Latin}\p{Script=Common}\p{Script=Inherited}]/u;
 
 /**
- * Letters from blocks never used in real English copy, whose letters can pass for A-Z letters (A9b; block
- * ranges from Unicode's Blocks.txt): U+0250-02AF IPA Extensions ("ɪ", "ʟ", "ɡ"), U+1D00-1D7F Phonetic
- * Extensions and U+1D80-1DBF Phonetic Extensions Supplement ("ᴄ", "ᴇ"), U+A720-A7FF Latin Extended-D ("ꜱ",
- * "Ɪ", "Ꝼ"), and every other letter whose Unicode name says SMALL CAPITAL: U+2C7B, U+AB46, U+10780,
- * U+1DF02, U+1DF04 and U+1DF10 (UnicodeData.txt 17.0), plus U+1DF30, U+1DF35, U+1DF36 and U+1DF43, which
- * Unicode 18.0 adds (until Node knows them, the Latin-script rule above refuses them as unassigned). The
- * modifier-letter small capitals (U+02B6, U+10784 and others) become one of these under NFKC, which runs first.
- * Symbols in these blocks that are not letters (U+A720, U+A789) are allowed, like other punctuation.
+ * Letters from phonetic blocks, whose letters can pass for A-Z letters (A9b, A9c; block ranges from Unicode's
+ * Blocks.txt): U+0250-02AF IPA Extensions ("ɪ", "ʟ", "ɡ") except U+0294 ʔ LATIN LETTER GLOTTAL STOP, which
+ * official US place names use (US Board on Geographic Names, GNIS 260516 "dukMéʔem wáťa"); U+1D00-1D7F Phonetic
+ * Extensions and U+1D80-1DBF Phonetic Extensions Supplement ("ᴄ", "ᴇ"); U+A720-A7FF Latin Extended-D ("ꜱ", "Ɪ",
+ * "Ꝼ"); U+AB30-AB6F Latin Extended-E ("ꬶ", "ꭋ") and U+1DF00-1DFFF Latin Extended-G; and the two other letters
+ * whose Unicode name says SMALL CAPITAL, U+2C7B and U+10780 (UnicodeData.txt 17.0 and 18.0). The modifier-letter
+ * small capitals (U+02B6, U+10784 and others) become one of these under NFKC, which runs first. Symbols in these
+ * blocks that are not letters (U+A720, U+A789) are allowed, like other punctuation.
  */
-const NON_ENGLISH_LETTER =
-  /(?=\p{L})[\u0250-\u02AF\u1D00-\u1DBF\uA720-\uA7FF\u2C7B\uAB46\u{10780}\u{1DF02}\u{1DF04}\u{1DF10}\u{1DF30}\u{1DF35}\u{1DF36}\u{1DF43}]/u;
+const NON_ENGLISH_LETTER = /(?=\p{L})[\u0250-\u0293\u0295-\u02AF\u1D00-\u1DBF\uA720-\uA7FF\uAB30-\uAB6F\u2C7B\u{10780}\u{1DF00}-\u{1DFFF}]/u;
 
 export const prose = (max: number) =>
   z
@@ -44,7 +56,7 @@ export const prose = (max: number) =>
     .trim()
     .min(1)
     .max(max)
-    .refine((s) => !FACT_LIKE.test(s), {
+    .refine((s) => !FACT_LIKE.test(s) && !DIGIT_LETTER.test(s), {
       error: "Copy must not contain numbers, currency symbols, @ or links; facts come from the owner",
     })
     .refine((s) => !HIDDEN_CHARACTER.test(s), { error: "Copy must not contain control or invisible characters" })

@@ -86,15 +86,19 @@ describe("Copy", () => {
     ]);
   });
 
-  // A9b: letters from blocks never used in real English copy can pass for A-Z letters ("ɪ", "ᴄ", "ꜱ"), so
-  // copy refuses them. Every other Latin letter is allowed; claims.ts reads the look-alikes among them
-  // ("ı", "ƒ", "Ł") as the A-Z letters they look like.
+  // A9b, A9c: letters from phonetic blocks can pass for A-Z letters ("ɪ", "ᴄ", "ꜱ", "ꬶ"), so copy refuses them,
+  // except U+0294 ʔ, which official US place names use. Every other Latin letter is allowed; claims.ts reads the
+  // look-alikes listed in lookalikes.ts ("ı", "ƒ", "Ł") as the A-Z letters they look like.
   const REFUSED_BLOCKS: ReadonlyArray<readonly [number, number]> = [
     [0x0250, 0x02af], // IPA Extensions
     [0x1d00, 0x1d7f], // Phonetic Extensions
     [0x1d80, 0x1dbf], // Phonetic Extensions Supplement
     [0xa720, 0xa7ff], // Latin Extended-D
+    [0xab30, 0xab6f], // Latin Extended-E (A9c)
+    [0x1df00, 0x1dfff], // Latin Extended-G (A9c)
   ];
+  /** U+0294 LATIN LETTER GLOTTAL STOP (IPA Extensions): US Board on Geographic Names names use it (A9c). */
+  const GLOTTAL_STOP = 0x0294;
   /** Every letter whose Unicode 17.0 name says SMALL CAPITAL (UnicodeData.txt), in any block. */
   const SMALL_CAPITALS = [
     0x0262, 0x026a, 0x0274, 0x0276, 0x0280, 0x0281, 0x028f, 0x0299, 0x029b, 0x029c, 0x029f, 0x02b6, 0x1d00, 0x1d01,
@@ -104,7 +108,39 @@ describe("Copy", () => {
     0xab46, 0xab65, 0x10780, 0x10784, 0x10792, 0x10794, 0x10796, 0x1079c, 0x107a3, 0x107aa, 0x107b2, 0x1df02,
     0x1df04, 0x1df10,
   ];
+  /**
+   * The Latin letters whose confusables.txt 18.0.0 skeleton, with combining marks removed, is one ASCII digit (A9c):
+   * Ƨ 2, Ʒ 3, ƻ 2, Ƽ 5, Ǯ 3 (Ʒ + caron), Ȝ 3, Ȣ 8, ȣ 8, and in Latin Extended-D Ꝛ 2, Ꝫ 3, Ꝯ 9, ꝯ 9, Ɜ 3.
+   */
+  const DIGIT_LETTERS = [0x01a7, 0x01b7, 0x01bb, 0x01bc, 0x01ee, 0x021c, 0x0222, 0x0223, 0xa75a, 0xa76a, 0xa76e, 0xa76f, 0xa7ab];
   const headlineWith = (letter: string) => issues({ ...valid, heroHeadline: `Crew ${letter} team` });
+  const messagesFor = (headline: string) => {
+    const result = Copy.safeParse({ ...valid, heroHeadline: headline });
+    return result.success ? [] : result.error.issues.map((i) => i.message);
+  };
+
+  it.each([
+    "Call (ƧOȢ) ƼƼƼ-OlƧƷ", // renders like "(2O8) 555-Ol23"
+    "Call l-ȢOO-ƼƼƼ-OƼȢƧ",
+    "ƼO% off",
+    "Ȝ crews",
+    "Ǯ vans",
+    "ƻ trucks",
+  ])("rejects a letter that looks like a digit as a number: %j", (headline) => {
+    expect(messagesFor(headline)).toEqual(["Copy must not contain numbers, currency symbols, @ or links; facts come from the owner"]);
+  });
+
+  it("rejects exactly the letters confusables.txt reads as a digit, and not their other case", () => {
+    for (const cp of DIGIT_LETTERS) expect(headlineWith(String.fromCodePoint(cp)), `U+${cp.toString(16)}`).toEqual(["heroHeadline: custom"]);
+    expect(headlineWith("ƨ")).toEqual([]); // U+01A8, the small form of Ƨ
+    expect(headlineWith("ȝ")).toEqual([]); // U+021D yogh, the small form of Ȝ
+    expect(headlineWith("ǯ")).toEqual([]); // U+01EF, the small form of Ǯ
+  });
+
+  it("accepts U+0294 ʔ, which official US place names use (GNIS 260516 'dukMéʔem wáťa'), and still refuses other IPA letters", () => {
+    expect(issues({ ...valid, heroHeadline: "Serving homes near dukMéʔem wáťa" })).toEqual([]);
+    expect(issues({ ...valid, heroHeadline: "Serving Wewətanagok" })).toEqual(["heroHeadline: custom"]); // ə U+0259
+  });
 
   it.each([
     "ʟɪᴄᴇɴꜱᴇᴅ plumbers", // small capitals
@@ -118,7 +154,13 @@ describe("Copy", () => {
     "Insured for ⱻvery job", // U+2C7B small capital turned e (Latin Extended-C)
     "Top ꭆated crew", // U+AB46 small capital R with right leg (Latin Extended-E)
     "\u{1DF04}icensed crew", // small capital L with belt (Latin Extended-G)
-  ])("rejects a letter from a block never used in English copy: %j", (headline) => {
+    "ꬶuaranteed results", // U+AB36 script g with crossed-tail (Latin Extended-E, A9c)
+    "Top ꭋated crew", // U+AB4B script r
+    "There is ꬼo charge", // U+AB3C eng
+    "Fully licꬳnsꬳd", // U+AB33 barred e
+    "Our guarꬰntee", // U+AB30 barred alpha
+    "Fully \u{1DF1A}nsured", // i with stroke and retroflex hook (Latin Extended-G, A9c)
+  ])("rejects a letter from a phonetic block: %j", (headline) => {
     expect(issues({ ...valid, heroHeadline: headline })).toEqual(["heroHeadline: custom"]);
   });
 
@@ -126,14 +168,15 @@ describe("Copy", () => {
     for (const cp of SMALL_CAPITALS) expect(headlineWith(String.fromCodePoint(cp)), `U+${cp.toString(16)}`).toEqual(["heroHeadline: custom"]);
   });
 
-  it("rejects exactly the letters of those blocks and the small capitals, and no other Latin or Common letter", () => {
+  it("rejects exactly the letters of those blocks, the small capitals and the digit look-alikes, and no other Latin or Common letter", () => {
     const wrong: string[] = [];
     for (let cp = 0x80; cp <= 0x10ffff; cp++) {
       if (cp >= 0xd800 && cp <= 0xdfff) continue;
       const letter = String.fromCodePoint(cp);
       // Letters NFKC leaves alone (NFKC runs first); other scripts are refused by the Latin-script rule above.
       if (!/^\p{L}$/u.test(letter) || !/[\p{Script=Latin}\p{Script=Common}]/u.test(letter) || letter.normalize("NFKC") !== letter) continue;
-      const expected = REFUSED_BLOCKS.some(([from, to]) => cp >= from && cp <= to) || SMALL_CAPITALS.includes(cp);
+      const inRefusedBlock = cp !== GLOTTAL_STOP && REFUSED_BLOCKS.some(([from, to]) => cp >= from && cp <= to);
+      const expected = inRefusedBlock || SMALL_CAPITALS.includes(cp) || DIGIT_LETTERS.includes(cp);
       if ((headlineWith(letter).length > 0) !== expected) wrong.push(`U+${cp.toString(16)} ${expected ? "accepted" : "refused"}`);
     }
     expect(wrong).toEqual([]);
@@ -176,6 +219,12 @@ describe("Copy", () => {
     "Naïve café questions welcome",
     "Þórr runs the crew",
     "Lıcensed plumbers", // U+0131: Copy allows it; the claim checker reads it as "Licensed" (claims.test.ts)
+    // A9c: real business names and words
+    "Tiệm Giặt Sấy laundromat",
+    "Ask for Saïd",
+    "Génération Nouvelle Bakery",
+    "Icelandic bönd, a décade, one dollár",
+    "Near dukMéʔem wáťa", // U+0294 ʔ (A9c)
   ])("accepts every other Latin letter: %j", (headline) => {
     expect(issues({ ...valid, heroHeadline: headline })).toEqual([]);
   });

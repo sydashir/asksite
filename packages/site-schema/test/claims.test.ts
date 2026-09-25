@@ -303,28 +303,41 @@ describe("unbackedClaims", () => {
     },
   );
 
-  // A9: claims are matched after NFD and the removal of every combining mark (\p{M}), so an accent or a
-  // mark between two words cannot hide a claim word.
+  // A9, A9c: claims are also matched with every combining mark removed that NFC leaves on its own (one that is not
+  // part of a precomposed letter), so an overlay or enclosing mark inside a word or between two words hides no claim.
   it.each([
-    ["Our lícensed team", "licensed"], // U+00ED i with acute
-    ["Our li\u0301censed team", "licensed"], // i + U+0301 combining acute
-    ["Fully i\u0308nsured", "insured"], // i + U+0308 combining diaeresis
     ["Licen\u0336sed crew", "Licensed"], // U+0336 combining long stroke overlay inside the word
     ["Licen\u20DDsed crew", "Licensed"], // U+20DD combining enclosing circle (an enclosing mark, Me)
     ["Licen\u{1D165}sed crew", "Licensed"], // U+1D165 musical symbol combining stem (a spacing mark, Mc)
-    ["Get a frée quote", "free"],
-  ])("reads %j with its marks removed and finds %j unless the facts back it", (text, word) => {
+    ["Li\u0307censed crew", "Licensed"], // i + U+0307: no precomposed letter, and the dot merges with the i's own
+    ["Fully insu\u0335red", "insured"], // u + U+0335 combining short stroke overlay
+    ["Get a f\u0335ree quote", "free"], // f + U+0335, hidden in the f's crossbar
+  ])("reads %j with its leftover marks removed and finds %j unless the facts back it", (text, word) => {
     expect(unbackedClaims(text, NONE)).toEqual([word]);
     expect(unbackedClaims(text, ALL)).toEqual([]);
+  });
+
+  // A9c accepted residual: a precomposed accented letter is read as typed, so real words keep their meaning ("Saïd",
+  // "Tiệm Giặt Sấy") and a deliberately accented claim word is not caught, as before A9. The approval screen is the backstop.
+  it.each([
+    "Our lícensed team", // U+00ED i with acute
+    "Our li\u0301censed team", // i + U+0301, which NFC composes into í
+    "Fully i\u0308nsured",
+    "Get a frée quote",
+    "Fïve-stär service",
+    "Satisfaction guaránteed",
+    "Bǿnded crew", // U+01FF, ø with acute, is precomposed too
+  ])("does not read the precomposed accented letters in %j as A-Z letters (accepted residual)", (text) => {
+    expect(unbackedClaims(text, NONE)).toEqual([]);
   });
 
   it.each([
     ["Award \u0336winning crew", "Award winning"], // A8c-3: U+0336 splits the claim from the space
     ["Same \u0336day help", "Same day"],
     ["Award\u0336 winning crew", "Award winning"],
-    ["Fïve-stär service", "Five-star"],
-    ["Satisfaction guaránteed", "guaranteed"],
-  ])("never allows %j (%j once its marks are removed), whatever the facts", (text, claim) => {
+    ["Cert\u0335ified pros", "Certified"], // t + U+0335, hidden in the t's crossbar
+    ["Top-rat\u0335ed crew", "Top-rated"],
+  ])("never allows %j (%j once its leftover marks are removed), whatever the facts", (text, claim) => {
     expect(unbackedClaims(text, NONE)).toEqual([claim]);
     expect(unbackedClaims(text, ALL)).toEqual([claim]);
   });
@@ -333,6 +346,14 @@ describe("unbackedClaims", () => {
     "Café-clean kitchens, naïve questions welcome",
     "Jalapeño stains lifted",
     "Crème brûlée spills, gone",
+    // A9c: precomposed letters are read as typed, so these real names and words are not claims
+    "Tiệm Giặt Sấy washes your quilts",
+    "Giặt Sấy Laundry",
+    "Ask for Saïd",
+    "Génération Nouvelle Bakery",
+    "Icelandic bönd",
+    "A décade of ten days",
+    "Priced in dollár? No, in forint",
   ])("leaves ordinary accented copy alone: %j", (text) => {
     expect(unbackedClaims(text, NONE)).toEqual([]);
   });
@@ -347,7 +368,9 @@ describe("unbackedClaims", () => {
     ["FULLY ƗNSURED", "INSURED"], // U+0197 capital I with stroke
     ["FULLY ƖNSURED", "INSURED"], // U+0196 capital iota
     ["ƑREE ESTIMATES", "FREE"], // U+0191 capital F with hook
-    ["ǀicensed crew", "licensed"], // U+01C0 dental click
+    ["ƎMERGENCY CALLS", "EMERGENCY"], // U+018E reversed E (A9c)
+    ["Fully licǝnsǝd", "licensed"], // U+01DD turned e, the other case of Ǝ
+    ["Get a frǝǝ quote", "free"],
     ["Fully ınsuređ", "insured"],
     ["Help around þe clock", "around the clock"], // þ reads "th"
     ["Help day or ŋight", "day or night"], // U+014B eng
@@ -359,7 +382,8 @@ describe("unbackedClaims", () => {
 
   it.each([
     ["ƁONDED CREW", "BONDED"], // U+0181 capital B with hook
-    ["Bøndéd crew", "Bonded"],
+    ["Bøndéd crew", "Bond"], // ø reads o; é stays as typed (A9c), and "Bond" before it is a word
+    ["ƜARRANTY INCLUDED", "WARRANTY"], // U+019C turned M reads W (A9c)
     ["Certifieđ technicians", "Certified"],
     ["Top-ɍated crew", "Top-rated"], // U+024D r with stroke
     ["Ƒive-star service", "Five-star"],
@@ -413,9 +437,26 @@ describe("unbackedClaims", () => {
     expect(unbackedClaims(text, ALL)).toEqual(withAllFacts);
   });
 
+  // A9c: the click letters U+01C0-01C3 look like | ‖ ǂ ! and act as punctuation in claim matching, never as letters. So
+  // a mark hidden inside the word they wrap (i + U+0307 draws as a plain i) is removed and the word is found.
+  it.each([
+    ["ǀCerti\u0307fiedǀ pros", ["Certified"], ["Certified"]],
+    ["ǀLi\u0307censedǀ plumbers", ["Licensed"], []],
+    ["Trusted ǀsi\u0307nceǀ the start", ["since"], ["since"]],
+    ["Call ǀanyti\u0307meǀ", ["anytime"], []],
+    ["ǁbondi\u0307ngǁ", [], []], // not a claim word: "bond" is followed by more letters
+    ["ǂBondedǂ", ["Bonded"], ["Bonded"]],
+    ["ǃBondedǃ", ["Bonded"], ["Bonded"]],
+    ["Freeǂrated", ["rated", "Free"], ["rated"]],
+    ["ǃfreeǃ quote", ["free"], []],
+  ])("reads the click letters in %j as punctuation, finding %j without facts and %j with every fact", (text, withoutFacts, withAllFacts) => {
+    expect(unbackedClaims(text, NONE)).toEqual(withoutFacts);
+    expect(unbackedClaims(text, ALL)).toEqual(withAllFacts);
+  });
+
   it("finds every claim main's reading finds, word for word, whatever character the fold changes is glued to it", () => {
-    // Every character copy accepts that the fold changes: a combining mark it removes, a letter NFD decomposes,
-    // or a look-alike it reads as A-Z letters. The fold works one character at a time, so every other character
+    // Every character copy accepts that the fold changes: a combining mark it removes, a character NFC replaces, or
+    // a look-alike it reads as A-Z letters or punctuation. The fold works one character at a time, so every other character
     // reads the same both ways. The first two filters only save time: copy refuses unassigned and private-use
     // code points and every script but Latin, Common and Inherited.
     const folded = allCodePoints().filter(
@@ -425,7 +466,8 @@ describe("unbackedClaims", () => {
         foldLookalikes(c) !== c &&
         prose(80).safeParse(`a${c}a`).success,
     );
-    expect(folded).toEqual(expect.arrayContaining(["ǀ", "ǁ", "\u0336", "\u20DD", "\u20E3", "\u{1D165}", "é", "ı", "ƒ", "Ł", "ʻ"]));
+    expect(folded).toEqual(expect.arrayContaining(["ǀ", "ǁ", "ǃ", "\u0336", "\u0307", "\u20DD", "\u20E3", "\u{1D165}", "ı", "ƒ", "Ł", "ʻ", "Ǝ", "Ɯ"]));
+    expect(folded).not.toContain("é"); // precomposed: read as typed (A9c)
 
     const patterns = [...NEVER_IN_COPY, ...NEEDS_A_FACT.map(({ pattern }) => pattern)];
     /** The claims main (acae4ab) found: every pattern run on the text as the page shows it, without the fold. */
@@ -538,7 +580,6 @@ describe("SiteDocument rejects AI copy that states facts the owner did not give"
     "Friendly \u034F team",
     "Award \u0336winning crew", // A8c-3: a combining mark splits the claim (A9 folds it away)
     "Same \u0336day help",
-    "Our l\u00EDcensed team",
     "L\u0131censed and \u0131nsured plumbers", // U+0131 dotless i (A9b: read as "i", so a claim)
     "\u029F\u026A\u1D04\u1D07\u0274\uA731\u1D07\u1D05 \u1D00\u0274\u1D05 \u026A\u0274\uA731\u1D1C\u0280\u1D07\u1D05 plumbers", // small capitals (refused by Copy)
     "Licen\u0282ed plumbers", // U+0282 s with hook (IPA Extensions, refused by Copy)
@@ -551,6 +592,10 @@ describe("SiteDocument rejects AI copy that states facts the owner did not give"
     "Get a \u01C0free\u01C0 quote",
     "Top\u0336rated crew", // A9b round 1: U+0336 between the words, which the fold removes
     "Certified\u{1D165}pros",
+    "Call (ƧOȢ) ƼƼƼ-OlƧƷ", // A9c: letters that look like digits (refused by Copy)
+    "ꬶuaranteed results", // A9c: Latin Extended-E (refused by Copy)
+    "\u01C0Certi\u0307fied\u01C0 pros", // A9c: a click letter reads as "|", and the leftover U+0307 goes
+    "\u019CARRANTY INCLUDED", // A9c: U+019C reads W
   ])("%j", (claim) => {
     const faq = [{ question: "Why us?", answer: claim }];
     const result = SiteDocument.safeParse({ ...MINIMAL_DOC, copy: { ...MINIMAL_DOC.copy, faq } });
@@ -584,6 +629,16 @@ describe("SiteDocument rejects AI copy that states facts the owner did not give"
     expect(backed.copy.faq[0]?.answer).toBe("There is no  charge for a visit");
   });
 
+  it('refuses the never-allowed claim in "LicensedǀInsuredǀCerti\u0307fied" even when every fact is set (A9c)', () => {
+    const facts = { ...base, licences: [{ label: "Idaho contractor", number: "RCE-1" }], insured: true, emergency247: true, freeEstimates: true };
+    const faq = [{ question: "Why us?", answer: "Licensed\u01C0Insured\u01C0Certi\u0307fied" }];
+    const layout = [...MINIMAL_DOC.layout, { id: "trust", variant: "band" } as const];
+    const result = SiteDocument.safeParse({ ...MINIMAL_DOC, facts, layout, copy: { ...MINIMAL_DOC.copy, faq } });
+    expect(result.success ? [] : result.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`)).toEqual([
+      `copy.faq.0.answer: Copy states something the owner's facts do not back: "Certified"`,
+    ]);
+  });
+
   it('refuses the bond claim in "LicensedǀInsuredǀBonded" even when every fact is set (A9b round 1)', () => {
     const facts = { ...base, licences: [{ label: "Idaho contractor", number: "RCE-1" }], insured: true, emergency247: true, freeEstimates: true };
     const faq = [{ question: "Why us?", answer: "LicensedǀInsuredǀBonded" }];
@@ -613,6 +668,12 @@ describe("SiteDocument keeps AI copy the checks have no reason to reject", () =>
     "Encyclop\u00E6dia-level know-how",
     "Jos\u00E9, Se\u00F1or, Cr\u00E8me and a na\u00EFve caf\u00E9 owner",
     "\u00DE\u00F3rr runs the crew",
+    // A9c: precomposed letters are read as typed, the glottal stop is allowed, and CamelCase names are no claims
+    "Ti\u1EC7m Gi\u1EB7t S\u1EA5y washes your quilts",
+    "Ask for Sa\u00EFd at G\u00E9n\u00E9ration Nouvelle Bakery",
+    "Icelandic b\u00F6nd, a d\u00E9cade, one doll\u00E1r",
+    "Serving homes near dukM\u00E9\u0294em w\u00E1\u0165a",
+    "Our l\u00EDcensed team", // A9c accepted residual: a precomposed accented letter is read as typed
   ])("%j", (text) => {
     const faq = [{ question: "Why us?", answer: text }];
     const result = SiteDocument.safeParse({ ...MINIMAL_DOC, copy: { ...MINIMAL_DOC.copy, faq } });
