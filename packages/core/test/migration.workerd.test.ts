@@ -34,8 +34,17 @@ afterAll(async () => {
   await server.close();
 });
 
-const OWNER = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
-const SITE = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+/**
+ * A new owner and a new site (fresh ids, default columns) for one test. Every test sets up its own
+ * rows, so each passes alone (-t) and in any order (A9).
+ */
+async function newSite(): Promise<{ owner: string; site: string }> {
+  const owner = crypto.randomUUID();
+  const site = crypto.randomUUID();
+  await db.prepare("INSERT INTO owners (id, email, created_at) VALUES (?, ?, ?)").bind(owner, `${owner}@example.com`, 1).run();
+  await db.prepare("INSERT INTO sites (id, owner_id, created_at, updated_at) VALUES (?, ?, ?, ?)").bind(site, owner, 1, 1).run();
+  return { owner, site };
+}
 
 describe("0001_init.sql", () => {
   it("creates every table", async () => {
@@ -46,9 +55,8 @@ describe("0001_init.sql", () => {
   });
 
   it("gives a new site the empty OwnerEdits and rev 1", async () => {
-    await db.prepare("INSERT INTO owners (id, email, created_at) VALUES (?, ?, ?)").bind(OWNER, "owner@example.com", 1).run();
-    await db.prepare("INSERT INTO sites (id, owner_id, created_at, updated_at) VALUES (?, ?, ?, ?)").bind(SITE, OWNER, 1, 1).run();
-    const row = await db.prepare("SELECT edits_json, rev, indexable, slug FROM sites WHERE id = ?").bind(SITE).first<{ edits_json: string; rev: number; indexable: number; slug: string | null }>();
+    const { site } = await newSite();
+    const row = await db.prepare("SELECT edits_json, rev, indexable, slug FROM sites WHERE id = ?").bind(site).first<{ edits_json: string; rev: number; indexable: number; slug: string | null }>();
     expect(OwnerEdits.parse(JSON.parse(row?.edits_json ?? "null"))).toEqual(EMPTY_EDITS);
     expect(row).toMatchObject({ rev: 1, indexable: 1, slug: null });
   });
@@ -60,16 +68,18 @@ describe("0001_init.sql", () => {
   });
 
   it("allows many sites without a slug but never two with the same slug", async () => {
+    const { owner } = await newSite();
     const insert = (id: string, slug: string | null) =>
-      db.prepare("INSERT INTO sites (id, owner_id, slug, created_at, updated_at) VALUES (?, ?, ?, 1, 1)").bind(id, OWNER, slug).run();
+      db.prepare("INSERT INTO sites (id, owner_id, slug, created_at, updated_at) VALUES (?, ?, ?, 1, 1)").bind(id, owner, slug).run();
     await insert("dddddddd-dddd-4ddd-8ddd-dddddddddddd", null);
     await insert("eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee", "joes");
     await expect(insert("ffffffff-ffff-4fff-8fff-ffffffffffff", "joes")).rejects.toThrow(/UNIQUE constraint failed: sites.slug/);
   });
 
   it("allows at most one queued or running generation per site (partial unique index)", async () => {
+    const { owner, site } = await newSite();
     const insert = (id: string, status: string) =>
-      db.prepare("INSERT INTO generations (id, site_id, owner_id, kind, status, input_json, created_at) VALUES (?, ?, ?, 'first', ?, '{}', 1)").bind(id, SITE, OWNER, status).run();
+      db.prepare("INSERT INTO generations (id, site_id, owner_id, kind, status, input_json, created_at) VALUES (?, ?, ?, 'first', ?, '{}', 1)").bind(id, site, owner, status).run();
     await insert("10000000-0000-4000-8000-000000000001", "succeeded");
     await insert("10000000-0000-4000-8000-000000000002", "queued");
     await expect(insert("10000000-0000-4000-8000-000000000003", "queued")).rejects.toThrow(/UNIQUE constraint failed: generations.site_id/);
@@ -78,23 +88,26 @@ describe("0001_init.sql", () => {
   });
 
   it("rejects values outside the CHECK constraints", async () => {
-    await expect(db.prepare("UPDATE sites SET indexable = 2 WHERE id = ?").bind(SITE).run()).rejects.toThrow(/CHECK constraint failed/);
+    const { site } = await newSite();
+    await expect(db.prepare("UPDATE sites SET indexable = 2 WHERE id = ?").bind(site).run()).rejects.toThrow(/CHECK constraint failed/);
     await expect(
-      db.prepare("INSERT INTO leads (id, site_id, created_at, name, phone, email_status, ip_hash) VALUES ('l1', ?, 1, 'n', 'p', 'lost', 'h')").bind(SITE).run(),
+      db.prepare("INSERT INTO leads (id, site_id, created_at, name, phone, email_status, ip_hash) VALUES ('l1', ?, 1, 'n', 'p', 'lost', 'h')").bind(site).run(),
     ).rejects.toThrow(/CHECK constraint failed/);
   });
 
   it("numbers versions uniquely per site", async () => {
+    const { owner, site } = await newSite();
     const insert = (id: string, n: number) =>
       db.prepare(
         "INSERT INTO site_versions (id, site_id, number, status, document_json, document_sha256, edits_json, html_key, html_sha256, stylesheet_sha256, requested_by, requested_at) VALUES (?, ?, ?, 'pending', '{}', 'd', '{}', 'k', 'h', 's', ?, 1)",
-      ).bind(id, SITE, n, OWNER).run();
+      ).bind(id, site, n, owner).run();
     await insert("20000000-0000-4000-8000-000000000001", 1);
     await expect(insert("20000000-0000-4000-8000-000000000002", 1)).rejects.toThrow(/UNIQUE constraint failed: site_versions.site_id, site_versions.number/);
   });
 
   it("consumes a single-use token exactly once, even when two verifies race", async () => {
-    await db.prepare("INSERT INTO login_tokens (token_hash, owner_id, created_at, expires_at) VALUES ('t1', ?, 1, ?)").bind(OWNER, Number.MAX_SAFE_INTEGER).run();
+    const { owner } = await newSite();
+    await db.prepare("INSERT INTO login_tokens (token_hash, owner_id, created_at, expires_at) VALUES ('t1', ?, 1, ?)").bind(owner, Number.MAX_SAFE_INTEGER).run();
     const consume = () =>
       db.prepare("UPDATE login_tokens SET used_at = ? WHERE token_hash = ? AND used_at IS NULL AND expires_at > ?").bind(2, "t1", 2).run();
     const results = await Promise.all([consume(), consume(), consume()]);
