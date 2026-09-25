@@ -1232,6 +1232,31 @@ export type AiDraft = z.infer<typeof AiDraft>;
 
 const EditText = z.string().max(2000);
 
+/** A plain object (prototype Object.prototype or null), as JSON.parse makes. Like z.record, this refuses
+ *  null, arrays and class instances such as Map or Date. */
+const isPlainObject = (value: unknown): value is Record<string, unknown> => {
+  if (typeof value !== "object" || value === null) return false;
+  const proto: unknown = Object.getPrototypeOf(value);
+  return proto === Object.prototype || proto === null;
+};
+
+/**
+ * Service name -> owner text. Not a plain z.record: zod 4.6.5's record drops an own "__proto__" key
+ * without an issue (its prototype-pollution guard), which would silently lose the owner's text for a
+ * service with that name (§2.8: such a name behaves like any other). The entries are checked as a Map
+ * and rebuilt with Object.fromEntries, which defines own data properties, so "__proto__" stays plain
+ * data and never sets a prototype. The limits and issue paths are z.record's; only a name over 40
+ * characters is reported as too_big instead of invalid_key. At most 12 entries, as many as Facts
+ * allows services (A8c), so the largest valid OwnerEdits is finite (LIMITS.editsJsonMaxBytes).
+ */
+const ServiceDescriptionEdits = z
+  .preprocess((value, ctx) => {
+    if (isPlainObject(value)) return new Map(Object.entries(value));
+    ctx.issues.push({ code: "invalid_type", expected: "record", input: value });
+    return value;
+  }, z.map(z.string().max(40), EditText).max(12))
+  .transform((edits) => Object.fromEntries(edits));
+
 /** Owner wording edits. After composition every Plan 1 Copy rule applies to them (design §2.2). */
 export const CopyEdits = z.strictObject({
   heroHeadline: EditText.optional(),
@@ -1246,7 +1271,7 @@ export const CopyEdits = z.strictObject({
       contact: EditText.nullable().optional(),
     })
     .optional(),
-  serviceDescriptions: z.record(z.string().max(40), EditText).optional(), // key = facts.services[].name, exact
+  serviceDescriptions: ServiceDescriptionEdits.optional(), // key = the trimmed facts.services[].name (Decision 14)
   faq: z.array(z.strictObject({ question: EditText, answer: EditText })).max(8).optional(), // replaces the AI list
 });
 export type CopyEdits = z.infer<typeof CopyEdits>;
@@ -1261,7 +1286,7 @@ export const SectionOrder = z
   .refine((ids) => new Set(ids).size === ids.length && ids[0] === "hero", { error: "Order must list every section once, hero first" });
 
 export const OwnerEdits = z.strictObject({
-  baseGenerationId: z.string().nullable(), // copy and order edits apply only to this generation
+  baseGenerationId: z.string().max(36).nullable(), // copy and order edits apply only to this generation (a newId(): 36 characters)
   copy: CopyEdits,
   order: SectionOrder.nullable(),
   hidden: OwnerHidden, // A6 schema from @asksite/site-schema (unique, hideable ids only)
@@ -1619,9 +1644,9 @@ export const LIMITS = {
   leadsPerSitePerDay: 50,
   leadRetentionDays: 180,
   publishRequestsPerSitePerDay: 20, // publish clicks (versions) per site per UTC day: bounds D1 and R2 growth (Plan 2 Decision 25)
-  factsJsonMaxBytes: 65_536,
-  briefJsonMaxBytes: 16_384,
-  editsJsonMaxBytes: 65_536,
+  factsJsonMaxBytes: 307_200, // 300 KiB: the largest valid Facts is 306,552 bytes once JSON-encoded (A8b; test/schemas.test.ts)
+  briefJsonMaxBytes: 74_752, // 73 KiB: the largest valid Brief is 73,865 bytes once JSON-encoded (A8; test/schemas.test.ts)
+  editsJsonMaxBytes: 436_224, // 426 KiB: the largest valid OwnerEdits is 435,810 bytes once JSON-encoded (A8c; test/schemas.test.ts)
 } as const;
 ```
 
