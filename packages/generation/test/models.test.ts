@@ -6,7 +6,10 @@ import { MAX_ATTEMPTS, MAX_OUTPUT_TOKENS } from "../src/generate.ts";
 import { MODEL_TEXT_CAPS } from "../src/model-facts.ts";
 import { costMicrousd, MAX_INPUT_TOKENS, MODELS, modelSettings, PROMPT_OVERHEAD_TOKENS, worstCaseJobMicrousd } from "../src/models.ts";
 import { buildPrompt } from "../src/prompt.ts";
+import { templateDraft } from "../src/template.ts";
+import { checkDraft } from "../src/validate.ts";
 import { AI_DRAFT_JSON_SCHEMA, toWireSchema } from "../src/wire-schema.ts";
+import { BRIEF, FULL_FACTS } from "./support/samples.ts";
 
 const bytes = (s: string) => new TextEncoder().encode(s).length;
 const SCHEMA_BYTES = bytes(JSON.stringify(toWireSchema(AI_DRAFT_JSON_SCHEMA)));
@@ -50,10 +53,17 @@ function withChoices(trade: Facts["trade"], tone: Brief["tone"], goal: Brief["go
 
 /**
  * Facts and Brief fields the prompt does not read today, each set to its fullest value (CAPS_SNAPSHOT leaves
- * every one unset or at its default). If the prompt starts reading one, the guard test fails and that field
- * must join TOGGLES, so the enumeration covers it.
+ * every one unset, at its default or short). If the prompt starts reading one, the guard test fails. A private
+ * fact (design 6.1) must never reach the prompt; any other field must join TOGGLES, so the enumeration covers it.
  */
 type SetField = (snapshot: GenerationInputSnapshot) => GenerationInputSnapshot;
+const setFacts =
+  (patch: (facts: Facts) => Partial<Facts>): SetField =>
+  ({ facts, brief }) => ({ facts: { ...facts, ...patch(facts) }, brief });
+/** `count` items, repeating `items` in turn. */
+const repeatTo = <T>(items: readonly T[], count: number): T[] => Array.from({ length: count }, (_, i) => items[i % items.length]!);
+const URL_AT_CAP = `https://media.example.com/${"u".repeat(2048 - 26)}`;
+const PHOTO_AT_CAPS = { url: URL_AT_CAP, alt: "a".repeat(125), width: 10_000, height: 10_000, caption: "c".repeat(80) };
 const UNREAD: Array<[string, SetField]> = [
   ["hours", ({ facts, brief }) => ({ facts: { ...facts, hours: DAYS.map((day) => ({ days: [day], opens: "00:00", closes: "23:59" })) }, brief })],
   ["socialLinks", ({ facts, brief }) => ({ facts: { ...facts, socialLinks: SOCIAL_NETWORKS.map((network) => ({ network, url: `https://${SOCIAL_HOSTS[network][0]!}/a` })) }, brief })],
@@ -61,6 +71,22 @@ const UNREAD: Array<[string, SetField]> = [
   ["location.streetAddress", ({ facts, brief }) => ({ facts: { ...facts, location: { ...facts.location, streetAddress: "s".repeat(80) } }, brief })],
   ["location.postalCode", ({ facts, brief }) => ({ facts: { ...facts, location: { ...facts.location, postalCode: "78701" } }, brief })],
   ["reviewsAreReal", ({ facts, brief }) => ({ facts, brief: { ...brief, reviewsAreReal: true } })],
+  ["phone", setFacts(() => ({ phone: "+19999999999" }))],
+  ["email", setFacts(() => ({ email: `${"e".repeat(242)}@example.com` }))],
+  ["services[].startingPrice", setFacts(({ services }) => ({ services: services.map((s) => ({ ...s, startingPrice: 100_000 })) }))],
+  ["licences[].label", setFacts(({ licences }) => ({ licences: licences.map((l) => ({ ...l, label: "l".repeat(40) })) }))],
+  ["licences[].number", setFacts(({ licences }) => ({ licences: licences.map((l) => ({ ...l, number: "n".repeat(30) })) }))],
+  ["5 licences", setFacts(({ licences }) => ({ licences: repeatTo(licences, 5) }))],
+  ["testimonials[].quote", setFacts(({ testimonials }) => ({ testimonials: testimonials.map((t) => ({ ...t, quote: "q".repeat(320) })) }))],
+  ["testimonials[].name", setFacts(({ testimonials }) => ({ testimonials: testimonials.map((t) => ({ ...t, name: "n".repeat(40) })) }))],
+  ["testimonials[].location", setFacts(({ testimonials }) => ({ testimonials: testimonials.map((t) => ({ ...t, location: "l".repeat(40) })) }))],
+  ["12 testimonials", setFacts(({ testimonials }) => ({ testimonials: repeatTo(testimonials, 12) }))],
+  ["photos[].url", setFacts(({ photos }) => ({ photos: photos.map((p) => ({ ...p, url: URL_AT_CAP })) }))],
+  ["photos[].alt", setFacts(({ photos }) => ({ photos: photos.map((p) => ({ ...p, alt: PHOTO_AT_CAPS.alt })) }))],
+  ["photos[].caption", setFacts(({ photos }) => ({ photos: photos.map((p) => ({ ...p, caption: PHOTO_AT_CAPS.caption })) }))],
+  ["photos[].width and height", setFacts(({ photos }) => ({ photos: photos.map((p) => ({ ...p, width: 10_000, height: 10_000 })) }))],
+  ["12 photos", setFacts(({ photos }) => ({ photos: repeatTo(photos, 12) }))],
+  ["heroPhoto, every field at its cap (its presence is not read either; see TOGGLES)", setFacts(() => ({ heroPhoto: PHOTO_AT_CAPS }))],
 ];
 
 /** Copies the capped strings of one field group from `from` into `into`; every other field keeps `into`'s. */
@@ -128,6 +154,73 @@ describe("MAX_INPUT_TOKENS", () => {
     const on = UNREAD.reduce((snapshot, [, set]) => set(snapshot), CAPS_SNAPSHOT);
     expect(parses(on)).toBe(true);
     expect(buildPrompt(on, CAPS_REPAIR)).toEqual(buildPrompt(CAPS_SNAPSHOT, CAPS_REPAIR));
+  });
+});
+
+describe("the whole prompt (design 6.1)", () => {
+  /** FULL_FACTS with every value the model must never see made distinctive, so no other prompt text can hold it by chance. */
+  const PRIVATE_FACTS = Facts.parse({
+    ...FULL_FACTS,
+    phone: "+17135550187",
+    email: "zq-owner-mailbox@private-mail.example",
+    location: { ...FULL_FACTS.location, streetAddress: "4417 Zqhollow Lane", postalCode: "73301" },
+    serviceArea: { ...FULL_FACTS.serviceArea, note: "Zq note: past the old mill road" },
+    hours: [{ days: ["Monday"], opens: "06:47", closes: "19:13" }],
+    services: [
+      { name: "Drain cleaning", startingPrice: 4321 },
+      { name: "Leak repair", startingPrice: 8765 },
+    ],
+    licences: [{ label: "Zq plumbing board", number: "ZQ-LIC-90417" }],
+    yearFounded: 1873,
+    testimonials: [{ quote: "Zq quote: best pipe work on the block", name: "Zqelda Marsh", location: "Zqville, TX" }],
+    heroPhoto: { url: "https://media.example.com/zq/hero-5512.webp", alt: "Zq hero alt text", width: 1600, height: 900, caption: "Zq hero caption" },
+    photos: [{ url: "https://media.example.com/zq/photo-6623.webp", alt: "Zq photo alt text", width: 1200, height: 900, caption: "Zq photo caption" }],
+    socialLinks: [{ network: "facebook", url: "https://www.facebook.com/zq-private-page" }],
+  });
+  const { phone, email, location, serviceArea, hours, services, licences, testimonials, heroPhoto, photos, socialLinks } = PRIVATE_FACTS;
+  const PRIVATE: Array<[string, string]> = [
+    ["phone", phone],
+    ["phone digits", phone.slice(2)],
+    ["phone as the page shows it", "(713) 555-0187"],
+    ["email", email],
+    ["street", location.streetAddress!],
+    ["ZIP", location.postalCode!],
+    ["ZIP given as a service-area place", serviceArea.places.find((place) => /\d/.test(place))!],
+    ["area note", serviceArea.note!],
+    ["opening time", hours[0]!.opens],
+    ["closing time", hours[0]!.closes],
+    ...services.map((s): [string, string] => ["starting price", String(s.startingPrice)]),
+    ["licence label", licences[0]!.label],
+    ["licence number", licences[0]!.number],
+    ["founding year", String(PRIVATE_FACTS.yearFounded)],
+    ["review quote", testimonials[0]!.quote],
+    ["reviewer name", testimonials[0]!.name],
+    ["reviewer location", testimonials[0]!.location!],
+    ["hero photo URL", heroPhoto!.url],
+    ["hero photo alt text", heroPhoto!.alt],
+    ["hero photo caption", heroPhoto!.caption!],
+    ["photo URL", photos[0]!.url],
+    ["photo alt text", photos[0]!.alt],
+    ["photo caption", photos[0]!.caption!],
+    ["social URL", socialLinks[0]!.url],
+  ];
+
+  /** Real validator issues: the model's answer swapped the service descriptions and left out the owner-fact sections. */
+  const REPAIR = ((): Issue[] => {
+    const draft = templateDraft(PRIVATE_FACTS, BRIEF);
+    const check = checkDraft(PRIVATE_FACTS, { ...draft, copy: { ...draft.copy, serviceDescriptions: [...draft.copy.serviceDescriptions].reverse() }, layout: draft.layout.slice(0, 1) });
+    if (check.ok) throw new Error("REPAIR needs an answer the validator rejects");
+    return check.issues;
+  })();
+
+  it.each<[string, Issue[]]>([
+    ["first attempt", []],
+    ["with repair lines", REPAIR],
+  ])("never holds a private owner fact, in the system or the user prompt (%s)", (_attempt, repair) => {
+    const { system, user } = buildPrompt({ facts: PRIVATE_FACTS, brief: BRIEF }, repair);
+    expect(user).toContain(JSON.stringify(PRIVATE_FACTS.businessName));
+    expect(user.includes("Your previous answer was rejected")).toBe(repair.length > 0);
+    expect(PRIVATE.filter(([, value]) => `${system}\n${user}`.includes(value))).toEqual([]);
   });
 });
 
