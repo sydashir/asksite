@@ -8,15 +8,17 @@ import { MAX_REPAIR_ISSUES } from "../src/prompt.ts";
 // year, every claim and section on). test/models.test.ts proves it: it tries every fill in every field
 // group and in the repair lines, builds every trade, tone, goal and on/off choice, pins each cap to the
 // edge of its real schema, and checks every fill against MAX_INPUT_TOKENS.
-// Facts and Brief count their caps in code points. The prompt cuts the model's view of each owner string
-// to its cap in UTF-16 units (MODEL_TEXT_CAPS), and repair lines too, so there a unit costs at most 3
+// Facts and Brief count their caps in code points. The prompt cuts the model's view of these owner strings
+// to their caps in UTF-16 units (MODEL_TEXT_CAPS): businessName, city, each service-area place,
+// differentiator, notes and each comment value. It cuts repair lines too. So there a unit costs at most 3
 // UTF-8 bytes and "€" (3 bytes, one unit) is the costliest: U+2028 and U+2029 become the 2-byte JSON
 // escape \n in the data line (prompt.ts) and one space per run in a repair line; a lone surrogate becomes
 // U+FFFD, 3 bytes (wellFormed); " and \ are 2-byte JSON escapes in the data line and in a repair line;
 // U+1F600 is 2 units and 4 bytes. Facts rejects every control character and Brief every one except the
-// newline, whose JSON escape \n costs 2 bytes, so no 6-byte \uXXXX escape reaches the prompt. Service
-// names are never cut (the model copies them exactly), so there a character outside the BMP is the
-// costliest: 4 bytes per counted character. Comment keys are 40 characters, the most Brief allows.
+// newline, whose JSON escape \n costs 2 bytes, so no 6-byte \uXXXX escape reaches the prompt. Two owner
+// strings are never cut. Service names must stay exact (the model copies them, and bindServiceNames binds
+// its copy to the owner's name), so there a character outside the BMP is the costliest: 4 bytes per
+// counted character. Comment keys are ASCII letters and digits by Brief's schema (1 byte each), 40 at most.
 export const CAPS_FILLS: readonly string[] = ["€", "\u2028", "\u2029", "\uD800", "\"", "\\", "\u{1F600}"];
 
 /** `fill` repeated to `cap` code points (U+1F600: 2 UTF-16 units each); a fill that .trim() removes (U+2028, U+2029) sits between two "a"s. */
