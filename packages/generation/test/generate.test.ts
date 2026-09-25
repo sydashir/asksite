@@ -38,6 +38,23 @@ const rejectOnAbort = (listenersBefore: number[]) => (req: ModelRequest): Promis
     req.signal.addEventListener("abort", () => reject(req.signal.reason), { once: true });
   });
 
+/**
+ * A call that answers from its own abort listener, which runs before generateDraft's (`listenersBefore`
+ * records [0]): the answer wins the race, so our own code handles it after the signal has aborted.
+ */
+const answerOnAbort = (res: () => ModelResponse, listenersBefore: number[]) => (req: ModelRequest): Promise<ModelResponse> =>
+  new Promise((resolve) => {
+    listenersBefore.push(getEventListeners(req.signal, "abort").length);
+    req.signal.addEventListener("abort", () => resolve(res()), { once: true });
+  });
+
+/** A value no JSON parser returns, but the provider contract (json: unknown) allows: any check of it throws a TypeError. */
+const revokedProxy = (): object => {
+  const { proxy, revoke } = Proxy.revocable({}, {});
+  revoke();
+  return proxy;
+};
+
 function testDeps() {
   const sleeps: number[] = [];
   const timeouts: number[] = [];
@@ -269,6 +286,41 @@ describe("generateDraft", () => {
     const result = await generateDraft(provider, FULL_SNAPSHOT, { ...deps, timeoutSignal: () => deadline.signal });
     expect(result).toMatchObject({ ok: false, failure: "provider_error", providerErrorKind: "auth", attempts: 1 });
     expect(sleeps).toEqual([]);
+  });
+
+  // Answers that make our own code throw a TypeError. Only an error from the provider call may become a timeout.
+  const OUR_CODE_THROWS: Array<[string, () => ModelResponse]> = [
+    ["checkDraft's schema check", () => answer({ ...good, layout: [revokedProxy(), ...good.layout.slice(1)] })],
+    ["checkDraft's service-name binding", () => answer({ ...good, copy: { ...good.copy, serviceDescriptions: [revokedProxy(), ...good.copy.serviceDescriptions.slice(1)] } })],
+    ["the usage accounting", () => ({ ...answer(good), usage: undefined }) as unknown as ModelResponse],
+  ];
+
+  it.each(OUR_CODE_THROWS)("records an exception from %s after the deadline passed as a bad request, never a timeout, and stops", async (_where, res) => {
+    const { deps, sleeps } = testDeps();
+    const listenersBefore: number[] = [];
+    const provider = providerOf(answerOnAbort(res, listenersBefore));
+    const signals = [() => AbortSignal.timeout(20), () => new AbortController().signal];
+    const result = await generateDraft(provider, FULL_SNAPSHOT, { ...deps, timeoutSignal: () => signals.shift()!() });
+    expect(listenersBefore).toEqual([0]);
+    expect(result.log.map((a) => a.outcome)).toEqual(["bad_request"]);
+    expect(result).toMatchObject({ ok: false, failure: "provider_error", providerErrorKind: "bad_request", attempts: 1 });
+    expect(sleeps).toEqual([]);
+    expect(provider.calls).toBe(1);
+  }, 5_000);
+
+  it("records a timeoutSignal that throws as a bad request of that attempt: generateDraft resolves, never rejects, and stops", async () => {
+    const { deps, sleeps } = testDeps();
+    const provider = providerOf();
+    const run = generateDraft(provider, FULL_SNAPSHOT, {
+      ...deps,
+      timeoutSignal: () => {
+        throw new RangeError("no timer");
+      },
+    });
+    await expect(run).resolves.toMatchObject({ ok: false, failure: "provider_error", providerErrorKind: "bad_request", attempts: 1 });
+    expect((await run).log).toEqual([{ outcome: "bad_request", issues: [], latencyMs: 10, usageMissing: false }]);
+    expect(sleeps).toEqual([]);
+    expect(provider.calls).toBe(0);
   });
 
   it("leaves no unhandled rejection when a provider rejects after its attempt timed out", async () => {
