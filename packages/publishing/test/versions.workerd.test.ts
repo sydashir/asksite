@@ -68,6 +68,16 @@ async function auditRows(db: D1Database, siteId: string) {
   return results;
 }
 
+type Site = Awaited<ReturnType<typeof seedSite>>;
+
+/** Another site of the same owner: an owner who accepts a second invite gets one (Plan 4's invite accept). */
+async function secondSite(db: D1Database, ownerId: string): Promise<Site> {
+  const siteId = newId();
+  const slug = `second-${siteId.slice(0, 8)}`;
+  await db.prepare("INSERT INTO sites (id, owner_id, slug, created_at, updated_at) VALUES (?, ?, ?, 1, 1)").bind(siteId, ownerId, slug).run();
+  return { ownerId, siteId, slug };
+}
+
 describe("createPendingVersion", () => {
   it("stores the exact rendered page and a pending version pointing at it", async () => {
     const { ownerId, siteId, slug } = await seedSite(env.DB);
@@ -135,6 +145,20 @@ describe("createPendingVersion", () => {
     expect((await siteRow(env.DB, siteId))?.pending_version_id).toBe(second.id);
   });
 
+  it("a publish never touches another site's version in review", async () => {
+    const a = await seedSite(env.DB);
+    const b = await seedSite(env.DB);
+    const publish = (site: Site, now: number) =>
+      createPendingVersion(env, { ...site, document: doc(), edits: EDITS, generationId: null, now });
+    const inReview = await publish(a, 1);
+    const other = await publish(b, 2);
+    expect(other.number).toBe(1); // numbered per site
+    expect((await siteRow(env.DB, b.siteId))?.pending_version_id).toBe(other.id);
+    expect((await versionRow(env.DB, inReview.id))?.status).toBe("pending");
+    expect((await siteRow(env.DB, a.siteId))?.pending_version_id).toBe(inReview.id);
+    expect(await auditActions(env.DB, a.siteId)).toEqual(["version.requested"]);
+  });
+
   it("stores the parsed document whatever the caller passed", async () => {
     const { ownerId, siteId, slug } = await seedSite(env.DB);
     const document = doc();
@@ -182,6 +206,20 @@ describe("createPendingVersion", () => {
     expect(wrongOwner.code).toBe("integrity");
     expect((await siteRow(env.DB, siteId))?.pending_version_id).toBeNull();
   });
+
+  it("a refused publish (another owner, or the slug of the owner's other site) leaves the version in review alone", async () => {
+    const { ownerId, siteId, slug } = await seedSite(env.DB);
+    const otherSite = await secondSite(env.DB, ownerId);
+    const intruder = await seedSite(env.DB);
+    const inReview = await createPendingVersion(env, { siteId, ownerId, slug, document: doc(), edits: EDITS, generationId: null, now: 1 });
+    const publishAs = (asOwner: string, withSlug: string) =>
+      createPendingVersion(env, { siteId, ownerId: asOwner, slug: withSlug, document: doc(), edits: EDITS, generationId: null, now: 2 });
+    expect((await failure(publishAs(intruder.ownerId, slug))).code).toBe("integrity");
+    expect((await failure(publishAs(ownerId, otherSite.slug))).code).toBe("integrity");
+    expect((await versionRow(env.DB, inReview.id))?.status).toBe("pending");
+    expect((await siteRow(env.DB, siteId))?.pending_version_id).toBe(inReview.id);
+    expect(await auditActions(env.DB, siteId)).toEqual(["version.requested"]);
+  });
 });
 
 describe("the daily publish cap (Decision 25)", () => {
@@ -200,6 +238,14 @@ describe("the daily publish cap (Decision 25)", () => {
     expect(error.detail).toEqual({ retryAfter: 82_800 }); // 23 hours until 00:00 UTC
     expect(await versionCount(siteId)).toBe(LIMITS.publishRequestsPerSitePerDay);
     expect((await env.WORK.list({ prefix: `versions/${siteId}/` })).objects).toHaveLength(LIMITS.publishRequestsPerSitePerDay);
+    // The cap counts each site on its own: the same day, another site still publishes, and its second request
+    // supersedes its first.
+    const other = await seedSite(env.DB);
+    const publishOther = (now: number) => createPendingVersion(env, { ...other, document: doc("cleaning-minimal"), edits: EDITS, generationId: null, now });
+    const otherFirst = await publishOther(day + 3_600_000);
+    const otherSecond = await publishOther(day + 3_600_001);
+    expect([otherFirst.number, otherSecond.number]).toEqual([1, 2]);
+    expect((await versionRow(env.DB, otherFirst.id))?.status).toBe("superseded");
     expect((await publish(day + 86_400_000)).number).toBe(LIMITS.publishRequestsPerSitePerDay + 1);
   });
 
@@ -259,10 +305,30 @@ describe("withdrawPending", () => {
 
   it("does nothing for another owner's site", async () => {
     const { ownerId, siteId, slug } = await seedSite(env.DB);
-    await createPendingVersion(env, { siteId, ownerId, slug, document: doc(), edits: EDITS, generationId: null, now: 1 });
+    const version = await createPendingVersion(env, { siteId, ownerId, slug, document: doc(), edits: EDITS, generationId: null, now: 1 });
     const other = await seedSite(env.DB);
     expect((await failure(withdrawPending(env, { siteId, ownerId: other.ownerId, now: 2 }))).code).toBe("nothing_pending");
-    expect((await siteRow(env.DB, siteId))?.pending_version_id).not.toBeNull();
+    expect((await siteRow(env.DB, siteId))?.pending_version_id).toBe(version.id);
+    expect((await versionRow(env.DB, version.id))?.status).toBe("pending");
+    expect(await auditActions(env.DB, siteId)).toEqual(["version.requested"]);
+  });
+
+  it("withdraws only the site it names when the owner has two", async () => {
+    const first = await seedSite(env.DB);
+    const second = await secondSite(env.DB, first.ownerId);
+    const publish = (site: Site, now: number) =>
+      createPendingVersion(env, { ...site, document: doc(), edits: EDITS, generationId: null, now });
+    const v1 = await publish(first, 1);
+    const v2 = await publish(second, 2);
+    await withdrawPending(env, { siteId: second.siteId, ownerId: first.ownerId, now: 3 });
+    expect((await versionRow(env.DB, v2.id))?.status).toBe("withdrawn");
+    expect((await versionRow(env.DB, v1.id))?.status).toBe("pending");
+    expect((await siteRow(env.DB, first.siteId))?.pending_version_id).toBe(v1.id);
+    // Then the other one, so the check holds whichever site a lookup by owner alone would find first.
+    await withdrawPending(env, { siteId: first.siteId, ownerId: first.ownerId, now: 4 });
+    expect((await versionRow(env.DB, v1.id))?.status).toBe("withdrawn");
+    expect(await auditActions(env.DB, first.siteId)).toEqual(["version.requested", "version.withdrawn"]);
+    expect(await auditActions(env.DB, second.siteId)).toEqual(["version.requested", "version.withdrawn"]);
   });
 
   it("a double-clicked withdraw withdraws and logs once", async () => {
