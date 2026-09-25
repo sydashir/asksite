@@ -88,6 +88,8 @@ describe("AnthropicProvider", () => {
     [402, "auth"],
     [409, "unavailable"],
     [504, "timeout"],
+    [413, "bad_request"],
+    [422, "bad_request"],
   ])("maps HTTP %i to a %s ProviderError, with no SDK retry", async (status, kind) => {
     const http = fakeFetch([{ status, body: { type: "error", error: { type: "x", message: "m" } } }, { status: 200, body: message("{}") }]);
     const provider = new AnthropicProvider({ apiKey: "k", model: "claude-opus-5-5", fetch: http.fetch });
@@ -147,6 +149,43 @@ describe("AnthropicProvider", () => {
     const http = fakeFetch([{ status: 200, body: message("{}") }]);
     const provider = new AnthropicProvider({ apiKey: "k", model: "claude-opus-5-5", fetch: http.fetch });
     await expect(provider.generate(request(abortedSignal()))).rejects.toMatchObject({ kind: "timeout" });
+  });
+
+  it("gives the SDK a 90 s timeout (sent as x-stainless-timeout)", async () => {
+    const http = fakeFetch([{ status: 200, body: message("{}") }]);
+    await new AnthropicProvider({ apiKey: "k", model: "claude-opus-5-5", fetch: http.fetch }).generate(request());
+    expect(http.calls[0]!.headers.get("x-stainless-timeout")).toBe("90");
+  });
+
+  // Each of these fetch failures is what the SDK turns into APIConnectionTimeoutError (client.mjs
+  // makeRequest: an AbortError, or "timed out"/"timeout" in the error or its cause).
+  it.each([
+    ["the SDK's own timer aborting the fetch", new DOMException("This operation was aborted", "AbortError")],
+    ["a fetch TimeoutError", new DOMException("The operation timed out.", "TimeoutError")],
+    ["an undici connect timeout", new TypeError("fetch failed", { cause: new Error("Connect Timeout Error (attempted address: api.anthropic.com:443, timeout: 10000ms)") })],
+  ])("maps %s (the SDK's APIConnectionTimeoutError) to timeout", async (_label, failure) => {
+    const http = fakeFetch([failure]);
+    const provider = new AnthropicProvider({ apiKey: "k", model: "claude-opus-5-5", fetch: http.fetch });
+    await expect(provider.generate(request())).rejects.toMatchObject({ name: "ProviderError", kind: "timeout", message: "Anthropic request failed (timeout)" });
+    expect(http.calls).toHaveLength(1);
+  });
+
+  it("maps an error from the SDK that is not an APIError (a 200 whose JSON body does not parse) to unavailable", async () => {
+    const provider = new AnthropicProvider({ apiKey: "k", model: "claude-opus-5-5", fetch: rawFetch(200, '{"id":') });
+    await expect(provider.generate(request())).rejects.toMatchObject({ name: "ProviderError", kind: "unavailable", message: "Anthropic request failed (unavailable)" });
+  });
+
+  it("returns no JSON, without throwing, when an end_turn answer is not valid JSON", async () => {
+    const http = fakeFetch([{ status: 200, body: message('{"copy":') }]);
+    const res = await new AnthropicProvider({ apiKey: "k", model: "claude-opus-5-5", fetch: http.fetch }).generate(request());
+    expect(res).toEqual({ json: undefined, model: "claude-opus-5-5", usage: { inputTokens: 3200, outputTokens: 1400 }, stop: "end" });
+  });
+
+  it("returns the model the response names, not the one requested", async () => {
+    const http = fakeFetch([{ status: 200, body: { ...message("{}"), model: "claude-opus-5-5-test-snapshot" } }]);
+    const res = await new AnthropicProvider({ apiKey: "k", model: "claude-opus-5-5", fetch: http.fetch }).generate(request());
+    expect(http.calls[0]!.body.model).toBe("claude-opus-5-5");
+    expect(res.model).toBe("claude-opus-5-5-test-snapshot");
   });
 
   it("never puts the API key in an error message", async () => {
