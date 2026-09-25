@@ -15,10 +15,11 @@ import { MAX_REPAIR_ISSUES } from "../src/prompt.ts";
 // escape \n in the data line (prompt.ts) and one space per run in a repair line; a lone surrogate becomes
 // U+FFFD, 3 bytes (wellFormed); " and \ are 2-byte JSON escapes in the data line and in a repair line;
 // U+1F600 is 2 units and 4 bytes. Facts rejects every control character and Brief every one except the
-// newline, whose JSON escape \n costs 2 bytes, so no 6-byte \uXXXX escape reaches the prompt. Two owner
+// newline, whose JSON escape \n costs 2 bytes, so no 6-byte \uXXXX escape reaches the prompt. Three owner
 // strings are never cut. Service names must stay exact (the model copies them, and bindServiceNames binds
 // its copy to the owner's name), so there a character outside the BMP is the costliest: 4 bytes per
 // counted character. Comment keys are ASCII letters and digits by Brief's schema (1 byte each), 40 at most.
+// location.state is two letters A-Z by Facts' schema (1 byte each).
 export const CAPS_FILLS: readonly string[] = ["€", "\u2028", "\u2029", "\uD800", "\"", "\\", "\u{1F600}"];
 
 /** `fill` repeated to `cap` code points (U+1F600: 2 UTF-16 units each); a fill that .trim() removes (U+2028, U+2029) sits between two "a"s. */
