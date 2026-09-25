@@ -1,5 +1,6 @@
-import { PALETTE_IDS, Theme } from "@asksite/site-schema";
+import { DAYS, Facts, PALETTE_IDS, SOCIAL_NETWORKS, Theme, TRADES } from "@asksite/site-schema";
 import { describe, expect, expectTypeOf, it } from "vitest";
+import { z } from "zod";
 import {
   AcceptInviteBody,
   ApproveBody,
@@ -8,18 +9,38 @@ import {
   canonicalJson,
   EMPTY_EDITS,
   ERROR_STATUS,
+  GOALS,
   LIMITS,
   LOOKS,
   newToken,
   PatchDraftBody,
   SettingsBody,
   TakedownBody,
+  TONES,
   type AdminSettings,
   type ErrorBody,
   type LeadView,
   type SiteRow,
   type VersionSummary,
 } from "../src/index.ts";
+
+// For the largest-value tests below. A lone surrogate is the character that costs the most once
+// JSON-encoded: a 6-byte "\ud800" escape that zod counts as one character. The only other 6-byte
+// escapes are control characters, which Brief and Facts text reject.
+const lone = "\uD800";
+const longest = (values: readonly string[]): string => values.reduce((a, b) => (b.length > a.length ? b : a));
+const jsonBytes = (value: unknown): number => new TextEncoder().encode(JSON.stringify(value)).byteLength;
+
+/** The fields `schema` allows that `value` leaves out, looking inside every object and list item. */
+function unfilled(schema: z.core.$ZodType, value: unknown, path = ""): string[] {
+  if (schema instanceof z.ZodOptional || schema instanceof z.ZodDefault) return unfilled(schema.unwrap(), value, path);
+  if (schema instanceof z.ZodArray) return (value as unknown[]).flatMap((item, i) => unfilled(schema.element, item, `${path}[${i}]`));
+  if (!(schema instanceof z.ZodObject)) return [];
+  const object = value as Record<string, unknown>;
+  return Object.entries(schema.shape).flatMap(([key, field]) =>
+    key in object ? unfilled(field, object[key], `${path}.${key}`) : [`${path}.${key}`],
+  );
+}
 
 describe("Brief", () => {
   it("fills defaults", () => {
@@ -46,22 +67,23 @@ describe("Brief", () => {
 });
 
 describe("LIMITS.briefJsonMaxBytes", () => {
-  // The largest valid Brief: every field at its cap, in the character that costs the most once
-  // JSON-encoded. A lone surrogate becomes a 6-byte "\ud800" escape and zod counts it as one
-  // character; the only other 6-byte escapes are control characters, which Brief rejects.
-  const lone = "\uD800";
+  // The largest valid Brief: every field at its cap, in the character that costs the most (lone).
   const key = (i: number) => `q${String(i).padStart(2, "0")}${"x".repeat(37)}`; // 40 characters, the most a key may have
   const largest = {
-    tone: "professional", // the longest tone, goal and boolean
-    goal: "quote",
+    tone: longest(TONES),
+    goal: longest(GOALS),
     differentiator: lone.repeat(140),
     notes: lone.repeat(2000),
     comments: Object.fromEntries(Array.from({ length: 20 }, (_, i) => [key(i), lone.repeat(500)])),
-    reviewsAreReal: false,
+    reviewsAreReal: false, // longer than true
   };
 
+  it("fills every field Brief allows", () => {
+    expect(unfilled(Brief, largest)).toEqual([]);
+  });
+
   it("holds the largest valid Brief once JSON-encoded, rounded up to a whole KiB", () => {
-    const bytes = new TextEncoder().encode(JSON.stringify(Brief.parse(largest))).byteLength;
+    const bytes = jsonBytes(Brief.parse(largest));
     expect(bytes).toBe(73_865);
     expect(bytes).toBeLessThanOrEqual(LIMITS.briefJsonMaxBytes);
     expect(LIMITS.briefJsonMaxBytes).toBe(Math.ceil(bytes / 1024) * 1024);
@@ -75,6 +97,96 @@ describe("LIMITS.briefJsonMaxBytes", () => {
     ["a comment key", { comments: { [`q${"x".repeat(40)}`]: lone } }],
   ])("is measured at the caps: one more in %s is refused", (_, change) => {
     expect(Brief.safeParse({ ...largest, ...change }).success).toBe(false);
+  });
+});
+
+describe("LIMITS.factsJsonMaxBytes", () => {
+  // The largest valid Facts: every list at its longest and every field at its cap, in the costliest
+  // characters. Facts text and URLs both accept a lone surrogate. A URL must start "https:" and name
+  // a host that holds no lone surrogate, so the costliest URL is "https:", one 3-byte host character
+  // ("ａ", read as "a"), a backslash (read as "/", 2 bytes once JSON-encoded), then lone surrogates.
+  // A social link's host must be its network's. Trying every code point the URL parser reads as
+  // ASCII, the largest link is google's with g.page spelled "ｇ．㎩ｇｅ" (㎩ reads "pa"): the fewest
+  // host characters leave the most room for lone surrogates. The looser test below needs no search.
+  const url = (host: string) => `https:${host}\\${lone.repeat(2048 - "https:".length - host.length - 1)}`;
+  const photo = { url: url("ａ"), alt: lone.repeat(125), width: 10_000, height: 10_000, caption: lone.repeat(80) };
+  const link = { network: "google", url: url("ｇ．㎩ｇｅ") };
+  const largest = {
+    businessName: lone.repeat(60),
+    trade: longest(TRADES),
+    phone: "+12125550142",
+    email: `${"a".repeat(249)}@b.co`, // 254 characters; zod's email pattern allows only ASCII, and never " or \
+    location: { streetAddress: lone.repeat(80), city: lone.repeat(40), state: "TX", postalCode: "78701" },
+    serviceArea: { places: Array.from({ length: 30 }, () => lone.repeat(40)), note: lone.repeat(80) },
+    hours: DAYS.map((day) => ({ days: [day], opens: "00:00", closes: "23:59" })), // one day each: the most entries
+    services: Array.from({ length: 12 }, () => ({ name: lone.repeat(40), startingPrice: 100_000 })),
+    licences: Array.from({ length: 5 }, () => ({ label: lone.repeat(40), number: lone.repeat(30) })),
+    insured: false, // longer than true
+    yearFounded: 2100,
+    emergency247: false,
+    freeEstimates: false,
+    testimonials: Array.from({ length: 12 }, () => ({ quote: lone.repeat(320), name: lone.repeat(40), location: lone.repeat(40) })),
+    heroPhoto: photo,
+    photos: Array.from({ length: 12 }, () => photo),
+    socialLinks: Array.from({ length: 7 }, () => link),
+  };
+
+  it("fills every field Facts allows", () => {
+    expect(unfilled(Facts, largest)).toEqual([]);
+  });
+
+  it("holds the largest valid Facts once JSON-encoded, rounded up to a whole KiB", () => {
+    const bytes = jsonBytes(Facts.parse(largest));
+    expect(bytes).toBe(306_552);
+    expect(bytes).toBeLessThanOrEqual(LIMITS.factsJsonMaxBytes);
+    expect(LIMITS.factsJsonMaxBytes).toBe(Math.ceil(bytes / 1024) * 1024);
+  });
+
+  it("would still hold it if every URL character after https: cost 6 bytes and every link named the longest network", () => {
+    const anyUrl = `https:${lone.repeat(2048 - "https:".length)}`; // not a valid URL: a bound that needs no URL-parsing rule
+    const looser = {
+      ...largest,
+      heroPhoto: { ...photo, url: anyUrl },
+      photos: largest.photos.map(() => ({ ...photo, url: anyUrl })),
+      socialLinks: largest.socialLinks.map(() => ({ network: longest(SOCIAL_NETWORKS), url: anyUrl })),
+    };
+    expect(jsonBytes(looser)).toBeLessThanOrEqual(LIMITS.factsJsonMaxBytes);
+  });
+
+  it.each([
+    ["the business name", { businessName: lone.repeat(61) }],
+    ["the phone number", { phone: `${largest.phone}0` }],
+    ["the email", { email: `a${largest.email}` }],
+    ["the street address", { location: { ...largest.location, streetAddress: lone.repeat(81) } }],
+    ["the city", { location: { ...largest.location, city: lone.repeat(41) } }],
+    ["the state", { location: { ...largest.location, state: "TXX" } }],
+    ["the ZIP code", { location: { ...largest.location, postalCode: "787011" } }],
+    ["the place count", { serviceArea: { ...largest.serviceArea, places: [...largest.serviceArea.places, lone] } }],
+    ["a place", { serviceArea: { ...largest.serviceArea, places: [lone.repeat(41)] } }],
+    ["the service-area note", { serviceArea: { ...largest.serviceArea, note: lone.repeat(81) } }],
+    ["the opening-hours count", { hours: [...largest.hours, { days: [DAYS[0]], opens: "00:00", closes: "23:59" }] }],
+    ["an opening time", { hours: [{ days: [DAYS[0]], opens: "00:000", closes: "23:59" }] }],
+    ["the service count", { services: [...largest.services, { name: lone }] }],
+    ["a service name", { services: [{ name: lone.repeat(41) }] }],
+    ["a starting price", { services: [{ name: lone, startingPrice: 100_001 }] }],
+    ["the licence count", { licences: [...largest.licences, { label: lone, number: lone }] }],
+    ["a licence label", { licences: [{ label: lone.repeat(41), number: lone }] }],
+    ["a licence number", { licences: [{ label: lone, number: lone.repeat(31) }] }],
+    ["the founding year", { yearFounded: 2101 }],
+    ["the testimonial count", { testimonials: [...largest.testimonials, { quote: lone, name: lone }] }],
+    ["a quote", { testimonials: [{ quote: lone.repeat(321), name: lone }] }],
+    ["a reviewer's name", { testimonials: [{ quote: lone, name: lone.repeat(41) }] }],
+    ["a reviewer's location", { testimonials: [{ quote: lone, name: lone, location: lone.repeat(41) }] }],
+    ["a photo URL", { heroPhoto: { ...photo, url: `${photo.url}x` } }],
+    ["a photo's alt text", { heroPhoto: { ...photo, alt: lone.repeat(126) } }],
+    ["a photo's width", { heroPhoto: { ...photo, width: 10_001 } }],
+    ["a photo's height", { heroPhoto: { ...photo, height: 10_001 } }],
+    ["a photo's caption", { heroPhoto: { ...photo, caption: lone.repeat(81) } }],
+    ["the photo count", { photos: [...largest.photos, photo] }],
+    ["the social-link count", { socialLinks: [...largest.socialLinks, link] }],
+    ["a social-link URL", { socialLinks: [{ ...link, url: `${link.url}x` }] }],
+  ])("is measured at the caps: one more in %s is refused", (_, change) => {
+    expect(Facts.safeParse({ ...largest, ...change }).success).toBe(false);
   });
 });
 

@@ -11,7 +11,7 @@ export const LIMITS = {
   leadsPerSitePerDay: 50,
   leadRetentionDays: 180,
   publishRequestsPerSitePerDay: 20, // publish clicks (versions) per site per UTC day: bounds D1 and R2 growth (Plan 2 Decision 25)
-  factsJsonMaxBytes: 65_536,
+  factsJsonMaxBytes: 307_200, // 300 KiB: the largest valid Facts is 306,552 bytes once JSON-encoded (A8b; test/schemas.test.ts)
   briefJsonMaxBytes: 74_752, // 73 KiB: the largest valid Brief is 73,865 bytes once JSON-encoded (A8; test/schemas.test.ts)
   editsJsonMaxBytes: 65_536,
 } as const;
