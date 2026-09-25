@@ -1,11 +1,18 @@
 import { SiteDocument } from "@asksite/site-schema";
 import { formatterFactory, HtmlValidate, StaticConfigLoader } from "html-validate";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { FIXTURES, loadFixture, renderFixture } from "../../../fixtures/index.ts";
 import { loadCompiledCss, missingClasses } from "./support/css-classes.ts";
 
 // Golden files hold markup only; the real stylesheet would add ~30 KB of noise to every diff.
 const STUB_CSS = "/* site.css */";
+
+// A missing or changed golden fails the run; only UPDATE_GOLDENS=1 writes them (A9). Vitest's own
+// file snapshots would be rewritten by any local run that finds one missing, and by -u.
+const UPDATE_GOLDENS = process.env["UPDATE_GOLDENS"] === "1";
+const goldenPath = (name: string) => fileURLToPath(new URL(`../../../fixtures/golden/${name}.html`, import.meta.url));
 
 // html-validate's recommended rules. tel-non-breaking is satisfied with CSS instead of
 // &nbsp;/&#8209; entities: every tel: link carries whitespace-nowrap, so it cannot wrap.
@@ -23,8 +30,12 @@ describe.each(FIXTURES)("fixture %s", (name) => {
     expect(SiteDocument.safeParse(loadFixture(name)).success).toBe(true);
   });
 
-  it("matches its golden HTML", async () => {
-    await expect(renderFixture(name, STUB_CSS)).toMatchFileSnapshot(`../../../fixtures/golden/${name}.html`);
+  it("matches its golden HTML", () => {
+    const html = renderFixture(name, STUB_CSS);
+    const golden = goldenPath(name);
+    if (UPDATE_GOLDENS) writeFileSync(golden, html);
+    expect(existsSync(golden), `${golden} is missing: review the page, then run the tests with UPDATE_GOLDENS=1`).toBe(true);
+    expect(html).toBe(readFileSync(golden, "utf8"));
   });
 
   it("passes html-validate (recommended)", async () => {
