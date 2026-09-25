@@ -36,9 +36,10 @@ export async function awayFromMinuteBoundary(needMs = 5_000): Promise<void> {
   if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
 }
 
-/** Starts the app Worker (with fakes) in the local runtime for one test file. */
-export function useAppHarness() {
-  const server = createTestHarness({ workers: [{ configPath: new URL("../wrangler.test.jsonc", import.meta.url) }] });
+/** Starts the app Worker (with fakes) in the local runtime for one test file; `vars` override the test config's. */
+export function useAppHarness(options: { vars?: Record<string, string> } = {}) {
+  const configPath = new URL("../wrangler.test.jsonc", import.meta.url);
+  const server = createTestHarness({ workers: [options.vars === undefined ? { configPath } : { configPath, vars: options.vars }] });
 
   // Explicit timeout: starting the local runtime takes a few seconds, whichever Vitest config runs this.
   beforeAll(async () => {
