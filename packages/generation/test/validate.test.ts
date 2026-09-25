@@ -1,4 +1,4 @@
-import { Facts, factSections } from "@asksite/site-schema";
+import { Facts, factSections, SiteDocument } from "@asksite/site-schema";
 import { describe, expect, it } from "vitest";
 import { templateDraft } from "../src/template.ts";
 import { checkDraft } from "../src/validate.ts";
@@ -96,5 +96,27 @@ describe("checkDraft", () => {
     const facts = Facts.parse({ ...MINIMAL_FACTS, services: [{ name: "Tile \uD800 care" }] });
     const result = checkDraft(facts, withServices(facts, ["Tile \uFFFD care"]));
     expect(result.ok && result.draft.copy.serviceDescriptions[0]!.service).toBe("Tile \uD800 care");
+  });
+
+  it("binds by position, so entries swapped between two loosely equal owner names are accepted, each under the name at its position", () => {
+    const facts = Facts.parse({ ...MINIMAL_FACTS, services: [{ name: "Drain cleaning" }, { name: "drain  Cleaning" }] });
+    const base = templateDraft(facts, BRIEF);
+    const serviceDescriptions = [
+      { service: "drain  Cleaning", description: "Written for the name in lower case." },
+      { service: "Drain cleaning", description: "Written for the name in title case." },
+    ];
+    const result = checkDraft(facts, { ...base, copy: { ...base.copy, serviceDescriptions } });
+    expect(result.ok && result.draft.copy.serviceDescriptions).toEqual([
+      { service: "Drain cleaning", description: "Written for the name in lower case." },
+      { service: "drain  Cleaning", description: "Written for the name in title case." },
+    ]);
+  });
+
+  it("returns the model's own hero variant even when the facts have a hero photo (Decision 7: SiteDocument applies the photo later)", () => {
+    const centered = { ...draft, layout: draft.layout.map((s) => (s.id === "hero" ? { id: "hero", variant: "centered" } : s)) };
+    const hero = (layout: ReadonlyArray<{ id: string }>) => layout.find((s) => s.id === "hero");
+    expect(hero(SiteDocument.parse({ facts: FULL_FACTS, ...centered, hidden: [] }).layout)).toEqual({ id: "hero", variant: "photo" });
+    const result = checkDraft(FULL_FACTS, centered);
+    expect(result.ok && hero(result.draft.layout)).toEqual({ id: "hero", variant: "centered" });
   });
 });

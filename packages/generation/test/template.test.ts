@@ -42,8 +42,8 @@ function* matrix(): Generator<[string, Facts, Brief]> {
 }
 
 /** The fallback for `trade` with all twelve ODD_NAMES, so every service description shows. */
-const draftFor = (trade: Facts["trade"], goal: Brief["goal"] = "quote"): AiDraft =>
-  templateDraft(Facts.parse({ ...MINIMAL_FACTS, trade, services: ODD_NAMES.map((name) => ({ name })) }), Brief.parse({ tone: "friendly", goal }));
+const draftFor = (trade: Facts["trade"], goal: Brief["goal"] = "quote", freeEstimates = false): AiDraft =>
+  templateDraft(Facts.parse({ ...MINIMAL_FACTS, trade, freeEstimates, services: ODD_NAMES.map((name) => ({ name })) }), Brief.parse({ tone: "friendly", goal }));
 
 /** A text's sentences (split on ". ", "! ", "? " and the end), lowercased, without their closing mark. */
 const sentencesOf = (text: string): string[] =>
@@ -72,6 +72,9 @@ const runsOf = (text: string, n: number): string[] => {
 /** British spellings and idioms that read oddly on a US business's page. */
 const NOT_US_ENGLISH = ["sort it out", "afterwards", "talk you through", "whilst", "colour", "neighbour"];
 
+/** Promises the fallback must not make (P3-2): it cannot know whether the owner keeps them. */
+const PROMISE_WORDS = ["fast", "on time", "tidy", "spotless", "best", "trusted", "affordable", "quality work", "clean up", "done right"];
+
 describe("templateDraft", () => {
   it.each(FIXTURES)("makes a valid document with the facts of fixture %s", (name) => {
     const facts = Facts.parse(loadFixture(name).facts);
@@ -93,6 +96,20 @@ describe("templateDraft", () => {
       if (issuesOf(facts, brief).length > 0) failures.push(label);
     }
     expect(cases).toBe(864);
+    expect(failures).toEqual([]);
+  });
+
+  it("offers free only on the quote button and writes no FAQ, across the 864-case matrix (Decision 8)", () => {
+    const failures: string[] = [];
+    let freeButNotQuote = 0;
+    for (const [label, facts, brief] of matrix()) {
+      const { copy } = templateDraft(facts, brief);
+      if (facts.freeEstimates && brief.goal !== "quote") freeButNotQuote++;
+      if (brief.goal !== "quote" && /free/i.test(copy.ctaText)) failures.push(`${label}: ctaText "${copy.ctaText}"`);
+      if (JSON.stringify(copy.faq) !== "[]") failures.push(`${label}: faq ${JSON.stringify(copy.faq)}`);
+    }
+    // The book and call cases where the owner does give free estimates, so "free" would pass the claim checker.
+    expect(freeButNotQuote).toBe(288);
     expect(failures).toEqual([]);
   });
 
@@ -180,6 +197,20 @@ describe("templateDraft", () => {
           .toLowerCase();
         for (const phrase of NOT_US_ENGLISH) if (prose.includes(phrase)) found.push(`${trade}/${goal}: ${phrase}`);
       }
+    expect(found).toEqual([]);
+  });
+
+  it("promises nothing and uses only straight apostrophes, for every trade, goal and free-estimate setting", () => {
+    const found: string[] = [];
+    for (const trade of TRADES)
+      for (const goal of GOALS)
+        for (const freeEstimates of [false, true]) {
+          const prose = proseIn(draftFor(trade, goal, freeEstimates).copy)
+            .map(([, text]) => text)
+            .join(" ");
+          for (const phrase of PROMISE_WORDS) if (new RegExp(`\\b${phrase}\\b`).test(prose.toLowerCase())) found.push(`${trade}/${goal}/${freeEstimates}: ${phrase}`);
+          if (/[\u2018\u2019]/.test(prose)) found.push(`${trade}/${goal}/${freeEstimates}: curly apostrophe`);
+        }
     expect(found).toEqual([]);
   });
 });

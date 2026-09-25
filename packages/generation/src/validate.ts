@@ -15,8 +15,12 @@ const looseName = (name: string): string =>
  * and a model cannot always retype a name byte for byte (a pasted non-breaking space, an iPhone
  * apostrophe, decomposed accents, fullwidth letters). Where the entry at position i matches the
  * owner's name at position i loosely, the owner's exact name is put back; anything else stays as
- * the model wrote it, so a missing, extra or reordered entry is still reported. The name is never
- * rendered (the page shows the name from facts). Returns a new value; never mutates `json`.
+ * the model wrote it, so a missing, extra or reordered entry is still reported. One exception: the
+ * binding goes by position, so when two owner names are loosely equal (such as "Drain cleaning" and
+ * "drain  Cleaning") and the model swaps their entries, each entry gets the exact name at its
+ * position and nothing is reported; each description then shows under the other of those two
+ * names, which read the same. The name is never rendered (the page shows the name from facts, and
+ * the description at the same position). Returns a new value; never mutates `json`.
  */
 export function bindServiceNames(facts: Facts, json: unknown): unknown {
   if (!isRecord(json) || !isRecord(json.copy) || !Array.isArray(json.copy.serviceDescriptions)) return json;
