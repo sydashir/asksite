@@ -161,6 +161,15 @@ describe("templateDraft", () => {
     expect(shared).toEqual([]);
   });
 
+  it("uses the approved section intros and tuned descriptions (P3-2c)", () => {
+    for (const trade of TRADES) {
+      const { services, contact } = draftFor(trade).copy.sectionIntros;
+      expect({ trade, services, contact }).toEqual({ trade, services: "Here's what we can help with.", contact: "Send us a few details and we'll get back to you." });
+    }
+    expect(draftFor("hvac").copy.serviceDescriptions[0]?.description).toBe("Tell us about your home's heating or cooling and what you'd like done.");
+    expect(draftFor("landscaping").copy.serviceDescriptions[1]?.description).toBe("Questions about this service? Ask us and we'll talk it over.");
+  });
+
   it("uses plain US English", () => {
     const found: string[] = [];
     for (const trade of TRADES)

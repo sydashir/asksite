@@ -32,7 +32,7 @@ const WORDS: Record<Trade, TradeWords> = {
     subheadline: "Whether your system has stopped working or needs a tune-up, tell us what's happening and we'll help.",
     about: "We're a local heating and cooling business serving homes in the area. Get in touch about your system, and we'll walk you through your options.",
     descriptions: [
-      "Let us know what heating or cooling equipment you have and what you'd like done.",
+      "Tell us about your home's heating or cooling and what you'd like done.",
       "Wondering if this is what you need? Ask us and we'll talk it over.",
       "Before you decide, we can explain how this works and what to expect.",
     ],
@@ -77,7 +77,7 @@ const WORDS: Record<Trade, TradeWords> = {
     about: "We're a local landscaping business serving homes in the area. Whether it's ongoing care or something new, get in touch and we'll walk you through your options.",
     descriptions: [
       "Let us know how you use your outdoor space and what matters most to you.",
-      "Not sure where to start? Ask us and we'll share some ideas.",
+      "Questions about this service? Ask us and we'll talk it over.",
       "Give us a call or send a message with any questions you have.",
     ],
     theme: { palette: "green-amber", font: "friendly" },
@@ -100,9 +100,9 @@ export function templateDraft(facts: Facts, brief: Brief): AiDraft {
       ctaText: ctaText(brief.goal, facts.freeEstimates),
       about: words.about,
       sectionIntros: {
-        services: "Here is what we can help with.",
+        services: "Here's what we can help with.",
         gallery: "A few examples of our work.",
-        contact: "Send us a few details and we will get back to you.",
+        contact: "Send us a few details and we'll get back to you.",
       },
       serviceDescriptions: facts.services.map((service, i) => ({
         service: service.name,
