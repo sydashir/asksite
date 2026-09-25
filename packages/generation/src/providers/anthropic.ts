@@ -24,27 +24,46 @@ const STOP: Record<string, ModelResponse["stop"]> = { end_turn: "end", max_token
 const SAFE_ERROR_TYPE = /^[a-z0-9_.-]{1,64}$/;
 
 /**
- * 402 (billing_error) needs a human, like a bad key; 504 (timeout_error) is the API's own timeout.
- * Every 400 is a bad request, a spend limit you set included; 409 and other statuses are unavailable.
+ * The usage tier's monthly spend cap (platform.claude.com api/rate-limits.md, "Reaching your spend
+ * cap"): a 429 rate_limit_error with no retry-after that keeps failing until a human acts.
+ */
+const SPEND_CAP_CODE = "enforced_spend_limit_reached";
+
+/** An own property of a parsed JSON value, or undefined: the error body's shape is never trusted. */
+const own = (value: unknown, key: string): unknown =>
+  typeof value === "object" && value !== null && Object.hasOwn(value, key) ? (value as Record<string, unknown>)[key] : undefined;
+
+/** A 429 whose body (APIError.error, the parsed JSON) has error.details.error_code === SPEND_CAP_CODE. */
+const isSpendCap = (error: unknown): boolean =>
+  error instanceof Anthropic.APIError && error.status === 429 && own(own(own(error.error, "error"), "details"), "error_code") === SPEND_CAP_CODE;
+
+/**
+ * 402 (billing_error) and the tier spend cap need a human, like a bad key; 504 (timeout_error) is the
+ * API's own timeout. Every 400 is a bad request, a spend limit you set included; 409 and other
+ * statuses are unavailable.
  */
 function kindOf(error: unknown): ProviderErrorKind {
   if (error instanceof Anthropic.APIUserAbortError || error instanceof Anthropic.APIConnectionTimeoutError) return "timeout";
   if (error instanceof Anthropic.APIConnectionError) return "unavailable";
   if (!(error instanceof Anthropic.APIError) || error.status === undefined) return "unavailable";
   if (error.status === 401 || error.status === 402 || error.status === 403) return "auth";
-  if (error.status === 429) return "rate_limited";
+  if (error.status === 429) return isSpendCap(error) ? "auth" : "rate_limited";
   if (error.status === 504) return "timeout";
   if (error.status === 400 || error.status === 404 || error.status === 413 || error.status === 422) return "bad_request";
   return "unavailable";
 }
 
-/** The kind, the HTTP status and the provider's error type: never the key, the provider's own text or headers. */
+/**
+ * The kind, the HTTP status, the provider's error type and the spend-cap code: never the key, the
+ * provider's own text or headers.
+ */
 function failureMessage(kind: ProviderErrorKind, error: unknown): string {
   const details: string[] = [kind];
   if (error instanceof Anthropic.APIError) {
     if (error.status !== undefined) details.push(`HTTP ${error.status}`);
     const type: unknown = error.type;
     if (typeof type === "string" && SAFE_ERROR_TYPE.test(type)) details.push(type);
+    if (isSpendCap(error)) details.push(SPEND_CAP_CODE);
   }
   return `Anthropic request failed (${details.join(", ")})`;
 }

@@ -18,6 +18,13 @@ const message = (text: string, stop_reason = "end_turn") => ({
 
 const request = (signal = new AbortController().signal) => ({ system: "SYS", user: "USER", jsonSchema: AI_DRAFT_JSON_SCHEMA, maxOutputTokens: 8192, signal });
 
+/** A fetch that answers every call with this status and this exact body text. */
+const rawFetch = (status: number, text: string) => async (): Promise<Response> => new Response(text, { status, headers: { "content-type": "application/json" } });
+
+// The tier spend-cap body, as documented on platform.claude.com api/rate-limits.md ("Reaching your spend cap").
+const SPEND_CAP = "enforced_spend_limit_reached";
+const spendCapBody = (details: unknown) => ({ type: "error", error: { type: "rate_limit_error", message: "You have reached your API usage limits", details }, request_id: "req_1" });
+
 describe("AnthropicProvider", () => {
   it("sends one Messages API request with structured output in output_config.format", async () => {
     const http = fakeFetch([{ status: 200, body: message('{"a":1}') }]);
@@ -74,6 +81,48 @@ describe("AnthropicProvider", () => {
     const provider = new AnthropicProvider({ apiKey: "k", model: "claude-opus-5-5", fetch: http.fetch });
     await expect(provider.generate(request())).rejects.toMatchObject({ name: "ProviderError", kind });
     expect(http.calls).toHaveLength(1);
+  });
+
+  it("maps the tier spend cap (a 429 with details.error_code enforced_spend_limit_reached) to auth, naming the code", async () => {
+    const http = fakeFetch([{ status: 429, body: spendCapBody({ error_code: SPEND_CAP }) }, { status: 200, body: message("{}") }]);
+    const provider = new AnthropicProvider({ apiKey: "sk-secret-429", model: "claude-opus-5-5", fetch: http.fetch });
+    const error: unknown = await provider.generate(request()).catch((e: unknown) => e);
+    expect(error).toMatchObject({ name: "ProviderError", kind: "auth", message: `Anthropic request failed (auth, HTTP 429, rate_limit_error, ${SPEND_CAP})` });
+    expect(http.calls).toHaveLength(1);
+  });
+
+  it.each([
+    ["no details (a plain rate limit)", { type: "error", error: { type: "rate_limit_error", message: "m" } }],
+    ["another error_code", spendCapBody({ error_code: "some_other_code" })],
+    ["an error_code that only starts with the spend-cap code", spendCapBody({ error_code: `${SPEND_CAP}_x` })],
+  ])("keeps a 429 with %s rate_limited, naming no code", async (_label, body) => {
+    const http = fakeFetch([{ status: 429, body }]);
+    const provider = new AnthropicProvider({ apiKey: "k", model: "claude-opus-5-5", fetch: http.fetch });
+    await expect(provider.generate(request())).rejects.toMatchObject({ kind: "rate_limited", message: "Anthropic request failed (rate_limited, HTTP 429, rate_limit_error)" });
+  });
+
+  it.each([
+    ["a body that is not JSON", SPEND_CAP],
+    ["a JSON string body", JSON.stringify(SPEND_CAP)],
+    ["a JSON null body", "null"],
+    ["an array body", JSON.stringify([spendCapBody({ error_code: SPEND_CAP })])],
+    ["error as a string", JSON.stringify({ type: "error", error: SPEND_CAP })],
+    ["details as a string", JSON.stringify(spendCapBody(SPEND_CAP))],
+    ["details null", JSON.stringify(spendCapBody(null))],
+    ["details as an array", JSON.stringify(spendCapBody([{ error_code: SPEND_CAP }]))],
+    ["error_code in an array", JSON.stringify(spendCapBody({ error_code: [SPEND_CAP] }))],
+    ["error_code at the error level", JSON.stringify({ type: "error", error: { type: "rate_limit_error", error_code: SPEND_CAP } })],
+    ["details at the top level", JSON.stringify({ type: "error", error: { type: "rate_limit_error" }, details: { error_code: SPEND_CAP } })],
+  ])("keeps a 429 with %s rate_limited", async (_label, text) => {
+    const provider = new AnthropicProvider({ apiKey: "k", model: "claude-opus-5-5", fetch: rawFetch(429, text) });
+    await expect(provider.generate(request())).rejects.toMatchObject({ name: "ProviderError", kind: "rate_limited" });
+  });
+
+  it("names the spend-cap code only on a 429", async () => {
+    const body = { type: "error", error: { type: "invalid_request_error", message: "m", details: { error_code: SPEND_CAP } } };
+    const http = fakeFetch([{ status: 400, body }]);
+    const provider = new AnthropicProvider({ apiKey: "k", model: "claude-opus-5-5", fetch: http.fetch });
+    await expect(provider.generate(request())).rejects.toMatchObject({ kind: "bad_request", message: "Anthropic request failed (bad_request, HTTP 400, invalid_request_error)" });
   });
 
   it("maps a network failure to unavailable", async () => {
