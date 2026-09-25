@@ -84,6 +84,13 @@ helpers.get("/__test/siteverify", (c) => c.json(siteverifyCallsSoFar()));
  */
 helpers.get("/__test/wait-until", (c) => c.json(waitUntilSeen.get(c.req.query("path") ?? "") ?? { count: 0, pending: 0 }));
 
+// The Worker's types have no `process` (Node.js compatibility is off), so the probe below declares it
+// for this file only; the bundler erases the declaration and the name is looked up in the runtime.
+declare const process: unknown;
+
+/** A13: what `typeof process` is inside this Worker ("undefined" once Node.js compatibility is off). */
+helpers.get("/__test/runtime", (c) => c.json({ process: typeof process }));
+
 /** What the admin's approval does to D1. */
 helpers.post("/__test/versions/:versionId/approve", async (c) => c.json(await fakeApprove(c.env, c.req.param("versionId"), Date.now())));
 

@@ -24,6 +24,16 @@ const SECRET_NAMES = ["RESEND_API_KEY", "IP_HASH_KEY", "TURNSTILE_SECRET_KEY", "
 /** Cloudflare's Turnstile test sitekeys: 1x/2x/3x, twenty zeros, then AA, AB, BB or FF. */
 const TEST_SITE_KEY = /^[123]x0{20}[A-F]{2}$/;
 
+/**
+ * A13: from compatibility date 2026-08-04 Node.js compatibility is ON by default (and fills process.env
+ * with every text binding, secrets included). Cloudflare's way to turn it off: no positive flag, and both
+ * opt-outs. Leaving the flags out is therefore not "off".
+ */
+function expectNodeCompatOff(flags: string[] | undefined): void {
+  expect(flags).toEqual(expect.arrayContaining(["no_nodejs_compat", "no_nodejs_compat_v2"]));
+  expect(flags?.filter((flag) => flag.startsWith("nodejs"))).toEqual([]);
+}
+
 describe("production wrangler.jsonc", () => {
   it("runs as production with the real mailer", () => {
     expect(config.vars["ENVIRONMENT"]).toBe("production");
@@ -47,9 +57,9 @@ describe("production wrangler.jsonc", () => {
     expect(config.secrets.required).toEqual(["RESEND_API_KEY", "IP_HASH_KEY", "TURNSTILE_SECRET_KEY"]);
   });
 
-  it("runs on the pinned runtime: compatibility date 2026-09-21 and no Node.js compatibility", () => {
+  it("runs on the pinned runtime: compatibility date 2026-09-21 with Node.js compatibility turned off (A13)", () => {
     expect(config.compatibility_date).toBe("2026-09-21");
-    expect((config.compatibility_flags ?? []).filter((flag) => flag.startsWith("nodejs"))).toEqual([]);
+    expectNodeCompatOff(config.compatibility_flags);
   });
 
   it("is served on its route, with the daily cleanup at 06:00 UTC", () => {
@@ -89,7 +99,15 @@ describe("production wrangler.jsonc", () => {
 });
 
 describe("test wrangler.test.jsonc", () => {
-  const testConfig = JSON.parse(readFileSync(new URL("../wrangler.test.jsonc", import.meta.url), "utf8")) as { name: string; vars: Record<string, string> };
+  const testConfig = JSON.parse(readFileSync(new URL("../wrangler.test.jsonc", import.meta.url), "utf8")) as {
+    name: string;
+    compatibility_flags?: string[];
+    vars: Record<string, string>;
+  };
+
+  it("turns Node.js compatibility off like production, so the tests run the runtime production runs (A13)", () => {
+    expectNodeCompatOff(testConfig.compatibility_flags);
+  });
 
   it("uses Cloudflare's documented always-pass Turnstile test keys and the production daily cap", () => {
     expect(testConfig.name).toBe("asksite-app-test");
