@@ -108,4 +108,31 @@ describe("generateDraft", () => {
       { outcome: "valid", issues: [], latencyMs: 10 },
     ]);
   });
+
+  it("reports invalid output when a transient error is followed by invalid answers", async () => {
+    const { deps, sleeps } = testDeps();
+    const provider = scriptedProvider([new ProviderError("timeout", "t"), answer(bad), answer(bad)]);
+    const result = await generateDraft(provider, FULL_SNAPSHOT, deps);
+    expect(result).toMatchObject({ ok: false, failure: "invalid_output", providerErrorKind: null, attempts: 3 });
+    expect(!result.ok && result.issues.map((i) => i.path.join("."))).toContain("copy.heroHeadline");
+    expect(sleeps).toEqual([2_000]);
+  });
+
+  it("reports the provider error when invalid answers are followed by transient errors, keeping the model and the repair issues", async () => {
+    const { deps, sleeps } = testDeps();
+    const provider = scriptedProvider([answer(bad), new ProviderError("timeout", "t"), new ProviderError("timeout", "t")]);
+    const result = await generateDraft(provider, FULL_SNAPSHOT, deps);
+    expect(result).toMatchObject({ ok: false, failure: "provider_error", providerErrorKind: "timeout", attempts: 3, model: "scripted-1" });
+    expect(!result.ok && result.issues.map((i) => i.path.join("."))).toContain("copy.heroHeadline");
+    expect(sleeps).toEqual([2_000]);
+  });
+
+  it("treats an answer that ended early as invalid and asks for the whole answer", async () => {
+    const { deps } = testDeps();
+    const provider = scriptedProvider([{ ...answer(undefined), stop: "other" as const }, answer(good)]);
+    const result = await generateDraft(provider, FULL_SNAPSHOT, deps);
+    expect(result).toMatchObject({ ok: true, attempts: 2 });
+    expect(provider.requests[1]!.user).toContain("ended early");
+    expect(result.log.map((a) => a.outcome)).toEqual(["other", "valid"]);
+  });
 });

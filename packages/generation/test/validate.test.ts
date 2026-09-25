@@ -73,12 +73,15 @@ describe("checkDraft", () => {
   });
 
   it("accepts a layout that adds about and faq after the owner-fact sections (prompt line, P3-A1)", () => {
-    const wanted = new Set(["hero", ...factSections(FULL_FACTS), "about", "faq"]);
-    const layout = draft.layout.filter((section) => wanted.has(section.id));
-    const faq = [{ question: "Can you help with a slow drain?", answer: "Yes. Tell us what you are seeing and we will talk you through the options." }];
-    const result = checkDraft(FULL_FACTS, { ...draft, copy: { ...draft.copy, faq }, layout });
-    expect(result.ok).toBe(true);
-    expect(result.ok && result.draft.layout.map((s) => s.id)).toEqual(layout.map((s) => s.id));
+    for (const facts of [FULL_FACTS, MINIMAL_FACTS]) {
+      const base = templateDraft(facts, BRIEF);
+      const order = ["hero", ...factSections(facts), "about", "faq"];
+      const layout = order.map((id) => base.layout.find((section) => section.id === id)!);
+      const faq = [{ question: "Can you help with a slow drain?", answer: "Yes. Tell us what you are seeing and we will talk you through the options." }];
+      const result = checkDraft(facts, { ...base, copy: { ...base.copy, faq }, layout });
+      expect(result.ok).toBe(true);
+      expect(result.ok && result.draft.layout.map((section) => section.id)).toEqual(order);
+    }
   });
 
   it("accepts about in the layout when the model left the about text out (null, removed by dropNulls)", () => {
