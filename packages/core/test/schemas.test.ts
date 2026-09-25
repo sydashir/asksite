@@ -44,6 +44,39 @@ describe("Brief", () => {
   });
 });
 
+describe("LIMITS.briefJsonMaxBytes", () => {
+  // The largest valid Brief: every field at its cap, in the character that costs the most once
+  // JSON-encoded. A lone surrogate becomes a 6-byte "\ud800" escape and zod counts it as one
+  // character; the only other 6-byte escapes are control characters, which Brief rejects.
+  const lone = "\uD800";
+  const key = (i: number) => `q${String(i).padStart(2, "0")}${"x".repeat(37)}`; // 40 characters, the most a key may have
+  const largest = {
+    tone: "professional", // the longest tone, goal and boolean
+    goal: "quote",
+    differentiator: lone.repeat(140),
+    notes: lone.repeat(2000),
+    comments: Object.fromEntries(Array.from({ length: 20 }, (_, i) => [key(i), lone.repeat(500)])),
+    reviewsAreReal: false,
+  };
+
+  it("holds the largest valid Brief once JSON-encoded, rounded up to a whole KiB", () => {
+    const bytes = new TextEncoder().encode(JSON.stringify(Brief.parse(largest))).byteLength;
+    expect(bytes).toBe(73_865);
+    expect(bytes).toBeLessThanOrEqual(LIMITS.briefJsonMaxBytes);
+    expect(LIMITS.briefJsonMaxBytes).toBe(Math.ceil(bytes / 1024) * 1024);
+  });
+
+  it.each([
+    ["the differentiator", { differentiator: lone.repeat(141) }],
+    ["the notes", { notes: lone.repeat(2001) }],
+    ["a comment", { comments: { ...largest.comments, [key(0)]: lone.repeat(501) } }],
+    ["the comment count", { comments: { ...largest.comments, [key(20)]: lone } }],
+    ["a comment key", { comments: { [`q${"x".repeat(40)}`]: lone } }],
+  ])("is measured at the caps: one more in %s is refused", (_, change) => {
+    expect(Brief.safeParse({ ...largest, ...change }).success).toBe(false);
+  });
+});
+
 describe("request bodies", () => {
   it("accepts a real token and rejects anything else", () => {
     expect(AcceptInviteBody.safeParse({ token: newToken() }).success).toBe(true);
