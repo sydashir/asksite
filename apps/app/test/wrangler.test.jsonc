@@ -15,7 +15,10 @@
     "GENERATION_ENABLED": "true",
     "DAILY_MODEL_LIMIT": "30",
     "RESEND_API_KEY": "unused-in-tests",
-    "IP_HASH_KEY": "test-ip-hash-key"
+    "IP_HASH_KEY": "test-ip-hash-key",
+    "TURNSTILE_SITE_KEY": "1x00000000000000000000AA",
+    "TURNSTILE_SECRET_KEY": "1x0000000000000000000000000000000AA",
+    "LOGIN_EMAILS_PER_DAY": "40"
   },
   "d1_databases": [
     {

@@ -1,4 +1,4 @@
-import { ApiError, rateLimit } from "@asksite/app-common";
+import { ApiError, inBackground, rateLimit } from "@asksite/app-common";
 import { sha256Hex, TOKEN_PATTERN, TTL } from "@asksite/core";
 import type { MiddlewareHandler } from "hono";
 import { getCookie } from "hono/cookie";
@@ -14,11 +14,18 @@ export function sessionCookie(token: string): string {
 
 export const EXPIRED_SESSION_COOKIE = `${SESSION_COOKIE}=; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=0`;
 
-/** The statement that stores a new session. Only the token's hash is stored. */
+/**
+ * The statement that stores a new session. Only the token's hash is stored, and only for an owner who is
+ * not disabled, checked in the same statement: its meta.changes is 0 otherwise, so a disable that lands
+ * after an earlier check can never leave a live session.
+ */
 export function insertSession(db: D1Database, idHash: string, ownerId: string, now: number): D1PreparedStatement {
   return db
-    .prepare("INSERT INTO sessions (id_hash, owner_id, created_at, expires_at, last_seen_at) VALUES (?, ?, ?, ?, ?)")
-    .bind(idHash, ownerId, now, now + TTL.sessionMs, now);
+    .prepare(
+      `INSERT INTO sessions (id_hash, owner_id, created_at, expires_at, last_seen_at)
+       SELECT ?1, id, ?3, ?4, ?3 FROM owners WHERE id = ?2 AND disabled_at IS NULL`,
+    )
+    .bind(idHash, ownerId, now, now + TTL.sessionMs);
 }
 
 /** Session middleware for every signed-in route: 401 without a live session, 403 for a disabled owner. */
@@ -38,7 +45,7 @@ export const requireOwner: MiddlewareHandler<AppEnv> = async (c, next) => {
   if (row.disabled_at !== null) throw new ApiError("owner_disabled", "This account has been disabled. Contact us for help.");
   await rateLimit(c.env.API_RL, row.id);
   if (now - row.last_seen_at > LAST_SEEN_EVERY_MS) {
-    c.executionCtx.waitUntil(c.env.DB.prepare("UPDATE sessions SET last_seen_at = ? WHERE id_hash = ?").bind(now, idHash).run());
+    inBackground(c.executionCtx, "last_seen_failed", c.env.DB.prepare("UPDATE sessions SET last_seen_at = ? WHERE id_hash = ?").bind(now, idHash).run());
   }
   c.set("owner", { id: row.id, email: row.email });
   c.set("sessionHash", idHash);

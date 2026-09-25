@@ -1,5 +1,6 @@
 import { afterAll, beforeAll } from "vitest";
 import { createTestHarness } from "wrangler";
+import { TURNSTILE_DUMMY_TOKEN, type SiteverifyCall } from "./turnstile.ts";
 
 export const APP_ORIGIN = "https://app.localhost:8787";
 export const ROOT = "localhost:8789";
@@ -26,12 +27,12 @@ export const nextIp = (): string => `198.51.100.${(ipCounter++ % 250) + 1}`;
 /**
  * The local rate limiter counts in fixed windows aligned to the wall-clock minute (miniflare's
  * ratelimit-object: `epoch = Math.floor(Date.now() / (period * 1e3))`), so a burst that crosses :00
- * starts a fresh count. Before a burst that must land in one window, this waits (at most 6 s) until
- * the clock is at least 1 s past and 5 s before a minute boundary.
+ * starts a fresh count. Before a burst that must land in one window, this waits (at most 1 s more than
+ * `needMs`) until the clock is at least 1 s past and `needMs` before a minute boundary.
  */
-export async function awayFromMinuteBoundary(): Promise<void> {
+export async function awayFromMinuteBoundary(needMs = 5_000): Promise<void> {
   const ms = Date.now() % 60_000;
-  const wait = ms < 1_000 ? 1_000 - ms : ms > 55_000 ? 61_000 - ms : 0;
+  const wait = ms < 1_000 ? 1_000 - ms : ms > 60_000 - needMs ? 61_000 - ms : 0;
   if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
 }
 
@@ -66,6 +67,43 @@ export function useAppHarness() {
     return server.fetch(`${APP_ORIGIN}${path}`, { method, headers, ...(body === undefined ? {} : { body }) });
   }
 
+  /** POST /api/auth/login from a fresh address, with a Turnstile token the fake siteverify accepts unless told otherwise (null: no token). */
+  async function login(email: string, options: { ip?: string; turnstile?: string | null } = {}): Promise<Response> {
+    const token = options.turnstile === undefined ? TURNSTILE_DUMMY_TOKEN : options.turnstile;
+    return call("POST", "/api/auth/login", { body: { email }, ip: options.ip ?? nextIp(), headers: token === null ? {} : { "x-turnstile-token": token } });
+  }
+
+  /** What the fake siteverify has been sent, oldest first (test/support/fakes.ts). */
+  async function siteverifyCalls(): Promise<SiteverifyCall[]> {
+    return (await call("GET", "/__test/siteverify")).json() as Promise<SiteverifyCall[]>;
+  }
+
+  async function waitUntilSeen(path: string): Promise<{ count: number; pending: number }> {
+    return (await call("GET", `/__test/wait-until?path=${encodeURIComponent(path)}`)).json() as Promise<{ count: number; pending: number }>;
+  }
+
+  /** How many promises requests to `path` have handed to ctx.waitUntil so far. */
+  async function waitUntilCount(path: string): Promise<number> {
+    return (await waitUntilSeen(path)).count;
+  }
+
+  /** Waits until every promise requests to `path` handed to ctx.waitUntil has settled. */
+  async function backgroundDone(path: string): Promise<void> {
+    await eventually(() => waitUntilSeen(path), (seen) => seen.pending === 0, `the background work of ${path}`);
+  }
+
+  /** The Worker's JSON log lines since the harness started or server.clearLogs(). */
+  function logLines(): Array<Record<string, unknown>> {
+    return server.getLogs().flatMap((entry) => {
+      try {
+        const line: unknown = JSON.parse(entry.message);
+        return typeof line === "object" && line !== null ? [line as Record<string, unknown>] : [];
+      } catch {
+        return [];
+      }
+    });
+  }
+
   async function db(): Promise<D1Like> {
     const env = (await server.getWorker().getEnv()) as { DB: D1Like };
     return env.DB;
@@ -86,7 +124,17 @@ export function useAppHarness() {
     return { cookie, ownerId: owner.id, siteId, email };
   }
 
-  return { server, call, db, invite, signIn };
+  return { server, call, db, invite, signIn, login, siteverifyCalls, waitUntilCount, backgroundDone, logLines };
+}
+
+/** Polls `read` every 100 ms until `done` accepts its value (at most 5 s). */
+export async function eventually<T>(read: () => T | Promise<T>, done: (value: T) => boolean, what: string): Promise<T> {
+  for (let i = 0; i < 50; i += 1) {
+    const value = await read();
+    if (done(value)) return value;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  throw new Error(`timed out waiting for ${what}`);
 }
 
 /** The part of D1Database the tests use (the Worker's own types stay out of the Node test build). */

@@ -18,8 +18,9 @@ import {
 import { render } from "@asksite/renderer";
 import { SITE_CSS } from "@asksite/site-css";
 import { factSections, SECTION_VARIANTS, type Facts, type LayoutSection, type SectionId } from "@asksite/site-schema";
-import type { GenerationDeps, MailerEnv, PublishErrorCode, PublishingDeps } from "../../src/worker/deps.ts";
+import type { AppDeps, GenerationDeps, MailerEnv, PublishErrorCode, PublishingDeps } from "../../src/worker/deps.ts";
 import { FAKE_PUBLISH_CAP } from "./limits.ts";
+import { TURNSTILE_DUMMY_TOKEN, TURNSTILE_TEST_SECRET, type SiteverifyCall } from "./turnstile.ts";
 
 // Test stand-ins for Plan 2 (@asksite/publishing, @asksite/mailer) and Plan 3 (@asksite/generation).
 // Each follows the design's contract (§6.4, §7.2, §7.6) closely enough for this Worker's tests;
@@ -215,3 +216,51 @@ export function fakeCreateMailer(env: MailerEnv): Mailer {
     },
   };
 }
+
+const siteverifyCalls: SiteverifyCall[] = [];
+
+export const siteverifyCallsSoFar = (): readonly SiteverifyCall[] => siteverifyCalls;
+
+const PASSED = { success: true, challenge_ts: "2026-09-26T00:00:00.000Z", hostname: "app.localhost", "error-codes": [] };
+
+const answer = (body: Record<string, unknown>, status = 200): Response => Response.json(body, { status });
+
+const text = (value: unknown): string | null => (typeof value === "string" ? value : null);
+
+/**
+ * Turnstile's siteverify without the network. Cloudflare's dummy token passes with the test secret, as
+ * the real service does, but for this app's host name: the real service answers "example.com" for the
+ * test keys (measured 2026-09-26), which the app's host name check refuses. Other tokens act out what the
+ * tests need: "other-host", "slow-once" (hangs until the caller gives up, then passes on the retry with
+ * the same idempotency key), "busy-once" (internal-error, then passes on the retry), "down" (a network
+ * error, then a 503); anything else is an invalid token. Any other address is a 404.
+ */
+export const fakeSiteverify: AppDeps["siteverify"] = async (url, init) => {
+  if (url !== "https://challenges.cloudflare.com/turnstile/v0/siteverify") return answer({}, 404);
+  const body = JSON.parse(init.body) as Record<string, unknown>;
+  const call: SiteverifyCall = {
+    response: text(body["response"]),
+    remoteip: text(body["remoteip"]),
+    idempotencyKey: text(body["idempotency_key"]),
+    testSecret: body["secret"] === TURNSTILE_TEST_SECRET,
+  };
+  const retry = siteverifyCalls.some((earlier) => earlier.idempotencyKey !== null && earlier.idempotencyKey === call.idempotencyKey);
+  siteverifyCalls.push(call);
+  if (!call.testSecret) return answer({ success: false, "error-codes": ["invalid-input-secret"] });
+  switch (call.response) {
+    case TURNSTILE_DUMMY_TOKEN:
+      return answer(PASSED);
+    case "other-host":
+      return answer({ ...PASSED, hostname: "evil.example" });
+    case "slow-once":
+      if (!retry) await new Promise((_resolve, reject) => init.signal.addEventListener("abort", () => reject(init.signal.reason)));
+      return answer(PASSED);
+    case "busy-once":
+      return answer(retry ? PASSED : { success: false, "error-codes": ["internal-error"] });
+    case "down":
+      if (!retry) throw new TypeError("Network connection lost.");
+      return answer({}, 503);
+    default:
+      return answer({ success: false, "error-codes": ["invalid-input-response"] });
+  }
+};

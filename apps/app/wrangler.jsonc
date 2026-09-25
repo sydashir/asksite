@@ -18,9 +18,11 @@
     "SUPPORT_EMAIL": "help@asksite.example",
     "ADMIN_NOTIFY_EMAILS": "",
     "GENERATION_ENABLED": "false",
-    "DAILY_MODEL_LIMIT": "8"
+    "DAILY_MODEL_LIMIT": "8",
+    "TURNSTILE_SITE_KEY": "",
+    "LOGIN_EMAILS_PER_DAY": "40"
   },
-  "secrets": { "required": ["RESEND_API_KEY", "IP_HASH_KEY"] },
+  "secrets": { "required": ["RESEND_API_KEY", "IP_HASH_KEY", "TURNSTILE_SECRET_KEY"] },
   "d1_databases": [
     {
       "binding": "DB",

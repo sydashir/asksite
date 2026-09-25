@@ -1,13 +1,39 @@
 import { newId, newToken, sha256Hex, TTL } from "@asksite/core";
 import { Hono } from "hono";
 import { createWorker } from "../../src/worker/worker.ts";
-import { fakeApprove, fakeCreateMailer, fakeGeneration, fakePublishing, finishGeneration } from "./fakes.ts";
+import { fakeApprove, fakeCreateMailer, fakeGeneration, fakePublishing, fakeSiteverify, finishGeneration, siteverifyCallsSoFar } from "./fakes.ts";
 
 // The app Worker wired to the fakes, plus /__test/* helpers that stand in for the admin and the
 // generator in tests. Used by the Worker tests (test/wrangler.test.jsonc) and the browser tests
 // (test/e2e/wrangler.e2e.jsonc). Never deployed: both configs are test files, and every helper
 // answers 404 unless ENVIRONMENT is "development" on a *.localhost host name.
-const worker = createWorker({ generation: fakeGeneration, publishing: fakePublishing, createMailer: fakeCreateMailer });
+const worker = createWorker({ generation: fakeGeneration, publishing: fakePublishing, createMailer: fakeCreateMailer, siteverify: fakeSiteverify });
+
+/** Per path: how many promises its requests handed to ctx.waitUntil, and how many of those are still running. */
+const waitUntilSeen = new Map<string, { count: number; pending: number }>();
+
+/** The request's ExecutionContext, keeping count of its waitUntil promises by path. */
+function counting(ctx: ExecutionContext, path: string): ExecutionContext {
+  return new Proxy(ctx, {
+    get(target, key) {
+      if (key === "waitUntil") {
+        return (promise: Promise<unknown>) => {
+          const seen = waitUntilSeen.get(path) ?? { count: 0, pending: 0 };
+          waitUntilSeen.set(path, seen);
+          seen.count += 1;
+          seen.pending += 1;
+          const done = () => {
+            seen.pending -= 1;
+          };
+          promise.then(done, done);
+          target.waitUntil(promise);
+        };
+      }
+      const value: unknown = Reflect.get(target, key);
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
+}
 
 const helpers = new Hono<{ Bindings: Env }>();
 
@@ -48,12 +74,23 @@ helpers.post("/__test/sites/:siteId/leads", async (c) => {
   return c.json({ ok: true });
 });
 
+/** What the fake siteverify has been sent, oldest first. */
+helpers.get("/__test/siteverify", (c) => c.json(siteverifyCallsSoFar()));
+
+/**
+ * How many promises requests to a path handed to ctx.waitUntil, and how many still run. A client
+ * disconnect cannot be tested here instead: the local runtime finishes a request's work after its
+ * client has gone, with or without waitUntil (measured 2026-09-26).
+ */
+helpers.get("/__test/wait-until", (c) => c.json(waitUntilSeen.get(c.req.query("path") ?? "") ?? { count: 0, pending: 0 }));
+
 /** What the admin's approval does to D1. */
 helpers.post("/__test/versions/:versionId/approve", async (c) => c.json(await fakeApprove(c.env, c.req.param("versionId"), Date.now())));
 
 export default {
   fetch(request, env, ctx) {
-    return new URL(request.url).pathname.startsWith("/__test/") ? helpers.fetch(request, env, ctx) : worker.fetch!(request, env, ctx);
+    const path = new URL(request.url).pathname;
+    return path.startsWith("/__test/") ? helpers.fetch(request, env, ctx) : worker.fetch!(request, env, counting(ctx, path));
   },
   scheduled(controller, env, ctx) {
     return worker.scheduled!(controller, env, ctx);

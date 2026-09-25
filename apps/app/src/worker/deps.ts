@@ -65,8 +65,16 @@ export interface MailerEnv {
   ENVIRONMENT: string;
 }
 
+/**
+ * A POST to Cloudflare Turnstile's siteverify (A11): the Workers fetch in production, a fake in tests.
+ * The Worker calls it as a plain function, never as a method of this object, so the global fetch can be
+ * passed as is (workerd refuses fetch called with another `this`: "Illegal invocation").
+ */
+export type Siteverify = (url: string, init: { method: "POST"; headers: Record<string, string>; body: string; signal: AbortSignal }) => Promise<Response>;
+
 export interface AppDeps {
   generation: GenerationDeps;
   publishing: PublishingDeps;
   createMailer: (env: MailerEnv) => Mailer;
+  siteverify: Siteverify;
 }
