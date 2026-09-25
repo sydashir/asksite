@@ -29,7 +29,25 @@ describe("createProvider", () => {
     [{ MODEL_PROVIDER: "fake", FAKE_MODE: "sometimes" }, "bad_request"],
     [{ MODEL_PROVIDER: "fake", ENVIRONMENT: "production" }, "bad_request"],
     [{ MODEL_PROVIDER: "gpt" }, "bad_request"],
+    [{ MODEL_PROVIDER: "openai-compatible", OPENAI_COMPAT_BASE_URL: "https://x.example/v1", OPENAI_COMPAT_API_KEY: "" }, "auth"],
+    [{ MODEL_PROVIDER: "openai-compatible", OPENAI_COMPAT_BASE_URL: "", OPENAI_COMPAT_API_KEY: "k" }, "bad_request"],
   ])("refuses a bad configuration %o with a %s ProviderError", (env, kind) => {
     expect(() => createProvider({ ...base, ...env }, FULL_SNAPSHOT)).toThrow(expect.objectContaining({ name: "ProviderError", kind }));
+  });
+
+  // In Node the SDK reads process.env.ANTHROPIC_API_KEY when apiKey is undefined (Task 6 review), so a
+  // missing key must be refused here, never left for the SDK to fill in.
+  it.each([
+    ["missing", {}],
+    ["empty", { ANTHROPIC_API_KEY: "" }],
+  ])("refuses a %s Anthropic key even when the process environment holds one", (_name, key) => {
+    const saved = process.env.ANTHROPIC_API_KEY;
+    process.env.ANTHROPIC_API_KEY = "sk-ant-dummy-from-env";
+    try {
+      expect(() => createProvider({ ...base, MODEL_PROVIDER: "anthropic", ...key }, FULL_SNAPSHOT)).toThrow(expect.objectContaining({ name: "ProviderError", kind: "auth" }));
+    } finally {
+      if (saved === undefined) delete process.env.ANTHROPIC_API_KEY;
+      else process.env.ANTHROPIC_API_KEY = saved;
+    }
   });
 });

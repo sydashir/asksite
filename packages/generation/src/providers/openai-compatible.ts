@@ -11,23 +11,55 @@ export interface OpenAICompatibleOptions {
   fetch?: typeof fetch;
 }
 
-interface ChatCompletion {
-  model?: unknown;
-  choices?: Array<{ message?: { content?: unknown }; finish_reason?: unknown }>;
-  usage?: { prompt_tokens?: unknown; completion_tokens?: unknown };
-}
-
 const STOP: Record<string, ModelResponse["stop"]> = { stop: "end", length: "max_tokens", content_filter: "refusal" };
 
-function kindOfStatus(status: number): ProviderErrorKind {
+/**
+ * Cloudflare's JSON Mode page: when the model cannot meet the schema, "an error `JSON Mode couldn't be
+ * met` is returned and must be handled". Its status and body shape are not documented, so an answer
+ * whose body text holds it, whatever its status, is an answer with no JSON: generateDraft sends repair
+ * feedback instead of stopping on a bad request.
+ */
+const JSON_MODE_UNMET = "JSON Mode couldn't be met";
+
+/**
+ * Groq's monthly spend cap (console.groq.com/docs/spend-limits): calls "will return a 400 with code
+ * `blocked_api_access`". The page shows no body; error.code is inferred from Groq's other documented
+ * error bodies, so the code anywhere else stays a bad request, which is never retried either.
+ */
+const GROQ_SPEND_CAP = "blocked_api_access";
+
+/** A provider error type or code a message may carry: a short plain token, never provider text. */
+const SAFE_ERROR_TOKEN = /^[a-z0-9_.-]{1,64}$/;
+
+/** An own property of a parsed JSON value, or undefined: a body's shape is never trusted. */
+const own = (value: unknown, key: string): unknown =>
+  typeof value === "object" && value !== null && Object.hasOwn(value, key) ? (value as Record<string, unknown>)[key] : undefined;
+
+/**
+ * 402 and Groq's spend cap need a human, like a bad key; 504 is the host's own timeout. `error` is the
+ * body's `error` field, whatever its shape.
+ */
+function kindOf(status: number, error: unknown): ProviderErrorKind {
   if (status < 400) return "bad_request"; // a redirect we refused to follow: the base URL is wrong
-  if (status === 401 || status === 403) return "auth";
+  if (status === 401 || status === 402 || status === 403) return "auth";
+  if (status === 400) return own(error, "code") === GROQ_SPEND_CAP ? "auth" : "bad_request";
+  if (status === 404 || status === 413 || status === 422) return "bad_request";
   if (status === 429) return "rate_limited";
-  if (status === 400 || status === 404 || status === 413 || status === 422) return "bad_request";
+  if (status === 504) return "timeout";
   return "unavailable";
 }
 
-const count = (n: unknown): number => (typeof n === "number" && Number.isFinite(n) && n >= 0 ? n : 0);
+/** A token count as reported, or undefined when it is missing or not a finite number of at least 0. */
+const tokenCount = (value: unknown): number | undefined => (typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : undefined);
+
+/** The parsed body, or undefined when it is not JSON (JSON.parse never returns undefined). */
+const parseBody = (text: string): unknown => {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return undefined;
+  }
+};
 
 const parseJson = (text: unknown): unknown => {
   if (typeof text !== "string") return undefined;
@@ -38,6 +70,15 @@ const parseJson = (text: unknown): unknown => {
   }
 };
 
+/** The body as text, or "" when it cannot be read (a dropped connection, or our abort mid-body). */
+async function bodyText(response: Response): Promise<string> {
+  try {
+    return await response.text();
+  } catch {
+    return "";
+  }
+}
+
 /**
  * Any "OpenAI-compatible" Chat Completions API: Cloudflare Workers AI, Groq, Together, OpenRouter,
  * the Hugging Face router, or a self-hosted vLLM or llama.cpp server. Request: POST
@@ -45,7 +86,9 @@ const parseJson = (text: unknown): unknown => {
  * strict mode needs every property required and additionalProperties false, which toWireSchema
  * gives). Whether each host enforces the schema is measured by the eval (Task 15). The model's
  * extra fields go first, so they can never replace ours. Redirects are not followed: one would
- * carry the Bearer key to another host (workerd accepts only "follow" and "manual").
+ * carry the Bearer key to another host (workerd accepts only "follow" and "manual"). The body is read
+ * as text once; every field is read only after a type check, as hosts answer errors in different
+ * shapes (an `error` object or string, or Cloudflare's `errors` list).
  */
 export class OpenAICompatibleProvider implements ModelProvider {
   readonly id = "openai-compatible";
@@ -63,7 +106,8 @@ export class OpenAICompatibleProvider implements ModelProvider {
   }
 
   async generate(req: ModelRequest): Promise<ModelResponse> {
-    const body = {
+    // Our own code runs before the try, so an error in it propagates instead of becoming a ProviderError.
+    const body = JSON.stringify({
       ...modelSettings("openai-compatible", this.#model)?.extraBody,
       model: this.#model,
       messages: [
@@ -72,38 +116,58 @@ export class OpenAICompatibleProvider implements ModelProvider {
       ],
       max_tokens: req.maxOutputTokens,
       response_format: { type: "json_schema", json_schema: { name: "site_draft", strict: true, schema: toWireSchema(req.jsonSchema) } },
-    };
+    });
     let response: Response;
     try {
       response = await this.#fetch(this.#url, {
         method: "POST",
         headers: { authorization: `Bearer ${this.#apiKey}`, "content-type": "application/json" },
-        body: JSON.stringify(body),
+        body,
         redirect: "manual",
         signal: req.signal,
       });
     } catch {
       throw new ProviderError(req.signal.aborted ? "timeout" : "unavailable", "OpenAI-compatible request failed");
     }
-    if (!response.ok) {
-      const kind = kindOfStatus(response.status);
-      throw new ProviderError(kind, `OpenAI-compatible request failed (${kind}, HTTP ${response.status})`);
-    }
-    let data: ChatCompletion;
-    try {
-      data = (await response.json()) as ChatCompletion;
-    } catch {
-      throw new ProviderError(req.signal.aborted ? "timeout" : "unavailable", "OpenAI-compatible response was not JSON");
-    }
-    const choice = data.choices?.[0];
-    if (choice === undefined) throw new ProviderError("unavailable", "OpenAI-compatible response had no choices");
-    const reason = typeof choice.finish_reason === "string" ? choice.finish_reason : "";
-    const stop = Object.hasOwn(STOP, reason) ? STOP[reason]! : "other";
+    const text = await bodyText(response);
+    const data = parseBody(text);
+    if (text.includes(JSON_MODE_UNMET)) return this.#answer(data, undefined, "end");
+    if (!response.ok) throw this.#failure(response.status, own(data, "error"));
+    if (data === undefined) throw new ProviderError(req.signal.aborted ? "timeout" : "unavailable", "OpenAI-compatible response was not JSON");
+    const choices = own(data, "choices");
+    const choice: unknown = Array.isArray(choices) ? choices[0] : undefined;
+    if (typeof choice !== "object" || choice === null) throw new ProviderError("unavailable", "OpenAI-compatible response had no choices");
+    const reason = own(choice, "finish_reason");
+    const stop = typeof reason === "string" && Object.hasOwn(STOP, reason) ? STOP[reason]! : "other";
+    return this.#answer(data, stop === "end" ? parseJson(own(own(choice, "message"), "content")) : undefined, stop);
+  }
+
+  /** The answer with the body's model and usage: a missing or unusable count is 0 with usageMissing (P3-4a). */
+  #answer(data: unknown, json: unknown, stop: ModelResponse["stop"]): ModelResponse {
+    const model = own(data, "model");
+    const usage = own(data, "usage");
+    const inputTokens = tokenCount(own(usage, "prompt_tokens"));
+    const outputTokens = tokenCount(own(usage, "completion_tokens"));
     return {
-      json: stop === "end" ? parseJson(choice.message?.content) : undefined,
-      model: typeof data.model === "string" ? data.model : this.#model,
-      usage: { inputTokens: count(data.usage?.prompt_tokens), outputTokens: count(data.usage?.completion_tokens) },
+      json,
+      model: typeof model === "string" ? model : this.#model,
+      usage: { inputTokens: inputTokens ?? 0, outputTokens: outputTokens ?? 0 },
       stop,
+      ...(inputTokens === undefined || outputTokens === undefined ? { usageMissing: true as const } : {}),
     };
+  }
+
+  /**
+   * The kind, the HTTP status and the provider's own error type and code when each is a plain token
+   * (OpenAI-style bodies: error.type, error.code): never its text, the key or headers. A token holding
+   * the key is left out too.
+   */
+  #failure(status: number, error: unknown): ProviderError {
+    const kind = kindOf(status, error);
+    const tokens = new Set<string>();
+    for (const token of [own(error, "type"), own(error, "code")]) {
+      if (typeof token === "string" && SAFE_ERROR_TOKEN.test(token) && !token.includes(this.#apiKey)) tokens.add(token);
+    }
+    return new ProviderError(kind, `OpenAI-compatible request failed (${[kind, `HTTP ${status}`, ...tokens].join(", ")})`);
   }
 }
