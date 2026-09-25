@@ -56,6 +56,24 @@ describe("ipRateKey", () => {
     expect(ipRateKey("2001:db8:85a3:1::1")).toBe("2001:db8:85a3:1::/64");
     expect(ipRateKey("::1")).toBe("0:0:0:0::/64");
   });
+
+  it.each(["::ffff:203.0.113.7", "::FFFF:203.0.113.7", "0:0:0:0:0:ffff:203.0.113.7", "0000::ffff:203.0.113.7", "::ffff:cb00:7107"])(
+    "keys the IPv4-mapped address %j exactly like the plain IPv4 address",
+    (mapped) => {
+      expect(ipRateKey(mapped)).toBe(ipRateKey("203.0.113.7"));
+    },
+  );
+
+  it("counts an embedded dotted quad as two groups when it expands ::", () => {
+    expect(ipRateKey("2001:db8::1:2:3:4:5")).toBe("2001:db8:0:1::/64"); // short head, hex groups only
+    expect(ipRateKey("2001:db8::1:2:3:192.0.2.1")).toBe("2001:db8:0:1::/64");
+    expect(ipRateKey("::1:2:3:4:5:192.0.2.1")).toBe("0:1:2:3::/64");
+    expect(ipRateKey("64:ff9b::192.0.2.33")).toBe("64:ff9b:0:0::/64"); // NAT64 is IPv6: cut to /64
+  });
+
+  it("keeps an IPv4-translated address (::ffff:0:a.b.c.d, an IPv6 node's address in RFC 2765) on the /64 rule", () => {
+    expect(ipRateKey("::ffff:0:203.0.113.7")).toBe("0:0:0:0::/64");
+  });
 });
 
 describe("canonicalJson", () => {
