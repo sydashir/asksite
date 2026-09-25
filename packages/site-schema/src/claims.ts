@@ -1,5 +1,5 @@
 import type { Copy } from "./copy.ts";
-import type { Facts } from "./facts.ts";
+import { DAYS, type Facts } from "./facts.ts";
 
 // Claim checker for AI copy. Credentials, insurance, time in business, hours, prices, reviews
 // and contact details are owner facts that the renderer shows from `facts`. Copy may mention a
@@ -32,13 +32,21 @@ export const NEVER_IN_COPY: readonly RegExp[] = [
   /\b[a-z0-9-]+\.(com|net|org|us|biz|info|co|io)\b/i, // bare web addresses
 ];
 
+/** True when the owner's opening hours cover all seven days. */
+const opensEveryDay = (facts: Facts): boolean => DAYS.every((day) => facts.hours.some((entry) => entry.days.includes(day)));
+
 /** Claims allowed only when the owner's facts back them. */
 export const NEEDS_A_FACT: ReadonlyArray<{ readonly pattern: RegExp; readonly backedBy: (facts: Facts) => boolean }> = [
   { pattern: /\blicen[cs]\w*/i, backedBy: (facts) => facts.licences.length > 0 },
   { pattern: /\binsur\w*/i, backedBy: (facts) => facts.insured },
   {
-    pattern: /\b(emergenc\w*|a?round[-\u2012\u2013\u2014\u2212 ]the[-\u2012\u2013\u2014\u2212 ]clock|day[-\u2012\u2013\u2014\u2212 ]or[-\u2012\u2013\u2014\u2212 ]night|any[-\u2012\u2013\u2014\u2212 ]?time|seven[-\u2012\u2013\u2014\u2212 ]days?[-\u2012\u2013\u2014\u2212 ](a|per)[-\u2012\u2013\u2014\u2212 ]week)\b/i,
+    pattern: /\b(emergenc\w*|a?round[-\u2012\u2013\u2014\u2212 ]the[-\u2012\u2013\u2014\u2212 ]clock|day[-\u2012\u2013\u2014\u2212 ]or[-\u2012\u2013\u2014\u2212 ]night|any[-\u2012\u2013\u2014\u2212 ]?time)\b/i,
     backedBy: (facts) => facts.emergency247,
+  },
+  {
+    // The full-week phrase: 24/7 service or opening hours on every day back it (A8c).
+    pattern: /\bseven[-\u2012\u2013\u2014\u2212 ]days?[-\u2012\u2013\u2014\u2212 ](a|per)[-\u2012\u2013\u2014\u2212 ]week\b/i,
+    backedBy: (facts) => facts.emergency247 || opensEveryDay(facts),
   },
   { pattern: /(?<![\w-])free\b|\bno[-\u2012\u2013\u2014\u2212 ](charge|cost)\b|\bcomplimentary\b/i, backedBy: (facts) => facts.freeEstimates },
 ];

@@ -96,6 +96,45 @@ describe("unbackedClaims", () => {
     expect(unbackedClaims(text, ALL_BUT[fact])).toEqual([word]);
   });
 
+  // A8c: opening hours that cover every day back the full-week phrase too, and nothing else.
+  const WEEKDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"] as const;
+  const EVERY_DAY_HOURS = {
+    "one entry for all seven days": Facts.parse({ ...base, hours: [{ days: [...WEEKDAYS, "Saturday", "Sunday"], opens: "08:00", closes: "18:00" }] }),
+    "three entries that cover the week": Facts.parse({
+      ...base,
+      hours: [
+        { days: [...WEEKDAYS], opens: "07:00", closes: "19:00" },
+        { days: ["Saturday"], opens: "08:00", closes: "14:00" },
+        { days: ["Sunday"], opens: "10:00", closes: "12:00" },
+      ],
+    }),
+  };
+  const SIX_DAY_HOURS = Facts.parse({ ...base, hours: [{ days: [...WEEKDAYS, "Saturday"], opens: "08:00", closes: "18:00" }] });
+  const WEEKLY = ["Open seven days a week", "seven-day-a-week service", "seven days per week"];
+
+  it.each(Object.entries(EVERY_DAY_HOURS))("allows the full-week phrase when the hours have %s", (_, facts) => {
+    for (const text of WEEKLY) expect(unbackedClaims(text, facts)).toEqual([]);
+  });
+
+  it("still refuses the full-week phrase when the hours leave out a day", () => {
+    expect(WEEKLY.map((text) => unbackedClaims(text, SIX_DAY_HOURS))).toEqual([["seven days a week"], ["seven-day-a-week"], ["seven days per week"]]);
+  });
+
+  it.each([
+    ["Emergency cleanups around the clock", "Emergency"],
+    ["We answer around the clock", "around the clock"],
+    ["Call us any time, day or night", "any time"],
+    ["Help day or night", "day or night"],
+  ])("does not let hours for every day back %j (only a 24/7 fact does)", (text, word) => {
+    for (const facts of Object.values(EVERY_DAY_HOURS)) expect(unbackedClaims(text, facts)).toEqual([word]);
+  });
+
+  it("refuses a sentence about how often, not opening hours, unless the facts back it (accepted residual)", () => {
+    const text = "Water your new sod seven days a week for the first month";
+    expect(unbackedClaims(text, NONE)).toEqual(["seven days a week"]);
+    expect(unbackedClaims(text, EVERY_DAY_HOURS["one entry for all seven days"])).toEqual([]);
+  });
+
   it("leaves ordinary sales copy alone", () => {
     expect(unbackedClaims("Careful cleaners for busy households. Hassle-free booking, one-off or weekly.", NONE)).toEqual([]);
   });
