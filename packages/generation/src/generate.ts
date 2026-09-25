@@ -32,6 +32,7 @@ export interface AttemptRecord {
   outcome: AttemptOutcome;
   issues: Issue[];
   latencyMs: number;
+  usageMissing: boolean;
 }
 
 interface Common {
@@ -75,21 +76,22 @@ export async function generateDraft(provider: ModelProvider, snapshot: Generatio
       model = res.model;
       failure = "invalid_output";
       providerErrorKind = null;
+      const usageMissing = res.usageMissing === true;
       if (res.stop !== "end") {
         repair = [STOP_ISSUE[res.stop]];
-        log.push({ outcome: res.stop, issues: repair, latencyMs });
+        log.push({ outcome: res.stop, issues: repair, latencyMs, usageMissing });
         continue;
       }
       const check = checkDraft(snapshot.facts, res.json);
       if (check.ok) {
-        log.push({ outcome: "valid", issues: [], latencyMs });
+        log.push({ outcome: "valid", issues: [], latencyMs, usageMissing });
         return { ok: true, draft: check.draft, validOnAttempt: attempt, attempts: attempt, model, usage, log };
       }
       repair = check.issues;
-      log.push({ outcome: "invalid", issues: check.issues, latencyMs });
+      log.push({ outcome: "invalid", issues: check.issues, latencyMs, usageMissing });
     } catch (error) {
       const kind = error instanceof ProviderError ? error.kind : "bad_request";
-      log.push({ outcome: kind, issues: [], latencyMs: deps.now() - started });
+      log.push({ outcome: kind, issues: [], latencyMs: deps.now() - started, usageMissing: false });
       failure = "provider_error";
       providerErrorKind = kind;
       if (!TRANSIENT_KINDS.has(kind)) return { ok: false, failure, providerErrorKind, issues: repair, attempts: attempt, model, usage, log };

@@ -7,9 +7,12 @@ type Schema = Record<string, unknown>;
 export const AI_DRAFT_JSON_SCHEMA: Schema = z.toJSONSchema(AiDraft) as Schema;
 
 // Keywords providers reject or ignore. Anthropic structured outputs refuse minLength, maxLength,
-// pattern, maxItems and minItems above 1; Groq strict mode also refuses default, const, oneOf and
-// every minItems/maxItems (both checked 2026-09-24 on the providers' docs). Our validators
-// (SiteDocument) enforce all of these after the answer arrives, so the wire copy drops them.
+// maxItems and minItems above 1, and support only simple regex patterns (checked 2026-09-25 on
+// platform.claude.com/docs/en/build-with-claude/structured-outputs, "JSON Schema limitations").
+// Groq strict mode is documented to refuse default, const, oneOf and the length/item keywords, but
+// its current docs no longer list them, so that is unconfirmed. We drop pattern too, so one schema
+// works for every provider; our validators (SiteDocument) enforce every dropped rule after the
+// answer arrives.
 const DROPPED = new Set(["$schema", "minLength", "maxLength", "pattern", "minItems", "maxItems", "default"]);
 const KNOWN = new Set(["type", "properties", "required", "additionalProperties", "items", "enum", "const", "oneOf", "anyOf"]);
 

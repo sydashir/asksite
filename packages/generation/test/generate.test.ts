@@ -104,9 +104,31 @@ describe("generateDraft", () => {
     const result = await generateDraft(provider, FULL_SNAPSHOT, deps);
     expect(result.usage).toEqual({ inputTokens: 2200, outputTokens: 700 });
     expect(result.log).toEqual([
-      { outcome: "invalid", issues: expect.any(Array), latencyMs: 10 },
-      { outcome: "valid", issues: [], latencyMs: 10 },
+      { outcome: "invalid", issues: expect.any(Array), latencyMs: 10, usageMissing: false },
+      { outcome: "valid", issues: [], latencyMs: 10, usageMissing: false },
     ]);
+  });
+
+  it("marks an attempt whose provider sent no usage, for reporting only", async () => {
+    const { deps, timeouts } = testDeps();
+    const noUsage = { ...answer(bad, { inputTokens: 0, outputTokens: 0 }), usageMissing: true as const };
+    const provider = scriptedProvider([noUsage, answer(good)]);
+    const result = await generateDraft(provider, FULL_SNAPSHOT, deps);
+    expect(result).toMatchObject({ ok: true, attempts: 2 });
+    expect(result.log.map((a) => a.usageMissing)).toEqual([true, false]);
+    expect(result.usage).toEqual({ inputTokens: 100, outputTokens: 50 });
+    expect(provider.requests.every((r) => r.maxOutputTokens === MAX_OUTPUT_TOKENS)).toBe(true);
+    expect(timeouts).toEqual([ATTEMPT_TIMEOUT_MS, ATTEMPT_TIMEOUT_MS]);
+  });
+
+  it("a provider that never sends usage still gets at most MAX_ATTEMPTS attempts", async () => {
+    const { deps } = testDeps();
+    const noUsage = () => ({ ...answer(bad, { inputTokens: 0, outputTokens: 0 }), usageMissing: true as const });
+    const provider = scriptedProvider([noUsage(), noUsage(), noUsage()]);
+    const result = await generateDraft(provider, FULL_SNAPSHOT, deps);
+    expect(result).toMatchObject({ ok: false, failure: "invalid_output", attempts: 3 });
+    expect(result.log.map((a) => a.usageMissing)).toEqual([true, true, true]);
+    expect(provider.requests).toHaveLength(3);
   });
 
   it("reports invalid output when a transient error is followed by invalid answers", async () => {

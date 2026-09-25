@@ -13,6 +13,8 @@ export interface ModelResponse {
   model: string;
   usage: { inputTokens: number; outputTokens: number };
   stop: "end" | "max_tokens" | "refusal" | "other";
+  /** Set by an adapter only when the provider sent no usage; usage is then 0/0; reporting only, never a cap. */
+  usageMissing?: true;
 }
 
 export interface ModelProvider {
