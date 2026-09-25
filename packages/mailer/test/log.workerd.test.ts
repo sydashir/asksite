@@ -37,6 +37,13 @@ const EMAIL: OutgoingEmail = {
   idempotencyKey: "lead:1",
 };
 
+// Decision 30: anything but exactly "development" (a typo, an empty value, another case) fails closed.
+const NOT_DEVELOPMENT = ["production", "prod", "", "Development"];
+
+function outboxRows(): Promise<number | null> {
+  return DB.prepare("SELECT COUNT(*) AS n FROM dev_outbox").first<number>("n");
+}
+
 describe("LogMailer", () => {
   it("writes the email to dev_outbox with a cleaned subject", async () => {
     const { id } = await new LogMailer(DB, "development").send(EMAIL);
@@ -45,10 +52,12 @@ describe("LogMailer", () => {
     expect(row).toEqual({ to_addr: "owner@example.com", subject: "New requestfrom your website", text: "Name: Dana", tag: "lead" });
   });
 
-  it("refuses to run unless ENVIRONMENT is exactly development, so a typo fails closed", async () => {
-    for (const environment of ["production", "prod", "", "Development"]) {
+  it("refuses to run unless ENVIRONMENT is exactly development, so a typo fails closed and stores nothing", async () => {
+    const before = await outboxRows();
+    for (const environment of NOT_DEVELOPMENT) {
       await expect(new LogMailer(DB, environment).send(EMAIL)).rejects.toMatchObject({ code: "misconfigured" });
     }
+    expect(await outboxRows()).toBe(before);
   });
 });
 
@@ -56,6 +65,15 @@ describe("createMailer", () => {
   it("returns the log mailer for MAILER=log", async () => {
     const mailer = createMailer({ MAILER: "log", MAIL_FROM: "a@b.example", DB, ENVIRONMENT: "development" });
     expect(mailer).toBeInstanceOf(LogMailer);
+  });
+
+  it("passes ENVIRONMENT to the log mailer, so MAILER=log outside development is misconfigured and stores nothing", async () => {
+    const before = await outboxRows();
+    for (const environment of NOT_DEVELOPMENT) {
+      const mailer = createMailer({ MAILER: "log", MAIL_FROM: "a@b.example", DB, ENVIRONMENT: environment });
+      await expect(mailer.send(EMAIL)).rejects.toMatchObject({ code: "misconfigured" });
+    }
+    expect(await outboxRows()).toBe(before);
   });
 
   it("fails closed on an unknown MAILER value", async () => {
