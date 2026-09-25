@@ -1,4 +1,4 @@
-import { DAYS, Facts, PALETTE_IDS, SOCIAL_NETWORKS, Theme, TRADES } from "@asksite/site-schema";
+import { DAYS, Facts, FONT_IDS, HIDEABLE_SECTIONS, PALETTE_IDS, SOCIAL_NETWORKS, Theme, TRADES } from "@asksite/site-schema";
 import { describe, expect, expectTypeOf, it } from "vitest";
 import { z } from "zod";
 import {
@@ -12,8 +12,11 @@ import {
   GOALS,
   LIMITS,
   LOOKS,
+  newId,
   newToken,
+  OwnerEdits,
   PatchDraftBody,
+  SECTION_IDS,
   SettingsBody,
   TakedownBody,
   TONES,
@@ -33,10 +36,10 @@ const jsonBytes = (value: unknown): number => new TextEncoder().encode(JSON.stri
 
 /** The fields `schema` allows that `value` leaves out, looking inside every object and list item. */
 function unfilled(schema: z.core.$ZodType, value: unknown, path = ""): string[] {
-  if (schema instanceof z.ZodOptional || schema instanceof z.ZodDefault) return unfilled(schema.unwrap(), value, path);
+  if (schema instanceof z.ZodOptional || schema instanceof z.ZodDefault || schema instanceof z.ZodNullable) return unfilled(schema.unwrap(), value, path);
   if (schema instanceof z.ZodArray) return (value as unknown[]).flatMap((item, i) => unfilled(schema.element, item, `${path}[${i}]`));
   if (!(schema instanceof z.ZodObject)) return [];
-  const object = value as Record<string, unknown>;
+  const object = (typeof value === "object" && value !== null ? value : {}) as Record<string, unknown>; // null leaves every field out
   return Object.entries(schema.shape).flatMap(([key, field]) =>
     key in object ? unfilled(field, object[key], `${path}.${key}`) : [`${path}.${key}`],
   );
@@ -187,6 +190,98 @@ describe("LIMITS.factsJsonMaxBytes", () => {
     ["a social-link URL", { socialLinks: [{ ...link, url: `${link.url}x` }] }],
   ])("is measured at the caps: one more in %s is refused", (_, change) => {
     expect(Facts.safeParse({ ...largest, ...change }).success).toBe(false);
+  });
+});
+
+describe("OwnerEdits caps (A8c)", () => {
+  it("allows a baseGenerationId as long as the longest id newId() makes, and no longer", () => {
+    const id = newId();
+    expect(id).toHaveLength(36);
+    expect(OwnerEdits.safeParse({ ...EMPTY_EDITS, baseGenerationId: id }).success).toBe(true);
+    expect(OwnerEdits.safeParse({ ...EMPTY_EDITS, baseGenerationId: `${id}0` }).success).toBe(false);
+  });
+
+  it("allows as many service descriptions as Facts allows services, and no more", () => {
+    const facts = { businessName: "Mop", trade: "cleaning", phone: "+12085550107", email: "hi@example.com", location: { city: "Boise", state: "ID" }, serviceArea: { places: ["Boise"] } };
+    const names = (n: number) => Array.from({ length: n }, (_, i) => `Service ${i}`);
+    let most = 0;
+    while (most < 1000 && Facts.safeParse({ ...facts, services: names(most + 1).map((name) => ({ name })) }).success) most += 1;
+    expect(most).toBeGreaterThan(0);
+    const withDescriptions = (n: number) => ({ ...EMPTY_EDITS, copy: { serviceDescriptions: Object.fromEntries(names(n).map((name) => [name, "Text."])) } });
+    expect(OwnerEdits.safeParse(withDescriptions(most)).success).toBe(true);
+    expect(OwnerEdits.safeParse(withDescriptions(most + 1)).error?.issues.map((i) => `${i.path.join(".")}:${i.code}`)).toEqual(["copy.serviceDescriptions:too_big"]);
+  });
+});
+
+describe("LIMITS.editsJsonMaxBytes", () => {
+  // The largest valid OwnerEdits: every wording field at 2,000 characters, the most EditText allows,
+  // in the costliest character (EditText accepts any character; lone costs 6 bytes, the most any
+  // UTF-16 unit can: see the scan below). Each service-description key is 40 characters of a
+  // different lone surrogate, so the keys differ. Ids are ASCII, so the longest id of each list.
+  const text = lone.repeat(2000);
+  const key = (i: number) => String.fromCharCode(0xd800 + i).repeat(40);
+  const largest = {
+    baseGenerationId: lone.repeat(36),
+    copy: {
+      heroHeadline: text,
+      heroSubheadline: text,
+      ctaText: text,
+      about: text, // longer than null
+      sectionIntros: { services: text, gallery: text, faq: text, contact: text },
+      serviceDescriptions: Object.fromEntries(Array.from({ length: 12 }, (_, i) => [key(i), text])),
+      faq: Array.from({ length: 8 }, () => ({ question: text, answer: text })),
+    },
+    order: [...SECTION_IDS], // every order lists the same ids, so every order is the same size
+    hidden: [...HIDEABLE_SECTIONS],
+    theme: { palette: longest(PALETTE_IDS), font: longest(FONT_IDS) },
+  };
+
+  it("fills every field OwnerEdits allows", () => {
+    expect(unfilled(OwnerEdits, largest)).toEqual([]);
+  });
+
+  it("uses the costliest character: no UTF-16 unit costs more than lone once JSON-encoded", () => {
+    const costs = Array.from({ length: 0x10000 }, (_, unit) => jsonBytes(String.fromCharCode(unit)) - 2);
+    expect(Math.max(...costs)).toBe(jsonBytes(lone) - 2);
+    expect(jsonBytes("\u{1F600}") - 2).toBeLessThan(2 * (jsonBytes(lone) - 2)); // a surrogate pair costs less than two lone ones
+  });
+
+  it("holds the largest valid OwnerEdits once JSON-encoded, rounded up to a whole KiB (never below 64 KiB)", () => {
+    const bytes = jsonBytes(OwnerEdits.parse(largest));
+    expect(bytes).toBe(435_810);
+    expect(bytes).toBeLessThanOrEqual(LIMITS.editsJsonMaxBytes);
+    expect(LIMITS.editsJsonMaxBytes).toBe(Math.max(65_536, Math.ceil(bytes / 1024) * 1024));
+  });
+
+  it("would still hold it if the hidden list could name any six sections", () => {
+    const sixLongest = [...SECTION_IDS].sort((a, b) => b.length - a.length).slice(0, HIDEABLE_SECTIONS.length);
+    expect(jsonBytes({ ...OwnerEdits.parse(largest), hidden: sixLongest })).toBeLessThanOrEqual(LIMITS.editsJsonMaxBytes);
+  });
+
+  const copy = largest.copy;
+  it.each([
+    ["the baseGenerationId", { baseGenerationId: lone.repeat(37) }],
+    ["the headline", { copy: { ...copy, heroHeadline: lone.repeat(2001) } }],
+    ["the line under the headline", { copy: { ...copy, heroSubheadline: lone.repeat(2001) } }],
+    ["the button text", { copy: { ...copy, ctaText: lone.repeat(2001) } }],
+    ["the about text", { copy: { ...copy, about: lone.repeat(2001) } }],
+    ...(["services", "gallery", "faq", "contact"] as const).map((intro) => [
+      `the ${intro} introduction`,
+      { copy: { ...copy, sectionIntros: { ...copy.sectionIntros, [intro]: lone.repeat(2001) } } },
+    ]),
+    ["a service description", { copy: { ...copy, serviceDescriptions: { ...copy.serviceDescriptions, [key(0)]: lone.repeat(2001) } } }],
+    ["a service-description key", { copy: { ...copy, serviceDescriptions: { [lone.repeat(41)]: text } } }],
+    ["the service-description count", { copy: { ...copy, serviceDescriptions: { ...copy.serviceDescriptions, [key(12)]: text } } }],
+    ["a question", { copy: { ...copy, faq: [{ question: lone.repeat(2001), answer: text }] } }],
+    ["an answer", { copy: { ...copy, faq: [{ question: text, answer: lone.repeat(2001) }] } }],
+    ["the question count", { copy: { ...copy, faq: [...copy.faq, { question: text, answer: text }] } }],
+    ["the section order", { order: [...SECTION_IDS, "faq"] }],
+    ["the hidden list", { hidden: [...HIDEABLE_SECTIONS, "faq"] }],
+    ["the look", { theme: { ...largest.theme, palette: `${largest.theme.palette}x` } }],
+    ["an unknown wording field", { copy: { ...copy, motto: text } }],
+    ["an unknown top-level field", { note: text }],
+  ] as Array<[string, object]>)("is measured at the caps: one more in %s is refused", (_, change) => {
+    expect(OwnerEdits.safeParse({ ...largest, ...change }).success).toBe(false);
   });
 });
 

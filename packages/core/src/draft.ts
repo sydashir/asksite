@@ -21,14 +21,15 @@ const isPlainObject = (value: unknown): value is Record<string, unknown> => {
  * service with that name (§2.8: such a name behaves like any other). The entries are checked as a Map
  * and rebuilt with Object.fromEntries, which defines own data properties, so "__proto__" stays plain
  * data and never sets a prototype. The limits and issue paths are z.record's; only a name over 40
- * characters is reported as too_big instead of invalid_key.
+ * characters is reported as too_big instead of invalid_key. At most 12 entries, as many as Facts
+ * allows services (A8c), so the largest valid OwnerEdits is finite (LIMITS.editsJsonMaxBytes).
  */
 const ServiceDescriptionEdits = z
   .preprocess((value, ctx) => {
     if (isPlainObject(value)) return new Map(Object.entries(value));
     ctx.issues.push({ code: "invalid_type", expected: "record", input: value });
     return value;
-  }, z.map(z.string().max(40), EditText))
+  }, z.map(z.string().max(40), EditText).max(12))
   .transform((edits) => Object.fromEntries(edits));
 
 /** Owner wording edits. After composition every Plan 1 Copy rule applies to them (design §2.2). */
@@ -60,7 +61,7 @@ export const SectionOrder = z
   .refine((ids) => new Set(ids).size === ids.length && ids[0] === "hero", { error: "Order must list every section once, hero first" });
 
 export const OwnerEdits = z.strictObject({
-  baseGenerationId: z.string().nullable(), // copy and order edits apply only to this generation
+  baseGenerationId: z.string().max(36).nullable(), // copy and order edits apply only to this generation (a newId(): 36 characters)
   copy: CopyEdits,
   order: SectionOrder.nullable(),
   hidden: OwnerHidden, // A6 schema from @asksite/site-schema (unique, hideable ids only)
