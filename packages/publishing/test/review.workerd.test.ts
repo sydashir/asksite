@@ -115,3 +115,65 @@ describe("rejectVersion", () => {
     expect(await auditActions(env.DB, p.siteId)).toEqual(["version.requested", "version.rejected"]);
   });
 });
+
+describe("what the review actions record and refuse (design §7.2)", () => {
+  const auditRows = async (siteId: string) =>
+    (await env.DB.prepare("SELECT at, actor, action, detail_json FROM audit_log WHERE site_id = ? ORDER BY id").bind(siteId).all<{ detail_json: string }>())
+      .results.map((row) => ({ ...row, detail_json: JSON.parse(row.detail_json) as unknown }));
+  const updatedAt = (siteId: string) => env.DB.prepare("SELECT updated_at FROM sites WHERE id = ?").bind(siteId).first("updated_at");
+
+  it("an approval is logged as the admin's, with the version and the search setting, and stamps the site", async () => {
+    const p = await pending();
+    await approve(p.versionId, p.htmlSha256, { indexable: false });
+    expect((await auditRows(p.siteId))[1]).toEqual({ at: 20, actor: "admin:admin@example.com", action: "version.approved", detail_json: { versionId: p.versionId, indexable: false } });
+    expect(await updatedAt(p.siteId)).toBe(20);
+  });
+
+  it("a rejection is logged as the admin's, with the version, and stamps the site", async () => {
+    const p = await pending();
+    await rejectVersion(env, { versionId: p.versionId, reviewer: "admin@example.com", note: "No", now: 11 });
+    expect((await auditRows(p.siteId))[1]).toEqual({ at: 11, actor: "admin:admin@example.com", action: "version.rejected", detail_json: { versionId: p.versionId } });
+    expect(await updatedAt(p.siteId)).toBe(11);
+  });
+
+  it("names why the bytes were refused (a missing page too), and changes nothing", async () => {
+    const seen = await pending();
+    const tampered = await pending();
+    await env.WORK.put(versionKey(tampered.siteId, tampered.versionId), "<!DOCTYPE html><p>tampered</p>");
+    const missing = await pending();
+    await env.WORK.delete(versionKey(missing.siteId, missing.versionId));
+    const refused = async (p: Awaited<ReturnType<typeof pending>>, sha: string) => {
+      const error = await failure(approve(p.versionId, sha));
+      return { code: error.code, detail: error.detail };
+    };
+    expect(await refused(seen, "0".repeat(64))).toEqual({ code: "integrity", detail: { reason: "reviewed_hash_mismatch" } });
+    expect(await refused(tampered, tampered.htmlSha256)).toEqual({ code: "integrity", detail: { reason: "stored_bytes_mismatch" } });
+    expect(await refused(missing, missing.htmlSha256)).toEqual({ code: "integrity", detail: { reason: "stored_bytes_mismatch" } });
+    for (const p of [seen, tampered, missing]) {
+      expect(await versionRow(env.DB, p.versionId)).toMatchObject({ status: "pending", reviewed_by: null });
+      expect(await siteRow(env.DB, p.siteId)).toMatchObject({ live_version_id: null, pending_version_id: p.versionId });
+      expect(await auditActions(env.DB, p.siteId)).toEqual(["version.requested"]);
+      expect(await env.LIVE.get(liveKey(p.slug))).toBeNull();
+    }
+  });
+
+  it("a retry after the site was taken down does not put the page back", async () => {
+    const p = await pending();
+    await approve(p.versionId, p.htmlSha256);
+    await env.DB.prepare("UPDATE sites SET taken_down_at = 25 WHERE id = ?").bind(p.siteId).run();
+    await env.LIVE.delete(liveKey(p.slug)); // a takedown deletes the live page too (Task 10)
+    expect((await failure(approve(p.versionId, p.htmlSha256, { now: 30 }))).code).toBe("site_taken_down");
+    expect(await env.LIVE.get(liveKey(p.slug))).toBeNull();
+    expect(await auditActions(env.DB, p.siteId)).toEqual(["version.requested", "version.approved"]);
+  });
+
+  it("rejecting a superseded version leaves the newer version in review", async () => {
+    const p = await pending();
+    const newer = await createPendingVersion(env, { siteId: p.siteId, ownerId: p.ownerId, slug: p.slug, document: doc(), edits: EDITS, generationId: null, now: 12 });
+    expect((await failure(rejectVersion(env, { versionId: p.versionId, reviewer: "admin@example.com", note: "No", now: 13 }))).code).toBe("version_not_pending");
+    expect((await siteRow(env.DB, p.siteId))?.pending_version_id).toBe(newer.id);
+    expect((await versionRow(env.DB, newer.id))?.status).toBe("pending");
+    expect((await versionRow(env.DB, p.versionId))?.status).toBe("superseded");
+    expect(await auditActions(env.DB, p.siteId)).toEqual(["version.requested", "version.requested"]);
+  });
+});
