@@ -1,4 +1,5 @@
 export { auditStatement, type AuditAction, type SqlDatabase } from "./audit.ts";
+export { inBackground, runToEnd, type WaitUntil } from "./background.ts";
 export {
   adminAlertEmail,
   cleanSubject,
@@ -22,6 +23,7 @@ export {
   JSON_MAX_KEYS,
   logLine,
   MAX_ISSUES,
+  noteLog,
   rateLimit,
   readBytes,
   readJson,

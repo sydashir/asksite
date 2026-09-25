@@ -13,6 +13,7 @@ import {
   JSON_MAX_ITEMS,
   JSON_MAX_KEYS,
   MAX_ISSUES,
+  noteLog,
   rateLimit,
   readBytes,
   readJson,
@@ -157,6 +158,24 @@ describe("one log line per request", () => {
     });
     expect(lines).toHaveLength(1);
     expect(lines[0]).toMatchObject({ route: "GET /api/moved", status: res?.status });
+  });
+
+  it("adds a route's own fields to its one line, when it answers and when it refuses (noteLog)", async () => {
+    const app = new Hono();
+    app.use("/api/*", apiHeaders());
+    app.get("/api/noted", (c) => {
+      noteLog(c, { event: "kept" });
+      return c.json({ ok: true });
+    });
+    app.post("/api/refused", (c) => {
+      noteLog(c, { turnstile: "missing" });
+      throw new ApiError("forbidden", "Please complete the security check and try again.");
+    });
+    app.onError(handleError);
+    expect(await logLines(() => app.request("/api/noted"))).toEqual([{ route: "GET /api/noted", status: 200, ms: expect.any(Number), event: "kept" }]);
+    expect(await logLines(() => app.request("/api/refused", { method: "POST" }))).toEqual([
+      { route: "POST /api/refused", status: 403, ms: expect.any(Number), code: "forbidden", turnstile: "missing" },
+    ]);
   });
 
   it("outside apiHeaders, handleError still logs each error exactly once", async () => {

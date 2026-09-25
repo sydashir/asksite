@@ -74,6 +74,11 @@ const note = (c: Context, fields: LogFields): void => {
   notes.set(c, { ...notes.get(c), ...fields });
 };
 
+/** Adds a route's own fields to the request's one line (why it refused, say). Never tokens, emails, IPs or bodies. */
+export function noteLog(c: Context, fields: LogFields): void {
+  note(c, fields);
+}
+
 /** The request's line: its route pattern (never the raw path), then what is known about it. */
 const requestLine = (c: Context, fields: LogFields): void => logLine({ route: `${c.req.method} ${routePath(c)}`, ...fields, ...notes.get(c) });
 
