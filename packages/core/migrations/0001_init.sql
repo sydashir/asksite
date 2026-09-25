@@ -7,7 +7,7 @@ CREATE TABLE owners (
   created_at INTEGER NOT NULL,
   disabled_at INTEGER,
   disabled_reason TEXT
-);
+) STRICT;
 
 CREATE TABLE sites (
   id TEXT PRIMARY KEY,
@@ -24,7 +24,7 @@ CREATE TABLE sites (
   takedown_reason TEXT,
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
-);
+) STRICT;
 CREATE INDEX sites_owner ON sites(owner_id);
 
 CREATE TABLE invites (
@@ -38,7 +38,7 @@ CREATE TABLE invites (
   revoked_at INTEGER,
   owner_id TEXT REFERENCES owners(id),
   site_id TEXT REFERENCES sites(id)
-);
+) STRICT;
 
 CREATE TABLE login_tokens (
   token_hash TEXT PRIMARY KEY,
@@ -46,7 +46,7 @@ CREATE TABLE login_tokens (
   created_at INTEGER NOT NULL,
   expires_at INTEGER NOT NULL,
   used_at INTEGER
-);
+) STRICT;
 CREATE INDEX login_tokens_owner ON login_tokens(owner_id, created_at);
 
 CREATE TABLE sessions (
@@ -55,7 +55,7 @@ CREATE TABLE sessions (
   created_at INTEGER NOT NULL,
   expires_at INTEGER NOT NULL,
   last_seen_at INTEGER NOT NULL
-);
+) STRICT;
 CREATE INDEX sessions_owner ON sessions(owner_id);
 
 CREATE TABLE uploads (
@@ -66,7 +66,7 @@ CREATE TABLE uploads (
   bytes INTEGER NOT NULL,
   created_at INTEGER NOT NULL,
   deleted_at INTEGER
-);
+) STRICT;
 CREATE INDEX uploads_site ON uploads(site_id);
 
 CREATE TABLE generations (
@@ -90,7 +90,7 @@ CREATE TABLE generations (
   created_at INTEGER NOT NULL,
   started_at INTEGER,
   finished_at INTEGER
-);
+) STRICT;
 CREATE INDEX generations_site ON generations(site_id, created_at);
 CREATE INDEX generations_owner ON generations(owner_id);
 CREATE INDEX generations_slots ON generations(model_slot, started_at);
@@ -114,7 +114,7 @@ CREATE TABLE site_versions (
   reviewed_at INTEGER,
   review_note TEXT,
   UNIQUE (site_id, number)
-);
+) STRICT;
 CREATE INDEX site_versions_status ON site_versions(status, requested_at);
 
 CREATE TABLE leads (
@@ -130,7 +130,7 @@ CREATE TABLE leads (
   email_status TEXT NOT NULL CHECK (email_status IN ('pending', 'sent', 'failed', 'skipped')),
   email_error TEXT,
   ip_hash TEXT NOT NULL
-);
+) STRICT;
 CREATE INDEX leads_site ON leads(site_id, created_at);
 
 CREATE TABLE settings (
@@ -138,7 +138,7 @@ CREATE TABLE settings (
   value TEXT NOT NULL,
   updated_at INTEGER NOT NULL,
   updated_by TEXT NOT NULL
-);
+) STRICT;
 
 CREATE TABLE audit_log (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -147,7 +147,7 @@ CREATE TABLE audit_log (
   action TEXT NOT NULL,                 -- one of AUDIT_ACTIONS
   site_id TEXT,
   detail_json TEXT
-);
+) STRICT;
 CREATE INDEX audit_site ON audit_log(site_id, at);
 
 CREATE TABLE dev_outbox (               -- written only by LogMailer (development/test); never in production
@@ -157,4 +157,4 @@ CREATE TABLE dev_outbox (               -- written only by LogMailer (developmen
   subject TEXT NOT NULL,
   text TEXT NOT NULL,
   tag TEXT NOT NULL
-);
+) STRICT;

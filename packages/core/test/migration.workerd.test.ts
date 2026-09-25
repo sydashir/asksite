@@ -54,6 +54,27 @@ describe("0001_init.sql", () => {
     ]);
   });
 
+  it("makes every table STRICT (A9)", async () => {
+    const { results } = await db.prepare("PRAGMA table_list").all<{ name: string; strict: number }>();
+    const ours = results.filter((t) => !/^(sqlite_|_cf_|d1_migrations$)/.test(t.name));
+    expect(ours).toHaveLength(12);
+    expect(ours.filter((t) => t.strict !== 1).map((t) => t.name)).toEqual([]);
+  });
+
+  it("refuses a value of the wrong type instead of storing it (STRICT, A9)", async () => {
+    const { owner, site } = await newSite();
+    const refused = /SQLITE_CONSTRAINT_DATATYPE/;
+    const id = crypto.randomUUID();
+    await expect(db.prepare("INSERT INTO owners (id, email, created_at) VALUES (?, ?, ?)").bind(id, `${id}@example.com`, "not-a-time").run()).rejects.toThrow(refused);
+    await expect(db.prepare("UPDATE sites SET created_at = ? WHERE id = ?").bind(1.5, site).run()).rejects.toThrow(refused);
+    await expect(
+      db.prepare("INSERT INTO login_tokens (token_hash, owner_id, created_at, expires_at) VALUES (?, ?, 1, ?)").bind(id, owner, "2026-09-25T00:00:00Z").run(),
+    ).rejects.toThrow(refused);
+    await expect(
+      db.prepare("INSERT INTO generations (id, site_id, owner_id, kind, status, input_json, cost_microusd, created_at) VALUES (?, ?, ?, 'first', 'failed', '{}', ?, 1)").bind(id, site, owner, 12.5).run(),
+    ).rejects.toThrow(refused);
+  });
+
   it("gives a new site the empty OwnerEdits and rev 1", async () => {
     const { site } = await newSite();
     const row = await db.prepare("SELECT edits_json, rev, indexable, slug FROM sites WHERE id = ?").bind(site).first<{ edits_json: string; rev: number; indexable: number; slug: string | null }>();

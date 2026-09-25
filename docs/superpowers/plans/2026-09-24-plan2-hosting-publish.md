@@ -2125,6 +2125,27 @@ describe("0001_init.sql", () => {
     ]);
   });
 
+  it("makes every table STRICT (A9)", async () => {
+    const { results } = await db.prepare("PRAGMA table_list").all<{ name: string; strict: number }>();
+    const ours = results.filter((t) => !/^(sqlite_|_cf_|d1_migrations$)/.test(t.name));
+    expect(ours).toHaveLength(12);
+    expect(ours.filter((t) => t.strict !== 1).map((t) => t.name)).toEqual([]);
+  });
+
+  it("refuses a value of the wrong type instead of storing it (STRICT, A9)", async () => {
+    const { owner, site } = await newSite();
+    const refused = /SQLITE_CONSTRAINT_DATATYPE/;
+    const id = crypto.randomUUID();
+    await expect(db.prepare("INSERT INTO owners (id, email, created_at) VALUES (?, ?, ?)").bind(id, `${id}@example.com`, "not-a-time").run()).rejects.toThrow(refused);
+    await expect(db.prepare("UPDATE sites SET created_at = ? WHERE id = ?").bind(1.5, site).run()).rejects.toThrow(refused);
+    await expect(
+      db.prepare("INSERT INTO login_tokens (token_hash, owner_id, created_at, expires_at) VALUES (?, ?, 1, ?)").bind(id, owner, "2026-09-25T00:00:00Z").run(),
+    ).rejects.toThrow(refused);
+    await expect(
+      db.prepare("INSERT INTO generations (id, site_id, owner_id, kind, status, input_json, cost_microusd, created_at) VALUES (?, ?, ?, 'first', 'failed', '{}', ?, 1)").bind(id, site, owner, 12.5).run(),
+    ).rejects.toThrow(refused);
+  });
+
   it("gives a new site the empty OwnerEdits and rev 1", async () => {
     const { site } = await newSite();
     const row = await db.prepare("SELECT edits_json, rev, indexable, slug FROM sites WHERE id = ?").bind(site).first<{ edits_json: string; rev: number; indexable: number; slug: string | null }>();
@@ -2190,7 +2211,7 @@ describe("0001_init.sql", () => {
 - [ ] **Step 3: Run it and watch it fail**
 
 Run: `pnpm vitest run packages/core/test/migration.workerd.test.ts`
-Expected: FAIL: `Error: No migrations present at …/packages/core/migrations.` and `Tests  8 skipped (8)`.
+Expected: FAIL: `Error: No migrations present at …/packages/core/migrations.` and `Tests  10 skipped (10)` (8 before A9 added the two STRICT tests).
 
 - [ ] **Step 4: Write the migration**
 
@@ -2206,7 +2227,7 @@ CREATE TABLE owners (
   created_at INTEGER NOT NULL,
   disabled_at INTEGER,
   disabled_reason TEXT
-);
+) STRICT;
 
 CREATE TABLE sites (
   id TEXT PRIMARY KEY,
@@ -2223,7 +2244,7 @@ CREATE TABLE sites (
   takedown_reason TEXT,
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
-);
+) STRICT;
 CREATE INDEX sites_owner ON sites(owner_id);
 
 CREATE TABLE invites (
@@ -2237,7 +2258,7 @@ CREATE TABLE invites (
   revoked_at INTEGER,
   owner_id TEXT REFERENCES owners(id),
   site_id TEXT REFERENCES sites(id)
-);
+) STRICT;
 
 CREATE TABLE login_tokens (
   token_hash TEXT PRIMARY KEY,
@@ -2245,7 +2266,7 @@ CREATE TABLE login_tokens (
   created_at INTEGER NOT NULL,
   expires_at INTEGER NOT NULL,
   used_at INTEGER
-);
+) STRICT;
 CREATE INDEX login_tokens_owner ON login_tokens(owner_id, created_at);
 
 CREATE TABLE sessions (
@@ -2254,7 +2275,7 @@ CREATE TABLE sessions (
   created_at INTEGER NOT NULL,
   expires_at INTEGER NOT NULL,
   last_seen_at INTEGER NOT NULL
-);
+) STRICT;
 CREATE INDEX sessions_owner ON sessions(owner_id);
 
 CREATE TABLE uploads (
@@ -2265,7 +2286,7 @@ CREATE TABLE uploads (
   bytes INTEGER NOT NULL,
   created_at INTEGER NOT NULL,
   deleted_at INTEGER
-);
+) STRICT;
 CREATE INDEX uploads_site ON uploads(site_id);
 
 CREATE TABLE generations (
@@ -2289,7 +2310,7 @@ CREATE TABLE generations (
   created_at INTEGER NOT NULL,
   started_at INTEGER,
   finished_at INTEGER
-);
+) STRICT;
 CREATE INDEX generations_site ON generations(site_id, created_at);
 CREATE INDEX generations_owner ON generations(owner_id);
 CREATE INDEX generations_slots ON generations(model_slot, started_at);
@@ -2313,7 +2334,7 @@ CREATE TABLE site_versions (
   reviewed_at INTEGER,
   review_note TEXT,
   UNIQUE (site_id, number)
-);
+) STRICT;
 CREATE INDEX site_versions_status ON site_versions(status, requested_at);
 
 CREATE TABLE leads (
@@ -2329,7 +2350,7 @@ CREATE TABLE leads (
   email_status TEXT NOT NULL CHECK (email_status IN ('pending', 'sent', 'failed', 'skipped')),
   email_error TEXT,
   ip_hash TEXT NOT NULL
-);
+) STRICT;
 CREATE INDEX leads_site ON leads(site_id, created_at);
 
 CREATE TABLE settings (
@@ -2337,7 +2358,7 @@ CREATE TABLE settings (
   value TEXT NOT NULL,
   updated_at INTEGER NOT NULL,
   updated_by TEXT NOT NULL
-);
+) STRICT;
 
 CREATE TABLE audit_log (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -2346,7 +2367,7 @@ CREATE TABLE audit_log (
   action TEXT NOT NULL,                 -- one of AUDIT_ACTIONS
   site_id TEXT,
   detail_json TEXT
-);
+) STRICT;
 CREATE INDEX audit_site ON audit_log(site_id, at);
 
 CREATE TABLE dev_outbox (               -- written only by LogMailer (development/test); never in production
@@ -2356,7 +2377,7 @@ CREATE TABLE dev_outbox (               -- written only by LogMailer (developmen
   subject TEXT NOT NULL,
   text TEXT NOT NULL,
   tag TEXT NOT NULL
-);
+) STRICT;
 ```
 
 - [ ] **Step 5: Run the core tests and the typecheck**
@@ -7693,6 +7714,10 @@ Expected: the diff shows only the domain, the database id, the sender name and t
 
 Run: `pnpm exec wrangler d1 migrations apply asksite --remote -c apps/sites/wrangler.jsonc`
 Expected: `0001_init.sql` listed with ✅.
+
+Then check that production D1 made every table STRICT (A9; local D1 is proven by `migration.workerd.test.ts`):
+Run: `pnpm exec wrangler d1 execute asksite --remote -c apps/sites/wrangler.jsonc --json --command "PRAGMA table_list"`
+Expected: each of the 12 tables of `0001_init.sql` (`owners` … `dev_outbox`) has `"strict": 1`. If any has `0`, stop and tell the moderator before deploying.
 
 - [ ] **Step 6: DNS records (Cloudflare dashboard → DNS)**
 
