@@ -763,7 +763,7 @@ export interface AdminVersionDetail {
 export interface AdminSettings {
   generationEnabled: boolean; envGenerationEnabled: boolean; dailyModelLimit: number;
   modelCallsToday: number; spentTodayMicrousd: number;
-  worstCaseDailyMicrousd: number; // dailyModelLimit x worst-case cost of one job for the configured model (§6.3)
+  worstCaseDailyMicrousd: number | null; // dailyModelLimit x worst-case cost of one job for the configured model (§6.3); null = no recorded price (M3)
 }
 ```
 
@@ -990,7 +990,7 @@ Constants: `MAX_ATTEMPTS = 3`; 90 s per attempt; `JOB_STUCK_AFTER_MS = 6 × 60,0
 - `kind = 'first'`: if there was no model call (`disabled` or `budget`) or the attempts ended without valid output (`provider_error` or `invalid_output`), write `templateDraft(facts, brief)` as the output. The row gets `succeeded`, `used_fallback = 1` and `fallback_reason`. `templateDraft` is deterministic, trade-aware copy that passes the claim checker for any facts. For example, it never names a service inside prose, because service names may contain digits. Plan 3 tests it against every Plan 1 fixture and against property-generated facts.
 - `kind = 'regenerate'`: write `failed` with `error_code` (`generation_disabled`, `budget_exhausted`, `provider_unavailable`, `provider_timeout` or `invalid_output`). The owner keeps the current wording.
 
-**Cost limits are counts, not money.** Each job that may call the model holds one model slot, and at most `:limit` slots are taken per UTC day across all owners; per-site and per-owner counts are enforced when the job is requested (§6.4). One job's cost has a hard ceiling: `MAX_ATTEMPTS × (maxInputTokens × inputPrice + maxOutputTokens × outputPrice)`. The prompt is built only from capped inputs (§2.8 `Brief`, `toModelFacts`, the issue list), so Plan 3 measures `maxInputTokens` once per provider with every input at its cap, adds a safety margin, and exports `worstCaseJobMicrousd(provider, modelId)`. The admin settings show `limit × worstCaseJobMicrousd` as the worst case per day. Example [inferred, token counts assumed]: Opus 5.5 at 8k input and 4k output tokens per attempt is 3 × ($0.032 + $0.08) ≈ $0.34 per job, so the default 30 per day caps spend at about $10 per day; typical spend is a small fraction. The provider-side spend limit (§12) is the money backstop. This replaces an earlier money-reservation design (reserve, settle, release, crash conversion, a `spend_days` table and owner balances): counts give the same hard bound with one atomic statement and do not depend on a correct price table for safety.
+**Cost limits are counts, not money.** Each job that may call the model holds one model slot, and at most `:limit` slots are taken per UTC day across all owners; per-site and per-owner counts are enforced when the job is requested (§6.4). One job's cost has a hard ceiling: `MAX_ATTEMPTS × (maxInputTokens × inputPrice + maxOutputTokens × outputPrice)`. The prompt is built only from capped inputs (§2.8 `Brief`, `toModelFacts`, the issue list), so Plan 3 measures `maxInputTokens` once per provider with every input at its cap, adds a safety margin, and exports `worstCaseJobMicrousd(provider, modelId)`. The admin settings show `limit × worstCaseJobMicrousd` as the worst case per day. Example [inferred, token counts assumed]: Opus 5.5 at 8k input and 4k output tokens per attempt is 3 × ($0.032 + $0.08) ≈ $0.34 per job, so the shipped 8 per day caps worst-case spend at about $10.65 per day on Opus 5.5 ($1.33 per-job ceiling; 30 per day would be $39.95 — M1); typical spend is a small fraction. The provider-side spend limit (§12) is the money backstop. This replaces an earlier money-reservation design (reserve, settle, release, crash conversion, a `spend_days` table and owner balances): counts give the same hard bound with one atomic statement and do not depend on a correct price table for safety.
 
 **Sweeper.** The generator's cron runs `*/5 * * * *`. For each row still `queued` with `created_at`, or `running` with `started_at`, older than `JOB_STUCK_AFTER_MS`: a `first` job gets the template fallback (`succeeded`, `used_fallback = 1`, `fallback_reason = 'provider_error'`); a `regenerate` job gets `failed` with `internal`. Each write is conditional on the status the sweeper read. So every generation reaches a final status within about 12 minutes of its request (6-minute threshold + 5-minute cron + slack), and a first build always ends with a draft unless writing the template itself fails.
 
@@ -1010,20 +1010,21 @@ export async function generationAllowance(
 export function isGenerationEnabled(env: { DB: D1Database; GENERATION_ENABLED: string }): Promise<boolean>;
 /** Daily limit in force: the setting, else DAILY_MODEL_LIMIT. Used by admin settings. */
 export function dailyModelLimit(env: { DB: D1Database; DAILY_MODEL_LIMIT: string }): Promise<number>;
-/** Hard ceiling of one job's cost for this provider and model (§6.3). Used by admin settings. */
-export function worstCaseJobMicrousd(provider: string, modelId: string): number;
+/** Hard ceiling of one job's cost for this provider and model (§6.3); null = no recorded price (M3). Used by admin settings. */
+export function worstCaseJobMicrousd(provider: string, modelId: string): number | null;
 export function toGenerationView(row: GenerationRow): GenerationView;
 ```
 
 How `requestGeneration` works:
 - `kind` is `first` when the site has no succeeded generation, otherwise `regenerate`.
 - For `regenerate`, it pre-checks the kill switch (`generation_disabled`) and whether today's model limit is used up (`budget_exhausted`), so the owner hears at once. These pre-checks are advisory; the exact check is the claim in §6.3 step 1. For `first`, it never blocks on them (fallback, §6.3).
-- It inserts the `queued` row with one conditional statement, so the per-site daily count and the per-owner total are exact even for an owner with two sites acting at once:
+- It inserts the `queued` row with one conditional statement, so the per-site daily count and the per-owner total are exact even for an owner with two sites acting at once. The per-site daily count covers every kind. The per-owner total counts only `regenerate` rows, and a `first` job is never refused by it (D2); `generationAllowance` computes `generationsLeftTotal` the same way:
   ```sql
   INSERT INTO generations (id, site_id, owner_id, kind, status, input_json, created_at)
   SELECT :id, :site, :owner, :kind, 'queued', :input, :now
   WHERE (SELECT COUNT(*) FROM generations WHERE site_id = :site AND created_at >= :dayStart) < :perSiteDay
-    AND (SELECT COUNT(*) FROM generations WHERE owner_id = :owner) < :perOwnerTotal
+    AND (:kind = 'first'
+         OR (SELECT COUNT(*) FROM generations WHERE owner_id = :owner AND kind = 'regenerate') < :perOwnerTotal)
   ```
   A violation of the unique index `generations_one_active` means `generation_in_progress`; `changes = 0` means `generation_cap_reached`.
 - It sends `{ v: 1, generationId }`. If `send` throws, it marks the row `failed` with `internal` (conditional on `queued`) and returns an `internal` error, so the one-active index never blocks the site. Then it writes the `generation.requested` audit row.
@@ -1444,7 +1445,7 @@ If Plan 1 is still running when Stage 0 starts, the parts of Stage 0 that do not
 1. **Domain name.** It blocks every deploy, the Public Suffix List submission (weeks to months), email DNS and Access.
 2. **Workers Paid ($5 per month)** from the pilot launch. Recommended (§1.4).
 3. **Default model provider** after Plan 3's evaluation: Claude (the best rule-following expected, paid per token) or an open model through the `openai-compatible` provider, e.g. on Workers AI (free daily allowance, more repairs and fallbacks expected). Both paths are built; no model server is deployed either way. Also: set a spend limit in the provider's console.
-4. **Cost cap defaults:** 5 generations per site per day, 20 per owner in total, 30 model calls per day across all owners (about $10 a day worst case on Opus 5.5, §6.3), 150 photo uploads per site in total (§2.8 `LIMITS`). All are counts; money is bounded by count × each job's hard cost ceiling, plus the provider-side spend limit.
+4. **Cost cap defaults:** 5 generations per site per day, first builds included; 20 regenerations per owner in total; first builds do not count toward it (D2); 8 model calls per day across all owners (about $10.65 a day worst case on Opus 5.5, §6.3; M1); 150 photo uploads per site in total (§2.8 `LIMITS`). All are counts; money is bounded by count × each job's hard cost ceiling, plus the provider-side spend limit.
    - **Invites by email only** (recommended, §3.1): the admin can no longer copy an invite link to send by text. Keeping a text option would need an email-confirmation step first.
    - **Resend Pro ($20 per month)** before about 20 live sites: Free's 100 emails a day is shared by leads, sign-in links and invites (§7.6).
 5. **Admin sign-in:** identity provider for Cloudflare Access (Google or GitHub, with MFA) and the admin email list.
@@ -1534,7 +1535,7 @@ Each item: what was wrong, and what this file now says. Section numbers point at
 24. **Local testing without accounts; one fewer adapter (KISS)**: the `AI` binding has no local simulation and errors in `wrangler dev` [verified], and `env.AI.run` input formats differ by model. The `workers-ai` provider is dropped; Workers AI is reached through the `openai-compatible` provider at its OpenAI-compatible endpoint [verified URL] with a scoped token, as the model-options note recommends (two real adapters). Whether that endpoint honours `json_schema` is [unverified] and measured by the eval (§6.2). One `vars` / `.dev.vars` convention for all Workers; the Images binding's offline support for `fit`/`quality`/`anim` is flagged [unverified] for Plan 4 (§1.2, §8, §10.1).
 25. **Smaller fixes**: admin allowlist compared lower-case (§5.3); lead-cap denial-of-service recorded as an accepted pilot risk (§7.5); save conflicts announced accessibly (§9.2); cost section updated for Resend Pro and the D1 page gate (§1.5); Stage 0 tests list the new edge cases (§11.3).
 
-Not changed, for the moderator: owner-edit strictness (§12 item 8) still blocks honest phrases such as "our team will review your options" (`review` is a banned word); hidden testimonials still need the attestation (safe, slightly strict); spam-flagged leads stay hidden from owners with no way to see them.
+Decided 2026-09-25 (D5, D6): owner edits stay strict for v1 and spam-flagged leads stay hidden. Known trade-offs: owner-edit strictness (§12 item 8) blocks honest phrases such as "our team will review your options" (`review` is a banned word); hidden testimonials still need the attestation (safe, slightly strict); spam-flagged leads stay hidden from owners with no way to see them.
 
 ---
 
@@ -1547,3 +1548,11 @@ Approved changes proposed by Plan 3 (binding for Plans 2, 3 and 4):
 - M4 (Plan 3 Decision 13, pins §10.3): every local D1 binding uses the placeholder `database_id` `00000000-0000-0000-0000-000000000000`; `pnpm deploy:check` refuses to deploy it.
 - M5 (Plan 3 Decision 22): the prompt scopes "free" to estimates/quotes only; two trap eval profiles test it.
 - M6 (from Plan 2 Decision 31): after Stage 0, shared root files are only edited in place (never rewritten); Plan 3 drops its own `vitest.config.ts` rewrite and relies on Stage 0's generic globs.
+
+Cross-plan decisions D1–D6 (from `docs/superpowers/specs/2026-09-25-cross-plan-check.md` sections 2 and 3; binding for Plans 2B, 3 and 4):
+- D1 (check §2 item 1): `AdminSettings.worstCaseDailyMicrousd` is `number | null` (M3; §4.2, §6.4); Stage 0 Task 4 already ships it in code (`packages/core/src/views.ts`, commit 48a23c6), although Task 4's text in Plan 2 still shows `number` (its text was frozen while it ran); Plan 4's `SettingsView` compiles either way.
+- D2 (check §2 item 2): first builds (`kind = 'first'`) neither count toward nor are refused by the owner's lifetime cap of 20 (`LIMITS.generationsPerOwnerTotal`); only `regenerate` rows count, in the insert and in `generationAllowance`; the per-site daily cap still counts every kind (§6.4, §12 item 4).
+- D3 (check §2 item 3): the moderator sets `MODEL_PROVIDER`, `MODEL_ID`, `DAILY_MODEL_LIMIT` and `GENERATION_ENABLED` in `apps/app`, `apps/admin` and `apps/generator` (each Worker that declares the variable) in ONE commit, because the cross-Worker config test needs them equal at every commit; Plan 4 Task 27 Step 1 only checks the values.
+- D4 (check §3 item 4): Plan 2B runs in `/Users/ashir/Documents/workk2/web_maker` on branch `plan2-hosting`; Plans 3 and 4 run in worktrees outside that folder, `/Users/ashir/Documents/workk2/asksite-plan3` (`plan3-generation`) and `/Users/ashir/Documents/workk2/asksite-plan4` (`plan4-app`).
+- D5 (check §2 items 5–11): the check's recommendations are accepted, including no email links in v1, no unifying of the two TypeScript setups, and spam-flagged leads that keep counting toward the lead cap while staying hidden from owners.
+- D6 (user, 2026-09-25): owner-edited sentences stay strict, under the same rules as AI copy (§2.2, §12 item 8).

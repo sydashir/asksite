@@ -22,7 +22,7 @@ Copied from `CLAUDE.md` (the user's rules), design `docs/superpowers/specs/2026-
 - Commit messages are 3 words maximum. No `Co-Authored-By`, no "Generated with", no AI attribution of any kind. Commits are made as the repo-local identity `sydashir` <meetashirr@gmail.com> (already configured; never change global git config).
 - Stage named paths only (`git add <paths>`). Never `git add -A` or `git add .`. The moderating session's uncommitted edits under `docs/` stay unstaged.
 - Never push and never run any `gh` command: the moderator pushes.
-- Work on the branch `plan3-generation`, created from `main` after Plan 1 and Stage 0 have merged; the moderator fast-forwards it into `main` after review (CLAUDE.md merge rule). Run every command from the repository root, `cd "$(git rev-parse --show-toplevel)"`, so an agent in a git worktree checks and tests its own tree, never another checkout.
+- Work on the branch `plan3-generation`, created from `main` after Plan 1 and Stage 0 have merged, in its own git worktree `/Users/ashir/Documents/workk2/asksite-plan3`, outside `/Users/ashir/Documents/workk2/web_maker` (where Plan 2B runs on `plan2-hosting`), so Plan 2's leftover-process check and its `pkill -f "/Users/ashir/Documents/workk2/web_maker/"` never match this plan's processes (moderator decision of 2026-09-25 on the cross-plan check, §3 item 4); the moderator fast-forwards it into `main` after review (CLAUDE.md merge rule). Run every command from the repository root, `cd "$(git rev-parse --show-toplevel)"`, so an agent in a git worktree checks and tests its own tree, never another checkout.
 - Every `wrangler.jsonc` is plain JSON with no comments: Plan 2's `pnpm dev` and `pnpm deploy:check` read every `apps/*/wrangler.jsonc` with `JSON.parse` (Plan 2 Global Constraints), and so do this plan's config tests.
 - Never commit secrets (`.env`, `.env.*`, `.dev.vars`, `*.pem`, `*.key`; all already gitignored). API keys live only in the gitignored `.env` (eval) and `apps/generator/.dev.vars` (local Worker) or in Worker secrets (`wrangler secret put`). Never print a key, never put one in a log, a test, a fixture or chat.
 - Exact dependency versions, never `^` or `~`: `zod` 4.6.5, `vitest` 5.0.1, `typescript` 7.0.2, `wrangler` 4.138.0, `@cloudflare/workers-types` 5.20260924.1, `@anthropic-ai/sdk` 0.128.0 [verified: `npm view`, 2026-09-24]. Licences read from the actual LICENSE files: `@anthropic-ai/sdk` MIT (LICENSE in the npm tarball), `wrangler` MIT (workers-sdk `LICENSE-MIT`), `@cloudflare/workers-types` Apache-2.0 (workerd `LICENSE`; the npm tarball has no LICENSE file), `zod` MIT (Plan 1).
@@ -32,7 +32,7 @@ Copied from `CLAUDE.md` (the user's rules), design `docs/superpowers/specs/2026-
 - Privacy (design §6.1): the model sees only `toModelFacts(facts)` (business name, trade, city, state, service names, yes/no flags, service-area places) and the brief's differentiator, notes and comments. Phone, email, street, ZIP, licence numbers, prices, hours, reviews, photos and social links never leave our servers.
 - Prompt injection (design §6.5): owner text is placed in the prompt only as JSON data after our instructions; the model gets no tools; every answer is validated; a human approves every page.
 - Data use (design §6.2): only provider routes whose terms say they do not train on or let humans review our inputs. Never a free route that may (for example OpenRouter `:free` models served from Google AI Studio's unpaid tier).
-- Cost limits are counts, not money (design §6.3): per-site 5 per UTC day, per-owner 20 in total (`LIMITS`), the global daily model limit claimed atomically (shipped as 8 model calls a day, Decision 4), one active job per site, the kill switch (`GENERATION_ENABLED` variable and `generation.enabled` setting). `MAX_ATTEMPTS` 3, 90 s per attempt, pauses of 2 s then 6 s after transient errors, `JOB_STUCK_AFTER_MS` 6 minutes, sweeper cron `*/5 * * * *`.
+- Cost limits are counts, not money (design §6.3): per-site 5 per UTC day, per-owner 20 regenerations in total (`LIMITS`; first builds neither count nor are refused, Decision 30), the global daily model limit claimed atomically (shipped as 8 model calls a day, Decision 4), one active job per site, the kill switch (`GENERATION_ENABLED` variable and `generation.enabled` setting). `MAX_ATTEMPTS` 3, 90 s per attempt, pauses of 2 s then 6 s after transient errors, `JOB_STUCK_AFTER_MS` 6 minutes, sweeper cron `*/5 * * * *`.
 - Everything in Tasks 1–14 runs locally with no account and no key (the `fake` provider, local D1/queues/cron through wrangler's test harness). Only Task 15 needs the user's accounts or keys.
 - Process hygiene: stop every process you start. Test harnesses close their `workerd` in `afterAll`. Never run a bare `killall node` or `pkill node` (the user's other projects run node); target only processes whose command line contains this repo's path.
 - Do not use the Playwright MCP browser tools. This plan needs no browser.
@@ -46,30 +46,30 @@ Copied from `CLAUDE.md` (the user's rules), design `docs/superpowers/specs/2026-
 
 ## Decisions made while writing this plan
 
-Each was checked by running the code in a scratch replay of this plan (see "Verification record" at the end) unless it says otherwise. Items marked **(moderator)** differ from, or add to, the design text and need the moderator's nod.
+Each was checked by running the code in a scratch replay of this plan (see "Verification record" at the end) unless it says otherwise. Items marked **(moderator)** differ from, or add to, the design text and need the moderator's nod. Every such item is now decided (2026-09-25: design "Moderator decisions" M1–M5, and the cross-plan check `docs/superpowers/specs/2026-09-25-cross-plan-check.md`); each tag says how.
 
 1. **One "wire" schema for every provider.** `toWireSchema(z.toJSONSchema(AiDraft))` turns `oneOf` into `anyOf`, `const` into a one-value `enum`, makes every object property required (an optional one becomes nullable) and drops `minLength`, `maxLength`, `pattern`, `minItems`, `maxItems`, `default` and `$schema`; adapters remove `null` values from the answer (`dropNulls`) before validation. An unknown keyword throws, so a Zod upgrade that emits something new is reviewed, not sent blind. Reasons: Anthropic structured outputs reject `oneOf`, `minLength`/`maxLength`, `pattern`, `maxItems` and `minItems` above 1 and accept `anyOf`, `enum`, `const`, `default`, `required`, `additionalProperties: false` [verified: platform.claude.com structured-outputs page, 2026-09-24]; Groq strict mode needs every field required and `additionalProperties: false` and rejects `oneOf`, `minLength`, `maxLength`, `pattern`, `maxItems`, `minItems`, `default` and `const` [verified: console.groq.com/docs/structured-outputs]. The SDK's own `transformJSONSchema` turns `oneOf` into `anyOf` too but moves `enum` and `const` of string fields into description text [verified: read `lib/transform-json-schema.mjs` in `@anthropic-ai/sdk` 0.128.0], which would stop the decoder enforcing section ids, variants and palettes, so it is not used. The caps are still stated in the prompt and enforced by `SiteDocument`.
 2. **Anthropic through the official SDK** (`messages.create` with `output_config: { format: { type: "json_schema", schema } }`), as the claude-api skill requires for TypeScript projects; SDK retries off (`maxRetries: 0`, our loop owns retries), `timeout` 90 s. No `thinking` parameter: Opus 5.5 always thinks and returns 400 for `{ type: "disabled" }`; its effort defaults to `medium` [verified: claude-api skill]. This plan sets `output_config.effort: "low"` for Opus 5.5 and Sonnet 5 (short structured copy; less thinking means lower cost and latency inside the 90 s budget) and none for Haiku 4.5, which rejects `effort` [verified: claude-api skill]. Effort is one line in the `MODELS` table; the eval can compare. No prompt caching (YAGNI; a later cost lever). Both adapters run inside `workerd` with no `nodejs_compat` (Task 12 test) and the Worker bundle has no `node:` import [verified].
 3. **Output cap `MAX_OUTPUT_TOKENS` = 8,192 per attempt**, reasoning included. The largest valid `AiDraft` is about 7,000 characters of copy; a cut-off answer counts as invalid and is retried with "keep it shorter". The eval reports how often `max_tokens` happens.
-4. **Input bound `MAX_INPUT_TOKENS` = 70,000 per attempt, and the shipped daily limit is 8 model calls.** Task 5's test builds the largest prompt the builder can make (every capped owner field at its cap in the character that costs the most UTF-8 bytes once JSON-encoded, 20 repair issues at their caps) and checks its UTF-8 bytes plus 2,000 tokens of overhead fit: the worst case measures 65,120 bytes (the full request body, JSON-encoded, is 65,556 bytes, also under the 68,000 budget). It is the largest possible because every owner string and every repair line passes through `wellFormed` (Decisions 5 and 6), so no lone surrogate (a 6-byte `\uXXXX` escape) reaches the prompt, and `Facts`/`Brief` reject control characters; every other character is at most 3 UTF-8 bytes per UTF-16 unit. That a byte count bounds the token count holds for byte-level tokenizers [inferred]; Task 15's `--caps-probe` measures it on each real provider. The hard ceiling per job is $1.33 on Opus 5.5 ($0.67 on Sonnet 5). **(moderator and user)** Design §12.4 tells the user "30 model calls per day across all owners (about $10 a day worst case on Opus 5.5)", but at 30 the real ceiling is $39.95 a day ($1.33 × 30; the design's figure assumed 8k input tokens). This plan keeps the money promise and ships `DAILY_MODEL_LIMIT` `"8"` (8 × $1.33 = $10.65 a day worst case on Opus 5.5), and `config.test.ts` fails if the shipped limit times the configured model's ceiling exceeds $11 a day. The admin can raise the limit at any time in settings, where the worst case is shown; the provider-side spend limit remains the money backstop. `LIMITS.defaultDailyModelLimit` (30, Stage 0) is only the fallback for a missing or malformed variable, which the config test rules out. Plan 4's `apps/app` and `apps/admin` must ship the same `"8"` (the cross-Worker test in Task 12 enforces it). A typical prompt is about 6.5 KB with the schema, so typical cost is a few cents per attempt [inferred; the eval measures it].
+4. **Input bound `MAX_INPUT_TOKENS` = 70,000 per attempt, and the shipped daily limit is 8 model calls.** Task 5's test builds the largest prompt the builder can make (every capped owner field at its cap in the character that costs the most UTF-8 bytes once JSON-encoded, 20 repair issues at their caps) and checks its UTF-8 bytes plus 2,000 tokens of overhead fit: the worst case measures 65,120 bytes (the full request body, JSON-encoded, is 65,556 bytes, also under the 68,000 budget). It is the largest possible because every owner string and every repair line passes through `wellFormed` (Decisions 5 and 6), so no lone surrogate (a 6-byte `\uXXXX` escape) reaches the prompt, and `Facts`/`Brief` reject control characters; every other character is at most 3 UTF-8 bytes per UTF-16 unit. That a byte count bounds the token count holds for byte-level tokenizers [inferred]; Task 15's `--caps-probe` measures it on each real provider. The hard ceiling per job is $1.33 on Opus 5.5 ($0.67 on Sonnet 5). **(moderator and user; decided as M1 on 2026-09-25, and design §12.4 now says 8 model calls a day)** Design §12.4 told the user "30 model calls per day across all owners (about $10 a day worst case on Opus 5.5)", but at 30 the real ceiling is $39.95 a day ($1.33 × 30; the design's figure assumed 8k input tokens). This plan keeps the money promise and ships `DAILY_MODEL_LIMIT` `"8"` (8 × $1.33 = $10.65 a day worst case on Opus 5.5), and `config.test.ts` fails if the shipped limit times the configured model's ceiling exceeds $11 a day. The admin can raise the limit at any time in settings, where the worst case is shown; the provider-side spend limit remains the money backstop. `LIMITS.defaultDailyModelLimit` (30, Stage 0) is only the fallback for a missing or malformed variable, which the config test rules out. Plan 4's `apps/app` and `apps/admin` must ship the same `"8"` (the cross-Worker test in Task 12 enforces it). A typical prompt is about 6.5 KB with the schema, so typical cost is a few cents per attempt [inferred; the eval measures it].
 5. **Repair feedback is capped and cleaned**: at most 20 issues, 60 UTF-16 units of path and 200 of message each, and each line goes through `wellFormed` after it is cut (a cut can split a surrogate pair, and Zod's `unrecognized_keys` message repeats a model-chosen key as is). Without that, a model answer with lone surrogates in its keys made a 73,745-byte request against a 68,000-byte budget and sent raw lone surrogates to the provider [verified by the execution check]; with the fix the same answer makes a 61,296-byte request with no lone surrogate [verified].
 6. **Every owner string sent to the model has lone UTF-16 surrogates replaced by U+FFFD** (`wellFormed`), service names included. The model no longer has to retype service names byte for byte: `checkDraft` binds its copy to the owner's exact name (Decision 21).
 7. **The stored draft is the parsed `AiDraft`** (trimmed, NFKC), not the `SiteDocument` output: the hero-photo override (A3) is re-applied whenever the document is composed and parsed, so the AI's own layout choice is kept.
 8. **`templateDraft` lists all nine sections** (Plan 1's `visibleSections` hides the empty ones), writes no FAQ, never quotes owner text (names may hold digits or claims), never uses a claim word, and says "free" only for a quote goal when the owner gives free estimates. It is proven on every Plan 1 fixture, on all 864 combinations of trade, the four claim flags, goal and tone (with 1–12 services including `constructor`, `__proto__`, a digit name and a 40-letter word), and by rendering each fixture's fallback page through Plan 1's `render()` and html-validate.
-9. **`requestGeneration` writes the `generation.requested` audit row in the same D1 `batch()` as the job row, before the queue send.** **(moderator)** Design §6.4 lists the audit write after the send. In one transaction the audit row exists exactly when the job row does (the audit insert is conditional on the job row), and a failed send still marks the row `failed`/`internal` as designed. A queue-send failure therefore leaves a truthful "requested" audit row next to a failed job.
+9. **`requestGeneration` writes the `generation.requested` audit row in the same D1 `batch()` as the job row, before the queue send.** **(moderator; decided as M2 on 2026-09-25)** Design §6.4 lists the audit write after the send. In one transaction the audit row exists exactly when the job row does (the audit insert is conditional on the job row), and a failed send still marks the row `failed`/`internal` as designed. A queue-send failure therefore leaves a truthful "requested" audit row next to a failed job.
 10. **`ProviderError` declares `kind` as a field** instead of the design's constructor parameter property: the repo's `tsconfig.json` sets `erasableSyntaxOnly`, which rejects parameter properties (`TS1294`) [verified]. The public shape is unchanged.
-11. **`worstCaseJobMicrousd` returns `number | null` and never throws: `null` means no price is recorded** for that model, so no ceiling is ever made up. **(moderator)** Design §6.4 types it `number`, and §4.2 `AdminSettings.worstCaseDailyMicrousd` is `number`; both become `number | null`, and Plan 4's admin shows "unknown" for `null`. An earlier draft threw instead; the security review found that Plan 4's settings route calls it with no error handling, so an unpriced or mistyped `MODEL_ID` would have turned `GET`/`PUT /api/admin/settings` into a 500 (on `PUT`, after the switch change was saved). With `number | null`, TypeScript refuses Plan 4's unguarded `limit * worstCaseJobMicrousd(...)` at integration (`TS18047 … is possibly 'null'`), so the gap cannot pass silently. Task 12's config test also requires every `apps/*/wrangler.jsonc` that declares `MODEL_PROVIDER`/`MODEL_ID` to name a priced model. `costMicrousd` (reporting only) returns 0 for an unpriced model.
+11. **`worstCaseJobMicrousd` returns `number | null` and never throws: `null` means no price is recorded** for that model, so no ceiling is ever made up. **(moderator; decided as M3 on 2026-09-25)** Design §6.4 now types it `number | null`, and so does §4.2 for `AdminSettings.worstCaseDailyMicrousd` (M3; cross-plan check §2 item 1); Plan 4's admin shows "unknown" for `null`. An earlier draft threw instead; the security review found that Plan 4's settings route calls it with no error handling, so an unpriced or mistyped `MODEL_ID` would have turned `GET`/`PUT /api/admin/settings` into a 500 (on `PUT`, after the switch change was saved). With `number | null`, TypeScript refuses Plan 4's unguarded `limit * worstCaseJobMicrousd(...)` at integration (`TS18047 … is possibly 'null'`), so the gap cannot pass silently. Task 12's config test also requires every `apps/*/wrangler.jsonc` that declares `MODEL_PROVIDER`/`MODEL_ID` to name a priced model. `costMicrousd` (reporting only) returns 0 for an unpriced model.
 12. **Production `vars` ship `GENERATION_ENABLED: "false"`, `DAILY_MODEL_LIMIT: "8"`, `MODEL_PROVIDER: "anthropic"`, `MODEL_ID: "claude-opus-5-5"`.** Until Task 15 sets a key and flips the switch, every first build gets the labelled template and regenerations answer `generation_disabled`. The model is provisional: the user chooses after the eval (design §12.3), together with the daily limit that keeps the worst case near $10 a day for that model (Decision 4).
-13. **D1 binding `database_id` is the placeholder `00000000-0000-0000-0000-000000000000`**, the value Plan 2 now pins for every Worker (Plan 2 Decisions 16 and 22(a), and `PLACEHOLDER_DATABASE_ID` in its `pnpm deploy:check`, which refuses to deploy it) and the Plan 4 draft uses [verified: read in the current Plan 2 plan text and the Plan 4 draft configs, 2026-09-24]. The execution check found the Plan 2 draft on `00000000-0000-4000-8000-000000000000`; Plan 2's own fix has since moved to this value, so all three plans agree. The literal appears once, in `apps/generator/wrangler.jsonc`: `worker.workerd.test.ts` reads it from there, and `config.test.ts` checks only that it is a UUID and that every `apps/*/wrangler.jsonc` binding `DB` names the same database and id, so Task 15's real id needs no test change, and a future drift between plans fails the test at integration. **(moderator)** Pin this one value in design §10.3 so no plan can drift again. Local D1 works with any id (and even without one) [verified].
+13. **D1 binding `database_id` is the placeholder `00000000-0000-0000-0000-000000000000`**, the value Plan 2 now pins for every Worker (Plan 2 Decisions 16 and 22(a), and `PLACEHOLDER_DATABASE_ID` in its `pnpm deploy:check`, which refuses to deploy it) and the Plan 4 draft uses [verified: read in the current Plan 2 plan text and the Plan 4 draft configs, 2026-09-24]. The execution check found the Plan 2 draft on `00000000-0000-4000-8000-000000000000`; Plan 2's own fix has since moved to this value, so all three plans agree. Among Worker configs the literal appears once, in `apps/generator/wrangler.jsonc` (the test-only harness in `test/support/d1.ts` uses the same placeholder, M4): `worker.workerd.test.ts` reads it from there, and `config.test.ts` checks only that it is a UUID and that every `apps/*/wrangler.jsonc` binding `DB` names the same database and id, so Task 15's real id needs no test change, and a future drift between plans fails the test at integration. **(moderator; decided as M4 on 2026-09-25)** Pin this one value in design §10.3 so no plan can drift again. Local D1 works with any id (and even without one) [verified].
 14. **The Worker's `Env` is written by hand** from `@cloudflare/workers-types`' importable types. `wrangler types` writes 605 KB of global runtime declarations that clash with `@types/node` in the shared root typecheck (`TS2300 Duplicate identifier 'DOMException'`, `TS2451 Cannot redeclare 'console'`, ...) [verified: generated and typechecked in the scratch replay]. A test checks the config against what the code reads.
 15. **Local D1, queues and cron in tests come from wrangler's `createTestHarness`** (the design's §10.2 choice): `getEnv()` gives Node tests a real local D1 with `applyD1Migrations`, a queue producer reaches the generator's real consumer, and `scheduled()` fires the cron [verified: wrangler 4.138.0 types and running tests under Vitest 5.0.1 with pnpm]. D1 statements use ordered `?N` parameters: "Currently, D1 only supports Ordered (`?NNNN`) and Anonymous (`?`) parameters" [verified: developers.cloudflare.com/d1/worker-api/prepared-statements/]; named parameters happen to work in the local simulator, so a test could pass while production fails, and they are not used. The partial unique index `generations_one_active` surfaces as `D1_ERROR: UNIQUE constraint failed: generations.site_id` [verified locally].
 16. **The `fake` provider refuses to run when `ENVIRONMENT` is `production`**, on top of the config test that forbids `MODEL_PROVIDER=fake` in production.
 17. **The OpenAI-compatible adapter sends `max_tokens`** (the only output cap gpt-oss-120b documents on Workers AI; Groq accepts it as deprecated in favour of `max_completion_tokens`) [verified: Workers AI model schema, Groq API reference]. Per-model extra fields live in `MODELS`: `chat_template_kwargs.enable_thinking: false` for Qwen3.8-27B (documented in Workers AI's input schema) and `reasoning_effort: "low"` for Groq's gpt-oss-120b (Groq lists `low` as a value). Whether the Workers AI OpenAI-compatible endpoint passes `response_format` and these fields through is [unverified]: its page mentions neither [verified absence]. Task 15's eval measures it. HTTP 400 maps to `bad_request` and ends the attempts; the eval counts provider errors by kind. The request body puts the model's extra fields first, so a table entry can never replace `model`, `messages`, `max_tokens` or `response_format` (a test also forbids such keys in `MODELS`). The adapter never follows a redirect: it sends `redirect: "manual"` and treats any 3xx as `bad_request` (a wrong base URL), so the Bearer key never travels to another host. `redirect: "error"` is not used: workerd throws `Invalid redirect value, must be one of "follow" or "manual" ("error" won't be implemented since it does not make sense at the edge; use "manual" and check the response status code).`, and Task 12's in-workerd adapter test fails with it [verified by running, wrangler 4.138.0].
 18. **Eval candidates and keys**: Claude Opus 5.5 and Sonnet 5 (`ANTHROPIC_API_KEY`), gpt-oss-120b, Gemma 4 26B A4B and Qwen3.8-27B on Workers AI (`CLOUDFLARE_ACCOUNT_ID` + `CLOUDFLARE_AI_TOKEN`, a token limited to Workers AI), gpt-oss-120b on Groq (`GROQ_API_KEY`), and gpt-oss-120b through the Hugging Face router pinned to Groq (`HF_TOKEN`, a fine-grained token with "Make calls to Inference Providers"), all read from the gitignored root `.env` with `node --env-file-if-exists`. Only these paid routes are listed (no free route that may train on inputs). The Hugging Face route is pinned because "data use depends on the provider behind the route" (model-options note §2): the model id `openai/gpt-oss-120b:groq` selects Groq ("You can also select the provider of your choice by appending the provider name to the model id (e.g. "openai/gpt-oss-120b:groq")"), Hugging Face says "We do not store the request body or response when routing requests through Hugging Face" and charges "No extra markup on provider rates", and the router lists Groq for this model at $0.15 / $0.75 with `supports_structured_output: true` [verified 2026-09-24: huggingface.co/docs/inference-providers (index and security pages) and the live `router.huggingface.co/v1/models`]. Groq itself says "By default, Groq does not retain customer data for inference requests" (it may keep data up to 30 days for reliability and abuse monitoring) [verified: console.groq.com/docs/your-data]. Whether the router passes Groq's `reasoning_effort` through is [unverified], so this route sends no extra fields and runs the model's default reasoning. Every candidate has a recorded price. Results go to the gitignored `packages/generation/eval/results/`.
-19. **The hero headline target "aim for 30 to 60 characters" is a prompt style choice.** Plan 1 Decision #4 asked Plan 3 to re-check a research claim that real trade-site H1s run 25–65 characters; that claim was not re-checked [unverified]. The blind human rating in Task 15 judges headlines directly.
+19. **The hero headline target "aim for 30 to 60 characters" is a prompt style choice.** Plan 1 Decision #4 asked Plan 3 to re-check a research claim that real trade-site H1s run 25–65 characters; that claim was not re-checked [unverified]. The blind human rating in Task 15 judges headlines directly. The moderator accepted this target on 2026-09-25 (cross-plan check §2 item 11).
 20. **The eval writes a blind rating sheet** (`ratings.csv`, passing drafts only, shuffled with a recorded seed, model hidden) and a separate key file; cells a spreadsheet would run as formulas get a leading `'` (OWASP CSV injection).
 21. **`checkDraft` binds the model's service names to the owner's exact names before validating (`bindServiceNames`).** Plan 1 compares `copy.serviceDescriptions[i].service` with `facts.services[i].name` exactly, and some owner names cannot be retyped byte for byte: a non-breaking space pasted from a flyer, an iPhone apostrophe (`Men’s`), accents stored decomposed (NFD), fullwidth letters. For such an owner every attempt would fail, and every first build would fall back to the template [inferred]. When the entry at position `i` matches the owner's name at position `i` after NFKC, case folding, curly-quote folding and whitespace collapsing, its `service` becomes the exact owner name; anything else is left for `SiteDocument` to report, so a missing, extra or reordered description is still rejected. `service` is never rendered (Plan 1: the page shows the name from facts), so binding only lines descriptions up. Plan 1 is unchanged.
-22. **"Free" is scoped to estimates in the prompt, and two trap profiles test it.** Once `freeEstimates` is true, Plan 1's claim checker allows "free" anywhere, so "free service calls", "free inspections" or "free repairs" pass every validator (FTC risk; the human reviewer is the only backstop). The allowed-claims line now reads `free = yes (only about estimates or quotes; never free repairs, service calls, inspections or parts)`. **(moderator)** Two of the six trap profiles (`trap-hvac`, `trap-roof`) now give free estimates while their notes ask for free service calls, inspections and repairs; the other four keep all four claim flags false. Design §6.6 describes all six traps as having no flags; this keeps 6 / 4 / 10 and measures the one claim the validators cannot see (the blind rating's "states an unbacked fact" column). Task 14's adversarial check records the validator gap.
+22. **"Free" is scoped to estimates in the prompt, and two trap profiles test it.** Once `freeEstimates` is true, Plan 1's claim checker allows "free" anywhere, so "free service calls", "free inspections" or "free repairs" pass every validator (FTC risk; the human reviewer is the only backstop). The allowed-claims line now reads `free = yes (only about estimates or quotes; never free repairs, service calls, inspections or parts)`. **(moderator; decided as M5 on 2026-09-25)** Two of the six trap profiles (`trap-hvac`, `trap-roof`) now give free estimates while their notes ask for free service calls, inspections and repairs; the other four keep all four claim flags false. Design §6.6 describes all six traps as having no flags; this keeps 6 / 4 / 10 and measures the one claim the validators cannot see (the blind rating's "states an unbacked fact" column). Task 14's adversarial check records the validator gap.
 23. **The job's log line says why a provider failed, and a job that never called the model gives its model slot back.** `JobReport` adds `providerErrorKind` (so a missing or revoked key shows as `auth`, not a bare `provider_error`), each attempt's outcome code, and `durationMs` (design §1.2 asks for duration). `FINISH` sets `model_slot = 0` when `attempts = 0` (the provider could not be built), so a broken configuration cannot use up the day's model calls. Codes and IDs only; nothing about the owner.
 24. **An unexpected error after the claim still gives a first build the template** (reason `provider_error`); a regeneration fails with `internal`. Design §6.3: only a failed template write may end a first build as failed. If the claimed row cannot even be read, the job writes nothing and reports `read_failed`; the sweeper ends the row within about 12 minutes, with the template for a first build.
 25. **Service-area places that hold a digit are not sent to the model.** `Facts` allows ZIP codes as places ("City names or ZIP codes"), and design §6.1 says ZIP codes never leave our servers; copy cannot use digits anyway.
@@ -77,6 +77,7 @@ Each was checked by running the code in a scratch replay of this plan (see "Veri
 27. **The sweeper keeps going past one batch**: it reads 25 stuck rows at a time and ends up to `SWEEP_MAX_PER_RUN` = 400 per cron run (400 writes + 16 reads, well under D1's 1,000 queries per invocation on Workers Paid, which production uses, design §1.4 [verified: design §1.3 table]). A backlog of more than 25 stuck jobs therefore still ends within about 12 minutes. On Workers Free (50 queries) a large run stops at the limit with every earlier write kept, and the next run continues.
 28. **One test keeps every Worker's generation settings in step.** `config.test.ts` requires every `apps/*/wrangler.jsonc` to be plain JSON, to bind the same D1 database and id, to declare the same `GENERATION_ENABLED`, `DAILY_MODEL_LIMIT`, `MODEL_PROVIDER` and `MODEL_ID` wherever it declares them (Plan 4's app pre-checks and admin settings must agree with the job, which decides), and to name a priced model. It also keeps `FAKE_MODE`, `ADMIN_AUTH_MODE` and `MAILER` out of the generator's production `vars`, and scans for Anthropic, Groq and Hugging Face key patterns (design §9.1). Plan 3 stays in the root TypeScript program (it imports its Workers types, Decision 14), so the root `tsconfig.json` names only `apps/generator/src` and `apps/generator/test`: a wildcard `apps/*` would pull Plan 2's Worker code, which needs the Workers global types, into the Node-only program (47 errors such as `TS2304: Cannot find name 'R2Bucket'`) [verified by the execution check]. Plan 2's Decision 22(b) describes this plan's earlier `apps/*` globs and its root `exclude` of `apps/sites`; naming only the generator's folders works with or without that `exclude` and also keeps Plan 4's Worker folders out of this program. Nothing here goes into `tsconfig.workers.json`: nothing needs the Workers globals, and `template.test.ts` imports `fixtures/index.ts`, which Plan 2 says the Workers program must not do.
 29. **Every test that starts workerd is named `*.workerd.test.ts` and runs in Stage 0's `workerd` Vitest project** (Plan 2 Decision 23), after the `unit` project, with 30 s per test and 120 s per hook: `settings`, `request`, `job` and `sweep` (local D1) in `packages/generation/test`, `worker` and `adapters` in `apps/generator/test`. Plan 2 found that workerd processes running next to Plan 1's property test pushed it past Vitest's 5 s timeout [verified by Plan 2's replay]; an earlier draft of this plan put six such files in the single test run, a regression risk once both plans merge.
+30. **First builds do not count toward the owner's lifetime cap of 20, and are never refused by it.** **(moderator; decided on 2026-09-25, cross-plan check §2 item 2)** Design §6.4's conditional insert counts every generation of an owner, so an owner at the cap could never get a first draft for a second site. `INSERT_JOB` applies the per-owner total only to a regeneration and counts only `kind = 'regenerate'` rows, and `generationAllowance`'s `generationsLeftTotal` counts the same rows; the per-site daily cap (5) still counts every kind. First builds stay bounded by admin-only invites (design §5.2, "Invite") and the per-site daily cap, and model spend by the global daily model limit (M1). Task 8's tests prove that a first build queues at the cap while a regeneration is refused; Task 14 Step 6 mutates each part.
 
 ## File Structure
 
@@ -126,7 +127,7 @@ apps/generator/                           asksite-generator Worker (new)
   test/worker.workerd.test.ts             real config: queue -> job -> D1, cron sweep, log hygiene
   test/adapters.workerd.test.ts           both adapters run inside workerd
   test/support/adapters-worker.ts
-Modified root files: tsconfig.json (include packages/generation/eval, apps/generator/src, apps/generator/test), vitest.config.ts (apps/generator tests in Stage 0's "unit" and "workerd" projects), package.json (eval:generation), pnpm-lock.yaml.
+Modified root files: tsconfig.json (include packages/generation/eval, apps/generator/src, apps/generator/test), package.json (eval:generation), pnpm-lock.yaml.
 ```
 
 ## Requirement coverage
@@ -150,7 +151,7 @@ Modified root files: tsconfig.json (include packages/generation/eval, apps/gener
 
 **Files:**
 - Create: `packages/generation/package.json`, `packages/generation/src/provider.ts`, `packages/generation/src/wire-schema.ts`
-- Modify: `tsconfig.json` (`include`), `vitest.config.ts` (`include`), `pnpm-lock.yaml` (by `pnpm install`)
+- Modify: `tsconfig.json` (`include`), `pnpm-lock.yaml` (by `pnpm install`)
 - Test: `packages/generation/test/provider.test.ts`, `packages/generation/test/wire-schema.test.ts`
 
 **Interfaces:**
@@ -163,6 +164,7 @@ Run:
 
 ```bash
 cd "$(git rev-parse --show-toplevel)"
+test "$PWD" = /Users/ashir/Documents/workk2/asksite-plan3 && echo WORKTREE_OK
 test "$(git branch --show-current)" = plan3-generation && echo BRANCH_OK
 test -f fixtures/index.ts && test -f packages/core/migrations/0001_init.sql && grep -q '"@asksite/core"' packages/core/package.json && grep -q '"apps/\*"' pnpm-workspace.yaml && grep -q 'hidden: OwnerHidden' packages/site-schema/src/document.ts && echo FILES_OK
 for n in AiDraft Brief TONES GOALS LIMITS newId isId toIssues Issue GENERATION_ERROR_CODES GenerationErrorCode FALLBACK_REASONS FallbackReason GenerationJob GenerationInputSnapshot GenerationRow GenerationView; do grep -rqE "export (declare )?(const|function|interface|type|class) $n\b" packages/core/src || echo "MISSING $n"; done; echo NAMES_CHECKED
@@ -171,7 +173,7 @@ git status --short -- . ':(exclude)docs'
 pnpm test 2>&1 | grep -E "Test Files|Tests "
 ```
 
-Expected: `BRANCH_OK` (if not, create the branch from an up-to-date `main` with `git switch -c plan3-generation main`, or stop and ask the moderator if `main` lacks Plan 1 or Stage 0), `FILES_OK`, then `NAMES_CHECKED` with no `MISSING` line before it, then `IGNORES_CHECKED` with no `NOT IGNORED` line before it, an empty `git status` (outside `docs/`), and two passing test summaries, first Stage 0's `unit` project, then its `workerd` project, such as `Test Files  Bu passed (Bu)` / `Tests  Nu passed (Nu)` and `Test Files  Bw passed (Bw)` / `Tests  Nw passed (Nw)`. **Write down Bu, Nu, Bw and Nw**: Task 14 checks that Plan 3 adds exactly 16 files and 144 tests to `unit` and 6 files and 47 tests to `workerd` (22 files and 191 tests in all). If anything is missing, stop and report to the moderator.
+Expected: `WORKTREE_OK` and `BRANCH_OK` (if not and that worktree already exists, `cd` into it and start this step again; otherwise make this plan's worktree and branch from an up-to-date `main`: from `/Users/ashir/Documents/workk2/web_maker` run `git worktree add -b plan3-generation /Users/ashir/Documents/workk2/asksite-plan3 main`, then `cd /Users/ashir/Documents/workk2/asksite-plan3`, run `pnpm install` (a new worktree has no `node_modules`) and start this step again; stop and ask the moderator if `main` lacks Plan 1 or Stage 0), `FILES_OK`, then `NAMES_CHECKED` with no `MISSING` line before it, then `IGNORES_CHECKED` with no `NOT IGNORED` line before it, an empty `git status` (outside `docs/`), and two passing test summaries, first Stage 0's `unit` project, then its `workerd` project, such as `Test Files  Bu passed (Bu)` / `Tests  Nu passed (Nu)` and `Test Files  Bw passed (Bw)` / `Tests  Nw passed (Nw)`. **Write down Bu, Nu, Bw and Nw**: Task 14 checks that Plan 3 adds exactly 16 files and 144 tests to `unit` and 6 files and 47 tests to `workerd` (22 files and 191 tests in all). If anything is missing, stop and report to the moderator.
 
 - [ ] **Step 2: Create the package manifest and install**
 
@@ -205,42 +207,13 @@ In `tsconfig.json`, make the `include` array contain `"packages/generation/eval"
   "include": ["packages/*/src", "packages/*/test", "packages/generation/eval", "apps/generator/src", "apps/generator/test", "fixtures", "scripts", "vitest.config.ts"]
 ```
 
-`vitest.config.ts` comes from Stage 0 (Plan 2 Part A, Task 1) with two projects that `pnpm test` runs one after the other: `unit`, then `workerd` for every test that starts workerd through wrangler's test harness, named `*.workerd.test.ts` (Plan 2 Decision 23: run together, the workerd processes pushed a Plan 1 property test past Vitest's 5 s timeout). This plan follows that rule: its six tests that start workerd are `settings`, `request`, `job`, `sweep`, `worker` and `adapters` `.workerd.test.ts` (Decision 29). Add `"apps/generator/test/**/*.test.ts"` to the `unit` project's `include` and `"apps/generator/test/**/*.workerd.test.ts"` to `WORKERD`, keeping every existing entry (`packages/*/test/**/*.workerd.test.ts` already covers `packages/generation`). With Stage 0's file it reads:
-
-```ts
-import { configDefaults, defineConfig } from "vitest/config";
-
-// Two projects. "unit": pure tests (all of Plan 1's). "workerd": tests that start workerd through
-// wrangler's test harness (*.workerd.test.ts). `pnpm test` runs them one after the other so the
-// workerd processes never compete for CPU with Plan 1's timing-sensitive property tests: run
-// together, one of them went past Vitest's 5 s default timeout.
-const WORKERD = ["packages/*/test/**/*.workerd.test.ts", "apps/sites/test/**/*.workerd.test.ts", "apps/generator/test/**/*.workerd.test.ts"];
-
-export default defineConfig({
-  test: {
-    projects: [
-      {
-        test: {
-          name: "unit",
-          include: ["packages/*/test/**/*.test.ts", "scripts/**/*.test.ts", "apps/sites/test/**/*.test.ts", "apps/generator/test/**/*.test.ts"],
-          exclude: [...configDefaults.exclude, ...WORKERD],
-        },
-      },
-      {
-        test: { name: "workerd", include: WORKERD, testTimeout: 30_000, hookTimeout: 120_000 },
-      },
-    ],
-  },
-});
-```
-
-If Stage 0's `vitest.config.ts` has no `projects` (one plain `include`), stop and ask the moderator: Plan 2 Decision 23 puts every workerd test in its own project, and this plan relies on it.
+`vitest.config.ts` belongs to Stage 0 (Plan 2 Task 5) and this plan does not edit it (design M6). Its `unit` project already includes `packages/*/test/**/*.test.ts` and `apps/*/test/**/*.test.ts`, and its `workerd` project includes every `packages/*/test/**/*.workerd.test.ts` and `apps/*/test/**/*.workerd.test.ts`, so this plan's tests, including its six `*.workerd.test.ts` files (Decision 29), run unchanged. If the file has no `projects`, stop and ask the moderator.
 
 Run:
 
 ```bash
 node -e 'const t=require("./tsconfig.json");const m=["packages/generation/eval","apps/generator/src","apps/generator/test"].filter(n=>!t.include.includes(n));console.log(m.length?"MISSING "+m.join(", "):"TSCONFIG_OK");console.log(t.include.some(n=>n.startsWith("apps/*"))?"WILDCARD_APPS":"NO_APPS_WILDCARD")'
-grep -q '"apps/generator/test/\*\*/\*.test.ts"' vitest.config.ts && grep -q '"apps/generator/test/\*\*/\*.workerd.test.ts"' vitest.config.ts && grep -q 'projects:' vitest.config.ts && echo VITEST_OK
+grep -qF '"apps/*/test/**/*.test.ts"' vitest.config.ts && grep -qF '"apps/*/test/**/*.workerd.test.ts"' vitest.config.ts && grep -q 'projects:' vitest.config.ts && git diff --quiet main -- vitest.config.ts && echo VITEST_OK
 ```
 
 Expected: `TSCONFIG_OK`, `NO_APPS_WILDCARD` and `VITEST_OK`. If Stage 0 already put `"apps/*/src"` or `"apps/*/test"` in `tsconfig.json`, stop and ask the moderator: those globs pull Plan 2's Worker code into the Node-only program.
@@ -462,7 +435,7 @@ Expected: exits 0 with no errors.
 - [ ] **Step 9: Commit**
 
 ```bash
-git add tsconfig.json vitest.config.ts pnpm-lock.yaml packages/generation/package.json packages/generation/src/provider.ts packages/generation/src/wire-schema.ts packages/generation/test/provider.test.ts packages/generation/test/wire-schema.test.ts
+git add tsconfig.json pnpm-lock.yaml packages/generation/package.json packages/generation/src/provider.ts packages/generation/src/wire-schema.ts packages/generation/test/provider.test.ts packages/generation/test/wire-schema.test.ts
 git commit -m "Add generation scaffold"
 ```
 
@@ -2412,7 +2385,7 @@ git commit -m "Add compatible adapter"
 - Consumes: `LIMITS`, `newId`, `FALLBACK_REASONS`, `GENERATION_ERROR_CODES`, `type FallbackReason`, `type GenerationErrorCode`, `type GenerationRow`, `type GenerationView`, `type GenerationInputSnapshot`, `type GenerationJob` from `@asksite/core`; `type D1Database`, `type Queue` from `@cloudflare/workers-types` (importable types); `createTestHarness` from `wrangler`; `packages/core/migrations/0001_init.sql` (tables `owners`, `sites`, `generations`, `settings`, `audit_log`; index `generations_one_active`); `FULL_SNAPSHOT` (Task 2).
 - Produces: from `src/settings.ts`: `utcDayStart(now: number): number`, `isGenerationEnabled(env: { DB: D1Database; GENERATION_ENABLED: string }): Promise<boolean>`, `dailyModelLimit(env: { DB: D1Database; DAILY_MODEL_LIMIT: string }): Promise<number>`, `modelCallsToday(db: D1Database, now: number): Promise<number>`. From `src/view.ts`: `toGenerationView(row: GenerationRow): GenerationView`. From `src/request.ts`: `type RequestGenerationResult`, `requestGeneration(env: { DB: D1Database; GEN_QUEUE: Queue<GenerationJob>; GENERATION_ENABLED: string; DAILY_MODEL_LIMIT: string }, input: { siteId: string; ownerId: string; snapshot: GenerationInputSnapshot; now: number }): Promise<RequestGenerationResult>` and `generationAllowance(env: { DB: D1Database }, input: { siteId: string; ownerId: string; now: number }): Promise<{ generationsLeftToday: number; generationsLeftTotal: number }>`, exactly design §6.4. Test support (`test/support/d1.ts`): `startLocalD1(): Promise<{ db: D1Database; close(): Promise<void> }>`, `clearTables(db)`, `seedOwnerSite(db, ownerId, siteId)`, `setSetting(db, key, value)`, `insertGeneration(db, row)`, `getGeneration(db, id)`.
 
-Semantics (design §6.3–§6.4): the kill switch is on only when `GENERATION_ENABLED === "true"` and the `generation.enabled` setting is not `"false"`; the daily limit is the `generation.daily_model_limit` setting, else `DAILY_MODEL_LIMIT`, else `LIMITS.defaultDailyModelLimit` (a malformed value is skipped). `requestGeneration` never throws: it first checks that the site belongs to the owner and is not taken down (`internal` otherwise, nothing written; Decision 26); a first build never blocks on the switch or the limit (the job falls back); a regeneration is refused at once with `generation_disabled` or `budget_exhausted`; the per-site daily and per-owner caps are checked inside the `INSERT` (exact under concurrency); a `generations_one_active` violation is `generation_in_progress`; a failed queue send marks the row `failed`/`internal` and frees the site. D1 binds only ordered `?N` parameters [verified: D1 prepared-statements docs].
+Semantics (design §6.3–§6.4): the kill switch is on only when `GENERATION_ENABLED === "true"` and the `generation.enabled` setting is not `"false"`; the daily limit is the `generation.daily_model_limit` setting, else `DAILY_MODEL_LIMIT`, else `LIMITS.defaultDailyModelLimit` (a malformed value is skipped). `requestGeneration` never throws: it first checks that the site belongs to the owner and is not taken down (`internal` otherwise, nothing written; Decision 26); a first build never blocks on the switch or the limit (the job falls back); a regeneration is refused at once with `generation_disabled` or `budget_exhausted`; the per-site daily cap (every kind) and the per-owner total (regenerations only: a first build neither counts nor is refused, Decision 30) are checked inside the `INSERT` (exact under concurrency); a `generations_one_active` violation is `generation_in_progress`; a failed queue send marks the row `failed`/`internal` and frees the site. D1 binds only ordered `?N` parameters [verified: D1 prepared-statements docs].
 
 Tests run against a real local D1: wrangler's `createTestHarness` starts `workerd` with an in-memory database, `applyD1Migrations("DB")` applies Stage 0's migration, and `getEnv()` hands the binding to Node. Each file starts one harness in `beforeAll` and closes it in `afterAll`, so no process is left behind.
 
@@ -2478,7 +2451,7 @@ export async function startLocalD1(): Promise<{ db: D1Database; close(): Promise
           name: "generation-test-db",
           main: "./packages/generation/test/support/noop-worker.ts",
           compatibility_date: "2026-09-21",
-          d1_databases: [{ binding: "DB", database_name: "asksite", database_id: "00000000-0000-4000-8000-000000000001", migrations_dir: "./packages/core/migrations" }],
+          d1_databases: [{ binding: "DB", database_name: "asksite", database_id: "00000000-0000-0000-0000-000000000000", migrations_dir: "./packages/core/migrations" }],
         },
       },
     ],
@@ -2534,7 +2507,7 @@ import { clearTables, insertGeneration, seedOwnerSite, setSetting, startLocalD1 
 
 let db: D1Database;
 let close: () => Promise<void>;
-beforeAll(async () => ({ db, close } = await startLocalD1()), 60_000);
+beforeAll(async () => ({ db, close } = await startLocalD1()), 120_000);
 afterAll(async () => close());
 beforeEach(async () => clearTables(db));
 
@@ -2617,7 +2590,7 @@ function queue(fail = false) {
 
 let db: D1Database;
 let close: () => Promise<void>;
-beforeAll(async () => ({ db, close } = await startLocalD1()), 60_000);
+beforeAll(async () => ({ db, close } = await startLocalD1()), 120_000);
 afterAll(async () => close());
 beforeEach(async () => {
   await clearTables(db);
@@ -2661,11 +2634,19 @@ describe("requestGeneration", () => {
     expect((await requestGeneration(env(queue().q), input("s2"))).ok).toBe(true);
   });
 
-  it("allows 20 per owner in total, exactly, even with two sites at once", async () => {
-    for (let i = 0; i < 19; i++) await insertGeneration(db, { id: `t${i}`, site_id: i % 2 ? "s1" : "s2", owner_id: "o1", status: "failed", created_at: 0 });
+  it("allows 20 regenerations per owner in total, exactly, even with two sites at once; first builds do not count and still queue at the cap", async () => {
+    await insertGeneration(db, { id: "f1", site_id: "s1", owner_id: "o1", status: "succeeded", created_at: 0 });
+    await insertGeneration(db, { id: "f2", site_id: "s2", owner_id: "o1", status: "succeeded", created_at: 0 });
+    for (let i = 0; i < 19; i++) await insertGeneration(db, { id: `t${i}`, site_id: i % 2 ? "s1" : "s2", owner_id: "o1", kind: "regenerate", status: "failed", created_at: 0 });
     const results = await Promise.all([requestGeneration(env(queue().q), input("s1")), requestGeneration(env(queue().q), input("s2"))]);
-    expect(results.filter((r) => r.ok)).toHaveLength(1);
+    expect(results.filter((r) => r.ok && r.generation.kind === "regenerate")).toHaveLength(1);
     expect(results.filter((r) => !r.ok && r.code === "generation_cap_reached")).toHaveLength(1);
+    // At the cap (20 regenerations): a new site's first build still queues; a regeneration is refused.
+    await seedOwnerSite(db, "o1", "s3");
+    const first = await requestGeneration(env(queue().q), input("s3"));
+    expect(first.ok && first.generation.kind).toBe("first");
+    expect(await requestGeneration(env(queue().q), input(results[0].ok ? "s2" : "s1"))).toEqual({ ok: false, code: "generation_cap_reached" });
+    expect(await generationAllowance({ DB: db }, { siteId: "s3", ownerId: "o1", now: NOW })).toEqual({ generationsLeftToday: 4, generationsLeftTotal: 0 });
   });
 
   it("refuses a regeneration at once when generation is switched off; a first build still queues", async () => {
@@ -2706,15 +2687,15 @@ describe("requestGeneration", () => {
 });
 
 describe("generationAllowance", () => {
-  it("reports what is left today for the site and in total for the owner", async () => {
-    await insertGeneration(db, { id: "a", site_id: "s1", owner_id: "o1", status: "failed", created_at: utcDayStart(NOW) });
+  it("reports what is left today for the site and in total for the owner; first builds do not count toward the total", async () => {
+    await insertGeneration(db, { id: "a", site_id: "s1", owner_id: "o1", kind: "regenerate", status: "failed", created_at: utcDayStart(NOW) });
     await insertGeneration(db, { id: "b", site_id: "s1", owner_id: "o1", status: "succeeded", created_at: utcDayStart(NOW) - 1 });
     await insertGeneration(db, { id: "c", site_id: "s2", owner_id: "o1", status: "succeeded", created_at: NOW });
-    expect(await generationAllowance({ DB: db }, { siteId: "s1", ownerId: "o1", now: NOW })).toEqual({ generationsLeftToday: 4, generationsLeftTotal: 17 });
+    expect(await generationAllowance({ DB: db }, { siteId: "s1", ownerId: "o1", now: NOW })).toEqual({ generationsLeftToday: 4, generationsLeftTotal: 19 });
   });
 
   it("never goes below zero", async () => {
-    for (let i = 0; i < 21; i++) await insertGeneration(db, { id: `t${i}`, site_id: "s1", owner_id: "o1", status: "failed", created_at: NOW });
+    for (let i = 0; i < 21; i++) await insertGeneration(db, { id: `t${i}`, site_id: "s1", owner_id: "o1", kind: "regenerate", status: "failed", created_at: NOW });
     expect(await generationAllowance({ DB: db }, { siteId: "s1", ownerId: "o1", now: NOW })).toEqual({ generationsLeftToday: 0, generationsLeftTotal: 0 });
   });
 });
@@ -2805,11 +2786,12 @@ export type RequestGenerationResult =
   | { ok: false; code: "generation_in_progress" | "generation_cap_reached" | "generation_disabled" | "budget_exhausted" | "internal" };
 
 // The per-site daily count and the per-owner total are checked in the INSERT itself, so they are
-// exact even when one owner acts on two sites at once (design §6.4).
+// exact even when one owner acts on two sites at once (design §6.4). The per-owner total counts and
+// limits regenerations only: a first build neither counts nor is refused by it (Decision 30).
 const INSERT_JOB = `INSERT INTO generations (id, site_id, owner_id, kind, status, input_json, created_at)
 SELECT ?1, ?2, ?3, ?4, 'queued', ?5, ?6
 WHERE (SELECT COUNT(*) FROM generations WHERE site_id = ?2 AND created_at >= ?7) < ?8
-  AND (SELECT COUNT(*) FROM generations WHERE owner_id = ?3) < ?9`;
+  AND (?4 = 'first' OR (SELECT COUNT(*) FROM generations WHERE owner_id = ?3 AND kind = 'regenerate') < ?9)`;
 // In the same batch (one transaction): the audit row exists exactly when the job row does.
 const INSERT_AUDIT = `INSERT INTO audit_log (at, actor, action, site_id, detail_json)
 SELECT ?1, ?2, 'generation.requested', ?3, ?4 WHERE EXISTS (SELECT 1 FROM generations WHERE id = ?5)`;
@@ -2866,14 +2848,14 @@ export async function requestGeneration(
   }
 }
 
-/** What the owner has left (SiteView.limits): today for this site, and in total for this owner. */
+/** What the owner has left (SiteView.limits): today for this site, and regenerations in total for this owner (first builds do not count, Decision 30). */
 export async function generationAllowance(
   env: { DB: D1Database },
   input: { siteId: string; ownerId: string; now: number },
 ): Promise<{ generationsLeftToday: number; generationsLeftTotal: number }> {
   const row = await env.DB.prepare(
     `SELECT (SELECT COUNT(*) FROM generations WHERE site_id = ?1 AND created_at >= ?3) AS today,
-            (SELECT COUNT(*) FROM generations WHERE owner_id = ?2) AS total`,
+            (SELECT COUNT(*) FROM generations WHERE owner_id = ?2 AND kind = 'regenerate') AS total`,
   )
     .bind(input.siteId, input.ownerId, utcDayStart(input.now))
     .first<{ today: number; total: number }>();
@@ -2944,7 +2926,7 @@ const TEMPLATE = templateDraft(FULL_SNAPSHOT.facts, FULL_SNAPSHOT.brief);
 
 let db: D1Database;
 let close: () => Promise<void>;
-beforeAll(async () => ({ db, close } = await startLocalD1()), 60_000);
+beforeAll(async () => ({ db, close } = await startLocalD1()), 120_000);
 afterAll(async () => close());
 beforeEach(async () => {
   await clearTables(db);
@@ -3415,7 +3397,7 @@ const INPUT = JSON.stringify(FULL_SNAPSHOT);
 
 let db: D1Database;
 let close: () => Promise<void>;
-beforeAll(async () => ({ db, close } = await startLocalD1()), 60_000);
+beforeAll(async () => ({ db, close } = await startLocalD1()), 120_000);
 afterAll(async () => close());
 beforeEach(async () => {
   await clearTables(db);
@@ -3934,7 +3916,7 @@ it("runs both model adapters inside workerd (compatibility date 2026-09-21, no n
   } finally {
     await server.close();
   }
-}, 60_000);
+}, 120_000);
 ```
 
 - [ ] **Step 3: Run the tests to verify they fail**
@@ -4971,33 +4953,33 @@ Expected: two summaries and no `failed`: `unit` with `Test Files  Bu+16 passed` 
 Run:
 
 ```bash
-BASE=$(git log --format=%H --grep='^Add generation scaffold$' -1)^
+BASE=$(git merge-base main HEAD)
 git diff --stat "$BASE" HEAD -- packages/site-schema packages/renderer packages/core fixtures pnpm-workspace.yaml
 git diff --name-only "$BASE" HEAD | grep -vE '^(packages/generation|apps/generator)/'
 git diff --name-only "$BASE" HEAD | wc -l
 ```
 
-Expected: the first command prints nothing; the second prints exactly `package.json`, `pnpm-lock.yaml`, `tsconfig.json` and `vitest.config.ts` (fewer if Stage 0 had already added the `tsconfig.json`/`vitest.config.ts` entries); the count is `66` (62 files under `packages/generation` and `apps/generator` plus those 4; one fewer for each root config file Stage 0 had already updated).
+Expected: the first command prints nothing; the second prints exactly `package.json`, `pnpm-lock.yaml` and `tsconfig.json`; the count is `65` (62 files under `packages/generation` and `apps/generator` plus those 3).
 
 - [ ] **Step 3: Commit identity, messages and trailers**
 
 Run:
 
 ```bash
-BASE=$(git log --format=%H --grep='^Add generation scaffold$' -1)^
+BASE=$(git merge-base main HEAD)
 git log --format='%an <%ae>|%s' "$BASE"..HEAD
 git log --format=%s "$BASE"..HEAD | awk 'NF>3'
 git log --format=%B "$BASE"..HEAD | grep -icE 'co-authored-by|generated with'
 ```
 
-Expected: 13 lines, each `sydashir <meetashirr@gmail.com>|` followed by `Add generation scaffold`, `Add model prompt`, `Add template draft`, `Add attempt loop`, `Add cost ceiling`, `Add Anthropic adapter`, `Add compatible adapter`, `Add generation requests`, `Add generation job`, `Add stuck sweeper`, `Add public API`, `Add generator Worker`, `Add model eval` (newest first), plus any fix commits made in this task under the same rules; the `awk` prints nothing; the count is `0`.
+Expected: 13 lines (plus one `Sync with main` line if Step 8 merged), each `sydashir <meetashirr@gmail.com>|` followed by `Add generation scaffold`, `Add model prompt`, `Add template draft`, `Add attempt loop`, `Add cost ceiling`, `Add Anthropic adapter`, `Add compatible adapter`, `Add generation requests`, `Add generation job`, `Add stuck sweeper`, `Add public API`, `Add generator Worker`, `Add model eval` (newest first), plus any fix commits made in this task under the same rules; the `awk` prints nothing; the count is `0`.
 
 - [ ] **Step 4: Secrets scan**
 
 Run:
 
 ```bash
-BASE=$(git log --format=%H --grep='^Add generation scaffold$' -1)^
+BASE=$(git merge-base main HEAD)
 git diff "$BASE" HEAD | grep -nE 'sk-ant-[A-Za-z0-9_-]{8,}|gsk_[A-Za-z0-9]{8,}|hf_[A-Za-z0-9]{8,}|(ANTHROPIC_API_KEY|OPENAI_COMPAT_API_KEY|CLOUDFLARE_AI_TOKEN|GROQ_API_KEY|HF_TOKEN)=[^[:space:]]'
 git ls-files | grep -E '(^|/)(\.env|\.dev\.vars)$'
 ```
@@ -5024,7 +5006,7 @@ Make each change, run the named test, confirm the failure, restore the file exac
 1. `packages/generation/src/template.ts`: `return freeEstimates ? "Get a free quote" : "Request a quote";` → `return "Get a free quote";`. Test `packages/generation/test/template.test.ts`: 8 failures (the 864-case matrix, "says free only when the owner gives free estimates", and the validity and html-validate cases of the three fixtures whose owner gives no free estimates).
 2. `packages/generation/src/job.ts` `CLAIM`: remove the daily count (`AND (SELECT COUNT(*) FROM generations WHERE model_slot = 1 AND started_at >= ?4) < ?5` → `AND ?4 = ?4 AND ?5 = ?5`). Test `packages/generation/test/job.workerd.test.ts`: 2 failures.
 3. `packages/generation/src/job.ts` `FINISH`: `WHERE id = ?1 AND status = 'running'` → `WHERE id = ?1`. Same test: 1 failure ("never overwrites a row the sweeper finished first").
-4. `packages/generation/src/request.ts` `INSERT_JOB`: `AND (SELECT COUNT(*) FROM generations WHERE owner_id = ?3) < ?9` → `AND ?9 = ?9`. Test `packages/generation/test/request.workerd.test.ts`: 1 failure ("allows 20 per owner in total, exactly…").
+4. `packages/generation/src/request.ts` `INSERT_JOB`: `AND (?4 = 'first' OR (SELECT COUNT(*) FROM generations WHERE owner_id = ?3 AND kind = 'regenerate') < ?9)` → `AND ?9 = ?9`; then, one at a time, delete `?4 = 'first' OR ` (a first build is refused at the cap) and delete ` AND kind = 'regenerate'` from `INSERT_JOB` (first builds count). Test `packages/generation/test/request.workerd.test.ts`: 1 failure each ("allows 20 regenerations per owner in total, exactly…"). Then delete ` AND kind = 'regenerate'` from `generationAllowance`: 1 failure ("reports what is left today for the site…"). (Decision 30.)
 5. `packages/generation/src/request.ts`: add `EXTRA: string;` to `requestGeneration`'s `env` type. `pnpm typecheck` fails in `packages/generation/test/contract.test.ts` with `TS2322 … Types of parameters 'env' and 'env' are incompatible` (plus `TS2741 Property 'EXTRA' is missing` in `request.workerd.test.ts`), proving the §6.4 contract itself is pinned.
 6. `packages/generation/src/job.ts` `FINISH`: `model_slot = CASE WHEN ?9 = 0 THEN 0 ELSE model_slot END` → `model_slot = model_slot`. Test `job.workerd.test.ts`: 1 failure ("treats a missing key as a provider failure, reports it as auth and gives the model slot back").
 7. `packages/generation/src/validate.ts`: `looseName(entry.service) === looseName(name)` → `entry.service === name`. Test `packages/generation/test/validate.test.ts`: 2 failures ("puts the owner's exact service name back…" and "never changes the model's answer object").
@@ -5103,9 +5085,9 @@ Expected: `30 payloads, 0 accepted`, no `ACCEPTED (bad)` line, then three `KNOWN
 
 - [ ] **Step 8: Integrate with the plans that merged first**
 
-Plans 2, 3 and 4 all change `package.json`, `pnpm-lock.yaml`, `tsconfig.json` and `vitest.config.ts`, and merges into `main` are fast-forward only. If `main` moved since this branch was created:
-1. Run `git rebase main` on `plan3-generation` (both branches are in this one local repository).
-2. At each stopped commit, resolve a conflict in `tsconfig.json`, `vitest.config.ts` or `package.json` by keeping both sides' entries (for example Plan 2's `exclude` and `apps/sites` test glob next to this plan's `apps/generator` entries). Resolve `pnpm-lock.yaml` by taking `main`'s version (`git checkout main -- pnpm-lock.yaml`) and running `pnpm install`, which rewrites it for that commit's `package.json` files. Then `git add` the resolved files by name and `git rebase --continue`. The rebased commits keep their messages and the repo-local author.
+Plans 2 and 3 change `package.json` and `tsconfig.json`, and all three plans change `pnpm-lock.yaml`; merges into `main` are fast-forward only. If `main` moved since this branch was created:
+1. Run `git merge main -m "Sync with main"` on `plan3-generation` (CLAUDE.md: merge, never rebase).
+2. If it stops on conflicts: in `tsconfig.json` or `package.json` keep both sides' entries (for example Plan 2's `exclude` next to this plan's `apps/generator` entries); for `pnpm-lock.yaml` run `git checkout main -- pnpm-lock.yaml && pnpm install`; `git add` the resolved files by name, then `git commit --no-edit`.
 3. Re-run Steps 1–7. `Bu`, `Nu`, `Bw` and `Nw` are then the counts on the new `main` (re-run Task 1 Step 1's `pnpm test` line on `main` to get them). `apps/generator/test/config.test.ts` now also checks every other `apps/*/wrangler.jsonc`: a failure there names the other Worker and the differing value (database id, `GENERATION_ENABLED`, `DAILY_MODEL_LIMIT`, `MODEL_PROVIDER`, `MODEL_ID`, or an unpriced model). That is a cross-plan decision for the moderator (Decisions 4, 13, 28), never a reason to edit another plan's file here.
 4. If Plan 2 has merged, `pnpm deploy:check` lists `apps/generator` with only the expected placeholder problem (`D1 database_id is still the local placeholder`) until Task 15 Step 9.
 
@@ -5128,7 +5110,7 @@ Everything above runs with no account. This task cannot run until the user provi
 
 **Files:**
 - Create: `packages/generation/test/recorded.test.ts`, `packages/generation/test/fixtures/<model>.json` (written by `--record`)
-- Modify: `apps/generator/wrangler.jsonc` (`vars.MODEL_PROVIDER`, `vars.MODEL_ID`, `vars.OPENAI_COMPAT_BASE_URL` if needed, `vars.GENERATION_ENABLED`, `d1_databases[0].database_id`)
+- Modify: `apps/generator/wrangler.jsonc` (`d1_databases[0].database_id`, Step 9.1). Its shared `vars` (`MODEL_PROVIDER`, `MODEL_ID`, `DAILY_MODEL_LIMIT`, `GENERATION_ENABLED`, and `OPENAI_COMPAT_BASE_URL` if needed) change only in the moderator's one commit across `apps/generator`, `apps/app` and `apps/admin` (Steps 8 and 9.4).
 
 **Interfaces:**
 - Consumes: `pnpm eval:generation` (Task 13), `AnthropicProvider` (Task 6), `OpenAICompatibleProvider` (Task 7), `fakeFetch` (Task 6), `type RecordedResponse` (Task 13).
@@ -5136,7 +5118,7 @@ Everything above runs with no account. This task cannot run until the user provi
 
 - [ ] **Step 1 (user): Create keys and put them in the gitignored `.env`**
 
-The user, not an agent, creates the keys and types them into `/Users/ashir/Documents/workk2/web_maker/.env` (never into chat, never printed):
+The user, not an agent, creates the keys and types them into the gitignored `.env` at the root of the checkout that runs this task (`/Users/ashir/Documents/workk2/asksite-plan3/.env` in this plan's worktree; `pnpm eval:generation` reads only that checkout's root `.env`), never into chat, never printed:
 - `ANTHROPIC_API_KEY=` a key from the Claude Console (API key billing; a Pro/Max subscription cannot be used for this). Set a monthly spend limit in the Console.
 - Optional, for the open models on Workers AI: `CLOUDFLARE_ACCOUNT_ID=` and `CLOUDFLARE_AI_TOKEN=` (an API token limited to Workers AI).
 - Optional: `GROQ_API_KEY=`.
@@ -5224,33 +5206,32 @@ Expected: a progress counter, then the report table (`| model | runs | first try
 
 Two people rate every row of `results/<time>/ratings.csv` in a spreadsheet, without opening `ratings-key.json`: `sounds_local_1to5`, `specific_1to5`, `publish_as_is_1to5`, and `states_unbacked_fact_yes_no` (compare with the `facts` column). Then join the ratings to `ratings-key.json` by `item` and compute each model's mean score and count of "yes" answers. Gate for making an open model the default (design §6.6, the user's call): the report's automatic gate says `pass`, no rater found an unbacked claim, and the mean score is within 0.3 of Claude's. Otherwise Claude stays the default and the open model stays a tested fallback.
 
-- [ ] **Step 8 (user decision): Set the default model**
+- [ ] **Step 8 (user decision): Set the default model, through the moderator's one commit**
 
-Edit `apps/generator/wrangler.jsonc` `vars`: `MODEL_PROVIDER` and `MODEL_ID` to the chosen model, and `DAILY_MODEL_LIMIT` to the limit the user chooses with it (it must be in `MODELS`, or add its price there first with source and date, via the moderator); for an `openai-compatible` model also add `"OPENAI_COMPAT_BASE_URL"` (for Workers AI `https://api.cloudflare.com/client/v4/accounts/<account_id>/ai/v1`). Keep `GENERATION_ENABLED` `"false"` for now.
+The user chooses `MODEL_PROVIDER` and `MODEL_ID`, and with them the `DAILY_MODEL_LIMIT` that keeps the shipped worst case at or under $11 a day (Decision 4; for example 16 keeps Sonnet 5 at $10.65 a day). The model must be in `MODELS` (or add its price there first with source and date, via the moderator). A higher shipped limit is the user's call; if they make it, `PROMISED_DAILY_WORST_CASE_MICROUSD` changes with them in the same commit. `GENERATION_ENABLED` stays `"false"` for now.
 
-Run: `pnpm exec vitest run apps/generator/test/config.test.ts`
-Expected: `Tests  11 passed (11)`. The test also fails if the shipped `DAILY_MODEL_LIMIT` times the new model's per-job ceiling exceeds $11 a day (Decision 4): set the limit with the model (for example 16 keeps Sonnet 5 at $10.65 a day). A higher shipped limit is the user's call; if they make it, change `PROMISED_DAILY_WORST_CASE_MICROUSD` with them. `apps/app` and `apps/admin` (Plan 4's files) declare the same variables and the test requires them to match: ask the moderator to change them in the same merge; never edit them here.
+This plan never commits these variables in `apps/generator/wrangler.jsonc` alone: `config.test.ts` requires every `apps/*/wrangler.jsonc` that declares `GENERATION_ENABLED`, `DAILY_MODEL_LIMIT`, `MODEL_PROVIDER` or `MODEL_ID` to equal the generator's at every commit, and `apps/app` and `apps/admin` are Plan 4's files. Give the moderator the chosen values and ask for one commit that sets them in `apps/generator/wrangler.jsonc`, `apps/app/wrangler.jsonc` and `apps/admin/wrangler.jsonc` together (in each file that declares them); for an `openai-compatible` model the same commit adds the generator's `"OPENAI_COMPAT_BASE_URL"` (for Workers AI `https://api.cloudflare.com/client/v4/accounts/<account_id>/ai/v1`). Do not edit or commit any of those files here.
 
-```bash
-git add apps/generator/wrangler.jsonc
-git commit -m "Choose default model"
-```
+When the moderator reports the commit, bring it into this checkout if it is not here yet (`git merge main -m "Sync with main"`, as in Task 14 Step 8), then run: `pnpm exec vitest run apps/generator/test/config.test.ts`
+Expected: `Tests  11 passed (11)`. A failure names the Worker and the differing value, or a worst case over $11 a day: report it to the moderator; do not fix it here.
 
 - [ ] **Step 9: Production settings, with Plan 2's deploy runbook**
 
 These run when Plan 2's runbook sets up the account (the user runs `wrangler login`; no token is pasted into chat):
-1. Put the real D1 id from `wrangler d1 create asksite --location=enam` into `d1_databases[0].database_id` of `apps/generator/wrangler.jsonc` (the same value as every other Worker; `config.test.ts` enforces it). Run `pnpm exec vitest run apps/generator/test/config.test.ts` (expect a pass once all `apps/*/wrangler.jsonc` carry the same id) and commit with `git add apps/generator/wrangler.jsonc` and `git commit -m "Set database id"`. Plan 2's `pnpm deploy:check` must then print `apps/generator: ready`.
+1. If Plan 2 Task 19 Step 4 already ran after this plan merged, its `sed` over every `apps/*/wrangler.jsonc` set this id and committed it: only run the config test. Put the real D1 id from `wrangler d1 create asksite --location=enam` into `d1_databases[0].database_id` of `apps/generator/wrangler.jsonc` (the same value as every other Worker; `config.test.ts` enforces it). Run `pnpm exec vitest run apps/generator/test/config.test.ts` (expect a pass once all `apps/*/wrangler.jsonc` carry the same id) and commit with `git diff --quiet -- apps/generator/wrangler.jsonc || { git add apps/generator/wrangler.jsonc && git commit -m "Set database id"; }`. Plan 2's `pnpm deploy:check` must then print `apps/generator: ready`.
 2. The queues `asksite-generation` and `asksite-generation-dlq` exist (runbook: `wrangler queues create …`).
 3. The user sets the model secret: `cd apps/generator && pnpm exec wrangler secret put ANTHROPIC_API_KEY` (or `OPENAI_COMPAT_API_KEY`), typing the key at the prompt.
-4. The moderator approves turning generation on: set `"GENERATION_ENABLED": "true"` here and, in the same merge, in `apps/app` and `apps/admin` (Plan 4's files, changed by the moderator; the config test requires all three to agree), run the config test, commit with `git add apps/generator/wrangler.jsonc` and `git commit -m "Enable generation"`, and deploy with the rest of the system (`cd apps/generator && pnpm exec wrangler deploy`).
+4. The moderator approves turning generation on and makes it one commit: ask the moderator to set `"GENERATION_ENABLED": "true"` in `apps/generator/wrangler.jsonc`, `apps/app/wrangler.jsonc` and `apps/admin/wrangler.jsonc` together (in each file that declares it; the config test requires all three to agree at every commit). Do not edit or commit `apps/generator/wrangler.jsonc` for it here. Once that commit is in this checkout (as in Step 8), run `pnpm exec vitest run apps/generator/test/config.test.ts` (expect `Tests  11 passed (11)`), and deploy with the rest of the system (`cd apps/generator && pnpm exec wrangler deploy`).
 5. Smoke test after the first test site's build: `cd apps/generator && pnpm exec wrangler d1 execute asksite --remote --command "SELECT status, used_fallback, fallback_reason, provider, model, attempts, cost_microusd FROM generations ORDER BY created_at DESC LIMIT 1"`. Expected: `succeeded`, `used_fallback` 0, the chosen provider and model, 1–3 attempts and a small non-zero cost.
 
 ---
 
 ## Verification record (how this plan was checked before handing it over)
 
+**Cross-plan edits (2026-09-25, text only, not replayed).** The fixes from `docs/superpowers/specs/2026-09-25-cross-plan-check.md` §1 items 1, 2, 3, 5, 7 and 9 and the moderator's decisions of that day (Decision 30, this plan's worktree, the decided tags) were written into this plan without running anything. The changed Task 8 tests, Task 14 Step 6.4's mutations and the 120 s hooks are [unverified] until Tasks 8 and 14 run; the test counts do not change, because Decision 30 edits existing tests. The records below describe the plan before these edits (for example their 66 changed files are now 65, because `vitest.config.ts` is no longer edited).
+
 **Revision after the execution check and the security/spec review (2026-09-24, Node 25.6.1, pnpm 10.33.0).** Everything ran in a fresh `git clone` of this repo in the scratchpad, working tree only (nothing committed); the real repo was not touched, and the clone was deleted afterwards.
-- **Base:** `plan1-renderer` at `c880600` (Plan 1 Tasks 1–14 as committed), plus a Stage 0 stand-in (the `@asksite/core` subset of design §2.8, `0001_init.sql`, amendment A6), Plan 1 Task 15's fixtures and root dev dependencies from the first replay, and Stage 0's two-project `vitest.config.ts` and `test` script as Plan 2's current Task 1 writes them. Base: `tsc` 0, 20 files / 519 tests.
+- **Base:** `plan1-renderer` at `c880600` (Plan 1 Tasks 1–14 as committed), plus a Stage 0 stand-in (the `@asksite/core` subset of design §2.8, `0001_init.sql`, amendment A6), Plan 1 Task 15's fixtures and root dev dependencies from the first replay, and Stage 0's two-project `vitest.config.ts` and `test` script as Plan 2's Task 5 writes them. Base: `tsc` 0, 20 files / 519 tests.
 - **Replay from the plan text:** a script extracted every file from this document (it first reproduced the first draft's 62 files byte for byte, so the extraction is exact) and applied Tasks 1–13 in order. Every red run failed for the stated reason (Task 12's with the plan's step order: `ENOENT` twice and the missing entry point); the green runs gave 9, 16, 16, 20, 8, 16, 29, 17, 19, 6, 2, 16 and 17 tests; `tsc` exited 0 after every task; pnpm printed `Packages: +7` (Task 6) and `Packages: +35 -4` with `Ignored build scripts: esbuild@0.28.1, workerd@1.20260921.1` (Task 8).
 - **Whole suite:** `unit` 20 → 36 files and 519 → 663 tests, `workerd` 0 → 6 files and 0 → 47 tests, green on 3 runs; no `workerd` left running.
 - **Mutations:** Task 3's (8 failures), Task 9's three and Task 14's eight were each caught exactly as written. Adding a required `EXTRA` to `requestGeneration`'s `env` now fails in `contract.test.ts` with `TS2322 … Types of parameters 'env' and 'env' are incompatible`.
@@ -5258,7 +5239,7 @@ These run when Plan 2's runbook sets up the account (the user runs `wrangler log
 - **Eval CLI:** with every provider answering HTTP 400 (offline stub, stub keys for all seven candidates), `--caps-probe` printed seven `<label>: bad_request, not measured` lines and exited 1; with no keys it prints the message and exits 0.
 - **Runtime:** `redirect: "error"` makes workerd throw `Invalid redirect value, must be one of "follow" or "manual" …`, and `"manual"` works in the in-workerd adapter test; the bundle is 1,362.48 KiB / 233.14 KiB gzip with no `node:` import; `wrangler dev` reached `Ready on http://localhost:8790` with the example `.dev.vars` (stopped by PID; port 8790 free afterwards).
 - **Adversarial:** 30 payloads, 0 accepted; the three known Plan 1 claim-list gaps (Task 14 Step 7) are accepted today.
-- **Cross-plan:** with the `apps/sites/wrangler.jsonc` from the current Plan 2 plan text, `config.test.ts` passes 11/11, and `tsc` stays at 0 with Plan 2's draft `apps/sites` code present. With the Plan 4 draft's `apps/app` and `apps/admin` configs, exactly one test fails: `[ 'admin', 'DAILY_MODEL_LIMIT', '30' ]` against `'8'` (Decision 4, for the moderator).
+- **Cross-plan:** with the `apps/sites/wrangler.jsonc` from the current Plan 2 plan text, `config.test.ts` passes 11/11, and `tsc` stays at 0 with Plan 2's draft `apps/sites` code present. With the current Plan 4 configs (`GENERATION_ENABLED` "false", `DAILY_MODEL_LIMIT` "8", admin `anthropic`/`claude-opus-5-5`), Plan 4 decision 17 reports config.test.ts passing (M1).
 - **Facts checked live:** the Hugging Face router's `:provider` suffix, "no extra markup", its data-security page, and the live Groq listing for gpt-oss-120b ($0.15 / $0.75, structured output supported); Groq's data-retention page; wrangler 4.138.0 declares `@cloudflare/workers-utils` (the source of `experimental_readRawConfig`) only as a devDependency.
 - **Not re-run in this revision:** Task 14 Steps 2–4 (blast radius, commit identity and messages, secrets scan over the commits) need commits, which this check may not make; the first replay ran them. This revision adds no file: `prices.ts` and its test became `models.ts` and `models.test.ts`, and six tests became `*.workerd.test.ts`, so the count of 66 changed files stands. Node 24.21.0 (the `.nvmrc` pin) is not installed here.
 
@@ -5273,29 +5254,29 @@ These run when Plan 2's runbook sets up the account (the user runs `wrangler log
 - **No live model call was made.** Response shapes in the adapter tests come from the official docs. Whether the Workers AI OpenAI-compatible endpoint honours `response_format` and the per-model extra fields, whether Groq strict mode (directly or through the Hugging Face router) accepts the full wire schema, and whether Anthropic accepts it without a complexity error are [unverified] until Task 15 (`--record`, `--caps-probe`, the eval).
 - **The token bound is [inferred]** (tokens ≤ UTF-8 bytes for byte-level tokenizers, plus a 2,000-token margin); Task 15 Step 2 measures it.
 - **Stage 0 and Plan 1 Tasks 15–17 were simulated** from the design and the Plan 1 and Plan 2 texts. Task 1 Step 1 stops the plan if the real names differ; the per-project baseline keeps Task 14's counts exact whatever the real totals are. Plans 2 and 4 are still being revised in parallel (Plan 2 changed its D1 placeholder during this revision); `config.test.ts` turns any drift in shared Worker settings into a named test failure at integration.
-- **Worst-case daily spend** at the shipped 8 model calls per day is $10.65 on Opus 5.5 (Decision 4); at the design's 30 it would be $39.95. Raising the limit is the user's call in admin settings, where the worst case is shown; the provider spend limit is the money backstop. Plan 4's `apps/app` and `apps/admin` must ship the same `"8"` (moderator).
+- **Worst-case daily spend** at the shipped 8 model calls per day is $10.65 on Opus 5.5 (Decision 4); at the design's former 30 it would be $39.95. Raising the limit is the user's call in admin settings, where the worst case is shown; the provider spend limit is the money backstop. Plan 4's `apps/app` and `apps/admin` must ship the same `"8"` (decided as M1 on 2026-09-25).
 - **Model, effort and prompt quality are decided by measurement**, not here: the default model (user's call after Task 15), `effort: "low"` for Claude (Decision 2), the 30–60 character headline target (Decision 19, research claim unverified). The Hugging Face route runs gpt-oss-120b at its default reasoning (Decision 18).
 - **The claim checker's word lists** catch the usual phrasings, not every paraphrase (Plan 1 Decision #5). Three gaps are known today ("seven days a week", "every day", and "free" beyond estimates once the owner gives free estimates; Task 14 Step 7); the prompt forbids them, the eval's human "states an unbacked fact" question measures what slips through, and a human approves every page.
 - **Production queue behaviour** (dead-letter delivery, retries after a runtime crash) is taken from Cloudflare's docs; only local delivery and the sweeper were run.
-- **An HTTP 400 from an OpenAI-compatible host** ends a job's attempts (`bad_request`), and so does a redirect. If a host answers 400 for a schema miss, the eval shows it as provider errors and the moderator can decide to treat that code as invalid output.
+- **An HTTP 400 from an OpenAI-compatible host** ends a job's attempts (`bad_request`), and so does a redirect. If a host answers 400 for a schema miss, the eval shows it as provider errors. The moderator decided on 2026-09-25 to keep treating HTTP 400 as `bad_request` (cross-plan check §2 item 11).
 - **Prompt caching is not used**; it is a later cost lever once the prompt is stable.
 
 ## Review changes (execution check and security/spec review, 2026-09-24)
 
 | Finding | Result | Where |
 |---|---|---|
-| Exec 1 (High): D1 placeholder differs between plans | FIXED: the one shared value `00000000-0000-0000-0000-000000000000` (Plan 2's current plan and the Plan 4 draft agree); the literal lives only in the generator's `wrangler.jsonc`; the config test checks a UUID plus equality, so Task 15's real id needs no test change. Moderator: pin it in design §10.3 | Decision 13, Task 12 |
+| Exec 1 (High): D1 placeholder differs between plans | FIXED: the one shared value `00000000-0000-0000-0000-000000000000` (Plan 2's current plan and the Plan 4 draft agree); among Worker configs the literal lives only in the generator's `wrangler.jsonc`; the config test checks a UUID plus equality, so Task 15's real id needs no test change. Moderator: pin it in design §10.3 (decided as M4 on 2026-09-25) | Decision 13, Task 12 |
 | Exec 2 (High): `apps/*` globs pull Plan 2's Worker code into the root program | FIXED: only `apps/generator/src` and `apps/generator/test`, with a no-wildcard check | Task 1 Step 3, Decision 28 |
 | Exec 3 (Medium): contract test misses parameter changes | FIXED: property syntax; the `EXTRA` mutation now fails in `contract.test.ts` (TS2322) | Task 11, Task 14 Step 6.5 |
 | Exec 4 (Medium): `--caps-probe` stops at the first provider error | FIXED: per-candidate try/catch, `not measured` line, exit 1 | Task 13, Task 15 Step 2 |
 | Exec 5 (Low): repair lines not `wellFormed`; cost bound; 39-character keys | FIXED: `wellFormed` after the cut; service names `wellFormed` too; 40-character keys; worst case re-measured at 65,120 bytes | Decisions 4–6, Tasks 2 and 5 |
-| Exec 6 (Low): no branch, hard-coded repo path, root-file merges | FIXED: branch `plan3-generation`, `git rev-parse --show-toplevel`, `REPO` for the adversarial script, a rebase step | Global Constraints, Task 1, Task 14 Steps 7–8 |
+| Exec 6 (Low): no branch, hard-coded repo path, root-file merges | FIXED: branch `plan3-generation`, `git rev-parse --show-toplevel`, `REPO` for the adversarial script, a "Sync with main" merge step | Global Constraints, Task 1, Task 14 Steps 7–8 |
 | Exec 7 (Cosmetic): expected outputs | FIXED: pnpm lines plus a `pnpm ls` check, Task 12's red messages, Task 9's mutations after the commit with `git checkout --`, the root script line without a trailing comma | Tasks 6, 8, 9, 12, 13 |
-| Sec M1: `worstCaseJobMicrousd` throws | FIXED: returns `number \| null`, never throws. Moderator: design §6.4 and §4.2 `AdminSettings.worstCaseDailyMicrousd` become `number \| null`; Plan 4 shows "unknown" | Decision 11, Tasks 5, 11, 12 |
+| Sec M1: `worstCaseJobMicrousd` throws | FIXED: returns `number \| null`, never throws. Moderator: design §6.4 and §4.2 `AdminSettings.worstCaseDailyMicrousd` become `number \| null`; Plan 4 shows "unknown" (decided as M3 on 2026-09-25) | Decision 11, Tasks 5, 11, 12 |
 | Sec M2: cross-Worker settings disagree; plain `JSON.parse` of sibling configs | FIXED: one test requires the same D1 id, `GENERATION_ENABLED`, `DAILY_MODEL_LIMIT`, `MODEL_PROVIDER`, `MODEL_ID` and a priced model everywhere. The sub-point "parse with wrangler's reader" is REJECTED: every `wrangler.jsonc` must be plain JSON (Plan 2's `pnpm dev` and `deploy:check` read them with `JSON.parse`), so the test asserts that per file with a named failure; and `experimental_readRawConfig` is re-exported from `@cloudflare/workers-utils`, which wrangler 4.138.0 lists only as a devDependency, so its types would not resolve [verified] | Decisions 28, Task 12 |
 | Sec M3: exact service names cannot always be retyped | FIXED: `bindServiceNames` in `checkDraft`; unit tests with NBSP, `’`, NFD and fullwidth names; eval profiles with such names | Decision 21, Tasks 4 and 13 |
 | Sec M4: "free" unscoped | FIXED: prompt scopes free to estimates (asserted); two trap profiles push free service calls, inspections and repairs; the gap is recorded | Decision 22, Tasks 2, 13, 14 |
-| Sec M5: worst case about 4× the design's promise | FIXED: ships `DAILY_MODEL_LIMIT` "8" ($10.65 a day on Opus 5.5) with a config-test guard at $11 a day. User and moderator: the design's 30 and Plan 4's configs | Decision 4, Task 12, Task 15 Step 8 |
+| Sec M5: worst case about 4× the design's promise | FIXED: ships `DAILY_MODEL_LIMIT` "8" ($10.65 a day on Opus 5.5) with a config-test guard at $11 a day. Decided by M1; Plan 4 ships "8" in apps/app and apps/admin | Decision 4, Task 12, Task 15 Step 8 |
 | Sec M6: revoked key fails silently; no-op jobs hold slots | FIXED: `providerErrorKind`, attempt outcomes and `durationMs` in the log line; `FINISH` releases the slot when `attempts = 0`; tests and a mutation | Decision 23, Task 9 |
 | Sec minor 1: unexpected error fails a first build | FIXED: template for a first build; `read_failed` leaves an unreadable row to the sweeper | Decision 24, Task 9 |
 | Sec minor 2: repair feedback cleaning and byte cap | FIXED (`wellFormed`, 40-character keys). "Cap by UTF-8 bytes" is REJECTED as unneeded: after `wellFormed` no UTF-16 unit costs more than 3 bytes, so the unit caps bound the bytes, and the caps test measures the result | Decisions 4–5, Task 5 |
@@ -5307,5 +5288,5 @@ These run when Plan 2's runbook sets up the account (the user runs `wrangler log
 | Sec minor 8: config and key checks narrower than §9.1 | FIXED: `gsk_`, `hf_` patterns; `FAKE_MODE`, `ADMIN_AUTH_MODE`, `MAILER` absent from production `vars` | Task 12, Task 14 Step 4, Task 15 Step 4 |
 | Sec minor 9: eval gaps; "seven days a week" and "every day" pass | FIXED: `ord-elec2` has "Emergency wiring repairs" without a 24/7 fact; the gaps are in Task 14 Step 7 and reported as Plan 1 claim-list findings [verified: accepted today] | Tasks 13 and 14 |
 | Sec minor 10: `prices.ts` name; `git add` of a directory | FIXED: `models.ts`; fixtures added by name | Tasks 5 and 15 |
-| Found while re-verifying: Stage 0 now runs workerd tests in their own Vitest project (Plan 2 Decision 23) | FIXED: six tests renamed `*.workerd.test.ts`; Task 1 Step 3 edits both projects | Decision 29, Tasks 1 and 14 |
+| Found while re-verifying: Stage 0 now runs workerd tests in their own Vitest project (Plan 2 Decision 23) | FIXED: six tests renamed `*.workerd.test.ts`; Stage 0's generic globs run them and `vitest.config.ts` is not edited (M6) | Decision 29, Tasks 1 and 14 |
 | Found while re-verifying: the config test hard-coded the placeholder, so Task 15's real id would have failed it | FIXED: UUID check plus cross-Worker equality | Decision 13, Task 12 |
