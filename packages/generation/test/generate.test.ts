@@ -117,13 +117,13 @@ describe("generateDraft", () => {
     expect(result).toMatchObject({ ok: false, failure: "provider_error", providerErrorKind: "bad_request", attempts: 1 });
   });
 
-  it("treats a cut-off or refused answer as invalid and asks for a shorter one", async () => {
+  it("treats a cut-off or refused answer as invalid and tells the model it was cut off", async () => {
     const { deps } = testDeps();
     const cut = { ...answer(undefined), stop: "max_tokens" as const };
     const provider = scriptedProvider([cut, { ...answer(undefined), stop: "refusal" as const }, answer(good)]);
     const result = await generateDraft(provider, FULL_SNAPSHOT, deps);
     expect(result).toMatchObject({ ok: true, attempts: 3 });
-    expect(provider.requests[1]!.user).toContain("cut off");
+    expect(provider.requests[1]!.user).toContain("was cut off");
     expect(result.log.map((a) => a.outcome)).toEqual(["max_tokens", "refusal", "valid"]);
     expect(result.log.map((a) => a.issues.map(({ path, code }) => ({ path, code })))).toEqual([[{ path: [], code: "cut_off" }], [{ path: [], code: "refused" }], []]);
   });
@@ -179,12 +179,12 @@ describe("generateDraft", () => {
     expect(sleeps).toEqual([2_000]);
   });
 
-  it("treats an answer that ended early as invalid and asks for the whole answer", async () => {
+  it("treats an answer that ended early as invalid and tells the model the whole answer was not sent", async () => {
     const { deps } = testDeps();
     const provider = scriptedProvider([{ ...answer(undefined), stop: "other" as const }, answer(good)]);
     const result = await generateDraft(provider, FULL_SNAPSHOT, deps);
     expect(result).toMatchObject({ ok: true, attempts: 2 });
-    expect(provider.requests[1]!.user).toContain("ended early");
+    expect(provider.requests[1]!.user).toContain("ended before the whole answer was sent");
     expect(result.log.map((a) => a.outcome)).toEqual(["other", "valid"]);
     expect(result.log.map((a) => a.issues.map(({ path, code }) => ({ path, code })))).toEqual([[{ path: [], code: "incomplete" }], []]);
   });
@@ -303,7 +303,7 @@ describe("generateDraft", () => {
     const result = await generateDraft(provider, FULL_SNAPSHOT, deps);
     expect(result).toMatchObject({ ok: true, attempts: 2 });
     expect(result.log.map((a) => a.outcome)).toEqual(["other", "valid"]);
-    expect(provider.requests[1]!.user.split("\n").at(-1)).toBe('- "": "The answer ended early. Send the whole answer."');
+    expect(provider.requests[1]!.user.split("\n").at(-1)).toBe('- "": "Your last answer ended before the whole answer was sent."');
   });
 
   it("gives each result its own stop issues, so editing them cannot change a later job's repair prompt", async () => {
@@ -313,9 +313,9 @@ describe("generateDraft", () => {
       issue.path.push("injected");
     }
     for (const [stop, line] of [
-      ["max_tokens", '- "": "The answer was cut off because it was too long. Keep every field well under its limit."'],
-      ["refusal", '- "": "The answer was refused. Write ordinary marketing wording for this business."'],
-      ["other", '- "": "The answer ended early. Send the whole answer."'],
+      ["max_tokens", '- "": "Your last answer was too long and was cut off before it ended."'],
+      ["refusal", '- "": "Your last answer was a refusal, not wording for this business."'],
+      ["other", '- "": "Your last answer ended before the whole answer was sent."'],
     ] as const) {
       const provider = scriptedProvider([stopped(stop), answer(good)]);
       await generateDraft(provider, FULL_SNAPSHOT, testDeps().deps);
@@ -348,7 +348,7 @@ describe("generateDraft", () => {
     const provider = scriptedProvider([stopped("refusal"), answer(good)]);
     const result = await generateDraft(provider, FULL_SNAPSHOT, deps);
     expect(result.log.map((a) => a.outcome)).toEqual(["refusal", "valid"]);
-    expect(provider.requests[1]!.user.split("\n").at(-1)).toBe('- "": "The answer was refused. Write ordinary marketing wording for this business."');
+    expect(provider.requests[1]!.user.split("\n").at(-1)).toBe('- "": "Your last answer was a refusal, not wording for this business."');
   });
 
   it("keeps the earlier repair issues when an auth error stops the loop", async () => {

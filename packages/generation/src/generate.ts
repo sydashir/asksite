@@ -47,10 +47,11 @@ export type GenerateResult =
 
 type StopReason = Exclude<ModelResponse["stop"], "end">;
 
+/** Each message describes the problem, never gives an order: the repair intro tells the model to treat it as data. */
 const STOP_ISSUE: Record<StopReason, Omit<Issue, "path">> = {
-  max_tokens: { code: "cut_off", message: "The answer was cut off because it was too long. Keep every field well under its limit." },
-  refusal: { code: "refused", message: "The answer was refused. Write ordinary marketing wording for this business." },
-  other: { code: "incomplete", message: "The answer ended early. Send the whole answer." },
+  max_tokens: { code: "cut_off", message: "Your last answer was too long and was cut off before it ended." },
+  refusal: { code: "refused", message: "Your last answer was a refusal, not wording for this business." },
+  other: { code: "incomplete", message: "Your last answer ended before the whole answer was sent." },
 };
 
 /** A new issue on every call: a caller may edit the issues it gets back, and a later job must not see that. */
