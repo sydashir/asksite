@@ -288,37 +288,66 @@ describe("generateDraft", () => {
     expect(sleeps).toEqual([]);
   });
 
-  // Answers that make our own code throw a TypeError. Only an error from the provider call may become a timeout.
-  const OUR_CODE_THROWS: Array<[string, () => ModelResponse]> = [
-    ["checkDraft's schema check", () => answer({ ...good, layout: [revokedProxy(), ...good.layout.slice(1)] })],
-    ["checkDraft's service-name binding", () => answer({ ...good, copy: { ...good.copy, serviceDescriptions: [revokedProxy(), ...good.copy.serviceDescriptions.slice(1)] } })],
-    ["the usage accounting", () => ({ ...answer(good), usage: undefined }) as unknown as ModelResponse],
+  it.each<[string, () => Promise<ModelResponse>]>([
+    ["rejects", () => Promise.reject(new TypeError("bug"))],
+    [
+      "throws at once",
+      () => {
+        throw new TypeError("bug");
+      },
+    ],
+  ])("treats a provider call that %s with an unexpected exception, before any deadline, as a non-retryable bad request", async (_how, call) => {
+    const { deps, sleeps } = testDeps();
+    const provider = providerOf(call);
+    const result = await generateDraft(provider, FULL_SNAPSHOT, deps);
+    expect(result).toMatchObject({ ok: false, failure: "provider_error", providerErrorKind: "bad_request", attempts: 1 });
+    expect(result.log.map((a) => a.outcome)).toEqual(["bad_request"]);
+    expect(sleeps).toEqual([]);
+    expect(provider.calls).toBe(1);
+  });
+
+  // Answers that make our own code throw a TypeError. The revoked Proxy proves the classification rule, not a
+  // production path: no JSON.parse output makes checkDraft throw, but the provider contract (json: unknown) allows it.
+  const OUR_CODE_THROWS: Array<[string, () => ModelResponse, RegExp]> = [
+    ["checkDraft's schema check", () => answer({ ...good, layout: [revokedProxy(), ...good.layout.slice(1)] }), /revoked/],
+    ["checkDraft's service-name binding", () => answer({ ...good, copy: { ...good.copy, serviceDescriptions: [revokedProxy(), ...good.copy.serviceDescriptions.slice(1)] } }), /revoked/],
+    ["the usage accounting", () => ({ ...answer(good), usage: undefined }) as unknown as ModelResponse, /inputTokens/],
   ];
 
-  it.each(OUR_CODE_THROWS)("records an exception from %s after the deadline passed as a bad request, never a timeout, and stops", async (_where, res) => {
+  it.each(OUR_CODE_THROWS)("lets an exception from %s propagate: generateDraft rejects with it and records no provider error", async (_where, res, message) => {
+    const { deps, sleeps } = testDeps();
+    const provider = providerOf(() => Promise.resolve(res()));
+    const run = generateDraft(provider, FULL_SNAPSHOT, deps);
+    await expect(run).rejects.toBeInstanceOf(TypeError);
+    await expect(run).rejects.toThrow(message);
+    expect(sleeps).toEqual([]);
+    expect(provider.calls).toBe(1);
+  });
+
+  it.each(OUR_CODE_THROWS)("lets an exception from %s propagate after the deadline passed too: never a timeout, never a bad request", async (_where, res, message) => {
     const { deps, sleeps } = testDeps();
     const listenersBefore: number[] = [];
     const provider = providerOf(answerOnAbort(res, listenersBefore));
     const signals = [() => AbortSignal.timeout(20), () => new AbortController().signal];
-    const result = await generateDraft(provider, FULL_SNAPSHOT, { ...deps, timeoutSignal: () => signals.shift()!() });
+    const run = generateDraft(provider, FULL_SNAPSHOT, { ...deps, timeoutSignal: () => signals.shift()!() });
+    await expect(run).rejects.toBeInstanceOf(TypeError);
+    await expect(run).rejects.toThrow(message);
     expect(listenersBefore).toEqual([0]);
-    expect(result.log.map((a) => a.outcome)).toEqual(["bad_request"]);
-    expect(result).toMatchObject({ ok: false, failure: "provider_error", providerErrorKind: "bad_request", attempts: 1 });
     expect(sleeps).toEqual([]);
     expect(provider.calls).toBe(1);
   }, 5_000);
 
-  it("records a timeoutSignal that throws as a bad request of that attempt: generateDraft resolves, never rejects, and stops", async () => {
+  it("lets a timeoutSignal that throws propagate: generateDraft rejects with that error and calls no provider", async () => {
     const { deps, sleeps } = testDeps();
     const provider = providerOf();
+    const noTimer = new RangeError("no timer");
     const run = generateDraft(provider, FULL_SNAPSHOT, {
       ...deps,
       timeoutSignal: () => {
-        throw new RangeError("no timer");
+        throw noTimer;
       },
     });
-    await expect(run).resolves.toMatchObject({ ok: false, failure: "provider_error", providerErrorKind: "bad_request", attempts: 1 });
-    expect((await run).log).toEqual([{ outcome: "bad_request", issues: [], latencyMs: 10, usageMissing: false }]);
+    await expect(run).rejects.toBe(noTimer);
     expect(sleeps).toEqual([]);
     expect(provider.calls).toBe(0);
   });
