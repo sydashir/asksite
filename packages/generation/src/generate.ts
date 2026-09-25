@@ -60,15 +60,16 @@ const attemptTimedOut = (): ProviderError => new ProviderError("timeout", "The a
 
 /**
  * The provider's answer, or a timeout once the request's signal aborts, whichever comes first, so
- * the attempt limit holds even for a provider that ignores the signal. The call that loses may
- * still reject later; that is never an unhandled rejection. The abort listener is removed as soon
- * as the attempt ends.
+ * the attempt limit holds even for a provider that ignores the signal. A signal that has already
+ * aborted is a timeout without a call: a request sent after the deadline is a paid call whose answer
+ * would be thrown away. The call that loses may still reject later; that is never an unhandled
+ * rejection. The abort listener is removed as soon as the attempt ends.
  */
 async function answerWithinLimit(provider: ModelProvider, req: ModelRequest): Promise<ModelResponse> {
-  const call = provider.generate(req);
-  call.catch(() => {});
   const { signal } = req;
   if (signal.aborted) throw attemptTimedOut();
+  const call = provider.generate(req);
+  call.catch(() => {});
   let onAbort = (): void => {};
   const timedOut = new Promise<never>((_, reject) => {
     onAbort = () => reject(attemptTimedOut());

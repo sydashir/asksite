@@ -188,14 +188,26 @@ describe("generateDraft", () => {
     expect(timeouts).toEqual([ATTEMPT_TIMEOUT_MS, ATTEMPT_TIMEOUT_MS]);
   }, 5_000);
 
-  it("treats an attempt whose signal has already aborted as a timeout at once", async () => {
+  it("treats an attempt whose signal has already aborted as a timeout at once, without calling the provider (a late request is a paid call thrown away)", async () => {
     const { deps, sleeps } = testDeps();
     const provider = providerOf(never, never, never);
     const result = await generateDraft(provider, FULL_SNAPSHOT, { ...deps, timeoutSignal: () => AbortSignal.abort() });
     expect(result).toMatchObject({ ok: false, failure: "provider_error", providerErrorKind: "timeout", attempts: 3 });
-    expect(result.log.map((a) => a.outcome)).toEqual(["timeout", "timeout", "timeout"]);
+    const timedOut = { outcome: "timeout", issues: [], latencyMs: 10, usageMissing: false };
+    expect(result.log).toEqual([timedOut, timedOut, timedOut]);
     expect(sleeps).toEqual([2_000, 6_000]);
-    expect(provider.calls).toBe(3);
+    expect(provider.calls).toBe(0);
+  }, 5_000);
+
+  it("carries on after an attempt whose signal had already aborted, as after any timeout: a pause, then the next attempt", async () => {
+    const { deps, sleeps } = testDeps();
+    const provider = providerOf();
+    const signals = [() => AbortSignal.abort(), () => new AbortController().signal];
+    const result = await generateDraft(provider, FULL_SNAPSHOT, { ...deps, timeoutSignal: () => signals.shift()!() });
+    expect(result).toMatchObject({ ok: true, attempts: 2, validOnAttempt: 2 });
+    expect(result.log.map((a) => a.outcome)).toEqual(["timeout", "valid"]);
+    expect(sleeps).toEqual([2_000]);
+    expect(provider.calls).toBe(1);
   }, 5_000);
 
   it("leaves no unhandled rejection when a provider rejects after its attempt timed out", async () => {
@@ -204,8 +216,8 @@ describe("generateDraft", () => {
     process.on("unhandledRejection", onUnhandled);
     try {
       const { deps } = testDeps();
-      // Attempt 1's signal has already aborted; attempt 2's aborts after 20 ms. Both calls reject at 60 ms.
-      const signals = [() => AbortSignal.abort(), () => AbortSignal.timeout(20), () => new AbortController().signal];
+      // Attempts 1 and 2 time out after 20 ms, during their calls; both calls reject later, at 60 ms.
+      const signals = [() => AbortSignal.timeout(20), () => AbortSignal.timeout(20), () => new AbortController().signal];
       const result = await generateDraft(providerOf(rejectAfter(60), rejectAfter(60)), FULL_SNAPSHOT, { ...deps, timeoutSignal: () => signals.shift()!() });
       expect(result.log.map((a) => a.outcome)).toEqual(["timeout", "timeout", "valid"]);
       await new Promise((resolve) => setTimeout(resolve, 150));
