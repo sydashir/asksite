@@ -280,6 +280,7 @@ describe("AnthropicProvider", () => {
   it.each([
     ["the documented counts", { input_tokens: 3200, output_tokens: 1400 }, { inputTokens: 3200, outputTokens: 1400 }],
     ["zero counts", { input_tokens: 0, output_tokens: 0 }, { inputTokens: 0, outputTokens: 0 }],
+    ["counts of exactly 10,000,000 (P3-11 l)", { input_tokens: 10_000_000, output_tokens: 10_000_000 }, { inputTokens: 10_000_000, outputTokens: 10_000_000 }],
   ])("omits usageMissing when the message has usage with %s", async (_label, usage, expected) => {
     const http = fakeFetch([{ status: 200, body: { ...message("{}"), usage } }]);
     const res = await new AnthropicProvider({ apiKey: "k", model: "claude-opus-5-5", fetch: http.fetch }).generate(request());
@@ -306,6 +307,10 @@ describe("AnthropicProvider", () => {
     ["a negative input_tokens", { input_tokens: -1, output_tokens: 1400 }, { inputTokens: 0, outputTokens: 1400 }],
     ["a null input_tokens", { input_tokens: null, output_tokens: 1400 }, { inputTokens: 0, outputTokens: 1400 }],
     ["a text output_tokens", { input_tokens: 3200, output_tokens: "1400" }, { inputTokens: 3200, outputTokens: 0 }],
+    // P3-11 (l): a usable count is a finite integer from 0 to 10,000,000.
+    ["a fractional input_tokens", { input_tokens: 1.5, output_tokens: 1400 }, { inputTokens: 0, outputTokens: 1400 }],
+    ["an input_tokens of 1e308", { input_tokens: 1e308, output_tokens: 1400 }, { inputTokens: 0, outputTokens: 1400 }],
+    ["an output_tokens of 10,000,001", { input_tokens: 3200, output_tokens: 10_000_001 }, { inputTokens: 3200, outputTokens: 0 }],
   ])("keeps only valid counts and sets usageMissing for usage with %s", async (_label, usage, expected) => {
     const http = fakeFetch([{ status: 200, body: { ...message("{}"), usage } }]);
     const res = await new AnthropicProvider({ apiKey: "k", model: "claude-opus-5-5", fetch: http.fetch }).generate(request());

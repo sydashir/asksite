@@ -15,3 +15,13 @@ export function statusKind(status: number): ProviderErrorKind {
   if (status >= 400 && status < 500 && status !== 409) return "bad_request";
   return "unavailable";
 }
+
+/** The largest token count we accept from a provider; any real call is far below it. */
+const MAX_TOKEN_COUNT = 10_000_000;
+
+/**
+ * A token count as reported, or undefined when it is missing or not a finite integer from 0 to MAX_TOKEN_COUNT
+ * (P3-11 l): the adapter then counts it as 0 and marks the usage missing.
+ */
+export const tokenCount = (value: unknown): number | undefined =>
+  typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= MAX_TOKEN_COUNT ? value : undefined;

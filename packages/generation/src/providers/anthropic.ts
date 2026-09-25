@@ -3,7 +3,7 @@ import { ATTEMPT_TIMEOUT_MS } from "../generate.ts";
 import { modelSettings } from "../models.ts";
 import { ProviderError, type ModelProvider, type ModelRequest, type ModelResponse, type ProviderErrorKind } from "../provider.ts";
 import { dropNulls, toWireSchema } from "../wire-schema.ts";
-import { statusKind } from "./shared.ts";
+import { statusKind, tokenCount } from "./shared.ts";
 
 export interface AnthropicOptions {
   apiKey: string;
@@ -64,9 +64,6 @@ function failureMessage(kind: ProviderErrorKind, error: unknown): string {
   }
   return `Anthropic request failed (${details.join(", ")})`;
 }
-
-/** A token count as reported, or undefined when it is missing or not a finite number of at least 0. */
-const tokenCount = (value: unknown): number | undefined => (typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : undefined);
 
 const parseJson = (text: string | undefined): unknown => {
   if (text === undefined) return undefined;

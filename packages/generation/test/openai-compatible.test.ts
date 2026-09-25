@@ -315,12 +315,26 @@ describe("OpenAICompatibleProvider: usage (task 7 additions C)", () => {
     ["only prompt_tokens", { prompt_tokens: 2900 }, 2900, 0],
     ["a completion_tokens string", { prompt_tokens: 2900, completion_tokens: "1300" }, 2900, 0],
     ["a negative prompt_tokens", { prompt_tokens: -1, completion_tokens: 1300 }, 0, 1300],
+    // P3-11 (l): a usable count is a finite integer from 0 to 10,000,000.
+    ["a fractional prompt_tokens", { prompt_tokens: 1.5, completion_tokens: 1300 }, 0, 1300],
+    ["a prompt_tokens of 1e308", { prompt_tokens: 1e308, completion_tokens: 1300 }, 0, 1300],
+    ["a completion_tokens of 10,000,001", { prompt_tokens: 2900, completion_tokens: 10_000_001 }, 2900, 0],
+    ["a null prompt_tokens", { prompt_tokens: null, completion_tokens: 1300 }, 0, 1300],
   ])("marks %s with usageMissing and keeps each usable count", async (_name, usage, inputTokens, outputTokens) => {
     expect(await answerWith(usage)).toStrictEqual({ json: { a: 1 }, model: "@cf/openai/gpt-oss-120b", usage: { inputTokens, outputTokens }, stop: "end", usageMissing: true });
   });
 
   it("keeps a count of 0 as usable", async () => {
     expect(await answerWith({ prompt_tokens: 0, completion_tokens: 0 })).toStrictEqual({ json: { a: 1 }, model: "@cf/openai/gpt-oss-120b", usage: { inputTokens: 0, outputTokens: 0 }, stop: "end" });
+  });
+
+  it("keeps a count of exactly 10,000,000 as usable (P3-11 l)", async () => {
+    expect(await answerWith({ prompt_tokens: 10_000_000, completion_tokens: 10_000_000 })).toStrictEqual({
+      json: { a: 1 },
+      model: "@cf/openai/gpt-oss-120b",
+      usage: { inputTokens: 10_000_000, outputTokens: 10_000_000 },
+      stop: "end",
+    });
   });
 
   it("marks a count too large to be a finite number", async () => {

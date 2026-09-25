@@ -2,7 +2,7 @@ import { isSafeUrl } from "@asksite/site-schema";
 import { modelSettings } from "../models.ts";
 import { ProviderError, type ModelProvider, type ModelRequest, type ModelResponse, type ProviderErrorKind } from "../provider.ts";
 import { dropNulls, toWireSchema } from "../wire-schema.ts";
-import { statusKind } from "./shared.ts";
+import { statusKind, tokenCount } from "./shared.ts";
 
 export interface OpenAICompatibleOptions {
   /** e.g. https://api.cloudflare.com/client/v4/accounts/<id>/ai/v1 or https://router.huggingface.co/v1 */
@@ -70,9 +70,6 @@ function kindOf(status: number, error: unknown): ProviderErrorKind {
   if (status === GROQ_FLEX_CAPACITY) return "rate_limited";
   return statusKind(status);
 }
-
-/** A token count as reported, or undefined when it is missing or not a finite number of at least 0. */
-const tokenCount = (value: unknown): number | undefined => (typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : undefined);
 
 /** The parsed body, or undefined when it is not JSON (JSON.parse never returns undefined). */
 const parseBody = (text: string): unknown => {
