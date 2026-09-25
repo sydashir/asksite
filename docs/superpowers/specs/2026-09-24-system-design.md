@@ -498,7 +498,7 @@ export const Brief = z.strictObject({
   differentiator: briefText(140).optional(),       // "What makes you different?"
   notes: briefText(2000).optional(),               // "Pretend you're texting a friend..."
   comments: z.record(z.string().regex(/^[a-z][a-zA-Z0-9]{0,39}$/), briefText(500))
-    .refine((c) => Object.keys(c).length <= 20).default({}), // per-question comments, keyed by question id
+    .refine((c) => Object.keys(c).length <= 20, { error: "You can add at most 20 comments." }).default({}), // per-question comments, keyed by question id (message: A9)
   reviewsAreReal: z.boolean().default(false),      // owner attests pasted reviews are real (FTC)
 });
 export type Brief = z.infer<typeof Brief>;
@@ -587,7 +587,7 @@ export function photoRefIssues(facts: unknown, siteId: string, root: string, upl
 
 // issues.ts
 export interface Issue { path: Array<string | number>; code: string; message: string }
-export function toIssues(error: z.ZodError): Issue[]; // symbol path keys become String(key)
+export function toIssues(error: z.ZodError): Issue[]; // the first 50 issues only (A9: zod reports one issue per bad array element, and a facts JSON near its cap gave 152,289); symbol path keys become String(key)
 
 // looks.ts: LOOKS as in §2.4
 
@@ -784,15 +784,16 @@ export interface AdminSettings {
 const Token = z.string().regex(TOKEN_PATTERN);
 const Rev = z.int().min(1);
 const Json = z.record(z.string(), z.unknown());
+const Email = z.string().trim().pipe(z.email().max(254)); // trimmed before the email check (A9)
 export const AcceptInviteBody = z.strictObject({ token: Token });
-export const LoginBody = z.strictObject({ email: z.email().max(254) });
+export const LoginBody = z.strictObject({ email: Email });
 export const VerifyLoginBody = z.strictObject({ token: Token });
 export const PatchDraftBody = z
   .strictObject({ rev: Rev, facts: Json.optional(), brief: Json.optional(), edits: OwnerEdits.optional() })
   .refine((b) => b.facts !== undefined || b.brief !== undefined || b.edits !== undefined, { error: "Nothing to save" });
 export const SetSlugBody = z.strictObject({ rev: Rev, slug: z.string().max(40) });
 export const PublishBody = z.strictObject({ rev: Rev });
-export const CreateInviteBody = z.strictObject({ email: z.email().max(254) }); // always emailed (§3.2)
+export const CreateInviteBody = z.strictObject({ email: Email }); // always emailed (§3.2)
 export const ApproveBody = z.strictObject({
   htmlSha256: z.string().regex(/^[0-9a-f]{64}$/), // the version's html_sha256 as shown to the admin
   note: z.string().trim().max(1000).optional(), indexable: z.boolean().default(true),

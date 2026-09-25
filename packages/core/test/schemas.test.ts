@@ -7,11 +7,13 @@ import {
   AUDIT_ACTIONS,
   Brief,
   canonicalJson,
+  CreateInviteBody,
   EMPTY_EDITS,
   ERROR_STATUS,
   GOALS,
   LIMITS,
   LOOKS,
+  LoginBody,
   newId,
   newToken,
   OwnerEdits,
@@ -66,6 +68,14 @@ describe("Brief", () => {
 
   it("rejects unknown keys", () => {
     expect(Brief.safeParse({ tone: "friendly", goal: "call", extra: 1 }).success).toBe(false);
+  });
+
+  it("tells the owner how many comments they can add (A9)", () => {
+    const many = Object.fromEntries(Array.from({ length: 21 }, (_, i) => [`q${i}`, "x"]));
+    const result = Brief.safeParse({ tone: "friendly", goal: "call", comments: many });
+    expect(result.success ? [] : result.error.issues.map((i) => ({ path: i.path, code: i.code, message: i.message }))).toEqual([
+      { path: ["comments"], code: "custom", message: "You can add at most 20 comments." },
+    ]);
   });
 });
 
@@ -289,6 +299,25 @@ describe("request bodies", () => {
   it("accepts a real token and rejects anything else", () => {
     expect(AcceptInviteBody.safeParse({ token: newToken() }).success).toBe(true);
     expect(AcceptInviteBody.safeParse({ token: "short" }).success).toBe(false);
+  });
+
+  it.each([
+    ["LoginBody", LoginBody],
+    ["CreateInviteBody", CreateInviteBody],
+  ] as const)("%s trims the email before checking it (A9)", (_, Body) => {
+    expect(Body.parse({ email: " \t owner@example.com \n" })).toEqual({ email: "owner@example.com" });
+    expect(Body.parse({ email: ` ${"a".repeat(242)}@example.com ` }).email).toHaveLength(254); // the cap counts the trimmed email
+    expect(Body.safeParse({ email: `${"a".repeat(243)}@example.com` }).success).toBe(false); // 255 characters
+    expect(Body.safeParse({ email: "   " }).success).toBe(false);
+    expect(Body.safeParse({ email: "owner at example.com" }).success).toBe(false);
+    expect(Body.safeParse({ email: 42 }).success).toBe(false);
+  });
+
+  it("LoginBody and CreateInviteBody keep their types (A9)", () => {
+    expectTypeOf<z.input<typeof LoginBody>>().toEqualTypeOf<{ email: string }>();
+    expectTypeOf<z.output<typeof LoginBody>>().toEqualTypeOf<{ email: string }>();
+    expectTypeOf<z.input<typeof CreateInviteBody>>().toEqualTypeOf<{ email: string }>();
+    expectTypeOf<z.output<typeof CreateInviteBody>>().toEqualTypeOf<{ email: string }>();
   });
 
   it("PatchDraftBody needs at least one part", () => {
