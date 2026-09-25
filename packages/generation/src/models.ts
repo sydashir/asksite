@@ -14,7 +14,7 @@ export const PROMPT_OVERHEAD_TOKENS = 2_000;
 
 export interface ModelSettings {
   price: ModelPrice;
-  /** Anthropic output_config.effort; left out for models that reject it (Haiku 4.5). */
+  /** Anthropic output_config.effort; left out for models that do not support it (Haiku 4.5; the effort docs list it as not supported). */
   anthropicEffort?: "low" | "medium" | "high";
   /** Extra top-level fields for an OpenAI-compatible request; they can never replace a field the adapter sets. */
   extraBody?: Readonly<Record<string, unknown>>;

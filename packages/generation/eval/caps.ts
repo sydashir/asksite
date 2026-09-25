@@ -2,22 +2,30 @@ import { Brief, type GenerationInputSnapshot, type Issue } from "@asksite/core";
 import { Facts } from "@asksite/site-schema";
 import { MAX_REPAIR_ISSUES } from "../src/prompt.ts";
 
-// The largest prompt the builder can produce: every capped input at its cap, all of it one fill
-// character (of the uncapped choices, goal "call" and no founding year would add 4 bytes).
+// The largest prompt the builder can produce from these fills: every capped input at its cap, all
+// of it one fill character, with the builder choices that make the prompt longest (goal "call", no
+// founding year, every claim and section on). test/models.test.ts proves it: it builds every trade,
+// tone, goal and on/off choice and checks that none makes a larger prompt, pins each cap to the edge
+// of its real schema, and checks every fill against MAX_INPUT_TOKENS.
 // CAPS_FILLS holds the costliest character of each class Facts and Brief accept, and the prompt
 // encodes each as: "€" 3 UTF-8 bytes; U+2028 and U+2029 the 2-byte JSON escape \n in the data
 // line (prompt.ts) and one space per run in a repair line; a lone surrogate U+FFFD, 3 bytes (every
-// owner string and every repair line goes through wellFormed); " and \ their 2-byte JSON escapes
-// (1 byte in a repair line). Facts and Brief reject control characters, so no 6-byte \uXXXX
-// escape reaches the prompt. test/models.test.ts checks every fill against MAX_INPUT_TOKENS and
-// that no fill beats "€", so CAPS_SNAPSHOT and CAPS_REPAIR use the costliest fill. Comment keys
-// are 40 characters, the most Brief allows.
+// owner string and every repair line goes through wellFormed); " and \ their 2-byte JSON escapes,
+// in the data line and in a repair line (its path and message are JSON strings). Facts rejects every
+// control character and Brief every one except the newline, whose JSON escape \n costs 2 bytes, less
+// than "€"; so no 6-byte \uXXXX escape reaches the prompt. Zod counts these caps in code points,
+// not UTF-16 units, so a character outside the BMP (4 UTF-8 bytes) is not covered here: plan amendment
+// P3-7 bounds it. Comment keys are 40 characters, the most Brief allows.
 export const CAPS_FILLS: readonly string[] = ["€", "\u2028", "\u2029", "\uD800", "\"", "\\"];
 
 /** `fill` repeated to `cap` UTF-16 units; a fill that .trim() removes (U+2028, U+2029) sits between two "a"s. */
 const capped = (fill: string, cap: number): string => (fill.trim() === "" ? `a${fill.repeat(cap - 2)}a` : fill.repeat(cap));
 
-/** Every capped Facts and Brief input at its cap, made of `fill`. */
+/**
+ * Every capped Facts and Brief input at its cap, made of `fill`, with the longest builder choices: goal
+ * "call" and no yearFounded ("hasYearFounded":false is 1 byte longer; the other claims keep the trust
+ * section on).
+ */
 export function capsSnapshot(fill: string): GenerationInputSnapshot {
   const text = (cap: number) => capped(fill, cap);
   return {
@@ -31,7 +39,6 @@ export function capsSnapshot(fill: string): GenerationInputSnapshot {
       services: Array.from({ length: 12 }, () => ({ name: text(40) })),
       licences: [{ label: "L", number: "1" }],
       insured: true,
-      yearFounded: 1998,
       emergency247: true,
       freeEstimates: true,
       testimonials: [{ quote: "q", name: "n" }],
@@ -39,7 +46,7 @@ export function capsSnapshot(fill: string): GenerationInputSnapshot {
     }),
     brief: Brief.parse({
       tone: "professional",
-      goal: "quote",
+      goal: "call",
       differentiator: text(140),
       notes: text(2000),
       comments: Object.fromEntries(Array.from({ length: 20 }, (_, i) => [`q${String(i).padStart(2, "0")}${"x".repeat(37)}`, text(500)])),
