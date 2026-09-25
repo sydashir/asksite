@@ -12,11 +12,12 @@ export interface Prompt {
  * issue is also collapsed to one line and made well-formed: a message can repeat a model-chosen key
  * (Zod's "Unrecognized key"), which can hold a newline or a lone surrogate, and a cut can split a
  * surrogate pair. Then its path and message are sent as JSON strings, so text the model chose stays
- * quoted data (design 6.5).
+ * quoted data (design 6.5). The attempt log and the result keep issues under the same caps
+ * (generate.ts capIssues).
  */
 export const MAX_REPAIR_ISSUES = 20;
-const MAX_ISSUE_PATH = 60;
-const MAX_ISSUE_MESSAGE = 200;
+export const MAX_ISSUE_PATH = 60;
+export const MAX_ISSUE_MESSAGE = 200;
 
 const L = COPY_LIMITS;
 

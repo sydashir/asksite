@@ -1,5 +1,6 @@
 import type { AiDraft, GenerationInputSnapshot, Issue } from "@asksite/core";
-import { buildPrompt } from "./prompt.ts";
+import { wellFormed } from "./model-facts.ts";
+import { buildPrompt, MAX_ISSUE_MESSAGE, MAX_ISSUE_PATH, MAX_REPAIR_ISSUES } from "./prompt.ts";
 import { ProviderError, TRANSIENT_KINDS, type ModelProvider, type ModelRequest, type ModelResponse, type ProviderErrorKind } from "./provider.ts";
 import { checkDraft } from "./validate.ts";
 import { AI_DRAFT_JSON_SCHEMA, toWireSchema } from "./wire-schema.ts";
@@ -94,6 +95,38 @@ const stopIssue = (stop: StopReason): Issue => ({ path: [], ...STOP_ISSUE[stop] 
 const attemptTimedOut = (): ProviderError => new ProviderError("timeout", "The attempt ran out of time");
 
 /**
+ * A path cut to MAX_ISSUE_PATH UTF-16 units as a repair line writes it (keys joined with "."), kept a
+ * list so a reader can still match its keys: a key that crosses the cut keeps its first units, an
+ * index that crosses it is dropped. Each kept key is made well-formed.
+ */
+function cutPath(path: ReadonlyArray<string | number>): Array<string | number> {
+  const kept: Array<string | number> = [];
+  let room = MAX_ISSUE_PATH;
+  for (const key of path) {
+    const separator = kept.length > 0 ? 1 : 0;
+    const length = String(key).length;
+    if (separator + length <= room) {
+      kept.push(typeof key === "string" ? wellFormed(key) : key);
+      room -= separator + length;
+      continue;
+    }
+    if (typeof key === "string" && room - separator > 0) kept.push(wellFormed(key.slice(0, room - separator)));
+    break;
+  }
+  return kept;
+}
+
+/**
+ * Issues as the attempt log and the result keep them, capped like the repair lines (prompt.ts): the
+ * first MAX_REPAIR_ISSUES, each path cut to MAX_ISSUE_PATH and each message to MAX_ISSUE_MESSAGE UTF-16
+ * units, then made well-formed. A hostile answer can make thousands of issues, and Zod's "Unrecognized
+ * key" message repeats a model-chosen key of any length. Returns new issues; never mutates its input.
+ */
+export function capIssues(issues: readonly Issue[]): Issue[] {
+  return issues.slice(0, MAX_REPAIR_ISSUES).map(({ path, code, message }) => ({ path: cutPath(path), code, message: wellFormed(message.slice(0, MAX_ISSUE_MESSAGE)) }));
+}
+
+/**
  * An error thrown or rejected by provider.generate, as a ProviderError. A ProviderError keeps its
  * kind. Any other error once the signal has aborted is a timeout: a provider may throw or reject with
  * the signal's raw reason (an AbortError or TimeoutError), and whether that or our own timeout wins
@@ -185,7 +218,7 @@ export async function generateDraft(provider: ModelProvider, snapshot: Generatio
       log.push({ outcome: kind, issues: [], latencyMs: deps.now() - started, usageMissing: sent && kind === "timeout" });
       failure = "provider_error";
       providerErrorKind = kind;
-      if (!TRANSIENT_KINDS.has(kind)) return { ok: false, failure, providerErrorKind, issues: repair, attempts: calls, model, usage, log, inputBoundRefused };
+      if (!TRANSIENT_KINDS.has(kind)) return { ok: false, failure, providerErrorKind, issues: capIssues(repair), attempts: calls, model, usage, log, inputBoundRefused };
       if (attempt < MAX_ATTEMPTS) await deps.sleep(RETRY_DELAYS_MS[Math.min(transientErrors, RETRY_DELAYS_MS.length - 1)]!);
       transientErrors += 1;
       continue;
@@ -201,7 +234,7 @@ export async function generateDraft(provider: ModelProvider, snapshot: Generatio
       // Adapters map an unknown stop reason to "other"; a value outside the contract is treated the same.
       const stop = Object.hasOwn(STOP_ISSUE, res.stop) ? res.stop : "other";
       repair = [stopIssue(stop)];
-      log.push({ outcome: stop, issues: repair, latencyMs, usageMissing });
+      log.push({ outcome: stop, issues: capIssues(repair), latencyMs, usageMissing });
       continue;
     }
     const check = checkDraft(snapshot.facts, res.json);
@@ -209,8 +242,9 @@ export async function generateDraft(provider: ModelProvider, snapshot: Generatio
       log.push({ outcome: "valid", issues: [], latencyMs, usageMissing });
       return { ok: true, draft: check.draft, validOnAttempt: attempt, attempts: calls, model, usage, log, inputBoundRefused };
     }
+    // repair keeps every issue: buildPrompt makes its own capped lines from it.
     repair = check.issues;
-    log.push({ outcome: "invalid", issues: check.issues, latencyMs, usageMissing });
+    log.push({ outcome: "invalid", issues: capIssues(check.issues), latencyMs, usageMissing });
   }
-  return { ok: false, failure, providerErrorKind, issues: repair, attempts: calls, model, usage, log, inputBoundRefused };
+  return { ok: false, failure, providerErrorKind, issues: capIssues(repair), attempts: calls, model, usage, log, inputBoundRefused };
 }

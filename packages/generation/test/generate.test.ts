@@ -3,12 +3,13 @@ import { Brief, type GenerationInputSnapshot } from "@asksite/core";
 import { Facts } from "@asksite/site-schema";
 import { describe, expect, it } from "vitest";
 import { CAPS_REPAIR, CAPS_SNAPSHOT, capsSnapshot } from "../eval/caps.ts";
-import { ATTEMPT_TIMEOUT_MS, generateDraft, inputBound, MAX_INPUT_TOKENS, MAX_OUTPUT_TOKENS, PROMPT_OVERHEAD_TOKENS } from "../src/generate.ts";
+import { ATTEMPT_TIMEOUT_MS, capIssues, generateDraft, inputBound, MAX_INPUT_TOKENS, MAX_OUTPUT_TOKENS, PROMPT_OVERHEAD_TOKENS } from "../src/generate.ts";
 import { buildPrompt } from "../src/prompt.ts";
 import type { ModelProvider, ModelRequest, ModelResponse } from "../src/provider.ts";
 import { FakeProvider } from "../src/providers/fake.ts";
 import { AI_DRAFT_JSON_SCHEMA, toWireSchema } from "../src/wire-schema.ts";
 import { templateDraft } from "../src/template.ts";
+import { checkDraft } from "../src/validate.ts";
 import { BRIEF, FULL_SNAPSHOT } from "./support/samples.ts";
 import { answer, ProviderError, scriptedProvider } from "./support/scripted.ts";
 
@@ -596,5 +597,64 @@ describe("the input bound (P3-8)", () => {
       calls.push(provider.calls);
     }
     expect(calls).toEqual([1, 0]);
+  });
+});
+
+describe("capIssues (P3-8)", () => {
+  const EMOJI = "\u{1F600}";
+  /** Any UTF-16 surrogate: a capped text below holds no surrogate pair, so any match is a lone one. */
+  const SURROGATE = /[\uD800-\uDFFF]/;
+
+  it("keeps the first 20 of 30 long issues, each path cut to 60 and each message to 200 UTF-16 units, then well-formed", () => {
+    // "copy." is 5 units, so the key keeps 55: its 55th unit is the first half of an emoji.
+    // The message's 200th unit is the first half of an emoji too.
+    const issues = Array.from({ length: 30 }, (_, i) => ({
+      path: ["copy", `${"k".repeat(54)}${EMOJI}${"k".repeat(40)}`, i],
+      code: "custom",
+      message: `${String(i).padStart(2, "0")}${"m".repeat(197)}${EMOJI}${"m".repeat(50)}`,
+    }));
+    const capped = capIssues(issues);
+    expect(capped.map((issue) => issue.message.slice(0, 2))).toEqual(Array.from({ length: 20 }, (_, i) => String(i).padStart(2, "0")));
+    for (const issue of capped) {
+      expect(issue.path).toEqual(["copy", `${"k".repeat(54)}\uFFFD`]);
+      expect(issue.path.join(".")).toHaveLength(60);
+      expect(issue.code).toBe("custom");
+      expect(issue.message).toHaveLength(200);
+      expect(issue.message.endsWith("\uFFFD")).toBe(true);
+      expect(SURROGATE.test(issue.message) || SURROGATE.test(issue.path.join("."))).toBe(false);
+    }
+    expect(issues[0]!.path).toHaveLength(3);
+    expect(issues[0]!.message).toHaveLength(251);
+  });
+
+  it.each<[string, Array<string | number>, Array<string | number>]>([
+    ["keeps a short path whole", ["copy", "faq", 3, "answer"], ["copy", "faq", 3, "answer"]],
+    ["keeps a path of exactly 60 units whole", ["a".repeat(57), 12], ["a".repeat(57), 12]],
+    ["drops an index that crosses the cut", ["a".repeat(57), 123], ["a".repeat(57)]],
+    ["cuts a first key to 60", ["b".repeat(70)], ["b".repeat(60)]],
+    ["leaves out a key of which only the separator would fit", ["c".repeat(59), "d"], ["c".repeat(59)]],
+    ["makes a lone surrogate in a kept key well-formed", ["copy", "x\uD800y"], ["copy", "x\uFFFDy"]],
+  ])("cuts a path as the repair line writes it (keys joined with a dot) and keeps it a list: %s", (_case, path, want) => {
+    expect(capIssues([{ path, code: "custom", message: "m" }])[0]!.path).toEqual(want);
+  });
+
+  it("records at most 20 issues per attempt and in the result, each cut like a repair line, for an answer with 31 issues", async () => {
+    // 'Unrecognized key: "' is 19 units and the key's first 180 are ASCII, so the message's 200-unit cut splits an emoji.
+    const key = (i: number): string => `${"k".repeat(178)}${String(i).padStart(2, "0")}${EMOJI.repeat(20)}`;
+    const hostile = { ...good, copy: { ...good.copy, faq: Array.from({ length: 30 }, (_, i) => ({ question: "Do you fix leaks?", answer: "Yes, we do.", [key(i)]: "x" })) } };
+    const raw = checkDraft(FULL_SNAPSHOT.facts, hostile);
+    expect(raw.ok ? [] : raw.issues).toHaveLength(31);
+    const result = await generateDraft(scriptedProvider([answer(hostile), answer(hostile), answer(hostile)]), FULL_SNAPSHOT, testDeps().deps);
+    expect(result).toMatchObject({ ok: false, failure: "invalid_output", attempts: 3 });
+    const recorded = [...result.log.map((a) => a.issues), result.ok ? [] : result.issues];
+    expect(recorded).toHaveLength(4);
+    for (const issues of recorded) {
+      expect(issues.map((issue) => issue.path)).toEqual(Array.from({ length: 20 }, (_, i) => ["copy", "faq", i]));
+      for (const issue of issues) {
+        expect(issue.message).toHaveLength(200);
+        expect(issue.message.endsWith("\uFFFD")).toBe(true);
+        expect(SURROGATE.test(issue.message)).toBe(false);
+      }
+    }
   });
 });
