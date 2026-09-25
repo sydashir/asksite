@@ -1,6 +1,6 @@
 import { render } from "@asksite/renderer";
 import { SiteDocument, type SiteDocumentInput } from "@asksite/site-schema";
-import { describe, expect, it } from "vitest";
+import { describe, expect, expectTypeOf, it } from "vitest";
 import { FIXTURES, loadFixture } from "../../../fixtures/index.ts";
 import {
   AiDraft,
@@ -14,6 +14,7 @@ import {
   photoRefIssues,
   SECTION_IDS,
   SectionOrder,
+  type CopyEdits,
   type CurrentAi,
 } from "../src/index.ts";
 
@@ -147,6 +148,17 @@ describe("composeDocument", () => {
     expect(issuesOf(composed)).toEqual([]);
   });
 
+  it("keeps the owner's description for a service named __proto__ added after generation", () => {
+    const { facts, ai } = split(loadFixture("cleaning-minimal"));
+    const grown = { ...(facts as Record<string, unknown>), services: [{ name: "House cleaning" }, { name: "Move-out cleaning" }, { name: "__proto__" }] };
+    // A saved edit arrives as JSON, and JSON.parse keeps "__proto__" as an ordinary own key.
+    const owner = OwnerEdits.parse({ ...edits(), copy: JSON.parse('{"serviceDescriptions":{"__proto__":"Owner  text."}}') });
+    const composed = composeDocument(grown, ai, owner);
+    expect(composed.copy.serviceDescriptions.at(-1)).toEqual({ service: "__proto__", description: "Owner text." });
+    expect(issuesOf(composed)).toEqual([]);
+    expect(ownerEditedPaths(ai, owner)).toEqual(["copy.serviceDescriptions.__proto__"]);
+  });
+
   it("leaves a new service's description empty so the document reports it", () => {
     const fixture = loadFixture("cleaning-minimal");
     const { facts, ai } = split(fixture);
@@ -189,6 +201,33 @@ describe("SectionOrder", () => {
     ["hero not first", [...SECTION_IDS.slice(1), "hero"]],
   ])("rejects %s", (_label, order) => {
     expect(SectionOrder.safeParse(order).success).toBe(false);
+  });
+});
+
+describe("OwnerEdits service descriptions", () => {
+  const withDescriptions = (value: unknown) => ({ ...edits(), copy: { serviceDescriptions: value } });
+  const issuePaths = (value: unknown) => {
+    const result = OwnerEdits.safeParse(value);
+    return result.success ? [] : result.error.issues.map((i) => i.path.join("."));
+  };
+
+  it("keeps a __proto__ service name as plain data that never touches a prototype", () => {
+    expectTypeOf<CopyEdits["serviceDescriptions"]>().toEqualTypeOf<Record<string, string> | undefined>();
+    const parsed = OwnerEdits.parse(withDescriptions(JSON.parse('{"__proto__":"Owner text."}'))).copy.serviceDescriptions ?? {};
+    expect([Object.hasOwn(parsed, "__proto__"), Object.getPrototypeOf(parsed) === Object.prototype]).toEqual([true, true]);
+    expect(issuePaths(withDescriptions(JSON.parse('{"__proto__":{"polluted":true}}')))).toEqual(["copy.serviceDescriptions.__proto__"]);
+    expect(Object.hasOwn(Object.prototype, "polluted")).toBe(false);
+  });
+
+  it("still refuses a long service name, a long description and anything but a plain object", () => {
+    const long = "x".repeat(41);
+    expect(issuePaths(withDescriptions({ [long]: "Text." }))).toEqual([`copy.serviceDescriptions.${long}`]);
+    expect(issuePaths(withDescriptions({ Drains: "x".repeat(2001) }))).toEqual(["copy.serviceDescriptions.Drains"]);
+    const notObjects: Array<[unknown, string]> = [[[["Drains", "Text."]], "array"], ["Text.", "string"], [null, "null"], [new Map([["Drains", "Text."]]), "Map"]];
+    for (const [value, received] of notObjects) {
+      const result = OwnerEdits.safeParse(withDescriptions(value));
+      expect(result.error?.issues.map((i) => `${i.path.join(".")}: ${i.message}`)).toEqual([`copy.serviceDescriptions: Invalid input: expected record, received ${received}`]);
+    }
   });
 });
 
