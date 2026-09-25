@@ -114,6 +114,15 @@ describe("generateDraft", () => {
     const result = await generateDraft(new FakeProvider("timeout", FULL_SNAPSHOT), FULL_SNAPSHOT, deps);
     expect(result).toMatchObject({ ok: false, failure: "provider_error", providerErrorKind: "timeout", attempts: 3 });
     expect(sleeps).toEqual([2_000, 6_000]);
+    // Each call was sent and timed out: the provider may have billed it, so its usage is missing, never a silent 0.
+    expect(result.log.map((a) => a.usageMissing)).toEqual([true, true, true]);
+  });
+
+  it("marks usage missing only for a sent call that timed out, not for other provider errors", async () => {
+    const { deps } = testDeps();
+    const provider = scriptedProvider([new ProviderError("rate_limited", "429"), new ProviderError("unavailable", "503"), new ProviderError("timeout", "t")]);
+    const result = await generateDraft(provider, FULL_SNAPSHOT, deps);
+    expect(result.log.map((a) => [a.outcome, a.usageMissing])).toEqual([["rate_limited", false], ["unavailable", false], ["timeout", true]]);
   });
 
   it("keeps the last repair feedback across a transient error", async () => {
@@ -216,6 +225,7 @@ describe("generateDraft", () => {
     const result = await generateDraft(provider, FULL_SNAPSHOT, { ...deps, timeoutSignal: (ms) => (timeouts.push(ms), AbortSignal.timeout(50)) });
     expect(result).toMatchObject({ ok: true, attempts: 2, validOnAttempt: 2 });
     expect(result.log.map((a) => a.outcome)).toEqual(["timeout", "valid"]);
+    expect(result.log.map((a) => a.usageMissing)).toEqual([true, false]);
     expect(sleeps).toEqual([2_000]);
     expect(timeouts).toEqual([ATTEMPT_TIMEOUT_MS, ATTEMPT_TIMEOUT_MS]);
   }, 5_000);
@@ -254,6 +264,7 @@ describe("generateDraft", () => {
     });
     const result = await generateDraft(provider, FULL_SNAPSHOT, { ...deps, timeoutSignal: () => signals.shift()! });
     expect(result.log.map((a) => a.outcome)).toEqual(["timeout", "valid"]);
+    expect(result.log.map((a) => a.usageMissing)).toEqual([true, false]);
     expect(result).toMatchObject({ ok: true, attempts: 2, validOnAttempt: 2 });
     expect(sleeps).toEqual([2_000]);
     expect(provider.calls).toBe(2);

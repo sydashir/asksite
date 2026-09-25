@@ -164,6 +164,7 @@ export async function generateDraft(provider: ModelProvider, snapshot: Generatio
     const { system, user } = buildPrompt(snapshot, repair);
     const req: ModelRequest = { system, user, jsonSchema: AI_DRAFT_JSON_SCHEMA, maxOutputTokens: MAX_OUTPUT_TOKENS, signal: deps.timeoutSignal(ATTEMPT_TIMEOUT_MS) };
     const started = deps.now();
+    let sent = false;
     let res: ModelResponse;
     try {
       // Checked on exactly what this call would send. No retry can shrink the prompt, so it is a bad request.
@@ -173,13 +174,15 @@ export async function generateDraft(provider: ModelProvider, snapshot: Generatio
       }
       // A request sent after the deadline is a paid call whose answer would be thrown away.
       if (req.signal.aborted) throw attemptTimedOut();
+      sent = true;
       calls += 1;
       res = await answerWithinLimit(provider, req);
     } catch (error) {
       // Only the two checks above and answerWithinLimit throw ProviderErrors. Anything else is a bug in our own code: it propagates.
       if (!(error instanceof ProviderError)) throw error;
       const kind = error.kind;
-      log.push({ outcome: kind, issues: [], latencyMs: deps.now() - started, usageMissing: false });
+      // A call that was sent and then timed out may still be billed, and its usage is unknown: never a silent 0.
+      log.push({ outcome: kind, issues: [], latencyMs: deps.now() - started, usageMissing: sent && kind === "timeout" });
       failure = "provider_error";
       providerErrorKind = kind;
       if (!TRANSIENT_KINDS.has(kind)) return { ok: false, failure, providerErrorKind, issues: repair, attempts: calls, model, usage, log, inputBoundRefused };
