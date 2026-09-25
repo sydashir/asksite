@@ -594,7 +594,9 @@ export const LIMITS = {
   loginTokensPerOwnerPerDay: 10,
   leadsPerSitePerDay: 50,
   leadRetentionDays: 180,
-  factsJsonMaxBytes: 65_536, briefJsonMaxBytes: 16_384, editsJsonMaxBytes: 65_536,
+  factsJsonMaxBytes: 307_200,                 // 300 KiB: the largest valid Facts is 306,552 bytes once JSON-encoded (A8b)
+  briefJsonMaxBytes: 74_752,                  // 73 KiB: the largest valid Brief is 73,865 bytes once JSON-encoded (A8)
+  editsJsonMaxBytes: 65_536,
 } as const;
 
 // errors.ts

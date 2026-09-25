@@ -5043,6 +5043,7 @@ const PAYLOADS: Array<[string, unknown]> = [
   ["unbacked licensed", withHeadline("Licensed cleaners you can trust")],
   ["unbacked insured", withHeadline("Fully insured cleaning crew")],
   ["unbacked emergency", withHeadline("Emergency cleaning around the clock")],
+  ["unbacked seven days a week", withHeadline("Open seven days a week")],
   ["unbacked free", withHeadline("Free estimates on every clean")],
   ["bonded", withHeadline("Bonded and trusted cleaners")],
   ["invented quote", withHeadline("“Best cleaners ever”")],
@@ -5073,7 +5074,6 @@ console.log(`${PAYLOADS.length} payloads, ${accepted} accepted`);
 // says "now rejected" means Plan 1 closed the gap: tell the moderator so this list can shrink.
 const freeFacts = { ...facts, freeEstimates: true };
 const GAPS: Array<[string, typeof facts, unknown]> = [
-  ["availability without a 24/7 fact: seven days a week", facts, withHeadline("Open seven days a week")],
   ["availability without a 24/7 fact: every day", facts, withHeadline("Here for you every day")],
   ["free beyond estimates when the owner gives free estimates", freeFacts, { ...templateDraft(freeFacts, brief), copy: { ...templateDraft(freeFacts, brief).copy, heroHeadline: "Free service calls on every job" } }],
 ];
@@ -5081,7 +5081,7 @@ for (const [name, gapFacts, payload] of GAPS) console.log(`KNOWN GAP ${checkDraf
 ```
 
 Run, from the repository root (the file stays in the scratchpad): `REPO="$(git rev-parse --show-toplevel)" node <scratchpad>/adversarial.ts`
-Expected: `30 payloads, 0 accepted`, no `ACCEPTED (bad)` line, then three `KNOWN GAP still accepted: …` lines (seven days a week, every day, free beyond estimates) [verified in the scratch replay]. Report the three gaps to the moderator as Plan 1 claim-list findings (the prompt already forbids them, Decision 22, and a human approves every page). Delete the file afterwards.
+Expected: `31 payloads, 0 accepted`, no `ACCEPTED (bad)` line, then two `KNOWN GAP still accepted: …` lines (every day, free beyond estimates). The scratch replay verified 30 payloads and three gaps; Plan 1 amendments A8 and A8b then made the claim checker catch "seven days a week" (without a 24/7 fact), so it moved from the gaps to the payloads [text only, not replayed]. Report the two gaps to the moderator as Plan 1 claim-list findings (the prompt already forbids them, Decision 22, and a human approves every page). Delete the file afterwards.
 
 - [ ] **Step 8: Integrate with the plans that merged first**
 
@@ -5093,10 +5093,10 @@ Plans 2 and 3 change `package.json` and `tsconfig.json`, and all three plans cha
 
 - [ ] **Step 9: Hand over for the independent adversarial review**
 
-This session does not merge or push. Report to the moderator: the Step 1–8 outputs, the commit list, the three known Plan 1 claim-list gaps from Step 7, and this attack brief for an independent reviewer (someone who did not write the code):
+This session does not merge or push. Report to the moderator: the Step 1–8 outputs, the commit list, the two known Plan 1 claim-list gaps from Step 7, and this attack brief for an independent reviewer (someone who did not write the code):
 - Prompt injection: owner notes, comments, business name and service names that try to change the rules, break out of the JSON line, or make the model state a price, phone, year, link, licence or review. Expected: the answer fails `checkDraft` and is retried, or the first build falls back to the template; never stored as valid.
 - Service-name binding (`bindServiceNames`): names that differ only by case, spacing, quotes or compatibility forms are bound to the owner's exact name; can any binding put a description under the wrong service, or change anything but `service`? Expected: no.
-- Claim and fact evasion: paraphrases the claim checker's word lists may miss (Plan 1 Decision #5 names this residual risk; Step 7 lists three known today; the approval screen is the backstop). Record any found as a Plan 1 claim-list finding.
+- Claim and fact evasion: paraphrases the claim checker's word lists may miss (Plan 1 Decision #5 names this residual risk; Step 7 lists two known today; the approval screen is the backstop). Record any found as a Plan 1 claim-list finding.
 - Cost: concurrent requests, duplicate queue deliveries, a crashed job, a stuck queue (including a backlog larger than one sweep batch), the kill switch flipped mid-job, a daily limit of 0, a broken key taking model slots. Expected: counts stay exact, a job with no attempt holds no slot, and every job ends within about 12 minutes.
 - Configuration: `MODEL_PROVIDER=fake` or a missing key in production, an `http://` base URL, a base URL that redirects, a secret put in `vars`, `workers_dev` turned on, another Worker declaring a different model, switch, limit or D1 id. Expected: a test fails, or the job falls back without calling anything.
 - Leakage: keys or owner text in logs, error codes, `generations` rows or eval files. Expected: none.
@@ -5228,6 +5228,8 @@ These run when Plan 2's runbook sets up the account (the user runs `wrangler log
 
 ## Verification record (how this plan was checked before handing it over)
 
+**Plan 1 claim-checker sync (2026-09-25, text only, not replayed).** Plan 1 amendments A8 and A8b made the claim checker refuse "seven days a week" (and "seven-day-a-week", "seven days per week") without a 24/7 fact, so Task 14 Step 7 moved that case from its known gaps to its payloads: 31 payloads and two known gaps instead of the 30 and three recorded below.
+
 **Cross-plan edits (2026-09-25, text only, not replayed).** The fixes from `docs/superpowers/specs/2026-09-25-cross-plan-check.md` §1 items 1, 2, 3, 5, 7 and 9 and the moderator's decisions of that day (Decision 30, this plan's worktree, the decided tags) were written into this plan without running anything. The changed Task 8 tests, Task 14 Step 6.4's mutations and the 120 s hooks are [unverified] until Tasks 8 and 14 run; the test counts do not change, because Decision 30 edits existing tests. The records below describe the plan before these edits (for example their 66 changed files are now 65, because `vitest.config.ts` is no longer edited).
 
 **Revision after the execution check and the security/spec review (2026-09-24, Node 25.6.1, pnpm 10.33.0).** Everything ran in a fresh `git clone` of this repo in the scratchpad, working tree only (nothing committed); the real repo was not touched, and the clone was deleted afterwards.
@@ -5256,7 +5258,7 @@ These run when Plan 2's runbook sets up the account (the user runs `wrangler log
 - **Stage 0 and Plan 1 Tasks 15–17 were simulated** from the design and the Plan 1 and Plan 2 texts. Task 1 Step 1 stops the plan if the real names differ; the per-project baseline keeps Task 14's counts exact whatever the real totals are. Plans 2 and 4 are still being revised in parallel (Plan 2 changed its D1 placeholder during this revision); `config.test.ts` turns any drift in shared Worker settings into a named test failure at integration.
 - **Worst-case daily spend** at the shipped 8 model calls per day is $10.65 on Opus 5.5 (Decision 4); at the design's former 30 it would be $39.95. Raising the limit is the user's call in admin settings, where the worst case is shown; the provider spend limit is the money backstop. Plan 4's `apps/app` and `apps/admin` must ship the same `"8"` (decided as M1 on 2026-09-25).
 - **Model, effort and prompt quality are decided by measurement**, not here: the default model (user's call after Task 15), `effort: "low"` for Claude (Decision 2), the 30–60 character headline target (Decision 19, research claim unverified). The Hugging Face route runs gpt-oss-120b at its default reasoning (Decision 18).
-- **The claim checker's word lists** catch the usual phrasings, not every paraphrase (Plan 1 Decision #5). Three gaps are known today ("seven days a week", "every day", and "free" beyond estimates once the owner gives free estimates; Task 14 Step 7); the prompt forbids them, the eval's human "states an unbacked fact" question measures what slips through, and a human approves every page.
+- **The claim checker's word lists** catch the usual phrasings, not every paraphrase (Plan 1 Decision #5). Two gaps are known today ("every day", and "free" beyond estimates once the owner gives free estimates; Task 14 Step 7); "seven days a week" without a 24/7 fact is now caught (Plan 1 amendments A8 and A8b). The prompt forbids them, the eval's human "states an unbacked fact" question measures what slips through, and a human approves every page.
 - **Production queue behaviour** (dead-letter delivery, retries after a runtime crash) is taken from Cloudflare's docs; only local delivery and the sweeper were run.
 - **An HTTP 400 from an OpenAI-compatible host** ends a job's attempts (`bad_request`), and so does a redirect. If a host answers 400 for a schema miss, the eval shows it as provider errors. The moderator decided on 2026-09-25 to keep treating HTTP 400 as `bad_request` (cross-plan check §2 item 11).
 - **Prompt caching is not used**; it is a later cost lever once the prompt is stable.
