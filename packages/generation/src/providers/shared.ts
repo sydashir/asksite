@@ -42,3 +42,21 @@ const HEADER_TEXT = /^[\x20-\x7E\xA0-\xFF]*$/;
 export function checkApiKey(key: string, name: string): void {
   if (key.trim() === "" || !HEADER_TEXT.test(key)) throw new ProviderError("auth", `${name} is blank or holds a character an HTTP header cannot carry`);
 }
+
+/** The shortest run of characters a provider token may not share with the key (P3-11 t). */
+const KEY_FRAGMENT = 8;
+
+/**
+ * Whether a provider token shares a run of KEY_FRAGMENT or more characters with the key, ignoring case (P3-11 t): such
+ * a token is left out of an error message. Any shared run that long holds a shared run of exactly KEY_FRAGMENT, so the
+ * key's KEY_FRAGMENT-long windows are enough. A key shorter than that is matched whole.
+ */
+export function sharesKeyFragment(token: string, key: string): boolean {
+  const text = token.toLowerCase();
+  const secret = key.toLowerCase();
+  if (secret.length < KEY_FRAGMENT) return text.includes(secret);
+  for (let start = 0; start + KEY_FRAGMENT <= secret.length; start++) {
+    if (text.includes(secret.slice(start, start + KEY_FRAGMENT))) return true;
+  }
+  return false;
+}

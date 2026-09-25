@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { ProviderError } from "../src/provider.ts";
-import { checkApiKey, tokenCount } from "../src/providers/shared.ts";
+import { checkApiKey, sharesKeyFragment, tokenCount } from "../src/providers/shared.ts";
 
 // P3-11 (l): a token count is usable only if it is a finite integer from 0 to 10,000,000. NaN and Infinity cannot
 // come from a JSON body (JSON has no such values; 1e400 parses to Infinity), so they are tested here directly.
@@ -66,5 +66,35 @@ describe("checkApiKey (P3-11 k)", () => {
     ["a Latin-1 letter", `sk-${ch(0xe9)}`],
   ])("accepts %s", (_name, key) => {
     expect(() => checkApiKey(key, "TEST_API_KEY")).not.toThrow();
+  });
+});
+
+// P3-11 (t): a provider token is left out of an error message when it shares any run of 8 or more characters with
+// the key, ignoring case; a key shorter than 8 characters drops a token that holds the whole key, ignoring case.
+describe("sharesKeyFragment (P3-11 t)", () => {
+  const KEY = "gsk_live_abcDEF123";
+
+  it.each(["gsk_live", "GSK_LIVE_x", "abcdef12", "bcdef123", "x_live_abcd", "invalid_gsk_live_abcdef123_key"])("finds a fragment of the key in %s", (token) => {
+    expect(sharesKeyFragment(token, KEY)).toBe(true);
+  });
+
+  it.each(["invalid_api_key", "insufficient_quota", "blocked_api_access", "gsk_liv", "abcdef1", "live_ab", "rate_limit_exceeded"])("finds none in %s", (token) => {
+    expect(sharesKeyFragment(token, KEY)).toBe(false);
+  });
+
+  it.each([
+    ["xk1aby", true],
+    ["K1AB", true],
+    ["k1a", false],
+    ["invalid_api_key", false],
+  ])("matches a key shorter than 8 characters whole: %s gives %s", (token, found) => {
+    expect(sharesKeyFragment(token, "k1aB")).toBe(found);
+  });
+
+  it.each([
+    ["xxabcdefghxx", true],
+    ["abcdefg", false],
+  ])("matches a key of exactly 8 characters whole: %s gives %s", (token, found) => {
+    expect(sharesKeyFragment(token, "ABCDEFGH")).toBe(found);
   });
 });

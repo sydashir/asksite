@@ -2,7 +2,7 @@ import { isSafeUrl } from "@asksite/site-schema";
 import { modelSettings } from "../models.ts";
 import { ProviderError, type ModelProvider, type ModelRequest, type ModelResponse, type ProviderErrorKind } from "../provider.ts";
 import { dropNulls, toWireSchema } from "../wire-schema.ts";
-import { checkApiKey, statusKind, tokenCount } from "./shared.ts";
+import { checkApiKey, sharesKeyFragment, statusKind, tokenCount } from "./shared.ts";
 
 export interface OpenAICompatibleOptions {
   /** e.g. https://api.cloudflare.com/client/v4/accounts/<id>/ai/v1 or https://router.huggingface.co/v1 */
@@ -190,13 +190,13 @@ export class OpenAICompatibleProvider implements ModelProvider {
 
   /**
    * The kind, the HTTP status and the provider's own error type and code when each is a plain token
-   * (OpenAI-style bodies: error.type, error.code): never its text, the key or headers. A token holding
-   * the key is left out too.
+   * (OpenAI-style bodies: error.type, error.code): never its text, the key or headers. A token that shares
+   * a fragment with the key (sharesKeyFragment) is left out too.
    */
   #failure(kind: ProviderErrorKind, status: number, error: unknown): ProviderError {
     const tokens = new Set<string>();
     for (const token of [own(error, "type"), own(error, "code")]) {
-      if (typeof token === "string" && SAFE_ERROR_TOKEN.test(token) && !token.includes(this.#apiKey)) tokens.add(token);
+      if (typeof token === "string" && SAFE_ERROR_TOKEN.test(token) && !sharesKeyFragment(token, this.#apiKey)) tokens.add(token);
     }
     return new ProviderError(kind, `OpenAI-compatible request failed (${[kind, `HTTP ${status}`, ...tokens].join(", ")})`);
   }

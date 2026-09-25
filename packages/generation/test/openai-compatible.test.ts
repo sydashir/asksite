@@ -635,3 +635,22 @@ describe("OpenAICompatibleProvider: a key a header cannot carry (P3-11 k)", () =
     expect(http.calls).toHaveLength(0);
   });
 });
+
+// P3-11 (t): a provider token that shares 8 or more characters with the key, ignoring case, is left out of the message.
+describe("OpenAICompatibleProvider: key fragments in error tokens (P3-11 t)", () => {
+  const KEY = "gsk_live_abcDEF123";
+
+  it.each([
+    ["the key's start as the code", { type: "invalid_request_error", code: "gsk_live" }, "auth, HTTP 401, invalid_request_error"],
+    ["a lowercase middle of the key as the type", { type: "abcdef12", code: "invalid_api_key" }, "auth, HTTP 401, invalid_api_key"],
+    ["both", { type: "x_live_abcd", code: "gsk_live_abcdef123" }, "auth, HTTP 401"],
+  ])("leaves out %s", async (_name, fields, details) => {
+    const provider = compatible(fakeFetch([{ status: 401, body: { error: { message: "m", ...fields } } }]).fetch, KEY);
+    await expect(provider.generate(request())).rejects.toMatchObject({ kind: "auth", message: `OpenAI-compatible request failed (${details})` });
+  });
+
+  it("keeps tokens that share no fragment with the key", async () => {
+    const provider = compatible(fakeFetch([{ status: 400, body: { error: { message: "m", type: "invalid_request_error", code: "blocked_api_access" } } }]).fetch, KEY);
+    await expect(provider.generate(request())).rejects.toMatchObject({ kind: "auth", message: "OpenAI-compatible request failed (auth, HTTP 400, invalid_request_error, blocked_api_access)" });
+  });
+});

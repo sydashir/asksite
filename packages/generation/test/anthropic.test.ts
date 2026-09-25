@@ -370,3 +370,28 @@ describe("AnthropicProvider: a key a header cannot carry (P3-11 k)", () => {
     expect(http.calls).toHaveLength(0);
   });
 });
+
+// P3-11 (t): a provider token (the error type, and the spend-cap code) that shares 8 or more characters with the key,
+// ignoring case, is left out of the message.
+describe("AnthropicProvider: key fragments in error tokens (P3-11 t)", () => {
+  it.each([
+    ["the key's start", "gsk_live"],
+    ["a lowercase middle of the key", "abcdef12"],
+  ])("leaves out an error type that is %s", async (_name, type) => {
+    const http = fakeFetch([{ status: 402, body: { type: "error", error: { type, message: "m" } } }]);
+    const provider = new AnthropicProvider({ apiKey: "gsk_live_abcDEF123", model: "claude-opus-5-5", fetch: http.fetch });
+    await expect(provider.generate(request())).rejects.toMatchObject({ kind: "auth", message: "Anthropic request failed (auth, HTTP 402)" });
+  });
+
+  it("keeps an error type that shares no fragment with the key", async () => {
+    const http = fakeFetch([{ status: 402, body: { type: "error", error: { type: "billing_error", message: "m" } } }]);
+    const provider = new AnthropicProvider({ apiKey: "gsk_live_abcDEF123", model: "claude-opus-5-5", fetch: http.fetch });
+    await expect(provider.generate(request())).rejects.toMatchObject({ kind: "auth", message: "Anthropic request failed (auth, HTTP 402, billing_error)" });
+  });
+
+  it("leaves out the spend-cap code when the key shares a fragment with it, keeping the kind", async () => {
+    const http = fakeFetch([{ status: 429, body: spendCapBody({ error_code: SPEND_CAP }) }]);
+    const provider = new AnthropicProvider({ apiKey: "sk-ant-ENFORCED_SPEND-x", model: "claude-opus-5-5", fetch: http.fetch });
+    await expect(provider.generate(request())).rejects.toMatchObject({ kind: "auth", message: "Anthropic request failed (auth, HTTP 429, rate_limit_error)" });
+  });
+});

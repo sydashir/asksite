@@ -3,7 +3,7 @@ import { ATTEMPT_TIMEOUT_MS } from "../generate.ts";
 import { modelSettings } from "../models.ts";
 import { ProviderError, type ModelProvider, type ModelRequest, type ModelResponse, type ProviderErrorKind } from "../provider.ts";
 import { dropNulls, toWireSchema } from "../wire-schema.ts";
-import { checkApiKey, statusKind, tokenCount } from "./shared.ts";
+import { checkApiKey, sharesKeyFragment, statusKind, tokenCount } from "./shared.ts";
 
 export interface AnthropicOptions {
   apiKey: string;
@@ -52,15 +52,16 @@ function kindOf(error: unknown): ProviderErrorKind {
 
 /**
  * The kind, the HTTP status, the provider's error type and the spend-cap code: never the key, the
- * provider's own text or headers.
+ * provider's own text or headers. A type or code that shares a fragment with the key (sharesKeyFragment)
+ * is left out too.
  */
-function failureMessage(kind: ProviderErrorKind, error: unknown): string {
+function failureMessage(kind: ProviderErrorKind, error: unknown, apiKey: string): string {
   const details: string[] = [kind];
   if (error instanceof Anthropic.APIError) {
     if (error.status !== undefined) details.push(`HTTP ${error.status}`);
     const type: unknown = error.type;
-    if (typeof type === "string" && SAFE_ERROR_TYPE.test(type)) details.push(type);
-    if (isSpendCap(error)) details.push(SPEND_CAP_CODE);
+    if (typeof type === "string" && SAFE_ERROR_TYPE.test(type) && !sharesKeyFragment(type, apiKey)) details.push(type);
+    if (isSpendCap(error) && !sharesKeyFragment(SPEND_CAP_CODE, apiKey)) details.push(SPEND_CAP_CODE);
   }
   return `Anthropic request failed (${details.join(", ")})`;
 }
@@ -84,10 +85,12 @@ export class AnthropicProvider implements ModelProvider {
   readonly id = "anthropic";
   readonly #client: Anthropic;
   readonly #model: string;
+  readonly #apiKey: string;
 
   constructor(options: AnthropicOptions) {
     checkApiKey(options.apiKey, "ANTHROPIC_API_KEY");
     this.#model = options.model;
+    this.#apiKey = options.apiKey;
     this.#client = new Anthropic({
       apiKey: options.apiKey,
       // The SDK reads ANTHROPIC_AUTH_TOKEN (an extra Authorization header) and ANTHROPIC_LOG (debug
@@ -120,7 +123,7 @@ export class AnthropicProvider implements ModelProvider {
       );
     } catch (error) {
       const kind = kindOf(error);
-      throw new ProviderError(kind, failureMessage(kind, error));
+      throw new ProviderError(kind, failureMessage(kind, error, this.#apiKey));
     }
     const text = message.content.find((block) => block.type === "text")?.text;
     const reason = message.stop_reason ?? "";
