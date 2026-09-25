@@ -99,7 +99,7 @@ describe("Copy", () => {
   ];
   /** U+0294 LATIN LETTER GLOTTAL STOP (IPA Extensions): US Board on Geographic Names names use it (A9c). */
   const GLOTTAL_STOP = 0x0294;
-  /** Every letter whose Unicode 17.0 name says SMALL CAPITAL (UnicodeData.txt), in any block. */
+  /** Every letter whose Unicode 17.0 name says SMALL CAPITAL (UnicodeData.txt), in any block, and the four Unicode 18.0 adds. */
   const SMALL_CAPITALS = [
     0x0262, 0x026a, 0x0274, 0x0276, 0x0280, 0x0281, 0x028f, 0x0299, 0x029b, 0x029c, 0x029f, 0x02b6, 0x1d00, 0x1d01,
     0x1d03, 0x1d04, 0x1d05, 0x1d06, 0x1d07, 0x1d0a, 0x1d0b, 0x1d0c, 0x1d0d, 0x1d0e, 0x1d0f, 0x1d10, 0x1d15, 0x1d18,
@@ -107,6 +107,7 @@ describe("Copy", () => {
     0x1d7b, 0x1d7e, 0x1da6, 0x1da7, 0x1dab, 0x1db0, 0x1db8, 0x2c7b, 0xa730, 0xa731, 0xa776, 0xa7ae, 0xa7af, 0xa7fa,
     0xab46, 0xab65, 0x10780, 0x10784, 0x10792, 0x10794, 0x10796, 0x1079c, 0x107a3, 0x107aa, 0x107b2, 0x1df02,
     0x1df04, 0x1df10,
+    0x1df30, 0x1df35, 0x1df36, 0x1df43, // Unicode 18.0 (UnicodeData-18.0.0.txt); unassigned in this engine, so refused as unknown script
   ];
   /**
    * The Latin letters whose confusables.txt 18.0.0 skeleton, with combining marks removed, is one ASCII digit (A9c):
@@ -118,6 +119,14 @@ describe("Copy", () => {
     const result = Copy.safeParse({ ...valid, heroHeadline: headline });
     return result.success ? [] : result.error.issues.map((i) => i.message);
   };
+
+  it("runs on the Unicode version the letter tables were derived from (17.0), so an upgrade is reviewed first", () => {
+    // U+A7CE LATIN CAPITAL LETTER PHARYNGEAL VOICED FRICATIVE is new in Unicode 17.0 and U+1DF40 LATIN CAPITAL LETTER
+    // BARRED A is new in 18.0 (DerivedAge-18.0.0.txt). When this fails, derive NON_ENGLISH_LETTER, DIGIT_LETTER (copy.ts),
+    // LOOKALIKES (lookalikes.ts) and the SMALL_CAPITALS and DIGIT_LETTERS lists here again from the new Unicode data.
+    expect(/^\p{L}$/u.test("\uA7CE")).toBe(true);
+    expect(/^\p{Cn}$/u.test("\u{1DF40}")).toBe(true);
+  });
 
   it.each([
     "Call (ƧOȢ) ƼƼƼ-OlƧƷ", // renders like "(2O8) 555-Ol23"
