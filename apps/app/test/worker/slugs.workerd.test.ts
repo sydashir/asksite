@@ -5,6 +5,8 @@ const h = useAppHarness();
 
 type ErrorJson = { error: { code: string; issues?: Array<{ path: unknown[]; code: string }> } };
 
+const slugAndRev = async (siteId: string) => (await h.db()).prepare("SELECT slug, rev FROM sites WHERE id = ?").bind(siteId).first();
+
 describe("web address", () => {
   it("reports availability: free, taken, invalid, reserved and blocked", async () => {
     const owner = await h.signIn();
@@ -42,5 +44,25 @@ describe("web address", () => {
     const res = await h.call("PUT", `/api/sites/${owner.siteId}/slug`, { cookie: owner.cookie, body: { rev: 1, slug: "locked-name" } });
     expect(res.status).toBe(409);
     expect((await json<ErrorJson>(res)).error.code).toBe("slug_locked");
+  });
+
+  it("keeps the slug locked while a version is live and none is pending (409 slug_locked, nothing written)", async () => {
+    const owner = await h.signIn();
+    const set = await h.call("PUT", `/api/sites/${owner.siteId}/slug`, { cookie: owner.cookie, body: { rev: 1, slug: "live-name" } });
+    expect(await set.json()).toEqual({ rev: 2, slug: "live-name" });
+    await (await h.db()).prepare("UPDATE sites SET live_version_id = 'v', pending_version_id = NULL WHERE id = ?").bind(owner.siteId).run();
+    const res = await h.call("PUT", `/api/sites/${owner.siteId}/slug`, { cookie: owner.cookie, body: { rev: 2, slug: "moved-live" } });
+    expect(res.status).toBe(409);
+    expect((await json<ErrorJson>(res)).error.code).toBe("slug_locked");
+    expect(await slugAndRev(owner.siteId)).toEqual({ slug: "live-name", rev: 2 });
+  });
+
+  it("cannot set another owner's web address (404, nothing written)", async () => {
+    const a = await h.signIn();
+    const b = await h.signIn();
+    const res = await h.call("PUT", `/api/sites/${a.siteId}/slug`, { cookie: b.cookie, body: { rev: 1, slug: "stolen-name" } });
+    expect(res.status).toBe(404);
+    expect((await json<ErrorJson>(res)).error.code).toBe("not_found");
+    expect(await slugAndRev(a.siteId)).toEqual({ slug: null, rev: 1 });
   });
 });
