@@ -1,5 +1,6 @@
-import { stripMarks, type Copy } from "./copy.ts";
+import type { Copy } from "./copy.ts";
 import { DAYS, type Facts } from "./facts.ts";
+import { foldLookalikes } from "./lookalikes.ts";
 
 // Claim checker for AI copy. Credentials, insurance, time in business, hours, prices, reviews
 // and contact details are owner facts that the renderer shows from `facts`. Copy may mention a
@@ -14,10 +15,11 @@ import { DAYS, type Facts } from "./facts.ts";
 // clauses, not join one compound word), so this class is spelled out wherever a pattern below
 // joins two words.
 //
-// Claims are matched with every combining mark removed (A9, stripMarks in copy.ts), so an accent
-// ("lícensed") or a mark between two words ("Award" + " " + U+0336 + "winning") hides no claim.
-// Latin look-alikes with no A-Z base letter (U+0131 dotless i, small capitals) never get here:
-// Copy refuses them.
+// Claims are matched with every combining mark removed (A9) and every Latin look-alike read as the A-Z
+// letters it looks like (A9b, foldLookalikes in lookalikes.ts), so an accent ("lícensed"), a mark between
+// two words ("Award" + " " + U+0336 + "winning") or a look-alike letter ("lıcensed", "ƒree", "ŁICENSED")
+// hides no claim. Phonetic letters and small capitals ("ɪnsured", "ᴄertified") never get here: Copy
+// refuses them.
 
 /** Claims no owner fact backs: rejected in copy whatever the facts say. */
 export const NEVER_IN_COPY: readonly RegExp[] = [
@@ -89,11 +91,11 @@ const asReadOnPage = (text: string): string =>
 
 /**
  * The words in `text` that state a claim the owner's facts do not back (empty when the text is
- * fine), matched as a reader sees the page with every combining mark removed (A9), so a found word
- * is shown without its marks; the copy itself is not changed.
+ * fine), matched as a reader sees the page, with every combining mark removed and every look-alike
+ * read as A-Z letters (A9, A9b), so a found word is shown that way; the copy itself is not changed.
  */
 export function unbackedClaims(text: string, facts: Facts): string[] {
-  const page = asReadOnPage(stripMarks(text));
+  const page = asReadOnPage(foldLookalikes(text));
   const found: string[] = [];
   for (const pattern of NEVER_IN_COPY) {
     const match = pattern.exec(page);

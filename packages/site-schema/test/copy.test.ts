@@ -86,23 +86,76 @@ describe("Copy", () => {
     ]);
   });
 
-  // A9: Latin-script letters that are not A-Z once their accents are removed can pass for A-Z letters
-  // (U+0131 dotless i reads as "i"), so a claim word spelled with them would slip past claims.ts.
+  // A9b: letters from blocks never used in real English copy can pass for A-Z letters ("ɪ", "ᴄ", "ꜱ"), so
+  // copy refuses them. Every other Latin letter is allowed; claims.ts reads the look-alikes among them
+  // ("ı", "ƒ", "Ł") as the A-Z letters they look like.
+  const REFUSED_BLOCKS: ReadonlyArray<readonly [number, number]> = [
+    [0x0250, 0x02af], // IPA Extensions
+    [0x1d00, 0x1d7f], // Phonetic Extensions
+    [0x1d80, 0x1dbf], // Phonetic Extensions Supplement
+    [0xa720, 0xa7ff], // Latin Extended-D
+  ];
+  /** Every letter whose Unicode 17.0 name says SMALL CAPITAL (UnicodeData.txt), in any block. */
+  const SMALL_CAPITALS = [
+    0x0262, 0x026a, 0x0274, 0x0276, 0x0280, 0x0281, 0x028f, 0x0299, 0x029b, 0x029c, 0x029f, 0x02b6, 0x1d00, 0x1d01,
+    0x1d03, 0x1d04, 0x1d05, 0x1d06, 0x1d07, 0x1d0a, 0x1d0b, 0x1d0c, 0x1d0d, 0x1d0e, 0x1d0f, 0x1d10, 0x1d15, 0x1d18,
+    0x1d19, 0x1d1a, 0x1d1b, 0x1d1c, 0x1d20, 0x1d21, 0x1d22, 0x1d23, 0x1d26, 0x1d27, 0x1d28, 0x1d29, 0x1d2a, 0x1d2b,
+    0x1d7b, 0x1d7e, 0x1da6, 0x1da7, 0x1dab, 0x1db0, 0x1db8, 0x2c7b, 0xa730, 0xa731, 0xa776, 0xa7ae, 0xa7af, 0xa7fa,
+    0xab46, 0xab65, 0x10780, 0x10784, 0x10792, 0x10794, 0x10796, 0x1079c, 0x107a3, 0x107aa, 0x107b2, 0x1df02,
+    0x1df04, 0x1df10,
+  ];
+  const headlineWith = (letter: string) => issues({ ...valid, heroHeadline: `Crew ${letter} team` });
+
   it.each([
-    "Lıcensed plumbers", // U+0131 dotless i
     "ʟɪᴄᴇɴꜱᴇᴅ plumbers", // small capitals
-    "Licenʂed plumbers", // U+0282 s with hook
-    "Straße repairs", // U+00DF sharp s
-    "Encyclopædia of cleaning", // U+00E6 ae
-  ])("rejects a letter that is not A-Z once its accents are removed: %j", (headline) => {
+    "ɪnsured plumbers", // U+026A small capital I (IPA Extensions)
+    "ᴄertified crew", // U+1D04 small capital C (Phonetic Extensions)
+    "Licenʂed plumbers", // U+0282 s with hook (IPA Extensions)
+    "Free ɡutter checks", // U+0261 script g (IPA Extensions)
+    "Licenᶊed crew", // U+1D8A s with palatal hook (Phonetic Extensions Supplement)
+    "LꞮCENSED CREW", // U+A7AE capital letter small capital I (Latin Extended-D)
+    "Ꝼree quotes", // U+A77B insular F (Latin Extended-D)
+    "Insured for ⱻvery job", // U+2C7B small capital turned e (Latin Extended-C)
+    "Top ꭆated crew", // U+AB46 small capital R with right leg (Latin Extended-E)
+    "\u{1DF04}icensed crew", // small capital L with belt (Latin Extended-G)
+  ])("rejects a letter from a block never used in English copy: %j", (headline) => {
     expect(issues({ ...valid, heroHeadline: headline })).toEqual(["heroHeadline: custom"]);
   });
 
-  it("says which letters copy may use", () => {
-    const result = Copy.safeParse({ ...valid, heroHeadline: "Lıcensed plumbers" });
+  it("rejects every small-capital letter, including those NFKC turns into one (U+02B6 becomes U+0281)", () => {
+    for (const cp of SMALL_CAPITALS) expect(headlineWith(String.fromCodePoint(cp)), `U+${cp.toString(16)}`).toEqual(["heroHeadline: custom"]);
+  });
+
+  it("rejects exactly the letters of those blocks and the small capitals, and no other Latin or Common letter", () => {
+    const wrong: string[] = [];
+    for (let cp = 0x80; cp <= 0x10ffff; cp++) {
+      if (cp >= 0xd800 && cp <= 0xdfff) continue;
+      const letter = String.fromCodePoint(cp);
+      // Letters NFKC leaves alone (NFKC runs first); other scripts are refused by the Latin-script rule above.
+      if (!/^\p{L}$/u.test(letter) || !/[\p{Script=Latin}\p{Script=Common}]/u.test(letter) || letter.normalize("NFKC") !== letter) continue;
+      const expected = REFUSED_BLOCKS.some(([from, to]) => cp >= from && cp <= to) || SMALL_CAPITALS.includes(cp);
+      if ((headlineWith(letter).length > 0) !== expected) wrong.push(`U+${cp.toString(16)} ${expected ? "accepted" : "refused"}`);
+    }
+    expect(wrong).toEqual([]);
+  });
+
+  it("accepts the symbols of those blocks that are not letters, like other punctuation", () => {
+    expect(headlineWith("\uA789")).toEqual([]); // U+A789 modifier letter colon (Sk, Latin Extended-D)
+    expect(headlineWith("\uA720")).toEqual([]); // U+A720 modifier letter stress and high tone (Sk)
+  });
+
+  it("reports a letter of another script once, with the script message, even next to a small capital", () => {
+    const result = Copy.safeParse({ ...valid, heroHeadline: "Уборка ᴄrew" });
     expect(result.success ? [] : result.error.issues.map((i) => i.message)).toEqual([
-      "AI copy must use Latin script letters A to Z, with or without accents (é and ñ are fine; ı, ß, æ and small capitals are not)",
+      "AI copy must use Latin script only; other scripts can spell out numbers and prices",
     ]);
+  });
+
+  it("says which letters copy may use, in words Plan 3 and Plan 4 key on", () => {
+    const result = Copy.safeParse({ ...valid, heroHeadline: "ɪnsured plumbers" });
+    const messages = result.success ? [] : result.error.issues.map((i) => i.message);
+    expect(messages).toEqual(["AI copy must use Latin script letters used in English, not phonetic letters or small capitals such as ɪ, ᴄ or ꜱ"]);
+    expect(messages[0]?.startsWith("AI copy must use Latin script")).toBe(true);
   });
 
   it.each([
@@ -111,8 +164,24 @@ describe("Copy", () => {
     "Jalapeño stains lifted",
     "Cafe\u0301-clean kitchens", // e + U+0301 combining acute: the same é, decomposed
     "Crème brûlée spills, gone",
-  ])("accepts letters that are A-Z once their accents are removed: %j", (headline) => {
+    // A9b: real US place names and people's names
+    "Serving Hawaiʻi, Oʻahu and Kāneʻohe", // U+02BB ʻokina
+    "Serving Hawaiʼi and Oʼahu", // U+02BC modifier letter apostrophe
+    "Homes in Mānoa and Kailua-Kona",
+    "Ask for Bjørn, Søren or Łukasz",
+    "Đorđe fixes leaks fast",
+    "From Straße to Cœur d’Alene",
+    "Encyclopædia-level know-how",
+    "José and Señor Crème",
+    "Naïve café questions welcome",
+    "Þórr runs the crew",
+    "Lıcensed plumbers", // U+0131: Copy allows it; the claim checker reads it as "Licensed" (claims.test.ts)
+  ])("accepts every other Latin letter: %j", (headline) => {
     expect(issues({ ...valid, heroHeadline: headline })).toEqual([]);
+  });
+
+  it("reads compatibility forms of phonetic letters as the letters NFKC gives (ᴬ is A), before the letter check", () => {
+    expect(Copy.parse({ ...valid, heroHeadline: "\u1D2Cward crew" }).heroHeadline).toBe("Award crew");
   });
 
   it.each([

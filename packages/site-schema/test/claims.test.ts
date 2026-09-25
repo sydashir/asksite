@@ -325,6 +325,51 @@ describe("unbackedClaims", () => {
     expect(unbackedClaims(text, NONE)).toEqual([]);
   });
 
+  // A9b: a Latin letter with no A-Z base letter that looks like one ("ı", "ƒ", "Ł", capital iota) is read
+  // as the A-Z letters it looks like (lookalikes.ts), so it hides no claim either.
+  it.each([
+    ["Our lıcensed team", "licensed"], // U+0131 dotless i
+    ["Get a ƒree quote", "free"], // U+0192 f with hook
+    ["Łicensed plumbers", "Licensed"], // U+0141 L with stroke
+    ["ŁICENSED PLUMBERS", "LICENSED"],
+    ["FULLY ƗNSURED", "INSURED"], // U+0197 capital I with stroke
+    ["FULLY ƖNSURED", "INSURED"], // U+0196 capital iota
+    ["ƑREE ESTIMATES", "FREE"], // U+0191 capital F with hook
+    ["ǀicensed crew", "licensed"], // U+01C0 dental click
+    ["Fully ınsuređ", "insured"],
+    ["Help around þe clock", "around the clock"], // þ reads "th"
+    ["Help day or ŋight", "day or night"], // U+014B eng
+    ["There is ŋo charge", "no charge"],
+  ])("reads the look-alike letters in %j as A-Z and finds %j unless the facts back it", (text, word) => {
+    expect(unbackedClaims(text, NONE)).toEqual([word]);
+    expect(unbackedClaims(text, ALL)).toEqual([]);
+  });
+
+  it.each([
+    ["ƁONDED CREW", "BONDED"], // U+0181 capital B with hook
+    ["Bøndéd crew", "Bonded"],
+    ["Certifieđ technicians", "Certified"],
+    ["Satisfaction guaranteeđ", "guaranteed"],
+    ["Top-ɍated crew", "Top-rated"], // U+024D r with stroke
+    ["Ƒive-star service", "Five-star"],
+  ])("never allows %j (%j once read as A-Z), whatever the facts", (text, claim) => {
+    expect(unbackedClaims(text, NONE)).toEqual([claim]);
+    expect(unbackedClaims(text, ALL)).toEqual([claim]);
+  });
+
+  it.each([
+    "Serving Hawaiʻi, Oʻahu and Kāneʻohe",
+    "Serving Hawaiʼi and Oʼahu",
+    "Homes in Mānoa and Kailua-Kona",
+    "Ask for Bjørn, Søren, Łukasz or Đorđe",
+    "From Straße to Cœur d’Alene",
+    "Encyclopædia-level know-how",
+    "José, Señor, Crème and a naïve café owner",
+    "Þórr runs the crew",
+  ])("finds no claim in real place names and people's names: %j", (text) => {
+    expect(unbackedClaims(text, NONE)).toEqual([]);
+  });
+
   it.each([
     'A lone " mark',
     '" autofocus onfocus="alert(document.cookie)', // attribute breakouts the renderer must escape (Task 15's XSS fixture)
@@ -417,9 +462,14 @@ describe("SiteDocument rejects AI copy that states facts the owner did not give"
     "Award \u0336winning crew", // A8c-3: a combining mark splits the claim (A9 folds it away)
     "Same \u0336day help",
     "Our l\u00EDcensed team",
-    "L\u0131censed and \u0131nsured plumbers", // U+0131 dotless i (A9: refused by Copy's letter rule)
-    "\u029F\u026A\u1D04\u1D07\u0274\uA731\u1D07\u1D05 \u1D00\u0274\u1D05 \u026A\u0274\uA731\u1D1C\u0280\u1D07\u1D05 plumbers", // small capitals
-    "Licen\u0282ed plumbers", // U+0282 s with hook
+    "L\u0131censed and \u0131nsured plumbers", // U+0131 dotless i (A9b: read as "i", so a claim)
+    "\u029F\u026A\u1D04\u1D07\u0274\uA731\u1D07\u1D05 \u1D00\u0274\u1D05 \u026A\u0274\uA731\u1D1C\u0280\u1D07\u1D05 plumbers", // small capitals (refused by Copy)
+    "Licen\u0282ed plumbers", // U+0282 s with hook (IPA Extensions, refused by Copy)
+    "Get a \u0192ree quote", // A9b: U+0192 f with hook reads "free"
+    "\u0141ICENSED PLUMBERS", // A9b: U+0141 reads "L"
+    "FULLY \u0196NSURED", // A9b: U+0196 capital iota reads "I"
+    "\u026Ansured plumbers", // U+026A small capital I (refused by Copy)
+    "\u1D04ertified crew", // U+1D04 small capital C (refused by Copy)
   ])("%j", (claim) => {
     const faq = [{ question: "Why us?", answer: claim }];
     const result = SiteDocument.safeParse({ ...MINIMAL_DOC, copy: { ...MINIMAL_DOC.copy, faq } });
@@ -465,6 +515,13 @@ describe("SiteDocument keeps AI copy the checks have no reason to reject", () =>
     "Café-clean kitchens, naïve questions welcome", // A9: accents on A-Z letters are fine
     "Jalapeño stains lifted",
     "Cafe\u0301-clean kitchens", // e + U+0301 combining acute
+    "Serving Hawai\u02BBi, O\u02BBahu and K\u0101ne\u02BBohe", // A9b: U+02BB, the ʻokina
+    "Homes in M\u0101noa and Kailua-Kona",
+    "Ask for Bj\u00F8rn, S\u00F8ren, \u0141ukasz or \u0110or\u0111e", // A9b: letters that are not A-Z with an accent
+    "From Stra\u00DFe to C\u0153ur d\u2019Alene",
+    "Encyclop\u00E6dia-level know-how",
+    "Jos\u00E9, Se\u00F1or, Cr\u00E8me and a na\u00EFve caf\u00E9 owner",
+    "\u00DE\u00F3rr runs the crew",
   ])("%j", (text) => {
     const faq = [{ question: "Why us?", answer: text }];
     const result = SiteDocument.safeParse({ ...MINIMAL_DOC, copy: { ...MINIMAL_DOC.copy, faq } });

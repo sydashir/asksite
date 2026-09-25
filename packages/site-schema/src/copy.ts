@@ -8,9 +8,10 @@ import { z } from "zod";
 // - any character outside the Latin, Common (punctuation, symbols, emoji) and Inherited
 //   (combining marks) scripts. Other scripts can write numbers and prices as letters ("五百元")
 //   and have letters that look Latin (Cyrillic "о", U+043E);
-// - a letter that is not A-Z once its accents are removed (A9): "café", "naïve" and "jalapeño" pass,
-//   but the Latin script's own look-alikes do not (U+0131 dotless i, small capitals such as "ʟɪᴄᴇɴꜱᴇᴅ",
-//   "ß", "æ"), since claims.ts matches claim words in A-Z.
+// - a letter from a block never used in real English copy, whose letters can pass for A-Z letters
+//   (A9b): phonetic letters and small capitals such as "ɪ", "ᴄ" and "ʟɪᴄᴇɴꜱᴇᴅ" (NON_ENGLISH_LETTER below).
+//   Every other Latin letter passes: "café", "Bjørn", "Łukasz", "Straße", "Hawaiʻi" (U+02BB ʻokina).
+//   claims.ts reads the look-alikes among them ("ı", "ƒ", "Ł") as A-Z letters (lookalikes.ts).
 // So copy cannot write a price, phone number, licence number, year or email in digits or symbols,
 // or a link that starts "http:", "https:" or "www.". Not caught here: bare domains ("acme.com")
 // and numbers spelled with Latin letters ("five", "XII"). Worded claims ("licensed", "free",
@@ -22,14 +23,19 @@ import { z } from "zod";
 const FACT_LIKE = /[\p{N}\p{Sc}@]|https?:|www\./iu;
 const HIDDEN_CHARACTER = /[\p{Cc}\p{Cf}]/u;
 const NON_LATIN_SCRIPT = /[^\p{Script=Latin}\p{Script=Common}\p{Script=Inherited}]/u;
-const NOT_A_TO_Z = /(?![A-Za-z])\p{L}/u;
 
 /**
- * The text in canonical decomposition (NFD) with every combining mark (\p{M}) removed (A9), so an
- * accent never hides a letter: "lícensed" becomes "licensed" and "Award" + " " + U+0336 + "winning"
- * becomes "Award winning". Used for the letter rule below and for claim matching (claims.ts).
+ * Letters from blocks never used in real English copy, whose letters can pass for A-Z letters (A9b; block
+ * ranges from Unicode's Blocks.txt): U+0250-02AF IPA Extensions ("ɪ", "ʟ", "ɡ"), U+1D00-1D7F Phonetic
+ * Extensions and U+1D80-1DBF Phonetic Extensions Supplement ("ᴄ", "ᴇ"), U+A720-A7FF Latin Extended-D ("ꜱ",
+ * "Ɪ", "Ꝼ"), and every other letter whose Unicode name says SMALL CAPITAL: U+2C7B, U+AB46, U+10780,
+ * U+1DF02, U+1DF04 and U+1DF10 (UnicodeData.txt 17.0), plus U+1DF30, U+1DF35, U+1DF36 and U+1DF43, which
+ * Unicode 18.0 adds (until Node knows them, the Latin-script rule above refuses them as unassigned). The
+ * modifier-letter small capitals (U+02B6, U+10784 and others) become one of these under NFKC, which runs first.
+ * Symbols in these blocks that are not letters (U+A720, U+A789) are allowed, like other punctuation.
  */
-export const stripMarks = (text: string): string => text.normalize("NFD").replace(/\p{M}/gu, "");
+const NON_ENGLISH_LETTER =
+  /(?=\p{L})[\u0250-\u02AF\u1D00-\u1DBF\uA720-\uA7FF\u2C7B\uAB46\u{10780}\u{1DF02}\u{1DF04}\u{1DF10}\u{1DF30}\u{1DF35}\u{1DF36}\u{1DF43}]/u;
 
 export const prose = (max: number) =>
   z
@@ -48,11 +54,11 @@ export const prose = (max: number) =>
       // It changes which message is shown, never whether a string is rejected.
       when: (payload) => payload.issues.length === 0,
     })
-    .refine((s) => !NOT_A_TO_Z.test(stripMarks(s)), {
+    .refine((s) => !NON_ENGLISH_LETTER.test(s), {
       // Starts like the message above, so callers that key on "AI copy must use Latin script" (Plan 3's
       // repair rules, Plan 4's owner messages) treat both alike.
-      error: "AI copy must use Latin script letters A to Z, with or without accents (é and ñ are fine; ı, ß, æ and small capitals are not)",
-      when: (payload) => payload.issues.length === 0, // as above: Cyrillic "о" gets only the message above
+      error: "AI copy must use Latin script letters used in English, not phonetic letters or small capitals such as ɪ, ᴄ or ꜱ",
+      when: (payload) => payload.issues.length === 0, // as above: a non-Latin letter gets only the message above
     });
 
 export const COPY_LIMITS = {
