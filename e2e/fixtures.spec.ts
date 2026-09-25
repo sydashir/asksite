@@ -34,13 +34,14 @@ async function open(page: Page, name: FixtureName): Promise<void> {
   await page.setContent(renderFixture(name, stylesheet), { waitUntil: "load" });
 }
 
-/** Serious/critical WCAG violations plus any structure-rule violation, as "rule: selectors" lines. */
+/**
+ * Every WCAG 2.2 A/AA violation, whatever axe's impact rating (impact is severity, not the WCAG level:
+ * meta-viewport is AA but rated moderate; A9), plus any structure-rule violation, as "rule: selectors" lines.
+ */
 async function axeProblems(page: Page): Promise<string[]> {
   const wcag = await new AxeBuilder({ page }).withTags(WCAG_TAGS).analyze();
   const structure = await new AxeBuilder({ page }).withRules(STRUCTURE_RULES).analyze();
-  return [...wcag.violations.filter((v) => v.impact === "serious" || v.impact === "critical"), ...structure.violations].map(
-    (v) => `${v.id}: ${v.nodes.map((n) => n.target.join(" ")).join(" | ")}`,
-  );
+  return [...wcag.violations, ...structure.violations].map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(" ")).join(" | ")}`);
 }
 
 const sidewaysScroll = (page: Page) =>
@@ -71,7 +72,7 @@ for (const name of FIXTURES) {
       await open(page, name);
     });
 
-    test("passes axe (WCAG 2.2 AA serious/critical, landmarks, heading order) with every <details> closed, then open", async ({ page }) => {
+    test("passes axe (every WCAG 2.2 A/AA violation, landmarks, heading order) with every <details> closed, then open", async ({ page }) => {
       test.slow(); // four axe runs: triple the 30 s timeout (31.7 s once on a busy machine, Plan 2 Task 6)
       const closed = await axeProblems(page);
       // Content inside a closed <details> is not rendered, so axe skips it: open them all and scan again.
@@ -142,6 +143,14 @@ test.describe("the gates can fail (RED proof)", () => {
       h1.textContent = "W".repeat(300);
     });
     expect(await sidewaysScroll(page)).toBeGreaterThan(0);
+  });
+
+  test("the axe gate fails on a WCAG AA violation that axe rates moderate (zoom turned off)", async ({ page }) => {
+    await open(page, "plumber-austin");
+    await page.locator('meta[name="viewport"]').evaluate((meta) => {
+      meta.setAttribute("content", "width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no");
+    });
+    expect((await axeProblems(page)).map((line) => line.split(":")[0])).toContain("meta-viewport");
   });
 
   test("axe reports content outside a landmark", async ({ page }) => {
