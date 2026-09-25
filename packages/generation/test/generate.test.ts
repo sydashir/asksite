@@ -1,7 +1,7 @@
 import { getEventListeners } from "node:events";
 import { describe, expect, it } from "vitest";
 import { ATTEMPT_TIMEOUT_MS, generateDraft, MAX_OUTPUT_TOKENS } from "../src/generate.ts";
-import type { ModelProvider, ModelResponse } from "../src/provider.ts";
+import type { ModelProvider, ModelRequest, ModelResponse } from "../src/provider.ts";
 import { FakeProvider } from "../src/providers/fake.ts";
 import { AI_DRAFT_JSON_SCHEMA } from "../src/wire-schema.ts";
 import { templateDraft } from "../src/template.ts";
@@ -14,18 +14,29 @@ const bad = { ...good, copy: { ...good.copy, heroHeadline: "Call 555-0100 today"
 /** An answer that stopped for `stop` instead of ending normally. */
 const stopped = (stop: ModelResponse["stop"], usage = { inputTokens: 100, outputTokens: 50 }): ModelResponse => ({ ...answer(undefined, usage), stop });
 
-/** A provider whose `generate` calls return these promises in turn (then a valid answer), counting the calls. */
-function providerOf(...calls: Array<() => Promise<ModelResponse>>): ModelProvider & { calls: number } {
+/** A provider whose `generate` calls are these functions in turn (then a valid answer), counting the calls. */
+function providerOf(...calls: Array<(req: ModelRequest) => Promise<ModelResponse>>): ModelProvider & { calls: number } {
   const provider = {
     id: "fake" as const,
     calls: 0,
-    generate: () => (calls[provider.calls++] ?? (() => Promise.resolve(answer(good))))(),
+    generate: (req: ModelRequest) => (calls[provider.calls++] ?? (() => Promise.resolve(answer(good))))(req),
   };
   return provider;
 }
 
 const never = (): Promise<ModelResponse> => new Promise(() => {});
 const rejectAfter = (ms: number) => (): Promise<ModelResponse> => new Promise((_, reject) => setTimeout(() => reject(new Error("late")), ms));
+
+/**
+ * A call that rejects with the signal's raw reason (not a ProviderError) from its own abort listener.
+ * `listenersBefore` records how many abort listeners the signal had when this one was added: 0 means
+ * it runs before generateDraft's, 1 after it.
+ */
+const rejectOnAbort = (listenersBefore: number[]) => (req: ModelRequest): Promise<ModelResponse> =>
+  new Promise((_, reject) => {
+    listenersBefore.push(getEventListeners(req.signal, "abort").length);
+    req.signal.addEventListener("abort", () => reject(req.signal.reason), { once: true });
+  });
 
 function testDeps() {
   const sleeps: number[] = [];
@@ -209,6 +220,56 @@ describe("generateDraft", () => {
     expect(sleeps).toEqual([2_000]);
     expect(provider.calls).toBe(1);
   }, 5_000);
+
+  it("classifies a raw abort error that a provider throws at once, after the signal aborted during the call, as a timeout", async () => {
+    const { deps, sleeps } = testDeps();
+    const deadline = new AbortController();
+    const signals = [deadline.signal, new AbortController().signal];
+    // The deadline passes during the call, and the provider throws the raw abort reason synchronously (no rejected promise).
+    const provider = providerOf((req) => {
+      deadline.abort();
+      throw req.signal.reason;
+    });
+    const result = await generateDraft(provider, FULL_SNAPSHOT, { ...deps, timeoutSignal: () => signals.shift()! });
+    expect(result.log.map((a) => a.outcome)).toEqual(["timeout", "valid"]);
+    expect(result).toMatchObject({ ok: true, attempts: 2, validOnAttempt: 2 });
+    expect(sleeps).toEqual([2_000]);
+    expect(provider.calls).toBe(2);
+  });
+
+  it.each<[string, boolean, number]>([
+    ["the provider's abort listener runs first", false, 0],
+    ["generateDraft's abort listener runs first", true, 1],
+  ])("classifies a raw abort rejection, after the signal aborted during the call, as a timeout (%s)", async (_order, addsListenerLater, listenersAlready) => {
+    const { deps, sleeps } = testDeps();
+    const listenersBefore: number[] = [];
+    const rejects = rejectOnAbort(listenersBefore);
+    // After an await, the provider's listener comes after generateDraft's, which is added as soon as the call returns.
+    const call = addsListenerLater
+      ? async (req: ModelRequest) => {
+          await Promise.resolve();
+          return rejects(req);
+        }
+      : rejects;
+    const signals = [() => AbortSignal.timeout(20), () => new AbortController().signal];
+    const result = await generateDraft(providerOf(call), FULL_SNAPSHOT, { ...deps, timeoutSignal: () => signals.shift()!() });
+    expect(listenersBefore).toEqual([listenersAlready]);
+    expect(result.log.map((a) => a.outcome)).toEqual(["timeout", "valid"]);
+    expect(result).toMatchObject({ ok: true, attempts: 2, validOnAttempt: 2 });
+    expect(sleeps).toEqual([2_000]);
+  }, 5_000);
+
+  it("keeps a ProviderError's own kind when the signal has aborted too", async () => {
+    const { deps, sleeps } = testDeps();
+    const deadline = new AbortController();
+    const provider = providerOf(() => {
+      deadline.abort();
+      return Promise.reject(new ProviderError("auth", "401"));
+    });
+    const result = await generateDraft(provider, FULL_SNAPSHOT, { ...deps, timeoutSignal: () => deadline.signal });
+    expect(result).toMatchObject({ ok: false, failure: "provider_error", providerErrorKind: "auth", attempts: 1 });
+    expect(sleeps).toEqual([]);
+  });
 
   it("leaves no unhandled rejection when a provider rejects after its attempt timed out", async () => {
     const unhandled: unknown[] = [];

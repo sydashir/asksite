@@ -59,6 +59,15 @@ const stopIssue = (stop: StopReason): Issue => ({ path: [], ...STOP_ISSUE[stop] 
 const attemptTimedOut = (): ProviderError => new ProviderError("timeout", "The attempt ran out of time");
 
 /**
+ * A ProviderError keeps its kind. Any other error once the attempt's signal has aborted is a timeout:
+ * a provider may throw or reject with the signal's raw reason (an AbortError or TimeoutError), and
+ * whether that or our own timeout wins the race depends on which abort listener runs first. Any other
+ * error is a bad request, never retried.
+ */
+const errorKind = (error: unknown, signal: AbortSignal): ProviderErrorKind =>
+  error instanceof ProviderError ? error.kind : signal.aborted ? "timeout" : "bad_request";
+
+/**
  * The provider's answer, or a timeout once the request's signal aborts, whichever comes first, so
  * the attempt limit holds even for a provider that ignores the signal. A signal that has already
  * aborted is a timeout without a call: a request sent after the deadline is a paid call whose answer
@@ -100,8 +109,9 @@ export async function generateDraft(provider: ModelProvider, snapshot: Generatio
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     const { system, user } = buildPrompt(snapshot, repair);
     const started = deps.now();
+    const signal = deps.timeoutSignal(ATTEMPT_TIMEOUT_MS);
     try {
-      const res = await answerWithinLimit(provider, { system, user, jsonSchema: AI_DRAFT_JSON_SCHEMA, maxOutputTokens: MAX_OUTPUT_TOKENS, signal: deps.timeoutSignal(ATTEMPT_TIMEOUT_MS) });
+      const res = await answerWithinLimit(provider, { system, user, jsonSchema: AI_DRAFT_JSON_SCHEMA, maxOutputTokens: MAX_OUTPUT_TOKENS, signal });
       const latencyMs = deps.now() - started;
       usage.inputTokens += res.usage.inputTokens;
       usage.outputTokens += res.usage.outputTokens;
@@ -124,7 +134,7 @@ export async function generateDraft(provider: ModelProvider, snapshot: Generatio
       repair = check.issues;
       log.push({ outcome: "invalid", issues: check.issues, latencyMs, usageMissing });
     } catch (error) {
-      const kind = error instanceof ProviderError ? error.kind : "bad_request";
+      const kind = errorKind(error, signal);
       log.push({ outcome: kind, issues: [], latencyMs: deps.now() - started, usageMissing: false });
       failure = "provider_error";
       providerErrorKind = kind;
