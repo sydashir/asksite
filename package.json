@@ -8,7 +8,7 @@
   },
   "scripts": {
     "build:css": "pnpm --filter @asksite/renderer run build:css && pnpm --filter @asksite/site-css run build",
-    "typecheck": "pnpm build:css && tsc -p . && tsc -p e2e",
+    "typecheck": "pnpm build:css && tsc -p . && tsc -p e2e && tsc -p tsconfig.workers.json",
     "test": "pnpm build:css && vitest run --project unit && vitest run --project workerd",
     "test:e2e": "pnpm build:css && playwright test",
     "e2e:install": "playwright install --only-shell chromium webkit",
