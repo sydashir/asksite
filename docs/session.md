@@ -1,56 +1,41 @@
-# Session handoff
+# Session handoff (moderator web-maker-99)
 
-Last updated: 2026-09-23
+Last updated: 2026-09-25 (written at the user's context-limit signal)
 
-## Where we are
+## NOW (2026-09-25 ~22:20) — read this first
+- A8c APPROVED (040e841) and verified by me: typecheck 0; 842 unit + 14 workerd; 138 e2e pass / 34 skipped; goldens unchanged; 16 commits clean. Merging to main now with the docs commit.
+- Next in this folder: A9 (13 items, from the docs audit; plan-decisions.md) on plan2-hosting, then its own merge.
+- Plan 2B runs in worktree /Users/ashir/Documents/workk2/asksite-plan2b (branch plan2b-serve from 2438620), workflow wf_f3dfaf94-b6c, task wmi35a7h7. It syncs with main at handback.
+- Plan 3 (asksite-plan3-d1, socket uds:/tmp/cc-socks/10057.sock): Tasks 1-5 done; P3-4a/P3-5/P3-6 in progress; Task 6 next. My reviews 1-2 done; review 3 = f512f0f..(Task 5 + fixes).
+- Plan 4 (asksite-plan4-a1, socket uds:/tmp/cc-socks/17986.sock): Tasks 1-4 done, 5 in progress, then P4-3/4/6 fix, then admin 19-22; Task 6 waits for the A8c main + my sync OK. Review 1 done (approved).
+- Rules added today: build sessions never push or run gh; my review comes before any git action other than local commits; context7/official docs for every library use (context7 monthly quota is out: WebFetch the official docs); I red-team my own decisions before sending them (memory: red-team-decisions-first).
+- Decisions log: .superpowers/sdd/plan-decisions.md (A8c-2, A8c-3, A9, P3-1..P3-6, P4-1..P4-6).
 
-- Research phase complete. No product code written yet.
-- Repo: `github.com/sydashir/asksite` (private). First commit pushed 2026-09-23.
-- Rules written to `CLAUDE.md`. Continuity files set up in `docs/`.
+## Read first after a compaction
+CLAUDE.md, docs/context.md, this file, the end of docs/journal.md, .superpowers/sdd/plan-decisions.md (A1–A8b), .superpowers/sdd/build-log.md (end), .superpowers/sdd/p2-progress.md.
 
-## Top open issue
+## State
+- main = fec8ac9 on GitHub: Plan 1 (renderer) + Stage 0 (Plan 2 Tasks 1–6) + all plans/specs/briefs. Plan 1 and Stage 0 are COMPLETE, reviewed, QA'd, merged.
+- This folder is on branch plan2-hosting. On top of fec8ac9: A8 (6 commits b10136c..25443b2: brief byte cap proven max, IPv4-mapped rate keys, M3 type pin, claims "seven days"/"days a week", U+200D escape, test.slow) — A8 reviewed+attacked APPROVED — then A8b (running, workflow wf_fe832bf8-d62, first commit 209e075 "Narrow weekly availability"): narrows the claim rule to the full-week phrase only (A8's words refused normal copy like "within seven days", "two days a week"), proves factsJsonMaxBytes, syncs plan/doc texts. A8b then gets review + attack.
+- Uncommitted in this folder: CLAUDE.md (new "Parallel build sessions" section: web-maker-99 is controller, never guess/ask moderator, no clobbering), docs/session.md, docs/journal.md, briefs session-plan3.md / session-plan4.md (final versions). Commit them with the A8b merge ("Update project docs").
 
-- Scope decided: option C (one niche: US home services & trades; invite-only; no editor; ~3 weeks). Boss informed by the user.
+## Parallel sessions (3-way, web-maker-99 controls)
+- iTerm tab "asksite-generation" = Claude session `asksite-plan3-d1` = PLAN 3 (AI generation), folder /Users/ashir/Documents/workk2/asksite-plan3, branch plan3-generation (at fec8ac9, no commits). Has its brief; replied "brief received — waiting for GO".
+- iTerm tab "asksite-app" was `asksite-plan3-20 (closed; replaced by asksite-plan4-a1 in asksite-plan4, confirmed holding for GO)` in the WRONG folder (asksite-plan3); it confirmed "stopped". The user is reopening asksite-app in /Users/ashir/Documents/workk2/asksite-plan4 (branch plan4-app at fec8ac9) and pasting docs/superpowers/briefs/session-plan4.md. When its new session appears in ListAgents (name like asksite-plan4-xx), message it and confirm it holds for GO.
+- Both sessions were opened by the user mid-way; neither changed any file (verified: git status clean in both worktrees).
 
-## Speed plan (user 2026-09-25: real users waiting; local first; no hand-made sites; wait for the full tool)
+## Next steps (in order)
+1. A8c workflow run wf_6db34b64-6bd, task ID wl71dilnq (TaskStop takes the task ID), on top of A8b 420cfa1, is running. The old A8b workflow w8kmslz6i and the first A8c run ww4g3f0w8 are stopped. When approved: check review/attack; verify myself (pnpm typecheck, pnpm test, pnpm test:e2e = 138 passed/34 skipped expected, goldens unchanged via git diff --stat fec8ac9..HEAD -- fixtures/golden e2e); commit docs; fast-forward main to the A8b head (git fetch . plan2-hosting:main or switch+merge --ff-only); push main + plan2-hosting with gh switch sydashir → dev778d.
+2. Fast-forward plan3-generation and plan4-app to main ONLY if they still have no commits (git -C <worktree> merge --ff-only main), then SendMessage "GO" to both sessions (tell Plan 3: Task 14 Step 7 now lists 2 known gaps).
+3. RUNNING in worktree asksite-plan2b (branch plan2b-serve, workflow wf_f3dfaf94-b6c, task wmi35a7h7): Plan 2 Part B (Tasks 7–18) with the full pipeline (per-task implement/review/checker/fix, QA for the public Worker, whole-branch review with fable, Task 18 checks, no push by agents). Briefs: .superpowers/sdd/p2-task-{7..19}-brief.md; constraints p2-global-constraints.md; decisions p2-plan-decisions.md; ledger p2-progress.md. Reuse the stage0 workflow script pattern (…/workflows/scripts/stage0-core-wf_18186a08-2bd.js) with task numbers 7..18. Task 19 needs the user's Cloudflare account/domain.
+4. Review each session's handoff when they message "ready for moderator review"; merge (Sync with main first if main moved); push.
 
-- Critical path: Plan 1 final QA/review/verify (stage C, running) → merge → Stage 0 (= Plan 2 Tasks 1–6: A6 owner-hidden sections, @asksite/core, D1 schema, site-css; run in THIS session right after the merge) → user opens 3 sessions in parallel: Plan 2 Part B (Tasks 7–19), Plan 3, Plan 4, each in its own git worktree.
-- Stage 0 must NOT start before Plan 1 merges: it edits the schema and uses Plan 1's golden fixtures, which final QA may still change.
-- Cross-plan consistency pass runs as soon as Plan 4's plan is fixed. Moderator decisions M1–M6 appended to the design spec.
-- Faster review loop (user 2026-09-25: NO quality compromise): a fixer may apply a plan-deviating fix only if strictly safer, proven to affect no later task (grep of all briefs), no interface change, and tests-first; it is logged as PROPOSED AMENDMENT, re-reviewed like any fix, and ratified by the moderator before merge. Every gate stays: per-task review + fix + re-review, checker for unverifiable items, QA (specialist + real user), whole-branch review, adversarial checks, moderator verification, no-regression rule.
+## Needed from the user (later)
+- Cloudflare account + domain (Plan 2 Task 19, deploy); Anthropic API key (Plan 3 Task 15, ~$20–50 credits); Resend; model + daily limit choice after the eval (default 8 calls/day ≈ $10.65 worst case on Opus 5.5).
 
-## Parallel planning (started 2026-09-24)
+## Hazards learned
+- Other Claude sessions on this Mac (e.g. QA-district-Tool) switch the global gh account to sydashir and leave it — always switch back to dev778d after pushing.
+- The disk filled once (ENOSPC). The user cleared space (76 GB free on 2026-09-25). Use .superpowers/sdd/cleanup-orphans.sh at stage boundaries.
+- Login can expire mid-workflow ("Not logged in"): agents may have committed before dying — always inspect git log/status before re-running.
 
-- Run `wf_332cb519-948`: open-model research (`docs/superpowers/specs/2026-09-24-model-options.md`), system design (`docs/superpowers/specs/2026-09-24-system-design.md`) + adversarial design review, then Plans 2 (hosting/publish/leads), 3 (generation, provider-agnostic), 4 (owner app + editor + admin) written in parallel, each execution-checked + security-reviewed + fixed. Output files under `docs/superpowers/plans/2026-09-24-plan{2,3,4}-*.md`. Not committed yet (moderator commits after review).
-- User 2026-09-24: speed matters but never at the cost of quality/security/regressions; offered to fire more sessions if needed. Likely use: once plans 2–4 are reviewed, run them in 2–3 separate sessions in parallel with Plan 1, this session moderating.
-- User asked about open-source models instead of Claude. Verified 2026-09-24: Cloudflare Workers AI has 10,000 free Neurons/day then $0.011/1k Neurons (Workers Paid needed beyond free), e.g. Llama 3.2 3B $0.051/$0.335 per M tokens, Llama 3.1 70B $0.293/$2.253, Qwen 3 30B $0.051/$0.335; JSON-schema mode on a few models incl. llama-3.3-70b-instruct-fp8-fast, and it can fail with 'JSON Mode couldn't be met'.
-
-## Cross-plan decisions (2026-09-25)
-
-- Cross-plan report: `docs/superpowers/specs/2026-09-25-cross-plan-check.md` (10 mismatches, all fixed in plan text by `wf_10507a13-55d`).
-- D1 worstCaseDailyMicrousd number|null; D2 first builds don't count toward the owner's lifetime cap of 20; D3 moderator edits the 3 Workers' AI settings in one commit; D4 Plan 2B runs in this folder on plan2-hosting, Plans 3/4 in worktrees OUTSIDE it: /Users/ashir/Documents/workk2/asksite-plan3 (plan3-generation), /Users/ashir/Documents/workk2/asksite-plan4 (plan4-app); D5 accept report recommendations 5–11; D6 owner-edited sentences stay strict (user confirmed).
-- Later (after Stage 0 merges): Plan 1 small amendment from report §2 item 12 (U+200D literal, 'seven days'/'days a week' in round-the-clock pattern, test.slow on slow axe test).
-
-## Decisions pending communication
-
-- Plan 3 (draft) caps AI model calls at 8/day by default so the worst case stays about $10.65/day on Opus 5.5 ($1.33 max per job); the design said 30/day (~$40/day worst case). User decides the model and the daily limit after the model eval. Admin can raise it any time.
-- Parallel sessions: each works in its own git worktree + branch; branch syncs with main (merge commit "Sync with main") before review; main fast-forwards. Brief template: `docs/superpowers/briefs/session-brief-template.md`.
-
-- 2026-09-24: user chose look switching + light editor for v1 (~+1 week). Timeline moves from ~3 to ~4 weeks; the user may want to tell the boss.
-
-## Next steps
-
-1. Plan 1 (renderer) EXECUTING, subagent-driven, on branch `plan1-renderer` (user approved 2026-09-23). Moderated stages: A = Tasks 1–7, B = Tasks 8–14 + QA checkpoint, C = Tasks 15–17 + whole-branch review + full QA + Task 18 checks. Moderator (main session) pushes; agents never push or run gh.
-   - Process hygiene (user request 2026-09-24): run `.superpowers/sdd/cleanup-orphans.sh` at every stage boundary and whenever the Mac feels slow. It kills only orphaned processes whose command contains this repo or this session's scratchpad path; never other projects' node, never the Claude session. Every agent prompt also requires agents to stop what they started.
-   - Recovery: ledger `.superpowers/sdd/progress.md`, shared log `.superpowers/sdd/build-log.md`, briefs/reports in `.superpowers/sdd/`, reusable stage script `~/.claude/projects/-Users-ashir-Documents-workk2-web-maker/072d5ae3-5e24-4502-8d9b-6e9b37ab7404/workflows/scripts/renderer-build-stage-wf_a9eb888e-a28.js` (args: stage, from, to, base, qa, final, fixFirst).
-   - Status 2026-09-25: PLAN 1 COMPLETE and MERGED to main. Stage C = Tasks 15–17 (first-round clean) + full QA (r1: 1 Major, WebKit select height → fixed; r2 clean) + whole-branch review (1 promoted Important: hero tagline orphaning on phones → fixed with m5 select overflow; re-review approved) + Task 18 checks (3 adversarial breaks caught). Moderator verified: 557 unit + 138 e2e (34 intentionally skipped), commits clean, looked at hvac page on WebKit 390. STAGE 0 COMPLETE and MERGED to main (7 commits 777eac3..a03d7ff; whole-branch review 0/0; 675 unit + 14 workerd + 138 e2e; Plan 1 goldens byte-identical). Disk: 78 GB free after the user cleared the other project's temp. (Plan 2 Tasks 1–6 on branch plan2-hosting, base main 553adcf; artifacts `.superpowers/sdd/p2-*`; A6 recorded). After it merges: user opens sessions for Plan 2B (Tasks 7–19), Plan 3, Plan 4 in worktrees.
-   Then plans 2–4: hosting + publish, AI generation, questionnaire + approval.
-2. Repo done. GitHub work: `gh auth switch --user sydashir`, then switch back to `dev778d` after.
-3. Domain: deferred by the user (2026-09-23). Reminder when chosen: Public Suffix List review takes weeks, submit early.
-4. Accounts, user will provide when asked: Anthropic API key at plan 3 (~$20–50 prepaid credits; Pro/Max subscription cannot be used — Consumer Terms ban automated access except via API key, verified 2026-09-23); Cloudflare account at plan 2 (free plan fits the pilot). Later: Resend, Geoapify. Keys go only in Cloudflare secrets / gitignored `.dev.vars`.
-5. Decide the any-niche questionnaire approach.
-6. Kick off the build.
-
-## Needed from the user
-
-- Whether these rules should also go into the global `~/.claude/CLAUDE.md` (applies to every project).
+- 2026-09-25 ~19:50: GO sent to both sessions from main fec8ac9 (sync with main after A8b merges). Plan 4 = asksite-plan4-a1 (tab asksite-app), confirmed in the right folder and holding for GO. Push rule: build sessions never push or run gh; web-maker-99 pushes their branches (briefs §4/§7 and CLAUDE.md updated, uncommitted).

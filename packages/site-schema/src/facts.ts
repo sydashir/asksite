@@ -21,7 +21,7 @@ export const SOCIAL_HOSTS: Record<(typeof SOCIAL_NETWORKS)[number], readonly str
 // Control and invisible formatting characters (e.g. U+202E right-to-left override, U+200B
 // zero-width space) can disguise text. U+200D (zero-width joiner) stays allowed because emoji
 // use it. Owner text is not NFKC-normalised: that would rewrite what the owner typed ("™" -> "TM").
-const HIDDEN_CHARACTER = /\p{Cc}|(?!‍)\p{Cf}/u;
+const HIDDEN_CHARACTER = /\p{Cc}|(?!\u200D)\p{Cf}/u;
 
 const text = (min: number, max: number) =>
   z

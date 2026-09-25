@@ -72,6 +72,7 @@ for (const name of FIXTURES) {
     });
 
     test("passes axe (WCAG 2.2 AA serious/critical, landmarks, heading order) with every <details> closed, then open", async ({ page }) => {
+      test.slow(); // four axe runs: triple the 30 s timeout (31.7 s once on a busy machine, Plan 2 Task 6)
       const closed = await axeProblems(page);
       // Content inside a closed <details> is not rendered, so axe skips it: open them all and scan again.
       await page.evaluate(() => {

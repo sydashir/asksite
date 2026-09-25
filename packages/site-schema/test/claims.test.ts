@@ -11,6 +11,12 @@ const base: SiteDocumentInput["facts"] = {
   services: [{ name: "House cleaning" }],
 };
 
+/** Every Unicode scalar value as a one-character string. */
+const allCodePoints = (): string[] =>
+  Array.from({ length: 0x110000 }, (_, c) => c)
+    .filter((c) => c < 0xd800 || c > 0xdfff)
+    .map((c) => String.fromCodePoint(c));
+
 /** No licences, not insured, no 24/7, no free estimates, no founding year. */
 const NONE = Facts.parse(base);
 /** Every fact that can back a claim. */
@@ -52,6 +58,14 @@ describe("unbackedClaims", () => {
     ["Fully insured for your peace of mind", "insured"],
     ["Emergency cleanups around the clock", "Emergency"],
     ["Call us any time, day or night", "any time"],
+    ["Open seven days a week", "seven days a week"],
+    ["seven-day-a-week service", "seven-day-a-week"],
+    ["seven days per week", "seven days per week"],
+    ["Here seven days each week", "seven days each week"],
+    ["Seven days every week", "Seven days every week"],
+    ["Open seven days of the week", "seven days of the week"],
+    ["Help seven days/week", "seven days/week"],
+    ["Help seven days / week", "seven days / week"],
     ["Get a free quote", "free"],
     ["There is no charge for a visit", "no charge"],
     ["A complimentary walkthrough", "complimentary"],
@@ -78,14 +92,105 @@ describe("unbackedClaims", () => {
     ["Our licensed team", "licensed", "licences"],
     ["Fully insured for your peace of mind", "insured", "insured"],
     ["Emergency cleanups around the clock", "Emergency", "emergency247"],
+    ["Open seven days a week", "seven days a week", "emergency247"],
+    ["seven-day-a-week service", "seven-day-a-week", "emergency247"],
+    ["seven days per week", "seven days per week", "emergency247"],
+    ["Here seven days each week", "seven days each week", "emergency247"],
+    ["Open seven days of the week", "seven days of the week", "emergency247"],
+    ["Help seven days/week", "seven days/week", "emergency247"],
     ["Get a free quote", "free", "freeEstimates"],
   ] as const)("allows %j when only its own fact (%s) is set, and rejects it when every other fact is set instead", (text, word, fact) => {
     expect(unbackedClaims(text, ONLY[fact])).toEqual([]);
     expect(unbackedClaims(text, ALL_BUT[fact])).toEqual([word]);
   });
 
+  // A8c: opening hours that cover every day back the full-week phrase too, and nothing else.
+  const WEEKDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"] as const;
+  const EVERY_DAY_HOURS = {
+    "one entry for all seven days": Facts.parse({ ...base, hours: [{ days: [...WEEKDAYS, "Saturday", "Sunday"], opens: "08:00", closes: "18:00" }] }),
+    "three entries that cover the week": Facts.parse({
+      ...base,
+      hours: [
+        { days: [...WEEKDAYS], opens: "07:00", closes: "19:00" },
+        { days: ["Saturday"], opens: "08:00", closes: "14:00" },
+        { days: ["Sunday"], opens: "10:00", closes: "12:00" },
+      ],
+    }),
+  };
+  const SIX_DAY_HOURS = Facts.parse({ ...base, hours: [{ days: [...WEEKDAYS, "Saturday"], opens: "08:00", closes: "18:00" }] });
+  const WEEKLY = [
+    "Open seven days a week",
+    "seven-day-a-week service",
+    "seven days per week",
+    "Here seven days each week",
+    "Open seven days of the week",
+    "Help seven days/week",
+  ];
+
+  it.each(Object.entries(EVERY_DAY_HOURS))("allows the full-week phrase when the hours have %s", (_, facts) => {
+    for (const text of WEEKLY) expect(unbackedClaims(text, facts)).toEqual([]);
+  });
+
+  it("still refuses the full-week phrase when the hours leave out a day", () => {
+    expect(WEEKLY.map((text) => unbackedClaims(text, SIX_DAY_HOURS))).toEqual([
+      ["seven days a week"],
+      ["seven-day-a-week"],
+      ["seven days per week"],
+      ["seven days each week"],
+      ["seven days of the week"],
+      ["seven days/week"],
+    ]);
+  });
+
+  it.each([
+    ["Emergency cleanups around the clock", "Emergency"],
+    ["We answer around the clock", "around the clock"],
+    ["Call us any time, day or night", "any time"],
+    ["Help day or night", "day or night"],
+  ])("does not let hours for every day back %j (only a 24/7 fact does)", (text, word) => {
+    for (const facts of Object.values(EVERY_DAY_HOURS)) expect(unbackedClaims(text, facts)).toEqual([word]);
+  });
+
+  it("refuses a sentence about how often, not opening hours, unless the facts back it (accepted residual)", () => {
+    const text = "Water your new sod seven days a week for the first month";
+    expect(unbackedClaims(text, NONE)).toEqual(["seven days a week"]);
+    expect(unbackedClaims(text, EVERY_DAY_HOURS["one entry for all seven days"])).toEqual([]);
+  });
+
   it("leaves ordinary sales copy alone", () => {
     expect(unbackedClaims("Careful cleaners for busy households. Hassle-free booking, one-off or weekly.", NONE)).toEqual([]);
+  });
+
+  it.each([
+    "Most jobs take a few days",
+    "Book a week ahead",
+    "Seven rooms, one crew",
+    "We can come two days a week or once a month",
+    "Most paints need seven days to cure",
+    "Your written quote arrives within seven days",
+    "Give us seven days' notice",
+    "Seven days of drying time",
+    "a few days—a week for bigger jobs", // U+2014 em dash, which joins words in claims
+    "Here for you every day", // left open by A8, A8b and A8c
+    "Seven-day turnaround on most quotes", // why "seven-day service" stays uncaught (A8c)
+    "Fast seven-day service", // known gap, recorded in A8c
+    "Open seven days", // known gap, recorded in A8c-2: reads the same as the sentences below
+    "We are open all seven days", // known gap, recorded in A8c-2
+    "Keep the vents open seven days after painting", // A8c-2: the "open seven days" form refused these
+    "Booking slots open seven days ahead",
+    "Leave the windows open seven days so the plaster dries",
+    "The trench stays open seven days at most",
+    "Our quotes stay open seven days.",
+    "We hold your booking open seven days while you decide.",
+    "Leave the garage door open seven days while the epoxy cures.",
+    "The new driveway can open seven days after paving.",
+    "Bids open seven days before the deadline.",
+    "Keep the vents open—seven days after painting—so the paint cures", // U+2014 em dash, a joiner
+    "Book seven days ahead",
+    "Leave the windows open. Seven days is enough to dry the plaster",
+    "We reopen seven days after a storm",
+  ])("does not read %j as a round-the-clock claim", (text) => {
+    expect(unbackedClaims(text, NONE)).toEqual([]);
   });
 
   it.each([
@@ -96,6 +201,7 @@ describe("unbackedClaims", () => {
     ["Award  winning crew", "Award winning"],
     ["Call any  time", "any time"],
     ["We answer around\u00A0the clock", "around the clock"], // U+00A0 no-break space
+    ["Open seven\u00A0days\u00A0a\u00A0week", "seven days a week"],
     ["Same\u2011day service", "Same-day"], // U+2011 non-breaking hyphen
     ["Five\u2010star service", "Five-star"], // U+2010 hyphen
     ["Help day\u2011or\u2011night", "day-or-night"], // U+2011 non-breaking hyphen
@@ -135,12 +241,53 @@ describe("unbackedClaims", () => {
     },
   );
 
-  it.each(["-", ...DASHES].flatMap((d) => ["day" + d + "or" + d + "night", "any" + d + "time"]))(
+  it.each(["-", ...DASHES].flatMap((d) => ["day" + d + "or" + d + "night", "any" + d + "time", "seven" + d + "days" + d + "a" + d + "week", "seven" + d + "days" + d + "of" + d + "the" + d + "week"]))(
     "allows the emergency claim %j, joined by a hyphen or dash, only when the owner's facts back it",
     (claim) => {
       const text = "Call us " + claim + " for a burst pipe";
       expect(unbackedClaims(text, NONE)).toEqual([claim]);
       expect(unbackedClaims(text, ALL)).toEqual([]);
+    },
+  );
+
+  // A8c: every other dash reads like an em dash. These 16 survive NFKC (so they reach the checker in
+  // AI copy) and are not in the joiner list above; the rest of \p{Pd} is added from the engine's tables.
+  const OTHER_DASHES = [
+    "―", "⁃", "⎯", "─", "━", "⸗", "⸚", "⸺",
+    "⸻", "⹀", "⹝", "〜", "〰", "゠", "ー", "ｰ",
+  ];
+  const JOINERS = new Set(["-", "‐", "‑", ...DASHES]); // U+2010/U+2011 read as "-" (A2)
+  const EVERY_OTHER_DASH = [...new Set([...OTHER_DASHES, ...allCodePoints().filter((c) => /\p{Pd}/u.test(c))])].filter((d) => !JOINERS.has(d));
+
+  it("finds \"Award―winning\" (U+2015 horizontal bar) whatever the facts", () => {
+    expect(unbackedClaims("Award―winning crew", ALL)).toEqual(["Award—winning"]);
+  });
+
+  it("covers the listed dashes and every \\p{Pd} this engine knows", () => {
+    expect(EVERY_OTHER_DASH).toEqual(expect.arrayContaining([...OTHER_DASHES, "֊", "־", "᐀", "᠆", "\u{10EAD}"]));
+    expect(EVERY_OTHER_DASH.length).toBeGreaterThanOrEqual(OTHER_DASHES.length + 5);
+  });
+
+  const TEMPLATES = [
+    (d: string) => `Award${d}winning crew`,
+    (d: string) => `Same${d}day service`,
+    (d: string) => `Round${d}the${d}clock help`,
+    (d: string) => `Call us seven${d}days${d}a${d}week`,
+    (d: string) => `No${d}charge visit`,
+    (d: string) => `Estimates${d}free`,
+    (d: string) => `Hassle${d}free booking`,
+    (d: string) => `a few days${d}a week for bigger jobs`,
+    (d: string) => `Most jobs take a few days ${d} rarely more`,
+  ];
+
+  it.each(EVERY_OTHER_DASH.map((d) => [`U+${d.codePointAt(0)?.toString(16).toUpperCase()}`, d]))(
+    "reads %s exactly as an em dash, with and without backing facts",
+    (_, d) => {
+      for (const template of TEMPLATES) {
+        for (const facts of [NONE, ALL]) {
+          expect(unbackedClaims(template(d), facts)).toEqual(unbackedClaims(template("—"), facts));
+        }
+      }
     },
   );
 
@@ -224,8 +371,10 @@ describe("SiteDocument rejects AI copy that states facts the owner did not give"
     "Emergency cleaning around the clock",
     "Reliable day-or-night plumbing across Boise.",
     "Call us any-time for a clogged drain.",
+    "Open seven days a week",
     "Free estimates, no hidden fees",
     "Five-star rated, award-winning, BBB accredited",
+    "Award―winning crew", // U+2015 horizontal bar survives NFKC
     "“Best cleaners ever!” said Sarah",
     '"Best cleaners in Boise!" - Sarah K.',
     "‘Best cleaners ever!’ - Sarah",
@@ -258,6 +407,7 @@ describe("SiteDocument keeps AI copy the checks have no reason to reject", () =>
     "Leak fixed \u2714\uFE0F", // Copy accepts emoji (copy.test.ts), so a whole page must too
     "Friendly team \u2764\uFE0F",
     "Cool comfort \u2744\uFE0F",
+    "Keep the vents open seven days after painting.", // A8c-2: not a claim about opening hours
     '" autofocus onfocus="alert(document.cookie)', // Task 15's XSS fixture puts these in AI copy
     '<iframe srcdoc="<script>alert(document.domain)</script>"></iframe>',
   ])("%j", (text) => {
