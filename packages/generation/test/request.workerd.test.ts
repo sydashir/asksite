@@ -62,6 +62,7 @@ describe("requestGeneration", () => {
     await insertGeneration(db, { id: "y", site_id: "s1", owner_id: "o1", status: "failed", created_at: utcDayStart(NOW) - 1 });
     for (let i = 0; i < 5; i++) await insertGeneration(db, { id: `t${i}`, site_id: "s1", owner_id: "o1", status: "failed", created_at: utcDayStart(NOW) + i });
     expect(await requestGeneration(env(queue().q), input())).toEqual({ ok: false, code: "generation_cap_reached" });
+    expect(await db.prepare("SELECT COUNT(*) AS n FROM audit_log WHERE site_id = 's1'").first()).toEqual({ n: 0 });
     expect((await requestGeneration(env(queue().q), input("s2"))).ok).toBe(true);
   });
 
@@ -98,7 +99,8 @@ describe("requestGeneration", () => {
     expect(await requestGeneration(env(queue(true).q), input())).toEqual({ ok: false, code: "internal" });
     const row = await db.prepare("SELECT status, error_code, finished_at FROM generations").first();
     expect(row).toEqual({ status: "failed", error_code: "internal", finished_at: NOW });
-    expect((await requestGeneration(env(queue().q), input())).ok).toBe(true);
+    const retry = await requestGeneration(env(queue().q), input());
+    expect(retry.ok && retry.generation.kind).toBe("first");
   });
 
   it("refuses a site of another owner or a taken-down site, writing and sending nothing", async () => {
