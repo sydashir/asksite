@@ -179,8 +179,9 @@ async function answerWithinLimit(provider: ModelProvider, req: ModelRequest): Pr
  * pause 2 s then 6 s; auth and bad-request errors stop at once. Only these are recorded as provider
  * errors: the provider call's own errors, our timeouts and the input-bound refusal. An exception from
  * our own code (buildPrompt, timeoutSignal, the bound's measurement, usage accounting, checkDraft) is
- * a bug: it propagates, so the job reports it as internal instead of hiding it as a provider
- * rejection. Shared by the queue job and the eval.
+ * a bug: it propagates instead of being hidden as a provider rejection. The job treats it as an
+ * unexpected error (plan Decision 24): a regeneration fails with internal, and a first build gets the
+ * template draft with fallback reason provider_error. Shared by the queue job and the eval.
  */
 export async function generateDraft(provider: ModelProvider, snapshot: GenerationInputSnapshot, deps: GenerateDeps = REAL_DEPS): Promise<GenerateResult> {
   const usage = { inputTokens: 0, outputTokens: 0 };

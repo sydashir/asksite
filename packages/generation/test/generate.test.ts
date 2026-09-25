@@ -1,10 +1,10 @@
 import { getEventListeners } from "node:events";
 import { Brief, type GenerationInputSnapshot } from "@asksite/core";
 import { Facts } from "@asksite/site-schema";
-import { describe, expect, it } from "vitest";
-import { CAPS_REPAIR, CAPS_SNAPSHOT, capsSnapshot } from "../eval/caps.ts";
+import { describe, expect, it, vi } from "vitest";
+import { CAPS_REPAIR, CAPS_SNAPSHOT, capsRepair, capsSnapshot } from "../eval/caps.ts";
 import { ATTEMPT_TIMEOUT_MS, capIssues, generateDraft, inputBound, MAX_INPUT_TOKENS, MAX_OUTPUT_TOKENS, PROMPT_OVERHEAD_TOKENS } from "../src/generate.ts";
-import { buildPrompt } from "../src/prompt.ts";
+import { buildPrompt, MAX_ISSUE_MESSAGE, MAX_ISSUE_PATH, MAX_REPAIR_ISSUES } from "../src/prompt.ts";
 import type { ModelProvider, ModelRequest, ModelResponse } from "../src/provider.ts";
 import { FakeProvider } from "../src/providers/fake.ts";
 import { AI_DRAFT_JSON_SCHEMA, toWireSchema } from "../src/wire-schema.ts";
@@ -508,6 +508,23 @@ describe("the input bound (P3-8)", () => {
     expect(inputBound({ system: "", user, jsonSchema: {} })).toBe(most + 2 + PROMPT_OVERHEAD_TOKENS);
   });
 
+  it("lets an exception from the bound's own measurement propagate: generateDraft rejects with it and calls no provider", async () => {
+    // inputBound runs inside the attempt's try, so only the catch's rethrow keeps this bug from being recorded as a bad request.
+    const { deps, sleeps } = testDeps();
+    const provider = providerOf();
+    const failure = new Error("measurement failed");
+    const normalize = vi.spyOn(String.prototype, "normalize").mockImplementation(() => {
+      throw failure;
+    });
+    try {
+      await expect(generateDraft(provider, FULL_SNAPSHOT, deps)).rejects.toBe(failure);
+    } finally {
+      normalize.mockRestore();
+    }
+    expect(provider.calls).toBe(0);
+    expect(sleeps).toEqual([]);
+  });
+
   it("measures the system prompt, the user prompt and the schema as the adapters send it (toWireSchema), not the raw schema", () => {
     const schema = { type: "string", minLength: 1, $schema: "x" };
     expect(inputBound({ system: "ab", user: "c", jsonSchema: schema })).toBe(3 + bytes(JSON.stringify(toWireSchema(schema))) + PROMPT_OVERHEAD_TOKENS);
@@ -565,6 +582,24 @@ describe("the input bound (P3-8)", () => {
     expect(provider.requests[1]!.user.split("\n").filter((line) => line.startsWith('- "copy.faq.')).length).toBe(20);
   });
 
+  // A private-use character (U+E000) is unchanged by NFC and NFKC and costs 3 UTF-8 bytes, so the guard treats it like
+  // the euro sign and sends it: a byte-level tokenizer never spends more tokens than bytes (Task 15 counts real tokens).
+  it("sends a schema-valid snapshot filled with U+E000 (private use), which costs what the euro sign costs, and its next attempt after real repair lines", async () => {
+    const snapshot = capsSnapshot("\uE000");
+    expect(Facts.safeParse(snapshot.facts).success && Brief.safeParse(snapshot.brief).success).toBe(true);
+    const { system, user } = buildPrompt(snapshot);
+    expect(boundOf(snapshot)).toBe(bytes(system) + bytes(user) + bytes(JSON.stringify(toWireSchema(AI_DRAFT_JSON_SCHEMA))) + PROMPT_OVERHEAD_TOKENS);
+    expect(boundOf(snapshot)).toBe(boundOf(capsSnapshot("\u20AC")));
+    // With every repair line at its caps in U+E000 it stays within the proven maximum, CAPS_SNAPSHOT with CAPS_REPAIR.
+    const largest = inputBound({ ...buildPrompt(CAPS_SNAPSHOT, CAPS_REPAIR), jsonSchema: AI_DRAFT_JSON_SCHEMA });
+    expect(inputBound({ ...buildPrompt(snapshot, capsRepair("\uE000")), jsonSchema: AI_DRAFT_JSON_SCHEMA })).toBeLessThanOrEqual(largest);
+    const draft = templateDraft(snapshot.facts, snapshot.brief);
+    const provider = scriptedProvider([answer(withUnknownKeys(draft, "\uE000")), answer(draft)]);
+    const result = await generateDraft(provider, snapshot, testDeps().deps);
+    expect(result).toMatchObject({ ok: true, attempts: 2, validOnAttempt: 2, inputBoundRefused: false });
+    expect(provider.requests.map((req) => inputBound(req) <= largest)).toEqual([true, true]);
+  });
+
   it("refuses attempt 2 when the real repair lines of attempt 1 push it over: attempts 1, inputBoundRefused, no retry", async () => {
     const { deps, sleeps } = testDeps();
     const provider = scriptedProvider([answer(withUnknownKeys(good, "\uFDFA")), answer(good)]);
@@ -574,6 +609,8 @@ describe("the input bound (P3-8)", () => {
     expect(result.log.map((a) => [a.outcome, a.usageMissing])).toEqual([["invalid", false], ["bad_request", false]]);
     expect(sleeps).toEqual([]);
     const issues = result.ok ? [] : result.issues;
+    // checkDraft found 21 issues (20 unknown keys and too many faq entries); the result keeps the first MAX_REPAIR_ISSUES.
+    expect(issues).toHaveLength(MAX_REPAIR_ISSUES);
     expect(issues[0]).toMatchObject({ path: ["copy", "faq", 0], code: "unrecognized_keys" });
     // Attempt 1 was under the bound; attempt 2, with those repair lines, is over it.
     expect(inputBound(provider.requests[0]!)).toBeLessThanOrEqual(MAX_INPUT_TOKENS);
@@ -638,10 +675,12 @@ describe("capIssues (P3-8)", () => {
     expect(capIssues([{ path, code: "custom", message: "m" }])[0]!.path).toEqual(want);
   });
 
+  // 'Unrecognized key: "' is 19 units and the key's first 180 are ASCII, so the message's 200-unit cut splits an emoji.
+  const key = (i: number): string => `${"k".repeat(178)}${String(i).padStart(2, "0")}${EMOJI.repeat(20)}`;
+  /** An answer with 31 issues: an unknown key in each of 30 faq entries (each message 240 units), and too many entries. */
+  const hostile = { ...good, copy: { ...good.copy, faq: Array.from({ length: 30 }, (_, i) => ({ question: "Do you fix leaks?", answer: "Yes, we do.", [key(i)]: "x" })) } };
+
   it("records at most 20 issues per attempt and in the result, each cut like a repair line, for an answer with 31 issues", async () => {
-    // 'Unrecognized key: "' is 19 units and the key's first 180 are ASCII, so the message's 200-unit cut splits an emoji.
-    const key = (i: number): string => `${"k".repeat(178)}${String(i).padStart(2, "0")}${EMOJI.repeat(20)}`;
-    const hostile = { ...good, copy: { ...good.copy, faq: Array.from({ length: 30 }, (_, i) => ({ question: "Do you fix leaks?", answer: "Yes, we do.", [key(i)]: "x" })) } };
     const raw = checkDraft(FULL_SNAPSHOT.facts, hostile);
     expect(raw.ok ? [] : raw.issues).toHaveLength(31);
     const result = await generateDraft(scriptedProvider([answer(hostile), answer(hostile), answer(hostile)]), FULL_SNAPSHOT, testDeps().deps);
@@ -655,6 +694,21 @@ describe("capIssues (P3-8)", () => {
         expect(issue.message.endsWith("\uFFFD")).toBe(true);
         expect(SURROGATE.test(issue.message)).toBe(false);
       }
+    }
+  });
+
+  it("caps the issues of a loop that stops early: an answer with 31 issues, then an auth error, returns 20, each cut like a repair line", async () => {
+    const { deps, sleeps } = testDeps();
+    const raw = checkDraft(FULL_SNAPSHOT.facts, hostile);
+    expect(raw.ok ? [] : raw.issues).toHaveLength(31);
+    const result = await generateDraft(scriptedProvider([answer(hostile), new ProviderError("auth", "401")]), FULL_SNAPSHOT, deps);
+    expect(result).toMatchObject({ ok: false, failure: "provider_error", providerErrorKind: "auth", attempts: 2 });
+    expect(sleeps).toEqual([]);
+    const issues = result.ok ? [] : result.issues;
+    expect(issues).toHaveLength(MAX_REPAIR_ISSUES);
+    for (const issue of issues) {
+      expect(issue.message.length).toBeLessThanOrEqual(MAX_ISSUE_MESSAGE);
+      expect(issue.path.join(".").length).toBeLessThanOrEqual(MAX_ISSUE_PATH);
     }
   });
 });
