@@ -35,6 +35,19 @@ describe("createProvider", () => {
     expect(() => createProvider({ ...base, ...env }, FULL_SNAPSHOT)).toThrow(expect.objectContaining({ name: "ProviderError", kind }));
   });
 
+  // P3-11 (k): a key an HTTP header cannot carry as typed is refused at setup as auth, before any request.
+  const newline = String.fromCharCode(10);
+  it.each([
+    ["an Anthropic key of spaces", { MODEL_PROVIDER: "anthropic", ANTHROPIC_API_KEY: "   " }],
+    ["an Anthropic key with a newline", { MODEL_PROVIDER: "anthropic", ANTHROPIC_API_KEY: `sk-ant-a${newline}b` }],
+    ["a compatible key of spaces", { MODEL_PROVIDER: "openai-compatible", OPENAI_COMPAT_BASE_URL: "https://x.example/v1", OPENAI_COMPAT_API_KEY: "   " }],
+    ["a compatible key with a trailing newline", { MODEL_PROVIDER: "openai-compatible", OPENAI_COMPAT_BASE_URL: "https://x.example/v1", OPENAI_COMPAT_API_KEY: `gsk-a${newline}` }],
+  ])("refuses %s as auth, with no request", (_name, env) => {
+    const http = fakeFetch([]);
+    expect(() => createProvider({ ...base, ...env }, FULL_SNAPSHOT, http.fetch)).toThrow(expect.objectContaining({ name: "ProviderError", kind: "auth" }));
+    expect(http.calls).toHaveLength(0);
+  });
+
   // In Node the SDK reads process.env.ANTHROPIC_API_KEY when apiKey is undefined (Task 6 review), so a
   // missing key must be refused here, never left for the SDK to fill in.
   it.each([

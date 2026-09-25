@@ -3,7 +3,7 @@ import { ATTEMPT_TIMEOUT_MS } from "../generate.ts";
 import { modelSettings } from "../models.ts";
 import { ProviderError, type ModelProvider, type ModelRequest, type ModelResponse, type ProviderErrorKind } from "../provider.ts";
 import { dropNulls, toWireSchema } from "../wire-schema.ts";
-import { statusKind, tokenCount } from "./shared.ts";
+import { checkApiKey, statusKind, tokenCount } from "./shared.ts";
 
 export interface AnthropicOptions {
   apiKey: string;
@@ -86,6 +86,7 @@ export class AnthropicProvider implements ModelProvider {
   readonly #model: string;
 
   constructor(options: AnthropicOptions) {
+    checkApiKey(options.apiKey, "ANTHROPIC_API_KEY");
     this.#model = options.model;
     this.#client = new Anthropic({
       apiKey: options.apiKey,

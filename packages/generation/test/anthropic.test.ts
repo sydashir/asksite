@@ -354,3 +354,19 @@ describe("AnthropicProvider: the status rule (P3-11 e)", () => {
     expect(http.calls).toHaveLength(1);
   });
 });
+
+// P3-11 (k): a key an HTTP header cannot carry as typed is refused at construction as auth: no request, no retry.
+describe("AnthropicProvider: a key a header cannot carry (P3-11 k)", () => {
+  it.each([
+    ["spaces only", "   "],
+    ["a newline inside", `sk-ant-a${String.fromCharCode(10)}b`],
+    ["a control character", `sk-ant-a${String.fromCharCode(1)}b`],
+    ["an em dash", `sk-ant-a${String.fromCharCode(0x2014)}b`],
+  ])("refuses a key with %s as auth before any request", (_name, apiKey) => {
+    const http = fakeFetch([{ status: 200, body: message("{}") }]);
+    expect(() => new AnthropicProvider({ apiKey, model: "claude-opus-5-5", fetch: http.fetch })).toThrow(
+      expect.objectContaining({ name: "ProviderError", kind: "auth", message: "ANTHROPIC_API_KEY is blank or holds a character an HTTP header cannot carry" }),
+    );
+    expect(http.calls).toHaveLength(0);
+  });
+});

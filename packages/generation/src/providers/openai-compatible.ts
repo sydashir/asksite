@@ -2,7 +2,7 @@ import { isSafeUrl } from "@asksite/site-schema";
 import { modelSettings } from "../models.ts";
 import { ProviderError, type ModelProvider, type ModelRequest, type ModelResponse, type ProviderErrorKind } from "../provider.ts";
 import { dropNulls, toWireSchema } from "../wire-schema.ts";
-import { statusKind, tokenCount } from "./shared.ts";
+import { checkApiKey, statusKind, tokenCount } from "./shared.ts";
 
 export interface OpenAICompatibleOptions {
   /** e.g. https://api.cloudflare.com/client/v4/accounts/<id>/ai/v1 or https://router.huggingface.co/v1 */
@@ -124,6 +124,7 @@ export class OpenAICompatibleProvider implements ModelProvider {
   readonly #fetch: typeof fetch;
 
   constructor(options: OpenAICompatibleOptions) {
+    checkApiKey(options.apiKey, "OPENAI_COMPAT_API_KEY");
     if (!isSafeUrl(options.baseUrl, ["https:"])) throw new ProviderError("bad_request", "OPENAI_COMPAT_BASE_URL must be an absolute https:// URL");
     this.#url = `${options.baseUrl.replace(/\/+$/, "")}/chat/completions`;
     this.#apiKey = options.apiKey;

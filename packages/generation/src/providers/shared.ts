@@ -1,4 +1,4 @@
-import type { ProviderErrorKind } from "../provider.ts";
+import { ProviderError, type ProviderErrorKind } from "../provider.ts";
 
 // Rules both HTTP adapters (anthropic.ts, openai-compatible.ts) share, kept in one place so they cannot drift apart (P3-11).
 
@@ -25,3 +25,20 @@ const MAX_TOKEN_COUNT = 10_000_000;
  */
 export const tokenCount = (value: unknown): number | undefined =>
   typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= MAX_TOKEN_COUNT ? value : undefined;
+
+/**
+ * The characters a key may hold: printable ASCII and U+00A0 to U+00FF, the characters an HTTP header carries as
+ * typed, control characters excluded. The Fetch Standard's Headers refuse NUL, CR and LF (a header value) and anything
+ * above U+00FF (ByteString), and strip leading and trailing whitespace; RFC 9110 and Node's HTTP stack also refuse the
+ * other C0 controls and DEL. A tab or a C1 control could be sent, but no key holds one.
+ */
+const HEADER_TEXT = /^[\x20-\x7E\xA0-\xFF]*$/;
+
+/**
+ * Throws ProviderError("auth") at setup, before any request (P3-11 k), for a key that is blank or holds a character
+ * outside HEADER_TEXT: no request can carry it as typed, so it needs a human, like a wrong key. `name` is the key's
+ * variable; the message never holds the key.
+ */
+export function checkApiKey(key: string, name: string): void {
+  if (key.trim() === "" || !HEADER_TEXT.test(key)) throw new ProviderError("auth", `${name} is blank or holds a character an HTTP header cannot carry`);
+}
