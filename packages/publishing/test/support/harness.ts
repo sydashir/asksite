@@ -22,8 +22,10 @@ export function publishingHarness(name: string) {
       {
         config: {
           name,
-          main: "packages/core/test/support/noop-worker.ts",
+          main: "packages/publishing/test/support/runtime-worker.ts",
           compatibility_date: "2026-09-21",
+          // A13: Node.js compatibility is on by default from 2026-08-04; Cloudflare turns it off with both.
+          compatibility_flags: ["no_nodejs_compat", "no_nodejs_compat_v2"],
           d1_databases: [{ binding: "DB", database_name: "asksite", database_id: "00000000-0000-0000-0000-000000000000", migrations_dir: "packages/core/migrations" }],
           r2_buckets: [
             { binding: "WORK", bucket_name: "asksite-work" },

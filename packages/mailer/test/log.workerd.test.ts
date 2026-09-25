@@ -9,8 +9,10 @@ const server = createTestHarness({
     {
       config: {
         name: "mailer-log-test",
-        main: "packages/core/test/support/noop-worker.ts",
+        main: "packages/mailer/test/support/runtime-worker.ts",
         compatibility_date: "2026-09-21",
+        // A13: Node.js compatibility is on by default from 2026-08-04; Cloudflare turns it off with both.
+        compatibility_flags: ["no_nodejs_compat", "no_nodejs_compat_v2"],
         d1_databases: [{ binding: "DB", database_name: "asksite", database_id: "00000000-0000-0000-0000-000000000000", migrations_dir: "packages/core/migrations" }],
       },
     },
@@ -43,6 +45,15 @@ const NOT_DEVELOPMENT = ["production", "prod", "", "Development"];
 function outboxRows(): Promise<number | null> {
   return DB.prepare("SELECT COUNT(*) AS n FROM dev_outbox").first<number>("n");
 }
+
+// A13: at compatibility date 2026-09-21 Node.js compatibility is ON by default (and fills process.env
+// with every text binding, secrets included). The harness turns it off, as production does.
+describe("the mailer harness Worker (A13)", () => {
+  it("has no Node.js process global and no node:* modules", async () => {
+    const response = await server.fetch("/");
+    expect(await response.json()).toEqual({ process: "undefined", nodeBuffer: "absent" });
+  });
+});
 
 describe("LogMailer", () => {
   it("writes the email to dev_outbox with a cleaned subject", async () => {
