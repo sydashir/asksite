@@ -1,5 +1,5 @@
 import { PALETTE_IDS, Theme } from "@asksite/site-schema";
-import { describe, expect, it } from "vitest";
+import { describe, expect, expectTypeOf, it } from "vitest";
 import {
   AcceptInviteBody,
   ApproveBody,
@@ -14,6 +14,7 @@ import {
   PatchDraftBody,
   SettingsBody,
   TakedownBody,
+  type AdminSettings,
   type ErrorBody,
   type LeadView,
   type SiteRow,
@@ -130,5 +131,13 @@ describe("row and view types", () => {
     const lead: LeadView = { id: "l", createdAt: 1, name: "n", phone: "p", email: null, service: null, message: null, emailStatus: "sent" };
     const body: ErrorBody = { error: { code: "conflict", message: "Changed elsewhere", currentRev: 2 } };
     expect([site.indexable, version.status, lead.emailStatus, ERROR_STATUS[body.error.code]]).toEqual([1, "pending", "sent", 409]);
+  });
+
+  it("allow an unknown worst-case daily cost: null when the model has no recorded price (M3)", () => {
+    const settings: AdminSettings = {
+      generationEnabled: false, envGenerationEnabled: false, dailyModelLimit: 8, modelCallsToday: 0, spentTodayMicrousd: 0, worstCaseDailyMicrousd: null,
+    };
+    expectTypeOf<AdminSettings["worstCaseDailyMicrousd"]>().toEqualTypeOf<number | null>();
+    expect(settings.worstCaseDailyMicrousd).toBeNull();
   });
 });
