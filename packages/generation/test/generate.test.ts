@@ -48,7 +48,7 @@ describe("generateDraft", () => {
     const result = await generateDraft(provider, FULL_SNAPSHOT, deps);
     expect(result).toMatchObject({ ok: true, attempts: 2, validOnAttempt: 2 });
     expect(provider.requests[0]!.user).not.toContain("previous answer");
-    expect(provider.requests[1]!.user).toMatch(/previous answer was rejected[\s\S]*- copy\.heroHeadline: /);
+    expect(provider.requests[1]!.user).toMatch(/previous answer was rejected[\s\S]*- "copy\.heroHeadline": /);
     expect(sleeps).toEqual([]);
   });
 
@@ -71,7 +71,7 @@ describe("generateDraft", () => {
     const provider = scriptedProvider([answer(bad), new ProviderError("rate_limited", "429"), answer(good)]);
     const result = await generateDraft(provider, FULL_SNAPSHOT, deps);
     expect(result).toMatchObject({ ok: true, attempts: 3, validOnAttempt: 3 });
-    expect(provider.requests[2]!.user).toContain("- copy.heroHeadline: ");
+    expect(provider.requests[2]!.user).toContain('- "copy.heroHeadline": ');
     expect(sleeps).toEqual([2_000]);
   });
 
