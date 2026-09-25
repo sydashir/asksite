@@ -52,8 +52,9 @@ describe("unbackedClaims", () => {
     ["Fully insured for your peace of mind", "insured"],
     ["Emergency cleanups around the clock", "Emergency"],
     ["Call us any time, day or night", "any time"],
-    ["Open seven days a week", "seven days"],
-    ["Out on call five days a week", "days a week"],
+    ["Open seven days a week", "seven days a week"],
+    ["seven-day-a-week service", "seven-day-a-week"],
+    ["seven days per week", "seven days per week"],
     ["Get a free quote", "free"],
     ["There is no charge for a visit", "no charge"],
     ["A complimentary walkthrough", "complimentary"],
@@ -80,6 +81,9 @@ describe("unbackedClaims", () => {
     ["Our licensed team", "licensed", "licences"],
     ["Fully insured for your peace of mind", "insured", "insured"],
     ["Emergency cleanups around the clock", "Emergency", "emergency247"],
+    ["Open seven days a week", "seven days a week", "emergency247"],
+    ["seven-day-a-week service", "seven-day-a-week", "emergency247"],
+    ["seven days per week", "seven days per week", "emergency247"],
     ["Get a free quote", "free", "freeEstimates"],
   ] as const)("allows %j when only its own fact (%s) is set, and rejects it when every other fact is set instead", (text, word, fact) => {
     expect(unbackedClaims(text, ONLY[fact])).toEqual([]);
@@ -90,7 +94,18 @@ describe("unbackedClaims", () => {
     expect(unbackedClaims("Careful cleaners for busy households. Hassle-free booking, one-off or weekly.", NONE)).toEqual([]);
   });
 
-  it.each(["Most jobs take a few days", "Book a week ahead", "Seven rooms, one crew"])("does not read %j as a round-the-clock claim", (text) => {
+  it.each([
+    "Most jobs take a few days",
+    "Book a week ahead",
+    "Seven rooms, one crew",
+    "We can come two days a week or once a month",
+    "Most paints need seven days to cure",
+    "Your written quote arrives within seven days",
+    "Give us seven days' notice",
+    "Seven days of drying time",
+    "a few days—a week for bigger jobs", // U+2014 em dash, which joins words in claims
+    "Here for you every day", // left open by A8 and A8b
+  ])("does not read %j as a round-the-clock claim", (text) => {
     expect(unbackedClaims(text, NONE)).toEqual([]);
   });
 
@@ -102,7 +117,7 @@ describe("unbackedClaims", () => {
     ["Award  winning crew", "Award winning"],
     ["Call any  time", "any time"],
     ["We answer around\u00A0the clock", "around the clock"], // U+00A0 no-break space
-    ["Open seven\u00A0days", "seven days"],
+    ["Open seven\u00A0days\u00A0a\u00A0week", "seven days a week"],
     ["Same\u2011day service", "Same-day"], // U+2011 non-breaking hyphen
     ["Five\u2010star service", "Five-star"], // U+2010 hyphen
     ["Help day\u2011or\u2011night", "day-or-night"], // U+2011 non-breaking hyphen
@@ -142,7 +157,7 @@ describe("unbackedClaims", () => {
     },
   );
 
-  it.each(["-", ...DASHES].flatMap((d) => ["day" + d + "or" + d + "night", "any" + d + "time", "seven" + d + "days", "days" + d + "a" + d + "week"]))(
+  it.each(["-", ...DASHES].flatMap((d) => ["day" + d + "or" + d + "night", "any" + d + "time", "seven" + d + "days" + d + "a" + d + "week"]))(
     "allows the emergency claim %j, joined by a hyphen or dash, only when the owner's facts back it",
     (claim) => {
       const text = "Call us " + claim + " for a burst pipe";
