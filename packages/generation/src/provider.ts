@@ -22,6 +22,7 @@ export interface ModelProvider {
   generate(req: ModelRequest): Promise<ModelResponse>;
 }
 
+/** "auth": the account or key needs a human: missing, wrong or revoked key, or billing. */
 export type ProviderErrorKind = "timeout" | "rate_limited" | "unavailable" | "bad_request" | "auth";
 
 // The field is declared, not a constructor parameter property: the repo's tsconfig sets

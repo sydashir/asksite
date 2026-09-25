@@ -11,17 +11,46 @@ export interface AnthropicOptions {
   fetch?: typeof fetch;
 }
 
+/**
+ * The SDK's own default host (its baseURL defaults to process.env['ANTHROPIC_BASE_URL'] ??
+ * https://api.anthropic.com), passed explicitly so an environment variable can never send our
+ * requests, and the key with them, to another host.
+ */
+const ANTHROPIC_BASE_URL = "https://api.anthropic.com";
+
 const STOP: Record<string, ModelResponse["stop"]> = { end_turn: "end", max_tokens: "max_tokens", refusal: "refusal" };
 
+/** A provider error type a message may carry: a short plain token such as "billing_error", never provider text. */
+const SAFE_ERROR_TYPE = /^[a-z0-9_.-]{1,64}$/;
+
+/**
+ * 402 (billing_error) needs a human, like a bad key; 504 (timeout_error) is the API's own timeout.
+ * Every 400 is a bad request, a spend limit you set included; 409 and other statuses are unavailable.
+ */
 function kindOf(error: unknown): ProviderErrorKind {
   if (error instanceof Anthropic.APIUserAbortError || error instanceof Anthropic.APIConnectionTimeoutError) return "timeout";
   if (error instanceof Anthropic.APIConnectionError) return "unavailable";
   if (!(error instanceof Anthropic.APIError) || error.status === undefined) return "unavailable";
-  if (error.status === 401 || error.status === 403) return "auth";
+  if (error.status === 401 || error.status === 402 || error.status === 403) return "auth";
   if (error.status === 429) return "rate_limited";
+  if (error.status === 504) return "timeout";
   if (error.status === 400 || error.status === 404 || error.status === 413 || error.status === 422) return "bad_request";
   return "unavailable";
 }
+
+/** The kind, the HTTP status and the provider's error type: never the key, the provider's own text or headers. */
+function failureMessage(kind: ProviderErrorKind, error: unknown): string {
+  const details: string[] = [kind];
+  if (error instanceof Anthropic.APIError) {
+    if (error.status !== undefined) details.push(`HTTP ${error.status}`);
+    const type: unknown = error.type;
+    if (typeof type === "string" && SAFE_ERROR_TYPE.test(type)) details.push(type);
+  }
+  return `Anthropic request failed (${details.join(", ")})`;
+}
+
+/** A token count as reported, or undefined when it is missing or not a finite number of at least 0. */
+const tokenCount = (value: unknown): number | undefined => (typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : undefined);
 
 const parseJson = (text: string | undefined): unknown => {
   if (text === undefined) return undefined;
@@ -47,6 +76,7 @@ export class AnthropicProvider implements ModelProvider {
     this.#model = options.model;
     this.#client = new Anthropic({
       apiKey: options.apiKey,
+      baseURL: ANTHROPIC_BASE_URL,
       maxRetries: 0,
       timeout: ATTEMPT_TIMEOUT_MS,
       ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
@@ -69,16 +99,22 @@ export class AnthropicProvider implements ModelProvider {
       );
     } catch (error) {
       const kind = kindOf(error);
-      throw new ProviderError(kind, `Anthropic request failed (${kind}${error instanceof Anthropic.APIError && error.status !== undefined ? `, HTTP ${error.status}` : ""})`);
+      throw new ProviderError(kind, failureMessage(kind, error));
     }
     const text = message.content.find((block) => block.type === "text")?.text;
     const reason = message.stop_reason ?? "";
     const stop = Object.hasOwn(STOP, reason) ? STOP[reason]! : "other";
+    // The SDK types usage as always present but passes the body through unchecked: a missing or
+    // invalid count is reported as 0 with usageMissing (P3-4a), never as a thrown error.
+    const usage: { input_tokens?: unknown; output_tokens?: unknown } | null | undefined = message.usage;
+    const inputTokens = tokenCount(usage?.input_tokens);
+    const outputTokens = tokenCount(usage?.output_tokens);
     return {
       json: stop === "end" ? parseJson(text) : undefined,
       model: message.model,
-      usage: { inputTokens: message.usage.input_tokens, outputTokens: message.usage.output_tokens },
+      usage: { inputTokens: inputTokens ?? 0, outputTokens: outputTokens ?? 0 },
       stop,
+      ...(inputTokens === undefined || outputTokens === undefined ? { usageMissing: true as const } : {}),
     };
   }
 }
