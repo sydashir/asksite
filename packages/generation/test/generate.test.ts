@@ -357,16 +357,50 @@ describe("generateDraft", () => {
     expect(provider.calls).toBe(0);
   });
 
+  it("ends an attempt as a timeout, without hanging, when the deadline passes while the provider call starts and the call never settles", async () => {
+    const { deps, sleeps } = testDeps();
+    const deadline = new AbortController();
+    const signals = [deadline.signal, new AbortController().signal];
+    // The abort event fires inside generate, before generateDraft could listen for it, and fires only once.
+    const provider = providerOf(() => {
+      deadline.abort();
+      return never();
+    });
+    const result = await generateDraft(provider, FULL_SNAPSHOT, { ...deps, timeoutSignal: () => signals.shift()! });
+    expect(result.log.map((a) => a.outcome)).toEqual(["timeout", "valid"]);
+    expect(result).toMatchObject({ ok: true, attempts: 2, validOnAttempt: 2 });
+    expect(sleeps).toEqual([2_000]);
+  }, 1_000);
+
+  it("keeps an answer that is already there when the deadline passed while the call started", async () => {
+    const { deps, sleeps } = testDeps();
+    const deadline = new AbortController();
+    const provider = providerOf(() => {
+      deadline.abort();
+      return Promise.resolve(answer(good));
+    });
+    const result = await generateDraft(provider, FULL_SNAPSHOT, { ...deps, timeoutSignal: () => deadline.signal });
+    expect(result.log.map((a) => a.outcome)).toEqual(["valid"]);
+    expect(result).toMatchObject({ ok: true, attempts: 1, validOnAttempt: 1 });
+    expect(sleeps).toEqual([]);
+  });
+
   it("leaves no unhandled rejection when a provider rejects after its attempt timed out", async () => {
     const unhandled: unknown[] = [];
     const onUnhandled = (reason: unknown): void => void unhandled.push(reason);
     process.on("unhandledRejection", onUnhandled);
     try {
       const { deps } = testDeps();
-      // Attempts 1 and 2 time out after 20 ms, during their calls; both calls reject later, at 60 ms.
-      const signals = [() => AbortSignal.timeout(20), () => AbortSignal.timeout(20), () => new AbortController().signal];
-      const result = await generateDraft(providerOf(rejectAfter(60), rejectAfter(60)), FULL_SNAPSHOT, { ...deps, timeoutSignal: () => signals.shift()!() });
-      expect(result.log.map((a) => a.outcome)).toEqual(["timeout", "timeout", "valid"]);
+      // Attempts 1 and 2 time out after 20 ms, during their calls; attempt 3's deadline passes as its call
+      // starts. All three calls reject later, at 60 ms.
+      const deadline = new AbortController();
+      const signals = [() => AbortSignal.timeout(20), () => AbortSignal.timeout(20), () => deadline.signal];
+      const abortsThenRejects = (): Promise<ModelResponse> => {
+        deadline.abort();
+        return rejectAfter(60)();
+      };
+      const result = await generateDraft(providerOf(rejectAfter(60), rejectAfter(60), abortsThenRejects), FULL_SNAPSHOT, { ...deps, timeoutSignal: () => signals.shift()!() });
+      expect(result.log.map((a) => a.outcome)).toEqual(["timeout", "timeout", "timeout"]);
       await new Promise((resolve) => setTimeout(resolve, 150));
       expect(unhandled).toEqual([]);
     } finally {

@@ -98,7 +98,8 @@ const attemptTimedOut = (): ProviderError => new ProviderError("timeout", "The a
  * kind. Any other error once the signal has aborted is a timeout: a provider may throw or reject with
  * the signal's raw reason (an AbortError or TimeoutError), and whether that or our own timeout wins
  * the race depends on which abort listener runs first. Any other error before that is an unexpected
- * provider failure: a bad request, never retried. Only the provider call's errors come here.
+ * provider failure: a bad request, never retried. Only the provider call's errors come here, and our
+ * own timeout from the race, which is a ProviderError and passes through unchanged.
  */
 const fromProvider = (error: unknown, signal: AbortSignal): ProviderError => {
   if (error instanceof ProviderError) return error;
@@ -108,8 +109,10 @@ const fromProvider = (error: unknown, signal: AbortSignal): ProviderError => {
 /**
  * The provider's answer, or a timeout once the request's signal aborts, whichever comes first, so
  * the attempt limit holds even for a provider that ignores the signal. It calls the provider once and
- * throws only ProviderErrors. The call that loses may still reject later; that is never an unhandled
- * rejection. The abort listener is removed as soon as the attempt ends.
+ * throws only ProviderErrors. The abort event fires only once, so a signal that aborted while the
+ * provider's synchronous part ran is a timeout at once, never a wait for an event that already fired.
+ * The call that loses may still reject later; Promise.race has handled it, so that is never an
+ * unhandled rejection. The abort listener is removed as soon as the attempt ends.
  */
 async function answerWithinLimit(provider: ModelProvider, req: ModelRequest): Promise<ModelResponse> {
   const { signal } = req;
@@ -119,11 +122,11 @@ async function answerWithinLimit(provider: ModelProvider, req: ModelRequest): Pr
   } catch (error) {
     throw fromProvider(error, signal);
   }
-  call.catch(() => {});
   let onAbort = (): void => {};
   const timedOut = new Promise<never>((_, reject) => {
     onAbort = () => reject(attemptTimedOut());
-    signal.addEventListener("abort", onAbort, { once: true });
+    if (signal.aborted) onAbort();
+    else signal.addEventListener("abort", onAbort, { once: true });
   });
   try {
     return await Promise.race([call, timedOut]);
@@ -138,11 +141,13 @@ async function answerWithinLimit(provider: ModelProvider, req: ModelRequest): Pr
 /**
  * Up to MAX_ATTEMPTS model calls (design §6.3). Each answer is validated with checkDraft; a failed
  * check sends its issues back as repair feedback. An attempt that outlasts ATTEMPT_TIMEOUT_MS is a
- * timeout. Transient provider errors pause 2 s then 6 s; auth and bad-request errors stop at once.
- * Only the provider call's errors are recorded as provider errors. An exception from our own code
- * (buildPrompt, timeoutSignal, usage accounting, checkDraft) is a bug: it propagates, so the job
- * reports it as internal instead of hiding it as a provider rejection. Shared by the queue job and
- * the eval.
+ * timeout, and so is one whose deadline passed before its call (nothing is sent). A prompt over the
+ * input bound (inputBound) is refused before its call as a bad request. Transient provider errors
+ * pause 2 s then 6 s; auth and bad-request errors stop at once. Only these are recorded as provider
+ * errors: the provider call's own errors, our timeouts and the input-bound refusal. An exception from
+ * our own code (buildPrompt, timeoutSignal, the bound's measurement, usage accounting, checkDraft) is
+ * a bug: it propagates, so the job reports it as internal instead of hiding it as a provider
+ * rejection. Shared by the queue job and the eval.
  */
 export async function generateDraft(provider: ModelProvider, snapshot: GenerationInputSnapshot, deps: GenerateDeps = REAL_DEPS): Promise<GenerateResult> {
   const usage = { inputTokens: 0, outputTokens: 0 };
@@ -171,7 +176,7 @@ export async function generateDraft(provider: ModelProvider, snapshot: Generatio
       calls += 1;
       res = await answerWithinLimit(provider, req);
     } catch (error) {
-      // Only the two checks above and answerWithinLimit throw ProviderErrors; anything else is a bug in our own code and propagates.
+      // Only the two checks above and answerWithinLimit throw ProviderErrors. Anything else is a bug in our own code: it propagates.
       if (!(error instanceof ProviderError)) throw error;
       const kind = error.kind;
       log.push({ outcome: kind, issues: [], latencyMs: deps.now() - started, usageMissing: false });
