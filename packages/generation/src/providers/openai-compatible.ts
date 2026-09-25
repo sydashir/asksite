@@ -154,7 +154,11 @@ export class OpenAICompatibleProvider implements ModelProvider {
     const text = await bodyText(response);
     const data = parseBody(text);
     if (jsonModeUnmet(response.ok, response.status, text, data)) return this.#answer(data, undefined, "end");
-    if (!response.ok) throw this.#failure(response.status, own(data, "error"));
+    if (!response.ok) {
+      const error = own(data, "error");
+      // Our abort while the body was read is a timeout, whatever the status (P3-11 a).
+      throw this.#failure(req.signal.aborted ? "timeout" : kindOf(response.status, error), response.status, error);
+    }
     if (data === undefined) throw new ProviderError(req.signal.aborted ? "timeout" : "unavailable", "OpenAI-compatible response was not JSON");
     const choices = own(data, "choices");
     const choice: unknown = Array.isArray(choices) ? choices[0] : undefined;
@@ -184,8 +188,7 @@ export class OpenAICompatibleProvider implements ModelProvider {
    * (OpenAI-style bodies: error.type, error.code): never its text, the key or headers. A token holding
    * the key is left out too.
    */
-  #failure(status: number, error: unknown): ProviderError {
-    const kind = kindOf(status, error);
+  #failure(kind: ProviderErrorKind, status: number, error: unknown): ProviderError {
     const tokens = new Set<string>();
     for (const token of [own(error, "type"), own(error, "code")]) {
       if (typeof token === "string" && SAFE_ERROR_TOKEN.test(token) && !token.includes(this.#apiKey)) tokens.add(token);

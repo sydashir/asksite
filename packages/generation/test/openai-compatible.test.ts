@@ -467,3 +467,37 @@ describe("OpenAICompatibleProvider: JSON Mode not met only where the status give
     expect(res).toStrictEqual({ json: undefined, model: "m", usage: { inputTokens: 0, outputTokens: 0 }, stop: "end", usageMissing: true });
   });
 });
+
+/**
+ * A fetch whose response (this status) arrives first; then our signal aborts while the body is read, and the body
+ * stream errors with the abort reason, as a real fetch's does (Fetch Standard, "abort a fetch() call").
+ */
+const abortMidBody = (controller: AbortController, status: number) => async (_input: string | URL | Request, init?: RequestInit): Promise<Response> =>
+  new Response(
+    new ReadableStream({
+      pull: (stream) => {
+        controller.abort(new DOMException("timed out", "TimeoutError"));
+        stream.error(init?.signal?.reason);
+      },
+    }),
+    { status, headers: { "content-type": "application/json" } },
+  );
+
+describe("OpenAICompatibleProvider: our abort while the body is read (P3-11 a)", () => {
+  it.each([200, 302, 400, 401, 429, 503])("maps HTTP %i whose body read our abort cut short to timeout", async (status) => {
+    const controller = new AbortController();
+    await expect(compatible(abortMidBody(controller, status)).generate(request(controller.signal))).rejects.toMatchObject({ name: "ProviderError", kind: "timeout" });
+    expect(controller.signal.aborted).toBe(true);
+  });
+});
+
+// P3-11 (c): redirects are never followed (redirect "manual", pinned in the first test): a 3xx means a wrong base
+// URL, a bad request, and following it would carry the Bearer key to another host.
+describe("OpenAICompatibleProvider: redirects (P3-11 c)", () => {
+  it.each([301, 302, 303, 307, 308])("maps HTTP %i to bad_request", async (status) => {
+    const http = fakeFetch([{ status, body: { error: { message: "moved" } } }]);
+    await expect(compatible(http.fetch).generate(request())).rejects.toMatchObject({ name: "ProviderError", kind: "bad_request", message: `OpenAI-compatible request failed (bad_request, HTTP ${status})` });
+    expect(http.calls).toHaveLength(1);
+    expect(http.calls[0]!.redirect).toBe("manual");
+  });
+});
