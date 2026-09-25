@@ -109,6 +109,8 @@ export class AnthropicProvider implements ModelProvider {
 
   async generate(req: ModelRequest): Promise<ModelResponse> {
     const effort = modelSettings("anthropic", this.#model)?.anthropicEffort;
+    // Our own code runs before the try, so an error in it propagates instead of becoming a ProviderError.
+    const schema = toWireSchema(req.jsonSchema);
     let message: Anthropic.Message;
     try {
       message = await this.#client.messages.create(
@@ -117,7 +119,7 @@ export class AnthropicProvider implements ModelProvider {
           max_tokens: req.maxOutputTokens,
           system: req.system,
           messages: [{ role: "user", content: req.user }],
-          output_config: { format: { type: "json_schema", schema: toWireSchema(req.jsonSchema) }, ...(effort === undefined ? {} : { effort }) },
+          output_config: { format: { type: "json_schema", schema }, ...(effort === undefined ? {} : { effort }) },
         },
         { signal: req.signal },
       );

@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { ProviderError } from "../src/provider.ts";
 import { AnthropicProvider } from "../src/providers/anthropic.ts";
 import { AI_DRAFT_JSON_SCHEMA, toWireSchema } from "../src/wire-schema.ts";
 import { abortedSignal, fakeFetch } from "./support/http.ts";
@@ -179,6 +180,18 @@ describe("AnthropicProvider", () => {
     const http = fakeFetch([{ status: 200, body: message('{"copy":') }]);
     const res = await new AnthropicProvider({ apiKey: "k", model: "claude-opus-5-5", fetch: http.fetch }).generate(request());
     expect(res).toEqual({ json: undefined, model: "claude-opus-5-5", usage: { inputTokens: 3200, outputTokens: 1400 }, stop: "end" });
+  });
+
+  it("lets an error from our own schema conversion propagate as it is, not as a ProviderError", async () => {
+    const jsonSchema = { type: "string", format: "date" };
+    expect(() => toWireSchema(jsonSchema)).toThrow('toWireSchema: unsupported JSON schema keyword "format"');
+    const http = fakeFetch([{ status: 200, body: message("{}") }]);
+    const provider = new AnthropicProvider({ apiKey: "k", model: "claude-opus-5-5", fetch: http.fetch });
+    const error: unknown = await provider.generate({ ...request(), jsonSchema }).catch((e: unknown) => e);
+    expect(error).not.toBeInstanceOf(ProviderError);
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toBe('toWireSchema: unsupported JSON schema keyword "format"');
+    expect(http.calls).toHaveLength(0);
   });
 
   it("returns the model the response names, not the one requested", async () => {
