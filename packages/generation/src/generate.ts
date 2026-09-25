@@ -1,6 +1,6 @@
 import type { AiDraft, GenerationInputSnapshot, Issue } from "@asksite/core";
 import { buildPrompt } from "./prompt.ts";
-import { ProviderError, TRANSIENT_KINDS, type ModelProvider, type ProviderErrorKind } from "./provider.ts";
+import { ProviderError, TRANSIENT_KINDS, type ModelProvider, type ModelRequest, type ModelResponse, type ProviderErrorKind } from "./provider.ts";
 import { checkDraft } from "./validate.ts";
 import { AI_DRAFT_JSON_SCHEMA } from "./wire-schema.ts";
 
@@ -45,16 +45,47 @@ export type GenerateResult =
   | (Common & { ok: true; draft: AiDraft; validOnAttempt: number })
   | (Common & { ok: false; failure: "provider_error" | "invalid_output"; providerErrorKind: ProviderErrorKind | null; issues: Issue[] });
 
-const STOP_ISSUE: Record<"max_tokens" | "refusal" | "other", Issue> = {
-  max_tokens: { path: [], code: "cut_off", message: "The answer was cut off because it was too long. Keep every field well under its limit." },
-  refusal: { path: [], code: "refused", message: "The answer was refused. Write ordinary marketing wording for this business." },
-  other: { path: [], code: "incomplete", message: "The answer ended early. Send the whole answer." },
+type StopReason = Exclude<ModelResponse["stop"], "end">;
+
+const STOP_ISSUE: Record<StopReason, Omit<Issue, "path">> = {
+  max_tokens: { code: "cut_off", message: "The answer was cut off because it was too long. Keep every field well under its limit." },
+  refusal: { code: "refused", message: "The answer was refused. Write ordinary marketing wording for this business." },
+  other: { code: "incomplete", message: "The answer ended early. Send the whole answer." },
 };
+
+/** A new issue on every call: a caller may edit the issues it gets back, and a later job must not see that. */
+const stopIssue = (stop: StopReason): Issue => ({ path: [], ...STOP_ISSUE[stop] });
+
+const attemptTimedOut = (): ProviderError => new ProviderError("timeout", "The attempt ran out of time");
+
+/**
+ * The provider's answer, or a timeout once the request's signal aborts, whichever comes first, so
+ * the attempt limit holds even for a provider that ignores the signal. The call that loses may
+ * still reject later; that is never an unhandled rejection. The abort listener is removed as soon
+ * as the attempt ends.
+ */
+async function answerWithinLimit(provider: ModelProvider, req: ModelRequest): Promise<ModelResponse> {
+  const call = provider.generate(req);
+  call.catch(() => {});
+  const { signal } = req;
+  if (signal.aborted) throw attemptTimedOut();
+  let onAbort = (): void => {};
+  const timedOut = new Promise<never>((_, reject) => {
+    onAbort = () => reject(attemptTimedOut());
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+  try {
+    return await Promise.race([call, timedOut]);
+  } finally {
+    signal.removeEventListener("abort", onAbort);
+  }
+}
 
 /**
  * Up to MAX_ATTEMPTS model calls (design §6.3). Each answer is validated with checkDraft; a failed
- * check sends its issues back as repair feedback. Transient provider errors pause 2 s then 6 s;
- * auth and bad-request errors stop at once. Shared by the queue job and the eval.
+ * check sends its issues back as repair feedback. An attempt that outlasts ATTEMPT_TIMEOUT_MS is a
+ * timeout. Transient provider errors pause 2 s then 6 s; auth and bad-request errors stop at once.
+ * Shared by the queue job and the eval.
  */
 export async function generateDraft(provider: ModelProvider, snapshot: GenerationInputSnapshot, deps: GenerateDeps = REAL_DEPS): Promise<GenerateResult> {
   const usage = { inputTokens: 0, outputTokens: 0 };
@@ -69,7 +100,7 @@ export async function generateDraft(provider: ModelProvider, snapshot: Generatio
     const { system, user } = buildPrompt(snapshot, repair);
     const started = deps.now();
     try {
-      const res = await provider.generate({ system, user, jsonSchema: AI_DRAFT_JSON_SCHEMA, maxOutputTokens: MAX_OUTPUT_TOKENS, signal: deps.timeoutSignal(ATTEMPT_TIMEOUT_MS) });
+      const res = await answerWithinLimit(provider, { system, user, jsonSchema: AI_DRAFT_JSON_SCHEMA, maxOutputTokens: MAX_OUTPUT_TOKENS, signal: deps.timeoutSignal(ATTEMPT_TIMEOUT_MS) });
       const latencyMs = deps.now() - started;
       usage.inputTokens += res.usage.inputTokens;
       usage.outputTokens += res.usage.outputTokens;
@@ -78,8 +109,10 @@ export async function generateDraft(provider: ModelProvider, snapshot: Generatio
       providerErrorKind = null;
       const usageMissing = res.usageMissing === true;
       if (res.stop !== "end") {
-        repair = [STOP_ISSUE[res.stop]];
-        log.push({ outcome: res.stop, issues: repair, latencyMs, usageMissing });
+        // Adapters map an unknown stop reason to "other"; a value outside the contract is treated the same.
+        const stop = Object.hasOwn(STOP_ISSUE, res.stop) ? res.stop : "other";
+        repair = [stopIssue(stop)];
+        log.push({ outcome: stop, issues: repair, latencyMs, usageMissing });
         continue;
       }
       const check = checkDraft(snapshot.facts, res.json);
