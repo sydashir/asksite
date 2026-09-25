@@ -511,6 +511,14 @@ import { Copy, Layout, Theme, SECTION_VARIANTS, OwnerHidden, type Facts, type Se
 export const AiDraft = z.strictObject({ copy: Copy, layout: Layout, theme: Theme });
 export type AiDraft = z.infer<typeof AiDraft>;
 const EditText = z.string().max(2000);
+// Service name -> owner text (A7): a plain object is checked as a Map and rebuilt with Object.fromEntries,
+// so an own "__proto__" key is plain data (z.record would drop it). At most 12 entries, as many as Facts
+// allows services (A8c): a 13th is a too_big issue ("Too big: expected map to have <=12 entries"), and a
+// name over 40 characters is too_big too.
+const ServiceDescriptionEdits = z.preprocess(
+  (value, ctx) => { if (isPlainObject(value)) return new Map(Object.entries(value)); ctx.issues.push({ code: "invalid_type", expected: "record", input: value }); return value; },
+  z.map(z.string().max(40), EditText).max(12),
+).transform((edits) => Object.fromEntries(edits));   // isPlainObject: prototype Object.prototype or null
 export const CopyEdits = z.strictObject({
   heroHeadline: EditText.optional(),
   heroSubheadline: EditText.optional(),
@@ -520,8 +528,7 @@ export const CopyEdits = z.strictObject({
     services: EditText.nullable().optional(), gallery: EditText.nullable().optional(),
     faq: EditText.nullable().optional(), contact: EditText.nullable().optional(),
   }).optional(),
-  serviceDescriptions: z.record(z.string().max(40), EditText)
-    .refine((d) => Object.keys(d).length <= 12).optional(), // key = facts.services[].name, exact; at most as many as Facts allows services (A8c)
+  serviceDescriptions: ServiceDescriptionEdits.optional(),     // key = facts.services[].name, exact
   faq: z.array(z.strictObject({ question: EditText, answer: EditText })).max(8).optional(), // replaces the AI list
 });
 export const SECTION_IDS = Object.keys(SECTION_VARIANTS) as [SectionId, ...SectionId[]];
@@ -702,7 +709,7 @@ export const AUDIT_ACTIONS = ["invite.created", "invite.revoked", "invite.accept
 
 ### 4.1 Conventions (all Workers)
 
-- **Request and response bodies:** JSON (`application/json; charset=utf-8`) except the upload (`multipart/form-data`) and the public form (`application/x-www-form-urlencoded`). The server checks `Content-Length` first and stops reading past the limit. Limits: 256 KB for JSON bodies, 10 MB for uploads, 16 KB for the public form. Larger bodies get `413 payload_too_large`.
+- **Request and response bodies:** JSON (`application/json; charset=utf-8`) except the upload (`multipart/form-data`) and the public form (`application/x-www-form-urlencoded`). The server checks `Content-Length` first and stops reading past the limit. Limits: 256 KB for JSON bodies, 10 MB for uploads, 16 KB for the public form. Larger bodies get `413 payload_too_large`. **One exception:** `PATCH /api/sites/:siteId/draft` reads up to 1 MiB (`DRAFT_JSON_MAX_BYTES`, A8c). It is the only request whose body carries a whole Facts, Brief or OwnerEdits, and those parts may reach `LIMITS.factsJsonMaxBytes` + `briefJsonMaxBytes` + `editsJsonMaxBytes` = 818,176 bytes (§2.8). A test pins `DRAFT_JSON_MAX_BYTES` at or above that sum plus 4 KiB, so the body limit never refuses a draft whose parts fit their own limits, and a part over its limit gets that part's own 413. The three parts together stay under D1's 2,000,000-byte row limit.
 - **Errors:** `ErrorBody` (§2.8) with `ERROR_STATUS[code]`. `validation_failed`, `not_ready` and `publish_invalid` include `issues`. `conflict` includes `currentRev`. Every 429 includes `retryAfter` (seconds) and the `Retry-After` header.
 - **CSRF defence:** every state-changing `/api/*` request must carry `Origin` equal to `APP_ORIGIN` (or `ADMIN_ORIGIN` on the admin Worker) and the expected content type. Otherwise the server returns `403 forbidden`. Cookies are `SameSite=Lax`.
 - **Response headers on every API response:** `Cache-Control: no-store`, `X-Robots-Tag: noindex`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, `X-Frame-Options: DENY`. **One exception:** the two stored-version page routes (`…/versions/:versionId/page`) send `X-Frame-Options: SAMEORIGIN` and the §7.4 review CSP (which has `frame-ancestors 'self'`), because the admin review screen shows them in an iframe; `DENY` would blank that iframe.
