@@ -2,7 +2,7 @@ import { canonicalJson, documentSha256, formActionUrl, LIMITS, newId, OwnerEdits
 import { render } from "@asksite/renderer";
 import { SITE_CSS, SITE_CSS_SHA256 } from "@asksite/site-css";
 import type { SiteDocument } from "@asksite/site-schema";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { createPendingVersion, withdrawPending } from "../src/index.ts";
 import { publishFailure as failure } from "./support/errors.ts";
 import { auditActions, doc, EDITS, publishingHarness, ROOT, seedSite, siteRow, versionRow, type PublishEnv } from "./support/harness.ts";
@@ -76,6 +76,11 @@ async function secondSite(db: D1Database, ownerId: string): Promise<Site> {
   const slug = `second-${siteId.slice(0, 8)}`;
   await db.prepare("INSERT INTO sites (id, owner_id, slug, created_at, updated_at) VALUES (?, ?, ?, 1, 1)").bind(siteId, ownerId, slug).run();
   return { ownerId, siteId, slug };
+}
+
+/** The keys of a site's stored pages in WORK (R2 lists are strongly consistent). */
+async function workKeys(siteId: string): Promise<string[]> {
+  return (await env.WORK.list({ prefix: `versions/${siteId}/` })).objects.map((object) => object.key);
 }
 
 describe("createPendingVersion", () => {
@@ -310,6 +315,7 @@ describe("the daily publish cap (Decision 25)", () => {
     expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
     for (const r of results) if (r.status === "rejected") expect(r.reason).toMatchObject({ code: "publish_cap_reached" });
     expect(await versionCount(siteId)).toBe(LIMITS.publishRequestsPerSitePerDay);
+    expect(await workKeys(siteId)).toHaveLength(LIMITS.publishRequestsPerSitePerDay); // no refused racer left its page
     // The refused racers changed nothing: the winner is the one version in review, and the site points at it.
     const [winner] = results.flatMap((r) => (r.status === "fulfilled" ? [r.value] : []));
     expect(await pendingIds(siteId)).toEqual([winner?.id]);
@@ -325,12 +331,95 @@ describe("the daily publish cap (Decision 25)", () => {
     const late = createPendingVersion({ ...env, DB: held.db }, input(day + 100));
     await Promise.race([held.reached, late]); // its early count saw one place left
     const winner = await createPendingVersion(env, input(day + 101)); // then another request took it
+    expect(await workKeys(siteId)).toHaveLength(LIMITS.publishRequestsPerSitePerDay + 1); // both stored a page
     held.release();
     expect((await failure(late)).code).toBe("publish_cap_reached");
     expect(await pendingIds(siteId)).toEqual([winner.id]);
     expect((await siteRow(env.DB, siteId))?.pending_version_id).toBe(winner.id);
     expect(await versionCount(siteId)).toBe(LIMITS.publishRequestsPerSitePerDay);
     expect(await auditActions(env.DB, siteId)).toHaveLength(LIMITS.publishRequestsPerSitePerDay);
+    // The loser's page is gone: WORK holds exactly the pages of the stored versions.
+    const stored = await env.DB.prepare("SELECT html_key FROM site_versions WHERE site_id = ? ORDER BY html_key").bind(siteId).all<{ html_key: string }>();
+    expect(await workKeys(siteId)).toEqual(stored.results.map((r) => r.html_key));
+  });
+});
+
+describe("a request the batch refuses, because the site changed after the early checks", () => {
+  const changes: { change: string; code: string; detail?: unknown; apply: (site: Site) => Promise<unknown> }[] = [
+    {
+      change: "was taken down",
+      code: "site_taken_down",
+      apply: (site) => env.DB.prepare("UPDATE sites SET taken_down_at = 2 WHERE id = ?").bind(site.siteId).run(),
+    },
+    {
+      change: "got a new address",
+      code: "integrity",
+      detail: { reason: "site_changed" },
+      apply: (site) => env.DB.prepare("UPDATE sites SET slug = ? WHERE id = ?").bind(`${site.slug}-new`, site.siteId).run(),
+    },
+    {
+      change: "gave its old address to the owner's other site",
+      code: "integrity",
+      detail: { reason: "site_changed" },
+      apply: async (site) => {
+        const other = await secondSite(env.DB, site.ownerId);
+        await env.DB.prepare("UPDATE sites SET slug = ? WHERE id = ?").bind(`${site.slug}-new`, site.siteId).run();
+        await env.DB.prepare("UPDATE sites SET slug = ? WHERE id = ?").bind(site.slug, other.siteId).run();
+      },
+    },
+    {
+      // No code moves a site between owners today; the batch still re-checks the owner.
+      change: "passed to another owner",
+      code: "integrity",
+      detail: { reason: "site_changed" },
+      apply: async (site) => {
+        const other = await seedSite(env.DB);
+        await env.DB.prepare("UPDATE sites SET owner_id = ? WHERE id = ?").bind(other.ownerId, site.siteId).run();
+      },
+    },
+  ];
+
+  it.each(changes)("the site $change: deletes the page it stored and leaves the version in review alone", async ({ code, detail, apply }) => {
+    const site = await seedSite(env.DB);
+    const publish = (db: D1Database, now: number) => createPendingVersion({ ...env, DB: db }, { ...site, document: doc(), edits: EDITS, generationId: null, now });
+    const inReview = await publish(env.DB, 1);
+    const before = await workKeys(site.siteId);
+    const held = holdBatch(env.DB);
+    const late = publish(held.db, 3);
+    await Promise.race([held.reached, late]); // it passed the early checks and stored its page
+    expect(await workKeys(site.siteId)).toHaveLength(before.length + 1);
+    await apply(site);
+    held.release();
+    const error = await failure(late);
+    expect({ code: error.code, detail: error.detail }).toEqual({ code, detail });
+    expect(await workKeys(site.siteId)).toEqual(before);
+    expect((await versionRow(env.DB, inReview.id))?.status).toBe("pending");
+    expect((await siteRow(env.DB, site.siteId))?.pending_version_id).toBe(inReview.id);
+    expect(await auditActions(env.DB, site.siteId)).toEqual(["version.requested"]);
+  });
+
+  it("logs a page it could not delete, and still answers the refusal", async () => {
+    const site = await seedSite(env.DB);
+    const deleteFails = {
+      put: (...args: Parameters<R2Bucket["put"]>) => env.WORK.put(...args),
+      delete: () => Promise.reject(new Error("R2 is unavailable")),
+    } as unknown as R2Bucket;
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const held = holdBatch(env.DB);
+      const late = createPendingVersion({ ...env, DB: held.db, WORK: deleteFails }, { ...site, document: doc(), edits: EDITS, generationId: null, now: 1 });
+      await Promise.race([held.reached, late]);
+      await env.DB.prepare("UPDATE sites SET taken_down_at = 2 WHERE id = ?").bind(site.siteId).run();
+      held.release();
+      expect((await failure(late)).code).toBe("site_taken_down");
+      // One line, IDs and a code only (never the error text), naming the page left behind.
+      expect(logged).toHaveBeenCalledTimes(1);
+      const line = JSON.parse(String(logged.mock.calls[0]?.[0])) as { versionId: string };
+      expect(line).toEqual({ code: "refused_page_not_deleted", siteId: site.siteId, versionId: line.versionId });
+      expect(await workKeys(site.siteId)).toEqual([versionKey(site.siteId, line.versionId)]);
+    } finally {
+      logged.mockRestore();
+    }
   });
 });
 

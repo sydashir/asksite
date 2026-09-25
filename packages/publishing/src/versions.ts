@@ -53,7 +53,8 @@ export async function createPendingVersion(
   const versionId = newId();
   const key = versionKey(siteId, versionId);
   const htmlSha256 = await sha256Hex(html);
-  // Orphaned objects (a failed batch below) are harmless: nothing ever serves WORK publicly.
+  // A page the batch below refuses is deleted again. If D1 itself fails, whether the batch committed is
+  // unknown, so the page stays; an orphan is harmless, as nothing ever serves WORK publicly.
   await env.WORK.put(key, html, { httpMetadata: { contentType: HTML_TYPE }, customMetadata: { siteId, versionId, sha256: htmlSha256 } });
 
   const siteIsReady = "EXISTS (SELECT 1 FROM sites WHERE id = ? AND owner_id = ? AND slug = ? AND taken_down_at IS NULL)";
@@ -82,13 +83,23 @@ export async function createPendingVersion(
 
   const number = (results[2]?.results[0] as { number?: number } | undefined)?.number;
   if (number === undefined) {
-    // No row: the INSERT did not happen. Find out why.
+    // No row: the INSERT did not happen, and no version can ever point at this page. Delete it, then find out why.
+    await deleteRefusedPage(env.WORK, key, { siteId, versionId });
     const site = await db.prepare("SELECT taken_down_at FROM sites WHERE id = ? AND owner_id = ?").bind(siteId, ownerId).first<{ taken_down_at: number | null }>();
     if (site !== null && site.taken_down_at !== null) throw new PublishError("site_taken_down");
     if ((await requestsSince(db, siteId, dayStart)) >= cap) throw capReached();
     throw new PublishError("integrity", { reason: "site_changed" });
   }
   return { id: versionId, number, status: "pending", requestedAt: now, reviewedAt: null, reviewNote: null };
+}
+
+/** Best effort: a failed delete leaves an orphan (harmless), logged with IDs and a code only. */
+async function deleteRefusedPage(work: R2Bucket, key: string, ids: { siteId: string; versionId: string }): Promise<void> {
+  try {
+    await work.delete(key);
+  } catch {
+    console.error(JSON.stringify({ code: "refused_page_not_deleted", ...ids }));
+  }
 }
 
 /** Version requests of a site since `since` (every status counts: superseded and withdrawn ones used D1 too). */
