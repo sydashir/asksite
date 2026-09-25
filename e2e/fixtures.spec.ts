@@ -229,9 +229,11 @@ test("the phone projects emulate a real phone: mobile browser, coarse pointer, n
 const PHONE_ENGINES: Record<string, string> = { "webkit-iphone": "webkit", "chromium-pixel": "chromium" };
 
 test("each phone project runs its own engine: webkit-iphone in WebKit, chromium-pixel in Chromium", MOBILE, async ({ browser }, testInfo) => {
-  test.skip(testInfo.project.metadata["phone"] !== true, "only the phone-emulation projects");
+  // Every project checks the phone list first, and the skip goes by project name, not by metadata (A9c), so
+  // removing, renaming or unmarking a phone project fails the run instead of skipping this test everywhere.
   const phones = testInfo.config.projects.filter((project) => project.metadata["phone"] === true).map((project) => project.name);
   expect(phones).toEqual(Object.keys(PHONE_ENGINES));
+  test.skip(!Object.hasOwn(PHONE_ENGINES, testInfo.project.name), "only the phone-emulation projects run a phone engine");
   expect(browser.browserType().name()).toBe(PHONE_ENGINES[testInfo.project.name]);
 });
 
