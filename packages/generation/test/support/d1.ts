@@ -1,0 +1,60 @@
+import { fileURLToPath } from "node:url";
+import type { GenerationRow } from "@asksite/core";
+import type { D1Database } from "@cloudflare/workers-types";
+import { createTestHarness } from "wrangler";
+
+const ROOT = fileURLToPath(new URL("../../../../", import.meta.url));
+
+/** A real local D1 (Miniflare, via wrangler's test harness) with packages/core/migrations applied. */
+export async function startLocalD1(): Promise<{ db: D1Database; close(): Promise<void> }> {
+  const server = createTestHarness({
+    root: ROOT,
+    workers: [
+      {
+        config: {
+          name: "generation-test-db",
+          main: "./packages/generation/test/support/noop-worker.ts",
+          compatibility_date: "2026-09-21",
+          compatibility_flags: ["no_nodejs_compat", "no_nodejs_compat_v2"],
+          d1_databases: [{ binding: "DB", database_name: "asksite", database_id: "00000000-0000-0000-0000-000000000000", migrations_dir: "./packages/core/migrations" }],
+        },
+      },
+    ],
+  });
+  await server.listen();
+  const worker = server.getWorker();
+  await worker.applyD1Migrations("DB");
+  const env = (await worker.getEnv()) as { DB: D1Database };
+  return { db: env.DB, close: () => server.close() };
+}
+
+export async function clearTables(db: D1Database): Promise<void> {
+  await db.batch(["audit_log", "generations", "settings", "sites", "owners"].map((table) => db.prepare(`DELETE FROM ${table}`)));
+}
+
+export async function seedOwnerSite(db: D1Database, ownerId: string, siteId: string): Promise<void> {
+  await db.batch([
+    db.prepare("INSERT OR IGNORE INTO owners (id, email, created_at) VALUES (?1, ?2, 0)").bind(ownerId, `${ownerId}@example.com`),
+    db.prepare("INSERT INTO sites (id, owner_id, created_at, updated_at) VALUES (?1, ?2, 0, 0)").bind(siteId, ownerId),
+  ]);
+}
+
+export async function setSetting(db: D1Database, key: string, value: string): Promise<void> {
+  await db.prepare("INSERT OR REPLACE INTO settings (key, value, updated_at, updated_by) VALUES (?1, ?2, 0, 'test')").bind(key, value).run();
+}
+
+/** Inserts a generation row directly; unspecified columns take the table defaults. */
+export async function insertGeneration(db: D1Database, row: Partial<GenerationRow> & Pick<GenerationRow, "id" | "site_id" | "owner_id">): Promise<void> {
+  const full = { kind: "first", status: "queued", input_json: "{}", created_at: 0, ...row };
+  const columns = Object.keys(full);
+  await db
+    .prepare(`INSERT INTO generations (${columns.join(", ")}) VALUES (${columns.map((_, i) => `?${i + 1}`).join(", ")})`)
+    .bind(...Object.values(full))
+    .run();
+}
+
+export async function getGeneration(db: D1Database, id: string): Promise<GenerationRow> {
+  const row = await db.prepare("SELECT * FROM generations WHERE id = ?1").bind(id).first<GenerationRow>();
+  if (row === null) throw new Error(`no generation ${id}`);
+  return row;
+}
