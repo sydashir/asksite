@@ -1,4 +1,4 @@
-import { Brief, PatchDraftBody, SECTION_IDS, toIssues } from "@asksite/core";
+import { Brief, LIMITS, PatchDraftBody, SECTION_IDS, toIssues } from "@asksite/core";
 import { DAYS, Facts, HIDEABLE_SECTIONS } from "@asksite/site-schema";
 import { Hono } from "hono";
 import { describe, expect, it, vi } from "vitest";
@@ -7,6 +7,7 @@ import {
   API_HEADERS,
   ApiError,
   apiHeaders,
+  DRAFT_JSON_MAX_BYTES,
   handleError,
   handleNotFound,
   JSON_MAX_DEPTH,
@@ -292,6 +293,12 @@ describe("readJson", () => {
     const value = { items: [1, 2, 3] };
     const res = await post("/api/list", JSON.stringify(value));
     expect(((await res.json()) as ErrorJson).error.issues).toEqual(toIssues(LIST.safeParse(value).error!));
+  });
+});
+
+describe("DRAFT_JSON_MAX_BYTES", () => {
+  it("holds the facts, brief and edits parts at their limits plus 4 KiB, so it never refuses a draft whose parts fit (A8c)", () => {
+    expect(DRAFT_JSON_MAX_BYTES).toBeGreaterThanOrEqual(LIMITS.factsJsonMaxBytes + LIMITS.briefJsonMaxBytes + LIMITS.editsJsonMaxBytes + 4096);
   });
 });
 

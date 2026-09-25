@@ -8,6 +8,14 @@ import type { z } from "zod";
 /** Largest JSON request body (§4.1). */
 export const JSON_MAX_BYTES = 256 * 1024;
 
+/**
+ * Largest PATCH /draft body, §4.1's one exception (A8c): the only body that carries a whole Facts, Brief
+ * and OwnerEdits. It holds all three at their LIMITS.*JsonMaxBytes plus 4 KiB (test/http.test.ts pins
+ * this), so it never refuses a draft whose parts fit their own limits: a part over its limit gets the
+ * route's per-part 413 instead.
+ */
+export const DRAFT_JSON_MAX_BYTES = 1024 * 1024;
+
 /** Most issues a 422 answer lists: the first ones, in order. A malformed body can make zod report one per element. */
 export const MAX_ISSUES = 50;
 
