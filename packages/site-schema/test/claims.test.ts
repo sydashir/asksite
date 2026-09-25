@@ -291,6 +291,40 @@ describe("unbackedClaims", () => {
     },
   );
 
+  // A9: claims are matched after NFD and the removal of every combining mark (\p{M}), so an accent or a
+  // mark between two words cannot hide a claim word.
+  it.each([
+    ["Our lícensed team", "licensed"], // U+00ED i with acute
+    ["Our li\u0301censed team", "licensed"], // i + U+0301 combining acute
+    ["Fully i\u0308nsured", "insured"], // i + U+0308 combining diaeresis
+    ["Licen\u0336sed crew", "Licensed"], // U+0336 combining long stroke overlay inside the word
+    ["Licen\u20DDsed crew", "Licensed"], // U+20DD combining enclosing circle (an enclosing mark, Me)
+    ["Licen\u{1D165}sed crew", "Licensed"], // U+1D165 musical symbol combining stem (a spacing mark, Mc)
+    ["Get a frée quote", "free"],
+  ])("reads %j with its marks removed and finds %j unless the facts back it", (text, word) => {
+    expect(unbackedClaims(text, NONE)).toEqual([word]);
+    expect(unbackedClaims(text, ALL)).toEqual([]);
+  });
+
+  it.each([
+    ["Award \u0336winning crew", "Award winning"], // A8c-3: U+0336 splits the claim from the space
+    ["Same \u0336day help", "Same day"],
+    ["Award\u0336 winning crew", "Award winning"],
+    ["Fïve-stär service", "Five-star"],
+    ["Satisfaction guaránteed", "guaranteed"],
+  ])("never allows %j (%j once its marks are removed), whatever the facts", (text, claim) => {
+    expect(unbackedClaims(text, NONE)).toEqual([claim]);
+    expect(unbackedClaims(text, ALL)).toEqual([claim]);
+  });
+
+  it.each([
+    "Café-clean kitchens, naïve questions welcome",
+    "Jalapeño stains lifted",
+    "Crème brûlée spills, gone",
+  ])("leaves ordinary accented copy alone: %j", (text) => {
+    expect(unbackedClaims(text, NONE)).toEqual([]);
+  });
+
   it.each([
     'A lone " mark',
     '" autofocus onfocus="alert(document.cookie)', // attribute breakouts the renderer must escape (Task 15's XSS fixture)
@@ -379,15 +413,33 @@ describe("SiteDocument rejects AI copy that states facts the owner did not give"
     '"Best cleaners in Boise!" - Sarah K.',
     "‘Best cleaners ever!’ - Sarah",
     "Satisfaction guaranteed",
-    "Licen\u034Fsed and insu\u034Fred",
-    "Bon\uFE0Fded crew",
-    "Satisfaction guaran\uFE00teed",
     "Friendly \u034F team",
+    "Award \u0336winning crew", // A8c-3: a combining mark splits the claim (A9 folds it away)
+    "Same \u0336day help",
+    "Our l\u00EDcensed team",
+    "L\u0131censed and \u0131nsured plumbers", // U+0131 dotless i (A9: refused by Copy's letter rule)
+    "\u029F\u026A\u1D04\u1D07\u0274\uA731\u1D07\u1D05 \u1D00\u0274\u1D05 \u026A\u0274\uA731\u1D1C\u0280\u1D07\u1D05 plumbers", // small capitals
+    "Licen\u0282ed plumbers", // U+0282 s with hook
   ])("%j", (claim) => {
     const faq = [{ question: "Why us?", answer: claim }];
     const result = SiteDocument.safeParse({ ...MINIMAL_DOC, copy: { ...MINIMAL_DOC.copy, faq } });
     expect(result.success).toBe(false);
     expect(result.error?.issues.map((i) => i.path.join("."))).toEqual(["copy.faq.0.answer"]);
+  });
+
+  // An invisible mark inside a claim word is refused as invisible, and (A9) the claim it splits is
+  // still found, because claims are matched with every combining mark removed.
+  it.each([
+    ["Licen\u034Fsed and insu\u034Fred", ['"Licensed"', '"insured"']],
+    ["Bon\uFE0Fded crew", ['"Bonded"']],
+    ["Satisfaction guaran\uFE00teed", ['"guaranteed"']],
+  ])("%j is refused as invisible and as the claim %j", (text, claims) => {
+    const faq = [{ question: "Why us?", answer: text }];
+    const result = SiteDocument.safeParse({ ...MINIMAL_DOC, copy: { ...MINIMAL_DOC.copy, faq } });
+    expect(result.success ? [] : result.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`)).toEqual([
+      "copy.faq.0.answer: Copy must not contain an invisible character",
+      `copy.faq.0.answer: Copy states something the owner's facts do not back: ${claims.join(", ")}`,
+    ]);
   });
 
   it("checks copy as the page shows it and keeps the copy as written", () => {
@@ -410,6 +462,9 @@ describe("SiteDocument keeps AI copy the checks have no reason to reject", () =>
     "Keep the vents open seven days after painting.", // A8c-2: not a claim about opening hours
     '" autofocus onfocus="alert(document.cookie)', // Task 15's XSS fixture puts these in AI copy
     '<iframe srcdoc="<script>alert(document.domain)</script>"></iframe>',
+    "Café-clean kitchens, naïve questions welcome", // A9: accents on A-Z letters are fine
+    "Jalapeño stains lifted",
+    "Cafe\u0301-clean kitchens", // e + U+0301 combining acute
   ])("%j", (text) => {
     const faq = [{ question: "Why us?", answer: text }];
     const result = SiteDocument.safeParse({ ...MINIMAL_DOC, copy: { ...MINIMAL_DOC.copy, faq } });

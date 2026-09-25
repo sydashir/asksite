@@ -86,6 +86,35 @@ describe("Copy", () => {
     ]);
   });
 
+  // A9: Latin-script letters that are not A-Z once their accents are removed can pass for A-Z letters
+  // (U+0131 dotless i reads as "i"), so a claim word spelled with them would slip past claims.ts.
+  it.each([
+    "Lıcensed plumbers", // U+0131 dotless i
+    "ʟɪᴄᴇɴꜱᴇᴅ plumbers", // small capitals
+    "Licenʂed plumbers", // U+0282 s with hook
+    "Straße repairs", // U+00DF sharp s
+    "Encyclopædia of cleaning", // U+00E6 ae
+  ])("rejects a letter that is not A-Z once its accents are removed: %j", (headline) => {
+    expect(issues({ ...valid, heroHeadline: headline })).toEqual(["heroHeadline: custom"]);
+  });
+
+  it("says which letters copy may use", () => {
+    const result = Copy.safeParse({ ...valid, heroHeadline: "Lıcensed plumbers" });
+    expect(result.success ? [] : result.error.issues.map((i) => i.message)).toEqual([
+      "AI copy must use Latin script letters A to Z, with or without accents (é and ñ are fine; ı, ß, æ and small capitals are not)",
+    ]);
+  });
+
+  it.each([
+    "Café-clean kitchens",
+    "No naïve guesswork",
+    "Jalapeño stains lifted",
+    "Cafe\u0301-clean kitchens", // e + U+0301 combining acute: the same é, decomposed
+    "Crème brûlée spills, gone",
+  ])("accepts letters that are A-Z once their accents are removed: %j", (headline) => {
+    expect(issues({ ...valid, heroHeadline: headline })).toEqual([]);
+  });
+
   it.each([
     "café repairs",
     "Fast — friendly service",

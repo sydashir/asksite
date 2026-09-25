@@ -1,4 +1,4 @@
-import type { Copy } from "./copy.ts";
+import { stripMarks, type Copy } from "./copy.ts";
 import { DAYS, type Facts } from "./facts.ts";
 
 // Claim checker for AI copy. Credentials, insurance, time in business, hours, prices, reviews
@@ -13,6 +13,11 @@ import { DAYS, type Facts } from "./facts.ts";
 // as an em dash (A8c) but does NOT fold en/em dash to a hyphen (A2: they usually separate two
 // clauses, not join one compound word), so this class is spelled out wherever a pattern below
 // joins two words.
+//
+// Claims are matched with every combining mark removed (A9, stripMarks in copy.ts), so an accent
+// ("lícensed") or a mark between two words ("Award" + " " + U+0336 + "winning") hides no claim.
+// Latin look-alikes with no A-Z base letter (U+0131 dotless i, small capitals) never get here:
+// Copy refuses them.
 
 /** Claims no owner fact backs: rejected in copy whatever the facts say. */
 export const NEVER_IN_COPY: readonly RegExp[] = [
@@ -60,11 +65,13 @@ export const NEEDS_A_FACT: ReadonlyArray<{ readonly pattern: RegExp; readonly ba
 /**
  * The invisible characters copy.ts lets through: U+034F COMBINING GRAPHEME JOINER and the
  * variation selectors U+FE00-U+FE0F and U+E0100-U+E01EF (default-ignorable, Script=Inherited, not
- * \p{Cc}/\p{Cf}). Inside a word one splits it for the claim and link checks while the page still
- * shows the whole word ("Licen\u034Fsed" reads "Licensed"), so document.ts rejects copy that
- * contains any of them. The one exception is U+FE0E/U+FE0F directly after an emoji, which picks
- * the emoji's text or colour form (✔ then U+FE0F). After NFKC the only emoji that are letters
- * or digits are the digits 0-9, which copy bans, so an allowed selector never sits inside a word.
+ * \p{Cc}/\p{Cf}). Inside a word one splits it while the page still shows the whole word
+ * ("Licen\u034Fsed" reads "Licensed"). They are all combining marks, which the claim and link
+ * checks remove (A9), but an invisible character has no honest use in copy, so document.ts still
+ * rejects copy that contains any of them. The one exception is U+FE0E/U+FE0F directly after an
+ * emoji, which picks the emoji's text or colour form (✔ then U+FE0F). After NFKC the only emoji
+ * that are letters or digits are the digits 0-9, which copy bans, so an allowed selector never
+ * sits inside a word.
  */
 export const HIDDEN_IN_COPY = /(?![\uFE0E\uFE0F])\p{Default_Ignorable_Code_Point}|(?<!\p{Emoji})[\uFE0E\uFE0F]/u;
 
@@ -82,10 +89,11 @@ const asReadOnPage = (text: string): string =>
 
 /**
  * The words in `text` that state a claim the owner's facts do not back (empty when the text is
- * fine), matched as a reader sees the page; the copy itself is not changed.
+ * fine), matched as a reader sees the page with every combining mark removed (A9), so a found word
+ * is shown without its marks; the copy itself is not changed.
  */
 export function unbackedClaims(text: string, facts: Facts): string[] {
-  const page = asReadOnPage(text);
+  const page = asReadOnPage(stripMarks(text));
   const found: string[] = [];
   for (const pattern of NEVER_IN_COPY) {
     const match = pattern.exec(page);
