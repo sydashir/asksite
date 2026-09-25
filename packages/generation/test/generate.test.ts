@@ -1,11 +1,15 @@
 import { getEventListeners } from "node:events";
+import { Brief, type GenerationInputSnapshot } from "@asksite/core";
+import { Facts } from "@asksite/site-schema";
 import { describe, expect, it } from "vitest";
-import { ATTEMPT_TIMEOUT_MS, generateDraft, MAX_OUTPUT_TOKENS } from "../src/generate.ts";
+import { CAPS_REPAIR, CAPS_SNAPSHOT, capsSnapshot } from "../eval/caps.ts";
+import { ATTEMPT_TIMEOUT_MS, generateDraft, inputBound, MAX_INPUT_TOKENS, MAX_OUTPUT_TOKENS, PROMPT_OVERHEAD_TOKENS } from "../src/generate.ts";
+import { buildPrompt } from "../src/prompt.ts";
 import type { ModelProvider, ModelRequest, ModelResponse } from "../src/provider.ts";
 import { FakeProvider } from "../src/providers/fake.ts";
-import { AI_DRAFT_JSON_SCHEMA } from "../src/wire-schema.ts";
+import { AI_DRAFT_JSON_SCHEMA, toWireSchema } from "../src/wire-schema.ts";
 import { templateDraft } from "../src/template.ts";
-import { FULL_SNAPSHOT } from "./support/samples.ts";
+import { BRIEF, FULL_SNAPSHOT } from "./support/samples.ts";
 import { answer, ProviderError, scriptedProvider } from "./support/scripted.ts";
 
 const good = templateDraft(FULL_SNAPSHOT.facts, FULL_SNAPSHOT.brief);
@@ -74,7 +78,7 @@ describe("generateDraft", () => {
   it("returns the first valid answer", async () => {
     const { deps } = testDeps();
     const result = await generateDraft(new FakeProvider("ok", FULL_SNAPSHOT), FULL_SNAPSHOT, deps);
-    expect(result).toMatchObject({ ok: true, draft: good, attempts: 1, validOnAttempt: 1, model: "fake-template" });
+    expect(result).toMatchObject({ ok: true, draft: good, attempts: 1, validOnAttempt: 1, model: "fake-template", inputBoundRefused: false });
   });
 
   it("sends the AI draft schema, the output cap and a 90 s signal on every attempt", async () => {
@@ -101,7 +105,7 @@ describe("generateDraft", () => {
   it("gives up after three invalid answers and reports the last issues", async () => {
     const { deps } = testDeps();
     const result = await generateDraft(new FakeProvider("invalid-always", FULL_SNAPSHOT), FULL_SNAPSHOT, deps);
-    expect(result).toMatchObject({ ok: false, failure: "invalid_output", attempts: 3, providerErrorKind: null });
+    expect(result).toMatchObject({ ok: false, failure: "invalid_output", attempts: 3, providerErrorKind: null, inputBoundRefused: false });
     expect(!result.ok && result.issues.map((i) => i.path.join("."))).toContain("copy.heroHeadline");
   });
 
@@ -216,11 +220,11 @@ describe("generateDraft", () => {
     expect(timeouts).toEqual([ATTEMPT_TIMEOUT_MS, ATTEMPT_TIMEOUT_MS]);
   }, 5_000);
 
-  it("treats an attempt whose signal has already aborted as a timeout at once, without calling the provider (a late request is a paid call thrown away)", async () => {
+  it("treats an attempt whose signal has already aborted as a timeout at once, without calling the provider (a late request is a paid call thrown away), so it is not counted in attempts", async () => {
     const { deps, sleeps } = testDeps();
     const provider = providerOf(never, never, never);
     const result = await generateDraft(provider, FULL_SNAPSHOT, { ...deps, timeoutSignal: () => AbortSignal.abort() });
-    expect(result).toMatchObject({ ok: false, failure: "provider_error", providerErrorKind: "timeout", attempts: 3 });
+    expect(result).toMatchObject({ ok: false, failure: "provider_error", providerErrorKind: "timeout", attempts: 0 });
     const timedOut = { outcome: "timeout", issues: [], latencyMs: 10, usageMissing: false };
     expect(result.log).toEqual([timedOut, timedOut, timedOut]);
     expect(sleeps).toEqual([2_000, 6_000]);
@@ -232,7 +236,8 @@ describe("generateDraft", () => {
     const provider = providerOf();
     const signals = [() => AbortSignal.abort(), () => new AbortController().signal];
     const result = await generateDraft(provider, FULL_SNAPSHOT, { ...deps, timeoutSignal: () => signals.shift()!() });
-    expect(result).toMatchObject({ ok: true, attempts: 2, validOnAttempt: 2 });
+    // attempts counts the calls sent (1); validOnAttempt is the loop's attempt number (2).
+    expect(result).toMatchObject({ ok: true, attempts: 1, validOnAttempt: 2 });
     expect(result.log.map((a) => a.outcome)).toEqual(["timeout", "valid"]);
     expect(sleeps).toEqual([2_000]);
     expect(provider.calls).toBe(1);
@@ -439,5 +444,112 @@ describe("generateDraft", () => {
     expect(result).toMatchObject({ ok: false, failure: "provider_error", providerErrorKind: "auth", attempts: 2, model: "scripted-1" });
     expect(!result.ok && result.issues.map((i) => i.path.join("."))).toContain("copy.heroHeadline");
     expect(sleeps).toEqual([]);
+  });
+});
+
+describe("the input bound (P3-8)", () => {
+  const bytes = (text: string): number => new TextEncoder().encode(text).length;
+  /** The bound of the first attempt's request for this snapshot (no repair lines). */
+  const boundOf = (snapshot: GenerationInputSnapshot): number => inputBound({ ...buildPrompt(snapshot), jsonSchema: AI_DRAFT_JSON_SCHEMA });
+
+  it.each<[string, string, number]>([
+    ["ASCII: its raw bytes", "abc", 3],
+    ["a decomposed accent, which NFC and NFKC shrink: its raw bytes", "e\u0301", 3],
+    ["a fullwidth letter and U+1D160, which NFKC shrinks less than NFC grows: its NFC bytes", "\uFF21\u{1D160}", 15],
+    ["U+FDFA: its NFKC bytes", "\uFDFA", 33],
+  ])("counts the most UTF-8 bytes of the raw, NFC and NFKC text, plus the overhead, for %s", (_case, user, most) => {
+    // toWireSchema({}) is {}: 2 bytes.
+    expect(inputBound({ system: "", user, jsonSchema: {} })).toBe(most + 2 + PROMPT_OVERHEAD_TOKENS);
+  });
+
+  it("measures the system prompt, the user prompt and the schema as the adapters send it (toWireSchema), not the raw schema", () => {
+    const schema = { type: "string", minLength: 1, $schema: "x" };
+    expect(inputBound({ system: "ab", user: "c", jsonSchema: schema })).toBe(3 + bytes(JSON.stringify(toWireSchema(schema))) + PROMPT_OVERHEAD_TOKENS);
+    expect(bytes(JSON.stringify(toWireSchema(schema)))).toBeLessThan(bytes(JSON.stringify(schema)));
+  });
+
+  it("lets through CAPS_SNAPSHOT with CAPS_REPAIR, the largest prompt by bytes: normalization does not grow it", () => {
+    const { system, user } = buildPrompt(CAPS_SNAPSHOT, CAPS_REPAIR);
+    const bound = inputBound({ system, user, jsonSchema: AI_DRAFT_JSON_SCHEMA });
+    expect(bound).toBe(bytes(system) + bytes(user) + bytes(JSON.stringify(toWireSchema(AI_DRAFT_JSON_SCHEMA))) + PROMPT_OVERHEAD_TOKENS);
+    expect(bound).toBeLessThanOrEqual(MAX_INPUT_TOKENS);
+  });
+
+  // Schema-valid owner text that NFC or NFKC makes longer: the byte proof alone would send it.
+  it.each<[string, string]>([
+    ["U+1D160", "\u{1D160}"],
+    ["U+FB2C", "\uFB2C"],
+    ["U+FDFA", "\uFDFA"],
+    ["U+3316", "\u3316"],
+  ])("refuses a schema-valid snapshot filled with %s before any call: attempts 0, inputBoundRefused, a bad request that is never retried", async (_name, fill) => {
+    const snapshot = capsSnapshot(fill);
+    expect(Facts.safeParse(snapshot.facts).success && Brief.safeParse(snapshot.brief).success).toBe(true);
+    const { system, user } = buildPrompt(snapshot);
+    expect(bytes(system) + bytes(user) + bytes(JSON.stringify(toWireSchema(AI_DRAFT_JSON_SCHEMA))) + PROMPT_OVERHEAD_TOKENS).toBeLessThanOrEqual(MAX_INPUT_TOKENS);
+    expect(boundOf(snapshot)).toBeGreaterThan(MAX_INPUT_TOKENS);
+    const { deps, sleeps } = testDeps();
+    const provider = providerOf();
+    const result = await generateDraft(provider, snapshot, deps);
+    expect(provider.calls).toBe(0);
+    expect(result).toEqual({
+      ok: false,
+      failure: "provider_error",
+      providerErrorKind: "bad_request",
+      issues: [],
+      attempts: 0,
+      model: null,
+      usage: { inputTokens: 0, outputTokens: 0 },
+      log: [{ outcome: "bad_request", issues: [], latencyMs: 10, usageMissing: false }],
+      inputBoundRefused: true,
+    });
+    expect(sleeps).toEqual([]);
+  });
+
+  /** An answer whose faq holds 20 entries, each with an unknown key made of `fill`: Zod's "Unrecognized key" message repeats the key, so the model's own text reaches the repair lines. */
+  const withUnknownKeys = (draft: typeof good, fill: string) => ({
+    ...draft,
+    copy: { ...draft.copy, faq: Array.from({ length: 20 }, (_, i) => ({ question: "Do you fix leaks?", answer: "Yes, we do.", [fill.repeat(300) + String(i)]: "x" })) },
+  });
+
+  it("sends CAPS_SNAPSHOT, and its next attempt after 20 real repair lines at their caps in the euro sign (the provider is called both times)", async () => {
+    const draft = templateDraft(CAPS_SNAPSHOT.facts, CAPS_SNAPSHOT.brief);
+    const provider = scriptedProvider([answer(withUnknownKeys(draft, "\u20AC")), answer(draft)]);
+    const result = await generateDraft(provider, CAPS_SNAPSHOT, testDeps().deps);
+    expect(result).toMatchObject({ ok: true, attempts: 2, validOnAttempt: 2, inputBoundRefused: false });
+    expect(provider.requests[1]!.user.split("\n").filter((line) => line.startsWith('- "copy.faq.')).length).toBe(20);
+  });
+
+  it("refuses attempt 2 when the real repair lines of attempt 1 push it over: attempts 1, inputBoundRefused, no retry", async () => {
+    const { deps, sleeps } = testDeps();
+    const provider = scriptedProvider([answer(withUnknownKeys(good, "\uFDFA")), answer(good)]);
+    const result = await generateDraft(provider, FULL_SNAPSHOT, deps);
+    expect(provider.requests).toHaveLength(1);
+    expect(result).toMatchObject({ ok: false, failure: "provider_error", providerErrorKind: "bad_request", attempts: 1, inputBoundRefused: true });
+    expect(result.log.map((a) => [a.outcome, a.usageMissing])).toEqual([["invalid", false], ["bad_request", false]]);
+    expect(sleeps).toEqual([]);
+    const issues = result.ok ? [] : result.issues;
+    expect(issues[0]).toMatchObject({ path: ["copy", "faq", 0], code: "unrecognized_keys" });
+    // Attempt 1 was under the bound; attempt 2, with those repair lines, is over it.
+    expect(inputBound(provider.requests[0]!)).toBeLessThanOrEqual(MAX_INPUT_TOKENS);
+    expect(inputBound({ ...buildPrompt(FULL_SNAPSHOT, issues), jsonSchema: AI_DRAFT_JSON_SCHEMA })).toBeGreaterThan(MAX_INPUT_TOKENS);
+  });
+
+  it("sends a prompt whose bound is exactly MAX_INPUT_TOKENS and refuses one a byte over", async () => {
+    const withNotes = (notes: string): GenerationInputSnapshot => ({ facts: FULL_SNAPSHOT.facts, brief: Brief.parse({ ...BRIEF, notes }) });
+    // Each U+FDFA adds 33 NFKC bytes, each "n" exactly 1 to every measure; the notes stay under their 2,000 cap.
+    const fdfa = "\uFDFA".repeat(Math.floor((MAX_INPUT_TOKENS - boundOf(withNotes("n")) - 40) / 33));
+    const pad = MAX_INPUT_TOKENS - boundOf(withNotes(fdfa));
+    const at = withNotes(fdfa + "n".repeat(pad));
+    const over = withNotes(fdfa + "n".repeat(pad + 1));
+    expect(pad).toBeGreaterThan(0);
+    expect(fdfa.length + pad + 1).toBeLessThanOrEqual(2_000);
+    expect([boundOf(at), boundOf(over)]).toEqual([MAX_INPUT_TOKENS, MAX_INPUT_TOKENS + 1]);
+    const calls: number[] = [];
+    for (const snapshot of [at, over]) {
+      const provider = providerOf();
+      await generateDraft(provider, snapshot, testDeps().deps);
+      calls.push(provider.calls);
+    }
+    expect(calls).toEqual([1, 0]);
   });
 });

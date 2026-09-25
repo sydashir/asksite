@@ -1,16 +1,9 @@
-import { MAX_ATTEMPTS, MAX_OUTPUT_TOKENS } from "./generate.ts";
+import { MAX_ATTEMPTS, MAX_INPUT_TOKENS, MAX_OUTPUT_TOKENS } from "./generate.ts";
 import type { ModelPrice } from "./provider.ts";
 
-/**
- * Upper bound on the input tokens of one attempt. test/models.test.ts builds the largest prompt
- * the builder can make (eval/caps.ts: every capped input at its cap, in the most expensive
- * characters) and checks that its UTF-8 bytes plus PROMPT_OVERHEAD_TOKENS fit. That the byte
- * count bounds the token count holds for byte-level tokenizers [inferred]; Task 15's --caps-probe
- * measures a real caps prompt on each provider.
- */
-export const MAX_INPUT_TOKENS = 70_000;
-/** Room for chat-template and structured-output tokens the provider adds [inferred]. */
-export const PROMPT_OVERHEAD_TOKENS = 2_000;
+// The input bound is defined in generate.ts, whose run-time guard uses it: generate.ts importing this
+// file would make an import cycle, as this file imports generate.ts. It is re-exported here unchanged.
+export { MAX_INPUT_TOKENS, PROMPT_OVERHEAD_TOKENS } from "./generate.ts";
 
 export interface ModelSettings {
   price: ModelPrice;

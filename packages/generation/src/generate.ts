@@ -2,7 +2,7 @@ import type { AiDraft, GenerationInputSnapshot, Issue } from "@asksite/core";
 import { buildPrompt } from "./prompt.ts";
 import { ProviderError, TRANSIENT_KINDS, type ModelProvider, type ModelRequest, type ModelResponse, type ProviderErrorKind } from "./provider.ts";
 import { checkDraft } from "./validate.ts";
-import { AI_DRAFT_JSON_SCHEMA } from "./wire-schema.ts";
+import { AI_DRAFT_JSON_SCHEMA, toWireSchema } from "./wire-schema.ts";
 
 /** Design §6.3 constants. */
 export const MAX_ATTEMPTS = 3;
@@ -14,6 +14,33 @@ export const RETRY_DELAYS_MS = [2_000, 6_000] as const;
  * characters of copy; the rest is room for reasoning. A cut-off answer counts as invalid.
  */
 export const MAX_OUTPUT_TOKENS = 8_192;
+/**
+ * Upper bound on the input tokens of one attempt (plan Decision 4); models.ts prices a job's worst
+ * case with it. test/models.test.ts proves that the largest prompt the builder can make
+ * (eval/caps.ts) fits by UTF-8 bytes. Bytes bound tokens only for a tokenizer that does not
+ * normalize the text first [inferred]: NFC or NFKC can make one character several (P3-8, measured on
+ * Qwen3.8-27B's NFC tokenizer), so generateDraft checks inputBound before every call. Task 15's
+ * --caps-probe measures a real caps prompt on each provider. These two constants live here, not in
+ * models.ts, because models.ts imports this file; models.ts re-exports them.
+ */
+export const MAX_INPUT_TOKENS = 70_000;
+/** Room for chat-template and structured-output tokens the provider adds [inferred]. */
+export const PROMPT_OVERHEAD_TOKENS = 2_000;
+
+const encoder = new TextEncoder();
+const utf8Bytes = (text: string): number => encoder.encode(text).length;
+
+/**
+ * The most input tokens one request can cost, as the run-time guard counts them: the UTF-8 bytes of
+ * exactly what the adapters send (system, user and toWireSchema(jsonSchema)) in its raw, NFC or NFKC
+ * form, whichever is largest, plus PROMPT_OVERHEAD_TOKENS. A byte-level tokenizer makes at most one
+ * token per byte of the text it reads, and some normalize the text first: U+1D160 is 4 bytes and 12
+ * after NFC, U+FDFA 3 bytes and 33 after NFKC [inferred for tokenizers nobody has measured].
+ */
+export function inputBound(req: Pick<ModelRequest, "system" | "user" | "jsonSchema">): number {
+  const text = req.system + req.user + JSON.stringify(toWireSchema(req.jsonSchema));
+  return Math.max(utf8Bytes(text), utf8Bytes(text.normalize("NFC")), utf8Bytes(text.normalize("NFKC"))) + PROMPT_OVERHEAD_TOKENS;
+}
 
 export interface GenerateDeps {
   sleep(ms: number): Promise<void>;
@@ -35,11 +62,18 @@ export interface AttemptRecord {
   usageMissing: boolean;
 }
 
+/**
+ * `attempts` counts the provider calls actually sent: an attempt refused before its call (over the
+ * input bound, or its deadline already passed) sends nothing and does not count. `validOnAttempt` is
+ * the loop's attempt number (1 to MAX_ATTEMPTS) of the valid answer, so an unsent attempt before it
+ * still counts there. `inputBoundRefused` is true when the guard refused an attempt's prompt.
+ */
 interface Common {
   attempts: number;
   model: string | null;
   usage: { inputTokens: number; outputTokens: number };
   log: AttemptRecord[];
+  inputBoundRefused: boolean;
 }
 export type GenerateResult =
   | (Common & { ok: true; draft: AiDraft; validOnAttempt: number })
@@ -73,14 +107,12 @@ const fromProvider = (error: unknown, signal: AbortSignal): ProviderError => {
 
 /**
  * The provider's answer, or a timeout once the request's signal aborts, whichever comes first, so
- * the attempt limit holds even for a provider that ignores the signal. It throws only ProviderErrors.
- * A signal that has already aborted is a timeout without a call: a request sent after the deadline
- * is a paid call whose answer would be thrown away. The call that loses may still reject later; that
- * is never an unhandled rejection. The abort listener is removed as soon as the attempt ends.
+ * the attempt limit holds even for a provider that ignores the signal. It calls the provider once and
+ * throws only ProviderErrors. The call that loses may still reject later; that is never an unhandled
+ * rejection. The abort listener is removed as soon as the attempt ends.
  */
 async function answerWithinLimit(provider: ModelProvider, req: ModelRequest): Promise<ModelResponse> {
   const { signal } = req;
-  if (signal.aborted) throw attemptTimedOut();
   let call: Promise<ModelResponse>;
   try {
     call = provider.generate(req);
@@ -120,6 +152,8 @@ export async function generateDraft(provider: ModelProvider, snapshot: Generatio
   let failure: "provider_error" | "invalid_output" = "invalid_output";
   let providerErrorKind: ProviderErrorKind | null = null;
   let transientErrors = 0;
+  let calls = 0;
+  let inputBoundRefused = false;
 
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     const { system, user } = buildPrompt(snapshot, repair);
@@ -127,15 +161,23 @@ export async function generateDraft(provider: ModelProvider, snapshot: Generatio
     const started = deps.now();
     let res: ModelResponse;
     try {
+      // Checked on exactly what this call would send. No retry can shrink the prompt, so it is a bad request.
+      if (inputBound(req) > MAX_INPUT_TOKENS) {
+        inputBoundRefused = true;
+        throw new ProviderError("bad_request", "prompt over the input bound");
+      }
+      // A request sent after the deadline is a paid call whose answer would be thrown away.
+      if (req.signal.aborted) throw attemptTimedOut();
+      calls += 1;
       res = await answerWithinLimit(provider, req);
     } catch (error) {
-      // answerWithinLimit throws only ProviderErrors; anything else is a bug in our own code and propagates.
+      // Only the two checks above and answerWithinLimit throw ProviderErrors; anything else is a bug in our own code and propagates.
       if (!(error instanceof ProviderError)) throw error;
       const kind = error.kind;
       log.push({ outcome: kind, issues: [], latencyMs: deps.now() - started, usageMissing: false });
       failure = "provider_error";
       providerErrorKind = kind;
-      if (!TRANSIENT_KINDS.has(kind)) return { ok: false, failure, providerErrorKind, issues: repair, attempts: attempt, model, usage, log };
+      if (!TRANSIENT_KINDS.has(kind)) return { ok: false, failure, providerErrorKind, issues: repair, attempts: calls, model, usage, log, inputBoundRefused };
       if (attempt < MAX_ATTEMPTS) await deps.sleep(RETRY_DELAYS_MS[Math.min(transientErrors, RETRY_DELAYS_MS.length - 1)]!);
       transientErrors += 1;
       continue;
@@ -157,10 +199,10 @@ export async function generateDraft(provider: ModelProvider, snapshot: Generatio
     const check = checkDraft(snapshot.facts, res.json);
     if (check.ok) {
       log.push({ outcome: "valid", issues: [], latencyMs, usageMissing });
-      return { ok: true, draft: check.draft, validOnAttempt: attempt, attempts: attempt, model, usage, log };
+      return { ok: true, draft: check.draft, validOnAttempt: attempt, attempts: calls, model, usage, log, inputBoundRefused };
     }
     repair = check.issues;
     log.push({ outcome: "invalid", issues: check.issues, latencyMs, usageMissing });
   }
-  return { ok: false, failure, providerErrorKind, issues: repair, attempts: MAX_ATTEMPTS, model, usage, log };
+  return { ok: false, failure, providerErrorKind, issues: repair, attempts: calls, model, usage, log, inputBoundRefused };
 }
