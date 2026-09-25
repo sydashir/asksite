@@ -78,6 +78,40 @@ async function secondSite(db: D1Database, ownerId: string): Promise<Site> {
   return { ownerId, siteId, slug };
 }
 
+/** A finished generation of `site`; returns its id. */
+async function generationOf(site: Site): Promise<string> {
+  const generationId = newId();
+  await env.DB.prepare("INSERT INTO generations (id, site_id, owner_id, kind, status, input_json, created_at) VALUES (?, ?, ?, 'first', 'succeeded', '{}', 1)")
+    .bind(generationId, site.siteId, site.ownerId).run();
+  return generationId;
+}
+
+/**
+ * A D1 whose batch answers the version-number SELECT with no row although the INSERT before it happened:
+ * A10's inference (a later read in a batch sees the earlier write) failing, as production D1 could.
+ */
+function numberReadSeesNothing(db: D1Database): D1Database {
+  const hidden = new WeakSet<D1PreparedStatement>();
+  const production = {
+    prepare(sql: string) {
+      const statement = db.prepare(sql);
+      if (!/^SELECT number FROM site_versions WHERE id = \?$/.test(sql)) return statement;
+      return {
+        bind(...values: unknown[]) {
+          const bound = statement.bind(...values);
+          hidden.add(bound);
+          return bound;
+        },
+      };
+    },
+    async batch(statements: D1PreparedStatement[]) {
+      const isHidden = statements.map((statement) => hidden.has(statement));
+      return (await db.batch(statements)).map((result, i) => (isHidden[i] ? { ...result, results: [] } : result));
+    },
+  };
+  return production as unknown as D1Database;
+}
+
 /** The keys of a site's stored pages in WORK (R2 lists are strongly consistent). */
 async function workKeys(siteId: string): Promise<string[]> {
   return (await env.WORK.list({ prefix: `versions/${siteId}/` })).objects.map((object) => object.key);
@@ -392,6 +426,18 @@ describe("a request the early checks refuse", () => {
       refused: { code: "integrity", detail: { reason: "generation_not_found" } },
       arrange: async () => ({ generationId: newId() }),
     },
+    {
+      // Provenance is the site's own generation (generations.site_id), never another owner's site's.
+      request: "naming another owner's site's generation",
+      refused: { code: "integrity", detail: { reason: "generation_not_found" } },
+      arrange: async () => ({ generationId: await generationOf(await seedSite(env.DB)) }),
+    },
+    {
+      // Nor the same owner's other site's: the check is scoped to the site, not only to the owner.
+      request: "naming a generation of the owner's other site",
+      refused: { code: "integrity", detail: { reason: "generation_not_found" } },
+      arrange: async (site) => ({ generationId: await generationOf(await secondSite(env.DB, site.ownerId)) }),
+    },
   ];
 
   it.each(refusals)("a request $request is refused before a page is stored", async ({ refused, arrange }) => {
@@ -480,6 +526,24 @@ describe("a request the batch refuses, because the site changed after the early 
     expect({ code: error.code, detail: error.detail }).toEqual({ code: "integrity", detail: { reason: "site_changed" } });
     expect(await workKeys(site.siteId)).toEqual([]);
     expect((await siteRow(env.DB, site.siteId))?.pending_version_id).toBeNull();
+  });
+
+  it("keeps the page when a version row names it although the batch returned no number (A10 is inferred)", async () => {
+    const site = await seedSite(env.DB);
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const error = await failure(createPendingVersion({ ...env, DB: numberReadSeesNothing(env.DB) }, { ...site, document: doc(), edits: EDITS, generationId: null, now: 1 }));
+      expect({ code: error.code, detail: error.detail }).toEqual({ code: "integrity", detail: { reason: "site_changed" } });
+      // The INSERT happened, so its page stays: deleting it would leave a version whose bytes are gone.
+      const stored = await env.DB.prepare("SELECT id, html_key FROM site_versions WHERE site_id = ?").bind(site.siteId).all<{ id: string; html_key: string }>();
+      expect(stored.results).toHaveLength(1);
+      expect(await workKeys(site.siteId)).toEqual([stored.results[0]?.html_key]);
+      // One line, IDs and a code only, so the broken inference shows in production logs.
+      expect(logged).toHaveBeenCalledTimes(1);
+      expect(JSON.parse(String(logged.mock.calls[0]?.[0]))).toEqual({ code: "version_number_missing", siteId: site.siteId, versionId: stored.results[0]?.id });
+    } finally {
+      logged.mockRestore();
+    }
   });
 
   it("logs a page it could not delete, and still answers the refusal", async () => {

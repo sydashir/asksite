@@ -22,10 +22,13 @@ const DAY_MS = 86_400_000;
 const siteChanged = () => new PublishError("integrity", { reason: "site_changed" });
 
 /**
- * The owner's Publish: render the page, store the exact bytes in WORK, then (one D1 batch)
- * supersede any pending version, add this one as pending and point the site at it.
- * The batch only acts while the site is the owner's, still has this slug, is not taken down and has
- * fewer than LIMITS.publishRequestsPerSitePerDay requests today (Decision 25).
+ * The owner's Publish. Cheap checks come first (the site is the owner's, not taken down, under today's
+ * LIMITS.publishRequestsPerSitePerDay (Decision 25), still has this slug, and the generation is this site's),
+ * so a request they refuse renders and stores nothing. Then: render the page, store the exact bytes in WORK,
+ * and (one D1 batch) supersede any pending version, add this one as pending and point the site at it.
+ * The batch re-checks the owner, slug, takedown and cap, for a request that races another one or a change
+ * made in the meantime. If the batch refuses, the stored page is deleted again (only when no version row
+ * names it) and the refusal is explained.
  */
 export async function createPendingVersion(
   env: { DB: D1Database; WORK: R2Bucket; ROOT_DOMAIN: string },
@@ -87,7 +90,11 @@ export async function createPendingVersion(
   const number = (results[2]?.results[0] as { number?: number } | undefined)?.number;
   if (number === undefined) {
     // No row: the INSERT did not happen, and no version can ever point at this page. Delete it, then find out why.
-    await deleteRefusedPage(env.WORK, key, { siteId, versionId });
+    // That a read later in the batch sees the INSERT is inferred for production D1 (A10), so the page is deleted
+    // only when no version row names it; a row without a number is logged (IDs and a code only).
+    const stored = await db.prepare("SELECT 1 FROM site_versions WHERE id = ?").bind(versionId).first();
+    if (stored === null) await deleteRefusedPage(env.WORK, key, { siteId, versionId });
+    else console.error(JSON.stringify({ code: "version_number_missing", siteId, versionId }));
     throw (await refusal(db, input)) ?? siteChanged();
   }
   return { id: versionId, number, status: "pending", requestedAt: now, reviewedAt: null, reviewNote: null };
@@ -108,10 +115,10 @@ async function refusal(
     .prepare(
       `SELECT slug, taken_down_at,
          (SELECT COUNT(*) FROM site_versions WHERE site_id = sites.id AND requested_at >= ?) AS requests,
-         (SELECT COUNT(*) FROM generations WHERE id = ?) AS generations
+         (SELECT COUNT(*) FROM generations WHERE id = ? AND site_id = ?) AS generations
        FROM sites WHERE id = ? AND owner_id = ?`,
     )
-    .bind(dayStart, generationId, siteId, ownerId)
+    .bind(dayStart, generationId, siteId, siteId, ownerId)
     .first<{ slug: string | null; taken_down_at: number | null; requests: number; generations: number }>();
   if (site === null) return siteChanged();
   if (site.taken_down_at !== null) return new PublishError("site_taken_down");
@@ -119,7 +126,8 @@ async function refusal(
     return new PublishError("publish_cap_reached", { retryAfter: Math.ceil((dayStart + DAY_MS - now) / 1000) });
   }
   if (site.slug !== slug) return siteChanged();
-  // site_versions.generation_id references generations(id): the batch would fail with a raw FOREIGN KEY error.
+  // The generation must be this site's own: an unknown id would fail the batch with a raw FOREIGN KEY error
+  // (site_versions.generation_id references generations(id)), and another site's is not this version's provenance.
   if (generationId !== null && site.generations === 0) return new PublishError("integrity", { reason: "generation_not_found" });
   return null;
 }
