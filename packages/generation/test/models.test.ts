@@ -1,5 +1,5 @@
 import { Brief, GOALS, TONES, type GenerationInputSnapshot, type Issue } from "@asksite/core";
-import { Facts, TRADES } from "@asksite/site-schema";
+import { DAYS, Facts, SOCIAL_HOSTS, SOCIAL_NETWORKS, TRADES } from "@asksite/site-schema";
 import { describe, expect, it } from "vitest";
 import { CAPS_FILLS, CAPS_REPAIR, CAPS_SNAPSHOT, capsRepair, capsSnapshot } from "../eval/caps.ts";
 import { MAX_ATTEMPTS, MAX_OUTPUT_TOKENS } from "../src/generate.ts";
@@ -17,7 +17,13 @@ const promptBytes = (snapshot: GenerationInputSnapshot, repair: readonly Issue[]
   return bytes(system) + bytes(user) + SCHEMA_BYTES;
 };
 
-/** The on/off builder choices. heroPhoto does not change the prompt today; it is here so a future change is caught. */
+/** Both halves pass their real schemas. */
+const parses = (snapshot: GenerationInputSnapshot): boolean => Facts.safeParse(snapshot.facts).success && Brief.safeParse(snapshot.brief).success;
+
+/**
+ * The on/off builder choices. heroPhoto does not change the prompt today; it is here so a future change is caught.
+ * The fields in UNREAD are left out because the prompt does not read them; a test below proves it.
+ */
 const TOGGLES = ["yearFounded", "licences", "insured", "emergency247", "freeEstimates", "testimonials", "photos", "heroPhoto"] as const;
 type Toggle = (typeof TOGGLES)[number];
 const PHOTO = { url: "https://media.example.com/a/p.webp", alt: "a", width: 1, height: 1 };
@@ -41,6 +47,21 @@ function withChoices(trade: Facts["trade"], tone: Brief["tone"], goal: Brief["go
     brief: { ...CAPS_SNAPSHOT.brief, tone, goal },
   };
 }
+
+/**
+ * Facts and Brief fields the prompt does not read today, each set to its fullest value (CAPS_SNAPSHOT leaves
+ * every one unset or at its default). If the prompt starts reading one, the guard test fails and that field
+ * must join TOGGLES, so the enumeration covers it.
+ */
+type SetField = (snapshot: GenerationInputSnapshot) => GenerationInputSnapshot;
+const UNREAD: Array<[string, SetField]> = [
+  ["hours", ({ facts, brief }) => ({ facts: { ...facts, hours: DAYS.map((day) => ({ days: [day], opens: "00:00", closes: "23:59" })) }, brief })],
+  ["socialLinks", ({ facts, brief }) => ({ facts: { ...facts, socialLinks: SOCIAL_NETWORKS.map((network) => ({ network, url: `https://${SOCIAL_HOSTS[network][0]!}/a` })) }, brief })],
+  ["serviceArea.note", ({ facts, brief }) => ({ facts: { ...facts, serviceArea: { ...facts.serviceArea, note: "n".repeat(80) } }, brief })],
+  ["location.streetAddress", ({ facts, brief }) => ({ facts: { ...facts, location: { ...facts.location, streetAddress: "s".repeat(80) } }, brief })],
+  ["location.postalCode", ({ facts, brief }) => ({ facts: { ...facts, location: { ...facts.location, postalCode: "78701" } }, brief })],
+  ["reviewsAreReal", ({ facts, brief }) => ({ facts, brief: { ...brief, reviewsAreReal: true } })],
+];
 
 /** Copies the capped strings of one field group from `from` into `into`; every other field keeps `into`'s. */
 type Take = (into: GenerationInputSnapshot, from: GenerationInputSnapshot) => GenerationInputSnapshot;
@@ -95,6 +116,19 @@ describe("MAX_INPUT_TOKENS", () => {
     },
     60_000,
   );
+
+  it.each(UNREAD)("does not read %s, so TOGGLES can leave it out: setting it leaves the prompt byte for byte the same", (_field, set) => {
+    const on = set(CAPS_SNAPSHOT);
+    expect(parses(on)).toBe(true);
+    expect(on).not.toEqual(CAPS_SNAPSHOT);
+    expect(buildPrompt(on, CAPS_REPAIR)).toEqual(buildPrompt(CAPS_SNAPSHOT, CAPS_REPAIR));
+  });
+
+  it("does not read those fields together either: setting them all leaves the prompt byte for byte the same", () => {
+    const on = UNREAD.reduce((snapshot, [, set]) => set(snapshot), CAPS_SNAPSHOT);
+    expect(parses(on)).toBe(true);
+    expect(buildPrompt(on, CAPS_REPAIR)).toEqual(buildPrompt(CAPS_SNAPSHOT, CAPS_REPAIR));
+  });
 });
 
 describe("eval/caps.ts", () => {
@@ -110,8 +144,6 @@ describe("eval/caps.ts", () => {
   const { places } = facts.serviceArea;
   const { services } = facts;
   const comments = Object.entries(brief.comments);
-  /** Both halves pass their real schemas. */
-  const parses = (snapshot: GenerationInputSnapshot): boolean => Facts.safeParse(snapshot.facts).success && Brief.safeParse(snapshot.brief).success;
 
   // [capped input, its size in CAPS_SNAPSHOT, snapshots with one input (or one item of it) one unit or one item over]
   const CAPPED: Array<[string, number, GenerationInputSnapshot[]]> = [
