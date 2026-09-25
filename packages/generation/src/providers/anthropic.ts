@@ -3,6 +3,7 @@ import { ATTEMPT_TIMEOUT_MS } from "../generate.ts";
 import { modelSettings } from "../models.ts";
 import { ProviderError, type ModelProvider, type ModelRequest, type ModelResponse, type ProviderErrorKind } from "../provider.ts";
 import { dropNulls, toWireSchema } from "../wire-schema.ts";
+import { statusKind } from "./shared.ts";
 
 export interface AnthropicOptions {
   apiKey: string;
@@ -38,19 +39,15 @@ const isSpendCap = (error: unknown): boolean =>
   error instanceof Anthropic.APIError && error.status === 429 && own(own(own(error.error, "error"), "details"), "error_code") === SPEND_CAP_CODE;
 
 /**
- * 402 (billing_error) and the tier spend cap need a human, like a bad key; 504 (timeout_error) is the
- * API's own timeout. Every 400 is a bad request, a spend limit you set included; 409 and other
- * statuses are unavailable.
+ * The shared status rule (statusKind), after the tier spend cap, which needs a human like a bad key. Every 400 is a
+ * bad request, a spend limit you set included (api/errors.md: invalid_request_error "may also be used for other 4XX
+ * status codes not listed").
  */
 function kindOf(error: unknown): ProviderErrorKind {
   if (error instanceof Anthropic.APIUserAbortError || error instanceof Anthropic.APIConnectionTimeoutError) return "timeout";
   if (error instanceof Anthropic.APIConnectionError) return "unavailable";
   if (!(error instanceof Anthropic.APIError) || error.status === undefined) return "unavailable";
-  if (error.status === 401 || error.status === 402 || error.status === 403) return "auth";
-  if (error.status === 429) return isSpendCap(error) ? "auth" : "rate_limited";
-  if (error.status === 504) return "timeout";
-  if (error.status === 400 || error.status === 404 || error.status === 413 || error.status === 422) return "bad_request";
-  return "unavailable";
+  return isSpendCap(error) ? "auth" : statusKind(error.status);
 }
 
 /**

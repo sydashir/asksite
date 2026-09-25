@@ -322,3 +322,30 @@ describe("AnthropicProvider", () => {
     expect(res.usageMissing).toBe(true);
   });
 });
+
+// P3-11 (e), one status rule in both adapters: 401/402/403 auth first; 408 and 504 timeout; 409 unavailable; 429
+// rate_limited (the spend cap aside); every other 4xx a bad request (never retried); any other 5xx unavailable.
+// Groq's 498 is the compatible adapter's own case, so here it is an ordinary 4xx.
+describe("AnthropicProvider: the status rule (P3-11 e)", () => {
+  it.each([
+    [404, "bad_request"],
+    [405, "bad_request"],
+    [408, "timeout"],
+    [409, "unavailable"],
+    [410, "bad_request"],
+    [413, "bad_request"],
+    [418, "bad_request"],
+    [424, "bad_request"],
+    [429, "rate_limited"],
+    [451, "bad_request"],
+    [498, "bad_request"],
+    [499, "bad_request"],
+    [502, "unavailable"],
+    [529, "unavailable"],
+  ])("maps HTTP %i to %s, with no SDK retry", async (status, kind) => {
+    const http = fakeFetch([{ status, body: { type: "error", error: { type: "x", message: "m" } } }, { status: 200, body: message("{}") }]);
+    const provider = new AnthropicProvider({ apiKey: "k", model: "claude-opus-5-5", fetch: http.fetch });
+    await expect(provider.generate(request())).rejects.toMatchObject({ name: "ProviderError", kind, message: `Anthropic request failed (${kind}, HTTP ${status}, x)` });
+    expect(http.calls).toHaveLength(1);
+  });
+});

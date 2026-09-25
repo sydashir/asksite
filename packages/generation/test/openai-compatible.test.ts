@@ -413,3 +413,29 @@ describe("OpenAICompatibleProvider: the request it builds", () => {
     }
   });
 });
+
+// P3-11 (e), one status rule in both adapters: 401/402/403 auth first; 408 and 504 timeout; 409 unavailable; 429 and
+// Groq's 498 rate_limited; every other 4xx a bad request (never retried); any other 5xx unavailable.
+describe("OpenAICompatibleProvider: the status rule (P3-11 e)", () => {
+  it.each([
+    [404, "bad_request"],
+    [405, "bad_request"],
+    [408, "timeout"],
+    [409, "unavailable"],
+    [410, "bad_request"],
+    [413, "bad_request"],
+    [418, "bad_request"],
+    [422, "bad_request"],
+    [424, "bad_request"],
+    [429, "rate_limited"],
+    [451, "bad_request"],
+    [498, "rate_limited"],
+    [499, "bad_request"],
+    [502, "unavailable"],
+    [529, "unavailable"],
+  ])("maps HTTP %i to %s", async (status, kind) => {
+    const http = fakeFetch([{ status, body: { error: { message: "m" } } }]);
+    await expect(compatible(http.fetch).generate(request())).rejects.toMatchObject({ name: "ProviderError", kind, message: `OpenAI-compatible request failed (${kind}, HTTP ${status})` });
+    expect(http.calls).toHaveLength(1);
+  });
+});

@@ -2,6 +2,7 @@ import { isSafeUrl } from "@asksite/site-schema";
 import { modelSettings } from "../models.ts";
 import { ProviderError, type ModelProvider, type ModelRequest, type ModelResponse, type ProviderErrorKind } from "../provider.ts";
 import { dropNulls, toWireSchema } from "../wire-schema.ts";
+import { statusKind } from "./shared.ts";
 
 export interface OpenAICompatibleOptions {
   /** e.g. https://api.cloudflare.com/client/v4/accounts/<id>/ai/v1 or https://router.huggingface.co/v1 */
@@ -30,6 +31,13 @@ const JSON_MODE_UNMET = "JSON Mode couldn't be met";
  */
 const GROQ_SPEND_CAP = "blocked_api_access";
 
+/**
+ * console.groq.com/docs/errors.md: "498 Custom: Flex Tier Capacity Exceeded: This is a custom status code we use and
+ * will return in the event that the flex tier is at capacity and the request won't be processed. You can try again
+ * later." We never send service_tier, whose Chat Completions default is on_demand (Groq's API reference).
+ */
+const GROQ_FLEX_CAPACITY = 498;
+
 /** A provider error type or code a message may carry: a short plain token, never provider text. */
 const SAFE_ERROR_TOKEN = /^[a-z0-9_.-]{1,64}$/;
 
@@ -49,17 +57,14 @@ const jsonModeUnmet = (ok: boolean, text: string, data: unknown): boolean =>
   (!ok && text.includes(JSON_MODE_UNMET)) || errorTexts(data).some((field) => typeof field === "string" && field.includes(JSON_MODE_UNMET));
 
 /**
- * 402 and Groq's spend cap need a human, like a bad key; 504 is the host's own timeout. `error` is the
- * body's `error` field, whatever its shape.
+ * The shared status rule (statusKind), after this host's own cases: Groq's spend cap needs a human, like a bad key,
+ * and its flex-tier 498 is a rate limit. `error` is the body's `error` field, whatever its shape.
  */
 function kindOf(status: number, error: unknown): ProviderErrorKind {
   if (status < 400) return "bad_request"; // a redirect we refused to follow: the base URL is wrong
-  if (status === 401 || status === 402 || status === 403) return "auth";
-  if (status === 400) return own(error, "code") === GROQ_SPEND_CAP ? "auth" : "bad_request";
-  if (status === 404 || status === 413 || status === 422) return "bad_request";
-  if (status === 429) return "rate_limited";
-  if (status === 504) return "timeout";
-  return "unavailable";
+  if (status === 400 && own(error, "code") === GROQ_SPEND_CAP) return "auth";
+  if (status === GROQ_FLEX_CAPACITY) return "rate_limited";
+  return statusKind(status);
 }
 
 /** A token count as reported, or undefined when it is missing or not a finite number of at least 0. */
