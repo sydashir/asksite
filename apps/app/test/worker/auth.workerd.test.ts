@@ -1,6 +1,6 @@
 import { sha256Hex } from "@asksite/core";
 import { describe, expect, it } from "vitest";
-import { APP_ORIGIN, json, nextIp, useAppHarness } from "../support/harness.ts";
+import { APP_ORIGIN, awayFromMinuteBoundary, json, nextIp, useAppHarness } from "../support/harness.ts";
 
 const h = useAppHarness();
 
@@ -33,6 +33,15 @@ describe("signed-in routes", () => {
     const res = await h.call("GET", "/api/me");
     expect(res.status).toBe(401);
     expect(await res.json()).toEqual({ error: { code: "unauthenticated", message: "Please sign in" } });
+  });
+
+  it("show each owner only their own sites on /api/me", async () => {
+    const owners = [await h.signIn(), await h.signIn()];
+    for (const owner of owners) {
+      const me = await json<{ owner: { id: string }; sites: Array<{ id: string }> }>(await h.call("GET", "/api/me", { cookie: owner.cookie }));
+      expect(me.owner.id).toBe(owner.ownerId);
+      expect(me.sites.map((site) => site.id)).toEqual([owner.siteId]);
+    }
   });
 });
 
@@ -105,6 +114,17 @@ describe("invite acceptance", () => {
     expect(me.status).toBe(403);
   });
 
+  it("checks for a disabled owner before the invite's state, leaving used, revoked and expired to the claim", async () => {
+    const first = await h.signIn("disabled-expired@example.com");
+    const db = await h.db();
+    await db.prepare("UPDATE owners SET disabled_at = 1 WHERE id = ?").bind(first.ownerId).run();
+    const token = await h.invite("disabled-expired@example.com");
+    await db.prepare("UPDATE invites SET expires_at = 1 WHERE token_hash = ?").bind(await sha256Hex(token)).run();
+    const res = await h.call("POST", "/api/auth/invite/accept", { body: { token }, ip: nextIp() });
+    expect(res.status).toBe(403);
+    expect((await json<{ error: { code: string } }>(res)).error.code).toBe("owner_disabled");
+  });
+
   it("gives an existing owner a second site from a second invite", async () => {
     const first = await h.signIn("two-sites@example.com");
     const token = await h.invite("two-sites@example.com");
@@ -147,6 +167,16 @@ describe("magic-link sign-in", () => {
     expect((await json<{ error: { code: string } }>(again)).error.code).toBe("token_invalid");
   });
 
+  it("refuses an expired sign-in link with 410", async () => {
+    const owner = await h.signIn("late@example.com");
+    await h.call("POST", "/api/auth/login", { body: { email: "late@example.com" }, ip: nextIp() });
+    const token = tokenIn((await waitForEmail("late@example.com"))[0]?.text ?? "", "login");
+    await (await h.db()).prepare("UPDATE login_tokens SET expires_at = 1 WHERE owner_id = ?").bind(owner.ownerId).run();
+    const res = await h.call("POST", "/api/auth/login/verify", { body: { token }, ip: nextIp() });
+    expect(res.status).toBe(410);
+    expect((await json<{ error: { code: string } }>(res)).error.code).toBe("token_invalid");
+  });
+
   it("sends at most 5 links per owner per hour", async () => {
     await h.signIn("capped@example.com");
     for (let i = 0; i < 7; i += 1) await h.call("POST", "/api/auth/login", { body: { email: "capped@example.com" }, ip: nextIp() });
@@ -182,6 +212,7 @@ describe("sessions", () => {
   it("AUTH_RL refuses the 11th auth request in a minute from one address", async () => {
     const ip = "203.0.113.77";
     const statuses: number[] = [];
+    await awayFromMinuteBoundary();
     for (let i = 0; i < 11; i += 1) statuses.push((await h.call("POST", "/api/auth/login", { body: { email: "x@example.com" }, ip })).status);
     expect(statuses.slice(0, 10).every((s) => s === 202)).toBe(true);
     expect(statuses[10]).toBe(429);
@@ -189,6 +220,7 @@ describe("sessions", () => {
 
   it("AUTH_RL counts every IPv6 address of one /64 network together", async () => {
     const statuses: number[] = [];
+    await awayFromMinuteBoundary();
     for (let i = 1; i <= 11; i += 1) statuses.push((await h.call("POST", "/api/auth/login", { body: { email: "y@example.com" }, ip: `2001:db8:77:1::${i.toString(16)}` })).status);
     expect(statuses.slice(0, 10).every((s) => s === 202)).toBe(true);
     expect(statuses[10]).toBe(429);

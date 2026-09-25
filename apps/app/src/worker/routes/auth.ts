@@ -25,12 +25,10 @@ export function authRoutes(deps: AppDeps): Hono<AppEnv> {
     const db = c.env.DB;
     const now = Date.now();
     const tokenHash = await sha256Hex(token);
+    // Looked up by hash only: the claim below is the one gate for used, revoked and expired invites.
     const invite = await db
-      .prepare(
-        `SELECT i.id, i.email, o.disabled_at FROM invites i LEFT JOIN owners o ON o.email = i.email
-         WHERE i.token_hash = ? AND i.used_at IS NULL AND i.revoked_at IS NULL AND i.expires_at > ?`,
-      )
-      .bind(tokenHash, now)
+      .prepare("SELECT i.id, i.email, o.disabled_at FROM invites i LEFT JOIN owners o ON o.email = i.email WHERE i.token_hash = ?")
+      .bind(tokenHash)
       .first<{ id: string; email: string; disabled_at: number | null }>();
     if (invite === null) throw new ApiError("invite_invalid", "This invite link has expired or was already used. Ask us for a new one.");
     // (0) A disabled owner is refused before the token is spent.
@@ -83,14 +81,17 @@ export function authRoutes(deps: AppDeps): Hono<AppEnv> {
     const { token } = await readJson(c, VerifyLoginBody);
     const db = c.env.DB;
     const now = Date.now();
-    const claimed = await db
-      .prepare("UPDATE login_tokens SET used_at = ? WHERE token_hash = ? AND used_at IS NULL AND expires_at > ? RETURNING owner_id")
-      .bind(now, await sha256Hex(token), now)
-      .first<{ owner_id: string }>();
-    if (claimed === null) throw new ApiError("token_invalid", "This sign-in link has expired or was already used. Request a new one.");
+    const tokenHash = await sha256Hex(token);
+    // Claim the token with the §5.1 conditional update (`changes = 1` means this request won), then
+    // read its owner. D1 documents `meta.changes`; it documents no RETURNING.
+    const claim = await db
+      .prepare("UPDATE login_tokens SET used_at = ? WHERE token_hash = ? AND used_at IS NULL AND expires_at > ?")
+      .bind(now, tokenHash, now)
+      .run();
+    if (claim.meta.changes !== 1) throw new ApiError("token_invalid", "This sign-in link has expired or was already used. Request a new one.");
     const owner = await db
-      .prepare("SELECT id, email, disabled_at FROM owners WHERE id = ?")
-      .bind(claimed.owner_id)
+      .prepare("SELECT o.id, o.email, o.disabled_at FROM login_tokens t JOIN owners o ON o.id = t.owner_id WHERE t.token_hash = ?")
+      .bind(tokenHash)
       .first<{ id: string; email: string; disabled_at: number | null }>();
     if (owner === null) throw new ApiError("token_invalid", "This sign-in link has expired or was already used. Request a new one.");
     if (owner.disabled_at !== null) throw new ApiError("owner_disabled", "This account has been disabled. Contact us for help.");

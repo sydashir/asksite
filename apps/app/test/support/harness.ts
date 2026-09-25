@@ -23,6 +23,18 @@ let ipCounter = 0;
 /** A fresh documentation-range address per sign-in, so the 10-per-minute AUTH_RL never trips by accident. */
 export const nextIp = (): string => `198.51.100.${(ipCounter++ % 250) + 1}`;
 
+/**
+ * The local rate limiter counts in fixed windows aligned to the wall-clock minute (miniflare's
+ * ratelimit-object: `epoch = Math.floor(Date.now() / (period * 1e3))`), so a burst that crosses :00
+ * starts a fresh count. Before a burst that must land in one window, this waits (at most 6 s) until
+ * the clock is at least 1 s past and 5 s before a minute boundary.
+ */
+export async function awayFromMinuteBoundary(): Promise<void> {
+  const ms = Date.now() % 60_000;
+  const wait = ms < 1_000 ? 1_000 - ms : ms > 55_000 ? 61_000 - ms : 0;
+  if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
+}
+
 /** Starts the app Worker (with fakes) in the local runtime for one test file. */
 export function useAppHarness() {
   const server = createTestHarness({ workers: [{ configPath: new URL("../wrangler.test.jsonc", import.meta.url) }] });
