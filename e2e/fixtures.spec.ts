@@ -173,6 +173,12 @@ test.describe("the gates can fail (RED proof)", () => {
     expect((await axeProblems(page)).map((line) => line.split(":")[0])).toContain("meta-viewport");
   });
 
+  test("the axe gate fails on a WCAG A violation that axe rates minor (a deprecated ARIA role)", MOBILE, async ({ page }) => {
+    await open(page, "plumber-austin");
+    await page.locator("main").evaluate((main) => main.insertAdjacentHTML("afterbegin", '<div role="directory"><p>Old role</p></div>'));
+    expect((await axeProblems(page)).map((line) => line.split(":")[0])).toContain("aria-deprecated-role");
+  });
+
   test("axe reports content outside a landmark", MOBILE, async ({ page }) => {
     await open(page, "plumber-austin");
     await page.evaluate(() => document.body.insertAdjacentHTML("beforeend", "<p>Outside every landmark</p>"));
@@ -204,18 +210,19 @@ test.describe("the gates can fail (RED proof)", () => {
   });
 });
 
-test("the phone projects emulate a real phone: coarse pointer, no hover, and the page's meta viewport sets the width", MOBILE, async ({ page }, testInfo) => {
+test("the phone projects emulate a real phone: mobile browser, coarse pointer, no hover, and the page's meta viewport sets the width", MOBILE, async ({ page }, testInfo) => {
   test.skip(testInfo.project.metadata["phone"] !== true, "only the phone-emulation projects");
   await open(page, "plumber-austin");
   await page.locator('meta[name="viewport"]').evaluate((meta) => {
     meta.setAttribute("content", "width=600");
   });
   const phone = await page.evaluate(() => ({
+    mobileBrowser: /\bMobile\b/.test(navigator.userAgent), // "Mobile/15E148 Safari" on iPhone, "Mobile Safari" on Android
     hover: matchMedia("(hover: hover)").matches,
     coarse: matchMedia("(pointer: coarse)").matches,
     width: document.documentElement.clientWidth,
   }));
-  expect(phone).toEqual({ hover: false, coarse: true, width: 600 });
+  expect(phone).toEqual({ mobileBrowser: true, hover: false, coarse: true, width: 600 });
 });
 
 test.describe("with JavaScript disabled", () => {

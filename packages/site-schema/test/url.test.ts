@@ -13,8 +13,10 @@ describe("isSafeUrl", () => {
     expect(isSafeUrl(url)).toBe(true);
   });
 
-  // A page resolves these against its own address ("https:facebook.com/x" on https://joes.example/
-  // is https://joes.example/facebook.com/x), so they are not absolute links (A9).
+  // A page of the same scheme resolves these against its own address ("https:facebook.com/x" on
+  // https://joes.example/ is https://joes.example/facebook.com/x), so they are not absolute links (A9).
+  // The one exception, "https:" + two backslashes, does reach facebook.com, but it is refused too:
+  // A9 asks for a literal "//" after http: or https:.
   it.each([
     "https:facebook.com/mop",
     "https:/facebook.com/mop",
