@@ -16,11 +16,12 @@ const STOP: Record<string, ModelResponse["stop"]> = { stop: "end", length: "max_
 
 /**
  * Cloudflare's JSON Mode page: when the model cannot meet the schema, "an error `JSON Mode couldn't be
- * met` is returned and must be handled". Its status and body shape are not documented, so it counts in
- * the body text of a failed (non-2xx) answer, and in the fields hosts use for errors (a string `error`,
- * `error.message`, `errors[].message`) whatever the status; never in a 2xx answer's model text, which
- * may quote it. Such an answer has no JSON: generateDraft sends repair feedback instead of stopping on a
- * bad request.
+ * met` is returned and must be handled". Its status and body shape are not documented, so it counts
+ * only where the status alone would give a bad request (P3-11 r): in the body text of a 4xx the status
+ * rule makes a bad request, and in the fields hosts use for errors (a string `error`, `error.message`,
+ * `errors[].message`) of such a 4xx or of a 2xx; never in a 2xx answer's model text, which may quote it.
+ * A redirect, auth, a rate limit, a timeout or an outage keeps its kind. Such an answer has no JSON:
+ * generateDraft sends repair feedback instead of stopping on a bad request.
  */
 const JSON_MODE_UNMET = "JSON Mode couldn't be met";
 
@@ -53,8 +54,11 @@ function errorTexts(data: unknown): unknown[] {
 }
 
 /** Whether an answer says JSON Mode could not be met (see JSON_MODE_UNMET for where it counts). */
-const jsonModeUnmet = (ok: boolean, text: string, data: unknown): boolean =>
-  (!ok && text.includes(JSON_MODE_UNMET)) || errorTexts(data).some((field) => typeof field === "string" && field.includes(JSON_MODE_UNMET));
+function jsonModeUnmet(ok: boolean, status: number, text: string, data: unknown): boolean {
+  const inErrorFields = errorTexts(data).some((field) => typeof field === "string" && field.includes(JSON_MODE_UNMET));
+  if (ok) return inErrorFields;
+  return status >= 400 && kindOf(status, own(data, "error")) === "bad_request" && (inErrorFields || text.includes(JSON_MODE_UNMET));
+}
 
 /**
  * The shared status rule (statusKind), after this host's own cases: Groq's spend cap needs a human, like a bad key,
@@ -149,7 +153,7 @@ export class OpenAICompatibleProvider implements ModelProvider {
     }
     const text = await bodyText(response);
     const data = parseBody(text);
-    if (jsonModeUnmet(response.ok, text, data)) return this.#answer(data, undefined, "end");
+    if (jsonModeUnmet(response.ok, response.status, text, data)) return this.#answer(data, undefined, "end");
     if (!response.ok) throw this.#failure(response.status, own(data, "error"));
     if (data === undefined) throw new ProviderError(req.signal.aborted ? "timeout" : "unavailable", "OpenAI-compatible response was not JSON");
     const choices = own(data, "choices");

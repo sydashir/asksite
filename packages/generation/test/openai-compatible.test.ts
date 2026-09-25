@@ -133,7 +133,8 @@ describe("OpenAICompatibleProvider: JSON Mode not met (task 7 additions A)", () 
   it.each([
     ["a 400 with Cloudflare's errors list", 400, JSON.stringify({ errors: [{ message: JSON_MODE_UNMET }], success: false }), "application/json"],
     ["a 200 with the message in an error field", 200, JSON.stringify({ error: { message: JSON_MODE_UNMET } }), "application/json"],
-    ["a 500 with a plain-text body", 500, `AiError: ${JSON_MODE_UNMET}`, "text/plain"],
+    // P3-11 (r) changed this row from a 500, which now keeps its kind (unavailable), to a 422.
+    ["a 422 with a plain-text body", 422, `AiError: ${JSON_MODE_UNMET}`, "text/plain"],
   ])("answers %s as an answer with no JSON, never a ProviderError", async (_name, status, text, contentType) => {
     const res = await compatible(rawFetch(status, text, contentType).fetch).generate(request());
     expect(res).toStrictEqual({ json: undefined, model: "m", usage: { inputTokens: 0, outputTokens: 0 }, stop: "end", usageMissing: true });
@@ -169,9 +170,9 @@ describe("OpenAICompatibleProvider: JSON Mode not met (task 7 additions A)", () 
   });
 });
 
-// Moderator decision (2026-09-26): the phrase counts only in the body of a failed (non-2xx) answer, or in the
-// provider's error fields (a string error, error.message, errors[].message) whatever the status; never inside
-// the model's own text of a 2xx answer, which may quote it.
+// Moderator decision (2026-09-26), narrowed by P3-11 (r): the phrase counts only in the body of a 4xx that the status
+// rule makes a bad request, or in the provider's error fields (a string error, error.message, errors[].message) of
+// such a 4xx or of a 2xx; never inside the model's own text of a 2xx answer, which may quote it.
 describe("OpenAICompatibleProvider: where JSON Mode not met counts (moderator decision)", () => {
   const quoting = { copy: { about: `The page said ${JSON_MODE_UNMET} once.` } };
   const answered = { json: undefined, model: "m", usage: { inputTokens: 0, outputTokens: 0 }, stop: "end", usageMissing: true };
@@ -437,5 +438,32 @@ describe("OpenAICompatibleProvider: the status rule (P3-11 e)", () => {
     const http = fakeFetch([{ status, body: { error: { message: "m" } } }]);
     await expect(compatible(http.fetch).generate(request())).rejects.toMatchObject({ name: "ProviderError", kind, message: `OpenAI-compatible request failed (${kind}, HTTP ${status})` });
     expect(http.calls).toHaveLength(1);
+  });
+});
+
+// P3-11 (r): the phrase makes the repair answer only where the status rule gives a bad request (a 4xx), or in a 2xx
+// answer's error fields. A redirect stays a bad request, and auth, rate limits, timeouts and outages keep their kind.
+describe("OpenAICompatibleProvider: JSON Mode not met only where the status gives a bad request (P3-11 r)", () => {
+  const phrase = { error: { message: `AiError: ${JSON_MODE_UNMET}` } };
+
+  it.each([
+    [302, "bad_request", phrase],
+    [401, "auth", phrase],
+    [429, "rate_limited", phrase],
+    [408, "timeout", phrase],
+    [503, "unavailable", phrase],
+    [498, "rate_limited", phrase],
+    [400, "auth", { error: { message: `AiError: ${JSON_MODE_UNMET}`, code: "blocked_api_access" } }],
+  ])("keeps HTTP %i a %s ProviderError when its body holds the phrase", async (status, kind, body) => {
+    await expect(compatible(fakeFetch([{ status, body }]).fetch).generate(request())).rejects.toMatchObject({ name: "ProviderError", kind });
+  });
+
+  it("keeps a 500 whose plain-text body holds the phrase unavailable", async () => {
+    await expect(compatible(rawFetch(500, `AiError: ${JSON_MODE_UNMET}`, "text/plain").fetch).generate(request())).rejects.toMatchObject({ name: "ProviderError", kind: "unavailable" });
+  });
+
+  it.each([400, 405, 422, 499])("answers HTTP %i whose body holds the phrase with no JSON", async (status) => {
+    const res = await compatible(fakeFetch([{ status, body: phrase }]).fetch).generate(request());
+    expect(res).toStrictEqual({ json: undefined, model: "m", usage: { inputTokens: 0, outputTokens: 0 }, stop: "end", usageMissing: true });
   });
 });
