@@ -79,6 +79,21 @@ describe("siteNoticeEmail", () => {
   });
 });
 
+describe("the support address check", () => {
+  it("refuses anything after a valid address (the pattern is anchored at the end)", () => {
+    for (const supportEmail of ["help@asksite.example evil", "help@asksite.example\nBcc: x@evil.example", "help@asksite.example>"]) {
+      expect(() => siteNoticeEmail({ appOrigin: APP, supportEmail, ownerMessage: null })).toThrow("Invalid support email");
+    }
+  });
+});
+
+describe("links", () => {
+  it("escape the href as an attribute value", () => {
+    const email = reviewApprovedEmail({ appOrigin: APP, liveUrl: `https://joes-plumbing.asksite.example/?a=1&b="x"'<y>` });
+    expect(email.html).toContain(`<a href="https://joes-plumbing.asksite.example/?a=1&amp;b=&quot;x&quot;&#39;&lt;y&gt;">`);
+  });
+});
+
 describe("adminAlertEmail", () => {
   it("names the site by its slug in the subject and escapes the business name", () => {
     const email = adminAlertEmail({ slug: "joes-plumbing", versionNumber: 3, businessName: XSS });

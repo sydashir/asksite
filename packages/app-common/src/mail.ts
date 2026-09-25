@@ -18,13 +18,23 @@ export interface Mailer {
   send(email: OutgoingEmail): Promise<{ id: string }>;
 }
 
-/** Sends and reports success. A failure is logged by tag and error class only, never the address. */
+/** The codes of Plan 2's MailerError (design §7.6), read structurally: @asksite/mailer is not imported here. */
+const MAILER_ERROR_CODES: readonly string[] = ["rate_limited", "rejected", "unavailable", "misconfigured"];
+
+/** What a failure log may say: the mailer's code, else the error's class name, else "unknown". Never its message. */
+function failureOf(err: unknown): string {
+  const code = typeof err === "object" && err !== null && "code" in err ? err.code : undefined;
+  if (typeof code === "string" && MAILER_ERROR_CODES.includes(code)) return code;
+  return err instanceof Error ? err.name : "unknown";
+}
+
+/** Sends and reports success. A failure is logged by tag and error code or class only, never the address. */
 export async function trySend(mailer: Mailer, email: OutgoingEmail): Promise<boolean> {
   try {
     await mailer.send(email);
     return true;
   } catch (err) {
-    logLine({ event: "email_failed", tag: email.tag, error: err instanceof Error ? err.name : "unknown" });
+    logLine({ event: "email_failed", tag: email.tag, error: failureOf(err) });
     return false;
   }
 }
