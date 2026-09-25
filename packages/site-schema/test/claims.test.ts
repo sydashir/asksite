@@ -454,6 +454,39 @@ describe("unbackedClaims", () => {
     expect(unbackedClaims(text, ALL)).toEqual(withAllFacts);
   });
 
+  // A9c: CamelCase runs words together that a reader still reads apart, so claims are also matched with a word break
+  // where a small letter meets a capital, and before the last capital of a run that a small letter follows.
+  it.each([
+    ["TopRated crew", ["Top Rated"], ["Top Rated"]],
+    ["WeAreBonded", ["Bonded"], ["Bonded"]],
+    ["BBBAccredited", ["BBB"], ["BBB"]],
+    ["CertifiedPros", ["Certified"], ["Certified"]],
+    ["GetAFreeQuote", ["Free"], []],
+    ["FullyInsured", ["Insured"], []],
+    ["ProLicensed team", ["Licensed"], []],
+    ["OpenSevenDaysAWeek", ["Seven Days A Week"], []],
+    ["WeAreƁonded", ["Bonded"], ["Bonded"]], // a look-alike too: read as A-Z, then split
+    ["WeAreFree\u0301", ["Free"], []], // e + U+0301 kept apart: only the typed reading, split, reads "Free" (NFC makes it é)
+  ])("reads the CamelCase words in %j apart, finding %j without facts and %j with every fact", (text, withoutFacts, withAllFacts) => {
+    expect(unbackedClaims(text, NONE)).toEqual(withoutFacts);
+    expect(unbackedClaims(text, ALL)).toEqual(withAllFacts);
+  });
+
+  it("still finds a claim word typed in mixed case, which the CamelCase reading alone would split", () => {
+    expect(unbackedClaims("LiCeNsEd crew", NONE)).toEqual(["LiCeNsEd"]);
+    expect(unbackedClaims("BoNdEd crew", ALL)).toEqual(["BoNdEd"]);
+  });
+
+  it.each([
+    "Ask for McDonald or DeShawn",
+    "Serving DeKalb, LaGrange and McAllen",
+    "Serving homes near dukMéʔem wáťa", // GNIS 260516, with U+0294 ʔ
+    "Book from your iPhone",
+    "Find our videos on YouTube",
+  ])("finds no claim in ordinary CamelCase names: %j", (text) => {
+    expect(unbackedClaims(text, NONE)).toEqual([]);
+  });
+
   it("finds every claim main's reading finds, word for word, whatever character the fold changes is glued to it", () => {
     // Every character copy accepts that the fold changes: a combining mark it removes, a character NFC replaces, or
     // a look-alike it reads as A-Z letters or punctuation. The fold works one character at a time, so every other character
@@ -595,6 +628,8 @@ describe("SiteDocument rejects AI copy that states facts the owner did not give"
     "Call (ƧOȢ) ƼƼƼ-OlƧƷ", // A9c: letters that look like digits (refused by Copy)
     "ꬶuaranteed results", // A9c: Latin Extended-E (refused by Copy)
     "\u01C0Certi\u0307fied\u01C0 pros", // A9c: a click letter reads as "|", and the leftover U+0307 goes
+    "TopRated crew", // A9c: CamelCase
+    "WeAreBonded",
     "\u019CARRANTY INCLUDED", // A9c: U+019C reads W
   ])("%j", (claim) => {
     const faq = [{ question: "Why us?", answer: claim }];
@@ -673,6 +708,7 @@ describe("SiteDocument keeps AI copy the checks have no reason to reject", () =>
     "Ask for Sa\u00EFd at G\u00E9n\u00E9ration Nouvelle Bakery",
     "Icelandic b\u00F6nd, a d\u00E9cade, one doll\u00E1r",
     "Serving homes near dukM\u00E9\u0294em w\u00E1\u0165a",
+    "Ask for McDonald or DeShawn",
     "Our l\u00EDcensed team", // A9c accepted residual: a precomposed accented letter is read as typed
   ])("%j", (text) => {
     const faq = [{ question: "Why us?", answer: text }];

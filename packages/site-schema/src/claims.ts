@@ -15,14 +15,18 @@ import { foldLookalikes } from "./lookalikes.ts";
 // clauses, not join one compound word), so this class is spelled out wherever a pattern below
 // joins two words.
 //
-// Claims are matched on the page read two ways (A9, A9b, A9c), and a claim either reading finds counts:
+// Claims are matched on the page read four ways (A9, A9b, A9c), and a claim any reading finds counts:
 // - as typed, as before A9, so every claim the checker found before A9 is still found;
 // - folded (foldLookalikes in lookalikes.ts): composed (NFC), with every combining mark removed that is not part
 //   of a precomposed letter, the look-alikes listed in lookalikes.ts read as the A-Z letters they look like, and
 //   the click letters read as punctuation. So an overlay mark inside a word or between two words ("Licen" +
 //   U+0336 + "sed", "Award" + " " + U+0336 + "winning"), a look-alike letter ("lıcensed", "ƒree", "ŁICENSED")
-//   or a click letter ("ǀCertifiedǀ", where "ǀ" looks like "|") hides no claim. The fold alone would join two
-//   words the page shows apart ("Top" + U+0336 + "rated"), so the typed reading stays: the fold only ever adds a claim.
+//   or a click letter ("ǀCertifiedǀ", where "ǀ" looks like "|") hides no claim;
+// - both again with CamelCase split into words ("TopRated", "GetAFreeQuote"). The split alone would lose a word
+//   typed in mixed case ("LiCeNsEd"), and the fold alone would join two words the page shows apart ("Top" +
+//   U+0336 + "rated"), so each reading only ever adds a claim. Cost: a CamelCase name that holds a claim word is
+//   read as its separate words and refused, as its spaced form always was ("FreeFlow" as "Free Flow", the place
+//   name "McMillion Creek" as "Mc Million Creek").
 // Phonetic letters, small capitals and letters that look like digits ("ɪnsured", "ᴄertified", "Ƨ") never get
 // here: Copy refuses them.
 // Accepted residuals (the approval screen is the backstop): a precomposed accented letter is read as typed, so
@@ -99,14 +103,22 @@ const OTHER_DASH = /(?![-\u2010-\u2014])[\p{Pd}\u2043\u23AF\u2500\u2501\u30FC\uF
 export const asReadOnPage = (text: string): string =>
   text.replace(/\s+/g, " ").replace(/[\u2010\u2011]/g, "-").replace(OTHER_DASH, "\u2014");
 
-/** The page read as typed and folded (see the top of this file). */
+/** A word break where a small letter meets a capital, and before the last capital of a run that a small letter follows. */
+const CAMEL_CASE_BREAK = /(?<=\p{Ll})(?=\p{Lu})|(?<=\p{Lu})(?=\p{Lu}\p{Ll})/gu;
+
+/** "TopRated" reads "Top Rated" and "GetAFreeQuote" reads "Get A Free Quote" (A9c). */
+const splitCamelCase = (text: string): string => text.replace(CAMEL_CASE_BREAK, " ");
+
+/** The page read as typed, folded, and both again with CamelCase split into words (see the top of this file). */
 function readings(text: string): readonly string[] {
-  return [asReadOnPage(text), asReadOnPage(foldLookalikes(text))];
+  const typed = asReadOnPage(text);
+  const folded = asReadOnPage(foldLookalikes(text));
+  return [typed, folded, splitCamelCase(typed), splitCamelCase(folded)];
 }
 
 /**
  * The words in `text` that state a claim the owner's facts do not back (empty when the text is
- * fine), matched as a reader sees the page, read the two ways above. A claim either reading finds counts,
+ * fine), matched as a reader sees the page, read the four ways above. A claim any reading finds counts,
  * so every word the typed reading alone finds is found. A found word is shown from the first reading that
  * finds it, as typed when it can be, so the owner can find it in the copy; the copy itself is not changed.
  */
