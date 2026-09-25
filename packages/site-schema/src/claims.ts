@@ -44,8 +44,13 @@ export const NEEDS_A_FACT: ReadonlyArray<{ readonly pattern: RegExp; readonly ba
     backedBy: (facts) => facts.emergency247,
   },
   {
-    // The full-week phrase: 24/7 service or opening hours on every day back it (A8c).
-    pattern: /\bseven[-\u2012\u2013\u2014\u2212 ]days?[-\u2012\u2013\u2014\u2212 ](a|per)[-\u2012\u2013\u2014\u2212 ]week\b/i,
+    // The full-week phrase, backed by 24/7 service or by opening hours on every day (A8c): "seven days
+    // a/per/each/every week", "seven days of the week", "seven days/week", and "seven days" right
+    // after "open" or "open all". Not caught (known): "seven-day service", which reads the same as
+    // "seven-day turnaround". Refused without those facts even when it says how often, not when
+    // ("water the sod seven days a week"): the owner sees the message and rephrases.
+    pattern:
+      /\b(seven[-\u2012\u2013\u2014\u2212 ]days?([-\u2012\u2013\u2014\u2212 ](a|per|each|every)[-\u2012\u2013\u2014\u2212 ]|[-\u2012\u2013\u2014\u2212 ]of[-\u2012\u2013\u2014\u2212 ]the[-\u2012\u2013\u2014\u2212 ]| ?\/ ?)week|(?<=\bopen[-\u2012\u2013\u2014\u2212 ](all[-\u2012\u2013\u2014\u2212 ])?)seven[-\u2012\u2013\u2014\u2212 ]days)\b/i,
     backedBy: (facts) => facts.emergency247 || opensEveryDay(facts),
   },
   { pattern: /(?<![\w-])free\b|\bno[-\u2012\u2013\u2014\u2212 ](charge|cost)\b|\bcomplimentary\b/i, backedBy: (facts) => facts.freeEstimates },
@@ -66,9 +71,9 @@ export const HIDDEN_IN_COPY = /(?![\uFE0E\uFE0F])\p{Default_Ignorable_Code_Point
  * Every other dash reads as an em dash (A8c): any \p{Pd} except the hyphens and the dashes the joiner
  * class already lists, plus six dash-like characters that are not \p{Pd} (U+2043 HYPHEN BULLET,
  * U+23AF, U+2500, U+2501, U+30FC and U+FF70). So "Award" + U+2015 + "winning" joins like
- * "award\u2014winning", and a free after one of them is a free offer, as after an em dash.
+ * "Award" + U+2014 + "winning", and a free after one of them is a free offer, as after an em dash.
  */
-const OTHER_DASH = /(?![-\u2010-\u2014])[\p{Pd}\u2043\u23af\u2500\u2501\u30fc\uff70]/gu;
+const OTHER_DASH = /(?![-\u2010-\u2014])[\p{Pd}\u2043\u23AF\u2500\u2501\u30FC\uFF70]/gu;
 
 // HTML shows a run of whitespace as one space and U+2010/U+2011 look like "-" (en/em dashes do not).
 const asReadOnPage = (text: string): string =>

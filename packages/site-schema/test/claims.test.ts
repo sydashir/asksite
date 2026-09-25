@@ -61,6 +61,13 @@ describe("unbackedClaims", () => {
     ["Open seven days a week", "seven days a week"],
     ["seven-day-a-week service", "seven-day-a-week"],
     ["seven days per week", "seven days per week"],
+    ["Open seven days", "seven days"],
+    ["We are open all seven days", "seven days"],
+    ["Here seven days each week", "seven days each week"],
+    ["Seven days every week", "Seven days every week"],
+    ["Open seven days of the week", "seven days of the week"],
+    ["Help seven days/week", "seven days/week"],
+    ["Help seven days / week", "seven days / week"],
     ["Get a free quote", "free"],
     ["There is no charge for a visit", "no charge"],
     ["A complimentary walkthrough", "complimentary"],
@@ -90,6 +97,10 @@ describe("unbackedClaims", () => {
     ["Open seven days a week", "seven days a week", "emergency247"],
     ["seven-day-a-week service", "seven-day-a-week", "emergency247"],
     ["seven days per week", "seven days per week", "emergency247"],
+    ["Open seven days", "seven days", "emergency247"],
+    ["Here seven days each week", "seven days each week", "emergency247"],
+    ["Open seven days of the week", "seven days of the week", "emergency247"],
+    ["Help seven days/week", "seven days/week", "emergency247"],
     ["Get a free quote", "free", "freeEstimates"],
   ] as const)("allows %j when only its own fact (%s) is set, and rejects it when every other fact is set instead", (text, word, fact) => {
     expect(unbackedClaims(text, ONLY[fact])).toEqual([]);
@@ -110,14 +121,30 @@ describe("unbackedClaims", () => {
     }),
   };
   const SIX_DAY_HOURS = Facts.parse({ ...base, hours: [{ days: [...WEEKDAYS, "Saturday"], opens: "08:00", closes: "18:00" }] });
-  const WEEKLY = ["Open seven days a week", "seven-day-a-week service", "seven days per week"];
+  const WEEKLY = [
+    "Open seven days a week",
+    "seven-day-a-week service",
+    "seven days per week",
+    "Open seven days",
+    "Here seven days each week",
+    "Open seven days of the week",
+    "Help seven days/week",
+  ];
 
   it.each(Object.entries(EVERY_DAY_HOURS))("allows the full-week phrase when the hours have %s", (_, facts) => {
     for (const text of WEEKLY) expect(unbackedClaims(text, facts)).toEqual([]);
   });
 
   it("still refuses the full-week phrase when the hours leave out a day", () => {
-    expect(WEEKLY.map((text) => unbackedClaims(text, SIX_DAY_HOURS))).toEqual([["seven days a week"], ["seven-day-a-week"], ["seven days per week"]]);
+    expect(WEEKLY.map((text) => unbackedClaims(text, SIX_DAY_HOURS))).toEqual([
+      ["seven days a week"],
+      ["seven-day-a-week"],
+      ["seven days per week"],
+      ["seven days"],
+      ["seven days each week"],
+      ["seven days of the week"],
+      ["seven days/week"],
+    ]);
   });
 
   it.each([
@@ -149,7 +176,12 @@ describe("unbackedClaims", () => {
     "Give us seven days' notice",
     "Seven days of drying time",
     "a few days—a week for bigger jobs", // U+2014 em dash, which joins words in claims
-    "Here for you every day", // left open by A8 and A8b
+    "Here for you every day", // left open by A8, A8b and A8c
+    "Seven-day turnaround on most quotes", // why "seven-day service" stays uncaught (A8c)
+    "Fast seven-day service", // known gap, recorded in A8c
+    "Book seven days ahead",
+    "Leave the windows open. Seven days is enough to dry the plaster",
+    "We reopen seven days after a storm",
   ])("does not read %j as a round-the-clock claim", (text) => {
     expect(unbackedClaims(text, NONE)).toEqual([]);
   });
@@ -202,7 +234,7 @@ describe("unbackedClaims", () => {
     },
   );
 
-  it.each(["-", ...DASHES].flatMap((d) => ["day" + d + "or" + d + "night", "any" + d + "time", "seven" + d + "days" + d + "a" + d + "week"]))(
+  it.each(["-", ...DASHES].flatMap((d) => ["day" + d + "or" + d + "night", "any" + d + "time", "seven" + d + "days" + d + "a" + d + "week", "seven" + d + "days" + d + "of" + d + "the" + d + "week"]))(
     "allows the emergency claim %j, joined by a hyphen or dash, only when the owner's facts back it",
     (claim) => {
       const text = "Call us " + claim + " for a burst pipe";
