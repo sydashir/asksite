@@ -16,6 +16,33 @@ afterAll(async () => {
   await harness.server.close();
 });
 
+/**
+ * Production D1: "`results` is empty for write operations such as UPDATE, DELETE, or INSERT"
+ * (developers.cloudflare.com/d1/worker-api/prepared-statements/). Local D1 still returns RETURNING rows,
+ * so this D1 empties the results of every write in a batch, as production does (amendment A10).
+ */
+function writesReturnNoRows(db: D1Database): D1Database {
+  const writes = new WeakSet<D1PreparedStatement>();
+  const production = {
+    prepare(sql: string) {
+      const statement = db.prepare(sql);
+      if (!/^\s*(INSERT|UPDATE|DELETE)\b/i.test(sql)) return statement;
+      return {
+        bind(...values: unknown[]) {
+          const bound = statement.bind(...values);
+          writes.add(bound);
+          return bound;
+        },
+      };
+    },
+    async batch(statements: D1PreparedStatement[]) {
+      const isWrite = statements.map((statement) => writes.has(statement));
+      return (await db.batch(statements)).map((result, i) => (isWrite[i] ? { ...result, results: [] } : result));
+    },
+  };
+  return production as unknown as D1Database;
+}
+
 describe("createPendingVersion", () => {
   it("stores the exact rendered page and a pending version pointing at it", async () => {
     const { ownerId, siteId, slug } = await seedSite(env.DB);
@@ -39,6 +66,23 @@ describe("createPendingVersion", () => {
     });
     expect((await siteRow(env.DB, siteId))?.pending_version_id).toBe(summary.id);
     expect(await auditActions(env.DB, siteId)).toEqual(["version.requested"]);
+  });
+
+  it("reads the version number with a SELECT in the batch, since production D1 returns no rows for writes (A10)", async () => {
+    const { ownerId, siteId, slug } = await seedSite(env.DB);
+    const production = { ...env, DB: writesReturnNoRows(env.DB) };
+    const publish = (now: number) => createPendingVersion(production, { siteId, ownerId, slug, document: doc(), edits: EDITS, generationId: null, now });
+    const first = await publish(1);
+    const second = await publish(2);
+    expect([first.number, second.number]).toEqual([1, 2]);
+    expect(await versionRow(env.DB, second.id)).toMatchObject({ number: 2, status: "pending" });
+    expect((await siteRow(env.DB, siteId))?.pending_version_id).toBe(second.id);
+
+    // No row from the SELECT means the INSERT did not happen: the same refusal as before.
+    await env.DB.prepare("UPDATE sites SET taken_down_at = 3 WHERE id = ?").bind(siteId).run();
+    expect((await failure(publish(4))).code).toBe("site_taken_down");
+    expect((await versionRow(env.DB, second.id))?.status).toBe("pending");
+    expect(await auditActions(env.DB, siteId)).toEqual(["version.requested", "version.requested"]);
   });
 
   it("supersedes the version already in review", async () => {

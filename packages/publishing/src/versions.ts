@@ -68,19 +68,21 @@ export async function createPendingVersion(
            html_key, html_sha256, stylesheet_sha256, requested_by, requested_at)
          SELECT ?, ?, next.n, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?
          FROM (SELECT COALESCE(MAX(number), 0) + 1 AS n FROM site_versions WHERE site_id = ?) AS next
-         WHERE ${siteIsReady} AND ${underCap}
-         RETURNING number`,
+         WHERE ${siteIsReady} AND ${underCap}`,
       )
       .bind(versionId, siteId, canonicalJson(document), await documentSha256(document), canonicalJson(edits), generationId,
         key, htmlSha256, SITE_CSS_SHA256, ownerId, now, siteId, siteId, ownerId, slug, siteId, dayStart, cap),
+    // The number, read in the same transaction. Not RETURNING: production D1 returns no rows for writes (A10).
+    db.prepare("SELECT number FROM site_versions WHERE id = ?").bind(versionId),
     // Only when the INSERT above happened (same transaction), so the site never points at a missing version.
     db.prepare("UPDATE sites SET pending_version_id = ?, updated_at = ? WHERE id = ? AND EXISTS (SELECT 1 FROM site_versions WHERE id = ? AND site_id = ?)")
       .bind(versionId, now, siteId, versionId, siteId),
     auditIfChanged(db, { at: now, actor: `owner:${ownerId}`, action: "version.requested", siteId, detail: { versionId } }),
   ]);
 
-  const number = (results[1]?.results[0] as { number?: number } | undefined)?.number;
+  const number = (results[2]?.results[0] as { number?: number } | undefined)?.number;
   if (number === undefined) {
+    // No row: the INSERT did not happen. Find out why.
     const site = await db.prepare("SELECT taken_down_at FROM sites WHERE id = ? AND owner_id = ?").bind(siteId, ownerId).first<{ taken_down_at: number | null }>();
     if (site !== null && site.taken_down_at !== null) throw new PublishError("site_taken_down");
     if ((await requestsSince(db, siteId, dayStart)) >= cap) throw capReached();
