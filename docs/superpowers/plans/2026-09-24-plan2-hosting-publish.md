@@ -23,7 +23,7 @@
 - The approval rule is enforced by bindings: `asksite-sites` binds only `DB`, `LIVE` and `MEDIA` (read-only; a test fails on any `put` or `delete`), and `FORM_RL`; it never binds `WORK`. Only `asksite-admin` writes `LIVE` (design §0.2, §1.2).
 - D1 decides what is served; R2 only holds bytes. Everything except an approved, indexable page is sent with `X-Robots-Tag: noindex` (design §0.2, §7.4).
 - Logs hold IDs and error codes only: never tokens, emails, IPs, lead content or keys. Raw IPs are never stored (`hashIp` with the secret `IP_HASH_KEY`). The lead email goes only to the owner's verified login email (design §1.2, §7.5, §9.1).
-- WCAG 2.2 AA: every fixed page (404, 503, 429, 413/415, 400, thank-you, apex) passes axe (serious/critical WCAG 2.2 AA plus the structure rules) and reflows at 320 px (design §7.5, §9.2).
+- WCAG 2.2 AA: every fixed page (404, 503, 429, 413/415, 400, thank-you, apex) passes axe (every WCAG 2.2 A/AA violation fails, whatever axe's impact rating, plus the structure rules; A9 item 4) and reflows at 320 px (design §7.5, §9.2).
 - Everything is testable locally without accounts or keys (`createTestHarness`, `wrangler dev`, fakes). Only Task 19 needs the user's Cloudflare and Resend accounts.
 - Process hygiene (CLAUDE.md): stop every process you start. Never run a bare `killall node` or `pkill node` (the user's other projects run on node); stop by PID or by an exact pattern containing this repo's path, e.g. `pkill -f "/Users/ashir/Documents/workk2/web_maker/"`. After every task that starts `wrangler`, run the **leftover check** below; it must print `nothing left running`. It looks for this repo's path in any command line (wrangler and workerd from `node_modules`), and for `scripts/dev.ts`, `wrangler` or `workerd` processes whose working folder is this repo (`pnpm dev` and `node scripts/dev.ts` run with relative paths, so a path search alone misses them). Processes of another folder (another session's `pnpm dev`) are not listed and must be left alone. `pnpm dev` and the sites browser tests use fixed ports (8789, inspector 9239): two sessions cannot run either at the same time.
 
@@ -6995,16 +6995,15 @@ import { E2E_FIXTURES } from "./global-setup.ts";
 const ROOT = "localhost:8789";
 const sites = (): Record<string, { siteId: string; url: string }> => JSON.parse(process.env["ASKSITE_E2E_SITES"] ?? "{}");
 
-// The same gates as Plan 1's e2e: serious/critical WCAG 2.2 AA violations plus every structure rule.
+// The same gates as Plan 1's e2e (A9 item 4): every WCAG 2.2 A/AA violation, whatever axe's impact rating
+// (impact is severity, not the WCAG level: meta-viewport is AA but rated moderate), plus every structure rule.
 const WCAG_TAGS = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"];
 const STRUCTURE_RULES = ["region", "heading-order", "landmark-one-main", "landmark-unique", "page-has-heading-one"];
 
 async function axeProblems(page: Page): Promise<string[]> {
   const wcag = await new AxeBuilder({ page }).withTags(WCAG_TAGS).analyze();
   const structure = await new AxeBuilder({ page }).withRules(STRUCTURE_RULES).analyze();
-  return [...wcag.violations.filter((v) => v.impact === "serious" || v.impact === "critical"), ...structure.violations].map(
-    (v) => `${v.id}: ${v.nodes.map((n) => n.target.join(" ")).join(" | ")}`,
-  );
+  return [...wcag.violations, ...structure.violations].map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(" ")).join(" | ")}`);
 }
 
 const sidewaysScroll = (page: Page) => page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
