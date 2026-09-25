@@ -1246,7 +1246,9 @@ export const CopyEdits = z.strictObject({
       contact: EditText.nullable().optional(),
     })
     .optional(),
-  serviceDescriptions: z.record(z.string().max(40), EditText).optional(), // key = facts.services[].name, exact
+  serviceDescriptions: z.record(z.string().max(40), EditText)
+    .refine((d) => Object.keys(d).length <= 12)
+    .optional(), // key = facts.services[].name, exact; at most as many as Facts allows services (A8c)
   faq: z.array(z.strictObject({ question: EditText, answer: EditText })).max(8).optional(), // replaces the AI list
 });
 export type CopyEdits = z.infer<typeof CopyEdits>;
@@ -1261,7 +1263,7 @@ export const SectionOrder = z
   .refine((ids) => new Set(ids).size === ids.length && ids[0] === "hero", { error: "Order must list every section once, hero first" });
 
 export const OwnerEdits = z.strictObject({
-  baseGenerationId: z.string().nullable(), // copy and order edits apply only to this generation
+  baseGenerationId: z.string().max(36).nullable(), // copy and order edits apply only to this generation (a newId(): 36 characters)
   copy: CopyEdits,
   order: SectionOrder.nullable(),
   hidden: OwnerHidden, // A6 schema from @asksite/site-schema (unique, hideable ids only)
@@ -1621,7 +1623,7 @@ export const LIMITS = {
   publishRequestsPerSitePerDay: 20, // publish clicks (versions) per site per UTC day: bounds D1 and R2 growth (Plan 2 Decision 25)
   factsJsonMaxBytes: 307_200, // 300 KiB: the largest valid Facts is 306,552 bytes once JSON-encoded (A8b; test/schemas.test.ts)
   briefJsonMaxBytes: 74_752, // 73 KiB: the largest valid Brief is 73,865 bytes once JSON-encoded (A8; test/schemas.test.ts)
-  editsJsonMaxBytes: 65_536,
+  editsJsonMaxBytes: 436_224, // 426 KiB: the largest valid OwnerEdits is 435,810 bytes once JSON-encoded (A8c; test/schemas.test.ts)
 } as const;
 ```
 
