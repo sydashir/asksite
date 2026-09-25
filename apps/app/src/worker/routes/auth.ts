@@ -3,7 +3,7 @@ import { AcceptInviteBody, hashIp, ipRateKey, LIMITS, LoginBody, newId, newToken
 import { Hono, type MiddlewareHandler } from "hono";
 import { clientIp, mailerEnv } from "../db.ts";
 import type { AppDeps } from "../deps.ts";
-import { EXPIRED_SESSION_COOKIE, insertSession, requireOwner, sessionCookie } from "../session.ts";
+import { endSession, EXPIRED_SESSION_COOKIE, insertSession, sessionCookie } from "../session.ts";
 import { requireTurnstile } from "../turnstile.ts";
 import type { AppEnv } from "../types.ts";
 
@@ -60,9 +60,10 @@ export function authRoutes(deps: AppDeps): Hono<AppEnv> {
     return c.json({ owner: signedIn.owner });
   });
 
-  // Needs a session, so the per-owner API_RL in requireOwner applies instead of the per-address AUTH_RL.
-  auth.post("/logout", requireOwner, async (c) => {
-    await c.env.DB.prepare("DELETE FROM sessions WHERE id_hash = ?").bind(c.get("sessionHash")).run();
+  // §4.4: a session or none, always 204 with the cookie expired. No requireOwner and no rate limiter
+  // (neither AUTH_RL nor API_RL), so signing out always works; the Origin check still applies (app.ts).
+  auth.post("/logout", async (c) => {
+    await endSession(c);
     c.header("Set-Cookie", EXPIRED_SESSION_COOKIE);
     return c.body(null, 204);
   });

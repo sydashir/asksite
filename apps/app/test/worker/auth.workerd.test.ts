@@ -528,18 +528,63 @@ describe("Turnstile on sign-in (A11)", () => {
 });
 
 describe("sessions", () => {
+  const EXPIRED_COOKIE = "__Host-asksite_sid=; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=0";
+
+  /** Design §4.4: logout takes a session or none, and always answers 204 with the cookie expired. */
+  async function loggedOut(res: Response): Promise<void> {
+    expect(res.status).toBe(204);
+    expect(res.headers.get("Set-Cookie")).toBe(EXPIRED_COOKIE);
+    expect(await res.text()).toBe("");
+  }
+
   it("logout deletes the session and expires the cookie", async () => {
     const owner = await h.signIn();
-    const res = await h.call("POST", "/api/auth/logout", { cookie: owner.cookie, ip: nextIp() });
-    expect(res.status).toBe(204);
-    expect(res.headers.get("Set-Cookie")).toContain("Max-Age=0");
+    await loggedOut(await h.call("POST", "/api/auth/logout", { cookie: owner.cookie, ip: nextIp() }));
+    expect(await sessionHashes(owner.ownerId)).toEqual([]);
     expect((await h.call("GET", "/api/me", { cookie: owner.cookie })).status).toBe(401);
   });
 
-  it("logout needs a session: without one it is 401", async () => {
-    const res = await h.call("POST", "/api/auth/logout", { ip: nextIp() });
-    expect(res.status).toBe(401);
-    expect((await json<ErrorJson>(res)).error.code).toBe("unauthenticated");
+  it("logout without a cookie still answers 204 and expires the cookie", async () => {
+    await loggedOut(await h.call("POST", "/api/auth/logout", { ip: nextIp() }));
+  });
+
+  it("logout with an unknown or malformed session token still answers 204 and expires the cookie", async () => {
+    for (const token of ["A".repeat(43), "not-a-token"]) {
+      await loggedOut(await h.call("POST", "/api/auth/logout", { cookie: `__Host-asksite_sid=${token}`, ip: nextIp() }));
+    }
+  });
+
+  it("logout of an expired session deletes it and expires the cookie", async () => {
+    const owner = await h.signIn();
+    await (await h.db()).prepare("UPDATE sessions SET expires_at = 1 WHERE owner_id = ?").bind(owner.ownerId).run();
+    await loggedOut(await h.call("POST", "/api/auth/logout", { cookie: owner.cookie, ip: nextIp() }));
+    expect(await sessionHashes(owner.ownerId)).toEqual([]);
+  });
+
+  it("logout of a disabled owner's session deletes it and expires the cookie", async () => {
+    const owner = await h.signIn();
+    await (await h.db()).prepare("UPDATE owners SET disabled_at = 1 WHERE id = ?").bind(owner.ownerId).run();
+    await loggedOut(await h.call("POST", "/api/auth/logout", { cookie: owner.cookie, ip: nextIp() }));
+    expect(await sessionHashes(owner.ownerId)).toEqual([]);
+  });
+
+  it("logout deletes only the session its cookie names", async () => {
+    const owner = await h.signIn();
+    await acceptInvite(owner.email); // a second invite gives the same owner a second session (another device)
+    expect(await sessionHashes(owner.ownerId)).toHaveLength(2);
+    await loggedOut(await h.call("POST", "/api/auth/logout", { cookie: owner.cookie, ip: nextIp() }));
+    const left = await sessionHashes(owner.ownerId);
+    expect(left).toHaveLength(1);
+    expect(left).not.toContain(await sha256Hex(cookieValue(owner.cookie)));
+  });
+
+  it("logout from another site is refused like every change (Origin check), and the session stays", async () => {
+    const owner = await h.signIn();
+    const res = await h.call("POST", "/api/auth/logout", { cookie: owner.cookie, ip: nextIp(), origin: "https://evil.example" });
+    expect(res.status).toBe(403);
+    expect((await json<ErrorJson>(res)).error.code).toBe("forbidden");
+    expect(res.headers.get("Set-Cookie")).toBeNull();
+    expect(await sessionHashes(owner.ownerId)).toEqual([await sha256Hex(cookieValue(owner.cookie))]);
   });
 
   it("logout is not counted by AUTH_RL: it works from an address that has used up its auth requests", async () => {
@@ -552,7 +597,7 @@ describe("sessions", () => {
     expect((await h.call("POST", "/api/auth/logout", { cookie: owner.cookie, ip })).status).toBe(204);
   });
 
-  it("API_RL refuses an owner's requests past its configured limit in a minute, logout included", async () => {
+  it("API_RL refuses an owner's requests past its configured limit in a minute, but never their sign-out", async () => {
     const owner = await h.signIn();
     // The burst took 1.0-4.1 s at a load average of about 80 (measured), so it gets 20 s of the minute.
     await awayFromMinuteBoundary(20_000);
@@ -561,8 +606,8 @@ describe("sessions", () => {
     const over = await h.call("GET", "/api/me", { cookie: owner.cookie });
     expect(over.status).toBe(429);
     expect(over.headers.get("Retry-After")).toBe("60");
-    expect((await h.call("POST", "/api/auth/logout", { cookie: owner.cookie, ip: nextIp() })).status).toBe(429);
-    expect(await sessionHashes(owner.ownerId)).toHaveLength(1);
+    await loggedOut(await h.call("POST", "/api/auth/logout", { cookie: owner.cookie, ip: nextIp() }));
+    expect(await sessionHashes(owner.ownerId)).toEqual([]);
   }, 60_000);
 
   it("an expired session is refused", async () => {
