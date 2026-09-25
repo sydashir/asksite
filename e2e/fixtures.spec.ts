@@ -64,13 +64,17 @@ const nextFocusKey = (browserName: string): string => (browserName === "webkit" 
 
 /**
  * Tabs through the whole page and lists every focused element that sits entirely under the call bar,
- * as "TAG id-or-text" (e.g. "A (512) 555-0142").
+ * as "TAG id-or-text" (e.g. "A (512) 555-0142"). Positions are read two frames after each key press:
+ * WebKit can scroll the newly focused element into view on a later frame (a textarea measured 892 px
+ * down an 844 px window straight after the press, 397 px two frames later), and an earlier reading
+ * sees the old scroll position (A9 review).
  */
 async function focusHiddenByCallBar(page: Page, browserName: string): Promise<string[]> {
   const hidden: string[] = [];
   for (let step = 0; step < 60; step++) {
     await page.keyboard.press(nextFocusKey(browserName));
-    const covered = await page.evaluate(() => {
+    const covered = await page.evaluate(async () => {
+      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
       const focused = document.activeElement;
       const bar = document.querySelector('aside[aria-label="Call us"]');
       if (!(focused instanceof HTMLElement) || focused === document.body || !bar || bar.contains(focused)) return null;
