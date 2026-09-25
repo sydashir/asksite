@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { AnthropicProvider } from "../src/providers/anthropic.ts";
 import { AI_DRAFT_JSON_SCHEMA, toWireSchema } from "../src/wire-schema.ts";
 import { abortedSignal, fakeFetch } from "./support/http.ts";
@@ -24,6 +24,18 @@ const rawFetch = (status: number, text: string) => async (): Promise<Response> =
 // The tier spend-cap body, as documented on platform.claude.com api/rate-limits.md ("Reaching your spend cap").
 const SPEND_CAP = "enforced_spend_limit_reached";
 const spendCapBody = (details: unknown) => ({ type: "error", error: { type: "rate_limit_error", message: "You have reached your API usage limits", details }, request_id: "req_1" });
+
+/** Runs fn with one environment variable set, then restores it (deleting it if it was unset). */
+async function withEnv(name: string, value: string, fn: () => Promise<void>): Promise<void> {
+  const saved = process.env[name];
+  process.env[name] = value;
+  try {
+    await fn();
+  } finally {
+    if (saved === undefined) delete process.env[name];
+    else process.env[name] = saved;
+  }
+}
 
 describe("AnthropicProvider", () => {
   it("sends one Messages API request with structured output in output_config.format", async () => {
@@ -184,6 +196,32 @@ describe("AnthropicProvider", () => {
     } finally {
       if (saved === undefined) delete process.env.ANTHROPIC_BASE_URL;
       else process.env.ANTHROPIC_BASE_URL = saved;
+    }
+  });
+
+  it("never sends an Authorization header from an ANTHROPIC_AUTH_TOKEN environment variable", async () => {
+    await withEnv("ANTHROPIC_AUTH_TOKEN", "bogus-token-for-test", async () => {
+      const http = fakeFetch([{ status: 200, body: message("{}") }]);
+      await new AnthropicProvider({ apiKey: "k", model: "claude-opus-5-5", fetch: http.fetch }).generate(request());
+      expect(http.calls).toHaveLength(1);
+      expect(http.calls[0]!.headers.get("authorization")).toBeNull();
+      expect(http.calls[0]!.headers.get("x-api-key")).toBe("k");
+    });
+  });
+
+  it("logs nothing (the SDK logs to console) when ANTHROPIC_LOG=debug is set, on success or failure", async () => {
+    const spies = (["debug", "info", "log", "warn", "error"] as const).map((method) => vi.spyOn(console, method).mockImplementation(() => {}));
+    try {
+      await withEnv("ANTHROPIC_LOG", "debug", async () => {
+        const http = fakeFetch([{ status: 200, body: message("{}") }, { status: 500, body: { type: "error", error: { type: "api_error", message: "m" } } }]);
+        const provider = new AnthropicProvider({ apiKey: "k", model: "claude-opus-5-5", fetch: http.fetch });
+        await provider.generate(request());
+        await expect(provider.generate(request())).rejects.toMatchObject({ kind: "unavailable" });
+        expect(http.calls).toHaveLength(2);
+      });
+      expect(spies.map((spy) => spy.mock.calls.length)).toEqual([0, 0, 0, 0, 0]);
+    } finally {
+      for (const spy of spies) spy.mockRestore();
     }
   });
 

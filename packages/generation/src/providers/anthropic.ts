@@ -95,6 +95,11 @@ export class AnthropicProvider implements ModelProvider {
     this.#model = options.model;
     this.#client = new Anthropic({
       apiKey: options.apiKey,
+      // The SDK reads ANTHROPIC_AUTH_TOKEN (an extra Authorization header) and ANTHROPIC_LOG (debug
+      // logs hold the prompt) from process.env only when these options are undefined, so both are
+      // explicit. ANTHROPIC_CUSTOM_HEADERS has no such option and is not neutralised here.
+      authToken: null,
+      logLevel: "off",
       baseURL: ANTHROPIC_BASE_URL,
       maxRetries: 0,
       timeout: ATTEMPT_TIMEOUT_MS,
