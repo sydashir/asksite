@@ -1,0 +1,26 @@
+{
+  "name": "@asksite/app",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "types": "wrangler types --strict-vars=false",
+    "typecheck": "pnpm types && tsc -p tsconfig.worker.json && tsc -p tsconfig.test.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@asksite/app-common": "workspace:*",
+    "@asksite/core": "workspace:*",
+    "@asksite/renderer": "workspace:*",
+    "@asksite/site-css": "workspace:*",
+    "@asksite/site-schema": "workspace:*",
+    "hono": "4.13.9",
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "@types/node": "24.13.6",
+    "typescript": "7.0.2",
+    "vitest": "5.0.1",
+    "wrangler": "4.138.0"
+  }
+}

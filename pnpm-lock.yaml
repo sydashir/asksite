@@ -42,6 +42,43 @@ importers:
         specifier: 4.138.0
         version: 4.138.0(@cloudflare/workers-types@5.20260924.1)(@types/node@24.13.6)
 
+  apps/app:
+    dependencies:
+      '@asksite/app-common':
+        specifier: workspace:*
+        version: link:../../packages/app-common
+      '@asksite/core':
+        specifier: workspace:*
+        version: link:../../packages/core
+      '@asksite/renderer':
+        specifier: workspace:*
+        version: link:../../packages/renderer
+      '@asksite/site-css':
+        specifier: workspace:*
+        version: link:../../packages/site-css
+      '@asksite/site-schema':
+        specifier: workspace:*
+        version: link:../../packages/site-schema
+      hono:
+        specifier: 4.13.9
+        version: 4.13.9
+      zod:
+        specifier: 4.6.5
+        version: 4.6.5
+    devDependencies:
+      '@types/node':
+        specifier: 24.13.6
+        version: 24.13.6
+      typescript:
+        specifier: 7.0.2
+        version: 7.0.2
+      vitest:
+        specifier: 5.0.1
+        version: 5.0.1(@types/node@24.13.6)(vite@8.3.0(@types/node@24.13.6)(esbuild@0.28.1)(jiti@2.7.0))
+      wrangler:
+        specifier: 4.138.0
+        version: 4.138.0(@cloudflare/workers-types@5.20260924.1)(@types/node@24.13.6)
+
   packages/app-common:
     dependencies:
       '@asksite/core':
