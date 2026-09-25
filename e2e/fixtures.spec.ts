@@ -49,17 +49,27 @@ const sidewaysScroll = (page: Page) =>
 
 const isPhoneProject = (page: Page) => (page.viewportSize()?.width ?? 0) < 768;
 
-/** Tabs through the whole page and lists every focused element that sits entirely under the call bar. */
-async function focusHiddenByCallBar(page: Page): Promise<string[]> {
+/**
+ * The key that moves keyboard focus to the next link, button or field. On macOS, WebKit's plain Tab
+ * skips links and buttons and reaches only form fields; Option+Tab reaches them all (Playwright's own
+ * test "should traverse only form elements", darwin + WebKit only; A9).
+ */
+const nextFocusKey = (browserName: string): string => (browserName === "webkit" && process.platform === "darwin" ? "Alt+Tab" : "Tab");
+
+/**
+ * Tabs through the whole page and lists every focused element that sits entirely under the call bar,
+ * as "TAG id-or-text" (e.g. "A (512) 555-0142").
+ */
+async function focusHiddenByCallBar(page: Page, browserName: string): Promise<string[]> {
   const hidden: string[] = [];
   for (let step = 0; step < 60; step++) {
-    await page.keyboard.press("Tab");
+    await page.keyboard.press(nextFocusKey(browserName));
     const covered = await page.evaluate(() => {
       const focused = document.activeElement;
       const bar = document.querySelector('aside[aria-label="Call us"]');
       if (!(focused instanceof HTMLElement) || focused === document.body || !bar || bar.contains(focused)) return null;
       const covers = focused.getBoundingClientRect().top >= bar.getBoundingClientRect().top;
-      return covers ? focused.id || (focused.textContent ?? "").trim().slice(0, 40) || focused.tagName : null;
+      return covers ? `${focused.tagName} ${focused.id || (focused.textContent ?? "").trim().slice(0, 40)}`.trim() : null;
     });
     if (covered) hidden.push(covered);
   }
@@ -108,9 +118,9 @@ for (const name of FIXTURES) {
       expect(scrolled).toEqual({});
     });
 
-    test("keyboard focus is never hidden under the call bar (WCAG 2.4.11)", async ({ page }) => {
+    test("keyboard focus is never hidden under the call bar (WCAG 2.4.11)", async ({ page, browserName }) => {
       test.skip(!isPhoneProject(page), "the call bar only shows below 768 px");
-      expect(await focusHiddenByCallBar(page)).toEqual([]);
+      expect(await focusHiddenByCallBar(page, browserName)).toEqual([]);
     });
 
     test("ships no JavaScript: only JSON-LD scripts, no event handlers", async ({ page }) => {
@@ -159,11 +169,19 @@ test.describe("the gates can fail (RED proof)", () => {
     expect((await axeProblems(page)).map((line) => line.split(":")[0])).toContain("region");
   });
 
-  test("the focus check sees a field hidden under a call bar that always sticks", async ({ page }) => {
+  test("the focus check sees a field hidden under a call bar that always sticks", async ({ page, browserName }) => {
     test.skip(!isPhoneProject(page), "the call bar only shows below 768 px");
     await open(page, "plumber-austin");
     await page.addStyleTag({ content: "aside{position:sticky!important}" });
-    expect(await focusHiddenByCallBar(page)).not.toEqual([]);
+    expect(await focusHiddenByCallBar(page, browserName)).not.toEqual([]);
+  });
+
+  test("the focus check sees a link hidden under a call bar that sticks while a link has focus", async ({ page, browserName }) => {
+    test.skip(!isPhoneProject(page), "the call bar only shows below 768 px");
+    await open(page, "plumber-austin");
+    // The bar stays static while a form field has focus, so only a hidden link can be found.
+    await page.addStyleTag({ content: "html:has(a:focus-visible) aside{position:sticky!important}" });
+    expect((await focusHiddenByCallBar(page, browserName)).filter((stop) => stop.startsWith("A "))).not.toEqual([]);
   });
 });
 
