@@ -62,8 +62,11 @@ const yesNo = (flag: boolean): string => (flag ? "yes" : "no");
 /** Plan 1's checker allows "free" anywhere once the owner gives free estimates, so the prompt scopes it. */
 const FREE_CLAIM = "yes (only about estimates or quotes; never free repairs, service calls, inspections or parts)";
 
-/** Every whitespace run, line breaks included, becomes one space. */
-const oneLine = (text: string): string => text.replace(/\s+/g, " ");
+/**
+ * Every run of whitespace or control characters becomes one space: line breaks, tabs, U+2028/U+2029
+ * and every C0/C1 control (such as NEL U+0085 and RS U+001E, which some line splitters also break on).
+ */
+const oneLine = (text: string): string => text.replace(/[\s\p{Cc}]+/gu, " ");
 
 const issueLine = (issue: Issue): string =>
   `- ${wellFormed(oneLine(issue.path.join(".")).slice(0, MAX_ISSUE_PATH))}: ${wellFormed(oneLine(issue.message).slice(0, MAX_ISSUE_MESSAGE))}`;
