@@ -105,13 +105,13 @@ describe("LIMITS.briefJsonMaxBytes", () => {
 
 describe("LIMITS.factsJsonMaxBytes", () => {
   // The largest valid Facts: every list at its longest and every field at its cap, in the costliest
-  // characters. Facts text and URLs both accept a lone surrogate. A URL must start "https:" and name
-  // a host that holds no lone surrogate, so the costliest URL is "https:", one 3-byte host character
-  // ("ａ", read as "a"), a backslash (read as "/", 2 bytes once JSON-encoded), then lone surrogates.
-  // A social link's host must be its network's. Trying every code point the URL parser reads as
-  // ASCII, the largest link is google's with g.page spelled "ｇ．㎩ｇｅ" (㎩ reads "pa"): the fewest
-  // host characters leave the most room for lone surrogates. The looser test below needs no search.
-  const url = (host: string) => `https:${host}\\${lone.repeat(2048 - "https:".length - host.length - 1)}`;
+  // characters. Facts text and URLs both accept a lone surrogate. A URL must start "https://" (A9) and
+  // name a host that holds no lone surrogate, so the costliest URL is "https://", one 3-byte host
+  // character ("ａ", read as "a"), a backslash (read as "/", 2 bytes once JSON-encoded), then lone
+  // surrogates. A social link's host must be its network's. Trying every code point the URL parser
+  // reads as ASCII, the largest link is google's with g.page spelled "ｇ．㎩ｇｅ" (㎩ reads "pa"): the
+  // fewest host characters leave the most room for lone surrogates. The looser test below needs no search.
+  const url = (host: string) => `https://${host}\\${lone.repeat(2048 - "https://".length - host.length - 1)}`;
   const photo = { url: url("ａ"), alt: lone.repeat(125), width: 10_000, height: 10_000, caption: lone.repeat(80) };
   const link = { network: "google", url: url("ｇ．㎩ｇｅ") };
   const largest = {
@@ -140,7 +140,7 @@ describe("LIMITS.factsJsonMaxBytes", () => {
 
   it("holds the largest valid Facts once JSON-encoded, rounded up to a whole KiB", () => {
     const bytes = jsonBytes(Facts.parse(largest));
-    expect(bytes).toBe(306_552);
+    expect(bytes).toBe(306_352);
     expect(bytes).toBeLessThanOrEqual(LIMITS.factsJsonMaxBytes);
     expect(LIMITS.factsJsonMaxBytes).toBe(Math.ceil(bytes / 1024) * 1024);
   });

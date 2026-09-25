@@ -6,10 +6,38 @@ describe("isSafeUrl", () => {
   it.each([
     "https://example.com/a?b=c",
     "http://example.com",
+    "HTTPS://example.com/a",
     "tel:+15125550142",
     "mailto:office@example.com",
   ])("accepts %s", (url) => {
     expect(isSafeUrl(url)).toBe(true);
+  });
+
+  // A page resolves these against its own address ("https:facebook.com/x" on https://joes.example/
+  // is https://joes.example/facebook.com/x), so they are not absolute links (A9).
+  it.each([
+    "https:facebook.com/mop",
+    "https:/facebook.com/mop",
+    "HTTPS:facebook.com/mop",
+    "https:\\facebook.com/mop",
+    "https:\\\\facebook.com/mop",
+    "http:example.com",
+    "http:/example.com",
+  ])("rejects %j: http and https must be followed by //", (url) => {
+    expect(isSafeUrl(url)).toBe(false);
+  });
+
+  it("never accepts an http or https URL that would resolve against the page", () => {
+    const tails = ["", "/", "//", "///", "\\", "\\\\", "/\\"];
+    const hosts = ["facebook.com/mop", "ｆacebook.com", "example.com:443/a", "[::1]/a"];
+    for (const scheme of ["https:", "http:", "HTTPS:"])
+      for (const tail of tails)
+        for (const host of hosts) {
+          const url = `${scheme}${tail}${host}`;
+          if (!isSafeUrl(url)) continue;
+          const base = `${new URL(url).protocol}//joes.example/page/`;
+          expect(new URL(url, base).href, url).toBe(new URL(url).href);
+        }
   });
 
   it.each([

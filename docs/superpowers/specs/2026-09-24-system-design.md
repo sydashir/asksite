@@ -602,7 +602,7 @@ export const LIMITS = {
   loginTokensPerOwnerPerDay: 10,
   leadsPerSitePerDay: 50,
   leadRetentionDays: 180,
-  factsJsonMaxBytes: 307_200,                 // 300 KiB: the largest valid Facts is 306,552 bytes once JSON-encoded (A8b)
+  factsJsonMaxBytes: 307_200,                 // 300 KiB: the largest valid Facts is 306,352 bytes once JSON-encoded (A8b, A9)
   briefJsonMaxBytes: 74_752,                  // 73 KiB: the largest valid Brief is 73,865 bytes once JSON-encoded (A8)
   editsJsonMaxBytes: 436_224,                 // 426 KiB: the largest valid OwnerEdits is 435,810 bytes once JSON-encoded (A8c)
 } as const;

@@ -19,9 +19,17 @@ export function parseUrl(input: string): URL | undefined {
   }
 }
 
+// http and https are URL "special" schemes: without "//" after the scheme, "https:facebook.com/x"
+// parses on its own, but a page on https://joes.example/ resolves it to
+// https://joes.example/facebook.com/x (WHATWG URL, "special relative or authority state"). So they
+// must be followed by "//" (A9). tel: and mailto: are not special and never resolve against a page.
+const NEEDS_SLASHES: ReadonlySet<string> = new Set(["http:", "https:"]);
+
 /** True only for an absolute URL whose scheme is in `allowed`. Relative and protocol-relative URLs are rejected. */
 export function isSafeUrl(input: string, allowed: readonly UrlScheme[] = LINK_SCHEMES): boolean {
   if (input === "" || CONTROL_OR_SPACE.test(input)) return false;
   const url = parseUrl(input);
-  return url !== undefined && (allowed as readonly string[]).includes(url.protocol);
+  if (url === undefined || !(allowed as readonly string[]).includes(url.protocol)) return false;
+  // The input starts with its scheme exactly (CONTROL_OR_SPACE refused anything the parser would strip).
+  return !NEEDS_SLASHES.has(url.protocol) || input.startsWith("//", url.protocol.length);
 }
