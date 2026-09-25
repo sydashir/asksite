@@ -1,4 +1,4 @@
-import { canonicalJson, documentSha256, formActionUrl, LIMITS, sha256Hex, versionKey } from "@asksite/core";
+import { canonicalJson, documentSha256, formActionUrl, LIMITS, newId, OwnerEdits, sha256Hex, versionKey } from "@asksite/core";
 import { render } from "@asksite/renderer";
 import { SITE_CSS, SITE_CSS_SHA256 } from "@asksite/site-css";
 import type { SiteDocument } from "@asksite/site-schema";
@@ -43,6 +43,31 @@ function writesReturnNoRows(db: D1Database): D1Database {
   return production as unknown as D1Database;
 }
 
+/**
+ * A D1 whose batch waits until release(), so a test can run a second request between this request's
+ * reads and its writes: a race, in a fixed order.
+ */
+function holdBatch(db: D1Database) {
+  let arrive = () => {};
+  let release = () => {};
+  const reached = new Promise<void>((resolve) => (arrive = () => resolve()));
+  const released = new Promise<void>((resolve) => (release = () => resolve()));
+  const held = {
+    prepare: (sql: string) => db.prepare(sql),
+    async batch(statements: D1PreparedStatement[]) {
+      arrive();
+      await released;
+      return db.batch(statements);
+    },
+  };
+  return { db: held as unknown as D1Database, reached, release };
+}
+
+async function auditRows(db: D1Database, siteId: string) {
+  const { results } = await db.prepare("SELECT at, actor, action, detail_json FROM audit_log WHERE site_id = ? ORDER BY id").bind(siteId).all();
+  return results;
+}
+
 describe("createPendingVersion", () => {
   it("stores the exact rendered page and a pending version pointing at it", async () => {
     const { ownerId, siteId, slug } = await seedSite(env.DB);
@@ -66,6 +91,21 @@ describe("createPendingVersion", () => {
     });
     expect((await siteRow(env.DB, siteId))?.pending_version_id).toBe(summary.id);
     expect(await auditActions(env.DB, siteId)).toEqual(["version.requested"]);
+  });
+
+  it("records where the version came from: the generation, the owner's edits, who asked and when", async () => {
+    const { ownerId, siteId, slug } = await seedSite(env.DB);
+    const generationId = newId();
+    await env.DB.prepare("INSERT INTO generations (id, site_id, owner_id, kind, status, input_json, created_at) VALUES (?, ?, ?, 'first', 'succeeded', '{}', 1)")
+      .bind(generationId, siteId, ownerId).run();
+    // Plan 4's admin review reads generation_id and edits_json to mark the wording the owner changed.
+    const edits = OwnerEdits.parse({ baseGenerationId: generationId, copy: { heroHeadline: "Friendly local plumbing help" }, order: null, hidden: ["faq"], theme: null });
+    const summary = await createPendingVersion(env, { siteId, ownerId, slug, document: doc(), edits, generationId, now: 7 });
+    expect(await versionRow(env.DB, summary.id)).toMatchObject({ generation_id: generationId, edits_json: canonicalJson(edits) });
+    expect(await env.DB.prepare("SELECT updated_at FROM sites WHERE id = ?").bind(siteId).first("updated_at")).toBe(7);
+    expect(await auditRows(env.DB, siteId)).toEqual([
+      { at: 7, actor: `owner:${ownerId}`, action: "version.requested", detail_json: canonicalJson({ versionId: summary.id }) },
+    ]);
   });
 
   it("reads the version number with a SELECT in the batch, since production D1 returns no rows for writes (A10)", async () => {
@@ -100,7 +140,14 @@ describe("createPendingVersion", () => {
     const document = doc();
     const untrimmed = { ...document, copy: { ...document.copy, heroHeadline: `  ${document.copy.heroHeadline}  ` } } as SiteDocument;
     const summary = await createPendingVersion(env, { siteId, ownerId, slug, document: untrimmed, edits: EDITS, generationId: null, now: 1 });
-    expect((await versionRow(env.DB, summary.id))?.document_sha256).toBe(await documentSha256(document));
+    const row = await versionRow(env.DB, summary.id);
+    expect(row?.document_sha256).toBe(await documentSha256(document));
+    // The stored JSON is the parsed document's, and document_sha256 is the hash of that very JSON (design §2.5).
+    expect(row?.document_json).toBe(canonicalJson(document));
+    expect(row?.document_sha256).toBe(await sha256Hex(row?.document_json as string));
+    // And the stored page is the page of that stored document.
+    const page = render(document, { stylesheet: SITE_CSS, formAction: formActionUrl(ROOT, slug, siteId) });
+    expect(await (await env.WORK.get(versionKey(siteId, summary.id)))?.text()).toBe(page);
   });
 
   it("refuses an invalid document with its issues and writes nothing", async () => {
@@ -140,6 +187,8 @@ describe("createPendingVersion", () => {
 describe("the daily publish cap (Decision 25)", () => {
   const versionCount = async (siteId: string) =>
     (await env.DB.prepare("SELECT COUNT(*) AS n FROM site_versions WHERE site_id = ?").bind(siteId).first<{ n: number }>())?.n;
+  const pendingIds = async (siteId: string) =>
+    (await env.DB.prepare("SELECT id FROM site_versions WHERE site_id = ? AND status = 'pending'").bind(siteId).all<{ id: string }>()).results.map((r) => r.id);
 
   it("allows LIMITS.publishRequestsPerSitePerDay requests a UTC day, then refuses without storing anything", async () => {
     const { ownerId, siteId, slug } = await seedSite(env.DB);
@@ -154,6 +203,15 @@ describe("the daily publish cap (Decision 25)", () => {
     expect((await publish(day + 86_400_000)).number).toBe(LIMITS.publishRequestsPerSitePerDay + 1);
   });
 
+  it("rounds retryAfter up, so a client is never told to come back before 00:00 UTC", async () => {
+    const { ownerId, siteId, slug } = await seedSite(env.DB);
+    const day = Date.parse("2026-09-26T00:00:00.000Z");
+    const publish = (now: number) => createPendingVersion(env, { siteId, ownerId, slug, document: doc("cleaning-minimal"), edits: EDITS, generationId: null, now });
+    for (let i = 0; i < LIMITS.publishRequestsPerSitePerDay; i++) await publish(day + i);
+    expect((await failure(publish(day + 3_600_001))).detail).toEqual({ retryAfter: 82_800 }); // 82,799.999 s left
+    expect((await failure(publish(day + 86_399_999))).detail).toEqual({ retryAfter: 1 }); // 0.001 s left, never 0
+  });
+
   it("stays exact when requests race: one of three gets the last place", async () => {
     const { ownerId, siteId, slug } = await seedSite(env.DB);
     const day = Date.parse("2026-09-25T00:00:00.000Z");
@@ -163,6 +221,27 @@ describe("the daily publish cap (Decision 25)", () => {
     expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
     for (const r of results) if (r.status === "rejected") expect(r.reason).toMatchObject({ code: "publish_cap_reached" });
     expect(await versionCount(siteId)).toBe(LIMITS.publishRequestsPerSitePerDay);
+    // The refused racers changed nothing: the winner is the one version in review, and the site points at it.
+    const [winner] = results.flatMap((r) => (r.status === "fulfilled" ? [r.value] : []));
+    expect(await pendingIds(siteId)).toEqual([winner?.id]);
+    expect((await siteRow(env.DB, siteId))?.pending_version_id).toBe(winner?.id);
+  });
+
+  it("a request that passed the early count but lost the last place never touches the winner's version in review", async () => {
+    const { ownerId, siteId, slug } = await seedSite(env.DB);
+    const day = Date.parse("2026-09-27T00:00:00.000Z");
+    const input = (now: number) => ({ siteId, ownerId, slug, document: doc("cleaning-minimal"), edits: EDITS, generationId: null, now });
+    for (let i = 0; i < LIMITS.publishRequestsPerSitePerDay - 1; i++) await createPendingVersion(env, input(day + i));
+    const held = holdBatch(env.DB);
+    const late = createPendingVersion({ ...env, DB: held.db }, input(day + 100));
+    await Promise.race([held.reached, late]); // its early count saw one place left
+    const winner = await createPendingVersion(env, input(day + 101)); // then another request took it
+    held.release();
+    expect((await failure(late)).code).toBe("publish_cap_reached");
+    expect(await pendingIds(siteId)).toEqual([winner.id]);
+    expect((await siteRow(env.DB, siteId))?.pending_version_id).toBe(winner.id);
+    expect(await versionCount(siteId)).toBe(LIMITS.publishRequestsPerSitePerDay);
+    expect(await auditActions(env.DB, siteId)).toHaveLength(LIMITS.publishRequestsPerSitePerDay);
   });
 });
 
@@ -184,5 +263,38 @@ describe("withdrawPending", () => {
     const other = await seedSite(env.DB);
     expect((await failure(withdrawPending(env, { siteId, ownerId: other.ownerId, now: 2 }))).code).toBe("nothing_pending");
     expect((await siteRow(env.DB, siteId))?.pending_version_id).not.toBeNull();
+  });
+
+  it("a double-clicked withdraw withdraws and logs once", async () => {
+    const { ownerId, siteId, slug } = await seedSite(env.DB);
+    const version = await createPendingVersion(env, { siteId, ownerId, slug, document: doc(), edits: EDITS, generationId: null, now: 1 });
+    const held = holdBatch(env.DB);
+    const firstClick = withdrawPending({ DB: held.db }, { siteId, ownerId, now: 2 });
+    await Promise.race([held.reached, firstClick]); // both clicks read the same version in review
+    await withdrawPending(env, { siteId, ownerId, now: 3 });
+    held.release();
+    expect((await failure(firstClick)).code).toBe("nothing_pending");
+    expect((await versionRow(env.DB, version.id))?.status).toBe("withdrawn");
+    expect((await siteRow(env.DB, siteId))?.pending_version_id).toBeNull();
+    expect(await auditRows(env.DB, siteId)).toEqual([
+      { at: 1, actor: `owner:${ownerId}`, action: "version.requested", detail_json: canonicalJson({ versionId: version.id }) },
+      { at: 3, actor: `owner:${ownerId}`, action: "version.withdrawn", detail_json: canonicalJson({ versionId: version.id }) },
+    ]);
+  });
+
+  it("a withdraw overtaken by a new publish leaves the new version in review", async () => {
+    const { ownerId, siteId, slug } = await seedSite(env.DB);
+    const publish = (now: number) => createPendingVersion(env, { siteId, ownerId, slug, document: doc(), edits: EDITS, generationId: null, now });
+    const first = await publish(1);
+    const held = holdBatch(env.DB);
+    const withdraw = withdrawPending({ DB: held.db }, { siteId, ownerId, now: 2 });
+    await Promise.race([held.reached, withdraw]); // it read the first version as the one in review
+    const second = await publish(3);
+    held.release();
+    expect((await failure(withdraw)).code).toBe("nothing_pending");
+    expect((await siteRow(env.DB, siteId))?.pending_version_id).toBe(second.id);
+    expect((await versionRow(env.DB, second.id))?.status).toBe("pending");
+    expect((await versionRow(env.DB, first.id))?.status).toBe("superseded");
+    expect(await auditActions(env.DB, siteId)).toEqual(["version.requested", "version.requested"]);
   });
 });
