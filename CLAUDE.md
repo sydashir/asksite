@@ -59,6 +59,12 @@ Read this whole file at the start of every session. These rules override default
 - No emojis. Say "I".
 - Problems first: any regression or mistake is reported before anything else, with its blast radius.
 
+## Library docs (user rule 2026-09-25)
+
+- Strictly no compromise on quality.
+- Before writing, changing or reviewing code that uses a library, framework or runtime API, check the current docs with the context7 MCP (resolve-library-id, then query-docs) and cite what was checked. If the docs disagree with a plan or the code, stop and report both sides. If context7 lacks it, read the official docs.
+- Use other MCPs when they help and are safe. Never Playwright MCP in agents; never claude-in-chrome in agents (it drives the user's own browser).
+
 ## Research
 
 - Sources: official docs, GitHub, Stack Overflow, Reddit, Quora, Hugging Face and other forums.
@@ -73,6 +79,14 @@ Three files in `docs/`:
 - `journal.md` — append-only dated log of what was done, decided and verified.
 
 Update them as work happens, not only at the end. The user will say when context is at 5%. On that signal, stop work immediately and bring all three fully up to date before doing anything else.
+
+## Parallel build sessions (user instruction 2026-09-25)
+
+- The moderator session `web-maker-99` (folder `/Users/ashir/Documents/workk2/web_maker`) is the controller of every build session. Build sessions talk to it with SendMessage; it relays to the user only when a decision is the user's.
+- Build sessions never assume or guess: if the plan, design or code does not answer something with certainty, stop and ask `web-maker-99`. The moderator asks the user when it is unsure.
+- User rule (2026-09-25): web-maker-99 reviews a build session's code before any git action beyond a local commit on that session's own branch. Build sessions may only run read-only git, `git add <named paths>` and `git commit` on their own branch; push, merge (including "Sync with main"), rebase, reset, revert, cherry-pick, amend, switching branches, branch/tag changes, stash, worktree commands and `git clean` need web-maker-99's explicit OK for that one action, given after review.
+- Only web-maker-99 pushes or runs `gh` (the active gh account is machine-wide, so parallel switching can leave the wrong one active); build sessions never push, and web-maker-99 pushes their branches.
+- No clobbering: each session works only in its own worktree and branch; never touches another session's folder, `main`, or another branch; never force-pushes, rebases, deletes branches or prunes worktrees; stops only processes it started; never kills a process holding a port it did not open.
 
 ## Separate sessions for big work
 
