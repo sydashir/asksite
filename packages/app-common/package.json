@@ -1,0 +1,20 @@
+{
+  "name": "@asksite/app-common",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@asksite/core": "workspace:*",
+    "@asksite/renderer": "workspace:*",
+    "@asksite/site-schema": "workspace:*",
+    "hono": "4.13.9",
+    "obscenity": "0.4.6",
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "@asksite/site-css": "workspace:*"
+  }
+}

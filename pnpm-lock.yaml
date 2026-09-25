@@ -42,6 +42,31 @@ importers:
         specifier: 4.138.0
         version: 4.138.0(@cloudflare/workers-types@5.20260924.1)(@types/node@24.13.6)
 
+  packages/app-common:
+    dependencies:
+      '@asksite/core':
+        specifier: workspace:*
+        version: link:../core
+      '@asksite/renderer':
+        specifier: workspace:*
+        version: link:../renderer
+      '@asksite/site-schema':
+        specifier: workspace:*
+        version: link:../site-schema
+      hono:
+        specifier: 4.13.9
+        version: 4.13.9
+      obscenity:
+        specifier: 0.4.6
+        version: 0.4.6
+      zod:
+        specifier: 4.6.5
+        version: 4.6.5
+    devDependencies:
+      '@asksite/site-css':
+        specifier: workspace:*
+        version: link:../site-css
+
   packages/core:
     dependencies:
       '@asksite/site-schema':
@@ -1037,6 +1062,10 @@ packages:
   graceful-fs@4.2.11:
     resolution: {integrity: sha512-RbJ5/jmFcNNCcDV5o9eTnBLJ/HszWV0P73bc+Ff4nS/rJj+YaS6IGyiOL0VoBYX+l1Wrl3k63h/KrH+nhJ0XvQ==}
 
+  hono@4.13.9:
+    resolution: {integrity: sha512-7dMkQmZoC4E6F7AtaQSPhlWAdnBti+j7rreMZl8QB4jFiEhP9TWbGWUMi8WYzBCgmgulxuvLQupKqo+Co6Omyg==}
+    engines: {node: '>=16.9.0'}
+
   html-validate@11.16.0:
     resolution: {integrity: sha512-PIaSmEqYFywkIZZqxVXkjx8mFxnvOZY9zrLki2YYYXBgDT3Dn5q9yQuKaLSC5AUwUz9H0/txSvPJtfWCMAK7tQ==}
     engines: {node: ^22.22.0 || >= 24.8.0}
@@ -1259,6 +1288,10 @@ packages:
 
   node-addon-api@7.1.1:
     resolution: {integrity: sha512-5m3bsyrjFWE1xf7nz7YXdN4udnVtXK6/Yfgn5qnahL6bCkf2yKt4k3nuTKAtT4r3IG8JNR2ncsIMdZuAzJjHQQ==}
+
+  obscenity@0.4.6:
+    resolution: {integrity: sha512-pHk7kNN7j3L3zGhhGnwxjvXIGsPpLrcZl2r58fqWh/V/rH6b/dafscj2sMmAY+A/9/wPsocLmimgGk2DKeKsFQ==}
+    engines: {node: '>=18.0.0'}
 
   obug@2.2.1:
     resolution: {integrity: sha512-XrsrhT5sybtKI6wakr2SPOlGZWWYbUXZ7a0jT8/QOeAPau+1X/bSegNe5YR75oJmEZQbKningirmGOEJCIk61Q==}
@@ -2138,6 +2171,8 @@ snapshots:
 
   graceful-fs@4.2.11: {}
 
+  hono@4.13.9: {}
+
   html-validate@11.16.0(vitest@5.0.1(@types/node@24.13.6)(vite@8.3.0(@types/node@24.13.6)(esbuild@0.28.1)(jiti@2.7.0))):
     dependencies:
       '@html-validate/stylish': 6.0.0
@@ -2294,6 +2329,8 @@ snapshots:
   nanoid@3.3.19: {}
 
   node-addon-api@7.1.1: {}
+
+  obscenity@0.4.6: {}
 
   obug@2.2.1: {}
 
