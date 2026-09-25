@@ -52,6 +52,8 @@ describe("unbackedClaims", () => {
     ["Fully insured for your peace of mind", "insured"],
     ["Emergency cleanups around the clock", "Emergency"],
     ["Call us any time, day or night", "any time"],
+    ["Open seven days a week", "seven days"],
+    ["Out on call five days a week", "days a week"],
     ["Get a free quote", "free"],
     ["There is no charge for a visit", "no charge"],
     ["A complimentary walkthrough", "complimentary"],
@@ -88,6 +90,10 @@ describe("unbackedClaims", () => {
     expect(unbackedClaims("Careful cleaners for busy households. Hassle-free booking, one-off or weekly.", NONE)).toEqual([]);
   });
 
+  it.each(["Most jobs take a few days", "Book a week ahead", "Seven rooms, one crew"])("does not read %j as a round-the-clock claim", (text) => {
+    expect(unbackedClaims(text, NONE)).toEqual([]);
+  });
+
   it.each([
     ["We answer around  the clock", "around the clock"], // doubled spaces: HTML shows one
     ["Same  day service", "Same day"],
@@ -96,6 +102,7 @@ describe("unbackedClaims", () => {
     ["Award  winning crew", "Award winning"],
     ["Call any  time", "any time"],
     ["We answer around\u00A0the clock", "around the clock"], // U+00A0 no-break space
+    ["Open seven\u00A0days", "seven days"],
     ["Same\u2011day service", "Same-day"], // U+2011 non-breaking hyphen
     ["Five\u2010star service", "Five-star"], // U+2010 hyphen
     ["Help day\u2011or\u2011night", "day-or-night"], // U+2011 non-breaking hyphen
@@ -135,7 +142,7 @@ describe("unbackedClaims", () => {
     },
   );
 
-  it.each(["-", ...DASHES].flatMap((d) => ["day" + d + "or" + d + "night", "any" + d + "time"]))(
+  it.each(["-", ...DASHES].flatMap((d) => ["day" + d + "or" + d + "night", "any" + d + "time", "seven" + d + "days", "days" + d + "a" + d + "week"]))(
     "allows the emergency claim %j, joined by a hyphen or dash, only when the owner's facts back it",
     (claim) => {
       const text = "Call us " + claim + " for a burst pipe";
@@ -224,6 +231,7 @@ describe("SiteDocument rejects AI copy that states facts the owner did not give"
     "Emergency cleaning around the clock",
     "Reliable day-or-night plumbing across Boise.",
     "Call us any-time for a clogged drain.",
+    "Open seven days a week",
     "Free estimates, no hidden fees",
     "Five-star rated, award-winning, BBB accredited",
     "“Best cleaners ever!” said Sarah",

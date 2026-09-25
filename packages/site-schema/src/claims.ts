@@ -36,7 +36,7 @@ export const NEEDS_A_FACT: ReadonlyArray<{ readonly pattern: RegExp; readonly ba
   { pattern: /\blicen[cs]\w*/i, backedBy: (facts) => facts.licences.length > 0 },
   { pattern: /\binsur\w*/i, backedBy: (facts) => facts.insured },
   {
-    pattern: /\b(emergenc\w*|a?round[-\u2012\u2013\u2014\u2212 ]the[-\u2012\u2013\u2014\u2212 ]clock|day[-\u2012\u2013\u2014\u2212 ]or[-\u2012\u2013\u2014\u2212 ]night|any[-\u2012\u2013\u2014\u2212 ]?time)\b/i,
+    pattern: /\b(emergenc\w*|a?round[-\u2012\u2013\u2014\u2212 ]the[-\u2012\u2013\u2014\u2212 ]clock|day[-\u2012\u2013\u2014\u2212 ]or[-\u2012\u2013\u2014\u2212 ]night|any[-\u2012\u2013\u2014\u2212 ]?time|seven[-\u2012\u2013\u2014\u2212 ]days|days[-\u2012\u2013\u2014\u2212 ]a[-\u2012\u2013\u2014\u2212 ]week)\b/i,
     backedBy: (facts) => facts.emergency247,
   },
   { pattern: /(?<![\w-])free\b|\bno[-\u2012\u2013\u2014\u2212 ](charge|cost)\b|\bcomplimentary\b/i, backedBy: (facts) => facts.freeEstimates },
