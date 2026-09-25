@@ -1,6 +1,6 @@
 import type { Brief, GenerationInputSnapshot, Issue } from "@asksite/core";
 import { COPY_LIMITS, factSections } from "@asksite/site-schema";
-import { toModelFacts, wellFormed } from "./model-facts.ts";
+import { MODEL_TEXT_CAPS, modelText, toModelFacts, wellFormed } from "./model-facts.ts";
 
 export interface Prompt {
   system: string;
@@ -84,16 +84,17 @@ const REPAIR_INTRO =
 
 /**
  * The prompt for one attempt. Owner text travels only inside one line of JSON (JSON escaping keeps
- * it from ending the data block), after our own instructions. `repair` holds the previous
+ * it from ending the data block), after our own instructions, each string cut to its cap in UTF-16
+ * units (MODEL_TEXT_CAPS; the snapshot itself never changes). `repair` holds the previous
  * attempt's validation issues.
  */
 export function buildPrompt(snapshot: GenerationInputSnapshot, repair: readonly Issue[] = []): Prompt {
   const { facts, brief } = snapshot;
   const business = toModelFacts(facts);
   const ownerBrief = {
-    differentiator: brief.differentiator === undefined ? undefined : wellFormed(brief.differentiator),
-    notes: brief.notes === undefined ? undefined : wellFormed(brief.notes),
-    comments: Object.fromEntries(Object.entries(brief.comments).map(([key, text]) => [key, wellFormed(text)])),
+    differentiator: brief.differentiator === undefined ? undefined : modelText(brief.differentiator, MODEL_TEXT_CAPS.differentiator),
+    notes: brief.notes === undefined ? undefined : modelText(brief.notes, MODEL_TEXT_CAPS.notes),
+    comments: Object.fromEntries(Object.entries(brief.comments).map(([key, text]) => [key, modelText(text, MODEL_TEXT_CAPS.comment)])),
   };
   const lines = [
     "Write the website wording for this business.",

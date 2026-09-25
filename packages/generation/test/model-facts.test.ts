@@ -1,3 +1,4 @@
+import { Facts } from "@asksite/site-schema";
 import { describe, expect, it } from "vitest";
 import { toModelFacts } from "../src/model-facts.ts";
 import { FULL_FACTS, MINIMAL_FACTS } from "./support/samples.ts";
@@ -45,5 +46,27 @@ describe("toModelFacts", () => {
     };
     const sent = toModelFacts(facts);
     expect([sent.businessName, sent.city, sent.services[0], sent.serviceAreaPlaces[0]]).toEqual(["Mop � Co", "El � Paso", "Tile � care", "Aus�tin"]);
+  });
+
+  it("cuts businessName, city and each place to their cap in UTF-16 units for the model only; service names stay whole", () => {
+    const smile = "\u{1F600}";
+    // Each at its schema cap in code points (60, 40, 40, 40), so twice as many UTF-16 units. The second place is
+    // 40 code points but 79 units, so the cut at 40 units splits its last surrogate pair, which becomes U+FFFD.
+    const facts = Facts.parse({
+      ...MINIMAL_FACTS,
+      businessName: smile.repeat(60),
+      location: { ...MINIMAL_FACTS.location, city: smile.repeat(40) },
+      serviceArea: { places: [smile.repeat(40), `a${smile.repeat(39)}`] },
+      services: [{ name: smile.repeat(40) }],
+    });
+    const before = structuredClone(facts);
+    const sent = toModelFacts(facts);
+    expect([sent.businessName, sent.city, sent.serviceAreaPlaces, sent.services]).toEqual([
+      smile.repeat(30),
+      smile.repeat(20),
+      [smile.repeat(20), `a${smile.repeat(19)}\uFFFD`],
+      [smile.repeat(40)],
+    ]);
+    expect(facts).toEqual(before);
   });
 });

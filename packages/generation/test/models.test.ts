@@ -3,6 +3,7 @@ import { Facts, TRADES } from "@asksite/site-schema";
 import { describe, expect, it } from "vitest";
 import { CAPS_FILLS, CAPS_REPAIR, CAPS_SNAPSHOT, capsRepair, capsSnapshot } from "../eval/caps.ts";
 import { MAX_ATTEMPTS, MAX_OUTPUT_TOKENS } from "../src/generate.ts";
+import { MODEL_TEXT_CAPS } from "../src/model-facts.ts";
 import { costMicrousd, MAX_INPUT_TOKENS, MODELS, modelSettings, PROMPT_OVERHEAD_TOKENS, worstCaseJobMicrousd } from "../src/models.ts";
 import { buildPrompt } from "../src/prompt.ts";
 import { AI_DRAFT_JSON_SCHEMA, toWireSchema } from "../src/wire-schema.ts";
@@ -41,14 +42,41 @@ function withChoices(trade: Facts["trade"], tone: Brief["tone"], goal: Brief["go
   };
 }
 
+/** Copies the capped strings of one field group from `from` into `into`; every other field keeps `into`'s. */
+type Take = (into: GenerationInputSnapshot, from: GenerationInputSnapshot) => GenerationInputSnapshot;
+const FIELD_GROUPS: ReadonlyArray<readonly [string, Take]> = [
+  ["businessName", (into, from) => ({ ...into, facts: { ...into.facts, businessName: from.facts.businessName } })],
+  ["city", (into, from) => ({ ...into, facts: { ...into.facts, location: { ...into.facts.location, city: from.facts.location.city } } })],
+  ["service-area places", (into, from) => ({ ...into, facts: { ...into.facts, serviceArea: { ...into.facts.serviceArea, places: from.facts.serviceArea.places } } })],
+  ["service names", (into, from) => ({ ...into, facts: { ...into.facts, services: from.facts.services } })],
+  ["differentiator", (into, from) => ({ ...into, brief: { ...into.brief, differentiator: from.brief.differentiator ?? "" } })],
+  ["notes", (into, from) => ({ ...into, brief: { ...into.brief, notes: from.brief.notes ?? "" } })],
+  ["comments", (into, from) => ({ ...into, brief: { ...into.brief, comments: from.brief.comments } })],
+];
+
 describe("MAX_INPUT_TOKENS", () => {
   it.each(CAPS_FILLS)("covers the largest prompt the builder can make with every capped input filled with %j (a token is at least one UTF-8 byte)", (fill) => {
     expect(promptBytes(capsSnapshot(fill), capsRepair(fill)) + PROMPT_OVERHEAD_TOKENS).toBeLessThanOrEqual(MAX_INPUT_TOKENS);
   });
 
-  it("is sized by CAPS_SNAPSHOT and CAPS_REPAIR: no fill makes a larger prompt than their euro signs", () => {
+  it("covers CAPS_SNAPSHOT, the largest prompt: owner text in euro signs, service names (never cut) in U+1F600, repair lines in euro signs", () => {
+    expect(promptBytes(CAPS_SNAPSHOT, CAPS_REPAIR) + PROMPT_OVERHEAD_TOKENS).toBeLessThanOrEqual(MAX_INPUT_TOKENS);
+  });
+
+  it("is sized by CAPS_SNAPSHOT and CAPS_REPAIR: no fill makes a larger prompt, in every field, in any one field group or in the repair lines", () => {
+    // The fields are separate JSON strings, so the largest prompt takes the costliest fill of each field group on its own.
     const worst = promptBytes(CAPS_SNAPSHOT, CAPS_REPAIR);
-    for (const fill of CAPS_FILLS) expect(promptBytes(capsSnapshot(fill), capsRepair(fill)), JSON.stringify(fill)).toBeLessThanOrEqual(worst);
+    const larger: string[] = [];
+    for (const fill of CAPS_FILLS) {
+      const from = capsSnapshot(fill);
+      const sizes: Array<readonly [string, number]> = [
+        ["every field and the repair lines", promptBytes(from, capsRepair(fill))],
+        ...FIELD_GROUPS.map(([group, take]) => [group, promptBytes(take(CAPS_SNAPSHOT, from), CAPS_REPAIR)] as const),
+        ["the repair lines", promptBytes(CAPS_SNAPSHOT, capsRepair(fill))],
+      ];
+      for (const [where, size] of sizes) if (size > worst) larger.push(`${where} in ${JSON.stringify(fill)}: ${size} > ${worst}`);
+    }
+    expect(larger).toEqual([]);
   });
 
   it(
@@ -71,12 +99,14 @@ describe("MAX_INPUT_TOKENS", () => {
 
 describe("eval/caps.ts", () => {
   const { facts, brief } = CAPS_SNAPSHOT;
-  /** One UTF-16 unit longer: one more of its last character (every fill is one unit). */
-  const grow = (text: string): string => text + text.slice(-1);
+  /** Length as Facts and Brief count it: in code points (Zod 4 string length). */
+  const size = (text: string): number => [...text].length;
+  /** One code point longer: one more of its last character. */
+  const grow = (text: string): string => text + ([...text].at(-1) ?? "");
   const withFacts = (patch: Partial<Facts>): GenerationInputSnapshot => ({ facts: { ...facts, ...patch }, brief });
   const withBrief = (patch: Partial<Brief>): GenerationInputSnapshot => ({ facts, brief: { ...brief, ...patch } });
   const changeAt = <T>(items: readonly T[], index: number, change: (item: T) => T): T[] => items.map((item, i) => (i === index ? change(item) : item));
-  const shortest = (texts: readonly string[]): number => Math.min(...texts.map((text) => text.length));
+  const shortest = (texts: readonly string[]): number => Math.min(...texts.map(size));
   const { places } = facts.serviceArea;
   const { services } = facts;
   const comments = Object.entries(brief.comments);
@@ -85,14 +115,14 @@ describe("eval/caps.ts", () => {
 
   // [capped input, its size in CAPS_SNAPSHOT, snapshots with one input (or one item of it) one unit or one item over]
   const CAPPED: Array<[string, number, GenerationInputSnapshot[]]> = [
-    ["businessName", facts.businessName.length, [withFacts({ businessName: grow(facts.businessName) })]],
-    ["city", facts.location.city.length, [withFacts({ location: { ...facts.location, city: grow(facts.location.city) } })]],
+    ["businessName", size(facts.businessName), [withFacts({ businessName: grow(facts.businessName) })]],
+    ["city", size(facts.location.city), [withFacts({ location: { ...facts.location, city: grow(facts.location.city) } })]],
     ["each service-area place", shortest(places), places.map((_, i) => withFacts({ serviceArea: { ...facts.serviceArea, places: changeAt(places, i, grow) } }))],
     ["the number of places", places.length, [withFacts({ serviceArea: { ...facts.serviceArea, places: [...places, ...places.slice(0, 1)] } })]],
     ["each service name", shortest(services.map((s) => s.name)), services.map((_, i) => withFacts({ services: changeAt(services, i, (s) => ({ ...s, name: grow(s.name) })) }))],
     ["the number of services", services.length, [withFacts({ services: [...services, ...services.slice(0, 1)] })]],
-    ["differentiator", (brief.differentiator ?? "").length, [withBrief({ differentiator: grow(brief.differentiator ?? "") })]],
-    ["notes", (brief.notes ?? "").length, [withBrief({ notes: grow(brief.notes ?? "") })]],
+    ["differentiator", size(brief.differentiator ?? ""), [withBrief({ differentiator: grow(brief.differentiator ?? "") })]],
+    ["notes", size(brief.notes ?? ""), [withBrief({ notes: grow(brief.notes ?? "") })]],
     ["each comment", shortest(comments.map(([, text]) => text)), comments.map(([key, text]) => withBrief({ comments: { ...brief.comments, [key]: grow(text) } }))],
     ["the number of comments", comments.length, [withBrief({ comments: { ...brief.comments, z: "" } })]],
     ["each comment key", shortest(comments.map(([key]) => key)), comments.map((_, i) => withBrief({ comments: Object.fromEntries(changeAt(comments, i, ([key, text]) => [`${key}x`, text])) }))],
@@ -101,6 +131,17 @@ describe("eval/caps.ts", () => {
   it.each(CAPPED)("holds %s exactly at its schema's cap (%i): CAPS_SNAPSHOT passes Facts and Brief, one more fails", (_input, _cap, overCap) => {
     expect(parses(CAPS_SNAPSHOT)).toBe(true);
     expect(overCap.map((snapshot) => parses(snapshot))).toEqual(overCap.map(() => false));
+  });
+
+  it("holds MODEL_TEXT_CAPS, where the prompt cuts the model's view of owner text, at the sizes pinned above", () => {
+    expect(MODEL_TEXT_CAPS).toEqual({
+      businessName: size(facts.businessName),
+      city: size(facts.location.city),
+      place: shortest(places),
+      differentiator: size(brief.differentiator ?? ""),
+      notes: size(brief.notes ?? ""),
+      comment: shortest(comments.map(([, text]) => text)),
+    });
   });
 
   /** The decoded path and message of each repair line, `- "<path>": "<message>"` (two JSON strings). */

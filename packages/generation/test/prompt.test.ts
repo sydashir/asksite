@@ -197,6 +197,20 @@ describe("buildPrompt", () => {
     expect(/\p{Cs}/u.test(user)).toBe(false);
   });
 
+  it("cuts each brief text to its cap in UTF-16 units for the model only (the schemas count code points)", () => {
+    const smile = "\u{1F600}";
+    // Each at its cap in code points, so twice as many UTF-16 units; the notes are 2,000 code points but 2,001 units,
+    // so the cut at 2,000 units splits the last surrogate pair, which becomes U+FFFD.
+    const brief = Brief.parse({ tone: "friendly", goal: "call", differentiator: smile.repeat(140), notes: `${"n".repeat(1999)}${smile}`, comments: { q: smile.repeat(500) } });
+    const before = structuredClone(brief);
+    const { user } = buildPrompt({ facts: MINIMAL_FACTS, brief });
+    expect(dataOf(user)).toEqual({
+      business: expect.anything(),
+      ownerBrief: { differentiator: smile.repeat(70), notes: `${"n".repeat(1999)}\uFFFD`, comments: { q: smile.repeat(250) } },
+    });
+    expect(brief).toEqual(before);
+  });
+
   it("no owner character or kept repair-line unit costs more than 3 UTF-8 bytes in the prompt (plan Decision 4's cost proof)", () => {
     const bytes = (text: string): number => new TextEncoder().encode(text).length;
     // "a" + copies + "a" fills the field to its cap (notes 2000, businessName 60); the letters keep .trim() from removing separators.
@@ -209,9 +223,10 @@ describe("buildPrompt", () => {
       buildPrompt(MINIMAL_SNAPSHOT, [{ path: [char.repeat(100)], code: "custom", message: char.repeat(400) }]).user.split("\n").at(-1)!;
     /** Prompt bytes per copy of `char`, measured against "x" (1 byte). */
     const perCopy = (fill: (char: string) => string, copies: number, char: string): number => 1 + (bytes(fill(char)) - bytes(fill("x"))) / copies;
-    const code = (char: string): string => `U+${char.charCodeAt(0).toString(16).toUpperCase().padStart(4, "0")}`;
-    // The classes both schemas accept that JSON or the prompt treats specially. "\n" is a control character, which Facts text rejects.
-    const special = ["\u20AC", "\u2028", "\u2029", "\uD800", '"', "\\"];
+    const code = (char: string): string => `U+${char.codePointAt(0)!.toString(16).toUpperCase().padStart(4, "0")}`;
+    // The classes both schemas accept that JSON or the prompt treats specially, and a character outside the BMP, which the
+    // schemas count as one (code points) but is 2 UTF-16 units and 4 UTF-8 bytes. "\n" is a control character, which Facts text rejects.
+    const special = ["\u20AC", "\u2028", "\u2029", "\uD800", '"', "\\", "\u{1F600}"];
     // Model-chosen repair text can also hold control characters, which JSON would escape as 6-byte \uXXXX.
     const control = ["\n", "\u0001", "\u0085"];
     const costs = [
