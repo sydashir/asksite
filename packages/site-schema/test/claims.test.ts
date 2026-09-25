@@ -1,5 +1,17 @@
 import { describe, expect, it } from "vitest";
-import { Facts, HIDDEN_IN_COPY, proseIn, SiteDocument, unbackedClaims, type SiteDocumentInput } from "../src/index.ts";
+import { asReadOnPage } from "../src/claims.ts";
+import {
+  Facts,
+  HIDDEN_IN_COPY,
+  NEEDS_A_FACT,
+  NEVER_IN_COPY,
+  prose,
+  proseIn,
+  SiteDocument,
+  unbackedClaims,
+  type SiteDocumentInput,
+} from "../src/index.ts";
+import { foldLookalikes } from "../src/lookalikes.ts";
 
 const base: SiteDocumentInput["facts"] = {
   businessName: "Mop",
@@ -349,7 +361,6 @@ describe("unbackedClaims", () => {
     ["ƁONDED CREW", "BONDED"], // U+0181 capital B with hook
     ["Bøndéd crew", "Bonded"],
     ["Certifieđ technicians", "Certified"],
-    ["Satisfaction guaranteeđ", "guaranteed"],
     ["Top-ɍated crew", "Top-rated"], // U+024D r with stroke
     ["Ƒive-star service", "Five-star"],
   ])("never allows %j (%j once read as A-Z), whatever the facts", (text, claim) => {
@@ -368,6 +379,72 @@ describe("unbackedClaims", () => {
     "Þórr runs the crew",
   ])("finds no claim in real place names and people's names: %j", (text) => {
     expect(unbackedClaims(text, NONE)).toEqual([]);
+  });
+
+  // A9b round 1: the fold can join two words the page shows apart. It reads U+01C0 ǀ (Unicode 1.0 name "LATIN
+  // LETTER PIPE", like "|") and U+01C1 ǁ as letters, and it removes a combining mark used between two words.
+  // So claims are also matched as typed, as main (acae4ab) matched them: the fold only ever adds a claim.
+  it.each([
+    ["ǀBondedǀ", ["Bonded"], ["Bonded"]],
+    ["ǀCertifiedǀ pros", ["Certified"], ["Certified"]],
+    ["ǀTop-ratedǀ", ["Top-rated"], ["Top-rated"]],
+    ["Trusted ǀsinceǀ the start", ["since"], ["since"]],
+    ["Open ǀweekendsǀ", ["weekends"], ["weekends"]],
+    ["Ratedǁbonded", ["bonded", "Rated"], ["bonded", "Rated"]], // U+01C1
+    ["Get a ǀfreeǀ quote", ["free"], []],
+    ["Our ǀlicensed team", ["licensed"], []],
+    ["Fully ǀinsured", ["insured"], []],
+    ["Call ǀanytime", ["anytime"], []],
+    ["ǁfreeǁ quote", ["free"], []],
+    ["Freeǀrated", ["rated", "Free"], ["rated"]],
+    ["LicensedǀInsuredǀBonded", ["Bonded", "Licensed", "Insured"], ["Bonded"]], // the fold alone read "LicensedlInsuredlBonded"
+    ["|Bonded|", ["Bonded"], ["Bonded"]], // ASCII | for comparison: the same at every commit
+    ["Free|rated", ["rated", "Free"], ["rated"]],
+    ["Top\u0336rated", ["rated"], ["rated"]], // U+0336 combining long stroke overlay (Mn)
+    ["Bonded\u20DDcrew", ["Bonded"], ["Bonded"]], // U+20DD combining enclosing circle (Me)
+    ["Free\u20E3quote", ["Free"], []], // U+20E3 combining enclosing keycap (Me)
+    ["Certified\u{1D165}pros", ["Certified"], ["Certified"]], // U+1D165 musical symbol combining stem (Mc)
+    ["Certifiedé crew", ["Certified"], ["Certified"]], // é is e + U+0301 under NFD
+    // A word is shown as typed when the typed reading finds it, so the owner can find it in the copy: here as
+    // main showed it, although the folded reading is "guaranteed".
+    ["Satisfaction guaranteeđ", ["guarantee"], ["guarantee"]],
+  ])("also reads %j as typed, finding %j without facts and %j with every fact", (text, withoutFacts, withAllFacts) => {
+    expect(unbackedClaims(text, NONE)).toEqual(withoutFacts);
+    expect(unbackedClaims(text, ALL)).toEqual(withAllFacts);
+  });
+
+  it("finds every claim main's reading finds, word for word, whatever character the fold changes is glued to it", () => {
+    // Every character copy accepts that the fold changes: a combining mark it removes, a letter NFD decomposes,
+    // or a look-alike it reads as A-Z letters. The fold works one character at a time, so every other character
+    // reads the same both ways. The first two filters only save time: copy refuses unassigned and private-use
+    // code points and every script but Latin, Common and Inherited.
+    const folded = allCodePoints().filter(
+      (c) =>
+        !/[\p{Cn}\p{Co}]/u.test(c) &&
+        /^[\p{Script=Latin}\p{Script=Common}\p{Script=Inherited}]+$/u.test(c.normalize("NFKC")) &&
+        foldLookalikes(c) !== c &&
+        prose(80).safeParse(`a${c}a`).success,
+    );
+    expect(folded).toEqual(expect.arrayContaining(["ǀ", "ǁ", "\u0336", "\u20DD", "\u20E3", "\u{1D165}", "é", "ı", "ƒ", "Ł", "ʻ"]));
+
+    const patterns = [...NEVER_IN_COPY, ...NEEDS_A_FACT.map(({ pattern }) => pattern)];
+    /** The claims main (acae4ab) found: every pattern run on the text as the page shows it, without the fold. */
+    const mainClaims = (text: string): string[] => {
+      const page = asReadOnPage(text);
+      return patterns.flatMap((pattern) => pattern.exec(page)?.[0] ?? []);
+    };
+    // One claim of every pattern, glued on either side, before a word and after a word.
+    const claims = ["bonded", "certified", "rated", "top-rated", "reviews", '"great"', "guaranteed", "cheapest", "thousands", "since", "same-day", "weekends", "mopboise.com", "licensed", "insured", "anytime", "seven days a week", "free", "no charge", "complimentary"];
+    const missed: string[] = [];
+    for (const c of folded) {
+      for (const claim of claims) {
+        for (const text of [`${c}${claim}${c}`, `${claim}${c}crew`, `Our${c}${claim}`]) {
+          const found = unbackedClaims(text, NONE);
+          for (const word of mainClaims(text)) if (!found.includes(word)) missed.push(`${JSON.stringify(text)} misses ${JSON.stringify(word)}`);
+        }
+      }
+    }
+    expect(missed).toEqual([]);
   });
 
   it.each([
@@ -470,6 +547,10 @@ describe("SiteDocument rejects AI copy that states facts the owner did not give"
     "FULLY \u0196NSURED", // A9b: U+0196 capital iota reads "I"
     "\u026Ansured plumbers", // U+026A small capital I (refused by Copy)
     "\u1D04ertified crew", // U+1D04 small capital C (refused by Copy)
+    "\u01C0Bonded\u01C0", // A9b round 1: U+01C0 reads "l" once folded but shows like "|", so "Bonded" is a claim as typed
+    "Get a \u01C0free\u01C0 quote",
+    "Top\u0336rated crew", // A9b round 1: U+0336 between the words, which the fold removes
+    "Certified\u{1D165}pros",
   ])("%j", (claim) => {
     const faq = [{ question: "Why us?", answer: claim }];
     const result = SiteDocument.safeParse({ ...MINIMAL_DOC, copy: { ...MINIMAL_DOC.copy, faq } });
@@ -501,6 +582,16 @@ describe("SiteDocument rejects AI copy that states facts the owner did not give"
     ]);
     const backed = SiteDocument.parse({ ...doc, facts: { ...base, freeEstimates: true } });
     expect(backed.copy.faq[0]?.answer).toBe("There is no  charge for a visit");
+  });
+
+  it('refuses the bond claim in "LicensedǀInsuredǀBonded" even when every fact is set (A9b round 1)', () => {
+    const facts = { ...base, licences: [{ label: "Idaho contractor", number: "RCE-1" }], insured: true, emergency247: true, freeEstimates: true };
+    const faq = [{ question: "Why us?", answer: "LicensedǀInsuredǀBonded" }];
+    const layout = [...MINIMAL_DOC.layout, { id: "trust", variant: "band" } as const];
+    const result = SiteDocument.safeParse({ ...MINIMAL_DOC, facts, layout, copy: { ...MINIMAL_DOC.copy, faq } });
+    expect(result.success ? [] : result.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`)).toEqual([
+      `copy.faq.0.answer: Copy states something the owner's facts do not back: "Bonded"`,
+    ]);
   });
 });
 

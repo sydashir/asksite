@@ -18,8 +18,10 @@ import { foldLookalikes } from "./lookalikes.ts";
 // Claims are matched with every combining mark removed (A9) and every Latin look-alike read as the A-Z
 // letters it looks like (A9b, foldLookalikes in lookalikes.ts), so an accent ("lícensed"), a mark between
 // two words ("Award" + " " + U+0336 + "winning") or a look-alike letter ("lıcensed", "ƒree", "ŁICENSED")
-// hides no claim. Phonetic letters and small capitals ("ɪnsured", "ᴄertified") never get here: Copy
-// refuses them.
+// hides no claim. Claims are also matched as typed, as before A9 (A9b round 1): the fold can join two
+// words the page shows apart, because it reads U+01C0 "ǀ", which looks like "|", as "l" ("ǀBondedǀ") and
+// removes a mark between two words ("Top" + U+0336 + "rated"). So the fold only ever adds a claim.
+// Phonetic letters and small capitals ("ɪnsured", "ᴄertified") never get here: Copy refuses them.
 
 /** Claims no owner fact backs: rejected in copy whatever the facts say. */
 export const NEVER_IN_COPY: readonly RegExp[] = [
@@ -86,24 +88,28 @@ export const HIDDEN_IN_COPY = /(?![\uFE0E\uFE0F])\p{Default_Ignorable_Code_Point
 const OTHER_DASH = /(?![-\u2010-\u2014])[\p{Pd}\u2043\u23AF\u2500\u2501\u30FC\uFF70]/gu;
 
 // HTML shows a run of whitespace as one space and U+2010/U+2011 look like "-" (en/em dashes do not).
-const asReadOnPage = (text: string): string =>
+export const asReadOnPage = (text: string): string =>
   text.replace(/\s+/g, " ").replace(/[\u2010\u2011]/g, "-").replace(OTHER_DASH, "\u2014");
 
 /**
  * The words in `text` that state a claim the owner's facts do not back (empty when the text is
- * fine), matched as a reader sees the page, with every combining mark removed and every look-alike
- * read as A-Z letters (A9, A9b), so a found word is shown that way; the copy itself is not changed.
+ * fine), matched as a reader sees the page, read two ways: as typed, and folded, with every combining
+ * mark removed and every look-alike read as A-Z letters (A9, A9b). A claim either reading finds counts,
+ * so every word the typed reading alone finds is found. A found word is shown as typed when the typed
+ * reading finds it, so the owner can find it in the copy, otherwise folded; the copy itself is not changed.
  */
 export function unbackedClaims(text: string, facts: Facts): string[] {
-  const page = asReadOnPage(foldLookalikes(text));
+  const typed = asReadOnPage(text);
+  const folded = asReadOnPage(foldLookalikes(text));
+  const claim = (pattern: RegExp): string | undefined => (pattern.exec(typed) ?? pattern.exec(folded))?.[0];
   const found: string[] = [];
   for (const pattern of NEVER_IN_COPY) {
-    const match = pattern.exec(page);
-    if (match) found.push(match[0]);
+    const word = claim(pattern);
+    if (word !== undefined) found.push(word);
   }
   for (const { pattern, backedBy } of NEEDS_A_FACT) {
-    const match = pattern.exec(page);
-    if (match && !backedBy(facts)) found.push(match[0]);
+    const word = claim(pattern);
+    if (word !== undefined && !backedBy(facts)) found.push(word);
   }
   return found;
 }
