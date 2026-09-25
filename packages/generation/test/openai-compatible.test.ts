@@ -169,6 +169,50 @@ describe("OpenAICompatibleProvider: JSON Mode not met (task 7 additions A)", () 
   });
 });
 
+// Moderator decision (2026-09-26): the phrase counts only in the body of a failed (non-2xx) answer, or in the
+// provider's error fields (a string error, error.message, errors[].message) whatever the status; never inside
+// the model's own text of a 2xx answer, which may quote it.
+describe("OpenAICompatibleProvider: where JSON Mode not met counts (moderator decision)", () => {
+  const quoting = { copy: { about: `The page said ${JSON_MODE_UNMET} once.` } };
+  const answered = { json: undefined, model: "m", usage: { inputTokens: 0, outputTokens: 0 }, stop: "end", usageMissing: true };
+
+  it.each([
+    ["its content is JSON quoting the phrase", completion(JSON.stringify(quoting)), quoting],
+    ["its reasoning quotes the phrase", { ...completion('{"a":1}'), choices: [{ index: 0, message: { role: "assistant", content: '{"a":1}', reasoning: `Was ${JSON_MODE_UNMET}? No.` }, finish_reason: "stop" }] }, { a: 1 }],
+    ["a string error is a list holding the phrase", { ...completion('{"a":1}'), error: [JSON_MODE_UNMET] }, { a: 1 }],
+    ["error.message is a list holding the phrase", { ...completion('{"a":1}'), error: { message: [JSON_MODE_UNMET] } }, { a: 1 }],
+    ["an errors[].message is a list holding the phrase", { ...completion('{"a":1}'), errors: [{ message: [JSON_MODE_UNMET] }] }, { a: 1 }],
+  ])("reads a 2xx answer normally when %s", async (_name, body, json) => {
+    const res = await compatible(fakeFetch([{ status: 200, body }]).fetch).generate(request());
+    expect(res).toStrictEqual({ json, model: "@cf/openai/gpt-oss-120b", usage: { inputTokens: 2900, outputTokens: 1300 }, stop: "end" });
+  });
+
+  it("keeps a cut-off 2xx answer that quotes the phrase a max_tokens stop", async () => {
+    const res = await compatible(fakeFetch([{ status: 200, body: completion(`{"about":"${JSON_MODE_UNMET}`, "length") }]).fetch).generate(request());
+    expect(res).toStrictEqual({ json: undefined, model: "@cf/openai/gpt-oss-120b", usage: { inputTokens: 2900, outputTokens: 1300 }, stop: "max_tokens" });
+  });
+
+  it.each([
+    ["a plain error string", { error: `AiError: ${JSON_MODE_UNMET}` }],
+    ["error.message", { error: { message: `AiError: ${JSON_MODE_UNMET}`, type: "invalid_request_error" } }],
+    ["a later entry of Cloudflare's errors list", { success: false, errors: [{ code: 1000, message: "Invalid input" }, { code: 1000, message: `AiError: ${JSON_MODE_UNMET}` }] }],
+  ])("answers a 2xx whose %s holds the phrase with no JSON", async (_name, body) => {
+    expect(await compatible(fakeFetch([{ status: 200, body }]).fetch).generate(request())).toStrictEqual(answered);
+  });
+
+  it("answers a 2xx with the phrase in error.message and a usable choice with no JSON, keeping its model and usage", async () => {
+    const res = await compatible(fakeFetch([{ status: 200, body: { ...completion('{"a":1}'), error: { message: JSON_MODE_UNMET } } }]).fetch).generate(request());
+    expect(res).toStrictEqual({ json: undefined, model: "@cf/openai/gpt-oss-120b", usage: { inputTokens: 2900, outputTokens: 1300 }, stop: "end" });
+  });
+
+  it.each([
+    ["outside the error fields", { detail: `AiError: ${JSON_MODE_UNMET}` }],
+    ["in a choice's content", { choices: [{ message: { content: JSON_MODE_UNMET }, finish_reason: "stop" }] }],
+  ])("answers a 400 whose body holds the phrase %s with no JSON", async (_name, body) => {
+    expect(await compatible(fakeFetch([{ status: 400, body }]).fetch).generate(request())).toStrictEqual(answered);
+  });
+});
+
 describe("OpenAICompatibleProvider: error kinds and messages (task 7 additions B and D)", () => {
   const KEY = "gsk-test-key-7"; // lowercase on purpose: it passes the token pattern, so only the key check keeps it out
   const failWith = (status: number, body: unknown) => compatible(fakeFetch([{ status, body }]).fetch, KEY).generate(request());

@@ -15,9 +15,11 @@ const STOP: Record<string, ModelResponse["stop"]> = { stop: "end", length: "max_
 
 /**
  * Cloudflare's JSON Mode page: when the model cannot meet the schema, "an error `JSON Mode couldn't be
- * met` is returned and must be handled". Its status and body shape are not documented, so an answer
- * whose body text holds it, whatever its status, is an answer with no JSON: generateDraft sends repair
- * feedback instead of stopping on a bad request.
+ * met` is returned and must be handled". Its status and body shape are not documented, so it counts in
+ * the body text of a failed (non-2xx) answer, and in the fields hosts use for errors (a string `error`,
+ * `error.message`, `errors[].message`) whatever the status; never in a 2xx answer's model text, which
+ * may quote it. Such an answer has no JSON: generateDraft sends repair feedback instead of stopping on a
+ * bad request.
  */
 const JSON_MODE_UNMET = "JSON Mode couldn't be met";
 
@@ -34,6 +36,17 @@ const SAFE_ERROR_TOKEN = /^[a-z0-9_.-]{1,64}$/;
 /** An own property of a parsed JSON value, or undefined: a body's shape is never trusted. */
 const own = (value: unknown, key: string): unknown =>
   typeof value === "object" && value !== null && Object.hasOwn(value, key) ? (value as Record<string, unknown>)[key] : undefined;
+
+/** The texts in a parsed body's error fields: a string `error`, `error.message` and each `errors[].message`. */
+function errorTexts(data: unknown): unknown[] {
+  const error = own(data, "error");
+  const errors = own(data, "errors");
+  return [error, own(error, "message"), ...(Array.isArray(errors) ? errors.map((entry) => own(entry, "message")) : [])];
+}
+
+/** Whether an answer says JSON Mode could not be met (see JSON_MODE_UNMET for where it counts). */
+const jsonModeUnmet = (ok: boolean, text: string, data: unknown): boolean =>
+  (!ok && text.includes(JSON_MODE_UNMET)) || errorTexts(data).some((field) => typeof field === "string" && field.includes(JSON_MODE_UNMET));
 
 /**
  * 402 and Groq's spend cap need a human, like a bad key; 504 is the host's own timeout. `error` is the
@@ -131,7 +144,7 @@ export class OpenAICompatibleProvider implements ModelProvider {
     }
     const text = await bodyText(response);
     const data = parseBody(text);
-    if (text.includes(JSON_MODE_UNMET)) return this.#answer(data, undefined, "end");
+    if (jsonModeUnmet(response.ok, text, data)) return this.#answer(data, undefined, "end");
     if (!response.ok) throw this.#failure(response.status, own(data, "error"));
     if (data === undefined) throw new ProviderError(req.signal.aborted ? "timeout" : "unavailable", "OpenAI-compatible response was not JSON");
     const choices = own(data, "choices");
