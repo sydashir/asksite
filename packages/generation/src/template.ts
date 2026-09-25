@@ -10,57 +10,76 @@ interface TradeWords {
   headline: string;
   subheadline: string;
   about: string;
+  // Fit any service of the trade; they repeat in order when an owner lists more than three services (known limit).
   descriptions: readonly [string, string, string];
   theme: Theme;
 }
 
-const DESCRIPTIONS: TradeWords["descriptions"] = [
-  "Tell us what is going on and we will talk you through the options.",
-  "Careful work, explained in plain words, with the mess cleaned up afterwards.",
-  "Ask us about this service and we will explain what is involved.",
-];
-
 const WORDS: Record<Trade, TradeWords> = {
   plumbing: {
     headline: "Plumbing repairs and installs for your home",
-    subheadline: "From leaky faucets to clogged drains, tell us what is going on and we will help you sort it out.",
-    about: "We are a local plumbing business serving homes in the area. Tell us about the job and we will talk you through your options.",
-    descriptions: DESCRIPTIONS,
+    subheadline: "From leaky faucets to clogged drains, tell us what is going on and we will help you figure out the next step.",
+    about: "We are a local plumbing business serving homes in the area. Get in touch about the job, big or small, and we will walk you through your options.",
+    descriptions: [
+      "Describe the problem or the project, and we will explain what the work involves.",
+      "Not sure this is the service you need? Just ask, and we will go over it with you.",
+      "Plumbing questions are welcome, whether you are ready to start or still deciding.",
+    ],
     theme: { palette: "navy-orange", font: "clean" },
   },
   hvac: {
     headline: "Heating and cooling help for your home",
-    subheadline: "Whether your system has stopped working or needs a check, tell us what is happening and we will help.",
-    about: "We are a local heating and cooling business serving homes in the area. Tell us about your system and we will talk you through your options.",
-    descriptions: DESCRIPTIONS,
+    subheadline: "Whether your system has stopped working or needs a tune-up, tell us what is happening and we will help.",
+    about: "We are a local heating and cooling business serving homes in the area. Get in touch about your system, and we will walk you through your options.",
+    descriptions: [
+      "Let us know what heating or cooling equipment you have and what you would like done.",
+      "Wondering if this is what you need? Ask us and we will talk it over.",
+      "Before you decide, we can explain how this works and what to expect.",
+    ],
     theme: { palette: "blue-yellow", font: "clean" },
   },
   electrical: {
     headline: "Electrical work for your home",
     subheadline: "From faulty outlets to new lighting, tell us what you need and we will help you plan it.",
-    about: "We are a local electrical business serving homes in the area. Tell us about the job and we will talk you through your options.",
-    descriptions: DESCRIPTIONS,
+    about: "We are a local electrical business serving homes in the area. Get in touch about your project or repair, and we will walk you through your options.",
+    descriptions: [
+      "Describe what you would like done and where, and we will go over it with you.",
+      "Questions before you get started? Give us a call or drop us a line.",
+      "Find out what is involved and what to expect before you decide.",
+    ],
     theme: { palette: "charcoal-red", font: "sturdy" },
   },
   roofing: {
     headline: "Roof repairs and replacements",
-    subheadline: "Leaks, damaged shingles or a whole new roof: tell us what you are seeing and we will get back to you.",
-    about: "We are a local roofing business serving homes in the area. Tell us about your roof and we will talk you through your options.",
-    descriptions: DESCRIPTIONS,
+    subheadline: "Leaks, damaged shingles or a whole new roof: tell us what you are seeing and we will help you plan what comes next.",
+    about: "We are a local roofing business serving homes in the area. Get in touch about your roof, and we will walk you through your options.",
+    descriptions: [
+      "Share a little about your home and the work you have in mind, and we will explain the process.",
+      "Wondering what the job calls for? Ask us and we will talk it over with you.",
+      "Roofing questions are welcome, from small concerns to bigger plans.",
+    ],
     theme: { palette: "charcoal-red", font: "sturdy" },
   },
   cleaning: {
     headline: "Cleaning services for your home",
-    subheadline: "Tell us what you need cleaned and how often, and we will get back to you with the details.",
-    about: "We are a local cleaning business serving homes in the area. Tell us what you need and we will talk you through your options.",
-    descriptions: DESCRIPTIONS,
+    subheadline: "Let us know what needs cleaning and how often, and we will work out a plan with you.",
+    about: "We are a local cleaning business serving homes in the area. Get in touch about what you need, and we will walk you through your options.",
+    descriptions: [
+      "Describe the space and anything that needs extra attention, so we know what to expect.",
+      "Questions about what is included? Ask us and we will explain before you book.",
+      "Have special requests or products you prefer? Mention them when you contact us.",
+    ],
     theme: { palette: "blue-yellow", font: "friendly" },
   },
   landscaping: {
     headline: "Lawn, garden and yard care",
     subheadline: "From regular mowing to new planting beds, tell us about your yard and we will help you plan the work.",
-    about: "We are a local landscaping business serving homes in the area. Tell us about your yard and we will talk you through your options.",
-    descriptions: DESCRIPTIONS,
+    about: "We are a local landscaping business serving homes in the area. Whether it is ongoing care or something new, get in touch and we will walk you through your options.",
+    descriptions: [
+      "Let us know how you use your outdoor space and what matters most to you.",
+      "Not sure where to start? Ask us and we will share some ideas.",
+      "Give us a call or send a message with any questions you have.",
+    ],
     theme: { palette: "green-amber", font: "friendly" },
   },
 };

@@ -41,6 +41,20 @@ function* matrix(): Generator<[string, Facts, Brief]> {
         }
 }
 
+/** The fallback for `trade` with all twelve ODD_NAMES, so every service description shows. */
+const draftFor = (trade: Facts["trade"], goal: Brief["goal"] = "quote"): AiDraft =>
+  templateDraft(Facts.parse({ ...MINIMAL_FACTS, trade, services: ODD_NAMES.map((name) => ({ name })) }), Brief.parse({ tone: "friendly", goal }));
+
+/** A text's sentences (split on ". ", "! ", "? " and the end), lowercased, without their closing mark. */
+const sentencesOf = (text: string): string[] =>
+  text
+    .toLowerCase()
+    .split(/[.!?](?: |$)/)
+    .filter((sentence) => sentence !== "");
+
+/** British spellings and idioms that read oddly on a US business's page. */
+const NOT_US_ENGLISH = ["sort it out", "afterwards", "talk you through", "whilst", "colour", "neighbour"];
+
 describe("templateDraft", () => {
   it.each(FIXTURES)("makes a valid document with the facts of fixture %s", (name) => {
     const facts = Facts.parse(loadFixture(name).facts);
@@ -93,5 +107,42 @@ describe("templateDraft", () => {
     const draft = templateDraft(MINIMAL_FACTS, brief);
     expect(templateDraft(MINIMAL_FACTS, brief)).toEqual(draft);
     expect(AiDraft.parse(draft)).toEqual(draft);
+  });
+
+  it("gives each trade three service descriptions of its own", () => {
+    const own = new Map(TRADES.map((trade) => [trade, new Set(draftFor(trade).copy.serviceDescriptions.map((d) => d.description))]));
+    for (const [trade, descriptions] of own) {
+      expect({ trade, distinct: descriptions.size }).toEqual({ trade, distinct: 3 });
+      const shared = TRADES.filter((other) => other !== trade).flatMap((other) => [...descriptions].filter((d) => own.get(other)!.has(d)));
+      expect({ trade, shared }).toEqual({ trade, shared: [] });
+    }
+  });
+
+  it("never repeats the headline, subheadline or about text in a service description", () => {
+    const repeats: string[] = [];
+    for (const trade of TRADES) {
+      const { copy } = draftFor(trade);
+      const page = [copy.heroHeadline, copy.heroSubheadline, copy.about ?? ""].flatMap(sentencesOf);
+      for (const description of new Set(copy.serviceDescriptions.map((d) => d.description))) {
+        const text = description.toLowerCase();
+        const bare = text.replace(/[.!?]$/, "");
+        // Contains a page sentence (or equals one), or is contained in one.
+        for (const sentence of page) if (text.includes(sentence) || sentence.includes(bare)) repeats.push(`${trade}: "${description}" repeats "${sentence}"`);
+      }
+    }
+    expect(repeats).toEqual([]);
+  });
+
+  it("uses plain US English", () => {
+    const found: string[] = [];
+    for (const trade of TRADES)
+      for (const goal of GOALS) {
+        const prose = proseIn(draftFor(trade, goal).copy)
+          .map(([, text]) => text)
+          .join(" ")
+          .toLowerCase();
+        for (const phrase of NOT_US_ENGLISH) if (prose.includes(phrase)) found.push(`${trade}/${goal}: ${phrase}`);
+      }
+    expect(found).toEqual([]);
   });
 });
