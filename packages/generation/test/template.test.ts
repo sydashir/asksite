@@ -52,6 +52,23 @@ const sentencesOf = (text: string): string[] =>
     .split(/[.!?](?: |$)/)
     .filter((sentence) => sentence !== "");
 
+/**
+ * A text's words: lowercased, split on whitespace, every punctuation mark turned into a space except an
+ * apostrophe inside a word, so "we'll" is one word and "tune-up" is two.
+ */
+const wordsOf = (text: string): string[] =>
+  text
+    .toLowerCase()
+    .replace(/(?<!\p{L})'|'(?!\p{L})|[^\p{L}\p{N}'\s]/gu, " ")
+    .split(/\s+/)
+    .filter((word) => word !== "");
+
+/** Every run of `n` consecutive words of a text, each joined with single spaces. */
+const runsOf = (text: string, n: number): string[] => {
+  const words = wordsOf(text);
+  return words.slice(0, Math.max(words.length - n + 1, 0)).map((_, i) => words.slice(i, i + n).join(" "));
+};
+
 /** British spellings and idioms that read oddly on a US business's page. */
 const NOT_US_ENGLISH = ["sort it out", "afterwards", "talk you through", "whilst", "colour", "neighbour"];
 
@@ -131,6 +148,17 @@ describe("templateDraft", () => {
       }
     }
     expect(repeats).toEqual([]);
+  });
+
+  it("never reuses a 4-word phrase of the subheadline or about text in a service description", () => {
+    const shared: string[] = [];
+    for (const trade of TRADES) {
+      const { copy } = draftFor(trade);
+      const page = new Set([copy.heroSubheadline, copy.about ?? ""].flatMap((text) => runsOf(text, 4)));
+      for (const description of new Set(copy.serviceDescriptions.map((d) => d.description)))
+        for (const run of runsOf(description, 4)) if (page.has(run)) shared.push(`${trade}: "${run}" in "${description}"`);
+    }
+    expect(shared).toEqual([]);
   });
 
   it("uses plain US English", () => {
