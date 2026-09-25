@@ -133,9 +133,14 @@ describe("createPendingVersion", () => {
     expect(await versionRow(env.DB, second.id)).toMatchObject({ number: 2, status: "pending" });
     expect((await siteRow(env.DB, siteId))?.pending_version_id).toBe(second.id);
 
-    // No row from the SELECT means the INSERT did not happen: the same refusal as before.
+    // No row from the SELECT means the INSERT did not happen: the same refusal as before. The site is taken
+    // down after the early checks, so it is the batch that refuses.
+    const held = holdBatch(writesReturnNoRows(env.DB));
+    const late = createPendingVersion({ ...env, DB: held.db }, { siteId, ownerId, slug, document: doc(), edits: EDITS, generationId: null, now: 4 });
+    await Promise.race([held.reached, late]);
     await env.DB.prepare("UPDATE sites SET taken_down_at = 3 WHERE id = ?").bind(siteId).run();
-    expect((await failure(publish(4))).code).toBe("site_taken_down");
+    held.release();
+    expect((await failure(late)).code).toBe("site_taken_down");
     expect((await versionRow(env.DB, second.id))?.status).toBe("pending");
     expect(await auditActions(env.DB, siteId)).toEqual(["version.requested", "version.requested"]);
   });
@@ -344,6 +349,67 @@ describe("the daily publish cap (Decision 25)", () => {
   });
 });
 
+describe("a request the early checks refuse", () => {
+  const day = Date.parse("2026-09-29T00:00:00.000Z");
+  const now = day + 3_600_000;
+  const fillTodaysCap = async (site: Site) => {
+    for (let i = 0; i < LIMITS.publishRequestsPerSitePerDay; i++) {
+      await createPendingVersion(env, { ...site, document: doc("cleaning-minimal"), edits: EDITS, generationId: null, now: day + i });
+    }
+  };
+  const siteChanged = { code: "integrity", detail: { reason: "site_changed" } };
+  const refusals: { request: string; refused: { code: string; detail?: unknown }; arrange: (site: Site) => Promise<Partial<Site & { generationId: string }>> }[] = [
+    { request: "for another owner's site", refused: siteChanged, arrange: async () => ({ ownerId: (await seedSite(env.DB)).ownerId }) },
+    {
+      // Ownership comes first: another owner never learns that the site is at its cap.
+      request: "for another owner's site at its cap",
+      refused: siteChanged,
+      arrange: async (site) => {
+        await fillTodaysCap(site);
+        return { ownerId: (await seedSite(env.DB)).ownerId };
+      },
+    },
+    {
+      request: "for a taken-down site",
+      refused: { code: "site_taken_down" },
+      arrange: async (site) => {
+        await env.DB.prepare("UPDATE sites SET taken_down_at = 1 WHERE id = ?").bind(site.siteId).run();
+        return {};
+      },
+    },
+    {
+      request: "over today's cap",
+      refused: { code: "publish_cap_reached", detail: { retryAfter: 82_800 } },
+      arrange: async (site) => {
+        await fillTodaysCap(site);
+        return {};
+      },
+    },
+    { request: "with an address the site does not have", refused: siteChanged, arrange: async (site) => ({ slug: `${site.slug}-x` }) },
+    {
+      // Not a raw D1 FOREIGN KEY error: a PublishError that Plan 4 answers with its shared 500.
+      request: "naming a generation that does not exist",
+      refused: { code: "integrity", detail: { reason: "generation_not_found" } },
+      arrange: async () => ({ generationId: newId() }),
+    },
+  ];
+
+  it.each(refusals)("a request $request is refused before a page is stored", async ({ refused, arrange }) => {
+    const site = await seedSite(env.DB);
+    const request = { ...site, document: doc(), edits: EDITS, generationId: null, now, ...(await arrange(site)) };
+    const before = { pages: await workKeys(site.siteId), site: await siteRow(env.DB, site.siteId), audit: await auditActions(env.DB, site.siteId) };
+    const puts: string[] = [];
+    const counted = {
+      put: (...args: Parameters<R2Bucket["put"]>) => (puts.push(args[0]), env.WORK.put(...args)),
+      delete: (...args: Parameters<R2Bucket["delete"]>) => env.WORK.delete(...args),
+    } as unknown as R2Bucket;
+    const error = await failure(createPendingVersion({ ...env, WORK: counted }, request));
+    expect({ code: error.code, detail: error.detail }).toEqual(refused);
+    expect(puts).toEqual([]);
+    expect({ pages: await workKeys(site.siteId), site: await siteRow(env.DB, site.siteId), audit: await auditActions(env.DB, site.siteId) }).toEqual(before);
+  });
+});
+
 describe("a request the batch refuses, because the site changed after the early checks", () => {
   const changes: { change: string; code: string; detail?: unknown; apply: (site: Site) => Promise<unknown> }[] = [
     {
@@ -396,6 +462,24 @@ describe("a request the batch refuses, because the site changed after the early 
     expect((await versionRow(env.DB, inReview.id))?.status).toBe("pending");
     expect((await siteRow(env.DB, site.siteId))?.pending_version_id).toBe(inReview.id);
     expect(await auditActions(env.DB, site.siteId)).toEqual(["version.requested"]);
+  });
+
+  it("answers site_changed when the change is undone before the refusal is explained", async () => {
+    const site = await seedSite(env.DB);
+    const rename = (slug: string) => env.DB.prepare("UPDATE sites SET slug = ? WHERE id = ?").bind(slug, site.siteId).run();
+    const renamedDuringBatch = {
+      prepare: (sql: string) => env.DB.prepare(sql),
+      async batch(statements: D1PreparedStatement[]) {
+        await rename(`${site.slug}-new`);
+        const results = await env.DB.batch(statements);
+        await rename(site.slug);
+        return results;
+      },
+    } as unknown as D1Database;
+    const error = await failure(createPendingVersion({ ...env, DB: renamedDuringBatch }, { ...site, document: doc(), edits: EDITS, generationId: null, now: 1 }));
+    expect({ code: error.code, detail: error.detail }).toEqual({ code: "integrity", detail: { reason: "site_changed" } });
+    expect(await workKeys(site.siteId)).toEqual([]);
+    expect((await siteRow(env.DB, site.siteId))?.pending_version_id).toBeNull();
   });
 
   it("logs a page it could not delete, and still answers the refusal", async () => {

@@ -19,6 +19,8 @@ import { auditIfChanged, HTML_TYPE } from "./shared.ts";
 
 const DAY_MS = 86_400_000;
 
+const siteChanged = () => new PublishError("integrity", { reason: "site_changed" });
+
 /**
  * The owner's Publish: render the page, store the exact bytes in WORK, then (one D1 batch)
  * supersede any pending version, add this one as pending and point the site at it.
@@ -38,10 +40,10 @@ export async function createPendingVersion(
   if (!parsed.success) throw new PublishError("render_failed", toIssues(parsed.error));
   const document = parsed.data;
 
-  // A cheap count first, so a request over the cap renders and stores nothing. The batch re-checks it.
-  const dayStart = utcDayStart(now);
-  const capReached = () => new PublishError("publish_cap_reached", { retryAfter: Math.ceil((dayStart + DAY_MS - now) / 1000) });
-  if ((await requestsSince(db, siteId, dayStart)) >= LIMITS.publishRequestsPerSitePerDay) throw capReached();
+  // Cheap checks first, so a request that would be refused renders and stores nothing. The batch re-checks
+  // the site and the cap, for a request that races another one or a change made in the meantime.
+  const refused = await refusal(db, input);
+  if (refused !== null) throw refused;
 
   let html: string;
   try {
@@ -57,6 +59,7 @@ export async function createPendingVersion(
   // unknown, so the page stays; an orphan is harmless, as nothing ever serves WORK publicly.
   await env.WORK.put(key, html, { httpMetadata: { contentType: HTML_TYPE }, customMetadata: { siteId, versionId, sha256: htmlSha256 } });
 
+  const dayStart = utcDayStart(now);
   const siteIsReady = "EXISTS (SELECT 1 FROM sites WHERE id = ? AND owner_id = ? AND slug = ? AND taken_down_at IS NULL)";
   const underCap = "(SELECT COUNT(*) FROM site_versions WHERE site_id = ? AND requested_at >= ?) < ?";
   const cap = LIMITS.publishRequestsPerSitePerDay;
@@ -85,12 +88,40 @@ export async function createPendingVersion(
   if (number === undefined) {
     // No row: the INSERT did not happen, and no version can ever point at this page. Delete it, then find out why.
     await deleteRefusedPage(env.WORK, key, { siteId, versionId });
-    const site = await db.prepare("SELECT taken_down_at FROM sites WHERE id = ? AND owner_id = ?").bind(siteId, ownerId).first<{ taken_down_at: number | null }>();
-    if (site !== null && site.taken_down_at !== null) throw new PublishError("site_taken_down");
-    if ((await requestsSince(db, siteId, dayStart)) >= cap) throw capReached();
-    throw new PublishError("integrity", { reason: "site_changed" });
+    throw (await refusal(db, input)) ?? siteChanged();
   }
   return { id: versionId, number, status: "pending", requestedAt: now, reviewedAt: null, reviewNote: null };
+}
+
+/**
+ * Why a request would be refused right now, or null. Ownership is checked first, so another owner learns
+ * nothing about the site: not that it is taken down, nor that it is at its cap.
+ */
+async function refusal(
+  db: D1Database,
+  input: { siteId: string; ownerId: string; slug: string; generationId: string | null; now: number },
+): Promise<PublishError | null> {
+  const { siteId, ownerId, slug, generationId, now } = input;
+  const dayStart = utcDayStart(now);
+  // Today's requests: every status counts (superseded, withdrawn and reviewed ones used D1 and R2 too).
+  const site = await db
+    .prepare(
+      `SELECT slug, taken_down_at,
+         (SELECT COUNT(*) FROM site_versions WHERE site_id = sites.id AND requested_at >= ?) AS requests,
+         (SELECT COUNT(*) FROM generations WHERE id = ?) AS generations
+       FROM sites WHERE id = ? AND owner_id = ?`,
+    )
+    .bind(dayStart, generationId, siteId, ownerId)
+    .first<{ slug: string | null; taken_down_at: number | null; requests: number; generations: number }>();
+  if (site === null) return siteChanged();
+  if (site.taken_down_at !== null) return new PublishError("site_taken_down");
+  if (site.requests >= LIMITS.publishRequestsPerSitePerDay) {
+    return new PublishError("publish_cap_reached", { retryAfter: Math.ceil((dayStart + DAY_MS - now) / 1000) });
+  }
+  if (site.slug !== slug) return siteChanged();
+  // site_versions.generation_id references generations(id): the batch would fail with a raw FOREIGN KEY error.
+  if (generationId !== null && site.generations === 0) return new PublishError("integrity", { reason: "generation_not_found" });
+  return null;
 }
 
 /** Best effort: a failed delete leaves an orphan (harmless), logged with IDs and a code only. */
@@ -100,12 +131,6 @@ async function deleteRefusedPage(work: R2Bucket, key: string, ids: { siteId: str
   } catch {
     console.error(JSON.stringify({ code: "refused_page_not_deleted", ...ids }));
   }
-}
-
-/** Version requests of a site since `since` (every status counts: superseded and withdrawn ones used D1 too). */
-async function requestsSince(db: D1Database, siteId: string, since: number): Promise<number> {
-  const row = await db.prepare("SELECT COUNT(*) AS n FROM site_versions WHERE site_id = ? AND requested_at >= ?").bind(siteId, since).first<{ n: number }>();
-  return row?.n ?? 0;
 }
 
 /** The owner's Withdraw: the pending version becomes "withdrawn" and the site has nothing in review. */
