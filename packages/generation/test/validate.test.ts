@@ -1,7 +1,8 @@
 import { Facts, factSections, SiteDocument } from "@asksite/site-schema";
 import { describe, expect, it } from "vitest";
+import { FIXTURES, loadFixture } from "../../../fixtures/index.ts";
 import { templateDraft } from "../src/template.ts";
-import { checkDraft } from "../src/validate.ts";
+import { bindServiceNames, checkDraft } from "../src/validate.ts";
 import { dropNulls } from "../src/wire-schema.ts";
 import { BRIEF, FULL_FACTS, MINIMAL_FACTS } from "./support/samples.ts";
 
@@ -118,5 +119,31 @@ describe("checkDraft", () => {
     expect(hero(SiteDocument.parse({ facts: FULL_FACTS, ...centered, hidden: [] }).layout)).toEqual({ id: "hero", variant: "photo" });
     const result = checkDraft(FULL_FACTS, centered);
     expect(result.ok && hero(result.draft.layout)).toEqual({ id: "hero", variant: "centered" });
+  });
+
+  it("binds an owner name with an inch mark (U+2033 double prime) to the model's straight double quote, and the other way round", () => {
+    // NFKC splits U+2033 into two primes, so the quote marks are folded before NFKC.
+    for (const [owner, model] of [["3/4\u2033 water lines", '3/4" water lines'], ['3/4" water lines', "3/4\u2033 water lines"]] as const) {
+      const facts = Facts.parse({ ...MINIMAL_FACTS, services: [{ name: owner }] });
+      const result = checkDraft(facts, withServices(facts, [model]));
+      expect(result.ok && result.draft.copy.serviceDescriptions[0]!.service).toBe(owner);
+    }
+  });
+
+  it("still folds the primes NFKC makes, as before: U+2034 and U+2057 bind to three and four apostrophes", () => {
+    for (const [owner, model] of [["Size 1\u2034 fittings", "Size 1''' fittings"], ["Size 1\u2057 fittings", "Size 1'''' fittings"]] as const) {
+      const facts = Facts.parse({ ...MINIMAL_FACTS, services: [{ name: owner }] });
+      const result = checkDraft(facts, withServices(facts, [model]));
+      expect(result.ok && result.draft.copy.serviceDescriptions[0]!.service).toBe(owner);
+    }
+  });
+
+  it("binds every Plan 1 fixture's service names, retyped exactly, to the owner's names", () => {
+    for (const fixture of FIXTURES) {
+      const facts = Facts.parse(loadFixture(fixture).facts);
+      const names = facts.services.map((service) => service.name);
+      const bound = bindServiceNames(facts, withServices(facts, names)) as { copy: { serviceDescriptions: Array<{ service: string }> } };
+      expect(bound.copy.serviceDescriptions.map((entry) => entry.service), fixture).toEqual(names);
+    }
   });
 });

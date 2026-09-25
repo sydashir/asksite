@@ -6,9 +6,17 @@ export type DraftCheck = { ok: true; draft: AiDraft } | { ok: false; issues: Iss
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
 
-/** A name as a model may fairly retype it: compatibility forms, case, curly quotes and spacing do not count. */
+/** Curly single quotes and primes read as ', curly double quotes and double primes as ". */
+const foldQuotes = (text: string): string =>
+  text.replace(/[\u2018\u2019\u201A\u201B\u2032]/g, "'").replace(/[\u201C\u201D\u201E\u201F\u2033]/g, '"');
+
+/**
+ * A name as a model may fairly retype it: compatibility forms, case, curly quotes and spacing do not
+ * count. Quote marks are folded before NFKC, which would split U+2033 (an inch mark) into two primes,
+ * and again after it, for the primes NFKC makes (U+2034 and U+2057 become three and four).
+ */
 const looseName = (name: string): string =>
-  wellFormed(name).normalize("NFKC").toLowerCase().replace(/[‘’‚‛′]/g, "'").replace(/[“”„‟″]/g, '"').replace(/\s+/g, " ").trim();
+  foldQuotes(foldQuotes(wellFormed(name)).normalize("NFKC").toLowerCase()).replace(/\s+/g, " ").trim();
 
 /**
  * Plan 1 requires copy.serviceDescriptions[i].service to equal facts.services[i].name exactly,
