@@ -35,9 +35,15 @@ describe("toModelFacts", () => {
     expect([sent.hasLicence, sent.insured, sent.emergency247, sent.freeEstimates, sent.hasYearFounded]).toEqual([false, false, false, false, false]);
   });
 
-  it("replaces lone surrogates with U+FFFD in every owner string, service names included", () => {
-    const facts = { ...MINIMAL_FACTS, businessName: "Mop \uD800 Co", services: [{ name: "Tile \uDC00 care" }], serviceArea: { places: ["Aus\uD800tin"] } };
+  it("replaces lone surrogates with U+FFFD in every owner string, city and service names included", () => {
+    const facts = {
+      ...MINIMAL_FACTS,
+      businessName: "Mop \uD800 Co",
+      location: { ...MINIMAL_FACTS.location, city: "El \uDC00 Paso" },
+      services: [{ name: "Tile \uDC00 care" }],
+      serviceArea: { places: ["Aus\uD800tin"] },
+    };
     const sent = toModelFacts(facts);
-    expect([sent.businessName, sent.services[0], sent.serviceAreaPlaces[0]]).toEqual(["Mop � Co", "Tile � care", "Aus�tin"]);
+    expect([sent.businessName, sent.city, sent.services[0], sent.serviceAreaPlaces[0]]).toEqual(["Mop � Co", "El � Paso", "Tile � care", "Aus�tin"]);
   });
 });
