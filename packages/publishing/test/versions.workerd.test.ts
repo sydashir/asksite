@@ -187,6 +187,21 @@ describe("createPendingVersion", () => {
     expect(await auditActions(env.DB, siteId)).toEqual([]);
   });
 
+  it("answers render_failed when the renderer refuses the page, and stores nothing", async () => {
+    const { ownerId, siteId } = await seedSite(env.DB);
+    // A slug no host can hold: the form address is not a safe URL, so render() throws (renderer safeUrl).
+    const slug = `bad slug ${siteId.slice(0, 8)}`;
+    await env.DB.prepare("UPDATE sites SET slug = ? WHERE id = ?").bind(slug, siteId).run();
+    const error = await failure(createPendingVersion(env, { siteId, ownerId, slug, document: doc(), edits: EDITS, generationId: null, now: 1 }));
+    expect(error.code).toBe("render_failed");
+    expect(error.detail).toEqual([
+      { path: [], code: "render_failed", message: `Unsafe URL rejected: ${JSON.stringify(formActionUrl(ROOT, slug, siteId))}` },
+    ]);
+    expect((await siteRow(env.DB, siteId))?.pending_version_id).toBeNull();
+    expect(await auditActions(env.DB, siteId)).toEqual([]);
+    expect((await env.WORK.list({ prefix: `versions/${siteId}/` })).objects).toEqual([]);
+  });
+
   it("refuses a taken-down site and keeps the version already in review", async () => {
     const { ownerId, siteId, slug } = await seedSite(env.DB);
     const first = await createPendingVersion(env, { siteId, ownerId, slug, document: doc(), edits: EDITS, generationId: null, now: 1 });
@@ -201,10 +216,22 @@ describe("createPendingVersion", () => {
     const { ownerId, siteId, slug } = await seedSite(env.DB);
     const wrongSlug = await failure(createPendingVersion(env, { siteId, ownerId, slug: `${slug}-x`, document: doc(), edits: EDITS, generationId: null, now: 1 }));
     expect(wrongSlug.code).toBe("integrity");
+    // Plan 4 answers 409 "send it again" only for this reason, and 500 for any other integrity error.
+    expect(wrongSlug.detail).toEqual({ reason: "site_changed" });
     const other = await seedSite(env.DB);
     const wrongOwner = await failure(createPendingVersion(env, { siteId, ownerId: other.ownerId, slug, document: doc(), edits: EDITS, generationId: null, now: 1 }));
     expect(wrongOwner.code).toBe("integrity");
+    expect(wrongOwner.detail).toEqual({ reason: "site_changed" });
     expect((await siteRow(env.DB, siteId))?.pending_version_id).toBeNull();
+  });
+
+  it("never tells another owner that a site is taken down", async () => {
+    const { siteId, slug } = await seedSite(env.DB);
+    const intruder = await seedSite(env.DB);
+    await env.DB.prepare("UPDATE sites SET taken_down_at = 5 WHERE id = ?").bind(siteId).run();
+    const error = await failure(createPendingVersion(env, { siteId, ownerId: intruder.ownerId, slug, document: doc(), edits: EDITS, generationId: null, now: 6 }));
+    expect(error.code).toBe("integrity");
+    expect(error.detail).toEqual({ reason: "site_changed" });
   });
 
   it("a refused publish (another owner, or the slug of the owner's other site) leaves the version in review alone", async () => {
@@ -247,6 +274,22 @@ describe("the daily publish cap (Decision 25)", () => {
     expect([otherFirst.number, otherSecond.number]).toEqual([1, 2]);
     expect((await versionRow(env.DB, otherFirst.id))?.status).toBe("superseded");
     expect((await publish(day + 86_400_000)).number).toBe(LIMITS.publishRequestsPerSitePerDay + 1);
+  });
+
+  it("counts every request, whatever became of it, so publish and withdraw cannot loop past the cap", async () => {
+    const { ownerId, siteId, slug } = await seedSite(env.DB);
+    const day = Date.parse("2026-09-28T00:00:00.000Z");
+    const publish = (now: number) => createPendingVersion(env, { siteId, ownerId, slug, document: doc("cleaning-minimal"), edits: EDITS, generationId: null, now });
+    for (let i = 0; i < LIMITS.publishRequestsPerSitePerDay; i++) {
+      await publish(day + 2 * i);
+      await withdrawPending(env, { siteId, ownerId, now: day + 2 * i + 1 });
+    }
+    // Reviewed ones count too (set here by SQL; review itself is Task 9's).
+    await env.DB.prepare("UPDATE site_versions SET status = 'approved' WHERE site_id = ? AND number IN (1, 2)").bind(siteId).run();
+    await env.DB.prepare("UPDATE site_versions SET status = 'rejected' WHERE site_id = ? AND number IN (3, 4)").bind(siteId).run();
+    expect((await failure(publish(day + 3_600_000))).code).toBe("publish_cap_reached");
+    expect(await versionCount(siteId)).toBe(LIMITS.publishRequestsPerSitePerDay);
+    expect((await env.WORK.list({ prefix: `versions/${siteId}/` })).objects).toHaveLength(LIMITS.publishRequestsPerSitePerDay);
   });
 
   it("rounds retryAfter up, so a client is never told to come back before 00:00 UTC", async () => {
@@ -298,6 +341,7 @@ describe("withdrawPending", () => {
     await withdrawPending(env, { siteId, ownerId, now: 2 });
     expect((await versionRow(env.DB, version.id))?.status).toBe("withdrawn");
     expect((await siteRow(env.DB, siteId))?.pending_version_id).toBeNull();
+    expect(await env.DB.prepare("SELECT updated_at FROM sites WHERE id = ?").bind(siteId).first("updated_at")).toBe(2);
     expect(await auditActions(env.DB, siteId)).toEqual(["version.requested", "version.withdrawn"]);
     expect((await failure(withdrawPending(env, { siteId, ownerId, now: 3 }))).code).toBe("nothing_pending");
     expect(await auditActions(env.DB, siteId)).toEqual(["version.requested", "version.withdrawn"]);
