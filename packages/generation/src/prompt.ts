@@ -93,7 +93,8 @@ export function buildPrompt(snapshot: GenerationInputSnapshot, repair: readonly 
     `Main goal: ${GOAL[brief.goal]}.`,
     "",
     "Business data (JSON):",
-    JSON.stringify({ business, ownerBrief }),
+    // JSON.stringify leaves U+2028/U+2029 raw and some readers break lines at them; as escapes the data stays one line.
+    JSON.stringify({ business, ownerBrief }).replace(/\u2028/g, "\\u2028").replace(/\u2029/g, "\\u2029"),
   ];
   if (repair.length > 0)
     lines.push("", "Your previous answer was rejected. Fix every problem below and send the whole answer again:", ...repair.slice(0, MAX_REPAIR_ISSUES).map(issueLine));
