@@ -9,9 +9,10 @@ import type { Facts } from "./facts.ts";
 //
 // The words of a multi-word claim may be joined by a hyphen, a space, or a dash character: figure
 // dash (U+2012), en dash (U+2013), em dash (U+2014) or minus sign (U+2212), so "award-winning"
-// and "award" + U+2013 + "winning" read the same way. asReadOnPage below does NOT fold en/em dash
-// to a hyphen (A2: they usually separate two clauses, not join one compound word), so this class
-// is spelled out wherever a pattern below joins two words.
+// and "award" + U+2013 + "winning" read the same way. asReadOnPage below reads every other dash
+// as an em dash (A8c) but does NOT fold en/em dash to a hyphen (A2: they usually separate two
+// clauses, not join one compound word), so this class is spelled out wherever a pattern below
+// joins two words.
 
 /** Claims no owner fact backs: rejected in copy whatever the facts say. */
 export const NEVER_IN_COPY: readonly RegExp[] = [
@@ -53,8 +54,17 @@ export const NEEDS_A_FACT: ReadonlyArray<{ readonly pattern: RegExp; readonly ba
  */
 export const HIDDEN_IN_COPY = /(?![\uFE0E\uFE0F])\p{Default_Ignorable_Code_Point}|(?<!\p{Emoji})[\uFE0E\uFE0F]/u;
 
+/**
+ * Every other dash reads as an em dash (A8c): any \p{Pd} except the hyphens and the dashes the joiner
+ * class already lists, plus six dash-like characters that are not \p{Pd} (U+2043 HYPHEN BULLET,
+ * U+23AF, U+2500, U+2501, U+30FC and U+FF70). So "Award" + U+2015 + "winning" joins like
+ * "award\u2014winning", and a free after one of them is a free offer, as after an em dash.
+ */
+const OTHER_DASH = /(?![-\u2010-\u2014])[\p{Pd}\u2043\u23af\u2500\u2501\u30fc\uff70]/gu;
+
 // HTML shows a run of whitespace as one space and U+2010/U+2011 look like "-" (en/em dashes do not).
-const asReadOnPage = (text: string): string => text.replace(/\s+/g, " ").replace(/[\u2010\u2011]/g, "-");
+const asReadOnPage = (text: string): string =>
+  text.replace(/\s+/g, " ").replace(/[\u2010\u2011]/g, "-").replace(OTHER_DASH, "\u2014");
 
 /**
  * The words in `text` that state a claim the owner's facts do not back (empty when the text is

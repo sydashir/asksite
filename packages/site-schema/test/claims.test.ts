@@ -11,6 +11,12 @@ const base: SiteDocumentInput["facts"] = {
   services: [{ name: "House cleaning" }],
 };
 
+/** Every Unicode scalar value as a one-character string. */
+const allCodePoints = (): string[] =>
+  Array.from({ length: 0x110000 }, (_, c) => c)
+    .filter((c) => c < 0xd800 || c > 0xdfff)
+    .map((c) => String.fromCodePoint(c));
+
 /** No licences, not insured, no 24/7, no free estimates, no founding year. */
 const NONE = Facts.parse(base);
 /** Every fact that can back a claim. */
@@ -166,6 +172,47 @@ describe("unbackedClaims", () => {
     },
   );
 
+  // A8c: every other dash reads like an em dash. These 16 survive NFKC (so they reach the checker in
+  // AI copy) and are not in the joiner list above; the rest of \p{Pd} is added from the engine's tables.
+  const OTHER_DASHES = [
+    "―", "⁃", "⎯", "─", "━", "⸗", "⸚", "⸺",
+    "⸻", "⹀", "⹝", "〜", "〰", "゠", "ー", "ｰ",
+  ];
+  const JOINERS = new Set(["-", "‐", "‑", ...DASHES]); // U+2010/U+2011 read as "-" (A2)
+  const EVERY_OTHER_DASH = [...new Set([...OTHER_DASHES, ...allCodePoints().filter((c) => /\p{Pd}/u.test(c))])].filter((d) => !JOINERS.has(d));
+
+  it("finds \"Award―winning\" (U+2015 horizontal bar) whatever the facts", () => {
+    expect(unbackedClaims("Award―winning crew", ALL)).toEqual(["Award—winning"]);
+  });
+
+  it("covers the listed dashes and every \\p{Pd} this engine knows", () => {
+    expect(EVERY_OTHER_DASH).toEqual(expect.arrayContaining([...OTHER_DASHES, "֊", "־", "᐀", "᠆", "\u{10EAD}"]));
+    expect(EVERY_OTHER_DASH.length).toBeGreaterThanOrEqual(OTHER_DASHES.length + 5);
+  });
+
+  const TEMPLATES = [
+    (d: string) => `Award${d}winning crew`,
+    (d: string) => `Same${d}day service`,
+    (d: string) => `Round${d}the${d}clock help`,
+    (d: string) => `Call us seven${d}days${d}a${d}week`,
+    (d: string) => `No${d}charge visit`,
+    (d: string) => `Estimates${d}free`,
+    (d: string) => `Hassle${d}free booking`,
+    (d: string) => `a few days${d}a week for bigger jobs`,
+    (d: string) => `Most jobs take a few days ${d} rarely more`,
+  ];
+
+  it.each(EVERY_OTHER_DASH.map((d) => [`U+${d.codePointAt(0)?.toString(16).toUpperCase()}`, d]))(
+    "reads %s exactly as an em dash, with and without backing facts",
+    (_, d) => {
+      for (const template of TEMPLATES) {
+        for (const facts of [NONE, ALL]) {
+          expect(unbackedClaims(template(d), facts)).toEqual(unbackedClaims(template("—"), facts));
+        }
+      }
+    },
+  );
+
   it.each([
     'A lone " mark',
     '" autofocus onfocus="alert(document.cookie)', // attribute breakouts the renderer must escape (Task 15's XSS fixture)
@@ -249,6 +296,7 @@ describe("SiteDocument rejects AI copy that states facts the owner did not give"
     "Open seven days a week",
     "Free estimates, no hidden fees",
     "Five-star rated, award-winning, BBB accredited",
+    "Award―winning crew", // U+2015 horizontal bar survives NFKC
     "“Best cleaners ever!” said Sarah",
     '"Best cleaners in Boise!" - Sarah K.',
     "‘Best cleaners ever!’ - Sarah",
