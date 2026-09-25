@@ -114,6 +114,7 @@ describe("generateDraft", () => {
     expect(result).toMatchObject({ ok: true, attempts: 3 });
     expect(provider.requests[1]!.user).toContain("cut off");
     expect(result.log.map((a) => a.outcome)).toEqual(["max_tokens", "refusal", "valid"]);
+    expect(result.log.map((a) => a.issues.map(({ path, code }) => ({ path, code })))).toEqual([[{ path: [], code: "cut_off" }], [{ path: [], code: "refused" }], []]);
   });
 
   it("adds up token usage over every attempt and records each attempt", async () => {
@@ -122,7 +123,7 @@ describe("generateDraft", () => {
     const result = await generateDraft(provider, FULL_SNAPSHOT, deps);
     expect(result.usage).toEqual({ inputTokens: 2200, outputTokens: 700 });
     expect(result.log).toEqual([
-      { outcome: "invalid", issues: expect.any(Array), latencyMs: 10, usageMissing: false },
+      { outcome: "invalid", issues: [expect.objectContaining({ path: ["copy", "heroHeadline"], code: "custom" })], latencyMs: 10, usageMissing: false },
       { outcome: "valid", issues: [], latencyMs: 10, usageMissing: false },
     ]);
   });
@@ -174,6 +175,7 @@ describe("generateDraft", () => {
     expect(result).toMatchObject({ ok: true, attempts: 2 });
     expect(provider.requests[1]!.user).toContain("ended early");
     expect(result.log.map((a) => a.outcome)).toEqual(["other", "valid"]);
+    expect(result.log.map((a) => a.issues.map(({ path, code }) => ({ path, code })))).toEqual([[{ path: [], code: "incomplete" }], []]);
   });
 
   it("ends an attempt at its time limit itself when the provider ignores the signal, then carries on", async () => {
