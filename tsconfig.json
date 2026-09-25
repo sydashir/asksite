@@ -16,5 +16,5 @@
     "noEmit": true,
     "skipLibCheck": true
   },
-  "include": ["packages/*/src", "packages/*/test", "fixtures", "scripts", "vitest.config.ts"]
+  "include": ["packages/*/src", "packages/*/test", "packages/generation/eval", "apps/generator/src", "apps/generator/test", "fixtures", "scripts", "vitest.config.ts"]
 }
