@@ -225,6 +225,16 @@ test("the phone projects emulate a real phone: mobile browser, coarse pointer, n
   expect(phone).toEqual({ mobileBrowser: true, hover: false, coarse: true, width: 600 });
 });
 
+/** The engine each phone-emulation project must run (A9b): iOS browsers are WebKit, Android's is Chromium. */
+const PHONE_ENGINES: Record<string, string> = { "webkit-iphone": "webkit", "chromium-pixel": "chromium" };
+
+test("each phone project runs its own engine: webkit-iphone in WebKit, chromium-pixel in Chromium", MOBILE, async ({ browser }, testInfo) => {
+  test.skip(testInfo.project.metadata["phone"] !== true, "only the phone-emulation projects");
+  const phones = testInfo.config.projects.filter((project) => project.metadata["phone"] === true).map((project) => project.name);
+  expect(phones).toEqual(Object.keys(PHONE_ENGINES));
+  expect(browser.browserType().name()).toBe(PHONE_ENGINES[testInfo.project.name]);
+});
+
 test.describe("with JavaScript disabled", () => {
   test.use({ javaScriptEnabled: false });
 
