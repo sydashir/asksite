@@ -138,12 +138,15 @@ describe("checkDraft", () => {
     }
   });
 
-  it("binds every Plan 1 fixture's service names, retyped exactly, to the owner's names", () => {
+  it("binds every Plan 1 fixture's service names, retyped exactly, to the owner's names, and reports two different names swapped", () => {
     for (const fixture of FIXTURES) {
       const facts = Facts.parse(loadFixture(fixture).facts);
       const names = facts.services.map((service) => service.name);
       const bound = bindServiceNames(facts, withServices(facts, names)) as { copy: { serviceDescriptions: Array<{ service: string }> } };
       expect(bound.copy.serviceDescriptions.map((entry) => entry.service), fixture).toEqual(names);
+      // Two different names swapped are not one name retyped, so they stay as written and SiteDocument reports them.
+      const result = checkDraft(facts, withServices(facts, [names[1]!, names[0]!, ...names.slice(2)]));
+      expect(!result.ok && result.issues.map((i) => i.path.join(".")), fixture).toEqual(["copy.serviceDescriptions"]);
     }
   });
 });
