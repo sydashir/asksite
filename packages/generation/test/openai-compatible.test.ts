@@ -501,3 +501,107 @@ describe("OpenAICompatibleProvider: redirects (P3-11 c)", () => {
     expect(http.calls[0]!.redirect).toBe("manual");
   });
 });
+
+/** A fetch whose response has this status and a body stream that fails when read (a dropped connection). */
+const unreadable = (status: number) => async (): Promise<Response> =>
+  new Response(new ReadableStream({ start: (controller) => controller.error(new TypeError("terminated")) }), { status });
+
+const VALID_ANSWER = { status: 200, body: completion(JSON.stringify(templateDraft(FULL_FACTS, BRIEF))) };
+
+// P3-11 (d): an error after a 2xx status line carries afterHeaders (the provider accepted the call and may bill it,
+// but its usage is unknown), so generateDraft marks that attempt's usage missing. An error status (3xx, 4xx, 5xx)
+// means the call was refused: the key is left out (exactOptionalPropertyTypes), as it is for a failed fetch.
+describe("OpenAICompatibleProvider: errors after a 2xx status line (P3-11 d)", () => {
+  it.each([
+    ["a body that is not JSON", () => rawFetch(200, "<html>ok</html>", "text/html").fetch],
+    ["a JSON body with no choices", () => fakeFetch([{ status: 200, body: { choices: [] } }]).fetch],
+    ["a choice that is not an object", () => fakeFetch([{ status: 200, body: { choices: ["x"] } }]).fetch],
+    ["a body that cannot be read", () => unreadable(200)],
+  ])("marks a 2xx with %s unavailable with afterHeaders", async (_name, fetchOf) => {
+    const error: unknown = await compatible(fetchOf()).generate(request()).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(ProviderError);
+    expect(error).toMatchObject({ kind: "unavailable", afterHeaders: true });
+  });
+
+  it("marks a 2xx whose body read our abort cut short a timeout with afterHeaders", async () => {
+    const controller = new AbortController();
+    const error: unknown = await compatible(abortMidBody(controller, 200)).generate(request(controller.signal)).catch((e: unknown) => e);
+    expect(error).toMatchObject({ name: "ProviderError", kind: "timeout", afterHeaders: true });
+  });
+
+  it.each([
+    ["a 302", () => fakeFetch([{ status: 302, body: { error: { message: "m" } } }]).fetch],
+    ["a 400", () => fakeFetch([{ status: 400, body: { error: { message: "m" } } }]).fetch],
+    ["a 429", () => fakeFetch([{ status: 429, body: { error: { message: "m" } } }]).fetch],
+    ["a 503", () => fakeFetch([{ status: 503, body: { error: { message: "m" } } }]).fetch],
+    ["a 401 whose body cannot be read", () => unreadable(401)],
+    ["a network failure", () => fakeFetch([new TypeError("fetch failed")]).fetch],
+  ])("leaves afterHeaders out of the error for %s", async (_name, fetchOf) => {
+    const error: unknown = await compatible(fetchOf()).generate(request()).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(ProviderError);
+    expect(Object.hasOwn(error as object, "afterHeaders")).toBe(false);
+  });
+
+  it("leaves afterHeaders out of a 429 whose body read our abort cut short (a timeout: its usage is marked missing anyway)", async () => {
+    const controller = new AbortController();
+    const error: unknown = await compatible(abortMidBody(controller, 429)).generate(request(controller.signal)).catch((e: unknown) => e);
+    expect(error).toMatchObject({ name: "ProviderError", kind: "timeout" });
+    expect(Object.hasOwn(error as object, "afterHeaders")).toBe(false);
+  });
+
+  it.each([
+    ["a 2xx with no choices", { status: 200, body: { choices: [] } }, [["unavailable", true], ["valid", false]]],
+    ["a 2xx that is not an object", { status: 200, body: "text" }, [["unavailable", true], ["valid", false]]],
+    ["a 400, a refused call", { status: 400, body: { error: { message: "m" } } }, [["bad_request", false]]],
+    ["a 503, a refused call", { status: 503, body: { error: { message: "m" } } }, [["unavailable", false], ["valid", false]]],
+  ])("lets generateDraft record whether usage is missing after %s", async (_name, first, log) => {
+    const http = fakeFetch([first, VALID_ANSWER]);
+    const deps = { sleep: async () => {}, timeoutSignal: () => new AbortController().signal, now: () => 0 };
+    const result = await generateDraft(compatible(http.fetch), FULL_SNAPSHOT, deps);
+    expect(result.log.map((a) => [a.outcome, a.usageMissing])).toEqual(log);
+  });
+
+  it("lets generateDraft mark usage missing after our abort cut a 2xx body short", async () => {
+    const controller = new AbortController();
+    const signals = [controller.signal, new AbortController().signal];
+    const answers = [abortMidBody(controller, 200), fakeFetch([VALID_ANSWER]).fetch];
+    const fetchImpl = (input: string | URL | Request, init?: RequestInit): Promise<Response> => answers.shift()!(input, init);
+    const deps = { sleep: async () => {}, timeoutSignal: () => signals.shift()!, now: () => 0 };
+    const result = await generateDraft(compatible(fetchImpl), FULL_SNAPSHOT, deps);
+    expect(result.log.map((a) => [a.outcome, a.usageMissing])).toEqual([["timeout", true], ["valid", false]]);
+  });
+});
+
+// The 2xx shape checks (P3-11 d, "(o)-style"): every field of a 2xx answer is read only after a type check with
+// own(), so a malformed field is never trusted. Pinned: these hold on the code before P3-11.
+describe("OpenAICompatibleProvider: 2xx shape checks (P3-11 d, pinned)", () => {
+  it.each([
+    ["a number", 42],
+    ["null", null],
+    ["an object", { id: "x" }],
+    ["a list", ["m1"]],
+  ])("keeps the requested model when the body's model is %s", async (_name, model) => {
+    const res = await compatible(fakeFetch([{ status: 200, body: { ...completion('{"a":1}'), model } }]).fetch).generate(request());
+    expect(res).toStrictEqual({ json: { a: 1 }, model: "m", usage: { inputTokens: 2900, outputTokens: 1300 }, stop: "end" });
+  });
+
+  it.each([
+    ["no message", { finish_reason: "stop" }],
+    ["a message that is a string", { message: '{"a":1}', finish_reason: "stop" }],
+    ["content that is an object", { message: { content: { a: 1 } }, finish_reason: "stop" }],
+    ["content that is a number", { message: { content: 42 }, finish_reason: "stop" }],
+    ["a null content", { message: { content: null }, finish_reason: "stop" }],
+  ])("answers a choice with %s with no JSON", async (_name, choice) => {
+    const res = await compatible(fakeFetch([{ status: 200, body: { ...completion("{}"), choices: [choice] } }]).fetch).generate(request());
+    expect(res).toStrictEqual({ json: undefined, model: "@cf/openai/gpt-oss-120b", usage: { inputTokens: 2900, outputTokens: 1300 }, stop: "end" });
+  });
+
+  it.each([
+    ["a number", 42],
+    ["null", null],
+    ["missing", undefined],
+  ])("maps a finish_reason that is %s to other", async (_name, finish_reason) => {
+    const res = await compatible(fakeFetch([{ status: 200, body: { ...completion('{"a":1}'), choices: [{ message: { content: '{"a":1}' }, finish_reason }] } }]).fetch).generate(request());
+    expect(res).toMatchObject({ json: undefined, stop: "other" });
+  });
+});

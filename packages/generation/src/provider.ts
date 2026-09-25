@@ -28,14 +28,22 @@ export interface ModelProvider {
 /** "auth": the account or key needs a human: missing, wrong or revoked key, or billing. */
 export type ProviderErrorKind = "timeout" | "rate_limited" | "unavailable" | "bad_request" | "auth";
 
-// The field is declared, not a constructor parameter property: the repo's tsconfig sets
+// The fields are declared, not constructor parameter properties: the repo's tsconfig sets
 // erasableSyntaxOnly, which rejects parameter properties. The public shape is the design's.
 export class ProviderError extends Error {
   readonly kind: ProviderErrorKind;
-  constructor(kind: ProviderErrorKind, message: string) {
+  /**
+   * Set by an adapter on an error raised after a 2xx status line arrived (P3-11 d): a body that could not be read,
+   * or read to a malformed answer, or our abort while it was read. The provider accepted the call and may bill it,
+   * but its usage is unknown, so generateDraft marks the attempt's usage missing. Otherwise the key is absent
+   * (`declare` emits no class field, so it is never an own property holding undefined). Internal to this package.
+   */
+  declare readonly afterHeaders?: true;
+  constructor(kind: ProviderErrorKind, message: string, options: { afterHeaders?: true } = {}) {
     super(message);
     this.kind = kind;
     this.name = "ProviderError";
+    if (options.afterHeaders) this.afterHeaders = true;
   }
 }
 

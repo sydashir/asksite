@@ -92,6 +92,13 @@ const parseJson = (text: unknown): unknown => {
   }
 };
 
+/**
+ * The error for a 2xx whose body could not be read or holds no usable answer (P3-11 d): the provider accepted the
+ * call and may bill it, so the error carries afterHeaders. Our abort while the body was read is a timeout (P3-11 a).
+ */
+const failedAnswer = (signal: AbortSignal, message: string): ProviderError =>
+  new ProviderError(signal.aborted ? "timeout" : "unavailable", message, { afterHeaders: true });
+
 /** The body as text, or "" when it cannot be read (a dropped connection, or our abort mid-body). */
 async function bodyText(response: Response): Promise<string> {
   try {
@@ -159,10 +166,10 @@ export class OpenAICompatibleProvider implements ModelProvider {
       // Our abort while the body was read is a timeout, whatever the status (P3-11 a).
       throw this.#failure(req.signal.aborted ? "timeout" : kindOf(response.status, error), response.status, error);
     }
-    if (data === undefined) throw new ProviderError(req.signal.aborted ? "timeout" : "unavailable", "OpenAI-compatible response was not JSON");
+    if (data === undefined) throw failedAnswer(req.signal, "OpenAI-compatible response was not JSON");
     const choices = own(data, "choices");
     const choice: unknown = Array.isArray(choices) ? choices[0] : undefined;
-    if (typeof choice !== "object" || choice === null) throw new ProviderError("unavailable", "OpenAI-compatible response had no choices");
+    if (typeof choice !== "object" || choice === null) throw failedAnswer(req.signal, "OpenAI-compatible response had no choices");
     const reason = own(choice, "finish_reason");
     const stop = typeof reason === "string" && Object.hasOwn(STOP, reason) ? STOP[reason]! : "other";
     return this.#answer(data, stop === "end" ? parseJson(own(own(choice, "message"), "content")) : undefined, stop);

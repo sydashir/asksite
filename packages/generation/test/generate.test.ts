@@ -119,11 +119,19 @@ describe("generateDraft", () => {
     expect(result.log.map((a) => a.usageMissing)).toEqual([true, true, true]);
   });
 
-  it("marks usage missing only for a sent call that timed out, not for other provider errors", async () => {
+  it("marks usage missing for a sent call that timed out, not for other provider errors without afterHeaders", async () => {
     const { deps } = testDeps();
     const provider = scriptedProvider([new ProviderError("rate_limited", "429"), new ProviderError("unavailable", "503"), new ProviderError("timeout", "t")]);
     const result = await generateDraft(provider, FULL_SNAPSHOT, deps);
     expect(result.log.map((a) => [a.outcome, a.usageMissing])).toEqual([["rate_limited", false], ["unavailable", false], ["timeout", true]]);
+  });
+
+  it("marks usage missing for a sent call whose error came after a 2xx status line (afterHeaders, P3-11 d), whatever its kind", async () => {
+    const { deps } = testDeps();
+    const provider = scriptedProvider([new ProviderError("unavailable", "2xx body not JSON", { afterHeaders: true }), new ProviderError("bad_request", "2xx", { afterHeaders: true })]);
+    const result = await generateDraft(provider, FULL_SNAPSHOT, deps);
+    expect(result).toMatchObject({ ok: false, failure: "provider_error", providerErrorKind: "bad_request", attempts: 2 });
+    expect(result.log.map((a) => [a.outcome, a.usageMissing])).toEqual([["unavailable", true], ["bad_request", true]]);
   });
 
   it("keeps the last repair feedback across a transient error", async () => {

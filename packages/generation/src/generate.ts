@@ -215,8 +215,9 @@ export async function generateDraft(provider: ModelProvider, snapshot: Generatio
       // Only the two checks above and answerWithinLimit throw ProviderErrors. Anything else is a bug in our own code: it propagates.
       if (!(error instanceof ProviderError)) throw error;
       const kind = error.kind;
-      // A call that was sent and then timed out may still be billed, and its usage is unknown: never a silent 0.
-      log.push({ outcome: kind, issues: [], latencyMs: deps.now() - started, usageMissing: sent && kind === "timeout" });
+      // A call that was sent and then timed out, or failed after a 2xx status line (afterHeaders), may still be billed,
+      // and its usage is unknown: never a silent 0.
+      log.push({ outcome: kind, issues: [], latencyMs: deps.now() - started, usageMissing: sent && (kind === "timeout" || error.afterHeaders === true) });
       failure = "provider_error";
       providerErrorKind = kind;
       if (!TRANSIENT_KINDS.has(kind)) return { ok: false, failure, providerErrorKind, issues: capIssues(repair), attempts: calls, model, usage, log, inputBoundRefused };
