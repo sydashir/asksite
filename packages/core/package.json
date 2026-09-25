@@ -11,6 +11,7 @@
     "zod": "4.6.5"
   },
   "devDependencies": {
-    "@asksite/renderer": "workspace:*"
+    "@asksite/renderer": "workspace:*",
+    "wrangler": "4.138.0"
   }
 }

@@ -9,7 +9,7 @@
   "scripts": {
     "build:css": "pnpm --filter @asksite/renderer run build:css",
     "typecheck": "tsc -p . && tsc -p e2e",
-    "test": "pnpm build:css && vitest run",
+    "test": "pnpm build:css && vitest run --project unit && vitest run --project workerd",
     "test:e2e": "pnpm build:css && playwright test",
     "e2e:install": "playwright install --only-shell chromium webkit",
     "render": "pnpm build:css && node scripts/render-fixture.ts",
@@ -20,10 +20,12 @@
     "@asksite/renderer": "workspace:*",
     "@asksite/site-schema": "workspace:*",
     "@axe-core/playwright": "4.13.0",
+    "@cloudflare/workers-types": "5.20260924.1",
     "@playwright/test": "1.63.0",
     "@types/node": "24.13.6",
     "html-validate": "11.16.0",
     "typescript": "7.0.2",
-    "vitest": "5.0.1"
+    "vitest": "5.0.1",
+    "wrangler": "4.138.0"
   }
 }
