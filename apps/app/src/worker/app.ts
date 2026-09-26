@@ -5,6 +5,7 @@ import { authRoutes } from "./routes/auth.ts";
 import { meRoutes } from "./routes/me.ts";
 import { siteRoutes } from "./routes/sites.ts";
 import { slugRoutes } from "./routes/slugs.ts";
+import { uploadRoutes } from "./routes/uploads.ts";
 import type { AppEnv } from "./types.ts";
 
 /**
@@ -18,6 +19,7 @@ export function createApp(deps: AppDeps): Hono<AppEnv> {
   app.route("/api", meRoutes());
   app.route("/api", siteRoutes(deps));
   app.route("/api", slugRoutes());
+  app.route("/api", uploadRoutes());
   app.notFound(handleNotFound);
   app.onError(handleError);
   return app;

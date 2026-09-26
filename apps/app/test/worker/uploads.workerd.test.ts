@@ -1,0 +1,155 @@
+import { mediaUrl, type SiteView, type UploadView } from "@asksite/core";
+import { describe, expect, it } from "vitest";
+import { VALID_FACTS } from "../support/facts.ts";
+import { json, ROOT, useAppHarness } from "../support/harness.ts";
+import { animatedWebp, jpegWithGps, latin1, png, upload } from "../support/images.ts";
+
+const h = useAppHarness();
+
+type ErrorJson = { error: { code: string } };
+
+async function media(key: string) {
+  const env = (await h.server.getWorker().getEnv()) as { MEDIA: { get(key: string): Promise<{ arrayBuffer(): Promise<ArrayBuffer>; httpMetadata?: { contentType?: string }; customMetadata?: Record<string, string> } | null> } };
+  return env.MEDIA.get(key);
+}
+
+describe("POST /api/sites/:siteId/uploads", () => {
+  it("stores a PNG as a WebP in MEDIA and returns the UploadView", async () => {
+    const owner = await h.signIn();
+    const res = await h.call("POST", `/api/sites/${owner.siteId}/uploads`, { cookie: owner.cookie, body: upload(await png(400, 300), "x.png", "image/png") });
+    expect(res.status).toBe(201);
+    const view = await json<UploadView>(res);
+    expect(view).toMatchObject({ width: 400, height: 300, url: mediaUrl(ROOT, owner.siteId, view.id) });
+    const object = await media(`${owner.siteId}/${view.id}.webp`);
+    expect(object?.httpMetadata?.contentType).toBe("image/webp");
+    expect(object?.customMetadata).toEqual({ siteId: owner.siteId, uploadId: view.id });
+    const bytes = new Uint8Array(await object!.arrayBuffer());
+    expect(latin1(bytes.slice(0, 4))).toBe("RIFF");
+    expect(latin1(bytes.slice(8, 12))).toBe("WEBP");
+    expect(view.bytes).toBe(bytes.byteLength);
+  });
+
+  it("scales a large photo down to 1600 px and drops its EXIF and GPS data", async () => {
+    const owner = await h.signIn();
+    const res = await h.call("POST", `/api/sites/${owner.siteId}/uploads`, { cookie: owner.cookie, body: upload(await jpegWithGps(3200, 2400)) });
+    const view = await json<UploadView>(res);
+    expect([view.width, view.height]).toEqual([1600, 1200]);
+    const stored = latin1(new Uint8Array(await (await media(`${owner.siteId}/${view.id}.webp`))!.arrayBuffer()));
+    expect(stored).not.toContain("Exif");
+    expect(stored).not.toContain("LeakyCam");
+  });
+
+  it("stores an animated WebP as a still image", async () => {
+    const owner = await h.signIn();
+    const res = await h.call("POST", `/api/sites/${owner.siteId}/uploads`, { cookie: owner.cookie, body: upload(await animatedWebp(), "a.webp", "image/webp") });
+    expect(res.status).toBe(201);
+    const view = await json<UploadView>(res);
+    const stored = latin1(new Uint8Array(await (await media(`${owner.siteId}/${view.id}.webp`))!.arrayBuffer()));
+    expect(stored).not.toContain("ANIM");
+  });
+
+  it("refuses anything that is not really a JPEG, PNG or WebP with 415, whatever its name says", async () => {
+    const owner = await h.signIn();
+    const fakes = [
+      new TextEncoder().encode("GIF89a........"),
+      new TextEncoder().encode('<svg xmlns="http://www.w3.org/2000/svg"></svg>'),
+      new TextEncoder().encode("\u0000\u0000\u0000\u0018ftypheic...."),
+      new TextEncoder().encode("%PDF-1.7"),
+    ];
+    for (const bytes of fakes) {
+      const res = await h.call("POST", `/api/sites/${owner.siteId}/uploads`, { cookie: owner.cookie, body: upload(bytes, "photo.jpg", "image/jpeg") });
+      expect(res.status).toBe(415);
+    }
+  });
+
+  it("refuses a photo under 200 px, or one the image service cannot read, with 422 image_rejected", async () => {
+    const owner = await h.signIn();
+    const small = await h.call("POST", `/api/sites/${owner.siteId}/uploads`, { cookie: owner.cookie, body: upload(await png(150, 400), "s.png") });
+    expect(small.status).toBe(422);
+    expect((await json<ErrorJson>(small)).error.code).toBe("image_rejected");
+    const broken = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3, 4, 5, 6, 7, 8]);
+    const res = await h.call("POST", `/api/sites/${owner.siteId}/uploads`, { cookie: owner.cookie, body: upload(broken) });
+    expect(res.status).toBe(422);
+  });
+
+  it("refuses a file over 10 MB with 413", async () => {
+    const owner = await h.signIn();
+    const big = new Uint8Array(10 * 1024 * 1024 + 1);
+    big.set([0xff, 0xd8, 0xff]);
+    const res = await h.call("POST", `/api/sites/${owner.siteId}/uploads`, { cookie: owner.cookie, body: upload(big) });
+    expect(res.status).toBe(413);
+  });
+
+  it("refuses a body that is not multipart with 403", async () => {
+    const owner = await h.signIn();
+    const res = await h.call("POST", `/api/sites/${owner.siteId}/uploads`, { cookie: owner.cookie, body: { file: "x" } });
+    expect(res.status).toBe(403);
+  });
+
+  it("stops at 40 kept photos and at 150 uploads in total (429 upload_limit_reached)", async () => {
+    const db = await h.db();
+    const kept = await h.signIn();
+    for (let i = 0; i < 40; i += 1) {
+      await db.prepare("INSERT INTO uploads (id, site_id, width, height, bytes, created_at) VALUES (?, ?, 400, 300, 1, 1)").bind(crypto.randomUUID(), kept.siteId).run();
+    }
+    const full = await h.call("POST", `/api/sites/${kept.siteId}/uploads`, { cookie: kept.cookie, body: upload(await png(400, 300), "x.png") });
+    expect(full.status).toBe(429);
+    expect((await json<ErrorJson>(full)).error.code).toBe("upload_limit_reached");
+    expect(full.headers.get("Retry-After")).toBe("86400");
+
+    const churned = await h.signIn();
+    for (let i = 0; i < 150; i += 1) {
+      await db.prepare("INSERT INTO uploads (id, site_id, width, height, bytes, created_at, deleted_at) VALUES (?, ?, 400, 300, 1, 1, 2)").bind(crypto.randomUUID(), churned.siteId).run();
+    }
+    const res = await h.call("POST", `/api/sites/${churned.siteId}/uploads`, { cookie: churned.cookie, body: upload(await png(400, 300), "x.png") });
+    expect(res.status).toBe(429);
+  });
+
+  it("cannot upload to another owner's site", async () => {
+    const a = await h.signIn();
+    const b = await h.signIn();
+    const res = await h.call("POST", `/api/sites/${b.siteId}/uploads`, { cookie: a.cookie, body: upload(await png(400, 300), "x.png") });
+    expect(res.status).toBe(404);
+    expect((await h.call("POST", `/api/sites/${b.siteId}/uploads`, { cookie: b.cookie, body: upload(await png(400, 300), "x.png") })).status).toBe(201);
+  });
+
+  it("refuses a photo for a taken-down site with 423 and stores nothing", async () => {
+    const owner = await h.signIn();
+    const db = await h.db();
+    await db.prepare("UPDATE sites SET taken_down_at = 1 WHERE id = ?").bind(owner.siteId).run();
+    const res = await h.call("POST", `/api/sites/${owner.siteId}/uploads`, { cookie: owner.cookie, body: upload(await png(400, 300), "x.png") });
+    expect(res.status).toBe(423);
+    expect((await json<ErrorJson>(res)).error.code).toBe("site_taken_down");
+    expect((await db.prepare("SELECT COUNT(*) AS n FROM uploads WHERE site_id = ?").bind(owner.siteId).first<{ n: number }>())?.n).toBe(0);
+  });
+});
+
+describe("photo references and deletion", () => {
+  it("accepts facts that use this site's own upload, flags outside or resized URLs, and soft-deletes", async () => {
+    const owner = await h.signIn();
+    const view = await json<UploadView>(
+      await h.call("POST", `/api/sites/${owner.siteId}/uploads`, { cookie: owner.cookie, body: upload(await png(400, 300), "x.png") }),
+    );
+    const photo = { url: view.url, alt: "New water heater in a garage", width: 400, height: 300 };
+    const ok = await h.call("PATCH", `/api/sites/${owner.siteId}/draft`, { cookie: owner.cookie, body: { rev: 1, facts: { ...VALID_FACTS, heroPhoto: photo } } });
+    expect((await json<{ issues: SiteView["issues"] }>(ok)).issues.photos).toEqual([]);
+
+    const outside = { ...photo, url: "https://evil.example/x.webp" };
+    const resized = { ...photo, width: 800 };
+    const bad = await h.call("PATCH", `/api/sites/${owner.siteId}/draft`, {
+      cookie: owner.cookie,
+      body: { rev: 2, facts: { ...VALID_FACTS, heroPhoto: outside, photos: [resized] } },
+    });
+    const issues = (await json<{ issues: SiteView["issues"] }>(bad)).issues.photos;
+    expect(issues.map((i) => [i.path.join("."), i.code])).toEqual([
+      ["facts.heroPhoto.url", "photo_ref"],
+      ["facts.photos.0.url", "photo_ref"],
+    ]);
+
+    expect((await h.call("DELETE", `/api/sites/${owner.siteId}/uploads/${view.id}`, { cookie: owner.cookie })).status).toBe(204);
+    expect((await h.call("DELETE", `/api/sites/${owner.siteId}/uploads/${view.id}`, { cookie: owner.cookie })).status).toBe(404);
+    const after = await json<SiteView>(await h.call("GET", `/api/sites/${owner.siteId}`, { cookie: owner.cookie }));
+    expect(after.uploads).toEqual([]);
+    expect(await media(`${owner.siteId}/${view.id}.webp`)).not.toBeNull();
+  });
+});
