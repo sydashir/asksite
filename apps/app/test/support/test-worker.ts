@@ -122,8 +122,25 @@ helpers.get("/__test/wait-until", (c) => c.json(waitUntilSeen.get(c.req.query("p
 // for this file only; the bundler erases the declaration and the name is looked up in the runtime.
 declare const process: unknown;
 
-/** A13: what `typeof process` is inside this Worker ("undefined" once Node.js compatibility is off). */
-helpers.get("/__test/runtime", (c) => c.json({ process: typeof process }));
+/**
+ * A13: whether node:process can be imported inside this Worker, and if so, which names its env holds and
+ * which of this Worker's binding names can be read from it (names only, never values). The specifier is a
+ * variable, so the bundler leaves the import to the runtime.
+ */
+async function nodeProcessEnv(bindingNames: string[]) {
+  const specifier = "node:process";
+  let env: Record<string, unknown>;
+  try {
+    const imported = (await import(specifier)) as { env?: unknown; default?: { env?: unknown } };
+    env = (imported.env ?? imported.default?.env ?? {}) as Record<string, unknown>;
+  } catch (err) {
+    return { importable: false, error: errorName(err) };
+  }
+  return { importable: true, envKeys: Reflect.ownKeys(env).map(String), readable: bindingNames.filter((name) => env[name] !== undefined), checked: bindingNames };
+}
+
+/** A13: what `typeof process` is inside this Worker ("undefined" once Node.js compatibility is off), and what node:process gives. */
+helpers.get("/__test/runtime", async (c) => c.json({ process: typeof process, nodeProcess: await nodeProcessEnv(Object.keys(c.env)) }));
 
 /** What workerd's global fetch does called as a plain function, and as a method of another object (siteverify's receiver check). */
 helpers.get("/__test/fetch-receiver", async (c) => {
