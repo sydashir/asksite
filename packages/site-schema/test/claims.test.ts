@@ -428,7 +428,7 @@ describe("unbackedClaims", () => {
     ["Bonded\u20DDcrew", ["Bonded"], ["Bonded"]], // U+20DD combining enclosing circle (Me)
     ["Free\u20E3quote", ["Free"], []], // U+20E3 combining enclosing keycap (Me)
     ["Certified\u{1D165}pros", ["Certified"], ["Certified"]], // U+1D165 musical symbol combining stem (Mc)
-    ["Certifiedé crew", ["Certified"], ["Certified"]], // é is e + U+0301 under NFD
+    ["Certifiedé crew", ["Certified"], ["Certified"]], // é (U+00E9) is not an A-Z letter, so a word ends before it (NFC keeps it, A9c)
     // A word is shown as typed when the typed reading finds it, so the owner can find it in the copy: here as
     // main showed it, although the folded reading is "guaranteed".
     ["Satisfaction guaranteeđ", ["guarantee"], ["guarantee"]],

@@ -21,17 +21,20 @@ import { foldLookalikes } from "./lookalikes.ts";
 //   of a precomposed letter, the look-alikes listed in lookalikes.ts read as the A-Z letters they look like, and
 //   the click letters read as punctuation. So an overlay mark inside a word or between two words ("Licen" +
 //   U+0336 + "sed", "Award" + " " + U+0336 + "winning"), a look-alike letter ("lıcensed", "ƒree", "ŁICENSED")
-//   or a click letter ("ǀCertifiedǀ", where "ǀ" looks like "|") hides no claim. The fold alone would join two
+//   or a click letter ("ǀCertifiedǀ", where "ǀ" looks like "|") on its own hides no claim. The fold alone would join two
 //   words the page shows apart ("Top" + U+0336 + "rated"), so the typed reading stays: the fold only ever adds a claim.
 // A CamelCase word is read as typed, as before A9: A9d dropped A9c's CamelCase reading, which refused real names
 // that run a claim word into another word ("McMillion Creek", "FreeFlow Plumbing", "StreakFree Window Cleaning").
 // Phonetic letters, small capitals and letters that look like digits ("ɪnsured", "ᴄertified", "Ƨ") never get
 // here: Copy refuses them.
-// Accepted residuals (the approval screen is the backstop): a precomposed accented letter is read as typed, so
-// a deliberately accented claim word ("lícensed", "frée") is not caught (A9c), as before A9; a letter the table
-// does not list ("Ɛ", "Ʌ") or a symbol ("fr℮℮", "L¡censed"); a combining Latin small letter used as a letter
-// ("Lic" + U+0364 + "nsed"); ASCII "l" or "|" for "I" and a click letter for "l" ("CERTlFlED", "ǀicensed"); a claim
-// word run into another word in CamelCase ("TopRated", "WeAreBonded"; A9d); and the phrasings the word lists do not cover.
+// Accepted residuals (the approval screen is the backstop; each passes at main too; design §2.2 lists them with
+// examples): a precomposed accented letter is read as typed, so a deliberately accented claim word ("lícensed", "frée")
+// is not caught (A9c), as before A9; a letter the table reads another way ("cheaþest", þ is "th"; "Ɩicensed", Ɩ is "I")
+// or does not list ("Ɛ", "Ʌ"), or a symbol ("fr℮℮", "L¡censed", "days∕week"); a combining Latin small letter used as a
+// letter ("Lic" + U+0364 + "nsed"); ASCII "l" or "|" for "I" and a click letter for "l" ("CERTlFlED", "ǀicensed"); an
+// overlay mark inside a claim word together with a look-alike glued to its end ("Bon" + U+0336 + "dedł"), which neither
+// reading finds; a claim word run into another word in CamelCase ("TopRated", "WeAreBonded"; A9d); and the phrasings the
+// word lists do not cover.
 
 /** Claims no owner fact backs: rejected in copy whatever the facts say. */
 export const NEVER_IN_COPY: readonly RegExp[] = [
