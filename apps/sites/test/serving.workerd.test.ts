@@ -167,3 +167,76 @@ describe("photos on media.<root>", () => {
     expect((await get(media(site.siteId, uploadId), { method: "PUT", body: "x" })).status).toBe(404);
   });
 });
+
+// Pins beyond the brief: each test below fails on a code change that every test above lets through.
+describe("pinned edges", () => {
+  const media = (siteId: string, uploadId: string) => `https://media.${ROOT}/${siteId}/${uploadId}.webp`;
+
+  it("serves a live site's page only at / and only to GET and HEAD", async () => {
+    const site = await seedSite(tools);
+    for (const path of ["/index.html", "/wp-admin", `/${liveKey(site.slug)}`]) {
+      const response = await get(at(site.slug, path));
+      expect(response.status, path).toBe(404);
+      expect(response.headers.get("x-robots-tag"), path).toBe("noindex");
+    }
+    for (const method of ["POST", "PUT", "DELETE"]) expect((await get(at(site.slug), { method, body: "x" })).status, method).toBe(404);
+  });
+
+  it("does not cache the 404 of a taken-down site, so a restore is served at once", async () => {
+    const site = await seedSite(tools, { takenDown: true });
+    expect((await get(at(site.slug))).status).toBe(404);
+    await tools.DB.prepare("UPDATE sites SET taken_down_at = NULL WHERE id = ?").bind(site.siteId).run();
+    expect(await (await get(at(site.slug))).text()).toBe(site.html);
+  });
+
+  it("answers HEAD for a photo with the photo headers and no body", async () => {
+    const site = await seedSite(tools);
+    const { uploadId } = await seedUpload(tools, site.siteId);
+    const response = await get(media(site.siteId, uploadId), { method: "HEAD" });
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toBe("image/webp");
+    expect(await response.text()).toBe("");
+  });
+
+  it("D1 decides a photo's site: an object stored under another site's id is not served", async () => {
+    const site = await seedSite(tools);
+    const other = await seedSite(tools);
+    const { uploadId, bytes } = await seedUpload(tools, site.siteId);
+    await tools.MEDIA.put(mediaKey(other.siteId, uploadId), bytes);
+    expect((await get(media(other.siteId, uploadId))).status).toBe(404);
+  });
+
+  it("serves only lower-case v4 UUID ids, even when a row and an object exist under another spelling", async () => {
+    const site = await seedSite(tools);
+    const upper = newId().toUpperCase();
+    await tools.DB.prepare("INSERT INTO uploads (id, site_id, width, height, bytes, created_at) VALUES (?, ?, 1600, 1200, 4, 1)").bind(upper, site.siteId).run();
+    await tools.MEDIA.put(mediaKey(site.siteId, upper), new Uint8Array([1, 2, 3, 4]));
+    expect((await get(media(site.siteId, upper))).status).toBe(404);
+  });
+
+  it("keeps a served photo in this data centre's cache", async () => {
+    const site = await seedSite(tools);
+    const { uploadId, bytes } = await seedUpload(tools, site.siteId);
+    expect((await get(media(site.siteId, uploadId))).status).toBe(200);
+    await tools.DB.prepare("UPDATE sites SET taken_down_at = 99 WHERE id = ?").bind(site.siteId).run();
+    await tools.MEDIA.delete(mediaKey(site.siteId, uploadId));
+    const cached = await get(media(site.siteId, uploadId));
+    expect(cached.status).toBe(200);
+    expect(new Uint8Array(await cached.arrayBuffer())).toEqual(bytes);
+  });
+
+  it("answers 503 with Retry-After when D1 fails for a stored photo, and does not cache it", async () => {
+    const site = await seedSite(tools);
+    const { uploadId } = await seedUpload(tools, site.siteId);
+    await tools.DB.prepare("ALTER TABLE uploads RENAME TO uploads_offline").run();
+    try {
+      const response = await get(media(site.siteId, uploadId));
+      expect(response.status).toBe(503);
+      expect(response.headers.get("retry-after")).toBe("60");
+      expect(response.headers.get("x-robots-tag")).toBe("noindex");
+    } finally {
+      await tools.DB.prepare("ALTER TABLE uploads_offline RENAME TO uploads").run();
+    }
+    expect((await get(media(site.siteId, uploadId))).status).toBe(200);
+  });
+});
