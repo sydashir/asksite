@@ -18,6 +18,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   vi.unstubAllGlobals();
+  expect(globalFetchCalls).toEqual([]);
 });
 
 describe("createProvider", () => {
