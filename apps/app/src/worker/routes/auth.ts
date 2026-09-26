@@ -1,4 +1,4 @@
-import { ApiError, inBackground, logLine, magicLinkEmail, rateLimit, readJson, runToEnd, trySend } from "@asksite/app-common";
+import { ApiError, inBackground, logLine, magicLinkEmail, noteLog, rateLimit, readJson, runToEnd, trySend } from "@asksite/app-common";
 import { AcceptInviteBody, hashIp, ipRateKey, LIMITS, LoginBody, newId, newToken, sha256Hex, TTL, utcDayStart, VerifyLoginBody, type OwnerView } from "@asksite/core";
 import { Hono, type MiddlewareHandler } from "hono";
 import { clientIp, mailerEnv } from "../db.ts";
@@ -63,7 +63,13 @@ export function authRoutes(deps: AppDeps): Hono<AppEnv> {
   // §4.4: a session or none, always 204 with the cookie expired. No requireOwner and no rate limiter
   // (neither AUTH_RL nor API_RL), so signing out always works; the Origin check still applies (app.ts).
   auth.post("/logout", async (c) => {
-    await endSession(c);
+    try {
+      await endSession(c);
+    } catch (err) {
+      // Even a failed DELETE signs the browser out: its cookie is expired below, and the row expires on
+      // its own. The request's one log line records the failure (the error's class name only).
+      noteLog(c, { event: "session_delete_failed", error: err instanceof Error ? err.name : "unknown" });
+    }
     c.header("Set-Cookie", EXPIRED_SESSION_COOKIE);
     return c.body(null, 204);
   });

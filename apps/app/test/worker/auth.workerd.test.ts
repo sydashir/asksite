@@ -578,6 +578,23 @@ describe("sessions", () => {
     expect(left).not.toContain(await sha256Hex(cookieValue(owner.cookie)));
   });
 
+  it("logout still answers 204 with the expired cookie when deleting the session fails, and its one log line says so", async () => {
+    const owner = await h.signIn();
+    h.server.clearLogs();
+    await withTrigger(
+      "fail_logout",
+      `CREATE TRIGGER fail_logout BEFORE DELETE ON sessions WHEN OLD.owner_id = '${owner.ownerId}' BEGIN SELECT RAISE(ABORT, 'test failure'); END`,
+      async () => {
+        await loggedOut(await h.call("POST", "/api/auth/logout", { cookie: owner.cookie, ip: nextIp() }));
+      },
+    );
+    // The row the DELETE could not remove is still there (it expires on its own); the browser's cookie is gone.
+    expect(await sessionHashes(owner.ownerId)).toEqual([await sha256Hex(cookieValue(owner.cookie))]);
+    const lines = h.logLines().filter((line) => line["route"] === "POST /api/auth/logout");
+    expect(lines).toEqual([{ route: "POST /api/auth/logout", status: 204, ms: expect.any(Number), event: "session_delete_failed", error: "Error" }]);
+    expect(h.server.getLogs().map((entry) => entry.message).join("\n")).not.toContain(cookieValue(owner.cookie));
+  });
+
   it("logout from another site is refused like every change (Origin check), and the session stays", async () => {
     const owner = await h.signIn();
     const res = await h.call("POST", "/api/auth/logout", { cookie: owner.cookie, ip: nextIp(), origin: "https://evil.example" });
