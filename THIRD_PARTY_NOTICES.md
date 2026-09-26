@@ -75,7 +75,9 @@ SOFTWARE.
 - Source: Unicode Security Mechanisms for UTS #39, `confusables.txt`, Version 18.0.0 (2026-08-06),
   https://www.unicode.org/Public/18.0.0/security/confusables.txt
 - Used in: the look-alike table in `packages/site-schema/src/lookalikes.ts` and the letters that look like digits
-  (`DIGIT_LETTER`) in `packages/site-schema/src/copy.ts`, which are derived in part from that file.
+  (`DIGIT_LETTER`) in `packages/site-schema/src/copy.ts`, which are derived in part from that file and (A9e) from
+  `UnicodeData.txt` and `NamesList.txt` 18.0.0 (https://www.unicode.org/Public/18.0.0/ucd/), Unicode Data Files under
+  the same licence.
 - Licence: Unicode License v3. The file's terms of use (https://www.unicode.org/terms_of_use.html, which redirects
   to https://www.unicode.org/copyright.html) place all Unicode Data Files, everything under
   https://www.unicode.org/Public/, under it. Text copied from https://www.unicode.org/license.txt:

@@ -4,17 +4,17 @@ import { z } from "zod";
 // becomes "$89" before it is checked), then rejected if it contains:
 // - a character Unicode classes as a number (\p{N}, e.g. "5", "٥", "½"), a currency symbol
 //   (\p{Sc}), "@", "http:", "https:" or "www.", or one of the Latin letters listed in DIGIT_LETTER below, which
-//   look like a digit ("Ƨ", "ƨ", "Ƽ", A9c; "Ỽ", A9d);
+//   look like a digit ("Ƨ", "ƨ", "Ƽ", A9c; "Ỽ", A9d; "ꜭ", "ᴈ", A9e);
 // - a control or invisible formatting character (\p{Cc}, \p{Cf});
 // - any character outside the Latin, Common (punctuation, symbols, emoji) and Inherited
 //   (combining marks) scripts. Other scripts can write numbers and prices as letters ("五百元")
 //   and have letters that look Latin (Cyrillic "о", U+043E);
-// - a letter from a phonetic block, whose letters can pass for A-Z letters (A9b, A9c): phonetic letters and
-//   small capitals such as "ɪ", "ᴄ", "ꬶ" and "ʟɪᴄᴇɴꜱᴇᴅ" (NON_ENGLISH_LETTER below). Accepted residual: a name
-//   written with such a letter is refused too ("Wewətanagok", with ə).
-//   Every other Latin letter passes: "café", "Bjørn", "Łukasz", "Straße", "Hawaiʻi" (U+02BB ʻokina), and the glottal
-//   stop "ʔ" of official US place names ("dukMéʔem wáťa").
-//   claims.ts reads the look-alikes listed in lookalikes.ts ("ı", "ƒ", "Ł") as A-Z letters.
+// - a small capital, which looks like an A-Z letter (A9b, A9e): "ɪ", "ᴄ", "ꜱ" and "ʟɪᴄᴇɴꜱᴇᴅ" (SMALL_CAPITAL below).
+//   Every other Latin letter passes (A9e), phonetic letters included, because real names and places use them:
+//   "café", "Bjørn", "Łukasz", "Straße", "Hawaiʻi" (U+02BB ʻokina), the glottal stop "ʔ" of official US place names
+//   ("dukMéʔem wáťa"), the schwa of Azerbaijani names and US place names ("Rəşad", "Wewətanagok"), the saltillo of Alaska
+//   Native and Mesoamerican languages ("Cupꞌik") and the open e and open o of West African names ("ɛ", "ɔ").
+//   claims.ts reads the look-alikes listed in lookalikes.ts ("ı", "ƒ", "Ł", "ɡ", "ə") as A-Z letters.
 // So copy cannot write a price, phone number, licence number, year or email in digits or symbols,
 // or a link that starts "http:", "https:" or "www.". Not caught here: bare domains ("acme.com")
 // and numbers spelled with Latin letters ("five", "XII"). Worded claims ("licensed", "free",
@@ -26,39 +26,47 @@ import { z } from "zod";
 const FACT_LIKE = /[\p{N}\p{Sc}@]|https?:|www\./iu;
 
 /**
- * Latin letters that look like a digit (A9c), derived from Unicode 18.0.0 data:
- * - every Latin letter whose skeleton in confusables.txt (UTS #39, Version 18.0.0 of 2026-08-06,
- *   https://www.unicode.org/Public/18.0.0/security/confusables.txt, Unicode License v3, notice in THIRD_PARTY_NOTICES.md),
- *   with combining marks removed, is one ASCII digit: Ƨ U+01A7 "2", Ʒ U+01B7 "3", ƻ U+01BB "2" (with a stroke), Ƽ U+01BC
- *   "5", Ǯ U+01EE "3" (Ʒ with a caron), Ȝ U+021C "3", Ȣ U+0222 and ȣ U+0223 "8", Ꝛ U+A75A "2", Ꝫ U+A76A "3", Ꝯ U+A76E
- *   and ꝯ U+A76F "9", Ɜ U+A7AB "3";
- * - the other case of each (UnicodeData.txt), which draws the same digit smaller, so "(ƨƽƽ) ƽƽƽ" reads "(255) 555":
+ * Latin letters that look like a digit, derived from Unicode 18.0.0 data (confusables.txt: UTS #39, Version 18.0.0 of
+ * 2026-08-06, https://www.unicode.org/Public/18.0.0/security/confusables.txt, Unicode License v3, notice in
+ * THIRD_PARTY_NOTICES.md):
+ * - (A9c) every Latin letter whose confusables.txt skeleton, with combining marks removed, is one ASCII digit: Ƨ U+01A7
+ *   "2", Ʒ U+01B7 "3", ƻ U+01BB "2" (with a stroke), Ƽ U+01BC "5", Ǯ U+01EE "3" (Ʒ with a caron), Ȝ U+021C "3", Ȣ U+0222
+ *   and ȣ U+0223 "8", Ꝛ U+A75A "2", Ꝫ U+A76A "3", Ꝯ U+A76E and ꝯ U+A76F "9", Ɜ U+A7AB "3";
+ * - (A9c) the other case of each (UnicodeData.txt), which draws the same digit smaller, so "(ƨƽƽ) ƽƽƽ" reads "(255) 555":
  *   ƨ U+01A8, ƽ U+01BD, ǯ U+01EF, ȝ U+021D, ɜ U+025C, ʒ U+0292, ꝛ U+A75B, ꝫ U+A76B;
- * - the letters named after one of them "... WITH ...": ƺ U+01BA, ʓ U+0293, ᶚ U+1D9A, U+1DF18 (EZH), ɝ U+025D, ᶔ U+1D94
- *   (REVERSED OPEN E) and U+1DF94 (R ROTUNDA, Unicode 18.0);
- * - Ỽ U+1EFC and ỽ U+1EFD, LATIN CAPITAL and SMALL LETTER MIDDLE-WELSH V (A9d), which draw as a 6 and a small 6 in all
- *   six theme font stacks (Playwright's Chromium and WebKit on macOS) but have no confusables.txt entry, so "Save ỼO%"
- *   reads "Save 6O%".
- * Those in IPA Extensions, the Phonetic Extensions Supplement and Latin Extended-D and -G, which NON_ENGLISH_LETTER refuses
- * anyway, are listed too, so they get the number message. Not letters, so not listed: symbols that draw like a digit, such
- * as ⁊ U+204A, which looks like "7".
+ * - (A9c) the letters named after one of them "... WITH ...": ƺ U+01BA, ʓ U+0293, ᶚ U+1D9A, U+1DF18 (EZH), ɝ U+025D, ᶔ
+ *   U+1D94 (REVERSED OPEN E) and U+1DF94 (R ROTUNDA, Unicode 18.0);
+ * - (A9d) Ỽ U+1EFC and ỽ U+1EFD, MIDDLE-WELSH V, which draw as a 6 and a small 6 in all six theme font stacks
+ *   (Playwright's Chromium and WebKit on macOS) but have no confusables.txt entry, so "Save ỼO%" reads "Save 6O%";
+ * - (A9e) the letters whose confusables.txt skeleton holds a digit or one of the letters above: ᴈ U+1D08 (ɜ), ᴤ U+1D24
+ *   (ƨ), ɮ U+026E (l + ȝ), ʤ U+02A4 (d + ȝ), Ꜩ U+A728 (T + 3), ꜩ U+A729 (t + ȝ), and U+1DF20 (d + l + ȝ), U+1DF2B (d + ʓ)
+ *   and U+1DF67 (l + ʓ) of Unicode 18.0; and the letters named after one of them "... WITH ...": U+1DF05 (LEZH),
+ *   U+1DF12 and U+1DF19 (DEZH DIGRAPH);
+ * - (A9e) ꜭ U+A72D CUATRILLO, which NamesList.txt cross-refers to the digit four, its capital Ꜭ U+A72C and the two
+ *   named after it, Ꜯ U+A72E and ꜯ U+A72F (CUATRILLO WITH COMMA);
+ * - (A9e) letters that draw as a digit in the Unicode 18.0 code charts, in the macOS fonts of the theme stacks or in Noto
+ *   Sans and Noto Serif (the fallback fonts of Android), though confusables.txt has no digit for them: Ꜣ U+A722 and ꜣ
+ *   U+A723 (3), Ꝝ U+A75C and ꝝ U+A75D (2 with a stroke), Ꝣ U+A762 and ꝣ U+A763 (3), ꝸ U+A778 (8), ᵷ U+1D77 (6 or 8),
+ *   ᵹ U+1D79 (3), Ꞁ U+A780 and ꭋ U+AB4B (7, like ⁊), Ꟃ U+A7C2 and ꟃ U+A7C3 ("V3"), Ꟑ U+A7D0 (8) and ꟑ U+A7D1 (3), ꟼ
+ *   U+A7FC (9); ꭌ U+AB4C, named after ꭋ; and U+AB6C and U+AB6D, the capitals of ꭋ and ꭌ (Unicode 18.0).
+ * Not letters, so not listed: symbols that draw like a digit, such as ⁊ U+204A, which looks like "7".
  */
 const DIGIT_LETTER =
-  /[\u01A7\u01A8\u01B7\u01BA-\u01BD\u01EE\u01EF\u021C\u021D\u0222\u0223\u025C\u025D\u0292\u0293\u1D94\u1D9A\uA75A\uA75B\uA76A\uA76B\uA76E\uA76F\uA7AB\u1EFC\u1EFD\u{1DF18}\u{1DF94}]/u;
+  /[ƧƨƷƺ-ƽǮǯȜȝȢȣɜɝɮʒʓʤᴈᴤᵷᵹᶔᶚỼỽꜢꜣꜨꜩꜬ-ꜯꝚ-ꝝꝢꝣꝪꝫꝮꝯꝸꞀꞫꟂꟃꟐꟑꟼꭋꭌ꭬꭭\u{1DF05}\u{1DF12}\u{1DF18}\u{1DF19}\u{1DF20}\u{1DF2B}\u{1DF67}\u{1DF94}]/u;
 const HIDDEN_CHARACTER = /[\p{Cc}\p{Cf}]/u;
 const NON_LATIN_SCRIPT = /[^\p{Script=Latin}\p{Script=Common}\p{Script=Inherited}]/u;
 
 /**
- * Letters from phonetic blocks, whose letters can pass for A-Z letters (A9b, A9c; block ranges from Unicode's
- * Blocks.txt): U+0250-02AF IPA Extensions ("ɪ", "ʟ", "ɡ") except U+0294 ʔ LATIN LETTER GLOTTAL STOP, which
- * official US place names use (US Board on Geographic Names, GNIS 260516 "dukMéʔem wáťa"); U+1D00-1D7F Phonetic
- * Extensions and U+1D80-1DBF Phonetic Extensions Supplement ("ᴄ", "ᴇ"); U+A720-A7FF Latin Extended-D ("ꜱ", "Ɪ",
- * "Ꝼ"); U+AB30-AB6F Latin Extended-E ("ꬶ", "ꭋ") and U+1DF00-1DFFF Latin Extended-G; and the two other letters
- * whose Unicode name says SMALL CAPITAL, U+2C7B and U+10780 (UnicodeData.txt 17.0 and 18.0). The modifier-letter
- * small capitals (U+02B6, U+10784 and others) become one of these under NFKC, which runs first. Symbols in these
- * blocks that are not letters (U+A720, U+A789) are allowed, like other punctuation.
+ * The small capitals (A9b, A9e), which look like A-Z letters ("ᴄ", "ʀ", "ꜱ"): every letter whose Unicode name says SMALL
+ * CAPITAL (UnicodeData.txt 18.0.0, 78 letters, in IPA Extensions, the Phonetic Extensions and Latin Extended-C, -D, -E, -F
+ * and -G), the modifier (superscript) small capitals included. NFKC runs first and turns most modifier small capitals
+ * (U+02B6, U+1DA6, U+10784...) into one of these; U+10780 has no such mapping and is listed itself. The eight Unicode
+ * 18.0 adds (U+1DF30, U+1DF35, U+1DF36, U+1DF43, U+1DFD1, U+1DFE8-1DFEA) are unassigned in this engine, which refuses
+ * them as an unknown script; they are listed so an engine upgrade keeps refusing them. The Greek and Cyrillic small
+ * capitals (U+1D26-1D2B, U+AB65) are refused as another script first.
  */
-const NON_ENGLISH_LETTER = /(?=\p{L})[\u0250-\u0293\u0295-\u02AF\u1D00-\u1DBF\uA720-\uA7FF\uAB30-\uAB6F\u2C7B\u{10780}\u{1DF00}-\u{1DFFF}]/u;
+const SMALL_CAPITAL =
+  /[ɢɪɴɶʀʁʏʙʛʜʟʶᴀᴁᴃ-ᴇᴊ-ᴐᴕᴘ-ᴜᴠ-ᴣᴦ-ᴫᵻᵾᶦᶧᶫᶰᶸⱻꜰꜱꝶꞮꞯꟺꭆꭥ\u{10780}\u{10784}\u{10792}\u{10794}\u{10796}\u{1079C}\u{107A3}\u{107AA}\u{107B2}\u{1DF02}\u{1DF04}\u{1DF10}\u{1DF30}\u{1DF35}\u{1DF36}\u{1DF43}\u{1DFD1}\u{1DFE8}-\u{1DFEA}]/u;
 
 export const prose = (max: number) =>
   z
@@ -77,10 +85,10 @@ export const prose = (max: number) =>
       // It changes which message is shown, never whether a string is rejected.
       when: (payload) => payload.issues.length === 0,
     })
-    .refine((s) => !NON_ENGLISH_LETTER.test(s), {
+    .refine((s) => !SMALL_CAPITAL.test(s), {
       // Starts like the message above, so callers that key on "AI copy must use Latin script" (Plan 3's
       // repair rules, Plan 4's owner messages) treat both alike.
-      error: "AI copy must use Latin script letters used in English, not phonetic letters or small capitals such as ɪ, ᴄ or ꜱ",
+      error: "AI copy must use Latin script letters, not small capitals such as ɪ, ᴄ or ꜱ",
       when: (payload) => payload.issues.length === 0, // as above: a non-Latin letter gets only the message above
     });
 

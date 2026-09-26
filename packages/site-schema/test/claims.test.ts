@@ -375,6 +375,19 @@ describe("unbackedClaims", () => {
     ["Help around þe clock", "around the clock"], // þ reads "th"
     ["Help day or ŋight", "day or night"], // U+014B eng
     ["There is ŋo charge", "no charge"],
+    // A9e: letters of the phonetic blocks, which copy now accepts
+    ["Fully licənsəd", "licensed"], // U+0259 schwa
+    ["ƐMERGENCY CALLS", "EMERGENCY"], // U+0190 open E (a residual until A9e)
+    ["Get a frɛɛ quote", "free"], // U+025B open e
+    ["Licenʂed plumbers", "Licensed"], // U+0282 s with hook
+    ["Licenᶊed crew", "Licensed"], // U+1D8A s with palatal hook
+    ["Ꝼree quotes", "Free"], // U+A77B insular F
+    ["Fully licꬳnsꬳd", "licensed"], // U+AB33 barred e
+    ["There is ꬼo charge", "no charge"], // U+AB3C eng with crossed-tail
+    ["Fully \u{1DF1A}nsured", "insured"], // i with stroke and retroflex hook (Latin Extended-G)
+    ["Emerɡency plumbing", "Emergency"], // U+0261 script g
+    ["Call ɑnytime", "anytime"], // U+0251 alpha
+    ["Help day or ꝴight", "day or night"], // U+A774 NUM, an n with a stroke
   ])("reads the look-alike letters in %j as A-Z and finds %j unless the facts back it", (text, word) => {
     expect(unbackedClaims(text, NONE)).toEqual([word]);
     expect(unbackedClaims(text, ALL)).toEqual([]);
@@ -387,6 +400,12 @@ describe("unbackedClaims", () => {
     ["Certifieđ technicians", "Certified"],
     ["Top-ɍated crew", "Top-rated"], // U+024D r with stroke
     ["Ƒive-star service", "Five-star"],
+    // A9e
+    ["ꬶuaranteed results", "guaranteed"], // U+AB36 script g with crossed-tail
+    ["Our guarꬰntee", "guarantee"], // U+AB30 barred alpha
+    ["ɑward-winning crew", "award-winning"], // U+0251 alpha
+    ["Ꞵonded crew", "Bonded"], // U+A7B4 capital beta (confusables.txt: B)
+    ["ƔEARS OF CARE", "YEARS"], // U+0194 capital gamma, the other case of ɣ (confusables.txt: y)
   ])("never allows %j (%j once read as A-Z), whatever the facts", (text, claim) => {
     expect(unbackedClaims(text, NONE)).toEqual([claim]);
     expect(unbackedClaims(text, ALL)).toEqual([claim]);
@@ -401,6 +420,15 @@ describe("unbackedClaims", () => {
     "Encyclopædia-level know-how",
     "José, Señor, Crème and a naïve café owner",
     "Þórr runs the crew",
+    // A9e: letters of the phonetic blocks in real names and places (English Wikipedia titles; USGS GNIS)
+    "Serving homes near Wewətanagok",
+    "Ayşən Əbdüləzimova and Aşiq Ələsgər",
+    "Chevak Cupꞌik dialect",
+    "Ofon Na Ɛdi Asɛm Fo",
+    "Oberi Ɔkaimɛ",
+    "Eʋe and Kʋsaal",
+    "Agraw Imaziɣen",
+    "Fulɓe and Gaɗi language",
   ])("finds no claim in real place names and people's names: %j", (text) => {
     expect(unbackedClaims(text, NONE)).toEqual([]);
   });
@@ -601,7 +629,7 @@ describe("SiteDocument rejects AI copy that states facts the owner did not give"
     "Same \u0336day help",
     "L\u0131censed and \u0131nsured plumbers", // U+0131 dotless i (A9b: read as "i", so a claim)
     "\u029F\u026A\u1D04\u1D07\u0274\uA731\u1D07\u1D05 \u1D00\u0274\u1D05 \u026A\u0274\uA731\u1D1C\u0280\u1D07\u1D05 plumbers", // small capitals (refused by Copy)
-    "Licen\u0282ed plumbers", // U+0282 s with hook (IPA Extensions, refused by Copy)
+    "Licen\u0282ed plumbers", // U+0282 s with hook (IPA Extensions; A9e: Copy accepts it and the claim checker reads "Licensed")
     "Get a \u0192ree quote", // A9b: U+0192 f with hook reads "free"
     "\u0141ICENSED PLUMBERS", // A9b: U+0141 reads "L"
     "FULLY \u0196NSURED", // A9b: U+0196 capital iota reads "I"
@@ -614,7 +642,9 @@ describe("SiteDocument rejects AI copy that states facts the owner did not give"
     "Call (ƧOȢ) ƼƼƼ-OlƧƷ", // A9c: letters that look like digits (refused by Copy)
     "Call (ƨƽƽ) ƽƽƽ-Olƨȝ today.", // A9c review: their small forms draw the same digits
     "Save \u1EFCO% on drain cleaning.", // A9d: U+1EFC MIDDLE-WELSH V draws as a 6 (refused by Copy)
-    "ꬶuaranteed results", // A9c: Latin Extended-E (refused by Copy)
+    "ꬶuaranteed results", // A9c: Latin Extended-E (A9e: Copy accepts it and the claim checker reads "guaranteed")
+    "Ꝼree quotes", // A9e: U+A77B insular F reads F
+    "Save \uA72DO% on drain cleaning.", // A9e: U+A72D cuatrillo draws as a 4 (refused by Copy)
     "\u01C0Certi\u0307fied\u01C0 pros", // A9c: a click letter reads as "|", and the leftover U+0307 goes
     "\u019CARRANTY INCLUDED", // A9c: U+019C reads W
   ])("%j", (claim) => {
@@ -697,6 +727,11 @@ describe("SiteDocument keeps AI copy the checks have no reason to reject", () =>
     "Ask for McDonald or DeShawn",
     "StreakFree windows and HassleFree booking near McMillion Creek", // A9d: CamelCase names are read as typed, as at main
     "Our l\u00EDcensed team", // A9c accepted residual: a precomposed accented letter is read as typed
+    // A9e: letters of the phonetic blocks in real names and places
+    "Serving homes near Wew\u0259tanagok.", // GNIS 580743
+    "Ask for Ay\u015F\u0259n \u018Fbd\u00FCl\u0259zimova", // Azerbaijani
+    "Chevak Cup\uA78Cik dialect", // saltillo
+    "Oberi \u0186kaim\u025B", // open o and open e
   ])("%j", (text) => {
     const faq = [{ question: "Why us?", answer: text }];
     const result = SiteDocument.safeParse({ ...MINIMAL_DOC, copy: { ...MINIMAL_DOC.copy, faq } });

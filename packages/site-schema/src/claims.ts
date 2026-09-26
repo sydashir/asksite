@@ -25,16 +25,16 @@ import { foldLookalikes } from "./lookalikes.ts";
 //   words the page shows apart ("Top" + U+0336 + "rated"), so the typed reading stays: the fold only ever adds a claim.
 // A CamelCase word is read as typed, as before A9: A9d dropped A9c's CamelCase reading, which refused real names
 // that run a claim word into another word ("McMillion Creek", "FreeFlow Plumbing", "StreakFree Window Cleaning").
-// Phonetic letters, small capitals and letters that look like digits ("ɪnsured", "ᴄertified", "Ƨ") never get
-// here: Copy refuses them.
+// Small capitals and letters that look like digits ("ɪnsured", "ᴄertified", "Ƨ", "ꜭ") never get here: Copy refuses
+// them. Other phonetic letters do (A9e), and lookalikes.ts lists the look-alikes among them ("ɡuaranteed", "licənsəd").
 // Accepted residuals (the approval screen is the backstop; each passes at main too; design §2.2 lists them with
 // examples): a precomposed accented letter is read as typed, so a deliberately accented claim word ("lícensed", "frée")
 // is not caught (A9c), as before A9; a letter the table reads another way ("cheaþest", þ is "th"; "Ɩicensed", Ɩ is "I")
-// or does not list ("Ɛ", "Ʌ"), or a symbol ("fr℮℮", "L¡censed", "days∕week"); a combining Latin small letter used as a
-// letter ("Lic" + U+0364 + "nsed"); ASCII "l" or "|" for "I" and a click letter for "l" ("CERTlFlED", "ǀicensed"); an
-// overlay mark inside a claim word together with a look-alike glued to its end ("Bon" + U+0336 + "dedł"), which neither
-// reading finds; a claim word run into another word in CamelCase ("TopRated", "WeAreBonded"; A9d); and the phrasings the
-// word lists do not cover.
+// or does not list (turned, reversed and open letters such as "Ʌ", "ɐ" and "ɹ": "FrɅe", "ɹated"), or a symbol ("fr℮℮",
+// "L¡censed", "days∕week"); a combining Latin small letter used as a letter ("Lic" + U+0364 + "nsed"); ASCII "l" or
+// "|" for "I" and a click letter for "l" ("CERTlFlED", "ǀicensed"); an overlay mark inside a claim word together with a
+// look-alike glued to its end ("Bon" + U+0336 + "dedł"), which neither reading finds; a claim word run into another word
+// in CamelCase ("TopRated", "WeAreBonded"; A9d); and the phrasings the word lists do not cover.
 
 /** Claims no owner fact backs: rejected in copy whatever the facts say. */
 export const NEVER_IN_COPY: readonly RegExp[] = [

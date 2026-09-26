@@ -9,7 +9,7 @@ const READS = new Map(PAIRS);
 /** The keys that are punctuation, not A-Z letters: the apostrophe (A9b) and the click letters' punctuation (A9c). */
 const PUNCTUATION = new Set(["'", "|", "||", "!"]);
 
-describe("foldLookalikes (A9b, A9c)", () => {
+describe("foldLookalikes (A9b, A9c, A9e)", () => {
   it.each([
     ["ı", "i"],
     ["ȷ", "j"],
@@ -57,6 +57,40 @@ describe("foldLookalikes (A9b, A9c)", () => {
     expect(foldLookalikes(letter)).toBe(ascii);
   });
 
+  // A9e: letters of the phonetic blocks copy now accepts, read as the A-Z letters confusables.txt 18.0.0 gives them (through
+  // the letters the table reads: ə's prototype is ǝ), their names, the moderator's list and the other case of a listed letter.
+  it.each([
+    ["ə", "e"], // U+0259 schwa: confusables.txt prototype ǝ, which reads e
+    ["Ə", "E"], // U+018F: the other case of ə
+    ["ɑ", "a"], // U+0251 alpha (confusables.txt)
+    ["Ɑ", "A"], // U+2C6D: the other case of ɑ
+    ["ɡ", "g"], // U+0261 script g (confusables.txt)
+    ["Ɡ", "G"], // U+A7AC capital script g
+    ["ɩ", "i"], // U+0269 iota (confusables.txt)
+    ["ɛ", "e"], // U+025B open e (the moderator's list; confusables.txt reads it as U+A793)
+    ["Ɛ", "E"], // U+0190: the other case of ɛ
+    ["\uA78C", "'"], // saltillo (confusables.txt)
+    ["\uA78B", "'"], // capital saltillo
+    ["ʋ", "v"], // U+028B: read like its capital Ʋ (confusables.txt reads it as u)
+    ["ꞵ", "b"], // U+A7B5 small beta: read like its capital Ꞵ (confusables.txt reads it as ß)
+    ["ɯ", "w"], // U+026F turned m, the small form of Ɯ
+    ["ɱ", "m"], // U+0271 m with hook: confusables.txt's "rn" stands for m
+    ["Ꝼ", "F"], // U+A77B insular F (letterform name)
+    ["ꬶ", "g"], // U+AB36 script g with crossed-tail (named after ɡ)
+    ["ꬼ", "n"], // U+AB3C eng with crossed-tail (named after ŋ)
+    ["ꬳ", "e"], // U+AB33 barred e
+    ["ꬰ", "a"], // U+AB30 barred alpha
+    ["ʂ", "s"], // U+0282 s with hook
+    ["ᶊ", "s"], // U+1D8A s with palatal hook
+    ["ꝴ", "n"], // U+A774 NUM, an n with an abbreviation stroke
+    ["ꞻ", "a"], // U+A7BB glottal a
+    ["Ꜳ", "AA"], // U+A732 (confusables.txt)
+    ["ʣ", "dz"], // U+02A3 dz digraph (confusables.txt)
+    ["ꟾ", "i"], // U+A7FE I longa: confusables.txt's "l", named for I (a letter with no case reads small)
+  ])("reads the letter %j that A9e lets into copy as %j", (letter, ascii) => {
+    expect(foldLookalikes(letter)).toBe(ascii);
+  });
+
   // A9c: the click letters look like punctuation, so they read as punctuation and never join two words into one.
   it.each([
     ["ǀ", "|"], // U+01C0 dental click, Unicode 1.0 name LATIN LETTER PIPE
@@ -86,6 +120,7 @@ describe("foldLookalikes (A9b, A9c)", () => {
     const ascii = Array.from({ length: 0x80 }, (_, c) => String.fromCharCode(c)).join("");
     expect(foldLookalikes(ascii)).toBe(ascii);
     expect(foldLookalikes("Fast — friendly ’ “ ” ✨ Ɔ Ʃ Ʒ Ƽ ʔ")).toBe("Fast — friendly ’ “ ” ✨ Ɔ Ʃ Ʒ Ƽ ʔ");
+    expect(foldLookalikes("ɐ ɔ ɹ ʌ ʃ ʊ ɥ ʇ")).toBe("ɐ ɔ ɹ ʌ ʃ ʊ ɥ ʇ"); // A9e: turned, open and Greek-derived letters read as themselves
   });
 
   it("lists only single letters that copy accepts and NFD leaves whole, each read as A-Z letters or punctuation", () => {
@@ -98,14 +133,14 @@ describe("foldLookalikes (A9b, A9c)", () => {
       expect(ascii, letter).toMatch(PUNCTUATION.has(ascii) ? /^[^A-Za-z0-9]+$/ : /^[A-Za-z]+$/);
     }
     expect(READS.size).toBe(PAIRS.length); // no letter listed twice
-    expect(PAIRS).toHaveLength(127); // the A9b derivation, as changed by A9c (lookalikes.ts); a changed table must be derived again
+    expect(PAIRS).toHaveLength(391); // the A9b derivation, as changed by A9c and A9e (lookalikes.ts); a changed table must be derived again
   });
 
   it("reads every letter as the derivation says: a digest of every letter and its reading, not only the count (A9d)", () => {
     // Moving a letter to another reading keeps the count (Ɵ read "Q" instead of "O"). A changed table must be derived
     // again (lookalikes.ts), and only then this digest updated.
     const table = PAIRS.map(([letter, reading]) => `U+${letter.codePointAt(0)?.toString(16).toUpperCase()} ${reading}`).sort();
-    expect(createHash("sha256").update(table.join("\n")).digest("hex")).toBe("8ddd68644f98f637d572cb93bc60a93f61e9c674249c441f1e978d3d32474b9d");
+    expect(createHash("sha256").update(table.join("\n")).digest("hex")).toBe("b7887e1143f57a22cc82a4a4033b0d41362300b6f44c4233f14f40f9cc8c63d2");
   });
 
   it("reads a capital as capitals and any other letter as small letters", () => {

@@ -87,20 +87,13 @@ describe("Copy", () => {
     ]);
   });
 
-  // A9b, A9c: letters from phonetic blocks can pass for A-Z letters ("ɪ", "ᴄ", "ꜱ", "ꬶ"), so copy refuses them,
-  // except U+0294 ʔ, which official US place names use. Every other Latin letter is allowed; claims.ts reads the
-  // look-alikes listed in lookalikes.ts ("ı", "ƒ", "Ł") as the A-Z letters they look like.
-  const REFUSED_BLOCKS: ReadonlyArray<readonly [number, number]> = [
-    [0x0250, 0x02af], // IPA Extensions
-    [0x1d00, 0x1d7f], // Phonetic Extensions
-    [0x1d80, 0x1dbf], // Phonetic Extensions Supplement
-    [0xa720, 0xa7ff], // Latin Extended-D
-    [0xab30, 0xab6f], // Latin Extended-E (A9c)
-    [0x1df00, 0x1dfff], // Latin Extended-G (A9c)
-  ];
-  /** U+0294 LATIN LETTER GLOTTAL STOP (IPA Extensions): US Board on Geographic Names names use it (A9c). */
-  const GLOTTAL_STOP = 0x0294;
-  /** Every letter whose Unicode 17.0 name says SMALL CAPITAL (UnicodeData.txt), in any block, and the four Unicode 18.0 adds. */
+  // A9b, A9e: small capitals pass for A-Z letters ("ɪ", "ᴄ", "ꜱ"), so copy refuses them. Every other Latin letter is
+  // allowed, phonetic letters included (A9e: real names and places use them); claims.ts reads the look-alikes listed in
+  // lookalikes.ts ("ı", "ƒ", "Ł", "ɡ", "ə") as the A-Z letters they look like.
+  /**
+   * Every letter whose Unicode name says SMALL CAPITAL (UnicodeData.txt 18.0.0), in any block: 70 in Unicode 17.0 and the
+   * eight Unicode 18.0 adds.
+   */
   const SMALL_CAPITALS = [
     0x0262, 0x026a, 0x0274, 0x0276, 0x0280, 0x0281, 0x028f, 0x0299, 0x029b, 0x029c, 0x029f, 0x02b6, 0x1d00, 0x1d01,
     0x1d03, 0x1d04, 0x1d05, 0x1d06, 0x1d07, 0x1d0a, 0x1d0b, 0x1d0c, 0x1d0d, 0x1d0e, 0x1d0f, 0x1d10, 0x1d15, 0x1d18,
@@ -108,20 +101,32 @@ describe("Copy", () => {
     0x1d7b, 0x1d7e, 0x1da6, 0x1da7, 0x1dab, 0x1db0, 0x1db8, 0x2c7b, 0xa730, 0xa731, 0xa776, 0xa7ae, 0xa7af, 0xa7fa,
     0xab46, 0xab65, 0x10780, 0x10784, 0x10792, 0x10794, 0x10796, 0x1079c, 0x107a3, 0x107aa, 0x107b2, 0x1df02,
     0x1df04, 0x1df10,
-    0x1df30, 0x1df35, 0x1df36, 0x1df43, // Unicode 18.0 (UnicodeData-18.0.0.txt); unassigned in this engine, so refused as unknown script
+    // Unicode 18.0 (UnicodeData-18.0.0.txt); unassigned in this engine, so refused as unknown script
+    0x1df30, 0x1df35, 0x1df36, 0x1df43, 0x1dfd1, 0x1dfe8, 0x1dfe9, 0x1dfea,
   ];
   /**
-   * The Latin letters that look like a digit (A9c; copy.ts DIGIT_LETTER): those whose confusables.txt 18.0.0 skeleton,
+   * The Latin letters that look like a digit (copy.ts DIGIT_LETTER). A9c: those whose confusables.txt 18.0.0 skeleton,
    * with combining marks removed, is one ASCII digit (Ƨ 2, Ʒ 3, ƻ 2, Ƽ 5, Ǯ 3, Ȝ 3, Ȣ 8, ȣ 8, Ꝛ 2, Ꝫ 3, Ꝯ 9, ꝯ 9, Ɜ 3),
    * the other case of each (ƨ, ƽ, ȝ, ǯ, ʒ, ꝛ, ꝫ, ɜ), and the letters named after one of them "... WITH ..." (ƺ, ʓ, ᶚ and
-   * U+1DF18 after EZH; ɝ and ᶔ after REVERSED OPEN E; U+1DF94 after R ROTUNDA); and (A9d) Ỽ and ỽ, MIDDLE-WELSH V, which
-   * draw like a 6 but have no confusables.txt entry.
+   * U+1DF18 after EZH; ɝ and ᶔ after REVERSED OPEN E; U+1DF94 after R ROTUNDA). A9d: Ỽ and ỽ, MIDDLE-WELSH V, which
+   * draw like a 6 but have no confusables.txt entry. A9e: the letters whose skeleton holds a digit or one of those letters
+   * (ᴈ, ᴤ, ɮ, ʤ, Ꜩ, ꜩ) and the letters named after them; the cuatrillo (NamesList.txt: "x (digit four)"); and the letters
+   * that draw as a digit in the code charts and the theme and Noto fonts (Ꜣ, Ꝝ, Ꝣ, ꝸ, ᵷ, ᵹ, Ꞁ, ꭋ, Ꟃ, Ꟑ, ꟼ).
    */
   const DIGIT_LETTERS = [
     0x01a7, 0x01a8, 0x01b7, 0x01ba, 0x01bb, 0x01bc, 0x01bd, 0x01ee, 0x01ef, 0x021c, 0x021d, 0x0222, 0x0223, 0x025c, 0x025d,
     0x0292, 0x0293, 0x1d94, 0x1d9a, 0xa75a, 0xa75b, 0xa76a, 0xa76b, 0xa76e, 0xa76f, 0xa7ab, 0x1df18,
     0x1df94, // Unicode 18.0 (UnicodeData-18.0.0.txt); unassigned in this engine
     0x1efc, 0x1efd, // A9d: Ỽ ỽ MIDDLE-WELSH V (Latin Extended Additional): a 6 and a small 6 in all six theme font stacks
+    // A9e: confusables.txt skeletons that hold a digit or a digit letter (ɮ lȝ, ʤ dȝ, ᴈ ɜ, ᴤ ƨ, Ꜩ T3, ꜩ tȝ) and the letters
+    // named after them (U+1DF05 LEZH WITH ..., U+1DF12 and U+1DF19 DEZH DIGRAPH WITH ...)
+    0x026e, 0x02a4, 0x1d08, 0x1d24, 0xa728, 0xa729, 0x1df05, 0x1df12, 0x1df19,
+    0x1df20, 0x1df2b, 0x1df67, // Unicode 18.0: D-LEZH DIGRAPH, DEZH DIGRAPH WITH CURL, LEZH WITH CURL; unassigned in this engine
+    0xa72c, 0xa72d, 0xa72e, 0xa72f, // A9e: the cuatrillo, which NamesList.txt cross-refers to the digit four, and CUATRILLO WITH COMMA
+    // A9e: drawn as a digit (Unicode 18.0 code charts; the macOS theme fonts; Noto Sans and Noto Serif)
+    0xa722, 0xa723, 0xa75c, 0xa75d, 0xa762, 0xa763, 0xa778, 0x1d77, 0x1d79, 0xa780, 0xab4b, 0xab4c, 0xa7c2, 0xa7c3, 0xa7d0,
+    0xa7d1, 0xa7fc,
+    0xab6c, 0xab6d, // Unicode 18.0: the capitals of ꭋ and ꭌ; unassigned in this engine
   ];
   const NUMBER_MESSAGE = "Copy must not contain numbers, currency symbols, @ or links; facts come from the owner";
   const headlineWith = (letter: string) => issues({ ...valid, heroHeadline: `Crew ${letter} team` });
@@ -131,7 +136,7 @@ describe("Copy", () => {
   };
 
   it("runs on the Unicode version the letter tables were derived from (17.0), so an upgrade is reviewed first", () => {
-    // When this fails, derive NON_ENGLISH_LETTER, DIGIT_LETTER (copy.ts), LOOKALIKES (lookalikes.ts) and the SMALL_CAPITALS
+    // When this fails, derive SMALL_CAPITAL, DIGIT_LETTER (copy.ts), LOOKALIKES (lookalikes.ts) and the SMALL_CAPITALS
     // and DIGIT_LETTERS lists here again from the new Unicode data (support/unicode-version.ts; unicode.workerd.test.ts
     // asks the same inside workerd).
     expect(unicodeVersion()).toEqual(UNICODE_17);
@@ -152,6 +157,14 @@ describe("Copy", () => {
     // A9d: U+1EFC and U+1EFD MIDDLE-WELSH V draw as a 6 and a small 6 ("Save 6O% on drain cleaning."); confusables.txt has no entry
     "Save \u1EFCO% on drain cleaning.",
     "Call l-\u1EFC\u1EFCO-\u1EFDl\u1EFD",
+    // A9e: letters of the blocks A9e opens that draw as a digit
+    "Save \uA72DO% today", // ꜭ cuatrillo: "Save 4O% today" (NamesList.txt: x digit four)
+    "Call l-\uA778\uA778\uA778-\uA722\uA723\uA723", // ꝸ reads 8, Ꜣ ꜣ read 3: "Call 1-888-333"
+    "\uA75CO% off every drain", // Ꝝ rum rotunda: a 2 with a stroke
+    "Top \uAB4Bated crew", // ꭋ script r draws like a 7 (Noto Sans), so it is refused as a number, not read as r
+    "\uA780icensed crew", // Ꞁ turned L draws like a 7, like ⁊
+    "Call \u1D08\u1D24", // ᴈ reads ɜ (3) and ᴤ reads ƨ (2) in confusables.txt
+    "A crew of \uA728 vans", // Ꜩ reads T3 in confusables.txt
   ])("rejects a letter that looks like a digit as a number: %j", (headline) => {
     expect(messagesFor(headline)).toEqual([NUMBER_MESSAGE]);
   });
@@ -160,46 +173,47 @@ describe("Copy", () => {
     for (const cp of DIGIT_LETTERS) expect(messagesFor(`Crew ${String.fromCodePoint(cp)} team`), `U+${cp.toString(16)}`).toEqual([NUMBER_MESSAGE]);
   });
 
-  it("accepts U+0294 ʔ, which official US place names use (GNIS 260516 'dukMéʔem wáťa'), and still refuses other IPA letters", () => {
-    expect(issues({ ...valid, heroHeadline: "Serving homes near dukMéʔem wáťa" })).toEqual([]);
-    expect(issues({ ...valid, heroHeadline: "Serving Wewətanagok" })).toEqual(["heroHeadline: custom"]); // ə U+0259
-  });
-
   it.each([
     "ʟɪᴄᴇɴꜱᴇᴅ plumbers", // small capitals
     "ɪnsured plumbers", // U+026A small capital I (IPA Extensions)
     "ᴄertified crew", // U+1D04 small capital C (Phonetic Extensions)
-    "Licenʂed plumbers", // U+0282 s with hook (IPA Extensions)
-    "Free ɡutter checks", // U+0261 script g (IPA Extensions)
-    "Licenᶊed crew", // U+1D8A s with palatal hook (Phonetic Extensions Supplement)
     "LꞮCENSED CREW", // U+A7AE capital letter small capital I (Latin Extended-D)
-    "Ꝼree quotes", // U+A77B insular F (Latin Extended-D)
     "Insured for ⱻvery job", // U+2C7B small capital turned e (Latin Extended-C)
     "Top ꭆated crew", // U+AB46 small capital R with right leg (Latin Extended-E)
     "\u{1DF04}icensed crew", // small capital L with belt (Latin Extended-G)
-    "ꬶuaranteed results", // U+AB36 script g with crossed-tail (Latin Extended-E, A9c)
-    "Top ꭋated crew", // U+AB4B script r
-    "There is ꬼo charge", // U+AB3C eng
+    "ᴄʟᴇᴀɴ ʜᴏᴍᴇꜱ", // small capitals C L E A N H O M S
+  ])("rejects a small capital: %j", (headline) => {
+    expect(issues({ ...valid, heroHeadline: headline })).toEqual(["heroHeadline: custom"]);
+  });
+
+  // A9e: the other letters of the phonetic blocks pass Copy. The look-alikes among them are claims once read as A-Z
+  // letters (lookalikes.ts; claims.test.ts), so a whole page still refuses these.
+  it.each([
+    "Licenʂed plumbers", // U+0282 s with hook (IPA Extensions): "Licensed"
+    "Free ɡutter checks", // U+0261 script g
+    "Licenᶊed crew", // U+1D8A s with palatal hook (Phonetic Extensions Supplement)
+    "Ꝼree quotes", // U+A77B insular F (Latin Extended-D)
+    "ꬶuaranteed results", // U+AB36 script g with crossed-tail (Latin Extended-E)
+    "There is ꬼo charge", // U+AB3C eng with crossed-tail
     "Fully licꬳnsꬳd", // U+AB33 barred e
     "Our guarꬰntee", // U+AB30 barred alpha
-    "Fully \u{1DF1A}nsured", // i with stroke and retroflex hook (Latin Extended-G, A9c)
-  ])("rejects a letter from a phonetic block: %j", (headline) => {
-    expect(issues({ ...valid, heroHeadline: headline })).toEqual(["heroHeadline: custom"]);
+    "Fully \u{1DF1A}nsured", // i with stroke and retroflex hook (Latin Extended-G)
+  ])("accepts the other letters of the phonetic blocks in Copy, for claims.ts to read: %j", (headline) => {
+    expect(issues({ ...valid, heroHeadline: headline })).toEqual([]);
   });
 
   it("rejects every small-capital letter, including those NFKC turns into one (U+02B6 becomes U+0281)", () => {
     for (const cp of SMALL_CAPITALS) expect(headlineWith(String.fromCodePoint(cp)), `U+${cp.toString(16)}`).toEqual(["heroHeadline: custom"]);
   });
 
-  it("rejects exactly the letters of those blocks, the small capitals and the digit look-alikes, and no other Latin or Common letter", () => {
+  it("rejects exactly the small capitals and the digit look-alikes, and no other Latin or Common letter", () => {
     const wrong: string[] = [];
     for (let cp = 0x80; cp <= 0x10ffff; cp++) {
       if (cp >= 0xd800 && cp <= 0xdfff) continue;
       const letter = String.fromCodePoint(cp);
       // Letters NFKC leaves alone (NFKC runs first); other scripts are refused by the Latin-script rule above.
       if (!/^\p{L}$/u.test(letter) || !/[\p{Script=Latin}\p{Script=Common}]/u.test(letter) || letter.normalize("NFKC") !== letter) continue;
-      const inRefusedBlock = cp !== GLOTTAL_STOP && REFUSED_BLOCKS.some(([from, to]) => cp >= from && cp <= to);
-      const expected = inRefusedBlock || SMALL_CAPITALS.includes(cp) || DIGIT_LETTERS.includes(cp);
+      const expected = SMALL_CAPITALS.includes(cp) || DIGIT_LETTERS.includes(cp);
       if ((headlineWith(letter).length > 0) !== expected) wrong.push(`U+${cp.toString(16)} ${expected ? "accepted" : "refused"}`);
     }
     expect(wrong).toEqual([]);
@@ -220,7 +234,7 @@ describe("Copy", () => {
   it("says which letters copy may use, in words Plan 3 and Plan 4 key on", () => {
     const result = Copy.safeParse({ ...valid, heroHeadline: "ɪnsured plumbers" });
     const messages = result.success ? [] : result.error.issues.map((i) => i.message);
-    expect(messages).toEqual(["AI copy must use Latin script letters used in English, not phonetic letters or small capitals such as ɪ, ᴄ or ꜱ"]);
+    expect(messages).toEqual(["AI copy must use Latin script letters, not small capitals such as ɪ, ᴄ or ꜱ"]);
     expect(messages[0]?.startsWith("AI copy must use Latin script")).toBe(true);
   });
 
@@ -248,6 +262,20 @@ describe("Copy", () => {
     "Génération Nouvelle Bakery",
     "Icelandic bönd, a décade, one dollár",
     "Near dukMéʔem wáťa", // U+0294 ʔ (A9c)
+    // A9e: letters of the phonetic blocks in real names and places (English Wikipedia titles; USGS GNIS)
+    "Serving homes near Wewətanagok", // ə U+0259 (GNIS 580743)
+    "Ayşən Əbdüləzimova and Aşiq Ələsgər", // Azerbaijani ə and Ə U+018F
+    "Chevak Cupꞌik dialect", // U+A78C saltillo
+    "ꞋAreꞌare language", // U+A78B and U+A78C
+    "Grand Council (Miꞌkmaq)",
+    "Ofon Na Ɛdi Asɛm Fo", // open e U+0190 and U+025B
+    "Oberi Ɔkaimɛ", // open o U+0186
+    "Akɔɔse and Anufɔ people", // open o U+0254
+    "Eʋe and Kʋsaal", // U+028B v with hook
+    "Agraw Imaziɣen", // U+0263 gamma
+    "Fulɓe and Gaɗi language", // U+0253 b with hook, U+0257 d with hook
+    "Aʔɨwa language", // U+0294 glottal stop, U+0268 i with stroke
+    "Kwihnai Tosaabitʉ", // U+0289 u bar
   ])("accepts every other Latin letter: %j", (headline) => {
     expect(issues({ ...valid, heroHeadline: headline })).toEqual([]);
   });
