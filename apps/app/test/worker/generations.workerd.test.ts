@@ -145,6 +145,30 @@ describe("POST /api/sites/:siteId/generations", () => {
     expect((await h.call("GET", `/api/sites/${b.siteId}/generations/${a.generationId}`, { cookie: b.cookie })).status).toBe(404);
   });
 
+  it("cannot request or read a build of another owner's site (404, nothing queued)", async () => {
+    const a = await readyOwner(h, VALID_FACTS, VALID_BRIEF);
+    const b = await h.signIn();
+    const db = await h.db();
+    const builds = async () => (await db.prepare("SELECT COUNT(*) AS n FROM generations WHERE site_id = ?").bind(a.siteId).first<{ n: number }>())?.n;
+
+    // A's site is ready, so only the owner check stands between B and a build on it.
+    const post = await h.call("POST", `/api/sites/${a.siteId}/generations`, { cookie: b.cookie, body: {} });
+    expect(post.status).toBe(404);
+    expect((await json<ErrorJson>(post)).error.code).toBe("not_found");
+    expect(await builds()).toBe(0);
+
+    // A's own request of the same site queues, so B's was refused for being B's.
+    const own = await h.call("POST", `/api/sites/${a.siteId}/generations`, { cookie: a.cookie, body: {} });
+    expect(own.status).toBe(202);
+    const { generation } = await json<{ generation: GenerationView }>(own);
+
+    // B's read of A's build through A's own site path is refused too; A's read of it works.
+    const read = await h.call("GET", `/api/sites/${a.siteId}/generations/${generation.id}`, { cookie: b.cookie });
+    expect(read.status).toBe(404);
+    expect((await json<ErrorJson>(read)).error.code).toBe("not_found");
+    expect((await h.call("GET", `/api/sites/${a.siteId}/generations/${generation.id}`, { cookie: a.cookie })).status).toBe(200);
+  });
+
   it("refuses a taken-down site with 423", async () => {
     const owner = await readyOwner(h, VALID_FACTS, VALID_BRIEF);
     await (await h.db()).prepare("UPDATE sites SET taken_down_at = 1 WHERE id = ?").bind(owner.siteId).run();
