@@ -66,3 +66,37 @@ describe("lead email through Resend (inside workerd)", () => {
     expect(lead).toMatchObject({ email_status: "failed", email_error: "rate_limited" });
   });
 });
+
+// Pin added after the brief (test-only): with the email awaited before the 303, the tests above still pass.
+describe("the lead email runs after the response (Decision 26)", () => {
+  it("thanks the visitor while Resend has not answered, with the lead saved as pending, then marks it sent", async () => {
+    const answer = globalThis.fetch;
+    let release = () => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const tooLong = new Promise<"no answer within 10 s">((resolve) => {
+      timer = setTimeout(() => resolve("no answer within 10 s"), 10_000);
+    });
+    globalThis.fetch = (async (input: Request | string | URL, init?: RequestInit) => {
+      await held;
+      return answer(input, init);
+    }) as typeof fetch;
+    try {
+      const site = await seedSite(tools);
+      const response = await Promise.race([post(site), tooLong]);
+      expect(typeof response === "string" ? response : response.status).toBe(303);
+      const pending = await tools.DB.prepare("SELECT email_status FROM leads WHERE site_id = ?").bind(site.siteId).all<Record<string, unknown>>();
+      expect(pending.results).toEqual([{ email_status: "pending" }]);
+      release();
+      const [lead] = await settledLeads(tools, site.siteId);
+      expect(lead?.["email_status"]).toBe("sent");
+      expect(outbound).toHaveLength(1);
+    } finally {
+      release();
+      clearTimeout(timer);
+      globalThis.fetch = answer;
+    }
+  });
+});

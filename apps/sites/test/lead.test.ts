@@ -61,3 +61,17 @@ describe("looksLikeSpam", () => {
     expect(looksLikeSpam(lead(null))).toBe(false);
   });
 });
+
+// Pins added after the brief (test-only). Each one goes red on a mutant that the tests above let through.
+describe("readLead edges", () => {
+  it("keeps an emoji joiner in the message too", () => {
+    const mechanic = String.fromCodePoint(0x1f469, 0x200d, 0x1f527);
+    const result = readLead(fields({ name: "Al", phone: "5125550199", message: `Ask for the ${mechanic}` }));
+    expect(result.ok && result.lead.message).toBe(`Ask for the ${mechanic}`);
+  });
+
+  it("turns a lone CR line break in the message into a newline", () => {
+    const result = readLead(fields({ name: "Al", phone: "5125550199", message: "a\rb" }));
+    expect(result.ok && result.lead.message).toBe("a\nb");
+  });
+});

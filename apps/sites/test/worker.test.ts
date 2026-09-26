@@ -62,3 +62,21 @@ describe("security.txt", () => {
     expect(await securityTxt(env("2027-09-24")).text()).toContain("\nExpires: 2027-09-24T00:00:00.000Z\n");
   });
 });
+
+// Pin added after Task 13's brief (test-only): with the key check removed, hashIp still throws and the
+// fetch wrapper still answers 503, so only the log line shows the Worker is misconfigured (Decision 21).
+describe("the contact form without IP_HASH_KEY", () => {
+  it("answers 503 before touching any binding and logs the site id with the code misconfigured", async () => {
+    const siteId = "7c9e6679-7425-40de-944b-e07fc1f90ae7";
+    const response = await call(`https://joes.${ROOT}/_f/${siteId}`, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: "name=Al&phone=5125550199",
+    });
+    expect(response.status).toBe(503);
+    expect(log).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(String(log.mock.calls[0]?.[0]))).toEqual({
+      worker: "asksite-sites", route: "form", status: 503, ms: expect.any(Number), siteId, code: "misconfigured",
+    });
+  });
+});

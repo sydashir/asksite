@@ -1,6 +1,6 @@
 import { hashIp, newId } from "@asksite/core";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { at, seedSite, settledLeads, sitesHarness, TEST_SECRETS, type SeededSite, type ToolsEnv } from "./support/harness.ts";
+import { at, putLive, seedSite, settledLeads, sitesHarness, TEST_SECRETS, type SeededSite, type ToolsEnv } from "./support/harness.ts";
 
 const harness = sitesHarness();
 let tools: ToolsEnv;
@@ -225,5 +225,95 @@ describe("without IP_HASH_KEY", () => {
     });
     expect(response.status).toBe(503);
     expect(await keylessTools.DB.prepare("SELECT COUNT(*) AS n FROM leads").first()).toEqual({ n: 0 });
+  });
+});
+
+// Pins added after the brief (test-only). Each one goes red on a mutant that the tests above let through.
+describe("form edges", () => {
+  /** Miniflare's rate-limit windows are wall-clock minutes: start a burst early in one so it never spans two. */
+  async function earlyInAMinute(): Promise<void> {
+    const left = 60_000 - (Date.now() % 60_000);
+    if (left < 15_000) await new Promise((resolve) => setTimeout(resolve, left + 50));
+  }
+
+  it("keys the rate limit per site: a visitor stopped on one site can still use another site's form", async () => {
+    const busy = await seedSite(tools);
+    const other = await seedSite(tools);
+    await earlyInAMinute();
+    const statuses: number[] = [];
+    for (let i = 0; i < 6; i++) statuses.push((await post(busy, GOOD, { ip: "192.0.2.60" })).status);
+    expect(statuses).toEqual([303, 303, 303, 303, 303, 429]);
+    expect((await post(other, GOOD, { ip: "192.0.2.60" })).status).toBe(303);
+  });
+
+  it("stores the hash of the visitor's full IPv6 address, not of its /64", async () => {
+    const target = await seedSite(tools);
+    expect((await post(target, GOOD, { ip: "2001:db8:9:1::abcd" })).status).toBe(303);
+    const [lead] = await leads(target.siteId);
+    expect(lead?.["ip_hash"]).toBe(await hashIp(TEST_SECRETS.IP_HASH_KEY, "2001:db8:9:1::abcd"));
+  });
+
+  it("lets D1 decide: a LIVE object for a site D1 does not call live, or under another slug, gets 404 and stores nothing", async () => {
+    const draft = await seedSite(tools, { live: false, withObject: true });
+    expect((await post(draft, GOOD)).status).toBe(404);
+    const moved = await seedSite(tools);
+    const oldSlug = `${moved.slug}-old`;
+    await putLive(tools, { ...moved, slug: oldSlug });
+    expect((await post({ slug: oldSlug, siteId: moved.siteId }, GOOD)).status).toBe(404);
+    expect(await leads(draft.siteId)).toEqual([]);
+    expect(await leads(moved.siteId)).toEqual([]);
+  });
+
+  it("never asks D1 about another id on a live site's host: with D1's sites table gone it is still 404", async () => {
+    const live = await seedSite(tools);
+    await tools.DB.prepare("ALTER TABLE sites RENAME TO sites_offline").run();
+    try {
+      expect((await post({ slug: live.slug, siteId: newId() }, GOOD)).status).toBe(404);
+    } finally {
+      await tools.DB.prepare("ALTER TABLE sites_offline RENAME TO sites").run();
+    }
+  });
+
+  it("accepts the form content type with parameters and in any letter case", async () => {
+    const target = await seedSite(tools);
+    const response = await post(target, GOOD, { headers: { "content-type": "Application/X-WWW-Form-URLEncoded; charset=UTF-8" } });
+    expect(response.status).toBe(303);
+  });
+
+  it("accepts a body of exactly 16 KB and refuses one byte more", async () => {
+    const target = await seedSite(tools);
+    const head = new URLSearchParams({ name: "Al", phone: "5125550199", pad: "" }).toString();
+    const body = (bytes: number) => head + "a".repeat(bytes - head.length);
+    expect((await post(target, {}, { body: body(16 * 1024) })).status).toBe(303);
+    expect((await post(target, {}, { body: body(16 * 1024 + 1) })).status).toBe(413);
+  });
+});
+
+// Pins added after the brief (test-only). Each one goes red on a mutant that every test above lets through.
+describe("form edges: the day cap's window and the form address's methods", () => {
+  /** The cap counts leads since 00:00 UTC: start well clear of midnight, so the test and the Worker see the same day. */
+  async function clearOfMidnight(): Promise<void> {
+    const left = 86_400_000 - (Date.now() % 86_400_000);
+    if (left < 15_000) await new Promise((resolve) => setTimeout(resolve, left + 50));
+  }
+
+  it("counts only today's leads toward the cap: yesterday's do not count, one at 00:00 UTC today does", async () => {
+    await clearOfMidnight();
+    const popular = await seedSite(tools);
+    const now = Date.now();
+    const today = now - (now % 86_400_000); // 00:00 UTC, worked out here rather than with the code's own helper
+    const lead = (createdAt: number) =>
+      tools.DB.prepare("INSERT INTO leads (id, site_id, created_at, name, phone, email_status, ip_hash) VALUES (?, ?, ?, 'n', '5125550100', 'sent', 'h')").bind(newId(), popular.siteId, createdAt);
+    await tools.DB.batch([...Array.from({ length: 50 }, () => lead(today - 1)), ...Array.from({ length: 49 }, () => lead(today))]);
+    expect((await post(popular, GOOD)).status).toBe(303);
+    expect((await post(popular, GOOD)).status).toBe(429);
+    expect(await leads(popular.siteId)).toHaveLength(100);
+  });
+
+  it("answers the form address only to POST: a GET is the 404 page", async () => {
+    const target = await seedSite(tools);
+    const response = await harness.server.fetch(at(target.slug, `/_f/${target.siteId}`));
+    expect(response.status).toBe(404);
+    expect(await response.text()).toContain("<h1>Page not found</h1>");
   });
 });
