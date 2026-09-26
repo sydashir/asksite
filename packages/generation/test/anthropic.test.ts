@@ -779,13 +779,15 @@ describe("AnthropicProvider: cache tokens count as input (P3-11 i)", () => {
   });
 });
 
-// Fix r1b: retriesRemaining starts at maxRetries (client.mjs:494-501), and we always construct the client with
-// maxRetries: 0, so `if (retriesRemaining && shouldRetry)` (client.mjs:585, and the connection-error path at 551) is
-// false whatever shouldRetry(response) returns, including when the response's own x-should-retry header says "true"
-// (shouldRetry reads it at client.mjs:722-726, "Note this is not a standard header. ... If the server explicitly says
-// whether or not to retry, obey."). So exactly one fetch is sent, never more.
+// Fix r1b and r2 (F4 e): retriesRemaining starts at maxRetries (client.mjs:494-501), and we always construct the client
+// with maxRetries: 0, so `if (retriesRemaining && shouldRetry)` (client.mjs:585, and the connection-error path at 551)
+// is false whatever shouldRetry(response) returns. shouldRetry obeys the response's own x-should-retry header first
+// (client.mjs:722-728, "Note this is not a standard header. ... If the server explicitly says whether or not to retry,
+// obey.") and otherwise retries 408, 409, 429 and every status from 500 up (729-741). So "x-should-retry: true" changes
+// the SDK's choice only for a status it would not retry by default: the 400 row is the one that fails when maxRetries
+// is 1 because of the header; 429, 500 and 529 would be retried then with or without it. Exactly one fetch in every row.
 describe("AnthropicProvider: no SDK retry even when the response says to (fix r1b)", () => {
-  it.each([429, 500, 529])("sends exactly one fetch for HTTP %i with x-should-retry: true", async (status) => {
+  it.each([400, 429, 500, 529])("sends exactly one fetch for HTTP %i with x-should-retry: true", async (status) => {
     let calls = 0;
     const fetchImpl = async (): Promise<Response> => {
       calls += 1;
