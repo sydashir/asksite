@@ -454,36 +454,22 @@ describe("unbackedClaims", () => {
     expect(unbackedClaims(text, ALL)).toEqual(withAllFacts);
   });
 
-  // A9c: CamelCase runs words together that a reader still reads apart, so claims are also matched with a word break
-  // where a small letter meets a capital, and before the last capital of a run that a small letter follows.
+  // A9d: a CamelCase word is read as typed, as at main (acae4ab), so a real name that runs a claim word into another
+  // word is no claim. A9c's CamelCase reading refused these names and was dropped; CamelCase claim words ("TopRated")
+  // are not caught (design §2.2, "Not caught").
   it.each([
-    ["TopRated crew", ["Top Rated"], ["Top Rated"]],
-    ["WeAreBonded", ["Bonded"], ["Bonded"]],
-    ["BBBAccredited", ["BBB"], ["BBB"]],
-    ["CertifiedPros", ["Certified"], ["Certified"]],
-    ["GetAFreeQuote", ["Free"], []],
-    ["FullyInsured", ["Insured"], []],
-    ["ProLicensed team", ["Licensed"], []],
-    ["OpenSevenDaysAWeek", ["Seven Days A Week"], []],
-    ["WeAreƁonded", ["Bonded"], ["Bonded"]], // a look-alike too: read as A-Z, then split
-    ["WeAreFree\u0301", ["Free"], []], // e + U+0301 kept apart: only the typed reading, split, reads "Free" (NFC makes it é)
-  ])("reads the CamelCase words in %j apart, finding %j without facts and %j with every fact", (text, withoutFacts, withAllFacts) => {
-    expect(unbackedClaims(text, NONE)).toEqual(withoutFacts);
-    expect(unbackedClaims(text, ALL)).toEqual(withAllFacts);
-  });
-
-  it("still finds a claim word typed in mixed case, which the CamelCase reading alone would split", () => {
-    expect(unbackedClaims("LiCeNsEd crew", NONE)).toEqual(["LiCeNsEd"]);
-    expect(unbackedClaims("BoNdEd crew", ALL)).toEqual(["BoNdEd"]);
-  });
-
-  it.each([
+    "Serving homes near McMillion Creek", // GNIS 1552041 (West Virginia)
+    "FreeFlow Plumbing",
+    "BondTech Roofing",
+    "StreakFree Window Cleaning",
+    "PSEG WorryFree service",
+    "HassleFree booking",
     "Ask for McDonald or DeShawn",
     "Serving DeKalb, LaGrange and McAllen",
     "Serving homes near dukMéʔem wáťa", // GNIS 260516, with U+0294 ʔ
     "Book from your iPhone",
     "Find our videos on YouTube",
-  ])("finds no claim in ordinary CamelCase names: %j", (text) => {
+  ])("finds no claim in a CamelCase name, which it reads as typed: %j", (text) => {
     expect(unbackedClaims(text, NONE)).toEqual([]);
   });
 
@@ -629,8 +615,6 @@ describe("SiteDocument rejects AI copy that states facts the owner did not give"
     "Call (ƨƽƽ) ƽƽƽ-Olƨȝ today.", // A9c review: their small forms draw the same digits
     "ꬶuaranteed results", // A9c: Latin Extended-E (refused by Copy)
     "\u01C0Certi\u0307fied\u01C0 pros", // A9c: a click letter reads as "|", and the leftover U+0307 goes
-    "TopRated crew", // A9c: CamelCase
-    "WeAreBonded",
     "\u019CARRANTY INCLUDED", // A9c: U+019C reads W
   ])("%j", (claim) => {
     const faq = [{ question: "Why us?", answer: claim }];
@@ -710,6 +694,7 @@ describe("SiteDocument keeps AI copy the checks have no reason to reject", () =>
     "Icelandic b\u00F6nd, a d\u00E9cade, one doll\u00E1r",
     "Serving homes near dukM\u00E9\u0294em w\u00E1\u0165a",
     "Ask for McDonald or DeShawn",
+    "StreakFree windows and HassleFree booking near McMillion Creek", // A9d: CamelCase names are read as typed, as at main
     "Our l\u00EDcensed team", // A9c accepted residual: a precomposed accented letter is read as typed
   ])("%j", (text) => {
     const faq = [{ question: "Why us?", answer: text }];
