@@ -13,7 +13,9 @@
     "test:e2e": "pnpm build:css && playwright test",
     "e2e:install": "playwright install --only-shell chromium webkit",
     "render": "pnpm build:css && node scripts/render-fixture.ts",
-    "check": "pnpm typecheck && pnpm test && pnpm test:e2e"
+    "check": "pnpm typecheck && pnpm test && pnpm test:e2e",
+    "dev": "node scripts/dev.ts",
+    "dev:seed": "pnpm build:css && node apps/sites/dev/seed.ts"
   },
   "devDependencies": {
     "@asksite/core": "workspace:*",
