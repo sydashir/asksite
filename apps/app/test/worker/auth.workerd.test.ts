@@ -8,10 +8,7 @@ const h = useAppHarness();
 
 // Every sign-in link of this file also counts toward the day's cap for all owners (LOGIN_EMAILS_PER_DAY),
 // so none may outlive its test.
-afterEach(async () => {
-  await h.backgroundDone("/api/auth/login");
-  await (await h.db()).prepare("DELETE FROM login_tokens").bind().run();
-});
+afterEach(h.clearLoginTokens);
 
 const HOUR_MS = 3_600_000;
 const DAY_MS = 86_400_000;

@@ -136,7 +136,13 @@ export function useAppHarness(options: { vars?: Record<string, string> } = {}) {
     return { cookie, ownerId: owner.id, siteId, email };
   }
 
-  return { server, call, db, invite, signIn, login, siteverifyCalls, waitUntilCount, backgroundDone, logLines };
+  /** Waits for the sign-in background work, then deletes every login email, so none counts toward a later test's caps. */
+  async function clearLoginTokens(): Promise<void> {
+    await backgroundDone("/api/auth/login");
+    await (await db()).prepare("DELETE FROM login_tokens").bind().run();
+  }
+
+  return { server, call, db, invite, signIn, login, siteverifyCalls, waitUntilCount, backgroundDone, clearLoginTokens, logLines };
 }
 
 /** Polls `read` every 100 ms until `done` accepts its value (at most 5 s). */

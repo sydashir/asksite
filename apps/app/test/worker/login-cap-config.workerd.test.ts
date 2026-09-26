@@ -16,7 +16,7 @@ async function emailCount(h: Harness, email: string): Promise<number> {
   return (await (await h.db()).prepare("SELECT COUNT(*) AS n FROM dev_outbox WHERE to_addr = ?").bind(email).first<{ n: number }>())?.n ?? 0;
 }
 
-/** Signs `email` in by link request and waits for the background work. */
+/** Requests a sign-in link for `email` and waits for the background work. */
 async function requestLink(h: Harness, email: string): Promise<void> {
   expect((await h.login(email)).status).toBe(202);
   await h.backgroundDone("/api/auth/login");
@@ -24,17 +24,9 @@ async function requestLink(h: Harness, email: string): Promise<void> {
 
 const events = (h: Harness, event: string): unknown[] => h.logLines().filter((line) => line["event"] === event);
 
-/** No login email of one test counts toward the next test's day. */
-function cleanUpAfterEach(h: Harness): void {
-  afterEach(async () => {
-    await h.backgroundDone("/api/auth/login");
-    await (await h.db()).prepare("DELETE FROM login_tokens").bind().run();
-  });
-}
-
 describe("a valid LOGIN_EMAILS_PER_DAY", () => {
   const h = useAppHarness({ vars: { LOGIN_EMAILS_PER_DAY: "2" } });
-  cleanUpAfterEach(h);
+  afterEach(h.clearLoginTokens);
 
   it("is the day's cap for all owners, with nothing logged about the value", async () => {
     const owners = [await h.signIn(), await h.signIn(), await h.signIn()];
@@ -50,7 +42,7 @@ describe("a valid LOGIN_EMAILS_PER_DAY", () => {
 
 describe("an invalid LOGIN_EMAILS_PER_DAY", () => {
   const h = useAppHarness({ vars: { LOGIN_EMAILS_PER_DAY: "0" } });
-  cleanUpAfterEach(h);
+  afterEach(h.clearLoginTokens);
 
   it("is logged as config_invalid, never its value, and the default of 40 a day applies", async () => {
     const first = await h.signIn();
