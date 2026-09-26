@@ -96,6 +96,17 @@ const parseJson = (text: unknown): unknown => {
 const failedAnswer = (signal: AbortSignal, message: string): ProviderError =>
   new ProviderError(signal.aborted ? "timeout" : "unavailable", message, { afterHeaders: true });
 
+/**
+ * A base URL the key may be sent to (P3-11 u): absolute https, with no query or fragment (checked on the raw text,
+ * as the URL Standard's search and hash getters return "" for an empty one) and no user name or password (fetch
+ * refuses a URL with credentials, which would make every attempt fail as a retried outage).
+ */
+function isBaseUrl(url: string): boolean {
+  if (!isSafeUrl(url, ["https:"]) || /[?#]/.test(url)) return false;
+  const { username, password } = new URL(url);
+  return username === "" && password === "";
+}
+
 /** The body as text, or "" when it cannot be read (a dropped connection, or our abort mid-body). */
 async function bodyText(response: Response): Promise<string> {
   try {
@@ -125,7 +136,7 @@ export class OpenAICompatibleProvider implements ModelProvider {
 
   constructor(options: OpenAICompatibleOptions) {
     checkApiKey(options.apiKey, "OPENAI_COMPAT_API_KEY");
-    if (!isSafeUrl(options.baseUrl, ["https:"])) throw new ProviderError("bad_request", "OPENAI_COMPAT_BASE_URL must be an absolute https:// URL");
+    if (!isBaseUrl(options.baseUrl)) throw new ProviderError("bad_request", "OPENAI_COMPAT_BASE_URL must be an absolute https:// URL with no user name, password, query or fragment");
     this.#url = `${options.baseUrl.replace(/\/+$/, "")}/chat/completions`;
     this.#apiKey = options.apiKey;
     this.#model = options.model;

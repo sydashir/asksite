@@ -654,3 +654,23 @@ describe("OpenAICompatibleProvider: key fragments in error tokens (P3-11 t)", ()
     await expect(provider.generate(request())).rejects.toMatchObject({ kind: "auth", message: "OpenAI-compatible request failed (auth, HTTP 400, invalid_request_error, blocked_api_access)" });
   });
 });
+
+// P3-11 (u): the base URL must be absolute https with no query, fragment, user name or password. "?" and "#" are
+// checked on the raw text: the URL Standard's search and hash getters return "" for an empty query or fragment
+// (new URL("https://h/v1?").search is ""), so a check of the parsed URL alone would miss them.
+describe("OpenAICompatibleProvider: base URL extras (P3-11 u)", () => {
+  const REFUSED = "OPENAI_COMPAT_BASE_URL must be an absolute https:// URL with no user name, password, query or fragment";
+
+  it.each(["https://h/v1?x=1", "https://h/v1?", "https://h/v1#x", "https://h/v1#", "https://u:p@h/v1", "https://u@h/v1", "https://:p@h/v1"])(
+    "refuses %s as a bad request at construction",
+    (baseUrl) => {
+      expect(() => new OpenAICompatibleProvider({ baseUrl, apiKey: "k", model: "m" })).toThrow(expect.objectContaining({ name: "ProviderError", kind: "bad_request", message: REFUSED }));
+    },
+  );
+
+  it("accepts https://h/v1 and posts to https://h/v1/chat/completions", async () => {
+    const http = fakeFetch([{ status: 200, body: completion("{}") }]);
+    await new OpenAICompatibleProvider({ baseUrl: "https://h/v1", apiKey: "k", model: "m", fetch: http.fetch }).generate(request());
+    expect(http.calls.map((c) => c.url)).toEqual(["https://h/v1/chat/completions"]);
+  });
+});

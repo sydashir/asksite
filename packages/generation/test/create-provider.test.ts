@@ -35,6 +35,21 @@ describe("createProvider", () => {
     expect(() => createProvider({ ...base, ...env }, FULL_SNAPSHOT)).toThrow(expect.objectContaining({ name: "ProviderError", kind }));
   });
 
+  // Review survivor C4: a missing or empty base URL is named as not set, not as a URL that is not https.
+  it.each([
+    ["a missing", {}],
+    ["an empty", { OPENAI_COMPAT_BASE_URL: "" }],
+  ])("names %s OPENAI_COMPAT_BASE_URL as not set", (_name, url) => {
+    expect(() => createProvider({ ...base, MODEL_PROVIDER: "openai-compatible", OPENAI_COMPAT_API_KEY: "k", ...url }, FULL_SNAPSHOT)).toThrow(
+      expect.objectContaining({ name: "ProviderError", kind: "bad_request", message: "OPENAI_COMPAT_BASE_URL is not set" }),
+    );
+  });
+
+  it("refuses a base URL with a query through createProvider too (P3-11 u)", () => {
+    const env = { ...base, MODEL_PROVIDER: "openai-compatible", OPENAI_COMPAT_API_KEY: "k", OPENAI_COMPAT_BASE_URL: "https://x.example/v1?" };
+    expect(() => createProvider(env, FULL_SNAPSHOT)).toThrow(expect.objectContaining({ name: "ProviderError", kind: "bad_request" }));
+  });
+
   // P3-11 (k): a key an HTTP header cannot carry as typed is refused at setup as auth, before any request.
   const newline = String.fromCharCode(10);
   it.each([
