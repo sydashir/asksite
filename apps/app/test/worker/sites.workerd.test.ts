@@ -76,6 +76,41 @@ describe("GET /api/sites/:siteId", () => {
     expect(view.edits).toMatchObject({ ...edits, hidden: [] });
     expect([...new Set(view.issues.document.map((i) => i.path.join(".")))]).toEqual(["copy.heroHeadline"]);
   });
+
+  /** A reviewed version row of the site, as Plan 2 stores it (the owner's view reads only its summary fields). */
+  async function reviewedVersion(siteId: string, ownerId: string, number: number, status: "approved" | "rejected", note: string): Promise<string> {
+    const id = crypto.randomUUID();
+    await (await h.db())
+      .prepare(
+        `INSERT INTO site_versions (id, site_id, number, status, document_json, document_sha256, edits_json, html_key, html_sha256,
+           stylesheet_sha256, requested_by, requested_at, reviewed_by, reviewed_at, review_note)
+         VALUES (?, ?, ?, ?, '{}', 'doc-sha', '{}', 'html-key', 'html-sha', 'css-sha', ?, 1, 'admin@example.com', 2, ?)`,
+      )
+      .bind(id, siteId, number, status, ownerId, note)
+      .run();
+    return id;
+  }
+
+  it("never shows the owner the reviewer's note on an approved version (moderator decision (a))", async () => {
+    const owner = await h.signIn();
+    const live = await reviewedVersion(owner.siteId, owner.ownerId, 1, "approved", "Note for the record: license checked by phone");
+    await (await h.db()).prepare("UPDATE sites SET live_version_id = ? WHERE id = ?").bind(live, owner.siteId).run();
+    const res = await h.call("GET", `/api/sites/${owner.siteId}`, { cookie: owner.cookie });
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    expect((JSON.parse(text) as SiteView).liveVersion).toEqual({ id: live, number: 1, status: "approved", requestedAt: 1, reviewedAt: 2, reviewNote: null });
+    expect(text).not.toContain("Note for the record");
+  });
+
+  it("shows the owner the reviewer's note on a rejected version: it is the reason they are given", async () => {
+    const owner = await h.signIn();
+    // No owner route lists a rejected version yet (the versions list is Task 10's), so the site's pending
+    // pointer is aimed at one here, only to run the owner's version mapping on it.
+    const rejected = await reviewedVersion(owner.siteId, owner.ownerId, 1, "rejected", "Please add your license number.");
+    await (await h.db()).prepare("UPDATE sites SET pending_version_id = ? WHERE id = ?").bind(rejected, owner.siteId).run();
+    const view = await json<SiteView>(await h.call("GET", `/api/sites/${owner.siteId}`, { cookie: owner.cookie }));
+    expect(view.pendingVersion).toEqual({ id: rejected, number: 1, status: "rejected", requestedAt: 1, reviewedAt: 2, reviewNote: "Please add your license number." });
+  });
 });
 
 describe("PATCH /api/sites/:siteId/draft", () => {
