@@ -16,6 +16,16 @@ function limitReached(): ApiError {
   });
 }
 
+/** The multipart body as FormData. A body that cannot be parsed makes formData() throw a TypeError: the client's mistake, not ours. */
+async function readForm(url: string, contentType: string, body: Uint8Array): Promise<FormData> {
+  try {
+    return await new Request(url, { method: "POST", headers: { "Content-Type": contentType }, body }).formData();
+  } catch (err) {
+    if (err instanceof TypeError) throw new ApiError("bad_request", "The upload is not valid multipart form data");
+    throw err;
+  }
+}
+
 async function underCaps(db: D1Database, siteId: string): Promise<boolean> {
   const counts = await db
     .prepare("SELECT COUNT(*) AS total, COUNT(*) FILTER (WHERE deleted_at IS NULL) AS kept FROM uploads WHERE site_id = ?")
@@ -40,7 +50,7 @@ export function uploadRoutes(): Hono<AppEnv> {
     if (!(await underCaps(db, site.id))) throw limitReached();
 
     const body = await readBytes(c.req.raw, LIMITS.uploadMaxBytes + MULTIPART_OVERHEAD_BYTES);
-    const form = await new Request(c.req.url, { method: "POST", headers: { "Content-Type": c.req.header("Content-Type") ?? "" }, body }).formData();
+    const form = await readForm(c.req.url, c.req.header("Content-Type") ?? "", body);
     const file = form.get("file");
     if (!(file instanceof File)) throw new ApiError("bad_request", "Choose a photo to upload");
     if (file.size > LIMITS.uploadMaxBytes) throw new ApiError("payload_too_large", "That photo is over 10 MB. Please choose a smaller one.");

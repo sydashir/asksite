@@ -1,7 +1,7 @@
 import { mediaUrl, type SiteView, type UploadView } from "@asksite/core";
 import { describe, expect, it } from "vitest";
 import { VALID_FACTS } from "../support/facts.ts";
-import { json, ROOT, useAppHarness } from "../support/harness.ts";
+import { APP_ORIGIN, json, ROOT, useAppHarness } from "../support/harness.ts";
 import { animatedWebp, jpegWithGps, latin1, png, upload } from "../support/images.ts";
 
 const h = useAppHarness();
@@ -102,6 +102,27 @@ describe("POST /api/sites/:siteId/uploads", () => {
     const owner = await h.signIn();
     const res = await h.call("POST", `/api/sites/${owner.siteId}/uploads`, { cookie: owner.cookie, body: { file: "x" } });
     expect(res.status).toBe(403);
+  });
+
+  it("refuses a multipart body that cannot be parsed with 400 bad_request, not as a server failure", async () => {
+    const owner = await h.signIn();
+    const part = '------b\r\nContent-Disposition: form-data; name="file"; filename="a.jpg"\r\nContent-Type: image/jpeg\r\n\r\nÿØÿ';
+    const bodies: Array<[contentType: string, body: string]> = [
+      ["multipart/form-data; boundary=----b", "not multipart at all"],
+      ["multipart/form-data; boundary=----b", part],
+      ["multipart/form-data;", part],
+      ["multipart/form-data; boundary=----b", ""],
+    ];
+    const answers: Array<[number, string]> = [];
+    for (const [contentType, body] of bodies) {
+      const res = await h.server.fetch(`${APP_ORIGIN}/api/sites/${owner.siteId}/uploads`, {
+        method: "POST",
+        headers: { Origin: APP_ORIGIN, Cookie: owner.cookie, "Content-Type": contentType },
+        body,
+      });
+      answers.push([res.status, (await json<ErrorJson>(res)).error.code]);
+    }
+    expect(answers).toEqual(bodies.map(() => [400, "bad_request"]));
   });
 
   it("stops at 40 kept photos and at 150 uploads in total (429 upload_limit_reached)", async () => {
