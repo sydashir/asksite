@@ -1,0 +1,133 @@
+import { hashIp, ipRateKey, isId, LIMITS, liveKey, newId, siteUrl, utcDayStart } from "@asksite/core";
+import { createMailer, MailerError } from "@asksite/mailer";
+import type { Env } from "./env.ts";
+import { plainHeaders } from "./headers.ts";
+import { leadEmail } from "./lead-email.ts";
+import { looksLikeSpam, PROBLEM_TEXT, readLead, type Lead } from "./lead.ts";
+import { logLine } from "./log.ts";
+import { formProblems, notFound, siteBusy, tooManyRequests, unavailable, unreadableForm } from "./pages.ts";
+
+const MAX_BODY_BYTES = 16 * 1024;
+
+/** Reads at most `max` bytes, counting as it reads, so a missing or false Content-Length cannot get past it. */
+async function readLimited(request: Request, max: number): Promise<string | null> {
+  const declared = Number(request.headers.get("content-length") ?? "0");
+  if (declared > max) return null;
+  if (request.body === null) return "";
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > max) {
+      await reader.cancel();
+      return null;
+    }
+    chunks.push(value);
+  }
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return new TextDecoder().decode(bytes);
+}
+
+const seeOther = (location: string) => new Response(null, { status: 303, headers: plainHeaders({ Location: location }) });
+
+interface SiteForForm { slug: string | null; live_version_id: string | null; taken_down_at: number | null; email: string }
+
+/** POST /_f/<siteId> on a site host (design §7.5). */
+export async function handleForm(
+  request: Request,
+  env: Env,
+  ctx: ExecutionContext,
+  hostSlug: string,
+  siteId: string,
+  now: number,
+): Promise<{ response: Response; code?: string }> {
+  const root = env.ROOT_DOMAIN;
+  if (!isId(siteId)) return { response: notFound(root) };
+
+  const type = (request.headers.get("content-type") ?? "").split(";")[0]?.trim().toLowerCase();
+  if (type !== "application/x-www-form-urlencoded") return { response: unreadableForm(root, 415), code: "unsupported_media_type" };
+  const body = await readLimited(request, MAX_BODY_BYTES);
+  if (body === null) return { response: unreadableForm(root, 413), code: "payload_too_large" };
+
+  const key = env.IP_HASH_KEY ?? "";
+  if (key === "") return { response: unavailable(root), code: "misconfigured" };
+  const ip = request.headers.get("cf-connecting-ip") ?? "unknown";
+  const ipHash = await hashIp(key, ip); // stored with the lead
+  // Keyed on the IPv6 /64 (an IPv4 address whole), so a visitor cannot dodge the limit by changing
+  // the low bits of their address (Decision 27).
+  const { success } = await env.FORM_RL.limit({ key: `${siteId}:${await hashIp(key, ipRateKey(ip))}` });
+  if (!success) return { response: tooManyRequests(root), code: "rate_limited" };
+
+  const fields = new URLSearchParams(body);
+  const sent = `/_f/${siteId}/sent`;
+  if ((fields.get("website") ?? "") !== "") return { response: seeOther(sent), code: "honeypot" };
+
+  const read = readLead(fields);
+  if (!read.ok) return { response: formProblems(root, read.problems.map((p) => PROBLEM_TEXT[p])), code: "validation_failed" };
+
+  // R2 first: a form for a site with no approved page never reaches D1 (Decision 24).
+  const page = await env.LIVE.head(liveKey(hostSlug));
+  if (page === null || page.customMetadata?.["siteId"] !== siteId) return { response: notFound(root) };
+
+  const site = await env.DB.prepare(
+    "SELECT s.slug, s.live_version_id, s.taken_down_at, o.email FROM sites s JOIN owners o ON o.id = s.owner_id WHERE s.id = ?",
+  ).bind(siteId).first<SiteForForm>();
+  if (site === null || site.slug !== hostSlug || site.live_version_id === null || site.taken_down_at !== null) {
+    return { response: notFound(root) };
+  }
+
+  const leadId = newId();
+  const spam = looksLikeSpam(read.lead);
+  const stored = await insertLead(env.DB, { leadId, siteId, now, lead: read.lead, spam, ipHash });
+  if (!stored) return { response: siteBusy(root), code: "site_daily_cap" };
+  if (spam) return { response: seeOther(sent), code: "spam" };
+
+  // The lead is saved: thank the visitor now and email the owner after the response (Decision 26).
+  ctx.waitUntil(emailOwner(env, { leadId, siteId, to: site.email, lead: read.lead, siteUrl: siteUrl(root, site.slug) }));
+  return { response: seeOther(sent) };
+}
+
+/** Inserts the lead unless the site already has LIMITS.leadsPerSitePerDay today: one statement, so the cap is exact. */
+async function insertLead(db: D1Database, input: { leadId: string; siteId: string; now: number; lead: Lead; spam: boolean; ipHash: string }): Promise<boolean> {
+  const { leadId, siteId, now, lead, spam, ipHash } = input;
+  const result = await db
+    .prepare(
+      `INSERT INTO leads (id, site_id, created_at, name, phone, email, service, message, spam, email_status, ip_hash)
+       SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+       WHERE (SELECT COUNT(*) FROM leads WHERE site_id = ? AND created_at >= ?) < ?`,
+    )
+    .bind(leadId, siteId, now, lead.name, lead.phone, lead.email, lead.service, lead.message, spam ? 1 : 0, spam ? "skipped" : "pending", ipHash,
+      siteId, utcDayStart(now), LIMITS.leadsPerSitePerDay)
+    .run();
+  return result.meta.changes === 1;
+}
+
+/**
+ * Runs after the 303 (ctx.waitUntil): sends the lead email to the owner's verified login email and
+ * records the outcome. The lead is already saved; nothing here can reject, so nothing here can change
+ * what the visitor saw. Logs one line with the outcome (codes only).
+ */
+async function emailOwner(env: Env, input: { leadId: string; siteId: string; to: string; lead: Lead; siteUrl: string }): Promise<void> {
+  const started = Date.now();
+  let error: string | null = null;
+  try {
+    await createMailer(env).send(leadEmail(input));
+  } catch (e) {
+    error = e instanceof MailerError ? e.code : "internal";
+  }
+  let code = error === null ? undefined : `email_${error}`;
+  try {
+    await env.DB.prepare("UPDATE leads SET email_status = ?, email_error = ? WHERE id = ?").bind(error === null ? "sent" : "failed", error, input.leadId).run();
+  } catch {
+    code = "email_status_not_saved"; // the lead stays 'pending'; the owner still sees it in the app
+  }
+  logLine({ route: "form_email", ms: Date.now() - started, siteId: input.siteId, ...(code === undefined ? {} : { code }) });
+}
