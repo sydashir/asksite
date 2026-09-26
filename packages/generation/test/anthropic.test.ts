@@ -1,5 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { generateDraft } from "../src/generate.ts";
+import { CAPS_REPAIR, CAPS_SNAPSHOT } from "../eval/caps.ts";
+import { generateDraft, MAX_OUTPUT_TOKENS } from "../src/generate.ts";
+import { MODELS } from "../src/models.ts";
+import { buildPrompt, type Prompt } from "../src/prompt.ts";
 import { ProviderError } from "../src/provider.ts";
 import { AnthropicProvider } from "../src/providers/anthropic.ts";
 import { templateDraft } from "../src/template.ts";
@@ -806,15 +809,38 @@ function findForbiddenKey(value: unknown, forbidden: ReadonlySet<string>, seen =
   return undefined;
 }
 
-// Fix r1b: models.ts prices every Anthropic model as if requests never cache and never use server tools. cache_control
-// (prompt-caching.md) and a tools field would both change the true cost per token, so this guard fails loudly, on
-// every field of the sent body, the day either one is added, before a mutant or a real change could bill differently
-// without the pricing table being updated.
-describe("AnthropicProvider: never bills as if it cached or used tools (fix r1b)", () => {
-  it("sends a request body with no cache_control key and no tools field anywhere", async () => {
+// Fix r2 (F3): models.ts prices every Anthropic model as if requests never cache and never use server tools. A
+// cache_control field, on a content block or at the top level (automatic caching), makes cache writes cost 1.25x or 2x
+// the input price (pricing.md, "Prompt caching"). A tools field adds its tokens to the input, and pricing.md says
+// "Client-side tools are priced the same as any other Claude API request, although server-side tools can incur
+// additional charges based on their specific usage", so banning any tools key is a conservative superset of the
+// server-tools rule. What this guard proves: for every "anthropic:" entry in MODELS, with the real prompt of a first
+// attempt and of a repair attempt at their largest (CAPS_SNAPSHOT, CAPS_REPAIR), the body the adapter hands fetch
+// has no cache_control key and no tools key at any depth. It says nothing about a model id that is not in MODELS.
+const ANTHROPIC_MODEL_IDS = Object.keys(MODELS)
+  .filter((key) => key.startsWith("anthropic:"))
+  .map((key) => key.slice("anthropic:".length));
+const REAL_PROMPTS: Array<[string, Prompt]> = [
+  ["a first attempt", buildPrompt(CAPS_SNAPSHOT, [])],
+  ["a repair attempt", buildPrompt(CAPS_SNAPSHOT, CAPS_REPAIR)],
+];
+const GUARD_ROWS: Array<[string, string, Prompt]> = ANTHROPIC_MODEL_IDS.flatMap((model) => REAL_PROMPTS.map(([label, prompt]): [string, string, Prompt] => [model, label, prompt]));
+
+describe("AnthropicProvider: never bills as if it cached or used tools (fix r2)", () => {
+  it("has Anthropic models to check", () => {
+    expect(ANTHROPIC_MODEL_IDS.length).toBeGreaterThan(0);
+  });
+
+  it.each(GUARD_ROWS)("sends no cache_control key and no tools key anywhere for model %s with the real prompt of %s", async (model, _label, prompt) => {
     const http = fakeFetch([{ status: 200, body: message('{"a":1}') }]);
-    await new AnthropicProvider({ apiKey: "k", model: "claude-opus-5-5", fetch: http.fetch }).generate(request());
+    const provider = new AnthropicProvider({ apiKey: "k", model, fetch: http.fetch });
+    await provider.generate({ ...prompt, jsonSchema: AI_DRAFT_JSON_SCHEMA, maxOutputTokens: MAX_OUTPUT_TOKENS, signal: new AbortController().signal });
     expect(http.calls).toHaveLength(1);
-    expect(findForbiddenKey(http.calls[0]!.body, new Set(["cache_control", "tools"]))).toBeUndefined();
+    const body = http.calls[0]!.body;
+    // The real prompt was sent (in whatever shape), so the scan below looked at it.
+    expect(body.model).toBe(model);
+    expect(JSON.stringify(body)).toContain(JSON.stringify(prompt.system));
+    expect(JSON.stringify(body)).toContain(JSON.stringify(prompt.user));
+    expect(findForbiddenKey(body, new Set(["cache_control", "tools"]))).toBeUndefined();
   });
 });
