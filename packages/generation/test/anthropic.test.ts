@@ -1,8 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { generateDraft } from "../src/generate.ts";
 import { ProviderError } from "../src/provider.ts";
 import { AnthropicProvider } from "../src/providers/anthropic.ts";
+import { templateDraft } from "../src/template.ts";
 import { AI_DRAFT_JSON_SCHEMA, toWireSchema } from "../src/wire-schema.ts";
 import { abortedSignal, fakeFetch } from "./support/http.ts";
+import { BRIEF, FULL_FACTS, FULL_SNAPSHOT } from "./support/samples.ts";
 
 // No test in this file may reach the network, even when a mutant drops the fetch we inject: the SDK takes the global
 // fetch when it is built without one (client.mjs:113), and this global fails loudly instead. No test may even try.
@@ -186,7 +189,7 @@ describe("AnthropicProvider", () => {
     expect(http.calls).toHaveLength(1);
   });
 
-  it("maps an error from the SDK that is not an APIError (a 200 whose JSON body does not parse) to unavailable", async () => {
+  it("maps a 200 whose JSON body does not parse to unavailable", async () => {
     const provider = new AnthropicProvider({ apiKey: "k", model: "claude-opus-5-5", fetch: rawFetch(200, '{"id":') });
     await expect(provider.generate(request())).rejects.toMatchObject({ name: "ProviderError", kind: "unavailable", message: "Anthropic request failed (unavailable)" });
   });
@@ -496,5 +499,198 @@ describe("AnthropicProvider: a spend limit you set (P3-11 f)", () => {
     [500, "unavailable"],
   ])("names SPEND_CAP only on a 400: HTTP %i stays %s with no token", async (status, kind) => {
     expect(await failWith(status, limitBody(ORG_LIMIT))).toMatchObject({ kind, message: `Anthropic request failed (${kind}, HTTP ${status}, invalid_request_error)` });
+  });
+});
+
+/** A provider for the model claude-opus-5-5 on this fetch. */
+const anthropic = (fetchImpl: typeof fetch) => new AnthropicProvider({ apiKey: "k", model: "claude-opus-5-5", fetch: fetchImpl });
+
+/** The answer to one request whose response is a 200 with this body. */
+const answer = (body: unknown) => anthropic(fakeFetch([{ status: 200, body }]).fetch).generate(request());
+
+/**
+ * A fetch whose response (this status) arrives first; then our signal aborts while the body is read, and the body
+ * stream errors with the abort reason, as a real fetch's does (Fetch Standard, "abort a fetch() call"). The SDK passes
+ * fetch a signal of its own, which our abort aborts in turn.
+ */
+const abortMidBody = (controller: AbortController, status: number) => async (_input: string | URL | Request, init?: RequestInit): Promise<Response> =>
+  new Response(
+    new ReadableStream({
+      pull: (stream) => {
+        controller.abort(new DOMException("timed out", "TimeoutError"));
+        stream.error(init?.signal?.reason);
+      },
+    }),
+    { status, headers: { "content-type": "application/json" } },
+  );
+
+/** A fetch whose response has this status and a body stream that fails when read (a dropped connection). */
+const unreadable = (status: number) => async (): Promise<Response> =>
+  new Response(new ReadableStream({ start: (controller) => controller.error(new TypeError("terminated")) }), { status });
+
+const VALID_ANSWER = { status: 200, body: message(JSON.stringify(templateDraft(FULL_FACTS, BRIEF))) };
+const DEPS = { sleep: async () => {}, timeoutSignal: () => new AbortController().signal, now: () => 0 };
+
+describe("AnthropicProvider: our abort while the body is read (P3-11 a)", () => {
+  it.each([200, 302, 400, 401, 429, 503])("maps HTTP %i whose body read our abort cut short to timeout", async (status) => {
+    const controller = new AbortController();
+    await expect(anthropic(abortMidBody(controller, status)).generate(request(controller.signal))).rejects.toMatchObject({ name: "ProviderError", kind: "timeout" });
+    expect(controller.signal.aborted).toBe(true);
+  });
+});
+
+// P3-11 (d): an error after a 2xx status line carries afterHeaders (the provider accepted the call and may bill it,
+// but its usage is unknown), so generateDraft marks that attempt's usage missing. An error status (3xx, 4xx, 5xx)
+// means the call was refused: the key is left out (exactOptionalPropertyTypes), as it is for a failed fetch.
+describe("AnthropicProvider: errors after a 2xx status line (P3-11 d)", () => {
+  it.each([
+    ["a body that is not JSON", () => rawFetch(200, '{"id":')],
+    ["a JSON null body", () => rawFetch(200, "null")],
+    ["a JSON list body", () => rawFetch(200, "[]")],
+    ["no content", () => fakeFetch([{ status: 200, body: { ...message("{}"), content: undefined } }]).fetch],
+    ["content that is a string", () => fakeFetch([{ status: 200, body: { ...message("{}"), content: "{}" } }]).fetch],
+    ["content that is one block, not a list", () => fakeFetch([{ status: 200, body: { ...message("{}"), content: { type: "text", text: "{}" } } }]).fetch],
+    ["content that is null", () => fakeFetch([{ status: 200, body: { ...message("{}"), content: null } }]).fetch],
+    ["no body (a 204)", () => async (): Promise<Response> => new Response(null, { status: 204 })],
+    ["a body that cannot be read", () => unreadable(200)],
+  ])("maps a 2xx with %s to unavailable with afterHeaders", async (_label, fetchOf) => {
+    const error: unknown = await anthropic(fetchOf()).generate(request()).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(ProviderError);
+    expect(error).toMatchObject({ kind: "unavailable", message: "Anthropic request failed (unavailable)", afterHeaders: true });
+  });
+
+  it("marks a 2xx whose body read our abort cut short a timeout with afterHeaders", async () => {
+    const controller = new AbortController();
+    const error: unknown = await anthropic(abortMidBody(controller, 200)).generate(request(controller.signal)).catch((e: unknown) => e);
+    expect(error).toMatchObject({ name: "ProviderError", kind: "timeout", afterHeaders: true });
+  });
+
+  const errorBody = { type: "error", error: { type: "x", message: "m" } };
+  it.each([
+    ["a 302", () => fakeFetch([{ status: 302, body: errorBody }]).fetch],
+    ["a 400", () => fakeFetch([{ status: 400, body: errorBody }]).fetch],
+    ["a 429", () => fakeFetch([{ status: 429, body: errorBody }]).fetch],
+    ["a 503", () => fakeFetch([{ status: 503, body: errorBody }]).fetch],
+    ["a 401 whose body cannot be read", () => unreadable(401)],
+    ["a network failure", () => fakeFetch([new TypeError("fetch failed")]).fetch],
+  ])("leaves afterHeaders out of the error for %s", async (_label, fetchOf) => {
+    const error: unknown = await anthropic(fetchOf()).generate(request()).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(ProviderError);
+    expect(Object.hasOwn(error as object, "afterHeaders")).toBe(false);
+  });
+
+  it("leaves afterHeaders out of a 429 whose body read our abort cut short (a timeout: its usage is marked missing anyway)", async () => {
+    const controller = new AbortController();
+    const error: unknown = await anthropic(abortMidBody(controller, 429)).generate(request(controller.signal)).catch((e: unknown) => e);
+    expect(error).toMatchObject({ name: "ProviderError", kind: "timeout" });
+    expect(Object.hasOwn(error as object, "afterHeaders")).toBe(false);
+  });
+
+  it.each([
+    ["a 2xx with no content", { status: 200, body: { ...message("{}"), content: undefined } }, [["unavailable", true], ["valid", false]]],
+    ["a 2xx that is not an object", { status: 200, body: "text" }, [["unavailable", true], ["valid", false]]],
+    ["a 400, a refused call", { status: 400, body: errorBody }, [["bad_request", false]]],
+    ["a 503, a refused call", { status: 503, body: errorBody }, [["unavailable", false], ["valid", false]]],
+  ])("lets generateDraft record whether usage is missing after %s", async (_label, first, log) => {
+    const result = await generateDraft(anthropic(fakeFetch([first, VALID_ANSWER]).fetch), FULL_SNAPSHOT, DEPS);
+    expect(result.log.map((a) => [a.outcome, a.usageMissing])).toEqual(log);
+  });
+
+  it("lets generateDraft mark usage missing after our abort cut a 2xx body short", async () => {
+    const controller = new AbortController();
+    const signals = [controller.signal, new AbortController().signal];
+    const answers = [abortMidBody(controller, 200), fakeFetch([VALID_ANSWER]).fetch];
+    const fetchImpl = (input: string | URL | Request, init?: RequestInit): Promise<Response> => answers.shift()!(input, init);
+    const result = await generateDraft(anthropic(fetchImpl), FULL_SNAPSHOT, { ...DEPS, timeoutSignal: () => signals.shift()! });
+    expect(result.log.map((a) => [a.outcome, a.usageMissing])).toEqual([["timeout", true], ["valid", false]]);
+  });
+
+  it("maps an SDK failure that is not an APIError (fetch resolved to something that is not a Response) to unavailable", async () => {
+    const notAResponse = (async () => ({})) as unknown as typeof fetch;
+    const error: unknown = await anthropic(notAResponse).generate(request()).catch((e: unknown) => e);
+    expect(error).toMatchObject({ name: "ProviderError", kind: "unavailable", message: "Anthropic request failed (unavailable)" });
+    expect(Object.hasOwn(error as object, "afterHeaders")).toBe(false);
+  });
+});
+
+// P3-11 (d): every field of a 2xx answer is read only after a type check: the model is a string (else the requested
+// id), content is a list, the text block is found by its type and its text is a string.
+describe("AnthropicProvider: 2xx shape checks (P3-11 d)", () => {
+  const usage = { inputTokens: 3200, outputTokens: 1400 };
+
+  it.each([
+    ["a number", 42],
+    ["null", null],
+    ["an object", { id: "claude-x" }],
+    ["missing", undefined],
+  ])("keeps the requested model when the body's model is %s", async (_label, model) => {
+    expect(await answer({ ...message('{"a":1}'), model })).toStrictEqual({ json: { a: 1 }, model: "claude-opus-5-5", usage, stop: "end" });
+  });
+
+  it.each([
+    ["a null block before the text block", [null, { type: "text", text: '{"a":1}' }], { a: 1 }],
+    ["a number block before the text block", [7, { type: "text", text: '{"a":1}' }], { a: 1 }],
+    ["a thinking block before the text block", [{ type: "thinking", thinking: "", signature: "s" }, { type: "text", text: '{"a":1}' }], { a: 1 }],
+    ["text in a block of another type only", [{ type: "tool_use", text: '{"a":1}' }], undefined],
+    ["no text block", [{ type: "thinking", thinking: "", signature: "s" }], undefined],
+    ["no blocks", [], undefined],
+    ["a text block whose text is a number", [{ type: "text", text: 5 }], undefined],
+    ["a text block whose text is an object", [{ type: "text", text: { a: 1 } }], undefined],
+  ])("reads content with %s", async (_label, content, json) => {
+    expect(await answer({ ...message("{}"), content })).toStrictEqual({ json, model: "claude-opus-5-5", usage, stop: "end" });
+  });
+
+  it.each([
+    ["a number", 5],
+    ["an object", { reason: "end_turn" }],
+    ["a list holding end_turn", ["end_turn"]],
+  ])("maps a stop_reason that is %s to other, with no JSON", async (_label, stop_reason) => {
+    expect(await answer({ ...message('{"a":1}'), stop_reason })).toStrictEqual({ json: undefined, model: "claude-opus-5-5", usage, stop: "other" });
+  });
+});
+
+// P3-11 (g) and (h): api/messages lists end_turn, max_tokens, stop_sequence, tool_use, pause_turn, refusal and
+// model_context_window_exceeded, for which build-with-claude/handling-stop-reasons says "Treat the response as
+// truncated". The text is valid JSON, so a stop that is not "end" must still give no JSON.
+describe("AnthropicProvider: stop reasons (P3-11 g, h)", () => {
+  it.each([
+    ["max_tokens", "max_tokens"],
+    ["model_context_window_exceeded", "max_tokens"],
+    ["refusal", "refusal"],
+    ["stop_sequence", "other"],
+    ["tool_use", "other"],
+    ["pause_turn", "other"],
+    ["constructor", "other"],
+    ["__proto__", "other"],
+    ["toString", "other"],
+    [null, "other"],
+  ])("maps stop_reason %s to %s, with no JSON even when the text is valid JSON", async (stop_reason, stop) => {
+    expect(await answer({ ...message('{"a":1}'), stop_reason })).toStrictEqual({ json: undefined, model: "claude-opus-5-5", usage: { inputTokens: 3200, outputTokens: 1400 }, stop });
+  });
+});
+
+// P3-11 (i), api/messages: "Total input tokens in a request is the summation of `input_tokens`,
+// `cache_creation_input_tokens`, and `cache_read_input_tokens`"; each cache count is typed "number or null".
+describe("AnthropicProvider: cache tokens count as input (P3-11 i)", () => {
+  const withUsage = (usage: unknown) => answer({ ...message('{"a":1}'), usage });
+
+  it.each([
+    ["both cache counts", { input_tokens: 100, cache_creation_input_tokens: 20, cache_read_input_tokens: 3, output_tokens: 5 }, 123],
+    ["a cache write only", { input_tokens: 100, cache_creation_input_tokens: 20, output_tokens: 5 }, 120],
+    ["a cache read only", { input_tokens: 100, cache_read_input_tokens: 3, output_tokens: 5 }, 103],
+    ["null cache counts", { input_tokens: 100, cache_creation_input_tokens: null, cache_read_input_tokens: null, output_tokens: 5 }, 100],
+    ["zero cache counts", { input_tokens: 100, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, output_tokens: 5 }, 100],
+  ])("adds %s to the input tokens, leaving usageMissing out", async (_label, usage, inputTokens) => {
+    expect(await withUsage(usage)).toStrictEqual({ json: { a: 1 }, model: "claude-opus-5-5", usage: { inputTokens, outputTokens: 5 }, stop: "end" });
+  });
+
+  it.each([
+    ["a negative cache write", { input_tokens: 100, cache_creation_input_tokens: -1, cache_read_input_tokens: 3, output_tokens: 5 }, 103],
+    ["a fractional cache read", { input_tokens: 100, cache_creation_input_tokens: 20, cache_read_input_tokens: 1.5, output_tokens: 5 }, 120],
+    ["a text cache read", { input_tokens: 100, cache_creation_input_tokens: 20, cache_read_input_tokens: "3", output_tokens: 5 }, 120],
+    ["a cache write of 10,000,001", { input_tokens: 100, cache_creation_input_tokens: 10_000_001, cache_read_input_tokens: 3, output_tokens: 5 }, 103],
+    ["no input_tokens", { cache_creation_input_tokens: 20, cache_read_input_tokens: 3, output_tokens: 5 }, 23],
+  ])("keeps only usable counts and sets usageMissing for %s", async (_label, usage, inputTokens) => {
+    expect(await withUsage(usage)).toStrictEqual({ json: { a: 1 }, model: "claude-opus-5-5", usage: { inputTokens, outputTokens: 5 }, stop: "end", usageMissing: true });
   });
 });

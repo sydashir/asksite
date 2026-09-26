@@ -19,7 +19,12 @@ export interface AnthropicOptions {
  */
 const ANTHROPIC_BASE_URL = "https://api.anthropic.com";
 
-const STOP: Record<string, ModelResponse["stop"]> = { end_turn: "end", max_tokens: "max_tokens", refusal: "refusal" };
+/**
+ * stop_reason values (api/messages). model_context_window_exceeded: "The response filled the model's context window",
+ * and the docs say "Treat the response as truncated" (build-with-claude/handling-stop-reasons), so it is a cut-off
+ * answer, like max_tokens. Any other value (stop_sequence, tool_use, pause_turn, null or unknown) is "other".
+ */
+const STOP: Record<string, ModelResponse["stop"]> = { end_turn: "end", max_tokens: "max_tokens", model_context_window_exceeded: "max_tokens", refusal: "refusal" };
 
 /** A provider error type a message may carry: a short plain token such as "billing_error", never provider text. */
 const SAFE_ERROR_TYPE = /^[a-z0-9_.-]{1,64}$/;
@@ -41,7 +46,7 @@ const SPEND_CAP_CODE = "enforced_spend_limit_reached";
 const SPEND_LIMIT_PREFIXES = ["You have reached your specified API usage limits", "You have reached your specified workspace API usage limits"];
 const SPEND_LIMIT_TOKEN = "SPEND_CAP";
 
-/** An own property of a parsed JSON value, or undefined: the error body's shape is never trusted. */
+/** An own property of a parsed JSON value, or undefined: a body's shape is never trusted. */
 const own = (value: unknown, key: string): unknown =>
   typeof value === "object" && value !== null && Object.hasOwn(value, key) ? (value as Record<string, unknown>)[key] : undefined;
 
@@ -86,14 +91,32 @@ function failureMessage(kind: ProviderErrorKind, error: unknown, apiKey: string)
   return `Anthropic request failed (${details.join(", ")})`;
 }
 
-const parseJson = (text: string | undefined): unknown => {
-  if (text === undefined) return undefined;
+const parseJson = (text: unknown): unknown => {
+  if (typeof text !== "string") return undefined;
   try {
     return dropNulls(JSON.parse(text));
   } catch {
     return undefined;
   }
 };
+
+/** The body parsed as JSON, or undefined when it cannot be read (a dropped connection, our abort) or is not JSON. */
+async function readJson(response: Response): Promise<unknown> {
+  try {
+    return JSON.parse(await response.text());
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * A cache count, added to the input tokens (P3-11 i). api/messages: "Total input tokens in a request is the summation
+ * of `input_tokens`, `cache_creation_input_tokens`, and `cache_read_input_tokens`", and all three are billed (prompt
+ * caching prices a cache write at 1.25 or 2 times the input price, a read at 0.1 times), so leaving them out would
+ * under-count. We send no cache_control, so both should be 0 or null. Each is typed "number or null": absent or null
+ * is 0; any other value that is not a usable count (tokenCount) is undefined, which marks the usage missing.
+ */
+const cacheCount = (value: unknown): number | undefined => (value === undefined || value === null ? 0 : tokenCount(value));
 
 /**
  * Claude through the official SDK: one Messages API call with structured output
@@ -136,36 +159,51 @@ export class AnthropicProvider implements ModelProvider {
     const effort = modelSettings("anthropic", this.#model)?.anthropicEffort;
     // Our own code runs before the try, so an error in it propagates instead of becoming a ProviderError.
     const schema = toWireSchema(req.jsonSchema);
-    let message: Anthropic.Message;
+    let response: Response;
     try {
-      message = await this.#client.messages.create(
-        {
-          model: this.#model,
-          max_tokens: req.maxOutputTokens,
-          system: req.system,
-          messages: [{ role: "user", content: req.user }],
-          output_config: { format: { type: "json_schema", schema }, ...(effort === undefined ? {} : { effort }) },
-        },
-        { signal: req.signal },
-      );
+      // asResponse() returns "as soon as the headers for a successful response are received and does not consume the
+      // response body" (api/sdks/typescript.md); a 3xx, 4xx or 5xx is thrown as an APIError. So every failure below
+      // this try came after a 2xx status line (P3-11 d).
+      response = await this.#client.messages
+        .create(
+          {
+            model: this.#model,
+            max_tokens: req.maxOutputTokens,
+            system: req.system,
+            messages: [{ role: "user", content: req.user }],
+            output_config: { format: { type: "json_schema", schema }, ...(effort === undefined ? {} : { effort }) },
+          },
+          { signal: req.signal },
+        )
+        .asResponse();
     } catch (error) {
-      const kind = kindOf(error);
+      // Our abort while the SDK read an error body is a timeout, whatever the status (P3-11 a).
+      const kind = req.signal.aborted ? "timeout" : kindOf(error);
       throw new ProviderError(kind, failureMessage(kind, error, this.#apiKey));
     }
-    const text = message.content.find((block) => block.type === "text")?.text;
-    const reason = message.stop_reason ?? "";
-    const stop = Object.hasOwn(STOP, reason) ? STOP[reason]! : "other";
-    // The SDK types usage as always present but passes the body through unchecked: a missing or
-    // invalid count is reported as 0 with usageMissing (P3-4a), never as a thrown error.
-    const usage: { input_tokens?: unknown; output_tokens?: unknown } | null | undefined = message.usage;
-    const inputTokens = tokenCount(usage?.input_tokens);
-    const outputTokens = tokenCount(usage?.output_tokens);
+    // Every field is read only after a type check: the body is never trusted.
+    const data = await readJson(response);
+    const content = own(data, "content");
+    if (!Array.isArray(content)) {
+      // Unread, not JSON or no content list: the provider accepted the call and may bill it (afterHeaders). Our abort
+      // while the body was read is a timeout (P3-11 a).
+      const kind = req.signal.aborted ? "timeout" : "unavailable";
+      throw new ProviderError(kind, failureMessage(kind, undefined, this.#apiKey), { afterHeaders: true });
+    }
+    const text = own(content.find((block: unknown) => own(block, "type") === "text"), "text");
+    const reason = own(data, "stop_reason");
+    const stop = typeof reason === "string" && Object.hasOwn(STOP, reason) ? STOP[reason]! : "other";
+    const model = own(data, "model");
+    // A missing or unusable count is reported as 0 with usageMissing (P3-4a), never as a thrown error.
+    const usage = own(data, "usage");
+    const inputCounts = [tokenCount(own(usage, "input_tokens")), cacheCount(own(usage, "cache_creation_input_tokens")), cacheCount(own(usage, "cache_read_input_tokens"))];
+    const outputTokens = tokenCount(own(usage, "output_tokens"));
     return {
       json: stop === "end" ? parseJson(text) : undefined,
-      model: message.model,
-      usage: { inputTokens: inputTokens ?? 0, outputTokens: outputTokens ?? 0 },
+      model: typeof model === "string" ? model : this.#model,
+      usage: { inputTokens: inputCounts.reduce<number>((sum, count) => sum + (count ?? 0), 0), outputTokens: outputTokens ?? 0 },
       stop,
-      ...(inputTokens === undefined || outputTokens === undefined ? { usageMissing: true as const } : {}),
+      ...(inputCounts.includes(undefined) || outputTokens === undefined ? { usageMissing: true as const } : {}),
     };
   }
 }

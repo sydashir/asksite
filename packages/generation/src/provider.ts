@@ -35,8 +35,10 @@ export class ProviderError extends Error {
   /**
    * Set by an adapter on an error raised after a 2xx status line arrived (P3-11 d): a body that could not be read,
    * or read to a malformed answer, or our abort while it was read. The provider accepted the call and may bill it,
-   * but its usage is unknown, so generateDraft marks the attempt's usage missing. Otherwise the key is absent
-   * (`declare` emits no class field, so it is never an own property holding undefined). Internal to this package.
+   * but its usage is unknown, so generateDraft marks the attempt's usage missing. A 3xx, 4xx or 5xx status is a
+   * refusal, treated as not billed, so its error never carries the flag, even when its body then fails [inferred, not
+   * documented; Task 15 checks the billing of error statuses]. Otherwise the key is absent (`declare` emits no class
+   * field, so it is never an own property holding undefined). Internal to this package.
    */
   declare readonly afterHeaders?: true;
   constructor(kind: ProviderErrorKind, message: string, options: { afterHeaders?: true } = {}) {
