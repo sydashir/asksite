@@ -672,6 +672,13 @@ describe("AnthropicProvider: 2xx shape checks (P3-11 d)", () => {
     expect(await answer({ ...message("{}"), content })).toStrictEqual({ json, model: "claude-opus-5-5", usage, stop: "end" });
   });
 
+  // M1: today's own(content.find(...), "text") reads the FIRST text block; a mutant swapping find for findLast would
+  // read the second one instead and must fail this test.
+  it("uses the first text block when the answer has two, after a thinking block", async () => {
+    const content = [{ type: "thinking", thinking: "", signature: "s" }, { type: "text", text: '{"a":1}' }, { type: "text", text: '{"a":2}' }];
+    expect(await answer({ ...message("{}"), content })).toStrictEqual({ json: { a: 1 }, model: "claude-opus-5-5", usage, stop: "end" });
+  });
+
   it.each([
     ["a number", 5],
     ["an object", { reason: "end_turn" }],
