@@ -13,6 +13,11 @@ async function media(key: string) {
   return env.MEDIA.get(key);
 }
 
+/** The options of every .transform() and .output() the Worker has asked of IMAGES, oldest first (the test Worker records them). */
+async function imagesCalls(): Promise<unknown[]> {
+  return json<unknown[]>(await h.call("GET", "/__test/images-calls"));
+}
+
 describe("POST /api/sites/:siteId/uploads", () => {
   it("stores a PNG as a WebP in MEDIA and returns the UploadView", async () => {
     const owner = await h.signIn();
@@ -39,6 +44,8 @@ describe("POST /api/sites/:siteId/uploads", () => {
     expect(stored).not.toContain("LeakyCam");
   });
 
+  // Locally this proves only that the original is not stored: the local binding decodes just the first
+  // frame whatever it is asked. The next test pins the `anim: false` that production relies on.
   it("stores an animated WebP as a still image", async () => {
     const owner = await h.signIn();
     const res = await h.call("POST", `/api/sites/${owner.siteId}/uploads`, { cookie: owner.cookie, body: upload(await animatedWebp(), "a.webp", "image/webp") });
@@ -46,6 +53,17 @@ describe("POST /api/sites/:siteId/uploads", () => {
     const view = await json<UploadView>(res);
     const stored = latin1(new Uint8Array(await (await media(`${owner.siteId}/${view.id}.webp`))!.arrayBuffer()));
     expect(stored).not.toContain("ANIM");
+  });
+
+  it("asks the Images binding for a still WebP, at most 1600 px on each side, quality 82 (§8 step 3)", async () => {
+    const owner = await h.signIn();
+    const before = (await imagesCalls()).length;
+    const res = await h.call("POST", `/api/sites/${owner.siteId}/uploads`, { cookie: owner.cookie, body: upload(await animatedWebp(), "a.webp", "image/webp") });
+    expect(res.status).toBe(201);
+    expect((await imagesCalls()).slice(before)).toEqual([
+      { transform: { width: 1600, height: 1600, fit: "scale-down" } },
+      { output: { format: "image/webp", quality: 82, anim: false } },
+    ]);
   });
 
   it("refuses anything that is not really a JPEG, PNG or WebP with 415, whatever its name says", async () => {

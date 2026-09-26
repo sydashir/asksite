@@ -62,6 +62,46 @@ function withBatchHook(env: Env): Env {
   return { ...env, DB };
 }
 
+/** One thing the Worker asked of an Images transformer: the options of a .transform() or of an .output(). */
+type ImagesCall = { transform: ImageTransform } | { output: ImageOutputOptions };
+
+/**
+ * Every .transform() and .output() the Worker asked of IMAGES, oldest first. The local binding ignores
+ * `anim` and `quality` (miniflare's images fetcher never reads them), so tests check what was asked here.
+ */
+const imagesCalls: ImagesCall[] = [];
+
+/** The real transformer, recording the options it is given. */
+function recordingTransformer(transformer: ImageTransformer): ImageTransformer {
+  return {
+    transform(transform) {
+      imagesCalls.push({ transform });
+      return recordingTransformer(transformer.transform(transform));
+    },
+    draw(image, options) {
+      return recordingTransformer(transformer.draw(image, options));
+    },
+    output(options) {
+      imagesCalls.push({ output: options });
+      return transformer.output(options);
+    },
+  };
+}
+
+/** The Worker's env, with an Images binding that does the real work and records what it is asked. */
+function withImagesHook(env: Env): Env {
+  const images = env.IMAGES;
+  const IMAGES: ImagesBinding = {
+    info: (stream, options) => images.info(stream, options),
+    input: (stream, options) => recordingTransformer(images.input(stream, options)),
+    text: (content, options) => recordingTransformer(images.text(content, options)),
+    get hosted() {
+      return images.hosted;
+    },
+  };
+  return { ...env, IMAGES };
+}
+
 const helpers = new Hono<AppEnv>();
 
 helpers.use("*", async (c, next) => {
@@ -110,6 +150,9 @@ helpers.post("/__test/sites/:siteId/leads", async (c) => {
 
 /** What the fake siteverify has been sent, oldest first. */
 helpers.get("/__test/siteverify", (c) => c.json(siteverifyCallsSoFar()));
+
+/** What the Worker has asked of IMAGES so far, oldest first (see imagesCalls). */
+helpers.get("/__test/images-calls", (c) => c.json(imagesCalls));
 
 /**
  * How many promises requests to a path handed to ctx.waitUntil, and how many still run. A client
@@ -171,7 +214,7 @@ helpers.post("/__test/versions/:versionId/approve", async (c) => c.json(await fa
 export default {
   fetch(request, env, ctx) {
     const path = new URL(request.url).pathname;
-    return path.startsWith("/__test/") ? helpers.fetch(request, env, ctx) : worker.fetch!(request, withBatchHook(env), counting(ctx, path));
+    return path.startsWith("/__test/") ? helpers.fetch(request, env, ctx) : worker.fetch!(request, withImagesHook(withBatchHook(env)), counting(ctx, path));
   },
   scheduled(controller, env, ctx) {
     return worker.scheduled!(controller, env, ctx);
