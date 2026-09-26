@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { Copy, COPY_LIMITS } from "../src/copy.ts";
+import { UNICODE_17, unicodeVersion } from "./support/unicode-version.ts";
 
 const valid = {
   heroHeadline: "Fast, friendly plumbing in Austin",
@@ -130,11 +131,10 @@ describe("Copy", () => {
   };
 
   it("runs on the Unicode version the letter tables were derived from (17.0), so an upgrade is reviewed first", () => {
-    // U+A7CE LATIN CAPITAL LETTER PHARYNGEAL VOICED FRICATIVE is new in Unicode 17.0 and U+1DF40 LATIN CAPITAL LETTER
-    // BARRED A is new in 18.0 (DerivedAge-18.0.0.txt). When this fails, derive NON_ENGLISH_LETTER, DIGIT_LETTER (copy.ts),
-    // LOOKALIKES (lookalikes.ts) and the SMALL_CAPITALS and DIGIT_LETTERS lists here again from the new Unicode data.
-    expect(/^\p{L}$/u.test("\uA7CE")).toBe(true);
-    expect(/^\p{Cn}$/u.test("\u{1DF40}")).toBe(true);
+    // When this fails, derive NON_ENGLISH_LETTER, DIGIT_LETTER (copy.ts), LOOKALIKES (lookalikes.ts) and the SMALL_CAPITALS
+    // and DIGIT_LETTERS lists here again from the new Unicode data (support/unicode-version.ts; unicode.workerd.test.ts
+    // asks the same inside workerd).
+    expect(unicodeVersion()).toEqual(UNICODE_17);
   });
 
   it.each([
