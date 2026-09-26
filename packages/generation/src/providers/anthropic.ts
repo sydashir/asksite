@@ -138,25 +138,9 @@ export class AnthropicProvider implements ModelProvider {
       apiKey: options.apiKey,
       // The SDK reads ANTHROPIC_AUTH_TOKEN (an extra Authorization header) and ANTHROPIC_LOG (debug
       // logs hold the prompt) from process.env only when these options are undefined, so both are
-      // explicit.
+      // explicit. ANTHROPIC_CUSTOM_HEADERS has no such option: see the per-request headers in generate().
       authToken: null,
       logLevel: "off",
-      // ANTHROPIC_CUSTOM_HEADERS has no such option: the SDK merges its "name: value" lines under these default
-      // headers and sends them after its own auth headers (client.mjs:116-125, 837-838). This layer neutralises the
-      // variable when it spells x-api-key or authorization only ONCE, in any case: our entry here (spread after the
-      // parsed lines) replaces that single entry, and a null authorization removes the header (internal/headers.mjs:
-      // 96-99). It is NOT enough on its own when the variable spells one of those two names TWICE in different cases
-      // (e.g. "x-api-key" then "X-Api-Key"): each plain-object header source gets its own clear-then-set pass per
-      // entry (internal/headers.mjs iterateHeaders, shouldClear), and a native Headers delete/append is
-      // case-insensitive, so within this one source the LAST-listed spelling of the name wins, whichever case, and
-      // that can be the variable's, not ours. generate() below closes that gap by ALSO sending the same two headers
-      // as PER-REQUEST headers, which are merged last of all (client.mjs:840, after this defaultHeaders at 838) and
-      // so always win regardless of how the variable spells them or in what order. Kept here anyway as a first,
-      // simple layer for the common (single-spelling) case; removing it would change no test's outcome. Any OTHER
-      // header the variable sets (any name but these two) is still sent to Anthropic in Node by neither layer: only
-      // an outer layer that removes ANTHROPIC_CUSTOM_HEADERS itself can stop that (planned as part of Task 13's CLI,
-      // not yet built; the generator Worker has no process.env to read the variable from at all).
-      defaultHeaders: { "x-api-key": options.apiKey, authorization: null },
       // A followed redirect would carry every header, the key included, to another host. The SDK turns a 3xx into an
       // APIError with that status (client.mjs:583-615), which kindOf makes a bad request.
       fetchOptions: { redirect: "manual" },
@@ -185,10 +169,19 @@ export class AnthropicProvider implements ModelProvider {
             messages: [{ role: "user", content: req.user }],
             output_config: { format: { type: "json_schema", schema }, ...(effort === undefined ? {} : { effort }) },
           },
-          // Per-request headers (RequestOptions.headers, internal/request-options.d.mts:65-67) are the last source
-          // buildHeaders merges (client.mjs:840), after defaultHeaders (838) and any ANTHROPIC_CUSTOM_HEADERS lines
-          // folded into it: this repeats our credentials one layer further out so a double-spelled variable can
-          // never win (see the defaultHeaders comment above).
+          // The credential layers (P3-11 b), explained here only. In Node the SDK reads ANTHROPIC_CUSTOM_HEADERS
+          // ("name: value" lines, client.mjs:116-125) into its default headers, merged after its own auth headers
+          // (client.mjs:837-838), and no option turns that off. These per-request headers
+          // (internal/request-options.d.mts:65-67) are merged last of all (client.mjs:840), and a later source replaces
+          // every earlier value of x-api-key and authorization whatever the spelling (internal/headers.mjs:90-103; a
+          // header name is case-insensitive). So they beat any spelling of those two names in the variable, in any
+          // order, and null removes authorization (96-99). Every other header the variable sets still reaches fetch in
+          // Node, except content-type, which the SDK's body headers replace (client.mjs:839), and except that a line
+          // whose name or value the Headers class rejects makes every request fail before any fetch (unavailable).
+          // The outer layer is Task 13's CLI, which deletes the variable at startup (task-13-additions.md A). The
+          // generator Worker has no process object once constraint K's no_nodejs_compat flags are set (Task 12), and
+          // the SDK's readEnv then returns undefined for every variable (internal/utils/env.mjs:8-16). The SDK's
+          // defaultHeaders option is not used for the credentials: it would change no outcome.
           { signal: req.signal, headers: { "x-api-key": this.#apiKey, authorization: null } },
         )
         .asResponse();

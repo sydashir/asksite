@@ -442,13 +442,18 @@ describe("AnthropicProvider: ANTHROPIC_CUSTOM_HEADERS never replaces the credent
     });
   });
 
-  // Fix r1 (I1): the variable can spell one header TWICE, in two different cases. buildHeaders
-  // (internal/headers.mjs:64-103) gives every plain-object header source its own "clear, then set" pass per entry
-  // (iterateHeaders sets shouldClear for a plain object, headers.mjs:19-24, 33-42), and a native Headers delete/append
-  // is case-insensitive, so within ONE source the LAST-listed spelling of a name wins, whichever case it uses. Our
-  // apiKey is still authoritative because generate() also sends it as a PER-REQUEST header, applied after every other
-  // source (client.mjs:840, the last entry in the array built at 825-840), so it always wins regardless of what the
-  // variable spelled or in which order.
+  // Fix r1 (I1) and r2 (F2): the variable can spell one header TWICE, in two different cases. buildHeaders
+  // (internal/headers.mjs:68-107) gives every plain-object header source a "clear, then set" pass per entry
+  // (iterateHeaders sets shouldClear for a plain object at headers.mjs:22-25 and yields the clear at 39-42), and a
+  // native Headers delete/append is case-insensitive, so within ONE source the LAST-listed spelling of a name wins.
+  // generate() sends our credentials as PER-REQUEST headers, the last source (client.mjs:840, the last entry of the
+  // list at 825-841), so they win whatever the variable spelled, in either order.
+  // What these four rows proved, stated plainly: at 5bcac54 our credentials were only in defaultHeaders, which the SDK
+  // builds as `{ ...parsed, ...defaultHeaders }` (client.mjs:125). The two "lower-case then mixed-case" rows were RED
+  // there. The two "mixed-case then lower-case" rows were already GREEN there: a spread keeps a key's first-insertion
+  // position, so our lower-case key replaced the variable's lower-case entry in place, was listed after its mixed-case
+  // spelling, and won (buildHeaders, headers.mjs:68-107). All four stay as regression pins: each is RED when the
+  // per-request and the default credential headers are both removed.
   it.each([
     ["lower-case then mixed-case", `x-api-key: env-key-marker${newline}X-Api-Key: env-key-marker-2`],
     ["mixed-case then lower-case", `X-Api-Key: env-key-marker${newline}x-api-key: env-key-marker-2`],
