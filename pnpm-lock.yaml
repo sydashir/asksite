@@ -42,6 +42,31 @@ importers:
         specifier: 4.138.0
         version: 4.138.0(@cloudflare/workers-types@5.20260924.1)(@types/node@24.13.6)
 
+  apps/sites:
+    dependencies:
+      '@asksite/core':
+        specifier: workspace:*
+        version: link:../../packages/core
+      '@asksite/mailer':
+        specifier: workspace:*
+        version: link:../../packages/mailer
+      '@asksite/renderer':
+        specifier: workspace:*
+        version: link:../../packages/renderer
+      zod:
+        specifier: 4.6.5
+        version: 4.6.5
+    devDependencies:
+      '@asksite/publishing':
+        specifier: workspace:*
+        version: link:../../packages/publishing
+      '@asksite/site-schema':
+        specifier: workspace:*
+        version: link:../../packages/site-schema
+      wrangler:
+        specifier: 4.138.0
+        version: 4.138.0(@cloudflare/workers-types@5.20260924.1)(@types/node@24.13.6)
+
   packages/core:
     dependencies:
       '@asksite/site-schema':
