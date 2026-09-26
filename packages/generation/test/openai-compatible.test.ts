@@ -674,3 +674,33 @@ describe("OpenAICompatibleProvider: base URL extras (P3-11 u)", () => {
     expect(http.calls.map((c) => c.url)).toEqual(["https://h/v1/chat/completions"]);
   });
 });
+
+// P3-11 (s): Task 7 review survivors X4-X7, pinned.
+describe("OpenAICompatibleProvider: the fetch call and stop mapping (P3-11 s)", () => {
+  it("passes fetch the request's own signal, method POST and a JSON content type (X4, X5, X6)", async () => {
+    const inits: RequestInit[] = [];
+    const fetchImpl = async (_input: string | URL | Request, init?: RequestInit): Promise<Response> => {
+      inits.push(init ?? {});
+      return new Response(JSON.stringify(completion("{}")), { status: 200, headers: { "content-type": "application/json" } });
+    };
+    const req = request();
+    await compatible(fetchImpl).generate(req);
+    expect(inits).toHaveLength(1);
+    expect(inits[0]!.signal).toBe(req.signal);
+    expect(inits[0]!.method).toBe("POST");
+    expect(new Headers(inits[0]!.headers).get("content-type")).toBe("application/json");
+  });
+
+  // The content is valid JSON, so a stop that is not "end" must still give no JSON.
+  it.each([
+    ["length", "max_tokens"],
+    ["content_filter", "refusal"],
+    ["tool_calls", "other"],
+    ["constructor", "other"],
+    ["__proto__", "other"],
+    ["toString", "other"],
+  ])("maps finish_reason %s to %s, with no JSON even when the content is valid JSON (X7)", async (reason, stop) => {
+    const res = await compatible(fakeFetch([{ status: 200, body: completion('{"a":1}', reason) }]).fetch).generate(request());
+    expect(res).toStrictEqual({ json: undefined, model: "@cf/openai/gpt-oss-120b", usage: { inputTokens: 2900, outputTokens: 1300 }, stop });
+  });
+});

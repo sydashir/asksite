@@ -1,10 +1,24 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createProvider } from "../src/providers/create.ts";
 import { AI_DRAFT_JSON_SCHEMA } from "../src/wire-schema.ts";
 import { fakeFetch } from "./support/http.ts";
 import { FULL_SNAPSHOT } from "./support/samples.ts";
 
 const base = { ENVIRONMENT: "development", MODEL_ID: "m" };
+
+// No test in this file may reach the network, even when a mutant drops the fetch we inject: the SDK takes the global
+// fetch when it is built without one (client.mjs:113), and this global fails loudly instead.
+const globalFetchCalls: unknown[] = [];
+beforeEach(() => {
+  globalFetchCalls.length = 0;
+  vi.stubGlobal("fetch", async (...args: unknown[]) => {
+    globalFetchCalls.push(args);
+    throw new TypeError("the global fetch must not be used");
+  });
+});
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 describe("createProvider", () => {
   it("builds the provider MODEL_PROVIDER names", () => {
@@ -77,5 +91,88 @@ describe("createProvider", () => {
       if (saved === undefined) delete process.env.ANTHROPIC_API_KEY;
       else process.env.ANTHROPIC_API_KEY = saved;
     }
+  });
+});
+
+const REQ = { system: "s", user: "u", jsonSchema: AI_DRAFT_JSON_SCHEMA, maxOutputTokens: 10, signal: new AbortController().signal };
+const COMPAT_ANSWER = { model: "m", choices: [{ message: { content: "{}" }, finish_reason: "stop" }], usage: { prompt_tokens: 1, completion_tokens: 1 } };
+const ANTHROPIC_ANSWER = {
+  id: "msg_1",
+  type: "message",
+  role: "assistant",
+  model: "m",
+  content: [{ type: "text", text: "{}" }],
+  stop_reason: "end_turn",
+  stop_sequence: null,
+  usage: { input_tokens: 1, output_tokens: 1 },
+};
+const COMPAT_ENV = { MODEL_PROVIDER: "openai-compatible", OPENAI_COMPAT_BASE_URL: "https://x.example/v1", OPENAI_COMPAT_API_KEY: "k" };
+const ANTHROPIC_ENV = { MODEL_PROVIDER: "anthropic", ANTHROPIC_API_KEY: "k" };
+
+// P3-11 (s): Task 7 review survivors X12, X13, X15 and X16, pinned.
+describe("createProvider: wiring (P3-11 s)", () => {
+  it.each([
+    ["openai-compatible", COMPAT_ENV, COMPAT_ANSWER],
+    ["anthropic", ANTHROPIC_ENV, ANTHROPIC_ANSWER],
+  ])("sends MODEL_ID as the %s request's model (X12, X13)", async (_name, env, answer) => {
+    const http = fakeFetch([{ status: 200, body: answer }]);
+    await createProvider({ ...base, ...env, MODEL_ID: "model-id-under-test" }, FULL_SNAPSHOT, http.fetch).generate(REQ);
+    expect(http.calls.map((c) => c.body.model)).toEqual(["model-id-under-test"]);
+  });
+
+  it("sends the Anthropic request through the fetch it is given, never the global one (X15)", async () => {
+    const http = fakeFetch([{ status: 200, body: ANTHROPIC_ANSWER }]);
+    await createProvider({ ...base, ...ANTHROPIC_ENV }, FULL_SNAPSHOT, http.fetch).generate(REQ);
+    expect(http.calls).toHaveLength(1);
+    expect(globalFetchCalls).toHaveLength(0);
+  });
+
+  it.each([
+    ["error", "unavailable"],
+    ["timeout", "timeout"],
+  ])("builds the fake provider in FAKE_MODE %s, which fails as %s (X16)", async (mode, kind) => {
+    await expect(createProvider({ ...base, MODEL_PROVIDER: "fake", FAKE_MODE: mode }, FULL_SNAPSHOT).generate(REQ)).rejects.toMatchObject({ name: "ProviderError", kind });
+  });
+
+  it("builds the fake provider in FAKE_MODE ok when FAKE_MODE is not set", async () => {
+    await expect(createProvider({ ...base, MODEL_PROVIDER: "fake" }, FULL_SNAPSHOT).generate(REQ)).resolves.toMatchObject({ model: "fake-template", stop: "end" });
+  });
+});
+
+// P3-11 (s), KEY CROSSING (moderator: "that one matters"): two distinct marker keys, never real ones. Each request
+// carries its own provider's key where it belongs, and the other key nowhere: not in any header value, the URL or
+// the body.
+describe("createProvider: keys never cross providers (P3-11 s)", () => {
+  const ANTHROPIC_MARKER = "anthropic-marker-key-A1";
+  const COMPAT_MARKER = "compat-marker-key-B2";
+  const bothKeys = { ...base, ANTHROPIC_API_KEY: ANTHROPIC_MARKER, OPENAI_COMPAT_API_KEY: COMPAT_MARKER, OPENAI_COMPAT_BASE_URL: "https://x.example/v1" };
+
+  /** A fetch that records each request's URL, every header and the body text, and answers with `body`. */
+  const recorder = (body: unknown) => {
+    const seen: Array<{ url: string; headers: Array<[string, string]>; body: string }> = [];
+    const fetch = async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
+      const request = new Request(input, init);
+      seen.push({ url: request.url, headers: [...request.headers], body: await request.text() });
+      return new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
+    };
+    return { fetch, seen };
+  };
+
+  it("sends the compatible key as its Bearer token and the Anthropic key nowhere (X14)", async () => {
+    const http = recorder(COMPAT_ANSWER);
+    await createProvider({ ...bothKeys, MODEL_PROVIDER: "openai-compatible" }, FULL_SNAPSHOT, http.fetch).generate(REQ);
+    expect(http.seen).toHaveLength(1);
+    const sent = http.seen[0]!;
+    expect(new Headers(sent.headers).get("authorization")).toBe(`Bearer ${COMPAT_MARKER}`);
+    for (const text of [sent.url, sent.body, ...sent.headers.flat()]) expect(text).not.toContain(ANTHROPIC_MARKER);
+  });
+
+  it("sends the Anthropic key as its x-api-key and the compatible key nowhere (mirror of X14)", async () => {
+    const http = recorder(ANTHROPIC_ANSWER);
+    await createProvider({ ...bothKeys, MODEL_PROVIDER: "anthropic" }, FULL_SNAPSHOT, http.fetch).generate(REQ);
+    expect(http.seen).toHaveLength(1);
+    const sent = http.seen[0]!;
+    expect(new Headers(sent.headers).get("x-api-key")).toBe(ANTHROPIC_MARKER);
+    for (const text of [sent.url, sent.body, ...sent.headers.flat()]) expect(text).not.toContain(COMPAT_MARKER);
   });
 });
