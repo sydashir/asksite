@@ -5,21 +5,16 @@ import { EMPTY_EDITS, OwnerEdits } from "../src/index.ts";
 
 // Applies packages/core/migrations to a real local D1 (workerd through wrangler's test harness)
 // and proves the constraints the rest of the system relies on.
-const server = createTestHarness({
-  root: resolve(import.meta.dirname, "../../.."),
-  workers: [
-    {
-      config: {
-        name: "core-migration-test",
-        main: "packages/core/test/support/noop-worker.ts",
-        compatibility_date: "2026-09-21",
-        d1_databases: [
-          { binding: "DB", database_name: "asksite", database_id: "00000000-0000-0000-0000-000000000000", migrations_dir: "packages/core/migrations" },
-        ],
-      },
-    },
+const WORKER = {
+  name: "core-migration-test",
+  main: "packages/core/test/support/noop-worker.ts",
+  compatibility_date: "2026-09-21",
+  compatibility_flags: ["no_nodejs_compat", "no_nodejs_compat_v2"], // A13
+  d1_databases: [
+    { binding: "DB", database_name: "asksite", database_id: "00000000-0000-0000-0000-000000000000", migrations_dir: "packages/core/migrations" },
   ],
-});
+};
+const server = createTestHarness({ root: resolve(import.meta.dirname, "../../.."), workers: [{ config: WORKER }] });
 
 // Typed loosely on purpose: this file is type-checked without the Workers runtime types.
 let db: { prepare(sql: string): { bind(...values: unknown[]): { run(): Promise<{ meta: { changes: number } }>; first<T>(): Promise<T | null> }; all<T>(): Promise<{ results: T[] }> } };
@@ -49,6 +44,19 @@ async function newSite(): Promise<{ owner: string; site: string }> {
   await db.prepare("INSERT INTO sites (id, owner_id, created_at, updated_at) VALUES (?, ?, ?, ?)").bind(site, owner, 1, 1).run();
   return { owner, site };
 }
+
+// A13: from compatibility date 2026-08-04 Workers turn nodejs_compat and nodejs_compat_v2 on by default, so the harness
+// opts out of both, and no flag starting with "nodejs" (such as nodejs_compat_populate_process_env) may come back.
+describe("the harness Worker (A13)", () => {
+  it("opts out of Node.js compatibility and sets no flag starting with nodejs", () => {
+    expect(WORKER.compatibility_flags).toEqual(expect.arrayContaining(["no_nodejs_compat", "no_nodejs_compat_v2"]));
+    expect(WORKER.compatibility_flags.filter((flag) => flag.startsWith("nodejs"))).toEqual([]);
+  });
+
+  it("runs without Node.js's process", async () => {
+    expect(await (await server.fetch("https://probe.localhost/")).text()).toBe("undefined");
+  });
+});
 
 describe("0001_init.sql", () => {
   it("creates every table", async () => {
