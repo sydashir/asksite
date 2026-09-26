@@ -152,4 +152,20 @@ describe("photo references and deletion", () => {
     expect(after.uploads).toEqual([]);
     expect(await media(`${owner.siteId}/${view.id}.webp`)).not.toBeNull();
   });
+
+  it("cannot delete another owner's photo, through its own site's path or the other site's", async () => {
+    const a = await h.signIn();
+    const b = await h.signIn();
+    const photo = await json<UploadView>(await h.call("POST", `/api/sites/${b.siteId}/uploads`, { cookie: b.cookie, body: upload(await png(400, 300), "x.png") }));
+    // Upload ids are public (they are in the photo's address), so A may know B's.
+    for (const siteId of [a.siteId, b.siteId]) {
+      const res = await h.call("DELETE", `/api/sites/${siteId}/uploads/${photo.id}`, { cookie: a.cookie });
+      expect(res.status).toBe(404);
+      expect((await json<ErrorJson>(res)).error.code).toBe("not_found");
+    }
+    const view = await json<SiteView>(await h.call("GET", `/api/sites/${b.siteId}`, { cookie: b.cookie }));
+    expect(view.uploads.map((u) => u.id)).toEqual([photo.id]);
+    const row = await (await h.db()).prepare("SELECT deleted_at FROM uploads WHERE id = ?").bind(photo.id).first<{ deleted_at: number | null }>();
+    expect(row).toEqual({ deleted_at: null });
+  });
 });
