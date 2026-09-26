@@ -1,22 +1,29 @@
 import { spawn } from "node:child_process";
+import dns from "node:dns";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import net from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { afterAll, describe, expect, it, vi } from "vitest";
 
 // The process-level network guard, test/support/net-trap.mjs, checked three ways: (a) in a child node started with it
-// preloaded through NODE_OPTIONS, (b) in this vitest worker when the run itself preloads it, (c) its allowlist and its
-// fetch on a stand-in global. Nothing here can reach a network: the child checks the trap is in place before it builds
-// any adapter, the stand-in's "real fetch" is a mock, and the one real-global call below goes to a .invalid host (RFC
+// and the socket layer (support/socket-trap.mjs) preloaded through NODE_OPTIONS, (b) in this vitest worker when the run
+// itself preloads both layers, (c) its allowlist and its fetch on a stand-in global. Nothing here can reach a network:
+// the child checks both layers are in place before it builds any adapter, so even a broken fetch layer only meets the
+// socket layer; the stand-in's "real fetch" is a mock; and the one real-global call below goes to a .invalid host (RFC
 // 6761 section 6.4: it never resolves) after the trap's marker has been checked.
 
 const MARK = Symbol.for("asksite.netTrap");
+const SOCKET_MARK = Symbol.for("asksite.socketTrap");
 const TRAP_PATH = fileURLToPath(new URL("./support/net-trap.mjs", import.meta.url));
+const SOCKET_TRAP_PATH = fileURLToPath(new URL("./support/socket-trap.mjs", import.meta.url));
 
-// Read before any test below imports net-trap.mjs into this worker, so it shows only what a NODE_OPTIONS preload did.
+// Read before any test below imports either trap into this worker, so they show only what a NODE_OPTIONS preload did.
 const fetchAtStart = globalThis.fetch;
 const markedAtStart = (fetchAtStart as unknown as Record<symbol, unknown>)[MARK] === true;
+const socketFunctionsAtStart = [net.Socket.prototype.connect, dns.lookup, dns.promises.lookup];
+const socketMarkedAtStart = socketFunctionsAtStart.every((fn) => (fn as unknown as Record<symbol, unknown>)[SOCKET_MARK] === true);
 
 interface FetchHolder {
   fetch: typeof fetch;
@@ -41,13 +48,20 @@ afterAll(() => {
   for (const dir of made) rmSync(dir, { recursive: true, force: true });
 });
 
-// The child's script. It stops with exit code 3 BEFORE loading any adapter when the trap is not on globalThis.fetch, so
-// it cannot send a request without it. It then imports net-trap.mjs a second time (a different query makes Node evaluate
-// the module again) and calls fetch and both real adapters, built WITHOUT an injected fetch.
-const PROBE = `const MARK = Symbol.for("asksite.netTrap");
+// The child's script. It stops BEFORE loading any adapter with exit code 3 when the fetch layer is not on
+// globalThis.fetch, or 4 when the socket layer is not on net and dns. It then imports net-trap.mjs a second time (a
+// different query makes Node evaluate the module again) and calls fetch and both real adapters, built WITHOUT an
+// injected fetch. The test wants the FETCH layer's own line for each host: if that layer were broken, the socket layer
+// would stop the connection instead, and the test would fail on the missing line, with nothing sent.
+const PROBE = `import dns from "node:dns";
+import net from "node:net";
+const MARK = Symbol.for("asksite.netTrap");
+const SOCKET_MARK = Symbol.for("asksite.socketTrap");
 const [trapUrl, srcUrl] = process.argv.slice(2);
 if (globalThis.fetch?.[MARK] !== true) {
   process.exitCode = 3;
+} else if ([net.Socket.prototype.connect, dns.lookup, dns.promises.lookup].some((fn) => fn?.[SOCKET_MARK] !== true)) {
+  process.exitCode = 4;
 } else {
   const trap = globalThis.fetch;
   await import(trapUrl + "?second-import");
@@ -70,7 +84,7 @@ if (globalThis.fetch?.[MARK] !== true) {
 }
 `;
 
-/** Runs PROBE in a new node with net-trap.mjs preloaded and every provider key variable removed from its environment. */
+/** Runs PROBE in a new node with both layers preloaded and every provider key variable removed from its environment. */
 function runProbe(): Promise<{ code: number | null; stdout: string; stderr: string }> {
   const dir = mkdtempSync(join(tmpdir(), "asksite-net-trap-"));
   made.push(dir);
@@ -78,8 +92,9 @@ function runProbe(): Promise<{ code: number | null; stdout: string; stderr: stri
   writeFileSync(script, PROBE);
   const env = Object.fromEntries(Object.entries(process.env).filter(([name]) => !name.startsWith("ANTHROPIC_") && name !== "OPENAI_COMPAT_API_KEY"));
   const args = [script, pathToFileURL(TRAP_PATH).href, new URL("../src/", import.meta.url).href];
+  const preload = `--import=${TRAP_PATH} --import=${SOCKET_TRAP_PATH}`;
   return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, args, { env: { ...env, NODE_OPTIONS: `--import=${TRAP_PATH}` }, stdio: ["ignore", "pipe", "pipe"], timeout: 20_000 });
+    const child = spawn(process.execPath, args, { env: { ...env, NODE_OPTIONS: preload }, stdio: ["ignore", "pipe", "pipe"], timeout: 20_000 });
     let stdout = "";
     let stderr = "";
     child.stdout.setEncoding("utf8").on("data", (chunk: string) => (stdout += chunk));
@@ -96,12 +111,13 @@ describe("net-trap preload in a child node process", () => {
     expect(JSON.parse(stdout)).toEqual({
       sameTrapAfterSecondImport: true,
       invalidHost: { name: "TypeError", message: "net-trap: blocked request to example.invalid" },
-      // The SDK wraps a failed fetch in APIConnectionError (client.mjs:575), which anthropic.ts's kindOf makes
+      // The SDK wraps a failed fetch in APIConnectionError (client.mjs:576), which anthropic.ts's kindOf makes
       // "unavailable"; openai-compatible.ts turns a fetch that throws into "unavailable" too.
       anthropic: { name: "ProviderError", kind: "unavailable" },
       compatible: { name: "ProviderError", kind: "unavailable" },
     });
-    expect(stderr.split("\n").filter((line) => line.startsWith("net-trap:"))).toEqual([
+    // Only the fetch layer's lines: a socket-trap line would mean a request got past the fetch layer.
+    expect(stderr.split("\n").filter((line) => line.startsWith("net-trap:") || line.startsWith("socket-trap:"))).toEqual([
       "net-trap: blocked example.invalid",
       "net-trap: blocked api.anthropic.com",
       "net-trap: blocked api.groq.com",
@@ -110,18 +126,27 @@ describe("net-trap preload in a child node process", () => {
   });
 });
 
-describe("net-trap preload in this vitest worker", () => {
-  it.runIf(process.env.NODE_OPTIONS?.includes("net-trap.mjs"))("is on globalThis.fetch before this file loads it, and a second import keeps it", async () => {
-    expect(markedAtStart).toBe(true);
-    await loadTrap();
-    expect(globalThis.fetch).toBe(fetchAtStart);
-  });
+describe("both trap layers preloaded in this vitest worker", () => {
+  // The mandatory command prefix sets ASKSITE_NET_TRAP=required; then a missing layer fails this test instead of
+  // skipping it. A plain `pnpm test` (no preload, no variable) skips it.
+  it.runIf(process.env.ASKSITE_NET_TRAP === "required")(
+    "are in place before this file loads them, and a second import keeps them (runs only when ASKSITE_NET_TRAP=required; skipped otherwise)",
+    async () => {
+      expect(markedAtStart).toBe(true);
+      expect(socketMarkedAtStart).toBe(true);
+      await loadTrap();
+      await import(SOCKET_TRAP_PATH);
+      expect(globalThis.fetch).toBe(fetchAtStart);
+      expect([net.Socket.prototype.connect, dns.lookup, dns.promises.lookup]).toEqual(socketFunctionsAtStart);
+    },
+  );
 });
 
 describe("isAllowed", () => {
   // What `new URL(url).hostname` returns decides: the URL Standard lowercases a special URL's domain ("LOCALHOST" is
   // "localhost", the host fetch connects to, so it is allowed) and keeps the brackets on an IPv6 address ("[::1]").
-  it.each(["http://localhost:8787/x", "https://localhost/", "http://LOCALHOST/", "http://127.0.0.1:1/", "http://[::1]:8787/", "http://x.localhost/", "https://a.b.localhost/", "data:text/plain,hi", "blob:nodedata:0f"])(
+  // A *.localhost name is blocked: Node sends it to the system resolver, which on this Mac is not local.
+  it.each(["http://localhost:8787/x", "https://localhost/", "http://LOCALHOST/", "http://127.0.0.1:1/", "http://[::1]:8787/", "data:text/plain,hi", "blob:nodedata:0f"])(
     "allows %s",
     async (url) => {
       const { isAllowed } = await loadTrap();
@@ -141,6 +166,11 @@ describe("isAllowed", () => {
     "http://evil.com#@localhost",
     "http://evil.com\\@localhost/",
     "http://evillocalhost/",
+    "http://x.localhost/",
+    "https://a.b.localhost/",
+    "http://evil.com.localhost/",
+    "http://evil.com%2elocalhost/",
+    "http://.localhost/",
     "http://localhost./",
     "http://0.0.0.0/",
     "http://127.0.0.2/",
