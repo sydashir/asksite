@@ -733,3 +733,24 @@ describe("AnthropicProvider: cache tokens count as input (P3-11 i)", () => {
     expect(await withUsage(usage)).toStrictEqual({ json: { a: 1 }, model: "claude-opus-5-5", usage: { inputTokens, outputTokens: 5 }, stop: "end", usageMissing: true });
   });
 });
+
+// Fix r1b: retriesRemaining starts at maxRetries (client.mjs:494-501), and we always construct the client with
+// maxRetries: 0, so `if (retriesRemaining && shouldRetry)` (client.mjs:585, and the connection-error path at 551) is
+// false whatever shouldRetry(response) returns, including when the response's own x-should-retry header says "true"
+// (shouldRetry reads it at client.mjs:722-726, "Note this is not a standard header. ... If the server explicitly says
+// whether or not to retry, obey."). So exactly one fetch is sent, never more.
+describe("AnthropicProvider: no SDK retry even when the response says to (fix r1b)", () => {
+  it.each([429, 500, 529])("sends exactly one fetch for HTTP %i with x-should-retry: true", async (status) => {
+    let calls = 0;
+    const fetchImpl = async (): Promise<Response> => {
+      calls += 1;
+      return new Response(JSON.stringify({ type: "error", error: { type: "x", message: "m" } }), {
+        status,
+        headers: { "content-type": "application/json", "x-should-retry": "true" },
+      });
+    };
+    const provider = new AnthropicProvider({ apiKey: "k", model: "claude-opus-5-5", fetch: fetchImpl });
+    await expect(provider.generate(request())).rejects.toMatchObject({ name: "ProviderError" });
+    expect(calls).toBe(1);
+  });
+});
