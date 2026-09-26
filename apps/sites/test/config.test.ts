@@ -23,6 +23,7 @@ describe("apps/sites/wrangler.jsonc (production)", () => {
     expect(vars["MAILER"]).toBe("resend");
     expect(config.compatibility_date).toBe("2026-09-21");
     // A13: at this date Node.js compatibility is on by default (and fills process.env with the secrets).
+    // The exact list also refuses any other flag, such as nodejs_compat_populate_process_env.
     expect(config.compatibility_flags).toEqual(["no_nodejs_compat", "no_nodejs_compat_v2"]);
   });
 
@@ -45,6 +46,7 @@ describe("apps/sites/wrangler.jsonc (production)", () => {
       { binding: "DB", database_name: "asksite", database_id: expect.any(String), migrations_dir: "../../packages/core/migrations" },
     ]);
     expect(config.ratelimits).toEqual([{ name: "FORM_RL", namespace_id: "1004", simple: { limit: 5, period: 60 } }]);
+    expect(config.triggers).toEqual({ crons: ["0 7 * * *"] });
   });
 
   it("keeps secrets out of vars", () => {

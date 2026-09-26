@@ -30,5 +30,6 @@
     { "binding": "LIVE", "bucket_name": "asksite-live" },
     { "binding": "MEDIA", "bucket_name": "asksite-media" }
   ],
-  "ratelimits": [{ "name": "FORM_RL", "namespace_id": "1004", "simple": { "limit": 5, "period": 60 } }]
+  "ratelimits": [{ "name": "FORM_RL", "namespace_id": "1004", "simple": { "limit": 5, "period": 60 } }],
+  "triggers": { "crons": ["0 7 * * *"] }
 }
