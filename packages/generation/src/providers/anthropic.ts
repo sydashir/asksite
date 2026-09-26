@@ -141,9 +141,21 @@ export class AnthropicProvider implements ModelProvider {
       // explicit.
       authToken: null,
       logLevel: "off",
-      // ANTHROPIC_CUSTOM_HEADERS has no such option: the SDK merges its "name: value" lines under these default headers
-      // and sends them after its own auth headers (client.mjs:116-125, 837-838). So the key is set here too, and a null
-      // authorization removes that header (internal/headers.mjs:96-99): the variable cannot replace the credentials.
+      // ANTHROPIC_CUSTOM_HEADERS has no such option: the SDK merges its "name: value" lines under these default
+      // headers and sends them after its own auth headers (client.mjs:116-125, 837-838). This layer neutralises the
+      // variable when it spells x-api-key or authorization only ONCE, in any case: our entry here (spread after the
+      // parsed lines) replaces that single entry, and a null authorization removes the header (internal/headers.mjs:
+      // 96-99). It is NOT enough on its own when the variable spells one of those two names TWICE in different cases
+      // (e.g. "x-api-key" then "X-Api-Key"): each plain-object header source gets its own clear-then-set pass per
+      // entry (internal/headers.mjs iterateHeaders, shouldClear), and a native Headers delete/append is
+      // case-insensitive, so within this one source the LAST-listed spelling of the name wins, whichever case, and
+      // that can be the variable's, not ours. generate() below closes that gap by ALSO sending the same two headers
+      // as PER-REQUEST headers, which are merged last of all (client.mjs:840, after this defaultHeaders at 838) and
+      // so always win regardless of how the variable spells them or in what order. Kept here anyway as a first,
+      // simple layer for the common (single-spelling) case; removing it would change no test's outcome. Any OTHER
+      // header the variable sets (any name but these two) is still sent to Anthropic in Node by neither layer: only
+      // an outer layer that removes ANTHROPIC_CUSTOM_HEADERS itself can stop that (planned as part of Task 13's CLI,
+      // not yet built; the generator Worker has no process.env to read the variable from at all).
       defaultHeaders: { "x-api-key": options.apiKey, authorization: null },
       // A followed redirect would carry every header, the key included, to another host. The SDK turns a 3xx into an
       // APIError with that status (client.mjs:583-615), which kindOf makes a bad request.
@@ -173,7 +185,11 @@ export class AnthropicProvider implements ModelProvider {
             messages: [{ role: "user", content: req.user }],
             output_config: { format: { type: "json_schema", schema }, ...(effort === undefined ? {} : { effort }) },
           },
-          { signal: req.signal },
+          // Per-request headers (RequestOptions.headers, internal/request-options.d.mts:65-67) are the last source
+          // buildHeaders merges (client.mjs:840), after defaultHeaders (838) and any ANTHROPIC_CUSTOM_HEADERS lines
+          // folded into it: this repeats our credentials one layer further out so a double-spelled variable can
+          // never win (see the defaultHeaders comment above).
+          { signal: req.signal, headers: { "x-api-key": this.#apiKey, authorization: null } },
         )
         .asResponse();
     } catch (error) {

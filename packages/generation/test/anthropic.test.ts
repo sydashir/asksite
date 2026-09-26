@@ -438,6 +438,38 @@ describe("AnthropicProvider: ANTHROPIC_CUSTOM_HEADERS never replaces the credent
       expect(http.calls[0]!.headers.get("authorization")).toBeNull();
     });
   });
+
+  // Fix r1 (I1): the variable can spell one header TWICE, in two different cases. buildHeaders
+  // (internal/headers.mjs:64-103) gives every plain-object header source its own "clear, then set" pass per entry
+  // (iterateHeaders sets shouldClear for a plain object, headers.mjs:19-24, 33-42), and a native Headers delete/append
+  // is case-insensitive, so within ONE source the LAST-listed spelling of a name wins, whichever case it uses. Our
+  // apiKey is still authoritative because generate() also sends it as a PER-REQUEST header, applied after every other
+  // source (client.mjs:840, the last entry in the array built at 825-840), so it always wins regardless of what the
+  // variable spelled or in which order.
+  it.each([
+    ["lower-case then mixed-case", `x-api-key: env-key-marker${newline}X-Api-Key: env-key-marker-2`],
+    ["mixed-case then lower-case", `X-Api-Key: env-key-marker${newline}x-api-key: env-key-marker-2`],
+  ])("keeps our x-api-key when the variable spells that header twice (%s)", async (_label, value) => {
+    await withEnv("ANTHROPIC_CUSTOM_HEADERS", value, async () => {
+      const http = fakeFetch([{ status: 200, body: message("{}") }]);
+      await new AnthropicProvider({ apiKey: "k", model: "claude-opus-5-5", fetch: http.fetch }).generate(request());
+      expect(http.calls).toHaveLength(1);
+      expect(http.calls[0]!.headers.get("x-api-key")).toBe("k");
+    });
+  });
+
+  it.each([
+    ["lower-case then mixed-case", `authorization: env-token-marker${newline}Authorization: Bearer env-token-marker-2`],
+    ["mixed-case then lower-case", `Authorization: Bearer env-token-marker${newline}authorization: env-token-marker-2`],
+  ])("sends no authorization when the variable spells that header twice (%s)", async (_label, value) => {
+    await withEnv("ANTHROPIC_CUSTOM_HEADERS", value, async () => {
+      const http = fakeFetch([{ status: 200, body: message("{}") }]);
+      await new AnthropicProvider({ apiKey: "k", model: "claude-opus-5-5", fetch: http.fetch }).generate(request());
+      expect(http.calls).toHaveLength(1);
+      expect(http.calls[0]!.headers.get("authorization")).toBeNull();
+      expect(http.calls[0]!.headers.get("x-api-key")).toBe("k");
+    });
+  });
 });
 
 // P3-11 (c): redirects are never followed (fetch's redirect "manual"): a followed redirect would carry every header,
