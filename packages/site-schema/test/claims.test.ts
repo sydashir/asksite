@@ -613,6 +613,7 @@ describe("SiteDocument rejects AI copy that states facts the owner did not give"
     "Certified\u{1D165}pros",
     "Call (ƧOȢ) ƼƼƼ-OlƧƷ", // A9c: letters that look like digits (refused by Copy)
     "Call (ƨƽƽ) ƽƽƽ-Olƨȝ today.", // A9c review: their small forms draw the same digits
+    "Save \u1EFCO% on drain cleaning.", // A9d: U+1EFC MIDDLE-WELSH V draws as a 6 (refused by Copy)
     "ꬶuaranteed results", // A9c: Latin Extended-E (refused by Copy)
     "\u01C0Certi\u0307fied\u01C0 pros", // A9c: a click letter reads as "|", and the leftover U+0307 goes
     "\u019CARRANTY INCLUDED", // A9c: U+019C reads W

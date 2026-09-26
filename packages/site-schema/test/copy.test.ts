@@ -113,12 +113,14 @@ describe("Copy", () => {
    * The Latin letters that look like a digit (A9c; copy.ts DIGIT_LETTER): those whose confusables.txt 18.0.0 skeleton,
    * with combining marks removed, is one ASCII digit (Ƨ 2, Ʒ 3, ƻ 2, Ƽ 5, Ǯ 3, Ȝ 3, Ȣ 8, ȣ 8, Ꝛ 2, Ꝫ 3, Ꝯ 9, ꝯ 9, Ɜ 3),
    * the other case of each (ƨ, ƽ, ȝ, ǯ, ʒ, ꝛ, ꝫ, ɜ), and the letters named after one of them "... WITH ..." (ƺ, ʓ, ᶚ and
-   * U+1DF18 after EZH; ɝ and ᶔ after REVERSED OPEN E; U+1DF94 after R ROTUNDA).
+   * U+1DF18 after EZH; ɝ and ᶔ after REVERSED OPEN E; U+1DF94 after R ROTUNDA); and (A9d) Ỽ and ỽ, MIDDLE-WELSH V, which
+   * draw like a 6 but have no confusables.txt entry.
    */
   const DIGIT_LETTERS = [
     0x01a7, 0x01a8, 0x01b7, 0x01ba, 0x01bb, 0x01bc, 0x01bd, 0x01ee, 0x01ef, 0x021c, 0x021d, 0x0222, 0x0223, 0x025c, 0x025d,
     0x0292, 0x0293, 0x1d94, 0x1d9a, 0xa75a, 0xa75b, 0xa76a, 0xa76b, 0xa76e, 0xa76f, 0xa7ab, 0x1df18,
     0x1df94, // Unicode 18.0 (UnicodeData-18.0.0.txt); unassigned in this engine
+    0x1efc, 0x1efd, // A9d: Ỽ ỽ MIDDLE-WELSH V (Latin Extended Additional): a 6 and a small 6 in all six theme font stacks
   ];
   const NUMBER_MESSAGE = "Copy must not contain numbers, currency symbols, @ or links; facts come from the owner";
   const headlineWith = (letter: string) => issues({ ...valid, heroHeadline: `Crew ${letter} team` });
@@ -147,6 +149,9 @@ describe("Copy", () => {
     "Save ƽO% on drain cleaning.",
     "ǯ vans",
     "ƺ trucks", // U+01BA ezh with tail
+    // A9d: U+1EFC and U+1EFD MIDDLE-WELSH V draw as a 6 and a small 6 ("Save 6O% on drain cleaning."); confusables.txt has no entry
+    "Save \u1EFCO% on drain cleaning.",
+    "Call l-\u1EFC\u1EFCO-\u1EFDl\u1EFD",
   ])("rejects a letter that looks like a digit as a number: %j", (headline) => {
     expect(messagesFor(headline)).toEqual([NUMBER_MESSAGE]);
   });

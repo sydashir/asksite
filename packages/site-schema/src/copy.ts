@@ -3,8 +3,8 @@ import { z } from "zod";
 // AI-written prose only. Every string has a hard length cap and is NFKC-normalised (so "＄８９"
 // becomes "$89" before it is checked), then rejected if it contains:
 // - a character Unicode classes as a number (\p{N}, e.g. "5", "٥", "½"), a currency symbol
-//   (\p{Sc}), "@", "http:", "https:" or "www.", or a Latin letter that looks like a digit ("Ƨ", "ƨ", "Ƽ";
-//   DIGIT_LETTER below, A9c);
+//   (\p{Sc}), "@", "http:", "https:" or "www.", or one of the Latin letters listed in DIGIT_LETTER below, which
+//   look like a digit ("Ƨ", "ƨ", "Ƽ", A9c; "Ỽ", A9d);
 // - a control or invisible formatting character (\p{Cc}, \p{Cf});
 // - any character outside the Latin, Common (punctuation, symbols, emoji) and Inherited
 //   (combining marks) scripts. Other scripts can write numbers and prices as letters ("五百元")
@@ -35,13 +35,16 @@ const FACT_LIKE = /[\p{N}\p{Sc}@]|https?:|www\./iu;
  * - the other case of each (UnicodeData.txt), which draws the same digit smaller, so "(ƨƽƽ) ƽƽƽ" reads "(255) 555":
  *   ƨ U+01A8, ƽ U+01BD, ǯ U+01EF, ȝ U+021D, ɜ U+025C, ʒ U+0292, ꝛ U+A75B, ꝫ U+A76B;
  * - the letters named after one of them "... WITH ...": ƺ U+01BA, ʓ U+0293, ᶚ U+1D9A, U+1DF18 (EZH), ɝ U+025D, ᶔ U+1D94
- *   (REVERSED OPEN E) and U+1DF94 (R ROTUNDA, Unicode 18.0).
+ *   (REVERSED OPEN E) and U+1DF94 (R ROTUNDA, Unicode 18.0);
+ * - Ỽ U+1EFC and ỽ U+1EFD, LATIN CAPITAL and SMALL LETTER MIDDLE-WELSH V (A9d), which draw as a 6 and a small 6 in all
+ *   six theme font stacks (Playwright's Chromium and WebKit on macOS) but have no confusables.txt entry, so "Save ỼO%"
+ *   reads "Save 6O%".
  * Those in IPA Extensions, the Phonetic Extensions Supplement and Latin Extended-D and -G, which NON_ENGLISH_LETTER refuses
  * anyway, are listed too, so they get the number message. Not letters, so not listed: symbols that draw like a digit, such
  * as ⁊ U+204A, which looks like "7".
  */
 const DIGIT_LETTER =
-  /[\u01A7\u01A8\u01B7\u01BA-\u01BD\u01EE\u01EF\u021C\u021D\u0222\u0223\u025C\u025D\u0292\u0293\u1D94\u1D9A\uA75A\uA75B\uA76A\uA76B\uA76E\uA76F\uA7AB\u{1DF18}\u{1DF94}]/u;
+  /[\u01A7\u01A8\u01B7\u01BA-\u01BD\u01EE\u01EF\u021C\u021D\u0222\u0223\u025C\u025D\u0292\u0293\u1D94\u1D9A\uA75A\uA75B\uA76A\uA76B\uA76E\uA76F\uA7AB\u1EFC\u1EFD\u{1DF18}\u{1DF94}]/u;
 const HIDDEN_CHARACTER = /[\p{Cc}\p{Cf}]/u;
 const NON_LATIN_SCRIPT = /[^\p{Script=Latin}\p{Script=Common}\p{Script=Inherited}]/u;
 
