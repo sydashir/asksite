@@ -1,8 +1,23 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ProviderError } from "../src/provider.ts";
 import { AnthropicProvider } from "../src/providers/anthropic.ts";
 import { AI_DRAFT_JSON_SCHEMA, toWireSchema } from "../src/wire-schema.ts";
 import { abortedSignal, fakeFetch } from "./support/http.ts";
+
+// No test in this file may reach the network, even when a mutant drops the fetch we inject: the SDK takes the global
+// fetch when it is built without one (client.mjs:113), and this global fails loudly instead. No test may even try.
+const globalFetchCalls: string[] = [];
+beforeEach(() => {
+  globalFetchCalls.length = 0;
+  vi.stubGlobal("fetch", async (input: unknown) => {
+    globalFetchCalls.push(String(input));
+    throw new TypeError("the global fetch must not be used");
+  });
+});
+afterEach(() => {
+  vi.unstubAllGlobals();
+  expect(globalFetchCalls).toEqual([]);
+});
 
 // Response shape from the official structured-outputs page (JSON in content[].text, checked
 // 2026-09-24). Task 15 adds a recorded live response (recorded.test.ts).

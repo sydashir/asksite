@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { generateDraft } from "../src/generate.ts";
 import { MODELS, type ModelSettings } from "../src/models.ts";
 import { buildPrompt } from "../src/prompt.ts";
@@ -9,6 +9,21 @@ import { checkDraft } from "../src/validate.ts";
 import { AI_DRAFT_JSON_SCHEMA, toWireSchema } from "../src/wire-schema.ts";
 import { abortedSignal, fakeFetch } from "./support/http.ts";
 import { BRIEF, FULL_FACTS, FULL_SNAPSHOT } from "./support/samples.ts";
+
+// No test in this file may reach the network, even when a mutant drops the fetch we inject: the adapter calls the
+// global fetch when it is built without one, and this global fails loudly instead. No test may even try.
+const globalFetchCalls: string[] = [];
+beforeEach(() => {
+  globalFetchCalls.length = 0;
+  vi.stubGlobal("fetch", async (input: unknown) => {
+    globalFetchCalls.push(String(input));
+    throw new TypeError("the global fetch must not be used");
+  });
+});
+afterEach(() => {
+  vi.unstubAllGlobals();
+  expect(globalFetchCalls).toEqual([]);
+});
 
 // Chat Completions response shape (choices[].message.content, finish_reason, usage.prompt_tokens /
 // completion_tokens), as documented by Groq's API reference and Cloudflare's OpenAI-compatible
