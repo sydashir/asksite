@@ -417,3 +417,84 @@ describe("AnthropicProvider: key fragments in error tokens (P3-11 t)", () => {
     await expect(provider.generate(request())).rejects.toMatchObject({ kind: "auth", message: "Anthropic request failed (auth, HTTP 429, rate_limit_error)" });
   });
 });
+
+// P3-11 (b): in Node the SDK merges ANTHROPIC_CUSTOM_HEADERS ("name: value" lines) into its default headers, which it
+// sends after its own auth headers. Our key and no authorization header must still be what goes out.
+describe("AnthropicProvider: ANTHROPIC_CUSTOM_HEADERS never replaces the credentials (P3-11 b)", () => {
+  const newline = String.fromCharCode(10);
+
+  it.each([
+    ["lower-case names", `x-api-key: env-key-marker${newline}authorization: Bearer env-token-marker`],
+    ["mixed-case names", `X-Api-Key: env-key-marker${newline}Authorization: Bearer env-token-marker`],
+  ])("sends our x-api-key and no authorization when the variable sets both with %s", async (_label, value) => {
+    await withEnv("ANTHROPIC_CUSTOM_HEADERS", value, async () => {
+      const http = fakeFetch([{ status: 200, body: message("{}") }]);
+      await new AnthropicProvider({ apiKey: "k", model: "claude-opus-5-5", fetch: http.fetch }).generate(request());
+      expect(http.calls).toHaveLength(1);
+      expect(http.calls[0]!.headers.get("x-api-key")).toBe("k");
+      expect(http.calls[0]!.headers.get("authorization")).toBeNull();
+    });
+  });
+});
+
+// P3-11 (c): redirects are never followed (fetch's redirect "manual"): a followed redirect would carry every header,
+// the key included, to another host. The SDK turns a 3xx into an APIError with that status: a wrong host, a bad request.
+describe("AnthropicProvider: redirects (P3-11 c)", () => {
+  it("asks fetch not to follow redirects", async () => {
+    const http = fakeFetch([{ status: 200, body: message("{}") }]);
+    await new AnthropicProvider({ apiKey: "k", model: "claude-opus-5-5", fetch: http.fetch }).generate(request());
+    expect(http.calls[0]!.redirect).toBe("manual");
+  });
+
+  it.each([300, 301, 302, 303, 307, 308])("maps HTTP %i to bad_request, with no SDK retry", async (status) => {
+    const http = fakeFetch([{ status, body: { type: "error", error: { type: "x", message: "moved" } } }, { status: 200, body: message("{}") }]);
+    const provider = new AnthropicProvider({ apiKey: "k", model: "claude-opus-5-5", fetch: http.fetch });
+    await expect(provider.generate(request())).rejects.toMatchObject({ name: "ProviderError", kind: "bad_request", message: `Anthropic request failed (bad_request, HTTP ${status}, x)` });
+    expect(http.calls).toHaveLength(1);
+  });
+});
+
+// P3-11 (f), api/rate-limits.md "Setting your own spend limit": "requests return HTTP 400 with error type
+// `invalid_request_error`. The message begins `You have reached your specified API usage limits`, or `You have reached
+// your specified workspace API usage limits` for a workspace limit". Such a 400 stays a bad request and its message
+// names our fixed token SPEND_CAP, never the provider's text.
+describe("AnthropicProvider: a spend limit you set (P3-11 f)", () => {
+  const ORG_LIMIT = "You have reached your specified API usage limits";
+  const limitBody = (text: unknown) => ({ type: "error", error: { type: "invalid_request_error", message: text } });
+  const failWith = (status: number, body: unknown, apiKey = "k") =>
+    new AnthropicProvider({ apiKey, model: "claude-opus-5-5", fetch: fakeFetch([{ status, body }]).fetch }).generate(request()).catch((e: unknown) => e);
+
+  it.each([
+    ["an organization limit", `${ORG_LIMIT}. You will regain access on 2026-10-01 at 00:00 UTC.`],
+    ["a workspace limit", "You have reached your specified workspace API usage limits. You will regain access on 2026-10-01 at 00:00 UTC."],
+  ])("names SPEND_CAP for %s, keeping it a bad request, never the provider's text", async (_label, text) => {
+    const error = await failWith(400, limitBody(text));
+    expect(error).toBeInstanceOf(ProviderError);
+    expect(error).toMatchObject({ kind: "bad_request", message: "Anthropic request failed (bad_request, HTTP 400, invalid_request_error, SPEND_CAP)" });
+    expect((error as Error).message).not.toContain("regain");
+  });
+
+  it.each([
+    ["the prefix later in the message", `Error: ${ORG_LIMIT}`],
+    ["the prefix in lower case", ORG_LIMIT.toLowerCase()],
+    ["the tier cap's wording", "You have reached your API usage limits"],
+    ["a message that is a list", [ORG_LIMIT]],
+    ["no message", undefined],
+  ])("names no SPEND_CAP for a 400 with %s", async (_label, text) => {
+    expect(await failWith(400, limitBody(text))).toMatchObject({ kind: "bad_request", message: "Anthropic request failed (bad_request, HTTP 400, invalid_request_error)" });
+  });
+
+  it("names no SPEND_CAP when the prefix is only at the top level of the body", async () => {
+    const body = { type: "error", message: ORG_LIMIT, error: { type: "invalid_request_error", message: "m" } };
+    expect(await failWith(400, body)).toMatchObject({ kind: "bad_request", message: "Anthropic request failed (bad_request, HTTP 400, invalid_request_error)" });
+  });
+
+  it.each([
+    [429, "rate_limited"],
+    [403, "auth"],
+    [422, "bad_request"],
+    [500, "unavailable"],
+  ])("names SPEND_CAP only on a 400: HTTP %i stays %s with no token", async (status, kind) => {
+    expect(await failWith(status, limitBody(ORG_LIMIT))).toMatchObject({ kind, message: `Anthropic request failed (${kind}, HTTP ${status}, invalid_request_error)` });
+  });
+});

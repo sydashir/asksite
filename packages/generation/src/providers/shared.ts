@@ -5,8 +5,8 @@ import { ProviderError, type ProviderErrorKind } from "../provider.ts";
 /**
  * The kind for a 4xx or 5xx status, one rule for both adapters (P3-11 e): 401, 402 and 403 need a human, like a bad
  * key; 408 and 504 are timeouts; 409 is unavailable and 429 a rate limit, both worth another attempt; any other 4xx
- * is a bad request, never retried; any other status is unavailable. Each adapter checks its own documented special
- * cases, and a redirect, before this.
+ * is a bad request, never retried; any other status is unavailable. Before this, each adapter makes a 3xx (a redirect
+ * it did not follow) a bad request and checks its own documented special cases.
  */
 export function statusKind(status: number): ProviderErrorKind {
   if (status === 401 || status === 402 || status === 403) return "auth";
