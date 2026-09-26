@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { EMPTY_EDITS, versionKey } from "@asksite/core";
+import { EMPTY_EDITS, newId, versionKey } from "@asksite/core";
 import { approveVersion, createPendingVersion, restore, takeDown } from "@asksite/publishing";
 import { SiteDocument } from "@asksite/site-schema";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -75,5 +75,35 @@ describe("daily cron", () => {
     expect(result.outcome).toBe("ok");
     const { results } = await tools.DB.prepare("SELECT id FROM leads WHERE site_id = ? ORDER BY created_at").bind(site.siteId).all<{ id: string }>();
     expect(results.map((r) => r.id)).toEqual(["aaaaaaaa-0000-4000-8000-000000000002", "aaaaaaaa-0000-4000-8000-000000000003"]);
+  });
+
+  // The 180 days apply to every lead the form stores (form.ts), not only emailed ones. Owners never see
+  // spam-flagged leads (D6), so a cron that kept them would break the privacy promise unnoticed.
+  it("deletes old leads of every kind (spam, pending, sent, failed) and keeps recent ones of every kind", async () => {
+    const site = await seedSite(tools);
+    const now = Date.parse("2026-09-24T07:00:00.000Z");
+    const day = 86_400_000;
+    const kinds = [
+      { spam: 1, email_status: "skipped" },
+      { spam: 0, email_status: "pending" },
+      { spam: 0, email_status: "sent" },
+      { spam: 0, email_status: "failed" },
+    ];
+    const old = kinds.map((kind) => ({ id: newId(), ...kind, createdAt: now - 181 * day }));
+    const recent = kinds.map((kind) => ({ id: newId(), ...kind, createdAt: now - 1 * day }));
+    await tools.DB.batch(
+      [...old, ...recent].map((lead) =>
+        tools.DB.prepare("INSERT INTO leads (id, site_id, created_at, name, phone, spam, email_status, ip_hash) VALUES (?, ?, ?, 'n', 'p', ?, ?, 'h')").bind(lead.id, site.siteId, lead.createdAt, lead.spam, lead.email_status),
+      ),
+    );
+    const byId = (a: { id: string }, b: { id: string }) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+    const rows = (leads: typeof old) => leads.map(({ id, spam, email_status }) => ({ id, spam, email_status })).sort(byId);
+    const stored = async () =>
+      (await tools.DB.prepare("SELECT id, spam, email_status FROM leads WHERE site_id = ?").bind(site.siteId).all<{ id: string; spam: number; email_status: string }>()).results.sort(byId);
+    expect(await stored()).toEqual(rows([...old, ...recent]));
+
+    const result = await harness.server.getWorker("asksite-sites").scheduled({ cron: "0 7 * * *", scheduledTime: new Date(now) });
+    expect(result.outcome).toBe("ok");
+    expect(await stored()).toEqual(rows(recent));
   });
 });
