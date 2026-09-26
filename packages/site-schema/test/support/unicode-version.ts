@@ -6,6 +6,9 @@
 // U+A7CE LATIN CAPITAL LETTER PHARYNGEAL VOICED FRICATIVE is new in Unicode 17.0 and U+1DF40 LATIN CAPITAL LETTER BARRED A
 // is new in 18.0 (DerivedAge-18.0.0.txt lines 2076 and 2162). When an answer changes, derive those tables again from the
 // new Unicode data.
+//
+// So package.json's engines floor is Node 24.13.1, the first Node 24 on ICU 78.2, which is Unicode 17.0 (nodejs
+// CHANGELOG_V24.md, 24.13.1: "deps: update icu to 78.2"). Node 24.13.0 has ICU 77.1 (Unicode 16.0) and fails the tripwire.
 
 /** The answers on Unicode 17.0. */
 export const UNICODE_17 = {
