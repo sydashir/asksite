@@ -15,7 +15,9 @@ import { foldLookalikes } from "./lookalikes.ts";
 // clauses, not join one compound word), so this class is spelled out wherever a pattern below
 // joins two words.
 //
-// Claims are matched on the page read two ways (A9, A9b, A9c), and a claim either reading finds counts:
+// Claims are matched on the page read two ways (A9, A9b, A9c), and a claim either reading finds counts. The typed reading
+// runs first (A9c item 1 said "folded, then as typed"; the order only decides which spelling of a found word is shown,
+// recorded by A9e):
 // - as typed, as before A9, so every claim the checker found before A9 is still found;
 // - folded (foldLookalikes in lookalikes.ts): composed (NFC), with every combining mark removed that is not part
 //   of a precomposed letter, the look-alikes listed in lookalikes.ts read as the A-Z letters they look like, and

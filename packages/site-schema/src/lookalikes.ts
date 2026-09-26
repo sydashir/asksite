@@ -21,8 +21,10 @@
 // - ĸ, which NamesList.txt cross-refers to U+1D0B small capital K;
 // - A9c: Ɯ (turned M) read as W and Ǝ (reversed E) read as E, with ǝ, the other case of Ǝ; and the click letters
 //   U+01C0-01C3 as the punctuation they look like (their Unicode 1.0 names are LATIN LETTER PIPE, DOUBLE PIPE,
-//   PIPE DOUBLE BAR and EXCLAMATION MARK): ǀ "|", ǁ "||" and ǃ "!" (confusables.txt). ǂ has no confusables.txt
-//   entry and reads as no A-Z letter, so it separates words as it is;
+//   PIPE DOUBLE BAR and EXCLAMATION MARK): ǀ "|" and ǁ "||" by those names (confusables.txt reads them as the letters l
+//   and ll; A9c item 4 reads the click letters as punctuation instead, so "ǀicensed" is not "licensed", an accepted
+//   residual), and ǃ "!" (its name and confusables.txt). ǂ has no confusables.txt entry and reads as no A-Z letter, so
+//   it separates words as it is;
 // - A9e: ɛ (open e) reads e (the moderator's A9e list; confusables.txt maps it to ꞓ, c with bar), and the saltillo ꞌ
 //   and Ꞌ read as an apostrophe (the A9e list and confusables.txt); ʋ reads v like its capital Ʋ, and ꞵ reads b like its
 //   capital Ꞵ, because a case pair reads one way (confusables.txt reads ʋ as u and ꞵ as ß); and the abbreviation letters
