@@ -7,8 +7,11 @@
 // is new in 18.0 (DerivedAge-18.0.0.txt lines 2076 and 2162). When an answer changes, derive those tables again from the
 // new Unicode data.
 //
-// So package.json's engines floor is Node 24.13.1, the first Node 24 on ICU 78.2, which is Unicode 17.0 (nodejs
-// CHANGELOG_V24.md, 24.13.1: "deps: update icu to 78.2"). Node 24.13.0 has ICU 77.1 (Unicode 16.0) and fails the tripwire.
+// So package.json's engines range is "^24.13.1 || >=25.5.0": the Node versions on ICU 78.2 or later, which is Unicode 17.0.
+// Node 24.13.1 is the first Node 24 on it (nodejs CHANGELOG_V24.md, 24.13.1: "deps: update icu to 78.2"; 24.13.0 has ICU
+// 77.1, Unicode 16.0, and fails the tripwire), and 25.5.0 the first Node 25 (CHANGELOG_V25.md line 644, 25.5.0 of
+// 2026-01-26: "deps: update icu to 78.2", the only ICU update in that changelog; v25.4.0 measured ICU 77.1 and fails the
+// tripwire too, A9e).
 
 /** The answers on Unicode 17.0. */
 export const UNICODE_17 = {

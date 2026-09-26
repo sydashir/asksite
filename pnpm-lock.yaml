@@ -91,6 +91,10 @@ importers:
       zod:
         specifier: 4.6.5
         version: 4.6.5
+    devDependencies:
+      wrangler:
+        specifier: 4.138.0
+        version: 4.138.0(@cloudflare/workers-types@5.20260924.1)(@types/node@24.13.6)
 
 packages:
 
