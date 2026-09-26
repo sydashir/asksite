@@ -217,6 +217,39 @@ export function fakeCreateMailer(env: MailerEnv): Mailer {
   };
 }
 
+/** Where the receiver check sends its request: a name that never resolves, for a request aborted before it starts anyway. */
+const RECEIVER_CHECK_URL = "https://fetch-receiver-check.invalid/";
+
+/**
+ * Calls the real global fetch with `receiver` as its `this`, for a request aborted before it starts, so
+ * nothing leaves the runtime. Resolves with what the call threw: an AbortError when fetch accepted its
+ * `this`, and workerd's TypeError "Illegal invocation" when it did not.
+ */
+export async function fetchCalledOn(receiver: unknown): Promise<unknown> {
+  try {
+    await Reflect.apply(fetch, receiver, [RECEIVER_CHECK_URL, { signal: AbortSignal.abort() }]);
+    return null;
+  } catch (err) {
+    return err;
+  }
+}
+
+/** The name of a thrown value ("AbortError", "TypeError", ...), or "" when it has none. */
+export const errorName = (value: unknown): string => (typeof value === "object" && value !== null && typeof (value as { name?: unknown }).name === "string" ? (value as { name: string }).name : "");
+
+/**
+ * `port`, callable only the way workerd's global fetch is: as a plain function, never as a method of
+ * another object ("Illegal invocation", developers.cloudflare.com/workers/observability/errors/). It
+ * first calls the real fetch with the `this` it was called with, and throws what that throws.
+ */
+export function calledLikeFetch(port: AppDeps["siteverify"]): AppDeps["siteverify"] {
+  return async function (this: unknown, url, init) {
+    const outcome = await fetchCalledOn(this);
+    if (errorName(outcome) !== "AbortError") throw outcome;
+    return port(url, init);
+  };
+}
+
 const siteverifyCalls: SiteverifyCall[] = [];
 
 export const siteverifyCallsSoFar = (): readonly SiteverifyCall[] => siteverifyCalls;

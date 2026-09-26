@@ -1,13 +1,17 @@
+import { ApiError } from "@asksite/app-common";
 import { newId, newToken, sha256Hex, TTL } from "@asksite/core";
 import { Hono } from "hono";
+import type { Siteverify } from "../../src/worker/deps.ts";
+import { requireTurnstile, SITEVERIFY_TIMEOUT_MS } from "../../src/worker/turnstile.ts";
+import type { AppEnv } from "../../src/worker/types.ts";
 import { createWorker } from "../../src/worker/worker.ts";
-import { fakeApprove, fakeCreateMailer, fakeGeneration, fakePublishing, fakeSiteverify, finishGeneration, siteverifyCallsSoFar } from "./fakes.ts";
+import { calledLikeFetch, errorName, fakeApprove, fakeCreateMailer, fakeGeneration, fakePublishing, fakeSiteverify, fetchCalledOn, finishGeneration, siteverifyCallsSoFar } from "./fakes.ts";
 
 // The app Worker wired to the fakes, plus /__test/* helpers that stand in for the admin and the
 // generator in tests. Used by the Worker tests (test/wrangler.test.jsonc) and the browser tests
 // (test/e2e/wrangler.e2e.jsonc). Never deployed: both configs are test files, and every helper
 // answers 404 unless ENVIRONMENT is "development" on a *.localhost host name.
-const worker = createWorker({ generation: fakeGeneration, publishing: fakePublishing, createMailer: fakeCreateMailer, siteverify: fakeSiteverify });
+const worker = createWorker({ generation: fakeGeneration, publishing: fakePublishing, createMailer: fakeCreateMailer, siteverify: calledLikeFetch(fakeSiteverify) });
 
 /** Per path: how many promises its requests handed to ctx.waitUntil, and how many of those are still running. */
 const waitUntilSeen = new Map<string, { count: number; pending: number }>();
@@ -58,7 +62,7 @@ function withBatchHook(env: Env): Env {
   return { ...env, DB };
 }
 
-const helpers = new Hono<{ Bindings: Env }>();
+const helpers = new Hono<AppEnv>();
 
 helpers.use("*", async (c, next) => {
   const host = new URL(c.req.url).hostname;
@@ -120,6 +124,29 @@ declare const process: unknown;
 
 /** A13: what `typeof process` is inside this Worker ("undefined" once Node.js compatibility is off). */
 helpers.get("/__test/runtime", (c) => c.json({ process: typeof process }));
+
+/** What workerd's global fetch does called as a plain function, and as a method of another object (siteverify's receiver check). */
+helpers.get("/__test/fetch-receiver", async (c) => {
+  const asMethod = await fetchCalledOn({ fetch });
+  return c.json({ plain: errorName(await fetchCalledOn(undefined)), asMethod: `${errorName(asMethod)}: ${asMethod instanceof Error ? asMethod.message : ""}` });
+});
+
+/**
+ * The Turnstile check against a siteverify that never answers, with the timeout the query names instead of
+ * production's (which it reports): what the check decided, how many calls it made, and whether each was abandoned.
+ */
+helpers.post("/__test/turnstile-never", async (c) => {
+  const signals: AbortSignal[] = [];
+  const never: Siteverify = (_url, init) => {
+    signals.push(init.signal);
+    return new Promise((_resolve, reject) => init.signal.addEventListener("abort", () => reject(init.signal.reason)));
+  };
+  const refused = await requireTurnstile(c, never, Number(c.req.query("timeoutMs"))).then(
+    () => null,
+    (err: unknown) => (err instanceof ApiError ? err.code : "other"),
+  );
+  return c.json({ refused, calls: signals.length, abandoned: signals.map((signal) => signal.aborted), defaultTimeoutMs: SITEVERIFY_TIMEOUT_MS });
+});
 
 /** What the admin's approval does to D1. */
 helpers.post("/__test/versions/:versionId/approve", async (c) => c.json(await fakeApprove(c.env, c.req.param("versionId"), Date.now())));

@@ -81,8 +81,10 @@ describe("production wrangler.jsonc", () => {
     expect(config.vars["TURNSTILE_SITE_KEY"]).not.toMatch(TEST_SITE_KEY);
   });
 
-  it("uses https origins and a plain support address", () => {
-    expect(config.vars["APP_ORIGIN"]).toMatch(/^https:\/\/app\./);
+  it("uses its exact https origin and a plain support address", () => {
+    // Exact: requireOrigin compares the Origin header with this value byte for byte, so a trailing slash
+    // or any other drift would refuse every change the owner makes.
+    expect(config.vars["APP_ORIGIN"]).toBe("https://app.asksite.example");
     expect(config.vars["SUPPORT_EMAIL"]).toMatch(/^[a-z0-9._%+-]+@[a-z0-9-]+(\.[a-z0-9-]+)+$/i);
   });
 

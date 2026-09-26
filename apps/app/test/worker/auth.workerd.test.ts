@@ -1,10 +1,17 @@
 import { readFileSync } from "node:fs";
 import { LIMITS, sha256Hex } from "@asksite/core";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { APP_ORIGIN, awayFromMinuteBoundary, json, nextIp, useAppHarness } from "../support/harness.ts";
 import { TURNSTILE_DUMMY_TOKEN, TURNSTILE_TEST_HOSTNAME } from "../support/turnstile.ts";
 
 const h = useAppHarness();
+
+// Every sign-in link of this file also counts toward the day's cap for all owners (LOGIN_EMAILS_PER_DAY),
+// so none may outlive its test.
+afterEach(async () => {
+  await h.backgroundDone("/api/auth/login");
+  await (await h.db()).prepare("DELETE FROM login_tokens").bind().run();
+});
 
 const HOUR_MS = 3_600_000;
 const DAY_MS = 86_400_000;
@@ -455,16 +462,38 @@ describe("Turnstile on sign-in (A11)", () => {
     await waitForEmail("good-token@example.com", 2);
   });
 
+  it("calls siteverify as a plain function, the way workerd's global fetch must be called (no Illegal invocation)", async () => {
+    // The test Worker's siteverify first calls the real global fetch with the `this` it was called with
+    // (an already aborted request to a .invalid host, so nothing leaves the runtime). The check is real here:
+    // a plain call only reports the abort, while a call as a method of another object throws.
+    expect(await json(await h.call("GET", "/__test/fetch-receiver"))).toEqual({ plain: "AbortError", asMethod: expect.stringContaining("Illegal invocation") });
+    await h.signIn("plain-call@example.com");
+    expect((await h.login("plain-call@example.com")).status).toBe(202);
+    await waitForEmail("plain-call@example.com");
+  });
+
   it("tries once more after a 5 s timeout, with the same idempotency key, and then signs in", async () => {
     await h.signIn("slow@example.com");
     const seen = (await h.siteverifyCalls()).length;
     const started = Date.now();
     expect((await h.login("slow@example.com", { turnstile: "slow-once" })).status).toBe(202);
     expect(Date.now() - started).toBeGreaterThanOrEqual(5_000);
+    expect(Date.now() - started).toBeLessThan(10_000);
     const calls = (await h.siteverifyCalls()).slice(seen);
     expect(calls).toHaveLength(2);
     expect(calls[1]?.idempotencyKey).toBe(calls[0]?.idempotencyKey);
     await waitForEmail("slow@example.com");
+  });
+
+  it("gives up on a siteverify that never answers after the timeout and one retry, so the check ends in a bounded time", async () => {
+    // The probe runs the Turnstile check against a siteverify that never answers, with a 200 ms timeout
+    // instead of production's 5 s (which it reports), so this test stays fast.
+    const started = Date.now();
+    const res = await h.call("POST", "/__test/turnstile-never?timeoutMs=200", { headers: { "x-turnstile-token": "never" } });
+    const elapsed = Date.now() - started;
+    expect(await json(res)).toEqual({ refused: "forbidden", calls: 2, abandoned: [true, true], defaultTimeoutMs: 5_000 });
+    expect(elapsed).toBeGreaterThanOrEqual(2 * 200);
+    expect(elapsed).toBeLessThan(2 * 200 + 2_000);
   });
 
   it("tries once more when siteverify reports its own internal error, as its docs advise", async () => {

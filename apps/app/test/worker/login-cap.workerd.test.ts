@@ -1,14 +1,21 @@
 import { readFileSync } from "node:fs";
 import { LIMITS, utcDayStart } from "@asksite/core";
-import { describe, expect, it } from "vitest";
-import { useAppHarness } from "../support/harness.ts";
+import { afterEach, describe, expect, it } from "vitest";
+import { awayFromUtcHourEnd, useAppHarness } from "../support/harness.ts";
 
 // A11: every sign-in email of a UTC day, for all owners, is counted exactly in D1 (login_tokens created
 // since 00:00 UTC). Controlled time: the Worker's clock is real, and each test places the rows it needs
 // before or after the day's first millisecond. Its own file, so the day's count starts from a fresh D1.
 const h = useAppHarness();
 
+const HOUR_MS = 3_600_000;
 const DAY_MS = 86_400_000;
+
+// No test's login emails count toward the next test's caps, even when it fails halfway.
+afterEach(async () => {
+  await h.backgroundDone("/api/auth/login");
+  await (await h.db()).prepare("DELETE FROM login_tokens").bind().run();
+});
 
 /** LOGIN_EMAILS_PER_DAY in the test Worker's config (test/wrangler.test.jsonc, plain JSON). */
 const LOGIN_EMAILS_PER_DAY = Number(
@@ -38,6 +45,20 @@ async function fillDay(ownerId: string, dayStart: number, total: number): Promis
   for (let i = sent; i < total; i += 1) {
     await db.prepare("INSERT INTO login_tokens (token_hash, owner_id, created_at, expires_at) VALUES (?, ?, ?, ?)").bind(`filler-${crypto.randomUUID()}`, ownerId, dayStart, dayStart + 1).run();
   }
+}
+
+/** Adds `count` of the owner's login emails, all created at `at`. */
+async function addTokens(ownerId: string, count: number, at: number): Promise<void> {
+  const db = await h.db();
+  for (let i = 0; i < count; i += 1) {
+    await db.prepare("INSERT INTO login_tokens (token_hash, owner_id, created_at, expires_at) VALUES (?, ?, ?, ?)").bind(`earlier-${crypto.randomUUID()}`, ownerId, at, at + 1).run();
+  }
+}
+
+/** Requests a sign-in link for `email` and waits for the background work. */
+async function requestLink(email: string): Promise<void> {
+  expect((await h.login(email)).status).toBe(202);
+  await h.backgroundDone("/api/auth/login");
 }
 
 /** The UTC day ends for every login email so far: each moves to the previous day's last millisecond. */
@@ -114,6 +135,41 @@ describe("sign-in answers say nothing about owners (§5.2)", () => {
     expect(answers[0]?.status).toBe(202);
     expect(new TextDecoder().decode(answers[0]?.body)).toBe('{"ok":true}');
     for (const other of answers.slice(1)) expect(other).toEqual(answers[0]);
-    await endDay(dayStart);
+  });
+});
+
+// Design §5.2: each owner gets at most 5 links in any hour and 10 in any 24 hours, counted back from the
+// request, never from the start of a UTC day or clock hour. Controlled time: the Worker's clock is real,
+// so each test places the earlier links just before the day or hour it is in.
+describe("the per-owner sign-in link caps are rolling windows (§5.2)", () => {
+  it("counts links from before 00:00 UTC in the 10 per 24 hours", async () => {
+    const owner = await h.signIn();
+    await awayFromUtcHourEnd();
+    const now = Date.now();
+    // Nine links on the previous UTC day, but less than a day ago and more than an hour ago (so the
+    // hourly cap does not count them).
+    const lateYesterday = Math.min(utcDayStart(now), now - HOUR_MS) - 1_000;
+    await addTokens(owner.ownerId, 9, lateYesterday);
+    await requestLink(owner.email);
+    expect(await tokenCount(owner.ownerId)).toBe(10);
+    expect(await outbox(owner.email)).toHaveLength(1);
+    await requestLink(owner.email);
+    expect(await tokenCount(owner.ownerId)).toBe(10);
+    expect(await outbox(owner.email)).toHaveLength(1);
+  });
+
+  it("counts links from before the current UTC hour in the 5 per hour", async () => {
+    const owner = await h.signIn();
+    await awayFromUtcHourEnd();
+    const now = Date.now();
+    // Four links in the previous clock hour, but less than an hour ago.
+    const lastHour = now - (now % HOUR_MS) - 1_000;
+    await addTokens(owner.ownerId, 4, lastHour);
+    await requestLink(owner.email);
+    expect(await tokenCount(owner.ownerId)).toBe(5);
+    expect(await outbox(owner.email)).toHaveLength(1);
+    await requestLink(owner.email);
+    expect(await tokenCount(owner.ownerId)).toBe(5);
+    expect(await outbox(owner.email)).toHaveLength(1);
   });
 });
