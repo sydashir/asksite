@@ -3,7 +3,7 @@ import { z } from "zod";
 // AI-written prose only. Every string has a hard length cap and is NFKC-normalised (so "＄８９"
 // becomes "$89" before it is checked), then rejected if it contains:
 // - a character Unicode classes as a number (\p{N}, e.g. "5", "٥", "½"), a currency symbol
-//   (\p{Sc}), "@", "http:", "https:" or "www.", or a Latin letter that looks like a digit ("Ƨ", "Ƽ";
+//   (\p{Sc}), "@", "http:", "https:" or "www.", or a Latin letter that looks like a digit ("Ƨ", "ƨ", "Ƽ";
 //   DIGIT_LETTER below, A9c);
 // - a control or invisible formatting character (\p{Cc}, \p{Cf});
 // - any character outside the Latin, Common (punctuation, symbols, emoji) and Inherited
@@ -26,14 +26,22 @@ import { z } from "zod";
 const FACT_LIKE = /[\p{N}\p{Sc}@]|https?:|www\./iu;
 
 /**
- * Latin letters that look like a digit (A9c): every Latin letter whose skeleton in confusables.txt (UTS #39, Version
- * 18.0.0 of 2026-08-06, https://www.unicode.org/Public/18.0.0/security/confusables.txt, Unicode License v3, notice in
- * THIRD_PARTY_NOTICES.md), with combining marks removed, is one ASCII digit: Ƨ U+01A7 "2", Ʒ U+01B7 "3", ƻ U+01BB
- * "2" (with a stroke), Ƽ U+01BC "5", Ǯ U+01EE "3" (Ʒ with a caron), Ȝ U+021C "3", Ȣ U+0222 and ȣ U+0223 "8", and in
- * Latin Extended-D, which NON_ENGLISH_LETTER refuses anyway, Ꝛ U+A75A "2", Ꝫ U+A76A "3", Ꝯ U+A76E and ꝯ U+A76F "9",
- * Ɜ U+A7AB "3". Matched case-sensitively: the other case of most of them (ƨ, ȝ, ǯ) looks like no digit.
+ * Latin letters that look like a digit (A9c), derived from Unicode 18.0.0 data:
+ * - every Latin letter whose skeleton in confusables.txt (UTS #39, Version 18.0.0 of 2026-08-06,
+ *   https://www.unicode.org/Public/18.0.0/security/confusables.txt, Unicode License v3, notice in THIRD_PARTY_NOTICES.md),
+ *   with combining marks removed, is one ASCII digit: Ƨ U+01A7 "2", Ʒ U+01B7 "3", ƻ U+01BB "2" (with a stroke), Ƽ U+01BC
+ *   "5", Ǯ U+01EE "3" (Ʒ with a caron), Ȝ U+021C "3", Ȣ U+0222 and ȣ U+0223 "8", Ꝛ U+A75A "2", Ꝫ U+A76A "3", Ꝯ U+A76E
+ *   and ꝯ U+A76F "9", Ɜ U+A7AB "3";
+ * - the other case of each (UnicodeData.txt), which draws the same digit smaller, so "(ƨƽƽ) ƽƽƽ" reads "(255) 555":
+ *   ƨ U+01A8, ƽ U+01BD, ǯ U+01EF, ȝ U+021D, ɜ U+025C, ʒ U+0292, ꝛ U+A75B, ꝫ U+A76B;
+ * - the letters named after one of them "... WITH ...": ƺ U+01BA, ʓ U+0293, ᶚ U+1D9A, U+1DF18 (EZH), ɝ U+025D, ᶔ U+1D94
+ *   (REVERSED OPEN E) and U+1DF94 (R ROTUNDA, Unicode 18.0).
+ * Those in IPA Extensions, the Phonetic Extensions Supplement and Latin Extended-D and -G, which NON_ENGLISH_LETTER refuses
+ * anyway, are listed too, so they get the number message. Not letters, so not listed: symbols that draw like a digit, such
+ * as ⁊ U+204A, which looks like "7".
  */
-const DIGIT_LETTER = /[\u01A7\u01B7\u01BB\u01BC\u01EE\u021C\u0222\u0223\uA75A\uA76A\uA76E\uA76F\uA7AB]/u;
+const DIGIT_LETTER =
+  /[\u01A7\u01A8\u01B7\u01BA-\u01BD\u01EE\u01EF\u021C\u021D\u0222\u0223\u025C\u025D\u0292\u0293\u1D94\u1D9A\uA75A\uA75B\uA76A\uA76B\uA76E\uA76F\uA7AB\u{1DF18}\u{1DF94}]/u;
 const HIDDEN_CHARACTER = /[\p{Cc}\p{Cf}]/u;
 const NON_LATIN_SCRIPT = /[^\p{Script=Latin}\p{Script=Common}\p{Script=Inherited}]/u;
 

@@ -110,10 +110,17 @@ describe("Copy", () => {
     0x1df30, 0x1df35, 0x1df36, 0x1df43, // Unicode 18.0 (UnicodeData-18.0.0.txt); unassigned in this engine, so refused as unknown script
   ];
   /**
-   * The Latin letters whose confusables.txt 18.0.0 skeleton, with combining marks removed, is one ASCII digit (A9c):
-   * Ƨ 2, Ʒ 3, ƻ 2, Ƽ 5, Ǯ 3 (Ʒ + caron), Ȝ 3, Ȣ 8, ȣ 8, and in Latin Extended-D Ꝛ 2, Ꝫ 3, Ꝯ 9, ꝯ 9, Ɜ 3.
+   * The Latin letters that look like a digit (A9c; copy.ts DIGIT_LETTER): those whose confusables.txt 18.0.0 skeleton,
+   * with combining marks removed, is one ASCII digit (Ƨ 2, Ʒ 3, ƻ 2, Ƽ 5, Ǯ 3, Ȝ 3, Ȣ 8, ȣ 8, Ꝛ 2, Ꝫ 3, Ꝯ 9, ꝯ 9, Ɜ 3),
+   * the other case of each (ƨ, ƽ, ȝ, ǯ, ʒ, ꝛ, ꝫ, ɜ), and the letters named after one of them "... WITH ..." (ƺ, ʓ, ᶚ and
+   * U+1DF18 after EZH; ɝ and ᶔ after REVERSED OPEN E; U+1DF94 after R ROTUNDA).
    */
-  const DIGIT_LETTERS = [0x01a7, 0x01b7, 0x01bb, 0x01bc, 0x01ee, 0x021c, 0x0222, 0x0223, 0xa75a, 0xa76a, 0xa76e, 0xa76f, 0xa7ab];
+  const DIGIT_LETTERS = [
+    0x01a7, 0x01a8, 0x01b7, 0x01ba, 0x01bb, 0x01bc, 0x01bd, 0x01ee, 0x01ef, 0x021c, 0x021d, 0x0222, 0x0223, 0x025c, 0x025d,
+    0x0292, 0x0293, 0x1d94, 0x1d9a, 0xa75a, 0xa75b, 0xa76a, 0xa76b, 0xa76e, 0xa76f, 0xa7ab, 0x1df18,
+    0x1df94, // Unicode 18.0 (UnicodeData-18.0.0.txt); unassigned in this engine
+  ];
+  const NUMBER_MESSAGE = "Copy must not contain numbers, currency symbols, @ or links; facts come from the owner";
   const headlineWith = (letter: string) => issues({ ...valid, heroHeadline: `Crew ${letter} team` });
   const messagesFor = (headline: string) => {
     const result = Copy.safeParse({ ...valid, heroHeadline: headline });
@@ -135,15 +142,17 @@ describe("Copy", () => {
     "Ȝ crews",
     "Ǯ vans",
     "ƻ trucks",
+    // A9c review: the small forms draw the same digits, smaller ("Call (255) 555-Ol23 today." in every theme font)
+    "Call (ƨƽƽ) ƽƽƽ-Olƨȝ today.",
+    "Save ƽO% on drain cleaning.",
+    "ǯ vans",
+    "ƺ trucks", // U+01BA ezh with tail
   ])("rejects a letter that looks like a digit as a number: %j", (headline) => {
-    expect(messagesFor(headline)).toEqual(["Copy must not contain numbers, currency symbols, @ or links; facts come from the owner"]);
+    expect(messagesFor(headline)).toEqual([NUMBER_MESSAGE]);
   });
 
-  it("rejects exactly the letters confusables.txt reads as a digit, and not their other case", () => {
-    for (const cp of DIGIT_LETTERS) expect(headlineWith(String.fromCodePoint(cp)), `U+${cp.toString(16)}`).toEqual(["heroHeadline: custom"]);
-    expect(headlineWith("ƨ")).toEqual([]); // U+01A8, the small form of Ƨ
-    expect(headlineWith("ȝ")).toEqual([]); // U+021D yogh, the small form of Ȝ
-    expect(headlineWith("ǯ")).toEqual([]); // U+01EF, the small form of Ǯ
+  it("rejects every letter that looks like a digit with the number message, in whichever block it is", () => {
+    for (const cp of DIGIT_LETTERS) expect(messagesFor(`Crew ${String.fromCodePoint(cp)} team`), `U+${cp.toString(16)}`).toEqual([NUMBER_MESSAGE]);
   });
 
   it("accepts U+0294 ʔ, which official US place names use (GNIS 260516 'dukMéʔem wáťa'), and still refuses other IPA letters", () => {

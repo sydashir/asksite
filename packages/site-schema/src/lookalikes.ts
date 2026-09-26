@@ -12,7 +12,7 @@
 //   prototype is A-Z letters once its marks are removed. Its prototype "l" stands for both I and l, so the
 //   letters named for I (Ɩ capital iota, Ɨ) read "I". Like ASCII I and l, each is read one way only;
 // - UnicodeData.txt names of the form "LATIN ... LETTER X WITH ...": X with a hook, stroke, bar, curl or tail;
-// - the other case of a listed letter, unless copy refuses it (Ƽ, the capital of ƽ, looks like the digit 5);
+// - the other case of a listed letter, unless copy refuses it (ɓ, the small form of Ɓ, is an IPA letter);
 // - ĸ, which NamesList.txt cross-refers to U+1D0B small capital K;
 // - A9c: Ɯ (turned M) read as W and Ǝ (reversed E) read as E, with ǝ, the other case of Ǝ; and the click letters
 //   U+01C0-01C3 as the punctuation they look like (their Unicode 1.0 names are LATIN LETTER PIPE, DOUBLE PIPE,
@@ -49,7 +49,7 @@ export const LOOKALIKES: Readonly<Record<string, string>> = {
   p: "ƥƿ", P: "ƤǷⱣ",
   q: "ɋ", Q: "Ɋ",
   r: "ɍ", R: "ƦɌⱤ",
-  s: "ƽȿ", S: "Ȿ",
+  s: "ȿ", S: "Ȿ",
   ss: "ß", SS: "ẞ",
   t: "ŧƫƭȶⱦ", T: "ŦƬƮȾ",
   th: "þ", TH: "Þ",

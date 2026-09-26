@@ -97,7 +97,7 @@ describe("foldLookalikes (A9b, A9c)", () => {
       expect(ascii, letter).toMatch(PUNCTUATION.has(ascii) ? /^[^A-Za-z0-9]+$/ : /^[A-Za-z]+$/);
     }
     expect(READS.size).toBe(PAIRS.length); // no letter listed twice
-    expect(PAIRS).toHaveLength(128); // the A9b derivation, as changed by A9c (lookalikes.ts); a changed table must be derived again
+    expect(PAIRS).toHaveLength(127); // the A9b derivation, as changed by A9c (lookalikes.ts); a changed table must be derived again
   });
 
   it("reads a capital as capitals and any other letter as small letters", () => {
@@ -112,7 +112,7 @@ describe("foldLookalikes (A9b, A9c)", () => {
     for (const [letter, ascii] of PAIRS) {
       for (const other of [letter.toUpperCase(), letter.toLowerCase()]) {
         if (other === letter || [...other].length !== 1 || /^[A-Za-z]$/.test(other)) continue;
-        // Copy refuses e.g. ɓ, the small form of Ɓ (IPA), and Ƽ, the capital of ƽ, which looks like the digit 5 (A9c).
+        // Copy refuses e.g. ɓ, the small form of Ɓ (IPA).
         if (!prose(80).safeParse(`Crew ${other} team`).success) continue;
         if (READS.get(other)?.toLowerCase() !== ascii.toLowerCase()) missing.push(`${letter} -> ${other}`);
       }
