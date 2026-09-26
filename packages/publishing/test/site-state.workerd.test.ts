@@ -132,3 +132,120 @@ describe("setIndexable", () => {
     expect((await auditActions(env.DB, s.siteId)).filter((a) => a === "site.indexable_changed")).toHaveLength(2);
   });
 });
+
+describe("what takedown, restore and the search switch change and record (design §7.2)", () => {
+  const auditRows = async (siteId: string) =>
+    (await env.DB.prepare("SELECT at, actor, action, detail_json FROM audit_log WHERE site_id = ? ORDER BY id").bind(siteId).all<{ detail_json: string }>())
+      .results.map((row) => ({ ...row, detail_json: JSON.parse(row.detail_json) as unknown }));
+  const updatedAt = (siteId: string) => env.DB.prepare("SELECT updated_at FROM sites WHERE id = ?").bind(siteId).first("updated_at");
+  const uploadsDeletedAt = async (siteId: string) =>
+    new Map((await env.DB.prepare("SELECT id, deleted_at FROM uploads WHERE site_id = ?").bind(siteId).all<{ id: string; deleted_at: number | null }>()).results.map((u) => [u.id, u.deleted_at]));
+
+  /** A live site whose page shows two of its own photos: the hero and one in the gallery. */
+  async function liveSiteWithPhotos() {
+    const site = await seedSite(env.DB);
+    const hero = await addUpload(site.siteId);
+    const gallery = await addUpload(site.siteId);
+    const photo = (id: string) => ({ url: mediaUrl(ROOT, site.siteId, id), alt: "A finished job", width: 1600, height: 1200 });
+    const base = doc("plumber-austin");
+    const document = SiteDocument.parse({ ...base, facts: { ...base.facts, heroPhoto: photo(hero), photos: [photo(gallery)] } });
+    const v1 = await createPendingVersion(env, { ...site, document, edits: EDITS, generationId: null, now: 1 });
+    await approveVersion(env, { versionId: v1.id, htmlSha256: String((await versionRow(env.DB, v1.id))?.html_sha256), reviewer: ADMIN, note: null, indexable: true, now: 2 });
+    return { ...site, liveVersionId: v1.id, hero, gallery };
+  }
+
+  it("a takedown rejects only this site's version in review, never the live one, and records when", async () => {
+    const s = await liveSite(true);
+    const other = await liveSite(true);
+    await takeDown(env, { siteId: s.siteId, reviewer: ADMIN, reason: "Phishing", purgeMedia: false, now: 50 });
+    expect(await versionRow(env.DB, s.liveVersionId)).toMatchObject({ status: "approved", reviewed_at: 2 });
+    expect(await versionRow(env.DB, String(s.pendingVersionId))).toMatchObject({ status: "rejected", reviewed_at: 50 });
+    expect(await versionRow(env.DB, String(other.pendingVersionId))).toMatchObject({ status: "pending", reviewed_by: null, reviewed_at: null, review_note: null });
+    expect(await siteRow(env.DB, other.siteId)).toMatchObject({ taken_down_at: null, pending_version_id: other.pendingVersionId });
+  });
+
+  it("each change is logged as the admin's, with its detail, and stamps the site", async () => {
+    const s = await liveSite();
+    await takeDown(env, { siteId: s.siteId, reviewer: ADMIN, reason: "Spam", purgeMedia: true, now: 50 });
+    expect(await updatedAt(s.siteId)).toBe(50);
+    await restore(env, { siteId: s.siteId, reviewer: ADMIN, now: 60 });
+    expect(await updatedAt(s.siteId)).toBe(60);
+    await setIndexable(env, { siteId: s.siteId, reviewer: ADMIN, indexable: false, now: 70 });
+    expect(await updatedAt(s.siteId)).toBe(70);
+    expect((await auditRows(s.siteId)).slice(2)).toEqual([
+      { at: 50, actor: "admin:admin@example.com", action: "site.taken_down", detail_json: { reason: "Spam", purgeMedia: true } },
+      { at: 60, actor: "admin:admin@example.com", action: "site.restored", detail_json: { versionId: s.liveVersionId } },
+      { at: 70, actor: "admin:admin@example.com", action: "site.indexable_changed", detail_json: { indexable: false } },
+    ]);
+  });
+
+  it("a takedown without purgeMedia keeps the photos, so a restore finds none missing", async () => {
+    const s = await liveSiteWithPhotos();
+    await takeDown(env, { siteId: s.siteId, reviewer: ADMIN, reason: "Mistake", purgeMedia: false, now: 50 });
+    for (const id of [s.hero, s.gallery]) expect(await env.MEDIA.head(mediaKey(s.siteId, id))).not.toBeNull();
+    expect([...(await uploadsDeletedAt(s.siteId)).values()]).toEqual([null, null]);
+    expect(await restore(env, { siteId: s.siteId, reviewer: ADMIN, now: 60 })).toEqual({ liveUrl: `https://${s.slug}.asksite.example/`, missingPhotos: 0 });
+  });
+
+  it("counts only the page's photos that are really gone", async () => {
+    const s = await liveSiteWithPhotos();
+    await takeDown(env, { siteId: s.siteId, reviewer: ADMIN, reason: "x", purgeMedia: false, now: 50 });
+    await env.MEDIA.delete(mediaKey(s.siteId, s.hero));
+    expect((await restore(env, { siteId: s.siteId, reviewer: ADMIN, now: 60 })).missingPhotos).toBe(1);
+  });
+
+  it("a purge deletes every photo, however many pages the listing takes", async () => {
+    const s = await liveSite();
+    const ids = [await addUpload(s.siteId), await addUpload(s.siteId), await addUpload(s.siteId)];
+    let lists = 0;
+    // R2 lists at most 1,000 keys a call; one key a page walks the same cursor loop with three photos.
+    const paged = {
+      list: (options?: R2ListOptions) => ((lists += 1), env.MEDIA.list({ ...options, limit: 1 })),
+      delete: (keys: string | string[]) => env.MEDIA.delete(keys),
+    } as unknown as R2Bucket;
+    await takeDown({ ...env, MEDIA: paged }, { siteId: s.siteId, reviewer: ADMIN, reason: "Abuse", purgeMedia: true, now: 70 });
+    for (const id of ids) expect(await env.MEDIA.head(mediaKey(s.siteId, id))).toBeNull();
+    expect(lists).toBeGreaterThanOrEqual(3);
+  });
+
+  it("a purge keeps the time a photo was already deleted", async () => {
+    const s = await liveSite();
+    const earlier = await addUpload(s.siteId);
+    const later = await addUpload(s.siteId);
+    await env.DB.prepare("UPDATE uploads SET deleted_at = 5 WHERE id = ?").bind(earlier).run();
+    await takeDown(env, { siteId: s.siteId, reviewer: ADMIN, reason: "Abuse", purgeMedia: true, now: 70 });
+    const deletedAt = await uploadsDeletedAt(s.siteId);
+    expect([deletedAt.get(earlier), deletedAt.get(later)]).toEqual([5, 70]);
+  });
+
+  it("puts the page back with the metadata the sites Worker checks (Decision 24)", async () => {
+    const s = await liveSite();
+    await takeDown(env, { siteId: s.siteId, reviewer: ADMIN, reason: "x", purgeMedia: false, now: 50 });
+    await restore(env, { siteId: s.siteId, reviewer: ADMIN, now: 60 });
+    const live = await env.LIVE.head(liveKey(s.slug));
+    expect(live?.httpMetadata?.contentType).toBe("text/html; charset=utf-8");
+    expect(live?.customMetadata).toEqual({ siteId: s.siteId, versionId: s.liveVersionId, sha256: (await versionRow(env.DB, s.liveVersionId))?.html_sha256 });
+  });
+
+  it("writes the page before clearing the takedown: if the write fails, the site stays down", async () => {
+    const s = await liveSite();
+    await takeDown(env, { siteId: s.siteId, reviewer: ADMIN, reason: "x", purgeMedia: false, now: 50 });
+    const failingLive = { put: () => Promise.reject(new Error("R2 is unavailable")) } as unknown as R2Bucket;
+    await expect(restore({ ...env, LIVE: failingLive }, { siteId: s.siteId, reviewer: ADMIN, now: 60 })).rejects.toThrow("R2 is unavailable");
+    expect(await siteRow(env.DB, s.siteId)).toMatchObject({ taken_down_at: 50, takedown_reason: "x" });
+    expect(await auditActions(env.DB, s.siteId)).not.toContain("site.restored");
+  });
+
+  it("names why the stored bytes were refused (a missing page too)", async () => {
+    const tampered = await liveSite();
+    const missing = await liveSite();
+    for (const s of [tampered, missing]) await takeDown(env, { siteId: s.siteId, reviewer: ADMIN, reason: "x", purgeMedia: false, now: 50 });
+    await env.WORK.put(versionKey(tampered.siteId, tampered.liveVersionId), "tampered");
+    await env.WORK.delete(versionKey(missing.siteId, missing.liveVersionId));
+    for (const s of [tampered, missing]) {
+      const error = await failure(restore(env, { siteId: s.siteId, reviewer: ADMIN, now: 60 }));
+      expect({ code: error.code, detail: error.detail }).toEqual({ code: "integrity", detail: { reason: "stored_bytes_mismatch" } });
+      expect(await siteRow(env.DB, s.siteId)).toMatchObject({ taken_down_at: 50 });
+    }
+  });
+});
