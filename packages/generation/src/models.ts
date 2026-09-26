@@ -21,7 +21,16 @@ const price = (inputPerMillion: number, outputPerMillion: number, source: string
   checkedOn: "2026-09-24",
 });
 
-/** Keyed by "<MODEL_PROVIDER>:<MODEL_ID>". Prices are for reporting and the cost ceiling only. */
+/**
+ * Keyed by "<MODEL_PROVIDER>:<MODEL_ID>". Prices are for reporting and the cost ceiling only.
+ *
+ * Every Anthropic price below assumes no prompt caching and no server tools: the adapter (anthropic.ts) sends neither
+ * a `cache_control` field nor a `tools` field, and test/anthropic.test.ts fails if either one is ever added to the
+ * request body. A 5-minute cache write costs 1.25x the input price, a 1-hour write 2x, and a cache read 0.1x
+ * (platform.claude.com/docs/en/build-with-claude/prompt-caching, checked 2026-09-26; per-model exceptions apply to
+ * the read multiplier only, e.g. Claude Opus 5.5 reads at 0.05x, none of which change the "no caching" assumption
+ * here). Turning caching or server tools on for a model needs its price entry updated first.
+ */
 export const MODELS: Readonly<Record<string, ModelSettings>> = {
   "anthropic:claude-opus-5-5": { price: price(4, 20, ANTHROPIC_PRICES), anthropicEffort: "low" },
   "anthropic:claude-sonnet-5": { price: price(2, 10, ANTHROPIC_PRICES), anthropicEffort: "low" },

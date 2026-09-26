@@ -754,3 +754,34 @@ describe("AnthropicProvider: no SDK retry even when the response says to (fix r1
     expect(calls).toBe(1);
   });
 });
+
+/**
+ * Every own key of value, and of every object or array nested inside it, recursively (arrays included; a Set guards
+ * against a circular reference, which JSON.stringify could never have produced in the first place). Returns the first
+ * forbidden key found (for a clear failure message) or undefined.
+ */
+function findForbiddenKey(value: unknown, forbidden: ReadonlySet<string>, seen = new Set<object>()): string | undefined {
+  if (typeof value !== "object" || value === null) return undefined;
+  if (seen.has(value)) return undefined;
+  seen.add(value);
+  const entries = Array.isArray(value) ? value.entries() : Object.entries(value as Record<string, unknown>);
+  for (const [key, child] of entries) {
+    if (typeof key === "string" && forbidden.has(key)) return key;
+    const found = findForbiddenKey(child, forbidden, seen);
+    if (found !== undefined) return found;
+  }
+  return undefined;
+}
+
+// Fix r1b: models.ts prices every Anthropic model as if requests never cache and never use server tools. cache_control
+// (prompt-caching.md) and a tools field would both change the true cost per token, so this guard fails loudly, on
+// every field of the sent body, the day either one is added, before a mutant or a real change could bill differently
+// without the pricing table being updated.
+describe("AnthropicProvider: never bills as if it cached or used tools (fix r1b)", () => {
+  it("sends a request body with no cache_control key and no tools field anywhere", async () => {
+    const http = fakeFetch([{ status: 200, body: message('{"a":1}') }]);
+    await new AnthropicProvider({ apiKey: "k", model: "claude-opus-5-5", fetch: http.fetch }).generate(request());
+    expect(http.calls).toHaveLength(1);
+    expect(findForbiddenKey(http.calls[0]!.body, new Set(["cache_control", "tools"]))).toBeUndefined();
+  });
+});
