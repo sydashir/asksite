@@ -89,25 +89,31 @@ async function acceptInvite(db: D1Database, invite: { id: string; email: string 
   const siteId = newId();
   const sessionToken = newToken();
   const sessionHash = await sha256Hex(sessionToken);
-  const ownerOf = "(SELECT id FROM owners WHERE email = ?)";
+  // Every write below happens only for an owner who is not disabled, checked in this transaction, so a
+  // disable that lands after step (0) leaves no site, invite link, session or audit row.
+  const activeOwner = "FROM owners WHERE email = ? AND disabled_at IS NULL";
   try {
     const results = await db.batch([
       db.prepare("INSERT INTO owners (id, email, created_at) VALUES (?, ?, ?) ON CONFLICT(email) DO NOTHING").bind(newId(), invite.email, now),
-      db.prepare(`INSERT INTO sites (id, owner_id, created_at, updated_at) VALUES (?, ${ownerOf}, ?, ?)`).bind(siteId, invite.email, now, now),
-      db.prepare(`UPDATE invites SET owner_id = ${ownerOf}, site_id = ? WHERE id = ?`).bind(invite.email, siteId, invite.id),
-      // Only for an owner who is not disabled, checked in this transaction: a disable that lands after step (0) leaves no session.
+      db.prepare(`INSERT INTO sites (id, owner_id, created_at, updated_at) SELECT ?, id, ?, ? ${activeOwner}`).bind(siteId, now, now, invite.email),
       db
-        .prepare("INSERT INTO sessions (id_hash, owner_id, created_at, expires_at, last_seen_at) SELECT ?, id, ?, ?, ? FROM owners WHERE email = ? AND disabled_at IS NULL")
+        .prepare(`UPDATE invites SET owner_id = (SELECT id ${activeOwner}), site_id = ? WHERE id = ? AND EXISTS (SELECT 1 ${activeOwner})`)
+        .bind(invite.email, siteId, invite.id, invite.email),
+      db
+        .prepare(`INSERT INTO sessions (id_hash, owner_id, created_at, expires_at, last_seen_at) SELECT ?, id, ?, ?, ? ${activeOwner}`)
         .bind(sessionHash, now, now + TTL.sessionMs, now, invite.email),
       db
-        .prepare(`INSERT INTO audit_log (at, actor, action, site_id, detail_json) VALUES (?, 'owner:' || ${ownerOf}, 'invite.accepted', ?, ?)`)
-        .bind(now, invite.email, siteId, JSON.stringify({ inviteId: invite.id })),
-      db.prepare("SELECT id, email FROM owners WHERE email = ?").bind(invite.email),
+        .prepare(`INSERT INTO audit_log (at, actor, action, site_id, detail_json) SELECT ?, 'owner:' || id, 'invite.accepted', ?, ? ${activeOwner}`)
+        .bind(now, siteId, JSON.stringify({ inviteId: invite.id }), invite.email),
+      // What the batch did, read in the same transaction (A10: no RETURNING, and no reliance on each statement's meta.changes).
+      db
+        .prepare("SELECT id, email, EXISTS (SELECT 1 FROM sites WHERE id = ?) AS site, EXISTS (SELECT 1 FROM sessions WHERE id_hash = ?) AS session FROM owners WHERE email = ?")
+        .bind(siteId, sessionHash, invite.email),
     ]);
-    if (results[3]?.meta.changes !== 1) throw new ApiError("owner_disabled", OWNER_DISABLED);
-    const owner = results[5]?.results[0] as OwnerView | undefined;
-    if (owner === undefined) throw new Error("owner row missing after invite accept");
-    return { owner: { id: owner.id, email: owner.email }, siteId, sessionToken };
+    const outcome = results[5]?.results[0] as (OwnerView & { site: number; session: number }) | undefined;
+    if (outcome === undefined) throw new Error("owner row missing after invite accept");
+    if (outcome.site !== 1 || outcome.session !== 1) throw new ApiError("owner_disabled", OWNER_DISABLED);
+    return { owner: { id: outcome.id, email: outcome.email }, siteId, sessionToken };
   } catch (err) {
     // Release the token so the owner can simply click the link again, unless the batch saved:
     // it set site_id in the same transaction, and then the invite stays spent.

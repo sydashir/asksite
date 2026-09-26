@@ -35,6 +35,29 @@ function counting(ctx: ExecutionContext, path: string): ExecutionContext {
   });
 }
 
+/** Owners (by email) to disable just before a request's next D1 batch: an admin's disable that lands between a route's checks and its batch. */
+const disableBeforeBatch = new Set<string>();
+
+/** The Worker's env, with a D1 binding that first disables those owners when a route calls batch(). */
+function withBatchHook(env: Env): Env {
+  if (disableBeforeBatch.size === 0) return env;
+  const DB = new Proxy(env.DB, {
+    get(target, key) {
+      if (key === "batch") {
+        return async (statements: D1PreparedStatement[]) => {
+          const emails = [...disableBeforeBatch];
+          disableBeforeBatch.clear();
+          for (const email of emails) await target.prepare("UPDATE owners SET disabled_at = ? WHERE email = ?").bind(Date.now(), email).run();
+          return target.batch(statements);
+        };
+      }
+      const value: unknown = Reflect.get(target, key);
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
+  return { ...env, DB };
+}
+
 const helpers = new Hono<{ Bindings: Env }>();
 
 helpers.use("*", async (c, next) => {
@@ -52,6 +75,13 @@ helpers.post("/__test/invites", async (c) => {
     .bind(newId(), await sha256Hex(token), email.trim().toLowerCase(), now, now + TTL.inviteMs)
     .run();
   return c.json({ token });
+});
+
+/** Arms the hook above for one owner: the next D1 batch of any request disables them first. */
+helpers.post("/__test/disable-before-batch", async (c) => {
+  const { email } = await c.req.json<{ email: string }>();
+  disableBeforeBatch.add(email.trim().toLowerCase());
+  return c.json({ ok: true });
 });
 
 /** What the generator does when a job ends. */
@@ -97,7 +127,7 @@ helpers.post("/__test/versions/:versionId/approve", async (c) => c.json(await fa
 export default {
   fetch(request, env, ctx) {
     const path = new URL(request.url).pathname;
-    return path.startsWith("/__test/") ? helpers.fetch(request, env, ctx) : worker.fetch!(request, env, counting(ctx, path));
+    return path.startsWith("/__test/") ? helpers.fetch(request, env, ctx) : worker.fetch!(request, withBatchHook(env), counting(ctx, path));
   },
   scheduled(controller, env, ctx) {
     return worker.scheduled!(controller, env, ctx);

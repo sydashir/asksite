@@ -242,22 +242,26 @@ describe("invite acceptance", () => {
     expect(await db.prepare(sites).bind().first()).toEqual({ n: 1 });
   });
 
-  it("stores no session when the owner is disabled after the check and before the batch", async () => {
-    const first = await h.signIn("race-disabled@example.com");
-    const token = await h.invite("race-disabled@example.com");
-    // The admin's disable lands after step (0)'s check, just before the session is stored. (A trigger on
-    // the claim itself would also count in the claim's meta.changes in local D1, so it fires in the batch.)
-    await withTrigger(
-      "disable_in_batch",
-      "CREATE TRIGGER disable_in_batch BEFORE INSERT ON sites WHEN (SELECT email FROM owners WHERE id = NEW.owner_id) = 'race-disabled@example.com' BEGIN UPDATE owners SET disabled_at = 1 WHERE id = NEW.owner_id; END",
-      async () => {
-        const res = await h.call("POST", "/api/auth/invite/accept", { body: { token }, ip: nextIp() });
-        expect(res.status).toBe(403);
-        expect((await json<ErrorJson>(res)).error.code).toBe("owner_disabled");
-        expect(res.headers.get("Set-Cookie")).toBeNull();
-      },
-    );
+  it("stores no site, session or audit row when the owner is disabled after the check and before the batch, and releases the invite", async () => {
+    const email = "race-disabled@example.com";
+    const first = await h.signIn(email);
+    const token = await h.invite(email);
+    // The admin's disable lands after step (0)'s check and the claim, just before the batch: the test
+    // Worker runs it right before the request's next D1 batch.
+    expect((await h.call("POST", "/__test/disable-before-batch", { body: { email } })).status).toBe(200);
+    const res = await h.call("POST", "/api/auth/invite/accept", { body: { token }, ip: nextIp() });
+    expect(res.status).toBe(403);
+    expect((await json<ErrorJson>(res)).error.code).toBe("owner_disabled");
+    expect(res.headers.get("Set-Cookie")).toBeNull();
+    const db = await h.db();
+    expect(await db.prepare("SELECT disabled_at FROM owners WHERE id = ?").bind(first.ownerId).first()).toEqual({ disabled_at: expect.any(Number) });
+    expect((await db.prepare("SELECT id FROM sites WHERE owner_id = ?").bind(first.ownerId).all()).results).toEqual([{ id: first.siteId }]);
     expect(await sessionHashes(first.ownerId)).toEqual([await sha256Hex(cookieValue(first.cookie))]);
+    const accepted = await db.prepare("SELECT site_id FROM audit_log WHERE action = 'invite.accepted' AND actor = ?").bind(`owner:${first.ownerId}`).all();
+    expect(accepted.results).toEqual([{ site_id: first.siteId }]);
+    // Nothing links the invite to a site, so P4-8's release (only while site_id IS NULL) reopens it.
+    const invite = await db.prepare("SELECT used_at, owner_id, site_id FROM invites WHERE token_hash = ?").bind(await sha256Hex(token)).first();
+    expect(invite).toEqual({ used_at: null, owner_id: null, site_id: null });
   });
 
   it("hands the claim-to-batch work to waitUntil as well, so a client that goes away cannot stop it halfway", async () => {
