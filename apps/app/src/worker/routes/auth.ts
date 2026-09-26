@@ -1,6 +1,7 @@
 import { ApiError, inBackground, logLine, magicLinkEmail, noteLog, rateLimit, readJson, runToEnd, trySend } from "@asksite/app-common";
 import { AcceptInviteBody, hashIp, ipRateKey, LIMITS, LoginBody, newId, newToken, sha256Hex, TTL, utcDayStart, VerifyLoginBody, type OwnerView } from "@asksite/core";
 import { Hono, type MiddlewareHandler } from "hono";
+import { loginEmailsPerDay } from "../config.ts";
 import { clientIp, mailerEnv } from "../db.ts";
 import type { AppDeps } from "../deps.ts";
 import { endSession, EXPIRED_SESSION_COOKIE, insertSession, sessionCookie } from "../session.ts";
@@ -157,7 +158,7 @@ async function sendLoginLink(env: Env, deps: AppDeps, email: string, now: number
   const tokenHash = await sha256Hex(token);
   const dayStart = utcDayStart(now);
   // A11: LOGIN_EMAILS_PER_DAY (40) for all owners keeps most of Resend Free's 100 emails a day for leads.
-  const perDay = Number(env.LOGIN_EMAILS_PER_DAY);
+  const perDay = loginEmailsPerDay(env.LOGIN_EMAILS_PER_DAY);
   // Every cap is an exact count in the same statement as the insert.
   const inserted = await env.DB.prepare(
     `INSERT INTO login_tokens (token_hash, owner_id, created_at, expires_at)

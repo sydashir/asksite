@@ -36,6 +36,17 @@ export async function awayFromMinuteBoundary(needMs = 5_000): Promise<void> {
   if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
 }
 
+const HOUR_MS = 3_600_000;
+
+/**
+ * Waits out the last 10 s of the current UTC hour (every UTC day ends on an hour too), so the requests of
+ * a test that places rows by the clock fall in the hour and the day it computed.
+ */
+export async function awayFromUtcHourEnd(): Promise<void> {
+  const left = HOUR_MS - (Date.now() % HOUR_MS);
+  if (left < 10_000) await new Promise((resolve) => setTimeout(resolve, left + 1_000));
+}
+
 /** Starts the app Worker (with fakes) in the local runtime for one test file; `vars` override the test config's. */
 export function useAppHarness(options: { vars?: Record<string, string> } = {}) {
   const configPath = new URL("../wrangler.test.jsonc", import.meta.url);
