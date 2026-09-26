@@ -51,7 +51,12 @@ export function uploadRoutes(): Hono<AppEnv> {
     const site = await ownedSite(db, c.req.param("siteId"), owner.id);
     // A taken-down site is frozen: no image work and no storage for it (decision 39).
     assertNotTakenDown(site);
-    // Pre-check so a refused upload costs no image transformation.
+    // Pre-check so a refused upload costs no image transformation. Known limit (security review I2,
+    // accepted by the moderator 2026-09-26): uploads racing at a cap boundary each pass this pre-check and
+    // each run a billed transform, while the exact INSERT below makes only one row; past the boundary the
+    // pre-check refuses before any transform, so the extra transforms are bounded by that concurrency
+    // window. A file the service measures but cannot decode is refused (422) without a row, so only
+    // UPLOAD_RL bounds those transforms; whether a failed transform is billed is undocumented.
     if (!(await underCaps(db, site.id))) throw limitReached();
 
     const body = await readBytes(c.req.raw, LIMITS.uploadMaxBytes + MULTIPART_OVERHEAD_BYTES);
