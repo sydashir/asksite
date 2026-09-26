@@ -39,6 +39,12 @@ const imagesErrorCode = (err: unknown): number | undefined => {
   return typeof code === "number" ? code : undefined;
 };
 
+/** Whether an Images failure blames the file (one of UNREADABLE_IMAGE_CODES) rather than the service or us. */
+function unreadableImage(err: unknown): boolean {
+  const code = imagesErrorCode(err);
+  return code !== undefined && UNREADABLE_IMAGE_CODES.has(code);
+}
+
 /**
  * Width and height as the Images binding reads them, or null when it cannot decode the file. Any other
  * failure (the service unreachable, timed out or out of allowance) is thrown: it is ours, not the photo's.
@@ -48,22 +54,29 @@ export async function imageInfo(images: ImagesBinding, bytes: Uint8Array): Promi
     const info = await images.info(stream(bytes));
     return "width" in info ? { width: info.width, height: info.height } : null;
   } catch (err) {
-    const code = imagesErrorCode(err);
-    if (code !== undefined && UNREADABLE_IMAGE_CODES.has(code)) return null;
+    if (unreadableImage(err)) return null;
     throw err;
   }
 }
 
 /**
  * Re-encode to a still WebP, at most 1600 px on the long edge (§8 step 3). WebP output drops all
- * metadata (GPS included) and `anim: false` turns an animated file into a still one.
+ * metadata (GPS included) and `anim: false` turns an animated file into a still one. Null when the
+ * binding could measure the file but cannot decode it (a JPEG whose data is cut off passes .info()
+ * and fails here); any other failure is thrown, as in imageInfo.
  */
-export async function toStillWebp(images: ImagesBinding, bytes: Uint8Array): Promise<{ webp: Uint8Array; width: number; height: number }> {
-  const result = await images
-    .input(stream(bytes))
-    .transform({ width: 1600, height: 1600, fit: "scale-down" })
-    .output({ format: "image/webp", quality: 82, anim: false });
-  const webp = new Uint8Array(await new Response(result.image()).arrayBuffer());
+export async function toStillWebp(images: ImagesBinding, bytes: Uint8Array): Promise<{ webp: Uint8Array; width: number; height: number } | null> {
+  let webp: Uint8Array;
+  try {
+    const result = await images
+      .input(stream(bytes))
+      .transform({ width: 1600, height: 1600, fit: "scale-down" })
+      .output({ format: "image/webp", quality: 82, anim: false });
+    webp = new Uint8Array(await new Response(result.image()).arrayBuffer());
+  } catch (err) {
+    if (unreadableImage(err)) return null;
+    throw err;
+  }
   const info = await imageInfo(images, webp);
   if (info === null) throw new Error("re-encoded image could not be measured");
   return { webp, ...info };

@@ -16,6 +16,11 @@ function limitReached(): ApiError {
   });
 }
 
+/** The file is a real JPEG, PNG or WebP by its first bytes, but the image service cannot decode it. */
+function unreadablePhoto(): ApiError {
+  return new ApiError("image_rejected", "We could not read that photo. Please choose a JPG or PNG photo.");
+}
+
 /** The multipart body as FormData. A body that cannot be parsed makes formData() throw a TypeError: the client's mistake, not ours. */
 async function readForm(url: string, contentType: string, body: Uint8Array): Promise<FormData> {
   try {
@@ -58,12 +63,13 @@ export function uploadRoutes(): Hono<AppEnv> {
     if (sniffImage(bytes) === null) throw new ApiError("unsupported_media_type", "Please choose a JPG, PNG or WebP photo");
 
     const info = await imageInfo(c.env.IMAGES, bytes);
-    if (info === null) throw new ApiError("image_rejected", "We could not read that photo. Please choose a JPG or PNG photo.");
+    if (info === null) throw unreadablePhoto();
     const problem = sizeProblem(info.width, info.height);
     if (problem === "too_small") throw new ApiError("image_rejected", "That photo is too small. Please choose one at least 200 pixels wide and tall.");
     if (problem === "too_many_pixels") throw new ApiError("image_rejected", "That photo is too large. Please choose a smaller one.");
 
     const still = await toStillWebp(c.env.IMAGES, bytes);
+    if (still === null) throw unreadablePhoto();
     const id = newId();
     const now = Date.now();
     // The exact caps: the row is created only while both counts are under their limits.

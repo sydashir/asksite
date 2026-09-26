@@ -24,6 +24,17 @@ export async function animatedWebp(): Promise<Uint8Array> {
   return new Uint8Array(await sharp(frames, { join: { animated: true } }).webp().toBuffer());
 }
 
+/**
+ * A JPEG whose header is whole but whose picture data stops halfway. Reading its size works (the header
+ * is all .info() needs); decoding it does not. Noise keeps the file large, so the cut lands in the data.
+ */
+export async function truncatedJpeg(width: number, height: number): Promise<Uint8Array> {
+  const whole = await sharp({ create: { width, height, channels: 3, background: "#000000", noise: { type: "gaussian", mean: 128, sigma: 30 } } })
+    .jpeg({ quality: 90 })
+    .toBuffer();
+  return new Uint8Array(whole.subarray(0, Math.floor(whole.byteLength / 2)));
+}
+
 export const latin1 = (bytes: Uint8Array): string => new TextDecoder("latin1").decode(bytes);
 
 export function upload(bytes: Uint8Array, name = "photo.jpg", type = "image/jpeg"): FormData {

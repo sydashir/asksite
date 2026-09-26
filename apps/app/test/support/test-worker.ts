@@ -71,7 +71,24 @@ type ImagesCall = { transform: ImageTransform } | { output: ImageOutputOptions }
  */
 const imagesCalls: ImagesCall[] = [];
 
-/** The real transformer, recording the options it is given. */
+/** The two calls of the binding that reach the Images service: .info() reads the image, .output() re-encodes it. */
+type ImagesStep = "info" | "output";
+
+/**
+ * When set, the next call of that step fails instead of doing its work: with an ImagesError of this code (the
+ * shape workerd's binding throws: an Error with a numeric `code`), or with a TypeError when the code is null.
+ */
+let nextImagesFailure: { step: ImagesStep; code: number | null } | undefined;
+
+/** The armed failure for this step, if any, disarming it. */
+function takeImagesFailure(step: ImagesStep): Error | undefined {
+  if (nextImagesFailure?.step !== step) return undefined;
+  const { code } = nextImagesFailure;
+  nextImagesFailure = undefined;
+  return code === null ? new TypeError("Network connection lost.") : Object.assign(new Error(`IMAGES_${step}_ERROR ${code}: made by the test Worker`), { code });
+}
+
+/** The real transformer, recording the options it is given; its .output() can be made to fail once. */
 function recordingTransformer(transformer: ImageTransformer): ImageTransformer {
   return {
     transform(transform) {
@@ -83,29 +100,19 @@ function recordingTransformer(transformer: ImageTransformer): ImageTransformer {
     },
     output(options) {
       imagesCalls.push({ output: options });
-      return transformer.output(options);
+      const failure = takeImagesFailure("output");
+      return failure === undefined ? transformer.output(options) : Promise.reject(failure);
     },
   };
 }
 
-/**
- * When set, the next IMAGES.info() fails instead of reading the image: with an ImagesError of this code (the
- * shape workerd's binding throws: an Error with a numeric `code`), or with a TypeError when the code is null.
- */
-let nextInfoFailure: { code: number | null } | undefined;
-
-function infoFailure(code: number | null): Error {
-  return code === null ? new TypeError("Network connection lost.") : Object.assign(new Error(`IMAGES_INFO_ERROR ${code}: made by the test Worker`), { code });
-}
-
-/** The Worker's env, with an Images binding that does the real work, records what it is asked and can fail .info() once. */
+/** The Worker's env, with an Images binding that does the real work, records what it is asked and can fail one step once. */
 function withImagesHook(env: Env): Env {
   const images = env.IMAGES;
   const IMAGES: ImagesBinding = {
     info(stream, options) {
-      const failure = nextInfoFailure;
-      nextInfoFailure = undefined;
-      return failure === undefined ? images.info(stream, options) : Promise.reject(infoFailure(failure.code));
+      const failure = takeImagesFailure("info");
+      return failure === undefined ? images.info(stream, options) : Promise.reject(failure);
     },
     input: (stream, options) => recordingTransformer(images.input(stream, options)),
     text: (content, options) => recordingTransformer(images.text(content, options)),
@@ -168,10 +175,10 @@ helpers.get("/__test/siteverify", (c) => c.json(siteverifyCallsSoFar()));
 /** What the Worker has asked of IMAGES so far, oldest first (see imagesCalls). */
 helpers.get("/__test/images-calls", (c) => c.json(imagesCalls));
 
-/** Arms the hook above: the next IMAGES.info() of any request fails with this code (null: a TypeError). */
-helpers.post("/__test/images-info-fails", async (c) => {
-  const { code } = await c.req.json<{ code: number | null }>();
-  nextInfoFailure = { code };
+/** Arms the hook above: the next IMAGES .info() or .output() of any request fails with this code (null: a TypeError). */
+helpers.post("/__test/images-fails", async (c) => {
+  const { step, code } = await c.req.json<{ step: ImagesStep; code: number | null }>();
+  nextImagesFailure = { step, code };
   return c.json({ ok: true });
 });
 

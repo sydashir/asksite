@@ -2,7 +2,7 @@ import { mediaUrl, type SiteView, type UploadView } from "@asksite/core";
 import { describe, expect, it } from "vitest";
 import { VALID_FACTS } from "../support/facts.ts";
 import { APP_ORIGIN, json, ROOT, useAppHarness } from "../support/harness.ts";
-import { animatedWebp, jpegWithGps, latin1, png, upload } from "../support/images.ts";
+import { animatedWebp, jpegWithGps, latin1, png, truncatedJpeg, upload } from "../support/images.ts";
 
 const h = useAppHarness();
 
@@ -14,8 +14,8 @@ async function media(key: string) {
 }
 
 /** The options of every .transform() and .output() the Worker has asked of IMAGES, oldest first (the test Worker records them). */
-async function imagesCalls(): Promise<unknown[]> {
-  return json<unknown[]>(await h.call("GET", "/__test/images-calls"));
+async function imagesCalls(): Promise<Array<Record<string, unknown>>> {
+  return json<Array<Record<string, unknown>>>(await h.call("GET", "/__test/images-calls"));
 }
 
 describe("POST /api/sites/:siteId/uploads", () => {
@@ -88,6 +88,17 @@ describe("POST /api/sites/:siteId/uploads", () => {
     const broken = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3, 4, 5, 6, 7, 8]);
     const res = await h.call("POST", `/api/sites/${owner.siteId}/uploads`, { cookie: owner.cookie, body: upload(broken) });
     expect(res.status).toBe(422);
+  });
+
+  it("refuses a JPEG whose data is cut off, which the image service can measure but not re-encode, with 422 image_rejected", async () => {
+    const owner = await h.signIn();
+    const before = (await imagesCalls()).length;
+    const res = await h.call("POST", `/api/sites/${owner.siteId}/uploads`, { cookie: owner.cookie, body: upload(await truncatedJpeg(800, 600)) });
+    expect(res.status).toBe(422);
+    expect((await json<ErrorJson>(res)).error.code).toBe("image_rejected");
+    // The file got past .info() and failed in the transform: the transform was really asked for.
+    expect((await imagesCalls()).slice(before).map((call) => Object.keys(call))).toEqual([["transform"], ["output"]]);
+    expect((await (await h.db()).prepare("SELECT COUNT(*) AS n FROM uploads WHERE site_id = ?").bind(owner.siteId).first<{ n: number }>())?.n).toBe(0);
   });
 
   it("refuses a file over 10 MB with 413", async () => {
@@ -163,35 +174,39 @@ describe("POST /api/sites/:siteId/uploads", () => {
   });
 });
 
-describe("when the Images binding cannot measure the photo", () => {
-  /** An owner's upload of a good photo, whose IMAGES.info() the test Worker makes fail with `code` (null: a TypeError). */
-  async function uploadWhileInfoFails(code: number | null) {
+// images/reference/troubleshooting: not an image (9412), over 100 megapixels (9413), a format it does not support (9520), an invalid one (9523).
+const FILE_FAULT_CODES = [9412, 9413, 9520, 9523];
+// The same page: interrupted (9402), the monthly allowance used up (9422), internal (9424, 9516-9518),
+// unreachable (9504, 9505, 9510), over the processing limit (9522), timed out (9529).
+const SERVICE_CODES = [9402, 9422, 9424, 9504, 9505, 9510, 9516, 9517, 9518, 9522, 9529];
+
+// The binding reaches the Images service twice per upload: .info() measures the photo, .output() re-encodes it.
+describe.each(["info", "output"] as const)("when the Images binding fails in .%s()", (step) => {
+  /** An owner's upload of a good photo, whose IMAGES call of this step the test Worker makes fail with `code` (null: a TypeError). */
+  async function uploadWhileImagesFails(code: number | null) {
     const owner = await h.signIn();
-    await h.call("POST", "/__test/images-info-fails", { body: { code } });
+    await h.call("POST", "/__test/images-fails", { body: { step, code } });
     const res = await h.call("POST", `/api/sites/${owner.siteId}/uploads`, { cookie: owner.cookie, body: upload(await png(400, 300), "x.png") });
     const stored = await (await h.db()).prepare("SELECT COUNT(*) AS n FROM uploads WHERE site_id = ?").bind(owner.siteId).first<{ n: number }>();
     return { res, stored: stored?.n };
   }
 
-  // images/reference/troubleshooting: not an image (9412), over 100 megapixels (9413), a format it does not support (9520), an invalid one (9523).
-  it.each([9412, 9413, 9520, 9523])("blames the photo for Images error %i with 422 image_rejected", async (code) => {
-    const { res, stored } = await uploadWhileInfoFails(code);
+  it.each(FILE_FAULT_CODES)("blames the photo for Images error %i with 422 image_rejected", async (code) => {
+    const { res, stored } = await uploadWhileImagesFails(code);
     expect(res.status).toBe(422);
     expect((await json<ErrorJson>(res)).error.code).toBe("image_rejected");
     expect(stored).toBe(0);
   });
 
-  // The same page: interrupted (9402), the monthly allowance used up (9422), internal (9424, 9516-9518),
-  // unreachable (9504, 9505, 9510), over the processing limit (9522), timed out (9529).
-  it.each([9402, 9422, 9424, 9504, 9505, 9510, 9516, 9517, 9518, 9522, 9529])("answers Images error %i as our failure (500 internal), never as the owner's photo", async (code) => {
-    const { res, stored } = await uploadWhileInfoFails(code);
+  it.each(SERVICE_CODES)("answers Images error %i as our failure (500 internal), never as the owner's photo", async (code) => {
+    const { res, stored } = await uploadWhileImagesFails(code);
     expect(res.status).toBe(500);
     expect((await json<ErrorJson>(res)).error.code).toBe("internal");
     expect(stored).toBe(0);
   });
 
   it("answers a failure that is no Images error as 500 internal, and logs it as one", async () => {
-    const { res, stored } = await uploadWhileInfoFails(null);
+    const { res, stored } = await uploadWhileImagesFails(null);
     expect(res.status).toBe(500);
     expect(stored).toBe(0);
     const line = h.logLines().filter((l) => l["route"] === "POST /api/sites/:siteId/uploads").at(-1);
