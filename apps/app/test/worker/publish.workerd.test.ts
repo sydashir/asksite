@@ -154,6 +154,17 @@ describe("POST /api/sites/:siteId/publish-requests", () => {
     expect((await outbox("reviewer@example.com"))[0]).toMatchObject({ subject: "Website waiting for review: joes-plumbing (version 1)", tag: "admin_alert" });
   });
 
+  // After the test above, which reads the file's first review alert.
+  it("publishes pasted reviews once the owner confirms they are from real customers", async () => {
+    const facts = { ...VALID_FACTS, testimonials: [{ quote: "Fixed our leak fast.", name: "Ana" }] };
+    const owner = await withSlug(await builtOwner(h, facts, { ...VALID_BRIEF, reviewsAreReal: true }), "real-reviews-plumbing");
+    const res = await h.call("POST", `/api/sites/${owner.siteId}/publish-requests`, { cookie: owner.cookie, body: { rev: owner.rev } });
+    expect(res.status).toBe(201);
+    const { version } = await json<{ version: VersionSummary }>(res);
+    expect(version).toMatchObject({ number: 1, status: "pending" });
+    expect((await view(owner)).pendingVersion?.id).toBe(version.id);
+  });
+
   it("publishing again supersedes the pending version; withdraw clears it", async () => {
     const owner = await withSlug(await builtOwner(h, VALID_FACTS, VALID_BRIEF), "second-try-plumbing");
     const first = await json<{ version: VersionSummary }>(await h.call("POST", `/api/sites/${owner.siteId}/publish-requests`, { cookie: owner.cookie, body: { rev: owner.rev } }));
@@ -170,7 +181,7 @@ describe("POST /api/sites/:siteId/publish-requests", () => {
     expect((await view(owner)).inReview).toBe(false);
   });
 
-  it("answers 404 on another owner's site for every publishing route, and changes nothing (§9.1)", async () => {
+  it("answers 404 on another owner's site or version for every publishing route, and changes nothing (§9.1)", async () => {
     const a = await withSlug(await builtOwner(h, VALID_FACTS, VALID_BRIEF), "owner-a-plumbing");
     const b = await h.signIn();
     // B sends A's real rev, so a route that lost its owner filter would really publish.
@@ -180,7 +191,9 @@ describe("POST /api/sites/:siteId/publish-requests", () => {
     expect(await versionCount(a.siteId)).toBe(0);
 
     // A's own request is pending: B can neither withdraw it nor list A's versions.
-    expect((await h.call("POST", `/api/sites/${a.siteId}/publish-requests`, { cookie: a.cookie, body: { rev: a.rev } })).status).toBe(201);
+    const published = await h.call("POST", `/api/sites/${a.siteId}/publish-requests`, { cookie: a.cookie, body: { rev: a.rev } });
+    expect(published.status).toBe(201);
+    const { version: aVersion } = await json<{ version: VersionSummary }>(published);
     const withdraw = await h.call("DELETE", `/api/sites/${a.siteId}/publish-requests/pending`, { cookie: b.cookie });
     expect(withdraw.status).toBe(404);
     expect((await json<ErrorJson>(withdraw)).error.code).toBe("not_found");
@@ -188,6 +201,11 @@ describe("POST /api/sites/:siteId/publish-requests", () => {
     const list = await h.call("GET", `/api/sites/${a.siteId}/versions`, { cookie: b.cookie });
     expect(list.status).toBe(404);
     expect((await json<ErrorJson>(list)).error.code).toBe("not_found");
+
+    // Nor read A's stored page through B's OWN site: its site check passes, so only the version's site_id stops it.
+    const page = await h.call("GET", `/api/sites/${b.siteId}/versions/${aVersion.id}/page`, { cookie: b.cookie });
+    expect(page.status).toBe(404);
+    expect((await json<ErrorJson>(page)).error.code).toBe("not_found");
   });
 
   it("refuses more publish requests than Plan 2 allows per site per day with 429 and Retry-After, and alerts the reviewers once", async () => {
