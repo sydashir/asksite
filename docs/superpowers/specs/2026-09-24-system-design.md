@@ -652,7 +652,7 @@ export interface GenerationInputSnapshot { facts: Facts; brief: Brief } // store
 export const AUDIT_ACTIONS = ["invite.created", "invite.revoked", "invite.accepted", "auth.login",
   "generation.requested", "version.requested", "version.withdrawn", "version.approved", "version.rejected",
   "site.taken_down", "site.restored", "site.indexable_changed", "owner.disabled", "owner.enabled",
-  "settings.updated"] as const;
+  "settings.updated", "admin.login_link_sent"] as const;
 
 // views.ts: response types (§4)
 ```
