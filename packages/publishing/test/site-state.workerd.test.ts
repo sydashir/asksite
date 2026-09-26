@@ -249,3 +249,68 @@ describe("what takedown, restore and the search switch change and record (design
     }
   });
 });
+
+describe("a later takedown call that deletes photos is logged too (design §4.5: every state change writes a row)", () => {
+  const SECOND = "second@example.com";
+  const takedownRows = async (siteId: string) =>
+    (await env.DB.prepare("SELECT at, actor, detail_json FROM audit_log WHERE site_id = ? AND action = 'site.taken_down' ORDER BY id").bind(siteId).all<{ at: number; actor: string; detail_json: string }>())
+      .results.map((row) => ({ at: row.at, actor: row.actor, detail: JSON.parse(row.detail_json) as unknown }));
+
+  it("records a second admin's purge of a site that was already down, and keeps the first takedown", async () => {
+    const s = await liveSite();
+    const photos = [await addUpload(s.siteId), await addUpload(s.siteId)];
+    await takeDown(env, { siteId: s.siteId, reviewer: ADMIN, reason: "Spam", purgeMedia: false, now: 50 });
+    await takeDown(env, { siteId: s.siteId, reviewer: SECOND, reason: "Photos too", purgeMedia: true, now: 60 });
+    for (const id of photos) expect(await env.MEDIA.head(mediaKey(s.siteId, id))).toBeNull();
+    expect(await siteRow(env.DB, s.siteId)).toMatchObject({ taken_down_at: 50, takedown_reason: "Spam" });
+    expect(await takedownRows(s.siteId)).toEqual([
+      { at: 50, actor: `admin:${ADMIN}`, detail: { reason: "Spam", purgeMedia: false } },
+      { at: 60, actor: `admin:${SECOND}`, detail: { reason: "Photos too", purgeMedia: true, repeat: true } },
+    ]);
+  });
+
+  it("records it when only a soft-deleted photo's kept object goes (design §8), or only an upload row changes", async () => {
+    const soft = await liveSite();
+    const kept = await addUpload(soft.siteId);
+    await env.DB.prepare("UPDATE uploads SET deleted_at = 5 WHERE id = ?").bind(kept).run();
+    const rowOnly = await liveSite();
+    const neverStored = await addUpload(rowOnly.siteId);
+    await env.MEDIA.delete(mediaKey(rowOnly.siteId, neverStored));
+    for (const s of [soft, rowOnly]) {
+      await takeDown(env, { siteId: s.siteId, reviewer: ADMIN, reason: "x", purgeMedia: false, now: 50 });
+      await takeDown(env, { siteId: s.siteId, reviewer: ADMIN, reason: "y", purgeMedia: true, now: 60 });
+      expect((await takedownRows(s.siteId)).map((row) => row.detail)).toEqual([
+        { reason: "x", purgeMedia: false },
+        { reason: "y", purgeMedia: true, repeat: true },
+      ]);
+    }
+    expect(await env.MEDIA.head(mediaKey(soft.siteId, kept))).toBeNull();
+    const deletedAt = (id: string) => env.DB.prepare("SELECT deleted_at FROM uploads WHERE id = ?").bind(id).first("deleted_at");
+    expect([await deletedAt(kept), await deletedAt(neverStored)]).toEqual([5, 60]);
+  });
+
+  it("records a retry that finishes a purge the first call could not", async () => {
+    const s = await liveSite();
+    const photo = await addUpload(s.siteId);
+    const failing = { list: (options?: R2ListOptions) => env.MEDIA.list(options), delete: () => Promise.reject(new Error("R2 is unavailable")) } as unknown as R2Bucket;
+    await expect(takeDown({ ...env, MEDIA: failing }, { siteId: s.siteId, reviewer: ADMIN, reason: "Abuse", purgeMedia: true, now: 50 })).rejects.toThrow("R2 is unavailable");
+    await takeDown(env, { siteId: s.siteId, reviewer: ADMIN, reason: "Abuse", purgeMedia: true, now: 60 });
+    expect(await env.MEDIA.head(mediaKey(s.siteId, photo))).toBeNull();
+    expect(await takedownRows(s.siteId)).toEqual([
+      { at: 50, actor: `admin:${ADMIN}`, detail: { reason: "Abuse", purgeMedia: true } },
+      { at: 60, actor: `admin:${ADMIN}`, detail: { reason: "Abuse", purgeMedia: true, repeat: true } },
+    ]);
+  });
+
+  it("writes one row for a first call that purges, and none for a repeat that deletes nothing", async () => {
+    const purged = await liveSite();
+    await addUpload(purged.siteId);
+    await takeDown(env, { siteId: purged.siteId, reviewer: ADMIN, reason: "Abuse", purgeMedia: true, now: 50 });
+    await takeDown(env, { siteId: purged.siteId, reviewer: SECOND, reason: "Abuse", purgeMedia: true, now: 60 });
+    expect(await takedownRows(purged.siteId)).toEqual([{ at: 50, actor: `admin:${ADMIN}`, detail: { reason: "Abuse", purgeMedia: true } }]);
+    const bare = await liveSite();
+    await takeDown(env, { siteId: bare.siteId, reviewer: ADMIN, reason: "x", purgeMedia: false, now: 50 });
+    await takeDown(env, { siteId: bare.siteId, reviewer: SECOND, reason: "y", purgeMedia: true, now: 60 });
+    expect(await takedownRows(bare.siteId)).toHaveLength(1);
+  });
+});

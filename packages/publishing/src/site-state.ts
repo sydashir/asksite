@@ -1,11 +1,13 @@
-import { liveKey, siteUrl } from "@asksite/core";
+import { canonicalJson, liveKey, siteUrl } from "@asksite/core";
 import { PublishError } from "./errors.ts";
-import { auditIfChanged, HTML_TYPE, verifiedVersionBytes } from "./shared.ts";
+import { type AuditAction, auditIfChanged, HTML_TYPE, verifiedVersionBytes } from "./shared.ts";
 
 /**
  * The admin's Take down. The D1 batch alone stops the page and its photos being served (the sites
  * Worker checks D1 on every cache miss). Deleting LIVE and purging MEDIA come after, as defence in
  * depth, and are retried by calling takeDown again (it is idempotent).
+ * Only the first call writes the takedown row. A later call whose purge deletes anything (an object,
+ * or an upload not yet marked deleted) writes its own row, so no deletion goes unlogged (design §4.5).
  */
 export async function takeDown(
   env: { DB: D1Database; LIVE: R2Bucket; MEDIA: R2Bucket },
@@ -16,28 +18,52 @@ export async function takeDown(
   const site = await db.prepare("SELECT slug FROM sites WHERE id = ?").bind(siteId).first<{ slug: string | null }>();
   if (site === null) throw new PublishError("site_not_found");
 
-  await db.batch([
+  const actor = `admin:${reviewer}`;
+  const [, takenDown] = await db.batch([
     db.prepare("UPDATE site_versions SET status = 'rejected', reviewed_by = ?, reviewed_at = ?, review_note = 'Site taken down' WHERE site_id = ? AND status = 'pending'")
       .bind(reviewer, now, siteId),
     db.prepare("UPDATE sites SET taken_down_at = ?, takedown_reason = ?, pending_version_id = NULL, updated_at = ? WHERE id = ? AND taken_down_at IS NULL")
       .bind(now, reason, now, siteId),
-    auditIfChanged(db, { at: now, actor: `admin:${reviewer}`, action: "site.taken_down", siteId, detail: { reason, purgeMedia } }),
+    auditIfChanged(db, { at: now, actor, action: "site.taken_down", siteId, detail: { reason, purgeMedia } }),
   ]);
 
   if (site.slug !== null) await env.LIVE.delete(liveKey(site.slug));
   if (purgeMedia) {
-    await deletePrefix(env.MEDIA, `${siteId}/`);
-    await db.prepare("UPDATE uploads SET deleted_at = ? WHERE site_id = ? AND deleted_at IS NULL").bind(now, siteId).run();
+    const deletedObjects = await deletePrefix(env.MEDIA, `${siteId}/`);
+    const markDeleted = db.prepare("UPDATE uploads SET deleted_at = ? WHERE site_id = ? AND deleted_at IS NULL").bind(now, siteId);
+    // This call's takedown row (written only when it took the site down) already records the purge.
+    const firstCall = takenDown?.meta.changes === 1;
+    await db.batch(firstCall ? [markDeleted] : [markDeleted, auditLaterPurge(db, { at: now, actor, siteId, reason }, deletedObjects)]);
   }
 }
 
-async function deletePrefix(bucket: R2Bucket, prefix: string): Promise<void> {
+/** Deletes every object under `prefix`, a listing page at a time, and returns how many it deleted. */
+async function deletePrefix(bucket: R2Bucket, prefix: string): Promise<number> {
   let cursor: string | undefined;
+  let deleted = 0;
   do {
     const page = await bucket.list(cursor === undefined ? { prefix } : { prefix, cursor });
     if (page.objects.length > 0) await bucket.delete(page.objects.map((o) => o.key));
+    deleted += page.objects.length;
     cursor = page.truncated ? page.cursor : undefined;
   } while (cursor !== undefined);
+  return deleted;
+}
+
+/**
+ * The row for a purge by a later takedown call. Written only when the uploads UPDATE just before it
+ * in the same batch marked a row (SQLite changes()) or the purge deleted an object: a soft-deleted
+ * photo keeps its object until a purge (design §8), so either can happen without the other.
+ */
+function auditLaterPurge(
+  db: D1Database,
+  entry: { at: number; actor: string; siteId: string; reason: string },
+  deletedObjects: number,
+): D1PreparedStatement {
+  const action: AuditAction = "site.taken_down";
+  return db
+    .prepare("INSERT INTO audit_log (at, actor, action, site_id, detail_json) SELECT ?, ?, ?, ?, ? WHERE changes() > 0 OR ? > 0")
+    .bind(entry.at, entry.actor, action, entry.siteId, canonicalJson({ reason: entry.reason, purgeMedia: true, repeat: true }), deletedObjects);
 }
 
 /**
