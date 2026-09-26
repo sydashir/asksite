@@ -535,6 +535,15 @@ describe("AnthropicProvider: a spend limit you set (P3-11 f)", () => {
   ])("names SPEND_CAP only on a 400: HTTP %i stays %s with no token", async (status, kind) => {
     expect(await failWith(status, limitBody(ORG_LIMIT))).toMatchObject({ kind, message: `Anthropic request failed (${kind}, HTTP ${status}, invalid_request_error)` });
   });
+
+  // Fix r2 (F4 d), moderator decision: SPEND_CAP is our own fixed token, not provider text, so the key-fragment filter
+  // (sharesKeyFragment, P3-11 t) never removes it, even for a key that shares 8 or more characters with it.
+  it("names SPEND_CAP even when the key shares a fragment with it", async () => {
+    const apiKey = "sk-ant-spend_ca-x1";
+    const error = await failWith(400, limitBody(ORG_LIMIT), apiKey);
+    expect(error).toMatchObject({ kind: "bad_request", message: "Anthropic request failed (bad_request, HTTP 400, invalid_request_error, SPEND_CAP)" });
+    expect((error as Error).message).not.toContain(apiKey);
+  });
 });
 
 /** A provider for the model claude-opus-5-5 on this fetch. */
