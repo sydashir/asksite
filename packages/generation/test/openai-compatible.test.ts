@@ -664,6 +664,12 @@ describe("OpenAICompatibleProvider: key fragments in error tokens (P3-11 t)", ()
     await expect(provider.generate(request())).rejects.toMatchObject({ kind: "auth", message: `OpenAI-compatible request failed (${details})` });
   });
 
+  // A key shorter than 8 characters is matched whole: the token holds the key, not the other way round (review survivor A7).
+  it("leaves out a code that holds a short key whole", async () => {
+    const provider = compatible(fakeFetch([{ status: 401, body: { error: { message: "m", type: "invalid_request_error", code: "xk1aby" } } }]).fetch, "k1aB");
+    await expect(provider.generate(request())).rejects.toMatchObject({ kind: "auth", message: "OpenAI-compatible request failed (auth, HTTP 401, invalid_request_error)" });
+  });
+
   it("keeps tokens that share no fragment with the key", async () => {
     const provider = compatible(fakeFetch([{ status: 400, body: { error: { message: "m", type: "invalid_request_error", code: "blocked_api_access" } } }]).fetch, KEY);
     await expect(provider.generate(request())).rejects.toMatchObject({ kind: "auth", message: "OpenAI-compatible request failed (auth, HTTP 400, invalid_request_error, blocked_api_access)" });

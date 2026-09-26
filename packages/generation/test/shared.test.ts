@@ -91,6 +91,16 @@ describe("sharesKeyFragment (P3-11 t)", () => {
     expect(sharesKeyFragment(token, "k1aB")).toBe(found);
   });
 
+  // The longest short key (review survivor A15: a threshold of 7 sends it to the 8-character windows, which never match).
+  it.each([
+    ["xK1AB2C3y", true],
+    ["k1ab2c3", true],
+    ["k1ab2c", false],
+    ["1ab2c3x", false],
+  ])("matches a key of 7 characters whole: %s gives %s", (token, found) => {
+    expect(sharesKeyFragment(token, "k1aB2c3")).toBe(found);
+  });
+
   it.each([
     ["xxabcdefghxx", true],
     ["abcdefg", false],

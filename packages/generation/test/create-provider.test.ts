@@ -163,6 +163,7 @@ describe("createProvider: keys never cross providers (P3-11 s)", () => {
     await createProvider({ ...bothKeys, MODEL_PROVIDER: "openai-compatible" }, FULL_SNAPSHOT, http.fetch).generate(REQ);
     expect(http.seen).toHaveLength(1);
     const sent = http.seen[0]!;
+    expect(new URL(sent.url).host).toBe("x.example");
     expect(new Headers(sent.headers).get("authorization")).toBe(`Bearer ${COMPAT_MARKER}`);
     for (const text of [sent.url, sent.body, ...sent.headers.flat()]) expect(text).not.toContain(ANTHROPIC_MARKER);
   });
@@ -172,6 +173,7 @@ describe("createProvider: keys never cross providers (P3-11 s)", () => {
     await createProvider({ ...bothKeys, MODEL_PROVIDER: "anthropic" }, FULL_SNAPSHOT, http.fetch).generate(REQ);
     expect(http.seen).toHaveLength(1);
     const sent = http.seen[0]!;
+    expect(new URL(sent.url).host).toBe("api.anthropic.com");
     expect(new Headers(sent.headers).get("x-api-key")).toBe(ANTHROPIC_MARKER);
     for (const text of [sent.url, sent.body, ...sent.headers.flat()]) expect(text).not.toContain(COMPAT_MARKER);
   });

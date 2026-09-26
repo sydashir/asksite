@@ -398,6 +398,13 @@ describe("AnthropicProvider: key fragments in error tokens (P3-11 t)", () => {
     await expect(provider.generate(request())).rejects.toMatchObject({ kind: "auth", message: "Anthropic request failed (auth, HTTP 402)" });
   });
 
+  // A key shorter than 8 characters is matched whole: the token holds the key, not the other way round (review survivor A6).
+  it("leaves out an error type that holds a short key whole", async () => {
+    const http = fakeFetch([{ status: 402, body: { type: "error", error: { type: "xk1aby", message: "m" } } }]);
+    const provider = new AnthropicProvider({ apiKey: "k1aB", model: "claude-opus-5-5", fetch: http.fetch });
+    await expect(provider.generate(request())).rejects.toMatchObject({ kind: "auth", message: "Anthropic request failed (auth, HTTP 402)" });
+  });
+
   it("keeps an error type that shares no fragment with the key", async () => {
     const http = fakeFetch([{ status: 402, body: { type: "error", error: { type: "billing_error", message: "m" } } }]);
     const provider = new AnthropicProvider({ apiKey: "gsk_live_abcDEF123", model: "claude-opus-5-5", fetch: http.fetch });
