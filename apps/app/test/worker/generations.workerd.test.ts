@@ -1,13 +1,14 @@
 import { MAX_ISSUES } from "@asksite/app-common";
-import { Brief, photoRefIssues, toIssues, type GenerationView, type SiteView } from "@asksite/core";
+import { Brief, mediaUrl, photoRefIssues, toIssues, type GenerationView, type SiteView, type UploadView } from "@asksite/core";
 import { Facts } from "@asksite/site-schema";
 import { describe, expect, it } from "vitest";
 import { VALID_BRIEF, VALID_FACTS } from "../support/facts.ts";
 import { builtOwner, json, readyOwner, ROOT, useAppHarness } from "../support/harness.ts";
+import { png, upload } from "../support/images.ts";
 
 const h = useAppHarness();
 
-type ErrorJson = { error: { code: string; message: string; issues?: Array<{ path: unknown[] }>; retryAfter?: number } };
+type ErrorJson = { error: { code: string; message: string; issues?: Array<{ path: unknown[]; code: string }>; retryAfter?: number } };
 
 describe("POST /api/sites/:siteId/generations", () => {
   it("refuses an unfinished questionnaire with 422 not_ready and the issues", async () => {
@@ -44,6 +45,31 @@ describe("POST /api/sites/:siteId/generations", () => {
     const body = await json<ErrorJson>(res);
     expect(body.error.code).toBe("not_ready");
     expect(body.error.issues).toEqual(all.slice(0, MAX_ISSUES));
+  });
+
+  it("builds only when every photo is one of this site's own uploads (§3.1 step 4)", async () => {
+    const owner = await h.signIn();
+    const db = await h.db();
+    const builds = async () => (await db.prepare("SELECT COUNT(*) AS n FROM generations WHERE site_id = ?").bind(owner.siteId).first<{ n: number }>())?.n;
+    const draft = (photo: object) => ({ facts: { ...VALID_FACTS, photos: [photo] }, brief: VALID_BRIEF });
+
+    // Valid answers whose one photo no upload of this site backs: only the photo reference is wrong.
+    const unbacked = { url: mediaUrl(ROOT, owner.siteId, crypto.randomUUID()), alt: "New water heater in a garage", width: 400, height: 300 };
+    expect((await h.call("PATCH", `/api/sites/${owner.siteId}/draft`, { cookie: owner.cookie, body: { rev: 1, ...draft(unbacked) } })).status).toBe(200);
+    const refused = await h.call("POST", `/api/sites/${owner.siteId}/generations`, { cookie: owner.cookie, body: {} });
+    expect(refused.status).toBe(422);
+    const body = await json<ErrorJson>(refused);
+    expect(body.error.code).toBe("not_ready");
+    expect(body.error.issues?.map((i) => [i.path.join("."), i.code])).toEqual([["facts.photos.0.url", "photo_ref"]]);
+    expect(await builds()).toBe(0);
+
+    // The same draft with a real upload's address and size builds.
+    const uploaded = await h.call("POST", `/api/sites/${owner.siteId}/uploads`, { cookie: owner.cookie, body: upload(await png(400, 300), "x.png", "image/png") });
+    expect(uploaded.status).toBe(201);
+    const photo = await json<UploadView>(uploaded);
+    const backed = { ...unbacked, url: photo.url, width: photo.width, height: photo.height };
+    expect((await h.call("PATCH", `/api/sites/${owner.siteId}/draft`, { cookie: owner.cookie, body: { rev: 2, ...draft(backed) } })).status).toBe(200);
+    expect((await h.call("POST", `/api/sites/${owner.siteId}/generations`, { cookie: owner.cookie, body: {} })).status).toBe(202);
   });
 
   it("queues the first build (202) and the progress poll sees it finish", async () => {
