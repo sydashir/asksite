@@ -597,6 +597,39 @@ describe("AnthropicProvider: errors after a 2xx status line (P3-11 d)", () => {
     expect(error).toMatchObject({ name: "ProviderError", kind: "timeout", afterHeaders: true });
   });
 
+  // Fix r2 (F1): once the 2xx headers are in, the SDK has cleared its own 90 s timer (client.mjs:667-674), so only our
+  // per-attempt signal can end a body that never finishes. The SDK links our signal to the controller whose signal it
+  // hands fetch (client.mjs:646-648, 653) and keeps that link until the body is settled (internal/request-signal.mjs:
+  // 9-13). This body never ends on its own: it errors only when the signal fetch was given aborts, as a real fetch's
+  // body does (Fetch Standard, "abort a fetch() call"). If our signal stopped reaching fetch at the headers, the read
+  // would hang and the 3 s test timeout would fail the test.
+  const neverEndingBody = (controller: AbortController, prefix: string) => async (_input: string | URL | Request, init?: RequestInit): Promise<Response> => {
+    const signal = init?.signal;
+    const body = new ReadableStream<Uint8Array>({
+      start: (stream) => {
+        if (prefix !== "") stream.enqueue(new TextEncoder().encode(prefix));
+        if (signal) signal.addEventListener("abort", () => stream.error(signal.reason), { once: true });
+      },
+    });
+    // The attempt's deadline passes 50 ms after the headers are sent.
+    setTimeout(() => controller.abort(new DOMException("timed out", "TimeoutError")), 50);
+    return new Response(body, { status: 200, headers: { "content-type": "application/json" } });
+  };
+
+  it.each([
+    ["no bytes", ""],
+    ["a partial JSON prefix", '{"id":"msg_1","type":"message","content":[{"type":"text","text":"{'],
+  ])(
+    "bounds a 2xx body that never ends (%s sent) by the per-attempt signal: timeout with afterHeaders",
+    async (_label, prefix) => {
+      const controller = new AbortController();
+      const error: unknown = await anthropic(neverEndingBody(controller, prefix)).generate(request(controller.signal)).catch((e: unknown) => e);
+      expect(error).toBeInstanceOf(ProviderError);
+      expect(error).toMatchObject({ name: "ProviderError", kind: "timeout", message: "Anthropic request failed (timeout)", afterHeaders: true });
+    },
+    3_000,
+  );
+
   const errorBody = { type: "error", error: { type: "x", message: "m" } };
   it.each([
     ["a 302", () => fakeFetch([{ status: 302, body: errorBody }]).fetch],
