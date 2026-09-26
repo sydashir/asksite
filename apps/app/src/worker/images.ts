@@ -26,13 +26,31 @@ export function sizeProblem(width: number, height: number): SizeProblem | null {
 
 const stream = (bytes: Uint8Array): ReadableStream<Uint8Array> => new Blob([bytes]).stream();
 
-/** Width and height as the Images binding reads them, or null when it cannot decode the file. */
+/**
+ * The Images error codes that blame the file itself (images/reference/troubleshooting): not an image (9412),
+ * over 100 megapixels (9413), a format it does not support (9520), an invalid one (9523). workerd also gives
+ * 9523 to an error response that names no code, which is how the local binding answers a corrupt file.
+ */
+const UNREADABLE_IMAGE_CODES: ReadonlySet<number> = new Set([9412, 9413, 9520, 9523]);
+
+/** The binding throws an ImagesError: an Error with a numeric `code`. */
+const imagesErrorCode = (err: unknown): number | undefined => {
+  const code: unknown = typeof err === "object" && err !== null ? (err as { code?: unknown }).code : undefined;
+  return typeof code === "number" ? code : undefined;
+};
+
+/**
+ * Width and height as the Images binding reads them, or null when it cannot decode the file. Any other
+ * failure (the service unreachable, timed out or out of allowance) is thrown: it is ours, not the photo's.
+ */
 export async function imageInfo(images: ImagesBinding, bytes: Uint8Array): Promise<{ width: number; height: number } | null> {
   try {
     const info = await images.info(stream(bytes));
     return "width" in info ? { width: info.width, height: info.height } : null;
-  } catch {
-    return null;
+  } catch (err) {
+    const code = imagesErrorCode(err);
+    if (code !== undefined && UNREADABLE_IMAGE_CODES.has(code)) return null;
+    throw err;
   }
 }
 

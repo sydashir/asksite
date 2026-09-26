@@ -142,6 +142,42 @@ describe("POST /api/sites/:siteId/uploads", () => {
   });
 });
 
+describe("when the Images binding cannot measure the photo", () => {
+  /** An owner's upload of a good photo, whose IMAGES.info() the test Worker makes fail with `code` (null: a TypeError). */
+  async function uploadWhileInfoFails(code: number | null) {
+    const owner = await h.signIn();
+    await h.call("POST", "/__test/images-info-fails", { body: { code } });
+    const res = await h.call("POST", `/api/sites/${owner.siteId}/uploads`, { cookie: owner.cookie, body: upload(await png(400, 300), "x.png") });
+    const stored = await (await h.db()).prepare("SELECT COUNT(*) AS n FROM uploads WHERE site_id = ?").bind(owner.siteId).first<{ n: number }>();
+    return { res, stored: stored?.n };
+  }
+
+  // images/reference/troubleshooting: not an image (9412), over 100 megapixels (9413), a format it does not support (9520), an invalid one (9523).
+  it.each([9412, 9413, 9520, 9523])("blames the photo for Images error %i with 422 image_rejected", async (code) => {
+    const { res, stored } = await uploadWhileInfoFails(code);
+    expect(res.status).toBe(422);
+    expect((await json<ErrorJson>(res)).error.code).toBe("image_rejected");
+    expect(stored).toBe(0);
+  });
+
+  // The same page: interrupted (9402), the monthly allowance used up (9422), internal (9424, 9516-9518),
+  // unreachable (9504, 9505, 9510), over the processing limit (9522), timed out (9529).
+  it.each([9402, 9422, 9424, 9504, 9505, 9510, 9516, 9517, 9518, 9522, 9529])("answers Images error %i as our failure (500 internal), never as the owner's photo", async (code) => {
+    const { res, stored } = await uploadWhileInfoFails(code);
+    expect(res.status).toBe(500);
+    expect((await json<ErrorJson>(res)).error.code).toBe("internal");
+    expect(stored).toBe(0);
+  });
+
+  it("answers a failure that is no Images error as 500 internal, and logs it as one", async () => {
+    const { res, stored } = await uploadWhileInfoFails(null);
+    expect(res.status).toBe(500);
+    expect(stored).toBe(0);
+    const line = h.logLines().filter((l) => l["route"] === "POST /api/sites/:siteId/uploads").at(-1);
+    expect(line).toMatchObject({ status: 500, code: "internal", error: "TypeError" });
+  });
+});
+
 describe("photo references and deletion", () => {
   it("accepts facts that use this site's own upload, flags outside or resized URLs, and soft-deletes", async () => {
     const owner = await h.signIn();
