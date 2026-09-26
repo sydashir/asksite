@@ -1,10 +1,10 @@
 import { MAX_ISSUES } from "@asksite/app-common";
-import { composeDocument, photoRefIssues, toIssues, type SiteView, type VersionSummary } from "@asksite/core";
+import { composeDocument, photoRefIssues, toIssues, utcDayStart, type SiteView, type VersionSummary } from "@asksite/core";
 import { SiteDocument } from "@asksite/site-schema";
 import { describe, expect, it } from "vitest";
 import { VALID_BRIEF, VALID_FACTS } from "../support/facts.ts";
 import { FAKE_PUBLISH_CAP } from "../support/limits.ts";
-import { builtOwner, json, ROOT, useAppHarness } from "../support/harness.ts";
+import { awayFromUtcHourEnd, builtOwner, json, ROOT, useAppHarness } from "../support/harness.ts";
 
 const h = useAppHarness();
 
@@ -30,13 +30,24 @@ async function outbox(to: string) {
   return [];
 }
 
+/** The review alerts sent so far for one slug. */
+async function sentAlerts(slug: string) {
+  return (await (await h.db()).prepare("SELECT subject FROM dev_outbox WHERE to_addr = 'reviewer@example.com' AND subject LIKE ?").bind(`%: ${slug} (%`).all<{ subject: string }>()).results;
+}
+
 /** The review alerts sent for one slug, read once they have had time to go out (they run after the response). */
 async function alertsFor(slug: string) {
-  const read = async () =>
-    (await (await h.db()).prepare("SELECT subject FROM dev_outbox WHERE to_addr = 'reviewer@example.com' AND subject LIKE ?").bind(`%: ${slug} (%`).all<{ subject: string }>()).results;
-  for (let i = 0; i < 40 && (await read()).length === 0; i += 1) await new Promise((r) => setTimeout(r, 100));
+  for (let i = 0; i < 40 && (await sentAlerts(slug)).length === 0; i += 1) await new Promise((r) => setTimeout(r, 100));
   await new Promise((r) => setTimeout(r, 500));
-  return read();
+  return sentAlerts(slug);
+}
+
+/** Asks to publish the draft (201) and waits for the request's background work, the alert check, to finish. */
+async function publishAndSettle(owner: { siteId: string; cookie: string; rev: number }): Promise<VersionSummary> {
+  const res = await h.call("POST", `/api/sites/${owner.siteId}/publish-requests`, { cookie: owner.cookie, body: { rev: owner.rev } });
+  expect(res.status).toBe(201);
+  await h.backgroundDone(`/api/sites/${owner.siteId}/publish-requests`);
+  return (await json<{ version: VersionSummary }>(res)).version;
 }
 
 /** How many versions a site has, whatever their status. */
@@ -250,10 +261,21 @@ describe("POST /api/sites/:siteId/publish-requests", () => {
   });
 
   // Last in this file: it fills the day's alert allowance for every test after it.
-  it("sends at most 10 review alerts a day in all, however many sites ask (decision 32)", async () => {
+  it("sends the 10th review alert of a UTC day but not the 11th, however many sites ask (decision 32)", async () => {
+    await awayFromUtcHourEnd();
     const db = await h.db();
-    // Ten other sites whose first request today already alerted the reviewers.
-    for (let i = 0; i < 10; i += 1) {
+    // Today's alert-worthy requests so far, by the route's rule: a site's first request in an hour (the rows
+    // dated 1970 above count for nothing). The tests before this one make fewer than nine.
+    const soFar = (await db
+      .prepare(
+        `SELECT COUNT(*) AS n FROM site_versions v WHERE v.requested_at >= ? AND NOT EXISTS (
+           SELECT 1 FROM site_versions w WHERE w.site_id = v.site_id AND w.requested_at < v.requested_at AND w.requested_at > v.requested_at - 3600000)`,
+      )
+      .bind(utcDayStart(Date.now()))
+      .first<{ n: number }>())!.n;
+    expect(soFar).toBeLessThanOrEqual(9);
+    // Other sites whose first request today already alerted the reviewers, until the day holds nine.
+    for (let i = soFar; i < 9; i += 1) {
       const other = await h.signIn();
       await db
         .prepare(
@@ -264,8 +286,11 @@ describe("POST /api/sites/:siteId/publish-requests", () => {
         .bind(crypto.randomUUID(), other.siteId, other.ownerId, Date.now())
         .run();
     }
-    const owner = await withSlug(await builtOwner(h, VALID_FACTS, VALID_BRIEF), "eleventh-plumbing");
-    expect((await h.call("POST", `/api/sites/${owner.siteId}/publish-requests`, { cookie: owner.cookie, body: { rev: owner.rev } })).status).toBe(201);
-    expect(await alertsFor("eleventh-plumbing")).toEqual([]);
+    const tenth = await withSlug(await builtOwner(h, VALID_FACTS, VALID_BRIEF), "tenth-plumbing");
+    await publishAndSettle(tenth);
+    expect(await sentAlerts("tenth-plumbing")).toEqual([{ subject: "Website waiting for review: tenth-plumbing (version 1)" }]);
+    const eleventh = await withSlug(await builtOwner(h, VALID_FACTS, VALID_BRIEF), "eleventh-plumbing");
+    await publishAndSettle(eleventh);
+    expect(await sentAlerts("eleventh-plumbing")).toEqual([]);
   });
 });
