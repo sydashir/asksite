@@ -1,5 +1,5 @@
 import { DRAFT_JSON_MAX_BYTES, MAX_ISSUES } from "@asksite/app-common";
-import { Brief, composeDocument, EMPTY_EDITS, LIMITS, photoRefIssues, toIssues, type AiDraft, type SiteView } from "@asksite/core";
+import { Brief, composeDocument, EMPTY_EDITS, LIMITS, photoRefIssues, toIssues, type AiDraft, type SiteVersionRow, type SiteView } from "@asksite/core";
 import { Facts, SiteDocument } from "@asksite/site-schema";
 import { describe, expect, it } from "vitest";
 import { VALID_BRIEF, VALID_FACTS } from "../support/facts.ts";
@@ -77,8 +77,11 @@ describe("GET /api/sites/:siteId", () => {
     expect([...new Set(view.issues.document.map((i) => i.path.join(".")))]).toEqual(["copy.heroHeadline"]);
   });
 
-  /** A reviewed version row of the site, as Plan 2 stores it (the owner's view reads only its summary fields). */
-  async function reviewedVersion(siteId: string, ownerId: string, number: number, status: "approved" | "rejected", note: string): Promise<string> {
+  /**
+   * A version row of the site with a reviewer's note, as Plan 2 stores a reviewed one (the owner's view reads
+   * only its summary fields). Any status can carry the note here, so only the owner's mapping decides what shows.
+   */
+  async function reviewedVersion(siteId: string, ownerId: string, number: number, status: SiteVersionRow["status"], note: string): Promise<string> {
     const id = crypto.randomUUID();
     await (await h.db())
       .prepare(
@@ -110,6 +113,19 @@ describe("GET /api/sites/:siteId", () => {
     await (await h.db()).prepare("UPDATE sites SET pending_version_id = ? WHERE id = ?").bind(rejected, owner.siteId).run();
     const view = await json<SiteView>(await h.call("GET", `/api/sites/${owner.siteId}`, { cookie: owner.cookie }));
     expect(view.pendingVersion).toEqual({ id: rejected, number: 1, status: "rejected", requestedAt: 1, reviewedAt: 2, reviewNote: "Please add your license number." });
+  });
+
+  // P4-12: an allowlist, so a note on any status other than "rejected" (today's or a future one) stays hidden.
+  it.each(["pending", "withdrawn", "superseded"] as const)("never shows the owner a reviewer's note on a %s version (P4-12)", async (status) => {
+    const owner = await h.signIn();
+    // As in the rejected test above: the pending pointer is aimed at the version only to run the owner's mapping on it.
+    const version = await reviewedVersion(owner.siteId, owner.ownerId, 1, status, "Internal note: checked with the licensing board");
+    await (await h.db()).prepare("UPDATE sites SET pending_version_id = ? WHERE id = ?").bind(version, owner.siteId).run();
+    const res = await h.call("GET", `/api/sites/${owner.siteId}`, { cookie: owner.cookie });
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    expect((JSON.parse(text) as SiteView).pendingVersion).toEqual({ id: version, number: 1, status, requestedAt: 1, reviewedAt: 2, reviewNote: null });
+    expect(text).not.toContain("Internal note");
   });
 });
 

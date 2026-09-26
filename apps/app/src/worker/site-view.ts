@@ -112,8 +112,9 @@ export function draftIssues(draft: Draft, ai: CurrentAi | null, siteId: string, 
 }
 
 /**
- * A version as the owner sees it. The reviewer's note on an approved version is for the record only, so
- * the owner never gets it (moderator decision (a)); on a rejected version it is the reason the owner is given.
+ * A version as the owner sees it. The reviewer's note reaches the owner only on a rejected version, where it
+ * is the reason they are given; on every other status it is for the record only (moderator decision (a)).
+ * An allowlist, so a note on any other status, today's or a later one, stays hidden (P4-12).
  */
 export function toVersionSummary(row: Pick<SiteVersionRow, "id" | "number" | "status" | "requested_at" | "reviewed_at" | "review_note">): VersionSummary {
   return {
@@ -122,7 +123,7 @@ export function toVersionSummary(row: Pick<SiteVersionRow, "id" | "number" | "st
     status: row.status,
     requestedAt: row.requested_at,
     reviewedAt: row.reviewed_at,
-    reviewNote: row.status === "approved" ? null : row.review_note,
+    reviewNote: row.status === "rejected" ? row.review_note : null,
   };
 }
 
