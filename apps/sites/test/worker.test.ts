@@ -80,3 +80,16 @@ describe("the contact form without IP_HASH_KEY", () => {
     });
   });
 });
+
+// Pin added after Task 14's brief (test-only): the workerd cron test proves which leads are deleted;
+// only here can a test read the run's log line (design §7.3 item 5; one line with the count).
+describe("the scheduled handler", () => {
+  it("waits for the deletion and logs one line with the number of leads deleted", async () => {
+    const db = {
+      prepare: () => ({ bind: () => ({ run: () => new Promise((done) => setTimeout(() => done({ meta: { changes: 3 } }), 5)) }) }),
+    } as unknown as D1Database;
+    await worker.scheduled({ scheduledTime: Date.parse("2026-09-24T07:00:00.000Z"), cron: "0 7 * * *", noRetry: () => {} }, { DB: db } as Env);
+    expect(log).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(String(log.mock.calls[0]?.[0]))).toEqual({ worker: "asksite-sites", route: "cron_lead_retention", ms: expect.any(Number), deleted: 3 });
+  });
+});
