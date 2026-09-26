@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { prose } from "../src/copy.ts";
 import { foldLookalikes, LOOKALIKES } from "../src/lookalikes.ts";
@@ -98,6 +99,13 @@ describe("foldLookalikes (A9b, A9c)", () => {
     }
     expect(READS.size).toBe(PAIRS.length); // no letter listed twice
     expect(PAIRS).toHaveLength(127); // the A9b derivation, as changed by A9c (lookalikes.ts); a changed table must be derived again
+  });
+
+  it("reads every letter as the derivation says: a digest of every letter and its reading, not only the count (A9d)", () => {
+    // Moving a letter to another reading keeps the count (Ɵ read "Q" instead of "O"). A changed table must be derived
+    // again (lookalikes.ts), and only then this digest updated.
+    const table = PAIRS.map(([letter, reading]) => `U+${letter.codePointAt(0)?.toString(16).toUpperCase()} ${reading}`).sort();
+    expect(createHash("sha256").update(table.join("\n")).digest("hex")).toBe("8ddd68644f98f637d572cb93bc60a93f61e9c674249c441f1e978d3d32474b9d");
   });
 
   it("reads a capital as capitals and any other letter as small letters", () => {
