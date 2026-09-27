@@ -1,4 +1,4 @@
-import { mediaUrl, type SiteView, type UploadView } from "@asksite/core";
+import { LIMITS, mediaUrl, type SiteView, type UploadView } from "@asksite/core";
 import { describe, expect, it } from "vitest";
 import { VALID_FACTS } from "../support/facts.ts";
 import { APP_ORIGIN, json, ROOT, useAppHarness } from "../support/harness.ts";
@@ -11,6 +11,12 @@ type ErrorJson = { error: { code: string } };
 async function media(key: string) {
   const env = (await h.server.getWorker().getEnv()) as { MEDIA: { get(key: string): Promise<{ arrayBuffer(): Promise<ArrayBuffer>; httpMetadata?: { contentType?: string }; customMetadata?: Record<string, string> } | null> } };
   return env.MEDIA.get(key);
+}
+
+/** The keys of every object MEDIA holds for a site. */
+async function mediaKeys(siteId: string): Promise<string[]> {
+  const env = (await h.server.getWorker().getEnv()) as { MEDIA: { list(options: { prefix: string }): Promise<{ objects: Array<{ key: string }> }> } };
+  return (await env.MEDIA.list({ prefix: `${siteId}/` })).objects.map((object) => object.key);
 }
 
 /** The options of every .transform() and .output() the Worker has asked of IMAGES, oldest first (the test Worker records them). */
@@ -157,6 +163,7 @@ describe("POST /api/sites/:siteId/uploads", () => {
     for (let i = 0; i < 40; i += 1) {
       await db.prepare("INSERT INTO uploads (id, site_id, width, height, bytes, created_at) VALUES (?, ?, 400, 300, 1, 1)").bind(crypto.randomUUID(), kept.siteId).run();
     }
+    const before = (await imagesCalls()).length;
     const full = await h.call("POST", `/api/sites/${kept.siteId}/uploads`, { cookie: kept.cookie, body: upload(await png(400, 300), "x.png") });
     expect(full.status).toBe(429);
     expect((await json<ErrorJson>(full)).error.code).toBe("upload_limit_reached");
@@ -168,6 +175,52 @@ describe("POST /api/sites/:siteId/uploads", () => {
     }
     const res = await h.call("POST", `/api/sites/${churned.siteId}/uploads`, { cookie: churned.cookie, body: upload(await png(400, 300), "x.png") });
     expect(res.status).toBe(429);
+    // Both were refused by the pre-check, before any transform: a refused upload costs nothing (§8 step 2).
+    expect((await imagesCalls()).length).toBe(before);
+  });
+
+  describe("when another upload takes the last slot after the pre-check passed, the exact INSERT still refuses (§8 step 2)", () => {
+    /**
+     * A site one upload short of the cap, whose last slot the test Worker fills just before the route's INSERT:
+     * after its pre-check, as a parallel upload would. "kept" fills the 40 kept photos, "total" the 150 uploads.
+     */
+    async function oneShortOf(cap: "kept" | "total") {
+      const owner = await h.signIn();
+      const db = await h.db();
+      const [seeded, deletedAt] = cap === "kept" ? [LIMITS.uploadsPerSite - 1, null] : [LIMITS.uploadsPerSiteTotal - 1, 2];
+      for (let i = 0; i < seeded; i += 1) {
+        await db.prepare("INSERT INTO uploads (id, site_id, width, height, bytes, created_at, deleted_at) VALUES (?, ?, 400, 300, 1, 1, ?)").bind(crypto.randomUUID(), owner.siteId, deletedAt).run();
+      }
+      await h.call("POST", "/__test/take-last-upload-slot", { body: { siteId: owner.siteId, deleted: cap === "total" } });
+      return owner;
+    }
+
+    const counts = async (siteId: string) => {
+      const rows = await uploadRows(siteId);
+      return { total: rows.length, kept: rows.filter((row) => row.deleted_at === null).length };
+    };
+
+    it.each(["kept", "total"] as const)("at the %s cap: 429 upload_limit_reached after the transform, and nothing stored", async (cap) => {
+      const owner = await oneShortOf(cap);
+      const before = (await imagesCalls()).length;
+      const res = await h.call("POST", `/api/sites/${owner.siteId}/uploads`, { cookie: owner.cookie, body: upload(await png(400, 300), "x.png") });
+      expect(res.status).toBe(429);
+      expect((await json<ErrorJson>(res)).error.code).toBe("upload_limit_reached");
+      expect(res.headers.get("Retry-After")).toBe("86400");
+      // The pre-check passed, so the photo was transformed: only the INSERT refused it.
+      expect((await imagesCalls()).slice(before).map((call) => Object.keys(call))).toEqual([["transform"], ["output"]]);
+      // Only the upload that took the slot is new; no object was stored for the refused one.
+      expect(await counts(owner.siteId)).toEqual(cap === "kept" ? { total: LIMITS.uploadsPerSite, kept: LIMITS.uploadsPerSite } : { total: LIMITS.uploadsPerSiteTotal, kept: 0 });
+      expect(await mediaKeys(owner.siteId)).toEqual([]);
+    });
+
+    it("at the total cap, a photo that fails in the transform is refused as over the limit, not counted (P4-14)", async () => {
+      const owner = await oneShortOf("total");
+      const res = await h.call("POST", `/api/sites/${owner.siteId}/uploads`, { cookie: owner.cookie, body: upload(await truncatedJpeg(800, 600)) });
+      expect(res.status).toBe(429);
+      expect((await json<ErrorJson>(res)).error.code).toBe("upload_limit_reached");
+      expect(await counts(owner.siteId)).toEqual({ total: LIMITS.uploadsPerSiteTotal, kept: 0 });
+    });
   });
 
   it("counts every photo that fails in the transform, so sending one again and again stops at the 150 total cap (429 upload_limit_reached)", async () => {

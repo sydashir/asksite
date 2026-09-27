@@ -67,11 +67,56 @@ async function storeTwin(db: D1Database, siteId: string): Promise<void> {
   ]);
 }
 
-/** The Worker's env, with a D1 binding that runs the armed hooks around a route's batch(): disable owners before it, store twins after it. */
-function withBatchHook(env: Env): Env {
-  if (disableBeforeBatch.size === 0 && twinAfterBatch.size === 0) return env;
+/**
+ * Sites whose last upload slot is taken just before a request's next uploads INSERT: another upload of the site
+ * that lands after the route's pre-check and before its exact INSERT. true: that upload is already deleted (it
+ * counts toward the 150 total only); false: it is kept (it counts toward both caps).
+ */
+const takeSlotBeforeUploadInsert = new Map<string, boolean>();
+
+async function takeLastUploadSlots(db: D1Database): Promise<void> {
+  const sites = [...takeSlotBeforeUploadInsert];
+  takeSlotBeforeUploadInsert.clear();
+  for (const [siteId, deleted] of sites) {
+    const now = Date.now();
+    await db
+      .prepare("INSERT INTO uploads (id, site_id, width, height, bytes, created_at, deleted_at) VALUES (?, ?, 400, 300, 1, ?, ?)")
+      .bind(newId(), siteId, now, deleted ? now : null)
+      .run();
+  }
+}
+
+/** The statement, with `before` done just before each run() of it or of a statement bound from it. */
+function runningFirst(statement: D1PreparedStatement, before: () => Promise<void>): D1PreparedStatement {
+  return new Proxy(statement, {
+    get(target, key) {
+      if (key === "bind") return (...values: unknown[]) => runningFirst(target.bind(...values), before);
+      if (key === "run") {
+        return async () => {
+          await before();
+          return target.run();
+        };
+      }
+      const value: unknown = Reflect.get(target, key);
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
+}
+
+/**
+ * The Worker's env, with a D1 binding that runs the armed hooks: around a route's batch(), disable owners before
+ * it and store twins after it; before an uploads INSERT, take the site's last upload slot.
+ */
+function withD1Hooks(env: Env): Env {
+  if (disableBeforeBatch.size === 0 && twinAfterBatch.size === 0 && takeSlotBeforeUploadInsert.size === 0) return env;
   const DB = new Proxy(env.DB, {
     get(target, key) {
+      if (key === "prepare") {
+        return (sql: string) => {
+          const statement = target.prepare(sql);
+          return takeSlotBeforeUploadInsert.size > 0 && sql.trimStart().startsWith("INSERT INTO uploads") ? runningFirst(statement, () => takeLastUploadSlots(target)) : statement;
+        };
+      }
       if (key === "batch") {
         return async (statements: D1PreparedStatement[]) => {
           const emails = [...disableBeforeBatch];
@@ -185,6 +230,13 @@ helpers.post("/__test/twin-after-batch", async (c) => {
   return c.json({ ok: true });
 });
 
+/** Arms the hook above for one site: just before the next uploads INSERT of any request, another upload takes its last slot. */
+helpers.post("/__test/take-last-upload-slot", async (c) => {
+  const { siteId, deleted } = await c.req.json<{ siteId: string; deleted: boolean }>();
+  takeSlotBeforeUploadInsert.set(siteId, deleted);
+  return c.json({ ok: true });
+});
+
 /** What the generator does when a job ends. */
 helpers.post("/__test/generations/:generationId/finish", async (c) => {
   const body = await c.req.json<{ status: "succeeded" | "failed"; usedFallback?: boolean }>();
@@ -278,7 +330,7 @@ helpers.post("/__test/versions/:versionId/approve", async (c) => c.json(await fa
 export default {
   fetch(request, env, ctx) {
     const path = new URL(request.url).pathname;
-    return path.startsWith("/__test/") ? helpers.fetch(request, env, ctx) : worker.fetch!(request, withImagesHook(withBatchHook(env)), counting(ctx, path));
+    return path.startsWith("/__test/") ? helpers.fetch(request, env, ctx) : worker.fetch!(request, withImagesHook(withD1Hooks(env)), counting(ctx, path));
   },
   scheduled(controller, env, ctx) {
     return worker.scheduled!(controller, env, ctx);
