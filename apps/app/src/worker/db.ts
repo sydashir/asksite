@@ -2,12 +2,23 @@ import { ApiError } from "@asksite/app-common";
 import { isId, type SiteRow } from "@asksite/core";
 import type { MailerEnv } from "./deps.ts";
 
+const notFound = (): ApiError => new ApiError("not_found", "Not found");
+
+/** The read of the owner's own site, alone or in a batch after a write to it. A malformed id is 404 before any query. */
+export function ownedSiteQuery(db: D1Database, siteId: string, ownerId: string): D1PreparedStatement {
+  if (!isId(siteId)) throw notFound();
+  return db.prepare("SELECT * FROM sites WHERE id = ? AND owner_id = ?").bind(siteId, ownerId);
+}
+
+/** The row ownedSiteQuery found. Anyone else's site is 404 (never 403) so ids cannot be probed. */
+export function foundSite(site: SiteRow | null | undefined): SiteRow {
+  if (site === null || site === undefined) throw notFound();
+  return site;
+}
+
 /** The owner's own site. Anyone else's site, or a malformed id, is 404 (never 403) so ids cannot be probed. */
 export async function ownedSite(db: D1Database, siteId: string, ownerId: string): Promise<SiteRow> {
-  if (!isId(siteId)) throw new ApiError("not_found", "Not found");
-  const site = await db.prepare("SELECT * FROM sites WHERE id = ? AND owner_id = ?").bind(siteId, ownerId).first<SiteRow>();
-  if (site === null) throw new ApiError("not_found", "Not found");
-  return site;
+  return foundSite(await ownedSiteQuery(db, siteId, ownerId).first<SiteRow>());
 }
 
 export function assertNotTakenDown(site: SiteRow): void {

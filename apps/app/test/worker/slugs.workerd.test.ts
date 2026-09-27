@@ -29,6 +29,15 @@ describe("web address", () => {
     expect((await json<ErrorJson>(taken)).error.code).toBe("slug_taken");
   });
 
+  it("answers with its own write's rev and slug, even when another tab's write lands right after it (read in the same batch)", async () => {
+    const owner = await h.signIn();
+    await h.call("POST", "/__test/save-after-site-write", { body: { siteId: owner.siteId, slug: "tab-b-address" } });
+    const res = await h.call("PUT", `/api/sites/${owner.siteId}/slug`, { cookie: owner.cookie, body: { rev: 1, slug: "tab-a-address" } });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ rev: 2, slug: "tab-a-address" });
+    expect(await slugAndRev(owner.siteId)).toEqual({ slug: "tab-b-address", rev: 3 });
+  });
+
   it("refuses a blocked slug with 422 slug_invalid and the reason code", async () => {
     const owner = await h.signIn();
     const res = await h.call("PUT", `/api/sites/${owner.siteId}/slug`, { cookie: owner.cookie, body: { rev: 1, slug: "wells-fargo" } });

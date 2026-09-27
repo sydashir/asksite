@@ -86,35 +86,68 @@ async function takeLastUploadSlots(db: D1Database): Promise<void> {
   }
 }
 
-/** The statement, with `before` done just before each run() of it or of a statement bound from it. */
-function runningFirst(statement: D1PreparedStatement, before: () => Promise<void>): D1PreparedStatement {
-  return new Proxy(statement, {
+/**
+ * Sites where another tab's save lands right after a request's next write to the site commits (a run() of an
+ * UPDATE of sites, or a batch that holds one): the given facts and slug, and rev one higher, as that save would.
+ */
+const saveAfterSiteWrite = new Map<string, { facts?: unknown; slug?: string | undefined }>();
+
+async function saveOtherTabs(db: D1Database): Promise<void> {
+  const saves = [...saveAfterSiteWrite];
+  saveAfterSiteWrite.clear();
+  for (const [siteId, save] of saves) {
+    await db
+      .prepare("UPDATE sites SET facts_json = COALESCE(?, facts_json), slug = COALESCE(?, slug), rev = rev + 1, updated_at = ? WHERE id = ?")
+      .bind(save.facts === undefined ? null : JSON.stringify(save.facts), save.slug ?? null, Date.now(), siteId)
+      .run();
+  }
+}
+
+/** Work done just before or just after a statement runs. */
+interface Around {
+  before?: () => Promise<void>;
+  after?: () => Promise<void>;
+}
+
+/** Every statement aroundRun made, with its work, so a batch() that holds one does that work around the batch. */
+const aroundOf = new WeakMap<D1PreparedStatement, Around>();
+
+/** The statement, with `around` done around each run() of it or of a statement bound from it. */
+function aroundRun(statement: D1PreparedStatement, around: Around): D1PreparedStatement {
+  const hooked = new Proxy(statement, {
     get(target, key) {
-      if (key === "bind") return (...values: unknown[]) => runningFirst(target.bind(...values), before);
+      if (key === "bind") return (...values: unknown[]) => aroundRun(target.bind(...values), around);
       if (key === "run") {
         return async () => {
-          await before();
-          return target.run();
+          await around.before?.();
+          const result = await target.run();
+          await around.after?.();
+          return result;
         };
       }
       const value: unknown = Reflect.get(target, key);
       return typeof value === "function" ? value.bind(target) : value;
     },
   });
+  aroundOf.set(hooked, around);
+  return hooked;
 }
 
 /**
  * The Worker's env, with a D1 binding that runs the armed hooks: around a route's batch(), disable owners before
- * it and store twins after it; before an uploads INSERT, take the site's last upload slot.
+ * it and store twins after it; before an uploads INSERT, take the site's last upload slot; after a write to a
+ * site, commit another tab's save of it.
  */
 function withD1Hooks(env: Env): Env {
-  if (disableBeforeBatch.size === 0 && twinAfterBatch.size === 0 && takeSlotBeforeUploadInsert.size === 0) return env;
+  if (disableBeforeBatch.size === 0 && twinAfterBatch.size === 0 && takeSlotBeforeUploadInsert.size === 0 && saveAfterSiteWrite.size === 0) return env;
   const DB = new Proxy(env.DB, {
     get(target, key) {
       if (key === "prepare") {
         return (sql: string) => {
           const statement = target.prepare(sql);
-          return takeSlotBeforeUploadInsert.size > 0 && sql.trimStart().startsWith("INSERT INTO uploads") ? runningFirst(statement, () => takeLastUploadSlots(target)) : statement;
+          if (takeSlotBeforeUploadInsert.size > 0 && sql.trimStart().startsWith("INSERT INTO uploads")) return aroundRun(statement, { before: () => takeLastUploadSlots(target) });
+          if (saveAfterSiteWrite.size > 0 && sql.trimStart().startsWith("UPDATE sites ")) return aroundRun(statement, { after: () => saveOtherTabs(target) });
+          return statement;
         };
       }
       if (key === "batch") {
@@ -122,10 +155,13 @@ function withD1Hooks(env: Env): Env {
           const emails = [...disableBeforeBatch];
           disableBeforeBatch.clear();
           for (const email of emails) await target.prepare("UPDATE owners SET disabled_at = ? WHERE email = ?").bind(Date.now(), email).run();
+          const arounds = statements.flatMap((statement) => aroundOf.get(statement) ?? []);
+          for (const around of arounds) await around.before?.();
           const results = await target.batch(statements);
           const twins = [...twinAfterBatch];
           twinAfterBatch.clear();
           for (const siteId of twins) await storeTwin(target, siteId);
+          for (const around of arounds) await around.after?.();
           return results;
         };
       }
@@ -234,6 +270,13 @@ helpers.post("/__test/twin-after-batch", async (c) => {
 helpers.post("/__test/take-last-upload-slot", async (c) => {
   const { siteId, deleted } = await c.req.json<{ siteId: string; deleted: boolean }>();
   takeSlotBeforeUploadInsert.set(siteId, deleted);
+  return c.json({ ok: true });
+});
+
+/** Arms the hook above for one site: right after the next write to it of any request, another tab's save of it is committed. */
+helpers.post("/__test/save-after-site-write", async (c) => {
+  const { siteId, facts, slug } = await c.req.json<{ siteId: string; facts?: unknown; slug?: string }>();
+  saveAfterSiteWrite.set(siteId, { facts, slug });
   return c.json({ ok: true });
 });
 

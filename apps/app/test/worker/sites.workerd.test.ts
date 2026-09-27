@@ -190,6 +190,19 @@ describe("PATCH /api/sites/:siteId/draft", () => {
     expect((await json<ErrorJson>(res)).error).toMatchObject({ code: "conflict", currentRev: 2 });
   });
 
+  it("answers with its own save's rev and issues, even when another tab's save lands right after it (read in the same batch)", async () => {
+    const owner = await h.signIn();
+    // Right after this save commits, another tab's save empties the facts and moves the rev on.
+    await h.call("POST", "/__test/save-after-site-write", { body: { siteId: owner.siteId, facts: {} } });
+    const res = await h.call("PATCH", `/api/sites/${owner.siteId}/draft`, { cookie: owner.cookie, body: { rev: 1, facts: VALID_FACTS, brief: VALID_BRIEF } });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ rev: 2, issues: { facts: [], brief: [], photos: [], document: [] } });
+    // So this tab's next save, from the rev it was given, is refused instead of overwriting the other tab's.
+    const next = await h.call("PATCH", `/api/sites/${owner.siteId}/draft`, { cookie: owner.cookie, body: { rev: 2, brief: VALID_BRIEF } });
+    expect(next.status).toBe(409);
+    expect((await json<ErrorJson>(next)).error).toMatchObject({ code: "conflict", currentRev: 3 });
+  });
+
   it("validates edits with the OwnerEdits schema and requires at least one part", async () => {
     const owner = await h.signIn();
     const bad = await h.call("PATCH", `/api/sites/${owner.siteId}/draft`, { cookie: owner.cookie, body: { rev: 1, edits: { ...EMPTY_EDITS, hidden: ["hero"] } } });

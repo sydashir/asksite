@@ -1,7 +1,7 @@
 import { ApiError, readJson, slugProblem } from "@asksite/app-common";
-import { SetSlugBody } from "@asksite/core";
+import { SetSlugBody, type SiteRow } from "@asksite/core";
 import { Hono } from "hono";
-import { ownedSite } from "../db.ts";
+import { foundSite, ownedSiteQuery } from "../db.ts";
 import { requireOwner } from "../session.ts";
 import type { AppEnv } from "../types.ts";
 
@@ -28,26 +28,29 @@ export function slugRoutes(): Hono<AppEnv> {
       });
     }
     const db = c.env.DB;
-    let changes: number;
+    let results: D1Result[];
     try {
-      // The address locks once a version is pending or live: the form action and live key contain it.
-      const result = await db
-        .prepare(
-          `UPDATE sites SET slug = ?, rev = rev + 1, updated_at = ?
-           WHERE id = ? AND owner_id = ? AND rev = ? AND taken_down_at IS NULL
-             AND live_version_id IS NULL AND pending_version_id IS NULL`,
-        )
-        .bind(body.slug, Date.now(), siteId, owner.id, body.rev)
-        .run();
-      changes = result.meta.changes;
+      // The address locks once a version is pending or live: the form action and live key contain it. The row
+      // is read in the same batch (one transaction, A10), so the answer is this write's rev and slug.
+      results = await db.batch([
+        db
+          .prepare(
+            `UPDATE sites SET slug = ?, rev = rev + 1, updated_at = ?
+             WHERE id = ? AND owner_id = ? AND rev = ? AND taken_down_at IS NULL
+               AND live_version_id IS NULL AND pending_version_id IS NULL`,
+          )
+          .bind(body.slug, Date.now(), siteId, owner.id, body.rev),
+        ownedSiteQuery(db, siteId, owner.id),
+      ]);
     } catch (err) {
       if (err instanceof Error && err.message.includes("UNIQUE constraint failed: sites.slug")) {
         throw new ApiError("slug_taken", "Someone else already has that web address");
       }
       throw err;
     }
-    const site = await ownedSite(db, siteId, owner.id);
-    if (changes !== 1) {
+    const [write, siteRead] = results;
+    const site = foundSite(siteRead?.results[0] as SiteRow | undefined);
+    if (write?.meta.changes !== 1) {
       if (site.taken_down_at !== null) throw new ApiError("site_taken_down", "This website has been taken offline. Contact us to restore it.");
       if (site.live_version_id !== null || site.pending_version_id !== null) {
         throw new ApiError("slug_locked", "The web address cannot change after the site has been sent for review");

@@ -68,24 +68,35 @@ export function draftOf(site: SiteRow): Draft {
 /** Issues from one part of the draft, with that part's name in front of each path ("facts", "brief"). */
 export const under = (root: string, issues: Issue[]): Issue[] => issues.map((issue) => ({ ...issue, path: [root, ...issue.path] }));
 
+export type CurrentAiRow = Pick<GenerationRow, "id" | "output_json" | "used_fallback">;
+
+/** The read of the site's newest succeeded generation (§2.1), alone or in a batch. */
+export function currentAiQuery(db: D1Database, siteId: string): D1PreparedStatement {
+  return db
+    .prepare("SELECT id, output_json, used_fallback FROM generations WHERE site_id = ? AND status = 'succeeded' ORDER BY created_at DESC LIMIT 1")
+    .bind(siteId);
+}
+
+/** The site's AI draft from the row currentAiQuery found, or null before the first build. */
+export function toCurrentAi(row: CurrentAiRow | null | undefined): { ai: CurrentAi; usedFallback: boolean } | null {
+  const draft = row === null || row === undefined || row.output_json === null ? null : storedAiDraft(parseStored(row.output_json));
+  if (row === null || row === undefined || draft === null) return null;
+  return { ai: { generationId: row.id, draft }, usedFallback: row.used_fallback === 1 };
+}
+
 /** The site's AI draft: its newest succeeded generation (§2.1), or null before the first build. */
 export async function currentAi(db: D1Database, siteId: string): Promise<{ ai: CurrentAi; usedFallback: boolean } | null> {
-  const row = await db
-    .prepare("SELECT id, output_json, used_fallback FROM generations WHERE site_id = ? AND status = 'succeeded' ORDER BY created_at DESC LIMIT 1")
-    .bind(siteId)
-    .first<Pick<GenerationRow, "id" | "output_json" | "used_fallback">>();
-  const draft = row === null || row.output_json === null ? null : storedAiDraft(parseStored(row.output_json));
-  if (row === null || draft === null) return null;
-  return { ai: { generationId: row.id, draft }, usedFallback: row.used_fallback === 1 };
+  return toCurrentAi(await currentAiQuery(db, siteId).first<CurrentAiRow>());
+}
+
+/** The read of the site's non-deleted uploads, oldest first, alone or in a batch. */
+export function liveUploadsQuery(db: D1Database, siteId: string): D1PreparedStatement {
+  return db.prepare("SELECT * FROM uploads WHERE site_id = ? AND deleted_at IS NULL ORDER BY created_at").bind(siteId);
 }
 
 /** Non-deleted uploads, the only photos a draft may use (§8 step 6). */
 export async function liveUploads(db: D1Database, siteId: string): Promise<UploadRow[]> {
-  const { results } = await db
-    .prepare("SELECT * FROM uploads WHERE site_id = ? AND deleted_at IS NULL ORDER BY created_at")
-    .bind(siteId)
-    .all<UploadRow>();
-  return results;
+  return (await liveUploadsQuery(db, siteId).all<UploadRow>()).results;
 }
 
 /** The first MAX_ISSUES issues of a list (P4-3): a malformed draft could otherwise list one per element. */
