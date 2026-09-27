@@ -52,6 +52,52 @@ describe("toWireSchema", () => {
   });
 });
 
+// Anthropic structured outputs, "Schema complexity limits" > "Explicit limits", for every request with
+// output_config.format (platform.claude.com/docs/en/build-with-claude/structured-outputs, checked 2026-09-27):
+//   "Optional parameters | 24 | Total optional parameters across all strict tool schemas and JSON output schemas.
+//    Each parameter not listed in `required` counts toward this limit."
+//   "Parameters with union types | 16 | Total parameters that use `anyOf` or type arrays (for example,
+//    `"type": ["string", "null"]`) across all strict schemas."
+// The adapters send one schema per request, toWireSchema(AI_DRAFT_JSON_SCHEMA), and no tools.
+describe("toWireSchema within Anthropic's structured-output limits", () => {
+  const MAX_OPTIONAL = 24;
+  const MAX_UNION = 16;
+  const propertiesOf = (node: Json): Json => (node.properties ?? {}) as Json;
+  /** Every schema position at any depth: the node, then its properties, its items and its anyOf branches. */
+  const positions = (node: Json): Json[] => [
+    node,
+    ...[...Object.values(propertiesOf(node)), ...(node.items === undefined ? [] : [node.items]), ...((node.anyOf ?? []) as unknown[])].flatMap((child) => positions(child as Json)),
+  ];
+  /** The docs' count: each property not listed in its object's `required`. */
+  const notRequired = (schema: Json): number =>
+    positions(schema).reduce((n, node) => n + Object.keys(propertiesOf(node)).filter((key) => !((node.required ?? []) as string[]).includes(key)).length, 0);
+  const allowsNull = (node: Json): boolean => (Array.isArray(node.type) && node.type.includes("null")) || ((node.anyOf ?? []) as Json[]).some((branch) => branch.type === "null");
+  /** A stricter count: each property that may be null, toWireSchema's stand-in for an optional property (all are listed in `required`). */
+  const nullable = (schema: Json): number => positions(schema).reduce((n, node) => n + Object.values(propertiesOf(node)).filter((child) => allowsNull(child as Json)).length, 0);
+  /** Each position that uses anyOf or a type array: every position counts, not only object properties (so layout's items count too). */
+  const unions = (schema: Json): number => positions(schema).filter((node) => Array.isArray(node.anyOf) || Array.isArray(node.type)).length;
+
+  it("counts as the docs define: a property left out of required, and anyOf or a type array, at any depth", () => {
+    const sample: Json = {
+      type: "object",
+      properties: {
+        a: { type: ["string", "null"] },
+        b: { anyOf: [{ type: "string" }, { type: "null" }] },
+        c: { type: "array", items: { type: "object", properties: { d: { anyOf: [{ type: "string" }, { type: "number" }] }, e: { type: "string" } }, required: ["d"] } },
+      },
+      required: ["a", "b"],
+    };
+    expect({ notRequired: notRequired(sample), nullable: nullable(sample), unions: unions(sample) }).toEqual({ notRequired: 2, nullable: 2, unions: 3 });
+  });
+
+  it("stays within 24 optional parameters and 16 union-typed parameters, counted the docs' way and the stricter way", () => {
+    const wire = toWireSchema(AI_DRAFT_JSON_SCHEMA);
+    expect(notRequired(wire)).toBeLessThanOrEqual(MAX_OPTIONAL);
+    expect(nullable(wire)).toBeLessThanOrEqual(MAX_OPTIONAL);
+    expect(unions(wire)).toBeLessThanOrEqual(MAX_UNION);
+  });
+});
+
 describe("dropNulls", () => {
   it("removes null object values at any depth and keeps everything else", () => {
     expect(dropNulls({ a: null, b: { c: null, d: 1 }, e: [{ f: null, g: "x" }], h: [null] })).toEqual({
