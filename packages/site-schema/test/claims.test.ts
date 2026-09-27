@@ -264,15 +264,24 @@ describe("unbackedClaims", () => {
 
   // A8c: every other dash reads like an em dash. These 16 survive NFKC (so they reach the checker in
   // AI copy) and are not in the joiner list above; the rest of \p{Pd} is added from the engine's tables.
+  // A9f adds ꟷ U+A7F7 LATIN EPIGRAPHIC LETTER SIDEWAYS I, a letter that draws as a dash (confusables.txt: ー via —).
   const OTHER_DASHES = [
     "―", "⁃", "⎯", "─", "━", "⸗", "⸚", "⸺",
     "⸻", "⹀", "⹝", "〜", "〰", "゠", "ー", "ｰ",
+    "ꟷ",
   ];
   const JOINERS = new Set(["-", "‐", "‑", ...DASHES]); // U+2010/U+2011 read as "-" (A2)
   const EVERY_OTHER_DASH = [...new Set([...OTHER_DASHES, ...allCodePoints().filter((c) => /\p{Pd}/u.test(c))])].filter((d) => !JOINERS.has(d));
 
   it("finds \"Award―winning\" (U+2015 horizontal bar) whatever the facts", () => {
     expect(unbackedClaims("Award―winning crew", ALL)).toEqual(["Award—winning"]);
+  });
+
+  it("reads ꟷ (U+A7F7 sideways I, a letter that draws as a dash) as an em dash (A9f)", () => {
+    expect(unbackedClaims("Awardꟷwinning crew", ALL)).toEqual(["Award—winning"]);
+    expect(unbackedClaims("Sameꟷday service", ALL)).toEqual(["Same—day"]);
+    expect(unbackedClaims("Noꟷcharge estimates", NONE)).toEqual(["No—charge"]);
+    expect(unbackedClaims("Aroundꟷtheꟷclock help", NONE)).toEqual(["Around—the—clock"]);
   });
 
   it("covers the listed dashes and every \\p{Pd} this engine knows", () => {
@@ -691,6 +700,7 @@ describe("SiteDocument rejects AI copy that states facts the owner did not give"
     "\uA7FDARRANTY INCLUDED", // A9f: U+A7FD ꟽ reads w
     "Fully ins\u028Ared plumbers", // A9f: U+028A ʊ reads u
     "Save \uA78DO% on drain cleaning.", // A9f: U+A78D Ɥ draws like an open 4 (refused by Copy)
+    "Award\uA7F7winning crew", // A9f: U+A7F7 ꟷ reads as an em dash
   ])("%j", (claim) => {
     const faq = [{ question: "Why us?", answer: claim }];
     const result = SiteDocument.safeParse({ ...MINIMAL_DOC, copy: { ...MINIMAL_DOC.copy, faq } });
