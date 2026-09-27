@@ -1,0 +1,39 @@
+# Every push and pull request: typecheck, unit + integration tests (workerd through wrangler's test
+# harness, no Cloudflare account), Plan 1's browser tests without its macOS-only screenshots, and
+# the sites Worker's browser tests over https. Third-party actions are pinned to commit SHAs.
+name: ci
+
+on:
+  push:
+    branches: [main, "plan*"]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0 (reads packageManager from package.json)
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: pnpm exec playwright install --with-deps --only-shell chromium webkit
+      # Customer hostnames are <slug>.localhost; make sure every engine resolves the e2e ones on Linux.
+      - run: echo "127.0.0.1 media.localhost www.localhost e2e-plumber-austin.localhost e2e-hvac-phoenix.localhost e2e-roofing-extreme.localhost e2e-cleaning-minimal.localhost e2e-electrical-xss.localhost" | sudo tee -a /etc/hosts
+      # Plan 1's screenshot baselines are named *-darwin.png, so Linux ignores them; every other check runs.
+      - run: pnpm test:e2e --ignore-snapshots
+      - run: pnpm test:e2e:sites

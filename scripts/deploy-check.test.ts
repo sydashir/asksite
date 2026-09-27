@@ -1,0 +1,74 @@
+import { describe, expect, it } from "vitest";
+import { deployProblems } from "./deploy-check.ts";
+
+const NOW = Date.parse("2026-09-24T00:00:00.000Z");
+
+// A config shaped like apps/sites/wrangler.jsonc as committed before the deploy task (it holds the
+// local placeholders). Inline, so this test keeps passing after the real values are committed.
+const PLACEHOLDERS = JSON.stringify({
+  name: "asksite-sites",
+  workers_dev: false,
+  preview_urls: false,
+  observability: { enabled: true, logs: { invocation_logs: false } },
+  routes: [{ pattern: "*.asksite.example/*", zone_name: "asksite.example" }],
+  vars: {
+    ENVIRONMENT: "production",
+    ROOT_DOMAIN: "asksite.example",
+    MAILER: "resend",
+    MAIL_FROM: "asksite <leads@mail.asksite.example>",
+    SECURITY_TXT_EXPIRES: "2027-09-01T00:00:00.000Z",
+  },
+  d1_databases: [{ binding: "DB", database_name: "asksite", database_id: "00000000-0000-0000-0000-000000000000" }],
+});
+
+const ready = (): string =>
+  PLACEHOLDERS.replaceAll("asksite.example", "tradesites.test").replace("00000000-0000-0000-0000-000000000000", "3f0f5a4e-7c1b-4d8e-9a2b-1c2d3e4f5a6b");
+
+describe("deployProblems", () => {
+  it("blocks a config that still holds the local placeholders", () => {
+    expect(deployProblems(PLACEHOLDERS, NOW)).toEqual([
+      "still uses the placeholder domain asksite.example",
+      "D1 database_id is still the local placeholder",
+    ]);
+  });
+
+  it("passes a config with the real domain, database id and a fresh security.txt date", () => {
+    expect(deployProblems(ready(), NOW)).toEqual([]);
+  });
+
+  it("catches development values and unsafe switches", () => {
+    const unsafe = ready()
+      .replace('"ENVIRONMENT":"production"', '"ENVIRONMENT":"development"')
+      .replace('"MAILER":"resend"', '"MAILER":"log"')
+      .replace('"workers_dev":false', '"workers_dev":true')
+      .replace('"invocation_logs":false', '"invocation_logs":true');
+    expect(deployProblems(unsafe, NOW)).toEqual([
+      "vars.ENVIRONMENT must be production",
+      "vars.MAILER must be resend",
+      "workers_dev and preview_urls must be false",
+      "observability.logs.invocation_logs must be false",
+    ]);
+  });
+
+  it("catches the other Workers' unsafe switches and a secret put in vars (design §9.1)", () => {
+    const config = JSON.parse(ready()) as { vars: Record<string, string> };
+    config.vars = { ...config.vars, ADMIN_AUTH_MODE: "dev", MODEL_PROVIDER: "fake", RESEND_API_KEY: "re_not_a_real_key" };
+    expect(deployProblems(JSON.stringify(config), NOW)).toEqual([
+      "vars.ADMIN_AUTH_MODE must be access",
+      "vars.MODEL_PROVIDER must not be fake",
+      "vars.RESEND_API_KEY looks like a secret: use wrangler secret put",
+    ]);
+  });
+
+  it("catches a local root domain", () => {
+    const local = ready().replace('"ROOT_DOMAIN":"tradesites.test"', '"ROOT_DOMAIN":"localhost:8789"');
+    expect(deployProblems(local, NOW)).toContain("vars.ROOT_DOMAIN must be the real domain without a port");
+  });
+
+  it("wants security.txt to expire 30 to 366 days ahead", () => {
+    const soon = ready().replace("2027-09-01T00:00:00.000Z", "2026-10-01T00:00:00.000Z");
+    const far = ready().replace("2027-09-01T00:00:00.000Z", "2028-09-01T00:00:00.000Z");
+    expect(deployProblems(soon, NOW)).toEqual(["vars.SECURITY_TXT_EXPIRES must be 30 to 366 days from today"]);
+    expect(deployProblems(far, NOW)).toEqual(["vars.SECURITY_TXT_EXPIRES must be 30 to 366 days from today"]);
+  });
+});

@@ -1,0 +1,13 @@
+{
+  "note": "Every DNS record in the product zone. Names are relative to the root domain. Values marked 'from ...' are copied from that dashboard at deploy time. A test (apps/sites/test/dns-records.test.ts) checks that every first-level label is @, *, an underscore label or a RESERVED_SLUGS entry, because a label with its own record escapes the * wildcard and a site with that slug would have no address.",
+  "records": [
+    { "type": "AAAA", "name": "@", "content": "100::", "proxied": true, "purpose": "apex placeholder page and security.txt (asksite-sites)" },
+    { "type": "AAAA", "name": "*", "content": "100::", "proxied": true, "purpose": "every <slug>, www, media, app and admin (Workers Routes pick the Worker)" },
+    { "type": "MX", "name": "send.mail", "content": "from Resend (Domains > mail.<root>)", "proxied": false, "purpose": "Resend sending (bounce feedback)" },
+    { "type": "TXT", "name": "send.mail", "content": "from Resend (SPF)", "proxied": false, "purpose": "Resend sending (SPF)" },
+    { "type": "TXT", "name": "resend._domainkey.mail", "content": "from Resend (DKIM)", "proxied": false, "purpose": "Resend sending (DKIM)" },
+    { "type": "TXT", "name": "_dmarc", "content": "v=DMARC1; p=reject; sp=reject;", "proxied": false, "purpose": "DMARC: only mail.<root> sends (Resend, DKIM-signed); mail claiming any other name of the zone is rejected. Added once Resend shows Verified (Task 19 Step 8)" },
+    { "type": "MX", "name": "@", "content": "added by Cloudflare Email Routing", "proxied": false, "purpose": "abuse@ and security@ forwarding" },
+    { "type": "TXT", "name": "@", "content": "added by Cloudflare Email Routing (SPF)", "proxied": false, "purpose": "abuse@ and security@ forwarding" }
+  ]
+}
