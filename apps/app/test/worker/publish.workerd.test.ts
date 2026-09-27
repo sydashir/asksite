@@ -233,6 +233,21 @@ describe("POST /api/sites/:siteId/publish-requests", () => {
     expect(await alertsFor("many-tries-plumbing")).toEqual([{ subject: "Website waiting for review: many-tries-plumbing (version 1)" }]);
   });
 
+  it("alerts once, from the lowest-numbered request, when two requests of one site commit before either alert check runs (decision 32)", async () => {
+    const owner = await withSlug(await builtOwner(h, VALID_FACTS, VALID_BRIEF), "burst-plumbing");
+    // Right after the first request's batch, before its alert check, a second request of the site commits (the test
+    // Worker's twin): the check then sees both rows, and only the version numbers say which request came first.
+    expect((await h.call("POST", "/__test/twin-after-batch", { body: { siteId: owner.siteId } })).status).toBe(200);
+    const first = await publishAndSettle(owner);
+    expect(first.number).toBe(1);
+    expect(await versionCount(owner.siteId)).toBe(2);
+    expect(await sentAlerts("burst-plumbing")).toEqual([{ subject: "Website waiting for review: burst-plumbing (version 1)" }]);
+    // A later request within the hour sees the earlier ones: no second alert.
+    const third = await publishAndSettle(owner);
+    expect(third.number).toBe(3);
+    expect(await sentAlerts("burst-plumbing")).toEqual([{ subject: "Website waiting for review: burst-plumbing (version 1)" }]);
+  });
+
   it("serves the stored page for the owner with the §7.4 review headers", async () => {
     const owner = await withSlug(await builtOwner(h, VALID_FACTS, VALID_BRIEF), "page-check-plumbing");
     const { version } = await json<{ version: VersionSummary }>(await h.call("POST", `/api/sites/${owner.siteId}/publish-requests`, { cookie: owner.cookie, body: { rev: owner.rev } }));

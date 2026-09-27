@@ -17,17 +17,22 @@ const ALERTS_PER_DAY = 10;
  * Whether this request emails the reviewers: it is the site's first request in an hour, and one of
  * the first ALERTS_PER_DAY such requests of the UTC day across all sites. Counted from site_versions,
  * so nothing new is stored. Resend Free's 100 emails a day are shared by every email type (§5.2).
+ *
+ * The site's count takes only the versions numbered up to this one. Numbers follow commit order (Plan 2
+ * assigns MAX + 1 inside its batch, under UNIQUE(site_id, number)), so when two requests of one site both
+ * commit before either check runs, the lower-numbered one counts only itself and alerts, and the other
+ * sees it and stays quiet, whichever check runs first. Counting every recent row would let both see two.
  */
-async function shouldAlert(db: D1Database, siteId: string, now: number): Promise<boolean> {
+async function shouldAlert(db: D1Database, siteId: string, number: number, now: number): Promise<boolean> {
   const counts = await db
     .prepare(
       `SELECT
-         (SELECT COUNT(*) FROM site_versions WHERE site_id = ?1 AND requested_at > ?2 - ?3) AS recent,
+         (SELECT COUNT(*) FROM site_versions WHERE site_id = ?1 AND number <= ?5 AND requested_at > ?2 - ?3) AS recent,
          (SELECT COUNT(*) FROM site_versions v WHERE v.requested_at >= ?4 AND NOT EXISTS (
             SELECT 1 FROM site_versions w
             WHERE w.site_id = v.site_id AND w.requested_at < v.requested_at AND w.requested_at > v.requested_at - ?3)) AS alerts`,
     )
-    .bind(siteId, now, ALERT_QUIET_MS, now - (now % 86_400_000))
+    .bind(siteId, now, ALERT_QUIET_MS, now - (now % 86_400_000), number)
     .first<{ recent: number; alerts: number }>();
   return counts !== null && counts.recent === 1 && counts.alerts <= ALERTS_PER_DAY;
 }
@@ -91,7 +96,7 @@ export function publishRoutes(deps: AppDeps): Hono<AppEnv> {
       // After the response: the version is stored, so a failure here must never look like a failed publish.
       c.executionCtx.waitUntil(
         (async () => {
-          if (!(await shouldAlert(db, site.id, now))) return;
+          if (!(await shouldAlert(db, site.id, version.number, now))) return;
           await Promise.all(recipients.map((to) => trySend(mailer, { to, ...alert, tag: "admin_alert", idempotencyKey: `alert:${version.id}:${to}` })));
         })().catch((err: unknown) => logLine({ event: "alert_failed", error: err instanceof Error ? err.name : "unknown" })),
       );

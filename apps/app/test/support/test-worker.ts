@@ -42,9 +42,34 @@ function counting(ctx: ExecutionContext, path: string): ExecutionContext {
 /** Owners (by email) to disable just before a request's next D1 batch: an admin's disable that lands between a route's checks and its batch. */
 const disableBeforeBatch = new Set<string>();
 
-/** The Worker's env, with a D1 binding that first disables those owners when a route calls batch(). */
+/** Sites that get a twin of their next stored version right after its batch: a second request of the site, committed before the first one's alert check runs. */
+const twinAfterBatch = new Set<string>();
+
+/**
+ * What a second request of the site commits, as Plan 2's batch does (§7.2): the pending version is superseded and a
+ * copy of it, numbered one higher and asked for a millisecond later, is the new pending one. The number follows
+ * commit order, as Plan 2's MAX + 1 inside the batch does.
+ */
+async function storeTwin(db: D1Database, siteId: string): Promise<void> {
+  const twinId = newId();
+  await db.batch([
+    db.prepare("UPDATE site_versions SET status = 'superseded' WHERE site_id = ? AND status = 'pending'").bind(siteId),
+    db
+      .prepare(
+        `INSERT INTO site_versions (id, site_id, number, status, document_json, document_sha256, edits_json, generation_id,
+           html_key, html_sha256, stylesheet_sha256, requested_by, requested_at)
+         SELECT ?, site_id, number + 1, 'pending', document_json, document_sha256, edits_json, generation_id,
+           html_key, html_sha256, stylesheet_sha256, requested_by, requested_at + 1
+         FROM site_versions WHERE site_id = ? ORDER BY number DESC LIMIT 1`,
+      )
+      .bind(twinId, siteId),
+    db.prepare("UPDATE sites SET pending_version_id = ? WHERE id = ?").bind(twinId, siteId),
+  ]);
+}
+
+/** The Worker's env, with a D1 binding that runs the armed hooks around a route's batch(): disable owners before it, store twins after it. */
 function withBatchHook(env: Env): Env {
-  if (disableBeforeBatch.size === 0) return env;
+  if (disableBeforeBatch.size === 0 && twinAfterBatch.size === 0) return env;
   const DB = new Proxy(env.DB, {
     get(target, key) {
       if (key === "batch") {
@@ -52,7 +77,11 @@ function withBatchHook(env: Env): Env {
           const emails = [...disableBeforeBatch];
           disableBeforeBatch.clear();
           for (const email of emails) await target.prepare("UPDATE owners SET disabled_at = ? WHERE email = ?").bind(Date.now(), email).run();
-          return target.batch(statements);
+          const results = await target.batch(statements);
+          const twins = [...twinAfterBatch];
+          twinAfterBatch.clear();
+          for (const siteId of twins) await storeTwin(target, siteId);
+          return results;
         };
       }
       const value: unknown = Reflect.get(target, key);
@@ -146,6 +175,13 @@ helpers.post("/__test/invites", async (c) => {
 helpers.post("/__test/disable-before-batch", async (c) => {
   const { email } = await c.req.json<{ email: string }>();
   disableBeforeBatch.add(email.trim().toLowerCase());
+  return c.json({ ok: true });
+});
+
+/** Arms the hook above for one site: right after the next D1 batch of any request, a second request of the site is committed (storeTwin). */
+helpers.post("/__test/twin-after-batch", async (c) => {
+  const { siteId } = await c.req.json<{ siteId: string }>();
+  twinAfterBatch.add(siteId);
   return c.json({ ok: true });
 });
 
