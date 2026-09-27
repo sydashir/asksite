@@ -122,6 +122,17 @@ describe("POST /api/sites/:siteId/uploads", () => {
     expect((await uploadRows(owner.siteId)).map(shape)).toEqual([COUNTED_FAILURE]);
   });
 
+  it("refuses a photo the image service did not re-encode as WebP (422 image_rejected, counted, nothing stored): the metadata stripping relies on WebP", async () => {
+    const owner = await h.signIn();
+    await h.call("POST", "/__test/images-output-format", { body: { format: "image/jpeg" } });
+    const res = await h.call("POST", `/api/sites/${owner.siteId}/uploads`, { cookie: owner.cookie, body: upload(await jpegWithGps(800, 600)) });
+    expect(res.status).toBe(422);
+    expect((await json<ErrorJson>(res)).error.code).toBe("image_rejected");
+    // The transform ran, so it is counted like any other the file made fail (P4-14).
+    expect((await uploadRows(owner.siteId)).map(shape)).toEqual([COUNTED_FAILURE]);
+    expect(await mediaKeys(owner.siteId)).toEqual([]);
+  });
+
   it("refuses a file over 10 MB with 413", async () => {
     const owner = await h.signIn();
     const big = new Uint8Array(10 * 1024 * 1024 + 1);

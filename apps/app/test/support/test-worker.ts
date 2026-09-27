@@ -198,7 +198,10 @@ function takeImagesFailure(step: ImagesStep): Error | undefined {
   return code === null ? new TypeError("Network connection lost.") : Object.assign(new Error(`IMAGES_${step}_ERROR ${code}: made by the test Worker`), { code });
 }
 
-/** The real transformer, recording the options it is given; its .output() can be made to fail once. */
+/** When set, the next .output() asks the real binding for this format instead of the one the Worker asked for (which is still recorded). */
+let nextOutputFormat: ImageOutputOptions["format"] | undefined;
+
+/** The real transformer, recording the options it is given; its .output() can be made to fail once, or to answer another format once. */
 function recordingTransformer(transformer: ImageTransformer): ImageTransformer {
   return {
     transform(transform) {
@@ -211,7 +214,10 @@ function recordingTransformer(transformer: ImageTransformer): ImageTransformer {
     output(options) {
       imagesCalls.push({ output: options });
       const failure = takeImagesFailure("output");
-      return failure === undefined ? transformer.output(options) : Promise.reject(failure);
+      if (failure !== undefined) return Promise.reject(failure);
+      const format = nextOutputFormat ?? options.format;
+      nextOutputFormat = undefined;
+      return transformer.output({ ...options, format });
     },
   };
 }
@@ -310,6 +316,13 @@ helpers.get("/__test/images-calls", (c) => c.json(imagesCalls));
 helpers.post("/__test/images-fails", async (c) => {
   const { step, code } = await c.req.json<{ step: ImagesStep; code: number | null }>();
   nextImagesFailure = { step, code };
+  return c.json({ ok: true });
+});
+
+/** Arms the hook above: the next IMAGES .output() of any request answers this format, as if the service had not made a WebP. */
+helpers.post("/__test/images-output-format", async (c) => {
+  const { format } = await c.req.json<{ format: ImageOutputOptions["format"] }>();
+  nextOutputFormat = format;
   return c.json({ ok: true });
 });
 

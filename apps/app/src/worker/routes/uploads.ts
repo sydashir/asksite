@@ -100,8 +100,9 @@ export function uploadRoutes(): Hono<AppEnv> {
     const still = await toStillWebp(c.env.IMAGES, bytes);
     const now = Date.now();
     if (still === null) {
-      // The file made the transform fail, and that transform ran. It is counted like an upload deleted at
-      // once, so the 150 total cap bounds these too (P4-14); the row has no object and is never shown.
+      // The transform ran and gave no WebP to store: the file made it fail, or it answered another format
+      // (P4-15 b). It is counted like an upload deleted at once, so the 150 total cap bounds these too
+      // (P4-14); the row has no object and is never shown.
       const counted = await insertUnderCaps(db, { id: newId(), siteId: site.id, width: 0, height: 0, bytes: 0, createdAt: now, deletedAt: now });
       throw counted ? unreadablePhoto() : limitReached();
     }

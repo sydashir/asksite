@@ -63,7 +63,8 @@ export async function imageInfo(images: ImagesBinding, bytes: Uint8Array): Promi
  * Re-encode to a still WebP, at most 1600 px on the long edge (§8 step 3). WebP output drops all
  * metadata (GPS included) and `anim: false` turns an animated file into a still one. Null when the
  * binding could measure the file but cannot decode it (a JPEG whose data is cut off passes .info()
- * and fails here); any other failure is thrown, as in imageInfo.
+ * and fails here), or when what it gave back is not a WebP, whose stripped metadata nothing else
+ * would promise; any other failure is thrown, as in imageInfo.
  */
 export async function toStillWebp(images: ImagesBinding, bytes: Uint8Array): Promise<{ webp: Uint8Array; width: number; height: number } | null> {
   let webp: Uint8Array;
@@ -77,6 +78,7 @@ export async function toStillWebp(images: ImagesBinding, bytes: Uint8Array): Pro
     if (unreadableImage(err)) return null;
     throw err;
   }
+  if (sniffImage(webp) !== "webp") return null;
   const info = await imageInfo(images, webp);
   if (info === null) throw new Error("re-encoded image could not be measured");
   return { webp, ...info };
