@@ -2,8 +2,8 @@ import { Facts, factSections, SiteDocument } from "@asksite/site-schema";
 import { describe, expect, it } from "vitest";
 import { FIXTURES, loadFixture } from "../../../fixtures/index.ts";
 import { templateDraft } from "../src/template.ts";
-import { bindServiceNames, checkDraft } from "../src/validate.ts";
-import { dropNulls } from "../src/wire-schema.ts";
+import { bindServiceNames, checkDraft, normalizeEnumCase } from "../src/validate.ts";
+import { AI_DRAFT_JSON_SCHEMA, dropNulls, toWireSchema } from "../src/wire-schema.ts";
 import { BRIEF, FULL_FACTS, MINIMAL_FACTS } from "./support/samples.ts";
 
 describe("checkDraft", () => {
@@ -148,5 +148,122 @@ describe("checkDraft", () => {
       const result = checkDraft(facts, withServices(facts, [names[1]!, names[0]!, ...names.slice(2)]));
       expect(!result.ok && result.issues.map((i) => i.path.join(".")), fixture).toEqual(["copy.serviceDescriptions"]);
     }
+  });
+});
+
+// Anthropic structured outputs, "Enum value casing" (platform.claude.com/docs/en/build-with-claude/structured-outputs,
+// checked 2026-09-27): "Structured outputs don't guarantee the capitalization of string `enum` and `const` values ...
+// Compare enum values case-insensitively, and avoid enum values that differ only in capitalization."
+describe("enum case (P3-11 m)", () => {
+  const draft = templateDraft(FULL_FACTS, BRIEF);
+  const WIRE = toWireSchema(AI_DRAFT_JSON_SCHEMA);
+  const hero = draft.layout[0]!;
+  const withHero = (section: unknown) => ({ ...draft, layout: [section, ...draft.layout.slice(1)] });
+  const deepFreeze = <T>(value: T): T => {
+    if (value !== null && typeof value === "object") Object.values(value).forEach(deepFreeze);
+    return Object.freeze(value);
+  };
+
+  it("accepts a section id in another case or with spaces around it, as the schema's member: \"Hero\" and \" HERO \" become \"hero\"", () => {
+    for (const id of ["Hero", " HERO "]) {
+      const result = checkDraft(FULL_FACTS, withHero({ id, variant: hero.variant }));
+      expect(result.ok && result.draft.layout[0]!.id, id).toBe("hero");
+    }
+  });
+
+  it("accepts a whole layout whose ids (discriminators) and variants are in another case, each in its own branch", () => {
+    // serviceArea is camelCase in the schema: the match ignores case on both sides.
+    expect(draft.layout.map((section) => section.id)).toContain("serviceArea");
+    const shouted = draft.layout.map(({ id, variant }) => ({ id: id.toUpperCase(), variant: ` ${variant.toUpperCase()}` }));
+    const result = checkDraft(FULL_FACTS, { ...draft, layout: shouted });
+    expect(result.ok && result.draft.layout).toEqual(draft.layout);
+  });
+
+  it("accepts palette and font in another case (checks the two field values only)", () => {
+    const result = checkDraft(FULL_FACTS, { ...draft, theme: { ...draft.theme, palette: " Navy-Orange", font: "CLEAN " } });
+    expect(result.ok && result.draft.theme.palette).toBe("navy-orange");
+    expect(result.ok && result.draft.theme.font).toBe("clean");
+  });
+
+  it("leaves an object that fits no union branch, and a string that matches no member, for validation to report", () => {
+    const wrong = { id: "HERO", variant: "band" }; // band is a trust variant, so neither the hero nor the trust branch fits
+    expect(normalizeEnumCase(WIRE, { layout: [wrong] })).toEqual({ layout: [wrong] });
+    const layout = checkDraft(FULL_FACTS, withHero(wrong));
+    expect(!layout.ok && layout.issues.map((i) => i.path.join("."))).toContain("layout.0.id");
+    const theme = checkDraft(FULL_FACTS, { ...draft, theme: { ...draft.theme, palette: "Navy Orange" } });
+    expect(!theme.ok && theme.issues.map((i) => i.path.join("."))).toEqual(["theme.palette"]);
+  });
+
+  it("leaves an object that two union branches fit unchanged, and normalizes it when only one fits (synthetic schema)", () => {
+    const withX = { type: "object", properties: { kind: { type: "string", enum: ["a"] }, x: { type: "string", enum: ["p"] } } };
+    const withY = { type: "object", properties: { kind: { type: "string", enum: ["a"] }, y: { type: "string" } } };
+    const value = { kind: "A", x: "P" };
+    expect(normalizeEnumCase({ anyOf: [withX, withY] }, value)).toBe(value);
+    expect(normalizeEnumCase({ anyOf: [withX, { type: "null" }] }, value)).toEqual({ kind: "a", x: "p" });
+  });
+
+  it("changes nothing when two members differ only in case (ambiguity guard, synthetic schema)", () => {
+    const schema = { type: "string", enum: ["a", "A", "b"] };
+    expect(["a", "A", " a ", "B ", "c"].map((value) => normalizeEnumCase(schema, value))).toEqual(["a", "A", " a ", "b", "c"]);
+  });
+
+  it("replaces a string at a union position only when exactly one member of all its branches matches (synthetic schema)", () => {
+    const schema = { anyOf: [{ type: "string", enum: ["red", "Blue"] }, { type: "string", enum: ["blue", "green", "red"] }, { type: "null" }] };
+    expect(["RED", "Green", "BLUE", "blue", "pink", null].map((value) => normalizeEnumCase(schema, value))).toEqual(["red", "green", "BLUE", "blue", "pink", null]);
+  });
+
+  it("never touches free text, even text that equals an enum member in another case: copy fields and service names", () => {
+    const facts = Facts.parse({ ...MINIMAL_FACTS, services: [{ name: "Gallery" }, { name: "Split" }] });
+    const base = templateDraft(facts, BRIEF);
+    const answer = {
+      ...base,
+      copy: {
+        ...base.copy,
+        heroHeadline: "Hero",
+        ctaText: "Photo",
+        about: "Navy-Orange",
+        sectionIntros: { ...base.copy.sectionIntros, faq: "Accordion" },
+        serviceDescriptions: [
+          { service: " GALLERY ", description: "Clean" },
+          { service: "split", description: "Friendly" },
+        ],
+        faq: [{ question: "Hero", answer: "Sturdy" }],
+      },
+    };
+    const before = JSON.stringify(answer);
+    expect(normalizeEnumCase(WIRE, answer)).toBe(answer);
+    expect(JSON.stringify(answer)).toBe(before);
+  });
+
+  it("leaves a non-string at an enum position unchanged, for validation to report", () => {
+    for (const palette of [5, null, true, ["NAVY-ORANGE"], { value: "NAVY-ORANGE" }]) {
+      const answer = { ...draft, theme: { ...draft.theme, palette } };
+      expect(normalizeEnumCase(WIRE, answer), JSON.stringify(palette)).toBe(answer);
+      const result = checkDraft(FULL_FACTS, answer);
+      expect(!result.ok && result.issues.map((i) => i.path.join(".")), JSON.stringify(palette)).toEqual(["theme.palette"]);
+    }
+  });
+
+  it("never mutates its input: it returns the input itself when nothing changes, and new objects only along the path to a change", () => {
+    const answer = deepFreeze({ ...draft, theme: { ...draft.theme, font: "Sturdy" } });
+    const before = JSON.stringify(answer);
+    const out = normalizeEnumCase(WIRE, answer) as typeof answer;
+    expect(JSON.stringify(answer)).toBe(before);
+    expect(out.theme.font).toBe("sturdy");
+    expect(out).not.toBe(answer);
+    expect(out.copy).toBe(answer.copy);
+    expect(out.layout).toBe(answer.layout);
+    expect(normalizeEnumCase(WIRE, draft)).toBe(draft);
+  });
+
+  it("follows the schema's properties only: an unknown key keeps its value, a missing key stays missing, an own __proto__ stays an own data key", () => {
+    const answer = JSON.parse('{"theme":{"palette":"NAVY-ORANGE","extra":"CLEAN","__proto__":{"polluted":true}}}') as { theme: object };
+    const out = normalizeEnumCase(WIRE, answer) as { theme: Record<string, unknown> };
+    expect(out.theme.palette).toBe("navy-orange");
+    expect(out.theme.extra).toBe("CLEAN");
+    expect(Object.keys(out.theme)).toEqual(Object.keys(answer.theme));
+    expect(Object.hasOwn(out.theme, "__proto__")).toBe(true);
+    expect(Object.getPrototypeOf(out.theme)).toBe(Object.prototype);
+    expect("polluted" in out.theme).toBe(false);
   });
 });
