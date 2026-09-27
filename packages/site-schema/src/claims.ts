@@ -15,8 +15,8 @@ import { foldings } from "./lookalikes.ts";
 // clauses, not join one compound word), so this class is spelled out wherever a pattern below
 // joins two words.
 //
-// Claims are matched on the page read as typed and folded (A9, A9b, A9c, A9f), and a claim any reading finds counts. The
-// typed reading runs first (A9c item 1 said "folded, then as typed"; the order only decides which spelling of a found
+// Claims are matched on the page read as typed and folded (A9, A9b, A9c, A9f, A9g), and a claim any reading finds counts.
+// The typed reading runs first (A9c item 1 said "folded, then as typed"; the order only decides which spelling of a found
 // word is shown, recorded by A9e):
 // - as typed, as before A9, so every claim the checker found before A9 is still found;
 // - folded (foldings in lookalikes.ts): composed (NFC), with every combining mark removed that is not part
@@ -27,6 +27,8 @@ import { foldings } from "./lookalikes.ts";
 //   U+0336 + "sed", "Award" + " " + U+0336 + "winning"), a look-alike letter ("lıcensed", "ƒree", "ŁICENSED")
 //   or a click letter ("ǀCertifiedǀ", where "ǀ" looks like "|") on its own hides no claim. The fold alone would join two
 //   words the page shows apart ("Top" + U+0336 + "rated"), so the typed reading stays: the fold only ever adds a claim.
+//   A9g: ᴉ, ʗ, ʘ and Ʊ also draw as "!", "(", "⊙" and "℧", so when the text holds one, every folded reading is made
+//   again with each of them as a word break ("Estimates are ƒreeᴉ" reads "free!" on the page and is a claim).
 // A CamelCase word is read as typed, as before A9: A9d dropped A9c's CamelCase reading, which refused real names
 // that run a claim word into another word ("McMillion Creek", "FreeFlow Plumbing", "StreakFree Window Cleaning").
 // Small capitals and letters that look like digits ("ɪnsured", "ᴄertified", "Ƨ", "ꜭ") never get here: Copy refuses
@@ -37,7 +39,10 @@ import { foldings } from "./lookalikes.ts";
 // or does not list (turned, reversed and open letters such as "Ʌ", "ɐ", "ɒ" and "ɹ": "FrɅe", "ɹated", and other
 // look-alikes no rule derives: "insᴗred", "ꞷarranty", "ʃree", "ʍillions"), or a symbol ("fr℮℮", "L¡censed",
 // "days∕week", "INS℧RED"); a two-way letter used both ways inside one claim word ("ꟾꟾcensed", A9f: one reading reads
-// every copy of a letter the same way); a combining Latin small letter used as a letter ("Lic" + U+0364 + "nsed"); ASCII
+// every copy of a letter the same way; since A9g copy refuses ꟾ); a letter the table reads that draws as a letter,
+// glued to a claim word that has a look-alike ("Fully ɘlıcensed", "Our ʊƀonded crew": the page shows an extra letter,
+// like ASCII "xlicensed"; A9g); one of ᴉ ʗ ʘ Ʊ read as a letter inside a claim word while another is glued to it
+// ("Our ʗertifiedᴉ pros", A9g); a combining Latin small letter used as a letter ("Lic" + U+0364 + "nsed"); ASCII
 // "l" or "|" for "I" and a click letter for "l" ("CERTlFlED", "ǀicensed"); an overlay mark inside a claim word together
 // with a look-alike glued to its end ("Bon" + U+0336 + "dedł"), which neither reading finds; a claim word run into
 // another word in CamelCase ("TopRated", "WeAreBonded"; A9d); and the phrasings the word lists do not cover.
