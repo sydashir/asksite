@@ -39,6 +39,31 @@ async function underCaps(db: D1Database, siteId: string): Promise<boolean> {
   return counts !== null && counts.kept < LIMITS.uploadsPerSite && counts.total < LIMITS.uploadsPerSiteTotal;
 }
 
+/** One uploads row to create: a stored photo (deletedAt null) or a counted transform failure (deleted at once). */
+interface UploadRowValues {
+  id: string;
+  siteId: string;
+  width: number;
+  height: number;
+  bytes: number;
+  createdAt: number;
+  deletedAt: number | null;
+}
+
+/** The exact caps: the row is created only while both counts are under their limits. False when it was not. */
+async function insertUnderCaps(db: D1Database, row: UploadRowValues): Promise<boolean> {
+  const inserted = await db
+    .prepare(
+      `INSERT INTO uploads (id, site_id, width, height, bytes, created_at, deleted_at)
+       SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7
+       WHERE (SELECT COUNT(*) FROM uploads WHERE site_id = ?2 AND deleted_at IS NULL) < ?8
+         AND (SELECT COUNT(*) FROM uploads WHERE site_id = ?2) < ?9`,
+    )
+    .bind(row.id, row.siteId, row.width, row.height, row.bytes, row.createdAt, row.deletedAt, LIMITS.uploadsPerSite, LIMITS.uploadsPerSiteTotal)
+    .run();
+  return inserted.meta.changes === 1;
+}
+
 /** POST and DELETE /api/sites/:siteId/uploads (§4.4, §8). */
 export function uploadRoutes(): Hono<AppEnv> {
   const uploads = new Hono<AppEnv>();
@@ -51,12 +76,11 @@ export function uploadRoutes(): Hono<AppEnv> {
     const site = await ownedSite(db, c.req.param("siteId"), owner.id);
     // A taken-down site is frozen: no image work and no storage for it (decision 39).
     assertNotTakenDown(site);
-    // Pre-check so a refused upload costs no image transformation. Known limit (security review I2,
-    // accepted by the moderator 2026-09-26): uploads racing at a cap boundary each pass this pre-check and
-    // each run a billed transform, while the exact INSERT below makes only one row; past the boundary the
-    // pre-check refuses before any transform, so the extra transforms are bounded by that concurrency
-    // window. A file the service measures but cannot decode is refused (422) without a row, so only
-    // UPLOAD_RL bounds those transforms; whether a failed transform is billed is undocumented.
+    // Pre-check so a refused upload costs no image transformation. A file that makes the transform fail is
+    // counted as a deleted upload (P4-14), so the 150 total cap bounds those transforms too. The accepted
+    // known limit (P4-13, security review I2) is only the concurrency window at a cap boundary: uploads
+    // racing there each pass this pre-check and each run a transform, while the exact INSERT below creates
+    // rows only up to the caps; past the boundary the pre-check refuses before any transform.
     if (!(await underCaps(db, site.id))) throw limitReached();
 
     const body = await readBytes(c.req.raw, LIMITS.uploadMaxBytes + MULTIPART_OVERHEAD_BYTES);
@@ -74,20 +98,16 @@ export function uploadRoutes(): Hono<AppEnv> {
     if (problem === "too_many_pixels") throw new ApiError("image_rejected", "That photo is too large. Please choose a smaller one.");
 
     const still = await toStillWebp(c.env.IMAGES, bytes);
-    if (still === null) throw unreadablePhoto();
-    const id = newId();
     const now = Date.now();
-    // The exact caps: the row is created only while both counts are under their limits.
-    const inserted = await db
-      .prepare(
-        `INSERT INTO uploads (id, site_id, width, height, bytes, created_at)
-         SELECT ?1, ?2, ?3, ?4, ?5, ?6
-         WHERE (SELECT COUNT(*) FROM uploads WHERE site_id = ?2 AND deleted_at IS NULL) < ?7
-           AND (SELECT COUNT(*) FROM uploads WHERE site_id = ?2) < ?8`,
-      )
-      .bind(id, site.id, still.width, still.height, still.webp.byteLength, now, LIMITS.uploadsPerSite, LIMITS.uploadsPerSiteTotal)
-      .run();
-    if (inserted.meta.changes !== 1) throw limitReached();
+    if (still === null) {
+      // The file made the transform fail, and that transform ran. It is counted like an upload deleted at
+      // once, so the 150 total cap bounds these too (P4-14); the row has no object and is never shown.
+      const counted = await insertUnderCaps(db, { id: newId(), siteId: site.id, width: 0, height: 0, bytes: 0, createdAt: now, deletedAt: now });
+      throw counted ? unreadablePhoto() : limitReached();
+    }
+    const id = newId();
+    const created = await insertUnderCaps(db, { id, siteId: site.id, width: still.width, height: still.height, bytes: still.webp.byteLength, createdAt: now, deletedAt: null });
+    if (!created) throw limitReached();
     try {
       await c.env.MEDIA.put(mediaKey(site.id, id), still.webp, {
         httpMetadata: { contentType: "image/webp" },

@@ -18,6 +18,20 @@ async function imagesCalls(): Promise<Array<Record<string, unknown>>> {
   return json<Array<Record<string, unknown>>>(await h.call("GET", "/__test/images-calls"));
 }
 
+type UploadRow = { id: string; width: number; height: number; bytes: number; created_at: number; deleted_at: number | null };
+
+/** Every uploads row of a site, deleted ones included (the 150 total cap counts them all), oldest first. */
+async function uploadRows(siteId: string): Promise<UploadRow[]> {
+  const db = await h.db();
+  const { results } = await db.prepare("SELECT id, width, height, bytes, created_at, deleted_at FROM uploads WHERE site_id = ? ORDER BY created_at").bind(siteId).all<UploadRow>();
+  return results;
+}
+
+const shape = (row: UploadRow) => ({ width: row.width, height: row.height, bytes: row.bytes, deleted: row.deleted_at !== null });
+
+/** The row a photo that fails in the transform leaves (P4-14): no size, already deleted, counted toward the 150 total. */
+const COUNTED_FAILURE = { width: 0, height: 0, bytes: 0, deleted: true };
+
 describe("POST /api/sites/:siteId/uploads", () => {
   it("stores a PNG as a WebP in MEDIA and returns the UploadView", async () => {
     const owner = await h.signIn();
@@ -98,7 +112,8 @@ describe("POST /api/sites/:siteId/uploads", () => {
     expect((await json<ErrorJson>(res)).error.code).toBe("image_rejected");
     // The file got past .info() and failed in the transform: the transform was really asked for.
     expect((await imagesCalls()).slice(before).map((call) => Object.keys(call))).toEqual([["transform"], ["output"]]);
-    expect((await (await h.db()).prepare("SELECT COUNT(*) AS n FROM uploads WHERE site_id = ?").bind(owner.siteId).first<{ n: number }>())?.n).toBe(0);
+    // That transform is counted as an already-deleted upload, so the 150 total cap bounds them (P4-14).
+    expect((await uploadRows(owner.siteId)).map(shape)).toEqual([COUNTED_FAILURE]);
   });
 
   it("refuses a file over 10 MB with 413", async () => {
@@ -155,6 +170,27 @@ describe("POST /api/sites/:siteId/uploads", () => {
     expect(res.status).toBe(429);
   });
 
+  it("counts every photo that fails in the transform, so sending one again and again stops at the 150 total cap (429 upload_limit_reached)", async () => {
+    const db = await h.db();
+    const owner = await h.signIn();
+    for (let i = 0; i < 148; i += 1) {
+      await db.prepare("INSERT INTO uploads (id, site_id, width, height, bytes, created_at, deleted_at) VALUES (?, ?, 400, 300, 1, 1, 2)").bind(crypto.randomUUID(), owner.siteId).run();
+    }
+    const broken = await truncatedJpeg(800, 600);
+    for (let i = 0; i < 2; i += 1) {
+      const res = await h.call("POST", `/api/sites/${owner.siteId}/uploads`, { cookie: owner.cookie, body: upload(broken) });
+      expect([res.status, (await json<ErrorJson>(res)).error.code]).toEqual([422, "image_rejected"]);
+    }
+    const before = (await imagesCalls()).length;
+    const full = await h.call("POST", `/api/sites/${owner.siteId}/uploads`, { cookie: owner.cookie, body: upload(broken) });
+    expect(full.status).toBe(429);
+    expect((await json<ErrorJson>(full)).error.code).toBe("upload_limit_reached");
+    expect(full.headers.get("Retry-After")).toBe("86400");
+    // Refused by the pre-check: the file never reached the Images service again.
+    expect((await imagesCalls()).length).toBe(before);
+    expect((await uploadRows(owner.siteId)).map(shape).slice(148)).toEqual([COUNTED_FAILURE, COUNTED_FAILURE]);
+  });
+
   it("cannot upload to another owner's site", async () => {
     const a = await h.signIn();
     const b = await h.signIn();
@@ -187,28 +223,28 @@ describe.each(["info", "output"] as const)("when the Images binding fails in .%s
     const owner = await h.signIn();
     await h.call("POST", "/__test/images-fails", { body: { step, code } });
     const res = await h.call("POST", `/api/sites/${owner.siteId}/uploads`, { cookie: owner.cookie, body: upload(await png(400, 300), "x.png") });
-    const stored = await (await h.db()).prepare("SELECT COUNT(*) AS n FROM uploads WHERE site_id = ?").bind(owner.siteId).first<{ n: number }>();
-    return { res, stored: stored?.n };
+    return { res, rows: (await uploadRows(owner.siteId)).map(shape) };
   }
 
+  // Only a transform the file made fail is counted (P4-14): .info() is not billed, and a service failure is ours.
   it.each(FILE_FAULT_CODES)("blames the photo for Images error %i with 422 image_rejected", async (code) => {
-    const { res, stored } = await uploadWhileImagesFails(code);
+    const { res, rows } = await uploadWhileImagesFails(code);
     expect(res.status).toBe(422);
     expect((await json<ErrorJson>(res)).error.code).toBe("image_rejected");
-    expect(stored).toBe(0);
+    expect(rows).toEqual(step === "output" ? [COUNTED_FAILURE] : []);
   });
 
-  it.each(SERVICE_CODES)("answers Images error %i as our failure (500 internal), never as the owner's photo", async (code) => {
-    const { res, stored } = await uploadWhileImagesFails(code);
+  it.each(SERVICE_CODES)("answers Images error %i as our failure (500 internal), never as the owner's photo, and counts no upload", async (code) => {
+    const { res, rows } = await uploadWhileImagesFails(code);
     expect(res.status).toBe(500);
     expect((await json<ErrorJson>(res)).error.code).toBe("internal");
-    expect(stored).toBe(0);
+    expect(rows).toEqual([]);
   });
 
   it("answers a failure that is no Images error as 500 internal, and logs it as one", async () => {
-    const { res, stored } = await uploadWhileImagesFails(null);
+    const { res, rows } = await uploadWhileImagesFails(null);
     expect(res.status).toBe(500);
-    expect(stored).toBe(0);
+    expect(rows).toEqual([]);
     const line = h.logLines().filter((l) => l["route"] === "POST /api/sites/:siteId/uploads").at(-1);
     expect(line).toMatchObject({ status: 500, code: "internal", error: "TypeError" });
   });
@@ -257,5 +293,37 @@ describe("photo references and deletion", () => {
     expect(view.uploads.map((u) => u.id)).toEqual([photo.id]);
     const row = await (await h.db()).prepare("SELECT deleted_at FROM uploads WHERE id = ?").bind(photo.id).first<{ deleted_at: number | null }>();
     expect(row).toEqual({ deleted_at: null });
+  });
+
+  it("keeps the row a failed transform leaves out of sight: not listed, not usable as a photo, never served, no kept slot, passed over by a takedown purge", async () => {
+    const owner = await h.signIn();
+    const db = await h.db();
+    const res = await h.call("POST", `/api/sites/${owner.siteId}/uploads`, { cookie: owner.cookie, body: upload(await truncatedJpeg(800, 600)) });
+    expect(res.status).toBe(422);
+    const rows = await uploadRows(owner.siteId);
+    expect(rows.map(shape)).toEqual([COUNTED_FAILURE]);
+    const failed = rows[0]!;
+
+    // The site view and the photo check read only uploads with deleted_at IS NULL. The photo below has the
+    // row's own address and sizes, so only the row being deleted can make it "not one of your uploads".
+    expect((await json<SiteView>(await h.call("GET", `/api/sites/${owner.siteId}`, { cookie: owner.cookie }))).uploads).toEqual([]);
+    const ghost = { url: mediaUrl(ROOT, owner.siteId, failed.id), alt: "New water heater in a garage", width: 0, height: 0 };
+    const saved = await h.call("PATCH", `/api/sites/${owner.siteId}/draft`, { cookie: owner.cookie, body: { rev: 1, facts: { ...VALID_FACTS, heroPhoto: ghost } } });
+    const issues = (await json<{ issues: SiteView["issues"] }>(saved)).issues.photos;
+    expect(issues.map((i) => [i.path.join("."), i.code])).toEqual([["facts.heroPhoto.url", "photo_ref"]]);
+
+    // Nothing was stored, and the sites Worker reads MEDIA before D1 (Plan 2 serveMedia), so the row is never served.
+    expect(await media(`${owner.siteId}/${failed.id}.webp`)).toBeNull();
+
+    // It takes none of the 40 kept slots: with 39 kept photos, the 40th still uploads.
+    for (let i = 0; i < 39; i += 1) {
+      await db.prepare("INSERT INTO uploads (id, site_id, width, height, bytes, created_at) VALUES (?, ?, 400, 300, 1, 1)").bind(crypto.randomUUID(), owner.siteId).run();
+    }
+    expect((await h.call("POST", `/api/sites/${owner.siteId}/uploads`, { cookie: owner.cookie, body: upload(await png(400, 300), "x.png") })).status).toBe(201);
+
+    // A takedown's media purge marks only uploads with deleted_at IS NULL (Plan 2 takeDown, the same statement).
+    const purge = await db.prepare("UPDATE uploads SET deleted_at = ? WHERE site_id = ? AND deleted_at IS NULL").bind(Date.now() + 60_000, owner.siteId).run();
+    expect(purge.meta.changes).toBe(40);
+    expect((await uploadRows(owner.siteId)).find((row) => row.id === failed.id)?.deleted_at).toBe(failed.deleted_at);
   });
 });
