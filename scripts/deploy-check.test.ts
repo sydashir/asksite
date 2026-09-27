@@ -72,3 +72,42 @@ describe("deployProblems", () => {
     expect(deployProblems(far, NOW)).toEqual(["vars.SECURITY_TXT_EXPIRES must be 30 to 366 days from today"]);
   });
 });
+
+// Edges the tests above leave open (each one kills a mutant that passed them).
+describe("deployProblems edges", () => {
+  const EXPIRY = "vars.SECURITY_TXT_EXPIRES must be 30 to 366 days from today";
+  const withVars = (vars: Record<string, string>): string => JSON.stringify({ ...JSON.parse(ready()), vars });
+  const expiring = (iso: string): string[] => deployProblems(ready().replace("2027-09-01T00:00:00.000Z", iso), NOW);
+
+  it("passes a Worker without the sites-only variables (shaped like the generator, design §10.3)", () => {
+    expect(deployProblems(withVars({ ENVIRONMENT: "production", MODEL_PROVIDER: "anthropic", GENERATION_ENABLED: "false" }), NOW)).toEqual([]);
+  });
+
+  it("refuses preview_urls on its own, and a config that leaves both switches out", () => {
+    expect(deployProblems(ready().replace('"preview_urls":false', '"preview_urls":true'), NOW)).toEqual(["workers_dev and preview_urls must be false"]);
+    const unset = JSON.parse(ready()) as { workers_dev?: boolean; preview_urls?: boolean };
+    delete unset.workers_dev;
+    delete unset.preview_urls;
+    expect(deployProblems(JSON.stringify(unset), NOW)).toEqual(["workers_dev and preview_urls must be false"]);
+  });
+
+  it("refuses a real domain with a port", () => {
+    const withPort = ready().replace('"ROOT_DOMAIN":"tradesites.test"', '"ROOT_DOMAIN":"tradesites.test:8443"');
+    expect(deployProblems(withPort, NOW)).toEqual(["vars.ROOT_DOMAIN must be the real domain without a port"]);
+  });
+
+  it("treats each secret-like word in a variable name as a secret", () => {
+    const vars = { ...(JSON.parse(ready()) as { vars: Record<string, string> }).vars, IP_HASH_KEY: "x", A_SECRET: "x", A_TOKEN: "x", A_PASSWORD: "x" };
+    expect(deployProblems(withVars(vars), NOW)).toEqual(
+      ["IP_HASH_KEY", "A_SECRET", "A_TOKEN", "A_PASSWORD"].map((name) => `vars.${name} looks like a secret: use wrangler secret put`),
+    );
+  });
+
+  it("accepts exactly 30 and exactly 366 days, and refuses anything outside them or not a date", () => {
+    expect(expiring("2026-10-24T00:00:00.000Z")).toEqual([]); // NOW + 30 days
+    expect(expiring("2027-09-25T00:00:00.000Z")).toEqual([]); // NOW + 366 days
+    expect(expiring("2026-10-23T23:59:59.999Z")).toEqual([EXPIRY]);
+    expect(expiring("2027-09-25T00:00:00.001Z")).toEqual([EXPIRY]);
+    expect(expiring("next year")).toEqual([EXPIRY]);
+  });
+});
