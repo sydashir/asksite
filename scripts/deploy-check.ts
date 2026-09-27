@@ -8,6 +8,9 @@ export const PLACEHOLDER_DOMAIN = "asksite.example";
 export const PLACEHOLDER_DATABASE_ID = "00000000-0000-0000-0000-000000000000";
 const DAY = 86_400_000;
 const SECRET_LIKE = /KEY|SECRET|TOKEN|PASSWORD/i;
+// Public by design although the name says KEY: the sign-in page embeds Turnstile's sitekey, and its
+// private key is the secret TURNSTILE_SECRET_KEY (A11 item 4). Exact names: any other match is refused.
+const PUBLIC_VARS: ReadonlySet<string> = new Set(["TURNSTILE_SITE_KEY"]);
 
 interface WorkerConfig {
   workers_dev?: boolean;
@@ -29,7 +32,7 @@ export function deployProblems(text: string, now: number): string[] {
   if (vars["MAILER"] !== undefined && vars["MAILER"] !== "resend") problems.push("vars.MAILER must be resend");
   if (vars["ADMIN_AUTH_MODE"] !== undefined && vars["ADMIN_AUTH_MODE"] !== "access") problems.push("vars.ADMIN_AUTH_MODE must be access");
   if (vars["MODEL_PROVIDER"] === "fake") problems.push("vars.MODEL_PROVIDER must not be fake");
-  for (const name of Object.keys(vars)) if (SECRET_LIKE.test(name)) problems.push(`vars.${name} looks like a secret: use wrangler secret put`);
+  for (const name of Object.keys(vars)) if (SECRET_LIKE.test(name) && !PUBLIC_VARS.has(name)) problems.push(`vars.${name} looks like a secret: use wrangler secret put`);
   if (/localhost|:\d+$/.test(vars["ROOT_DOMAIN"] ?? "")) problems.push("vars.ROOT_DOMAIN must be the real domain without a port");
   if (config.workers_dev !== false || config.preview_urls !== false) problems.push("workers_dev and preview_urls must be false");
   if (config.observability?.logs?.invocation_logs !== false) problems.push("observability.logs.invocation_logs must be false");

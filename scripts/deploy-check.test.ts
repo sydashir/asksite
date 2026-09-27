@@ -111,3 +111,33 @@ describe("deployProblems edges", () => {
     expect(expiring("next year")).toEqual([EXPIRY]);
   });
 });
+
+// Turnstile's sitekey is public ("Public key used to invoke the Turnstile widget on your site",
+// Cloudflare Turnstile docs) and a var of asksite-app (A11 item 4), though its name says KEY.
+describe("public variables with a secret-like name", () => {
+  const readyVars = (): Record<string, string> => (JSON.parse(ready()) as { vars: Record<string, string> }).vars;
+  const withVars = (vars: Record<string, string>): string => JSON.stringify({ ...JSON.parse(ready()), vars });
+
+  it("passes the app Worker's production variables, the Turnstile sitekey included", () => {
+    const app = {
+      ENVIRONMENT: "production",
+      ROOT_DOMAIN: "tradesites.test",
+      APP_ORIGIN: "https://app.tradesites.test",
+      MAILER: "resend",
+      MAIL_FROM: "Website team <hello@mail.tradesites.test>",
+      SUPPORT_EMAIL: "help@tradesites.test",
+      ADMIN_NOTIFY_EMAILS: "reviewer@tradesites.test",
+      GENERATION_ENABLED: "false",
+      DAILY_MODEL_LIMIT: "8",
+      TURNSTILE_SITE_KEY: "0x4AAAAAAAexampleSiteKey",
+      LOGIN_EMAILS_PER_DAY: "40",
+    };
+    expect(deployProblems(withVars(app), NOW)).toEqual([]);
+  });
+
+  it("exempts only that exact name: the secret, look-alike names and other casings are still refused", () => {
+    const names = ["TURNSTILE_SECRET_KEY", "OTHER_SITE_KEY", "TURNSTILE_SITE_KEY_2", "turnstile_site_key"];
+    const vars = { ...readyVars(), ...Object.fromEntries(names.map((name) => [name, "x"])) };
+    expect(deployProblems(withVars(vars), NOW)).toEqual(names.map((name) => `vars.${name} looks like a secret: use wrangler secret put`));
+  });
+});
