@@ -1,5 +1,5 @@
 import { getEventListeners } from "node:events";
-import { Brief, type GenerationInputSnapshot } from "@asksite/core";
+import { Brief, type GenerationInputSnapshot, type Issue } from "@asksite/core";
 import { Facts } from "@asksite/site-schema";
 import { describe, expect, it, vi } from "vitest";
 import { CAPS_REPAIR, CAPS_SNAPSHOT, capsRepair, capsSnapshot } from "../eval/caps.ts";
@@ -671,8 +671,8 @@ describe("the input bound (P3-8)", () => {
     expect(calls).toEqual([1, 0]);
   });
 
-  // The same edge on a repair attempt: attempt 1 is sent and answered with 20 unknown keys, so attempt 2 carries real
-  // repair lines. A guard with another limit for repair attempts, lower or higher, fails here.
+  // The same edge on attempt 2: attempt 1 is sent and answered with 20 unknown keys, so attempt 2 carries real repair
+  // lines. A guard with another limit for attempt 2, lower or higher, fails here; the next test does the same for attempt 3.
   it("sends attempt 2 with real repair lines when its bound is exactly MAX_INPUT_TOKENS, and refuses it a byte over", async () => {
     const withNotes = (notes: string): GenerationInputSnapshot => ({ facts: FULL_SNAPSHOT.facts, brief: Brief.parse({ ...BRIEF, notes }) });
     const wrong = withUnknownKeys(good, "\u20AC");
@@ -698,6 +698,43 @@ describe("the input bound (P3-8)", () => {
     expect(runs).toEqual([
       { ok: true, attempts: 2, inputBoundRefused: false, sent: [boundOf(at), MAX_INPUT_TOKENS], outcomes: ["invalid", "valid"] },
       { ok: false, attempts: 1, inputBoundRefused: true, sent: [boundOf(over)], outcomes: ["invalid", "bad_request"] },
+    ]);
+  });
+
+  // The same edge on attempt 3: attempt 1 is answered with a bad headline, and attempt 2, sent below the bound, with 20
+  // unknown keys, so attempt 3 carries their real repair lines. A guard with another limit for attempt 3, lower or
+  // higher, or with no check on attempt 3, fails here.
+  it("sends attempt 3 with real repair lines when its bound is exactly MAX_INPUT_TOKENS, and refuses it a byte over", async () => {
+    const withNotes = (notes: string): GenerationInputSnapshot => ({ facts: FULL_SNAPSHOT.facts, brief: Brief.parse({ ...BRIEF, notes }) });
+    const wrong = withUnknownKeys(good, "\u20AC");
+    // checkDraft reads only the facts and the answer, so every snapshot below gets these repair issues on attempts 2 and 3.
+    const issuesOf = (json: unknown): Issue[] => {
+      const check = checkDraft(FULL_SNAPSHOT.facts, json);
+      return check.ok ? [] : check.issues;
+    };
+    const [secondIssues, thirdIssues] = [issuesOf(bad), issuesOf(wrong)];
+    expect([secondIssues.length > 0, thirdIssues.length > 0]).toEqual([true, true]);
+    const boundWith = (snapshot: GenerationInputSnapshot, issues: Issue[]): number => inputBound({ ...buildPrompt(snapshot, issues), jsonSchema: AI_DRAFT_JSON_SCHEMA });
+    const thirdBound = (snapshot: GenerationInputSnapshot): number => boundWith(snapshot, thirdIssues);
+    // As in the attempt-1 test: each U+FDFA adds 33 NFKC bytes, each "n" exactly 1 to every measure; the notes stay under their 2,000 cap.
+    const fdfa = "\uFDFA".repeat(Math.floor((MAX_INPUT_TOKENS - thirdBound(withNotes("n")) - 40) / 33));
+    const pad = MAX_INPUT_TOKENS - thirdBound(withNotes(fdfa));
+    const at = withNotes(fdfa + "n".repeat(pad));
+    const over = withNotes(fdfa + "n".repeat(pad + 1));
+    expect(pad).toBeGreaterThan(0);
+    expect(fdfa.length + pad + 1).toBeLessThanOrEqual(2_000);
+    expect([thirdBound(at), thirdBound(over)]).toEqual([MAX_INPUT_TOKENS, MAX_INPUT_TOKENS + 1]);
+    // Attempt 2 is below the bound in both runs, so only the guard on attempt 3 decides.
+    expect(boundWith(over, secondIssues)).toBeLessThan(MAX_INPUT_TOKENS);
+    const runs: unknown[] = [];
+    for (const snapshot of [at, over]) {
+      const provider = scriptedProvider([answer(bad), answer(wrong), answer(good)]);
+      const result = await generateDraft(provider, snapshot, testDeps().deps);
+      runs.push({ ok: result.ok, attempts: result.attempts, inputBoundRefused: result.inputBoundRefused, sent: provider.requests.map((req) => inputBound(req)), outcomes: result.log.map((a) => a.outcome) });
+    }
+    expect(runs).toEqual([
+      { ok: true, attempts: 3, inputBoundRefused: false, sent: [boundOf(at), boundWith(at, secondIssues), MAX_INPUT_TOKENS], outcomes: ["invalid", "invalid", "valid"] },
+      { ok: false, attempts: 2, inputBoundRefused: true, sent: [boundOf(over), boundWith(over, secondIssues)], outcomes: ["invalid", "invalid", "bad_request"] },
     ]);
   });
 });
