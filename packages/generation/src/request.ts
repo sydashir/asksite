@@ -6,13 +6,21 @@ export type RequestGenerationResult =
   | { ok: true; generation: GenerationView }
   | { ok: false; code: "generation_in_progress" | "generation_cap_reached" | "generation_disabled" | "budget_exhausted" | "internal" };
 
+// Which rows count. INSERT_JOB and generationAllowance use these same two expressions, so they always agree.
+// IS never yields NULL (unlike =), so a row with no error code still counts toward the site's day.
+const COUNTS_TODAY = "NOT (error_code IS 'internal' AND started_at IS NULL)";
+const COUNTS_TOWARD_TOTAL = "kind = 'regenerate' AND (status IN ('queued', 'running') OR model_slot = 1)";
+
 // The per-site daily count and the per-owner total are checked in the INSERT itself, so they are
-// exact even when one owner acts on two sites at once (design §6.4). The per-owner total counts and
-// limits regenerations only: a first build neither counts nor is refused by it (Decision 30).
+// exact even when one owner acts on two sites at once (design §6.4).
+// The daily count skips a row that failed with 'internal' before any job claimed it (a failed queue send, or a stuck
+// queued row the sweeper ended), so an infrastructure failure never spends the owner's allowance.
+// A first build neither counts toward nor is refused by the per-owner total (Decision 30).
+// A regeneration counts while it is queued or running, and afterwards only if it took a model call.
 const INSERT_JOB = `INSERT INTO generations (id, site_id, owner_id, kind, status, input_json, created_at)
 SELECT ?1, ?2, ?3, ?4, 'queued', ?5, ?6
-WHERE (SELECT COUNT(*) FROM generations WHERE site_id = ?2 AND created_at >= ?7) < ?8
-  AND (?4 = 'first' OR (SELECT COUNT(*) FROM generations WHERE owner_id = ?3 AND kind = 'regenerate') < ?9)`;
+WHERE (SELECT COUNT(*) FROM generations WHERE site_id = ?2 AND created_at >= ?7 AND (${COUNTS_TODAY})) < ?8
+  AND (?4 = 'first' OR (SELECT COUNT(*) FROM generations WHERE owner_id = ?3 AND (${COUNTS_TOWARD_TOTAL})) < ?9)`;
 // In the same batch (one transaction): the audit row exists exactly when the job row does.
 const INSERT_AUDIT = `INSERT INTO audit_log (at, actor, action, site_id, detail_json)
 SELECT ?1, ?2, 'generation.requested', ?3, ?4 WHERE EXISTS (SELECT 1 FROM generations WHERE id = ?5)`;
@@ -69,14 +77,14 @@ export async function requestGeneration(
   }
 }
 
-/** What the owner has left (SiteView.limits): today for this site, and regenerations in total for this owner (first builds do not count, Decision 30). */
+/** What the owner has left (SiteView.limits): today for this site, and regenerations in total for this owner, counted exactly as INSERT_JOB counts them. */
 export async function generationAllowance(
   env: { DB: D1Database },
   input: { siteId: string; ownerId: string; now: number },
 ): Promise<{ generationsLeftToday: number; generationsLeftTotal: number }> {
   const row = await env.DB.prepare(
-    `SELECT (SELECT COUNT(*) FROM generations WHERE site_id = ?1 AND created_at >= ?3) AS today,
-            (SELECT COUNT(*) FROM generations WHERE owner_id = ?2 AND kind = 'regenerate') AS total`,
+    `SELECT (SELECT COUNT(*) FROM generations WHERE site_id = ?1 AND created_at >= ?3 AND (${COUNTS_TODAY})) AS today,
+            (SELECT COUNT(*) FROM generations WHERE owner_id = ?2 AND (${COUNTS_TOWARD_TOTAL})) AS total`,
   )
     .bind(input.siteId, input.ownerId, utcDayStart(input.now))
     .first<{ today: number; total: number }>();
