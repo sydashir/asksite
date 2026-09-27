@@ -130,13 +130,27 @@ export function foldLookalikes(text: string): string {
 }
 
 /**
+ * A9g: the look-alikes that also draw as punctuation or a symbol: ᴉ as "!", ʗ as "(", ʘ as "⊙" (its Unicode 1.0 name is
+ * LATIN LETTER BULLSEYE) and Ʊ as "℧" (confusables.txt reads ℧ as Ʊ). Read only as a letter, one glued to a claim word
+ * joins it ("ƒreeᴉ" reads "freei", while the page shows "free!"), so foldings() also reads them as a word break.
+ */
+const SYMBOL_LIKE = /[ᴉʗʘƱ]/gu;
+
+/**
  * Every way a reader can take the text (A9f): foldLookalikes' reading first, then one reading for each combination of
  * the two-way letters in the text read their second way, each letter on its own, so "Fiʋe" (v) and "insʋred" (u) are
- * both found, and so is "ꟾnsʋred" (i and u). At most 2^3 = 8 readings. All the copies of one letter read the same way in
- * one reading, so a two-way letter used both ways inside one word ("ꟾꟾcensed") is not read (an accepted residual).
+ * both found, and so is "ꟾnsʋred" (i and u). All the copies of one letter read the same way in one reading, so a two-way
+ * letter used both ways inside one word ("ꟾꟾcensed") is not read (an accepted residual). A9g: when the text holds a
+ * SYMBOL_LIKE letter, the same readings follow again with each of them as a space ("free "), so twice as many.
  */
 export function foldings(text: string): string[] {
   const letters = composed(text);
+  const broken = letters.replace(SYMBOL_LIKE, " ");
+  return broken === letters ? readingsOf(letters) : [...readingsOf(letters), ...readingsOf(broken)];
+}
+
+/** One reading for each combination of the two-way letters in `letters` read their second way (A9f). */
+function readingsOf(letters: string): string[] {
   const twoWay = [...SECOND_READ_AS.keys()].filter((letter) => letters.includes(letter));
   return Array.from({ length: 2 ** twoWay.length }, (_, combination) =>
     readLookalikes(letters, new Set(twoWay.filter((_, bit) => combination & (1 << bit)))),

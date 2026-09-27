@@ -156,6 +156,24 @@ describe("foldLookalikes (A9b, A9c, A9e, A9f)", () => {
     expect(foldings("ʋ̶")).toEqual(["v", "u"]);
   });
 
+  // A9g: ᴉ, ʗ, ʘ and Ʊ read as i, c, o and U, but they also draw as punctuation or a symbol ("!", "(", "⊙", "℧"). Read only
+  // as a letter, one glued to a claim word joins it ("ƒreeᴉ" reads "freei"), so foldings() also reads the text with each
+  // of them as a space, a word break (the A9f round-2 attack's measured fix), after the readings as letters.
+  it("also reads ᴉ, ʗ, ʘ and Ʊ as a word break, after every reading as letters (A9g)", () => {
+    expect(foldings("ƒreeᴉ")).toEqual(["freei", "free "]);
+    expect(foldings("ʗƒree)")).toEqual(["cfree)", " free)"]);
+    expect(foldings("ʘƒree")).toEqual(["ofree", " free"]);
+    expect(foldings("ƱƑREE")).toEqual(["UFREE", " FREE"]);
+    expect(foldings("Lᴉcensed")).toEqual(["Licensed", "L censed"]);
+    expect(foldings("ᴉʗʘƱ")).toEqual(["icoU", "    "]);
+    expect(foldings("insʋredᴉ")).toEqual(["insvredi", "insuredi", "insvred ", "insured "]); // and every two-way reading
+    expect(foldings("ᴉ̶ƒree")).toEqual(["ifree", " free"]); // found after its combining marks are removed
+  });
+
+  it("gives no word-break reading for the letters that draw as letters (ʊ, ɘ, ꟻ, ꟽ, ɧ) (A9g)", () => {
+    for (const text of ["ʊƀonded", "ɘlıcensed", "ꟻlıcensed", "ꟽƒree", "ɧƒree"]) expect(foldings(text)).toEqual([foldLookalikes(text)]);
+  });
+
   // A9c: the click letters look like punctuation, so they read as punctuation and never join two words into one.
   it.each([
     ["ǀ", "|"], // U+01C0 dental click, Unicode 1.0 name LATIN LETTER PIPE

@@ -11,7 +11,7 @@ import {
   unbackedClaims,
   type SiteDocumentInput,
 } from "../src/index.ts";
-import { foldLookalikes } from "../src/lookalikes.ts";
+import { foldLookalikes, LOOKALIKES } from "../src/lookalikes.ts";
 
 const base: SiteDocumentInput["facts"] = {
   businessName: "Mop",
@@ -480,6 +480,66 @@ describe("unbackedClaims", () => {
     expect(unbackedClaims(text, ALL)).toEqual([claim]);
   });
 
+  // A9g: ᴉ, Ʊ, ʘ and ʗ, which the table reads as i, U, o and c, also draw as "!", "℧", "⊙" and "(". Glued to a claim word
+  // that carries a look-alike, they must not hide it, so they also read as a word break. The A9f round-2 attack's 10 cases:
+  // at c76f761 the first six passed; the last four are the letters' own A9f readings, which must still find the claim.
+  it.each([
+    "Estimates are ƒreeᴉ",
+    "We are ƀondedᴉ",
+    "ƱƑREE ESTIMATES",
+    "Fully ƱŁICENSED",
+    "Ask about our ʘƒree estimates",
+    "Estimates ʗƒree)",
+    "Lᴉcensed crew",
+    "ʗERTIFIED PROS",
+    "BʘNDED CREW",
+    "FULLY INSƱRED",
+  ])("finds a claim in %j, where a letter that draws as punctuation or a symbol is glued to a claim word (A9g attack)", (text) => {
+    expect(unbackedClaims(text, NONE)).not.toEqual([]);
+  });
+
+  it.each([
+    ["Estimates are ƒreeᴉ", "free"], // the page reads "Estimates are free!"
+    ["Call now for a ƒreeᴉ estimate", "free"],
+    ["ƱƑREE ESTIMATES", "FREE"], // "℧FREE ESTIMATES"
+    ["Fully ƱŁICENSED", "LICENSED"],
+    ["Ask about our ʘƒree estimates", "free"], // "⊙free"
+    ["Estimates ʗƒree)", "free"], // "(free)"
+  ])("reads the glued letter in %j as a word break and finds %j unless the facts back it (A9g)", (text, word) => {
+    expect(unbackedClaims(text, NONE)).toEqual([word]);
+    expect(unbackedClaims(text, ALL)).toEqual([]);
+  });
+
+  it.each([
+    ["We are ƀondedᴉ", "bonded"], // "We are bonded!"
+    ["ƱƁONDED CREW", "BONDED"],
+  ])("never allows %j (%j once the glued letter reads as a word break), whatever the facts (A9g)", (text, claim) => {
+    expect(unbackedClaims(text, NONE)).toEqual([claim]);
+    expect(unbackedClaims(text, ALL)).toEqual([claim]);
+  });
+
+  // A9g: the attack's generated sweep. Each of ᴉ ʗ ʘ Ʊ glued before or after each claim word written with one look-alike
+  // (the first letter the table lists for that A-Z letter, at each position in turn), in three frames: 4 x 183 x 3 strings.
+  it("finds every claim word written with a look-alike when ᴉ, ʗ, ʘ or Ʊ is glued to it (A9g sweep)", () => {
+    const words = [
+      "bonded", "certified", "accredited", "rated", "reviews", "says", "guaranteed", "warranty", "cheapest", "dollars",
+      "hundreds", "thousands", "millions", "since", "years", "established", "founded", "weekends", "free", "complimentary",
+      "emergency", "licensed", "insured", "anytime",
+    ];
+    const first = new Map(Object.entries(LOOKALIKES).map(([reading, letters]) => [reading, [...letters][0]]));
+    const spellings = words.flatMap((word) =>
+      [...word].flatMap((letter, i) => {
+        const lookalike = first.get(letter);
+        return lookalike === undefined ? [] : [word.slice(0, i) + lookalike + word.slice(i + 1)];
+      }),
+    );
+    const texts = ["ᴉ", "ʗ", "ʘ", "Ʊ"].flatMap((glued) =>
+      spellings.flatMap((word) => [`Our ${glued}${word} crew`, `Our ${word}${glued} crew`, `${glued}${word} team`]),
+    );
+    expect(texts).toHaveLength(2196);
+    expect(texts.filter((text) => unbackedClaims(text, NONE).length === 0)).toEqual([]);
+  });
+
   it.each([
     "Serving Hawaiʻi, Oʻahu and Kāneʻohe",
     "Serving Hawaiʼi and Oʼahu",
@@ -727,6 +787,9 @@ describe("SiteDocument rejects AI copy that states facts the owner did not give"
     "Fully li\u0297ensed plumbers", // A9f round 1: U+0297 ʗ reads c
     "Over \u0267undreds of homes", // A9f round 1: U+0267 ɧ reads h
     "\uA726UNDREDS SERVED", // A9f round 1: U+A726 Ꜧ reads H
+    "Estimates are \u0192ree\u1D09", // A9g: U+1D09 ᴉ draws as "!", so it also reads as a word break
+    "\u01B1\u0191REE ESTIMATES", // A9g: U+01B1 Ʊ draws as "℧"
+    "Ask about our \u0298\u0192ree estimates", // A9g: U+0298 ʘ draws as "⊙"
   ])("%j", (claim) => {
     const faq = [{ question: "Why us?", answer: claim }];
     const result = SiteDocument.safeParse({ ...MINIMAL_DOC, copy: { ...MINIMAL_DOC.copy, faq } });
