@@ -207,7 +207,10 @@ export async function generateDraft(provider: ModelProvider, snapshot: Generatio
     let sent = false;
     let res: ModelResponse;
     try {
-      // Checked on exactly what this call would send. No retry can shrink the prompt, so it is a bad request.
+      // Checked on exactly what this call would send. On attempt 1 an overflow can come only from owner text; on
+      // attempts 2 and 3 it can also come from the model's own text, which reaches the prompt through the repair
+      // lines (Zod's "Unrecognized key" message repeats a key the model chose). No retry can shrink the prompt, so
+      // it is a bad request.
       if (inputBound(req) > MAX_INPUT_TOKENS) {
         inputBoundRefused = true;
         throw new ProviderError("bad_request", "prompt over the input bound");
