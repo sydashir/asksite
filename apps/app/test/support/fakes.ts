@@ -18,7 +18,7 @@ import {
 import { render } from "@asksite/renderer";
 import { SITE_CSS } from "@asksite/site-css";
 import { factSections, SECTION_VARIANTS, type Facts, type LayoutSection, type SectionId } from "@asksite/site-schema";
-import type { AppDeps, GenerationDeps, MailerEnv, PublishErrorCode, PublishingDeps } from "../../src/worker/deps.ts";
+import type { AppDeps, GenerationDeps, MailerEnv, PublishErrorCode, PublishingDeps, RequestGenerationResult } from "../../src/worker/deps.ts";
 import { FAKE_PUBLISH_CAP } from "./limits.ts";
 import { TURNSTILE_DUMMY_TOKEN, TURNSTILE_TEST_HOSTNAME, TURNSTILE_TEST_SECRET, type SiteverifyCall } from "./turnstile.ts";
 
@@ -69,8 +69,22 @@ export function toGenerationView(row: GenerationRow): GenerationView {
   };
 }
 
+type GenerationRefusal = Exclude<RequestGenerationResult, { ok: true }>["code"];
+
+/** When set, the next requestGeneration answers this refusal instead of doing its work, so a route test can see each code's answer. */
+let nextGenerationRefusal: GenerationRefusal | undefined;
+
+export function refuseNextGeneration(code: GenerationRefusal): void {
+  nextGenerationRefusal = code;
+}
+
 export const fakeGeneration: GenerationDeps = {
   async requestGeneration(env, input) {
+    if (nextGenerationRefusal !== undefined) {
+      const code = nextGenerationRefusal;
+      nextGenerationRefusal = undefined;
+      return { ok: false, code };
+    }
     const db = env.DB;
     const done = await db.prepare("SELECT 1 FROM generations WHERE site_id = ? AND status = 'succeeded' LIMIT 1").bind(input.siteId).first();
     const kind = done === null ? "first" : "regenerate";

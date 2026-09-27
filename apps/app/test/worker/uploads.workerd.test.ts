@@ -1,12 +1,16 @@
 import { LIMITS, mediaUrl, type SiteView, type UploadView } from "@asksite/core";
 import { describe, expect, it } from "vitest";
+import { MAX_PART_HEADER_BYTES, MAX_PARTS } from "../../src/worker/multipart.ts";
 import { VALID_FACTS } from "../support/facts.ts";
-import { APP_ORIGIN, json, ROOT, useAppHarness } from "../support/harness.ts";
-import { animatedWebp, jpegWithGps, latin1, png, truncatedJpeg, upload } from "../support/images.ts";
+import { APP_ORIGIN, awayFromMinuteBoundary, json, ROOT, useAppHarness } from "../support/harness.ts";
+import { animatedWebp, jpeg, jpegWithGps, latin1, png, truncatedJpeg, upload } from "../support/images.ts";
 
 const h = useAppHarness();
 
-type ErrorJson = { error: { code: string } };
+type ErrorJson = { error: { code: string; message?: string } };
+
+/** The request's one log line of the last upload POST. */
+const lastUploadLine = () => h.logLines().filter((line) => line["route"] === "POST /api/sites/:siteId/uploads").at(-1);
 
 async function media(key: string) {
   const env = (await h.server.getWorker().getEnv()) as { MEDIA: { get(key: string): Promise<{ arrayBuffer(): Promise<ArrayBuffer>; httpMetadata?: { contentType?: string }; customMetadata?: Record<string, string> } | null> } };
@@ -133,18 +137,115 @@ describe("POST /api/sites/:siteId/uploads", () => {
     expect(await mediaKeys(owner.siteId)).toEqual([]);
   });
 
-  it("refuses a file over 10 MB with 413", async () => {
+  it("refuses a photo over 10 MB with the photo's 413", async () => {
     const owner = await h.signIn();
-    const big = new Uint8Array(10 * 1024 * 1024 + 1);
+    const big = new Uint8Array(LIMITS.uploadMaxBytes + 1);
     big.set([0xff, 0xd8, 0xff]);
     const res = await h.call("POST", `/api/sites/${owner.siteId}/uploads`, { cookie: owner.cookie, body: upload(big) });
     expect(res.status).toBe(413);
+    expect((await json<ErrorJson>(res)).error).toEqual({ code: "payload_too_large", message: "That photo is over 10 MB. Please choose a smaller one." });
+  });
+
+  it("refuses a body over the photo's 10 MB plus the 16 KiB multipart allowance with 413 before parsing it (the byte cap), declared or streamed", async () => {
+    const owner = await h.signIn();
+    const path = `/api/sites/${owner.siteId}/uploads`;
+    // A file this big is over the cap once its multipart wrapper is around it.
+    const file = new Uint8Array(LIMITS.uploadMaxBytes + 16 * 1024);
+    file.set([0xff, 0xd8, 0xff]);
+    const declared = await h.call("POST", path, { cookie: owner.cookie, body: upload(file) });
+    expect(declared.status).toBe(413);
+    expect((await json<ErrorJson>(declared)).error).toEqual({ code: "payload_too_large", message: "That is too large to upload" });
+    // The same body as a stream with no Content-Length: the bytes are counted as they arrive.
+    const encoded = new Request("https://encode.invalid/", { method: "POST", body: upload(file) });
+    // The harness's own RequestInit (undici's, which has `duplex`), not Node's global one.
+    const init: Parameters<typeof h.server.fetch>[1] = {
+      method: "POST",
+      headers: { Origin: APP_ORIGIN, Cookie: owner.cookie, "Content-Type": encoded.headers.get("Content-Type") ?? "" },
+      body: encoded.body,
+      duplex: "half",
+    };
+    const streamed = await h.server.fetch(`${APP_ORIGIN}${path}`, init);
+    expect(streamed.status).toBe(413);
+    expect((await json<ErrorJson>(streamed)).error).toEqual({ code: "payload_too_large", message: "That is too large to upload" });
+  });
+
+  it("refuses a photo over 50 million pixels with 422 image_rejected once measured, before any transform and with no row (§8 step 2)", async () => {
+    const owner = await h.signIn();
+    const before = (await imagesCalls()).length;
+    const res = await h.call("POST", `/api/sites/${owner.siteId}/uploads`, { cookie: owner.cookie, body: upload(await jpeg(7100, 7100)) });
+    expect(res.status).toBe(422);
+    expect((await json<ErrorJson>(res)).error).toEqual({ code: "image_rejected", message: "That photo is too large. Please choose a smaller one." });
+    expect((await imagesCalls()).length).toBe(before);
+    expect(await uploadRows(owner.siteId)).toEqual([]);
   });
 
   it("refuses a body that is not multipart with 403", async () => {
     const owner = await h.signIn();
     const res = await h.call("POST", `/api/sites/${owner.siteId}/uploads`, { cookie: owner.cookie, body: { file: "x" } });
     expect(res.status).toBe(403);
+  });
+
+  it("stops an owner at UPLOAD_RL, 20 uploads a minute (429 rate_limited, Retry-After 60), before the body is looked at", async () => {
+    const owner = await h.signIn();
+    await awayFromMinuteBoundary();
+    const statuses: number[] = [];
+    let last: Response | undefined;
+    for (let i = 0; i < 21; i += 1) {
+      // A JSON body: refused at the content-type check right after the rate limit, so each try costs nothing.
+      last = await h.call("POST", `/api/sites/${owner.siteId}/uploads`, { cookie: owner.cookie, body: { file: "x" } });
+      statuses.push(last.status);
+    }
+    expect(statuses).toEqual([...Array.from({ length: 20 }, () => 403), 429]);
+    expect((await json<ErrorJson>(last!)).error.code).toBe("rate_limited");
+    expect(last!.headers.get("Retry-After")).toBe("60");
+  });
+
+  it("refuses a multipart body with no file part with 400 bad_request: a field named file that is text, or no field named file", async () => {
+    const owner = await h.signIn();
+    const textField = new FormData();
+    textField.append("file", "not a file");
+    const otherName = new FormData();
+    otherName.append("photo", new File([await png(400, 300)], "x.png", { type: "image/png" }));
+    for (const body of [textField, otherName]) {
+      const res = await h.call("POST", `/api/sites/${owner.siteId}/uploads`, { cookie: owner.cookie, body });
+      expect(res.status).toBe(400);
+      expect((await json<ErrorJson>(res)).error).toEqual({ code: "bad_request", message: "Choose a photo to upload" });
+    }
+    expect(await uploadRows(owner.siteId)).toEqual([]);
+  });
+
+  describe("a multipart body shaped to make the parse slow is refused before it is parsed (P4-15 d)", () => {
+    const refused = { code: "bad_request", message: "The upload is not valid multipart form data" };
+
+    it(`refuses more than MAX_PARTS (${MAX_PARTS}) parts with 400, noting too_many_parts on the request's log line`, async () => {
+      const owner = await h.signIn();
+      const form = upload(await png(400, 300), "x.png", "image/png");
+      for (let i = 0; i < MAX_PARTS; i += 1) form.append(`field${i}`, "x");
+      const res = await h.call("POST", `/api/sites/${owner.siteId}/uploads`, { cookie: owner.cookie, body: form });
+      expect(res.status).toBe(400);
+      expect((await json<ErrorJson>(res)).error).toEqual(refused);
+      expect(lastUploadLine()).toMatchObject({ status: 400, code: "bad_request", event: "multipart_refused", reason: "too_many_parts" });
+      expect(await uploadRows(owner.siteId)).toEqual([]);
+    });
+
+    it(`refuses a part whose headers run past MAX_PART_HEADER_BYTES (${MAX_PART_HEADER_BYTES}) with 400, noting part_header_too_long`, async () => {
+      const owner = await h.signIn();
+      const form = upload(await png(400, 300), `${"a".repeat(MAX_PART_HEADER_BYTES)}.png`, "image/png");
+      const res = await h.call("POST", `/api/sites/${owner.siteId}/uploads`, { cookie: owner.cookie, body: form });
+      expect(res.status).toBe(400);
+      expect((await json<ErrorJson>(res)).error).toEqual(refused);
+      expect(lastUploadLine()).toMatchObject({ status: 400, code: "bad_request", event: "multipart_refused", reason: "part_header_too_long" });
+      expect(await uploadRows(owner.siteId)).toEqual([]);
+    });
+
+    it(`still stores a photo sent with up to ${MAX_PARTS - 1} other fields`, async () => {
+      const owner = await h.signIn();
+      const form = upload(await png(400, 300), "x.png", "image/png");
+      for (let i = 0; i < MAX_PARTS - 1; i += 1) form.append(`field${i}`, "x");
+      const res = await h.call("POST", `/api/sites/${owner.siteId}/uploads`, { cookie: owner.cookie, body: form });
+      expect(res.status).toBe(201);
+      expect((await uploadRows(owner.siteId)).map(shape)).toEqual([{ width: 400, height: 300, bytes: expect.any(Number), deleted: false }]);
+    });
   });
 
   it("refuses a multipart body that cannot be parsed with 400 bad_request, not as a server failure", async () => {
@@ -225,12 +326,15 @@ describe("POST /api/sites/:siteId/uploads", () => {
       expect(await mediaKeys(owner.siteId)).toEqual([]);
     });
 
-    it("at the total cap, a photo that fails in the transform is refused as over the limit, not counted (P4-14)", async () => {
-      const owner = await oneShortOf("total");
+    // The failure row goes through the same conditional INSERT, so either cap refuses it (P4-14; the refused arm at
+    // routes/uploads.ts is otherwise reached only in this race).
+    it.each(["kept", "total"] as const)("at the %s cap, a photo that fails in the transform is refused as over the limit, not counted (P4-14)", async (cap) => {
+      const owner = await oneShortOf(cap);
       const res = await h.call("POST", `/api/sites/${owner.siteId}/uploads`, { cookie: owner.cookie, body: upload(await truncatedJpeg(800, 600)) });
       expect(res.status).toBe(429);
       expect((await json<ErrorJson>(res)).error.code).toBe("upload_limit_reached");
-      expect(await counts(owner.siteId)).toEqual({ total: LIMITS.uploadsPerSiteTotal, kept: 0 });
+      expect(res.headers.get("Retry-After")).toBe("86400");
+      expect(await counts(owner.siteId)).toEqual(cap === "kept" ? { total: LIMITS.uploadsPerSite, kept: LIMITS.uploadsPerSite } : { total: LIMITS.uploadsPerSiteTotal, kept: 0 });
     });
   });
 
@@ -253,6 +357,26 @@ describe("POST /api/sites/:siteId/uploads", () => {
     // Refused by the pre-check: the file never reached the Images service again.
     expect((await imagesCalls()).length).toBe(before);
     expect((await uploadRows(owner.siteId)).map(shape).slice(148)).toEqual([COUNTED_FAILURE, COUNTED_FAILURE]);
+  });
+
+  it("hands storing the row and the photo to waitUntil as well, so a client that goes away cannot leave a row without its photo", async () => {
+    const owner = await h.signIn();
+    const path = `/api/sites/${owner.siteId}/uploads`;
+    const before = await h.waitUntilCount(path);
+    const res = await h.call("POST", path, { cookie: owner.cookie, body: upload(await png(400, 300), "x.png") });
+    expect(res.status).toBe(201);
+    expect(await h.waitUntilCount(path)).toBe(before + 1);
+    await h.backgroundDone(path);
+  });
+
+  it("removes the row again when the photo cannot be stored (500 internal, nothing left behind)", async () => {
+    const owner = await h.signIn();
+    await h.call("POST", "/__test/media-put-fails");
+    const res = await h.call("POST", `/api/sites/${owner.siteId}/uploads`, { cookie: owner.cookie, body: upload(await png(400, 300), "x.png") });
+    expect(res.status).toBe(500);
+    expect((await json<ErrorJson>(res)).error.code).toBe("internal");
+    expect(await uploadRows(owner.siteId)).toEqual([]);
+    expect(await mediaKeys(owner.siteId)).toEqual([]);
   });
 
   it("cannot upload to another owner's site", async () => {

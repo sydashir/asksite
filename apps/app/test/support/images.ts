@@ -8,6 +8,11 @@ export async function png(width: number, height: number): Promise<Uint8Array> {
   return new Uint8Array(await solid(width, height).png().toBuffer());
 }
 
+/** A plain JPEG: one colour compresses to a few hundred KB even at 50 million pixels. */
+export async function jpeg(width: number, height: number): Promise<Uint8Array> {
+  return new Uint8Array(await solid(width, height).jpeg({ quality: 90 }).toBuffer());
+}
+
 /** A JPEG carrying a camera make and GPS coordinates in its EXIF block. */
 export async function jpegWithGps(width: number, height: number): Promise<Uint8Array> {
   const buffer = await solid(width, height)

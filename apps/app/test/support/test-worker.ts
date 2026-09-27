@@ -5,7 +5,7 @@ import type { Siteverify } from "../../src/worker/deps.ts";
 import { requireTurnstile, SITEVERIFY_TIMEOUT_MS } from "../../src/worker/turnstile.ts";
 import type { AppEnv } from "../../src/worker/types.ts";
 import { createWorker } from "../../src/worker/worker.ts";
-import { calledLikeFetch, errorName, fakeApprove, fakeCreateMailer, fakeGeneration, fakePublishing, fakeSiteverify, fetchCalledOn, finishGeneration, siteverifyCallsSoFar } from "./fakes.ts";
+import { calledLikeFetch, errorName, fakeApprove, fakeCreateMailer, fakeGeneration, fakePublishing, fakeSiteverify, fetchCalledOn, finishGeneration, refuseNextGeneration, siteverifyCallsSoFar } from "./fakes.ts";
 
 // The app Worker wired to the fakes, plus /__test/* helpers that stand in for the admin and the
 // generator in tests. Used by the Worker tests (test/wrangler.test.jsonc) and the browser tests
@@ -239,6 +239,25 @@ function withImagesHook(env: Env): Env {
   return { ...env, IMAGES };
 }
 
+/** When true, the next MEDIA.put of any request fails, as an R2 outage would. */
+let nextMediaPutFails = false;
+
+/** The Worker's env, with a MEDIA binding whose next put() can be made to fail once. */
+function withMediaHook(env: Env): Env {
+  if (!nextMediaPutFails) return env;
+  const MEDIA = new Proxy(env.MEDIA, {
+    get(target, key) {
+      if (key === "put" && nextMediaPutFails) {
+        nextMediaPutFails = false;
+        return () => Promise.reject(new Error("R2 put failed: made by the test Worker"));
+      }
+      const value: unknown = Reflect.get(target, key);
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
+  return { ...env, MEDIA };
+}
+
 const helpers = new Hono<AppEnv>();
 
 helpers.use("*", async (c, next) => {
@@ -286,6 +305,13 @@ helpers.post("/__test/save-after-site-write", async (c) => {
   return c.json({ ok: true });
 });
 
+/** Arms the fake generator: its next request is refused with this code, whatever the site's state. */
+helpers.post("/__test/generation-refuses", async (c) => {
+  const { code } = await c.req.json<{ code: Parameters<typeof refuseNextGeneration>[0] }>();
+  refuseNextGeneration(code);
+  return c.json({ ok: true });
+});
+
 /** What the generator does when a job ends. */
 helpers.post("/__test/generations/:generationId/finish", async (c) => {
   const body = await c.req.json<{ status: "succeeded" | "failed"; usedFallback?: boolean }>();
@@ -323,6 +349,12 @@ helpers.post("/__test/images-fails", async (c) => {
 helpers.post("/__test/images-output-format", async (c) => {
   const { format } = await c.req.json<{ format: ImageOutputOptions["format"] }>();
   nextOutputFormat = format;
+  return c.json({ ok: true });
+});
+
+/** Arms the hook above: the next MEDIA.put of any request fails. */
+helpers.post("/__test/media-put-fails", (c) => {
+  nextMediaPutFails = true;
   return c.json({ ok: true });
 });
 
@@ -386,7 +418,7 @@ helpers.post("/__test/versions/:versionId/approve", async (c) => c.json(await fa
 export default {
   fetch(request, env, ctx) {
     const path = new URL(request.url).pathname;
-    return path.startsWith("/__test/") ? helpers.fetch(request, env, ctx) : worker.fetch!(request, withImagesHook(withD1Hooks(env)), counting(ctx, path));
+    return path.startsWith("/__test/") ? helpers.fetch(request, env, ctx) : worker.fetch!(request, withMediaHook(withImagesHook(withD1Hooks(env))), counting(ctx, path));
   },
   scheduled(controller, env, ctx) {
     return worker.scheduled!(controller, env, ctx);

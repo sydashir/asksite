@@ -1,8 +1,9 @@
-import { ApiError, rateLimit, readBytes } from "@asksite/app-common";
+import { ApiError, noteLog, rateLimit, readBytes, runToEnd } from "@asksite/app-common";
 import { LIMITS, mediaKey, mediaUrl, newId, type UploadView } from "@asksite/core";
 import { Hono } from "hono";
 import { assertNotTakenDown, ownedSite } from "../db.ts";
 import { imageInfo, sizeProblem, sniffImage, toStillWebp } from "../images.ts";
+import { multipartBoundary, multipartShapeProblem } from "../multipart.ts";
 import { requireOwner } from "../session.ts";
 import type { AppEnv } from "../types.ts";
 
@@ -64,6 +65,24 @@ async function insertUnderCaps(db: D1Database, row: UploadRowValues): Promise<bo
   return inserted.meta.changes === 1;
 }
 
+/**
+ * Stores a re-encoded photo: its row under the exact caps, then its object in MEDIA; when the object cannot be
+ * stored, the row is removed again. False when the caps refused the row, and then nothing is stored.
+ */
+async function storeUpload(env: Env, row: UploadRowValues, webp: Uint8Array): Promise<boolean> {
+  if (!(await insertUnderCaps(env.DB, row))) return false;
+  try {
+    await env.MEDIA.put(mediaKey(row.siteId, row.id), webp, {
+      httpMetadata: { contentType: "image/webp" },
+      customMetadata: { siteId: row.siteId, uploadId: row.id },
+    });
+  } catch (err) {
+    await env.DB.prepare("DELETE FROM uploads WHERE id = ?").bind(row.id).run();
+    throw err;
+  }
+  return true;
+}
+
 /** POST and DELETE /api/sites/:siteId/uploads (§4.4, §8). */
 export function uploadRoutes(): Hono<AppEnv> {
   const uploads = new Hono<AppEnv>();
@@ -71,20 +90,30 @@ export function uploadRoutes(): Hono<AppEnv> {
   uploads.post("/sites/:siteId/uploads", requireOwner, async (c) => {
     const owner = c.get("owner");
     await rateLimit(c.env.UPLOAD_RL, owner.id);
-    if (!/^multipart\/form-data\s*;/i.test(c.req.header("Content-Type") ?? "")) throw new ApiError("forbidden", "Expected a file upload");
+    const contentType = c.req.header("Content-Type") ?? "";
+    if (!/^multipart\/form-data\s*;/i.test(contentType)) throw new ApiError("forbidden", "Expected a file upload");
     const db = c.env.DB;
     const site = await ownedSite(db, c.req.param("siteId"), owner.id);
     // A taken-down site is frozen: no image work and no storage for it (decision 39).
     assertNotTakenDown(site);
-    // Pre-check so a refused upload costs no image transformation. A file that makes the transform fail is
-    // counted as a deleted upload (P4-14), so the 150 total cap bounds those transforms too. The accepted
-    // known limit (P4-13, security review I2) is only the concurrency window at a cap boundary: uploads
-    // racing there each pass this pre-check and each run a transform, while the exact INSERT below creates
-    // rows only up to the caps; past the boundary the pre-check refuses before any transform.
+    // Pre-check so a refused upload costs no image transformation. A transform that gives no WebP to store (the
+    // file made it fail, or the service answered another format) is counted as a deleted upload (P4-14, P4-15 b),
+    // so the 150 total cap bounds those transforms too. The accepted known limit (P4-13, security review I2) is
+    // only the concurrency window at a cap boundary: uploads racing there each pass this pre-check and each run
+    // a transform, while the exact INSERT below creates rows only up to the caps; past the boundary the pre-check
+    // refuses before any transform.
     if (!(await underCaps(db, site.id))) throw limitReached();
 
     const body = await readBytes(c.req.raw, LIMITS.uploadMaxBytes + MULTIPART_OVERHEAD_BYTES);
-    const form = await readForm(c.req.url, c.req.header("Content-Type") ?? "", body);
+    // Before the parse, which walks every part and every header byte (P4-15 d): more parts than an upload has,
+    // or a header that runs on for kilobytes, would only make it slow while the isolate's other requests wait.
+    const boundary = multipartBoundary(contentType);
+    const shape = boundary === null ? null : multipartShapeProblem(body, boundary);
+    if (shape !== null) {
+      noteLog(c, { event: "multipart_refused", reason: shape });
+      throw new ApiError("bad_request", "The upload is not valid multipart form data");
+    }
+    const form = await readForm(c.req.url, contentType, body);
     const file = form.get("file");
     if (!(file instanceof File)) throw new ApiError("bad_request", "Choose a photo to upload");
     if (file.size > LIMITS.uploadMaxBytes) throw new ApiError("payload_too_large", "That photo is over 10 MB. Please choose a smaller one.");
@@ -107,17 +136,10 @@ export function uploadRoutes(): Hono<AppEnv> {
       throw counted ? unreadablePhoto() : limitReached();
     }
     const id = newId();
-    const created = await insertUnderCaps(db, { id, siteId: site.id, width: still.width, height: still.height, bytes: still.webp.byteLength, createdAt: now, deletedAt: null });
-    if (!created) throw limitReached();
-    try {
-      await c.env.MEDIA.put(mediaKey(site.id, id), still.webp, {
-        httpMetadata: { contentType: "image/webp" },
-        customMetadata: { siteId: site.id, uploadId: id },
-      });
-    } catch (err) {
-      await db.prepare("DELETE FROM uploads WHERE id = ?").bind(id).run();
-      throw err;
-    }
+    const row: UploadRowValues = { id, siteId: site.id, width: still.width, height: still.height, bytes: still.webp.byteLength, createdAt: now, deletedAt: null };
+    // From the row to its object, the work runs to its end even if the client goes away (P4-8's runToEnd), so
+    // no row is left without its photo.
+    if (!(await runToEnd(c.executionCtx, storeUpload(c.env, row, still.webp)))) throw limitReached();
     const view: UploadView = {
       id,
       url: mediaUrl(c.env.ROOT_DOMAIN, site.id, id),
