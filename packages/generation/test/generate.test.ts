@@ -611,7 +611,10 @@ describe("the input bound (P3-8)", () => {
   // Hangul U+D7A3 is 3 UTF-8 bytes and NFC and NFKC leave it unchanged, so the guard sends a snapshot filled with it,
   // repair lines included. NFD splits it into three 3-byte jamo (9 bytes), so a bound that also took NFD would refuse
   // this schema-valid owner text: adding NFD or NFKD waits for measured token counts (inputBound's comment, Task 15).
-  it("sends a schema-valid snapshot filled with Hangul U+D7A3 (owner text and service names), with and without repair lines at their caps", async () => {
+  // The run below sends attempt 2 with real repair lines, whose paths ("copy.faq.N") hold no Hangul, so its bound is
+  // below the capsRepair one checked here; the attempt-2 boundary test further down proves that the guard sends a
+  // repair attempt whose bound is exactly MAX_INPUT_TOKENS.
+  it("keeps a schema-valid snapshot filled with Hangul U+D7A3 (owner text and service names) within the bound, with and without repair lines at their caps, and sends it and its next attempt after real repair lines", async () => {
     const hangul = "\uD7A3";
     const snapshot = capsSnapshot(hangul, hangul);
     expect(Facts.safeParse(snapshot.facts).success && Brief.safeParse(snapshot.brief).success).toBe(true);
@@ -666,6 +669,36 @@ describe("the input bound (P3-8)", () => {
       calls.push(provider.calls);
     }
     expect(calls).toEqual([1, 0]);
+  });
+
+  // The same edge on a repair attempt: attempt 1 is sent and answered with 20 unknown keys, so attempt 2 carries real
+  // repair lines. A guard with another limit for repair attempts, lower or higher, fails here.
+  it("sends attempt 2 with real repair lines when its bound is exactly MAX_INPUT_TOKENS, and refuses it a byte over", async () => {
+    const withNotes = (notes: string): GenerationInputSnapshot => ({ facts: FULL_SNAPSHOT.facts, brief: Brief.parse({ ...BRIEF, notes }) });
+    const wrong = withUnknownKeys(good, "\u20AC");
+    // checkDraft reads only the facts and the answer, so every snapshot below gets these repair issues on attempt 2.
+    const check = checkDraft(FULL_SNAPSHOT.facts, wrong);
+    const issues = check.ok ? [] : check.issues;
+    expect(issues.length).toBeGreaterThan(0);
+    const secondBound = (snapshot: GenerationInputSnapshot): number => inputBound({ ...buildPrompt(snapshot, issues), jsonSchema: AI_DRAFT_JSON_SCHEMA });
+    // As in the attempt-1 test: each U+FDFA adds 33 NFKC bytes, each "n" exactly 1 to every measure; the notes stay under their 2,000 cap.
+    const fdfa = "\uFDFA".repeat(Math.floor((MAX_INPUT_TOKENS - secondBound(withNotes("n")) - 40) / 33));
+    const pad = MAX_INPUT_TOKENS - secondBound(withNotes(fdfa));
+    const at = withNotes(fdfa + "n".repeat(pad));
+    const over = withNotes(fdfa + "n".repeat(pad + 1));
+    expect(pad).toBeGreaterThan(0);
+    expect(fdfa.length + pad + 1).toBeLessThanOrEqual(2_000);
+    expect([secondBound(at), secondBound(over)]).toEqual([MAX_INPUT_TOKENS, MAX_INPUT_TOKENS + 1]);
+    const runs: unknown[] = [];
+    for (const snapshot of [at, over]) {
+      const provider = scriptedProvider([answer(wrong), answer(good)]);
+      const result = await generateDraft(provider, snapshot, testDeps().deps);
+      runs.push({ ok: result.ok, attempts: result.attempts, inputBoundRefused: result.inputBoundRefused, sent: provider.requests.map((req) => inputBound(req)), outcomes: result.log.map((a) => a.outcome) });
+    }
+    expect(runs).toEqual([
+      { ok: true, attempts: 2, inputBoundRefused: false, sent: [boundOf(at), MAX_INPUT_TOKENS], outcomes: ["invalid", "valid"] },
+      { ok: false, attempts: 1, inputBoundRefused: true, sent: [boundOf(over)], outcomes: ["invalid", "bad_request"] },
+    ]);
   });
 });
 
