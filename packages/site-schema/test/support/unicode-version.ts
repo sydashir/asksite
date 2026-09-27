@@ -1,6 +1,7 @@
-// The Unicode version the letter tables were derived from (A9c, A9d): NON_ENGLISH_LETTER and DIGIT_LETTER (copy.ts),
-// LOOKALIKES (lookalikes.ts) and the SMALL_CAPITALS and DIGIT_LETTERS lists in copy.test.ts. A regular expression answers
-// \p{...} from the engine's own Unicode data, so a Node, workerd or browser upgrade can change what copy accepts.
+// The Unicode version the letter tables were derived from (A9c, A9d): SMALL_CAPITAL and DIGIT_LETTER (copy.ts), LOOKALIKES
+// and SECOND_READINGS (lookalikes.ts) and the SMALL_CAPITALS and DIGIT_LETTERS lists in copy.test.ts. A regular
+// expression answers \p{...} from the engine's own Unicode data, so a Node, workerd or browser upgrade can change what
+// copy accepts.
 // copy.test.ts asks these questions in Node, and unicode.workerd.test.ts asks them inside workerd, where production runs.
 //
 // U+A7CE LATIN CAPITAL LETTER PHARYNGEAL VOICED FRICATIVE is new in Unicode 17.0 and U+1DF40 LATIN CAPITAL LETTER BARRED A

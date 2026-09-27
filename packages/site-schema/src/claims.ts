@@ -34,11 +34,15 @@ import { foldings } from "./lookalikes.ts";
 // Accepted residuals (the approval screen is the backstop; each passes at main too; design §2.2 lists them with
 // examples): a precomposed accented letter is read as typed, so a deliberately accented claim word ("lícensed", "frée")
 // is not caught (A9c), as before A9; a letter the table reads another way ("cheaþest", þ is "th"; "Ɩicensed", Ɩ is "I")
-// or does not list (turned, reversed and open letters such as "Ʌ", "ɐ" and "ɹ": "FrɅe", "ɹated"), or a symbol ("fr℮℮",
-// "L¡censed", "days∕week"); a combining Latin small letter used as a letter ("Lic" + U+0364 + "nsed"); ASCII "l" or
-// "|" for "I" and a click letter for "l" ("CERTlFlED", "ǀicensed"); an overlay mark inside a claim word together with a
-// look-alike glued to its end ("Bon" + U+0336 + "dedł"), which neither reading finds; a claim word run into another word
-// in CamelCase ("TopRated", "WeAreBonded"; A9d); and the phrasings the word lists do not cover.
+// or does not list (turned, reversed and open letters such as "Ʌ", "ɐ", "ɒ" and "ɹ": "FrɅe", "ɹated", and other
+// look-alikes no rule derives: "insᴗred", "ꞷarranty", "ʃree", "ʍillions"), or a symbol ("fr℮℮", "L¡censed",
+// "days∕week", "INS℧RED"); a two-way letter used both ways inside one claim word ("ꟾꟾcensed", A9f: one reading reads
+// every copy of a letter the same way); a combining Latin small letter used as a letter ("Lic" + U+0364 + "nsed"); ASCII
+// "l" or "|" for "I" and a click letter for "l" ("CERTlFlED", "ǀicensed"); an overlay mark inside a claim word together
+// with a look-alike glued to its end ("Bon" + U+0336 + "dedł"), which neither reading finds; a claim word run into
+// another word in CamelCase ("TopRated", "WeAreBonded"; A9d); and the phrasings the word lists do not cover.
+// The other way round, the folded reading finds claim words in some words of other languages, which main accepts
+// ("frɛɛ", "saɣ", Middle English "Þursday"): copy is English marketing text, so A9f accepts these as residuals too.
 
 /** Claims no owner fact backs: rejected in copy whatever the facts say. */
 export const NEVER_IN_COPY: readonly RegExp[] = [

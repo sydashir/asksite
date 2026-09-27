@@ -139,9 +139,9 @@ describe("Copy", () => {
   };
 
   it("runs on the Unicode version the letter tables were derived from (17.0), so an upgrade is reviewed first", () => {
-    // When this fails, derive SMALL_CAPITAL, DIGIT_LETTER (copy.ts), LOOKALIKES (lookalikes.ts) and the SMALL_CAPITALS
-    // and DIGIT_LETTERS lists here again from the new Unicode data (support/unicode-version.ts; unicode.workerd.test.ts
-    // asks the same inside workerd).
+    // When this fails, derive SMALL_CAPITAL, DIGIT_LETTER (copy.ts), LOOKALIKES and SECOND_READINGS (lookalikes.ts) and the
+    // SMALL_CAPITALS and DIGIT_LETTERS lists here again from the new Unicode data (support/unicode-version.ts;
+    // unicode.workerd.test.ts asks the same inside workerd).
     expect(unicodeVersion()).toEqual(UNICODE_17);
   });
 
