@@ -175,13 +175,17 @@ export class AnthropicProvider implements ModelProvider {
           // (internal/request-options.d.mts:65-67) are merged last of all (client.mjs:840), and a later source replaces
           // every earlier value of x-api-key and authorization whatever the spelling (internal/headers.mjs:90-103; a
           // header name is case-insensitive). So they beat any spelling of those two names in the variable, in any
-          // order, and null removes authorization (96-99). Every other header the variable sets still reaches fetch in
-          // Node, except content-type, which the SDK's body headers replace (client.mjs:839), and except that a line
-          // whose name or value the Headers class rejects makes every request fail before any fetch (unavailable).
+          // order, and null removes authorization (96-99). If buildHeaders hands the Headers class a name or value from
+          // the variable that it rejects (internal/headers.mjs:68-107), every request fails before any fetch
+          // (unavailable), x-api-key and authorization included. Otherwise every other header the variable sets
+          // reaches fetch in Node, except content-type, which the SDK's body headers replace (client.mjs:839).
           // The outer layer is Task 13's CLI, which deletes the variable at startup (task-13-additions.md A). The
           // generator Worker has no process object once constraint K's no_nodejs_compat flags are set (Task 12), and
-          // the SDK's readEnv then returns undefined for every variable (internal/utils/env.mjs:8-16). The SDK's
-          // defaultHeaders option is not used for the credentials: it would change no outcome.
+          // the SDK's readEnv then returns undefined for every variable (internal/utils/env.mjs:8-16). Our credentials
+          // are not also given in the SDK's defaultHeaders option. That copy changed outcomes in one case only: it
+          // replaced the variable's entry named exactly x-api-key or authorization (client.mjs:125) before the Headers
+          // class saw it, so a value there that the class rejects never reached it. Now such a value fails every
+          // request like any other (the "fails before any fetch" tests pin this).
           { signal: req.signal, headers: { "x-api-key": this.#apiKey, authorization: null } },
         )
         .asResponse();
