@@ -66,6 +66,29 @@ describe("web address", () => {
     expect(await slugAndRev(owner.siteId)).toEqual({ slug: "live-name", rev: 2 });
   });
 
+  it("refuses a stale rev with 409 conflict and the current rev, writing nothing", async () => {
+    const owner = await h.signIn();
+    const res = await h.call("PUT", `/api/sites/${owner.siteId}/slug`, { cookie: owner.cookie, body: { rev: 2, slug: "stale-name" } });
+    expect(res.status).toBe(409);
+    expect((await json<ErrorJson & { error: { currentRev?: number } }>(res)).error).toMatchObject({ code: "conflict", currentRev: 1 });
+    expect(await slugAndRev(owner.siteId)).toEqual({ slug: null, rev: 1 });
+  });
+
+  it("refuses a taken-down site with 423 site_taken_down, writing nothing", async () => {
+    const owner = await h.signIn();
+    await (await h.db()).prepare("UPDATE sites SET taken_down_at = 1 WHERE id = ?").bind(owner.siteId).run();
+    const res = await h.call("PUT", `/api/sites/${owner.siteId}/slug`, { cookie: owner.cookie, body: { rev: 1, slug: "frozen-name" } });
+    expect(res.status).toBe(423);
+    expect((await json<ErrorJson>(res)).error.code).toBe("site_taken_down");
+    expect(await slugAndRev(owner.siteId)).toEqual({ slug: null, rev: 1 });
+  });
+
+  it("needs a session for the availability check, like every owner route (401)", async () => {
+    const res = await h.call("GET", "/api/slugs/free-name/availability");
+    expect(res.status).toBe(401);
+    expect((await json<ErrorJson>(res)).error.code).toBe("unauthenticated");
+  });
+
   it("cannot set another owner's web address (404, nothing written)", async () => {
     const a = await h.signIn();
     const b = await h.signIn();

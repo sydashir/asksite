@@ -1,16 +1,46 @@
-import { MAX_ISSUES } from "@asksite/app-common";
+import { MAX_ISSUES, secondsUntilUtcMidnight } from "@asksite/app-common";
 import { Brief, mediaUrl, photoRefIssues, toIssues, type GenerationView, type SiteView, type UploadView } from "@asksite/core";
 import { Facts } from "@asksite/site-schema";
 import { describe, expect, it } from "vitest";
 import { VALID_BRIEF, VALID_FACTS } from "../support/facts.ts";
-import { builtOwner, json, readyOwner, ROOT, useAppHarness } from "../support/harness.ts";
+import { APP_ORIGIN, awayFromUtcHourEnd, builtOwner, json, readyOwner, ROOT, useAppHarness } from "../support/harness.ts";
 import { png, upload } from "../support/images.ts";
 
 const h = useAppHarness();
 
 type ErrorJson = { error: { code: string; message: string; issues?: Array<{ path: unknown[]; code: string }>; retryAfter?: number } };
 
+/** How many generations the site has, of any status. */
+async function buildCount(siteId: string): Promise<number | undefined> {
+  return (await (await h.db()).prepare("SELECT COUNT(*) AS n FROM generations WHERE site_id = ?").bind(siteId).first<{ n: number }>())?.n;
+}
+
 describe("POST /api/sites/:siteId/generations", () => {
+  it("refuses a body not declared as JSON with 403, queuing nothing (the content-type check)", async () => {
+    const owner = await readyOwner(h, VALID_FACTS, VALID_BRIEF);
+    const res = await h.server.fetch(`${APP_ORIGIN}/api/sites/${owner.siteId}/generations`, {
+      method: "POST",
+      headers: { Origin: APP_ORIGIN, Cookie: owner.cookie, "Content-Type": "text/plain" },
+      body: "{}",
+    });
+    expect(res.status).toBe(403);
+    expect((await json<ErrorJson>(res)).error).toEqual({ code: "forbidden", message: "Expected a JSON request" });
+    expect(await buildCount(owner.siteId)).toBe(0);
+  });
+
+  it.each([
+    ["generation_disabled", 503, "Writing new wording is switched off right now. Your current wording is safe."],
+    ["budget_exhausted", 503, "We have reached today's limit for writing new wording. Try again tomorrow."],
+    ["internal", 500, "Something went wrong. Please try again."],
+  ] as const)("answers the generator's %s refusal as %i with its message, queuing nothing", async (code, status, message) => {
+    const owner = await readyOwner(h, VALID_FACTS, VALID_BRIEF);
+    await h.call("POST", "/__test/generation-refuses", { body: { code } });
+    const res = await h.call("POST", `/api/sites/${owner.siteId}/generations`, { cookie: owner.cookie, body: {} });
+    expect(res.status).toBe(status);
+    expect((await json<ErrorJson>(res)).error).toEqual({ code, message });
+    expect(await buildCount(owner.siteId)).toBe(0);
+  });
+
   it("refuses an unfinished questionnaire with 422 not_ready and the issues", async () => {
     const owner = await h.signIn();
     const res = await h.call("POST", `/api/sites/${owner.siteId}/generations`, { cookie: owner.cookie, body: {} });
@@ -97,7 +127,7 @@ describe("POST /api/sites/:siteId/generations", () => {
     await h.call("POST", `/api/sites/${owner.siteId}/generations`, { cookie: owner.cookie, body: {} });
     const again = await h.call("POST", `/api/sites/${owner.siteId}/generations`, { cookie: owner.cookie, body: {} });
     expect(again.status).toBe(409);
-    expect((await json<ErrorJson>(again)).error.code).toBe("generation_in_progress");
+    expect((await json<ErrorJson>(again)).error).toEqual({ code: "generation_in_progress", message: "Your website is already being written. It will be ready soon." });
   });
 
   it("stops at the daily cap with 429 and a retryAfter until midnight UTC", async () => {
@@ -107,12 +137,17 @@ describe("POST /api/sites/:siteId/generations", () => {
       await db.prepare("INSERT INTO generations (id, site_id, owner_id, kind, status, input_json, created_at) VALUES (?, ?, ?, 'regenerate', 'failed', '{}', ?)")
         .bind(crypto.randomUUID(), owner.siteId, owner.ownerId, Date.now()).run();
     }
+    await awayFromUtcHourEnd();
+    const before = secondsUntilUtcMidnight(Date.now());
     const res = await h.call("POST", `/api/sites/${owner.siteId}/generations`, { cookie: owner.cookie, body: {} });
+    const after = secondsUntilUtcMidnight(Date.now());
     expect(res.status).toBe(429);
     const body = await json<ErrorJson>(res);
     expect(body.error.code).toBe("generation_cap_reached");
     expect(body.error.message).toBe("You have used all the rewrites for today. Try again tomorrow.");
-    expect(body.error.retryAfter).toBeGreaterThan(0);
+    // The seconds to the next 00:00 UTC, as of the request.
+    expect(body.error.retryAfter).toBeGreaterThanOrEqual(after);
+    expect(body.error.retryAfter).toBeLessThanOrEqual(before);
     expect(res.headers.get("Retry-After")).toBe(String(body.error.retryAfter));
   });
 

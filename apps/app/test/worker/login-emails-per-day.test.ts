@@ -27,6 +27,12 @@ describe("LOGIN_EMAILS_PER_DAY (A11)", () => {
     expect(lines).toEqual(['{"event":"config_invalid","variable":"LOGIN_EMAILS_PER_DAY"}']);
   });
 
+  // Number() would read each of these as 7; only digits count, so a value someone hand-edited with a stray
+  // character is noticed in the log instead of silently changing the cap.
+  it.each([" 7", "7 ", "+7", "7e0", "0x7"])("reads digits only: %j falls back to 40 with one config_invalid line", (value) => {
+    expect(read(value)).toEqual({ cap: 40, lines: ['{"event":"config_invalid","variable":"LOGIN_EMAILS_PER_DAY"}'] });
+  });
+
   it("uses a valid value as it is, and logs nothing", () => {
     expect(read("7")).toEqual({ cap: 7, lines: [] });
     expect(read("40")).toEqual({ cap: 40, lines: [] });

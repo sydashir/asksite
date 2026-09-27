@@ -3,7 +3,7 @@ import { Brief, composeDocument, EMPTY_EDITS, LIMITS, photoRefIssues, toIssues, 
 import { Facts, SiteDocument } from "@asksite/site-schema";
 import { describe, expect, it } from "vitest";
 import { VALID_BRIEF, VALID_FACTS } from "../support/facts.ts";
-import { json, ROOT, useAppHarness } from "../support/harness.ts";
+import { json, readyOwner, ROOT, useAppHarness } from "../support/harness.ts";
 
 const h = useAppHarness();
 
@@ -81,6 +81,29 @@ describe("GET /api/sites/:siteId", () => {
     // toMatchObject, not toEqual (A12 heads-up): a later OwnerEdits field must not break this test.
     expect(view.edits).toMatchObject({ ...edits, hidden: [] });
     expect([...new Set(view.issues.document.map((i) => i.path.join(".")))]).toEqual(["copy.heroHeadline"]);
+  });
+
+  it("shows the newest succeeded build as the AI draft: not an older one, nor a newer failed or queued one (§2.1)", async () => {
+    const owner = await readyOwner(h, VALID_FACTS, VALID_BRIEF);
+    const db = await h.db();
+    const now = Date.now();
+    /** A build made at `createdAt`, finished as the generator would (or left queued), by the one-active-job rule one at a time. */
+    async function build(createdAt: number, outcome: "succeeded" | "failed" | "queued"): Promise<string> {
+      const id = crypto.randomUUID();
+      await db
+        .prepare("INSERT INTO generations (id, site_id, owner_id, kind, status, input_json, created_at) VALUES (?, ?, ?, 'first', 'queued', ?, ?)")
+        .bind(id, owner.siteId, owner.ownerId, JSON.stringify({ facts: Facts.parse(VALID_FACTS), brief: VALID_BRIEF }), createdAt)
+        .run();
+      if (outcome !== "queued") expect((await h.call("POST", `/__test/generations/${id}/finish`, { body: { status: outcome } })).status).toBe(200);
+      return id;
+    }
+    await build(now - 3_000, "succeeded");
+    const newest = await build(now - 2_000, "succeeded");
+    await build(now - 1_000, "failed");
+    const queued = await build(now, "queued");
+    const view = await json<SiteView>(await h.call("GET", `/api/sites/${owner.siteId}`, { cookie: owner.cookie }));
+    expect(view.ai?.generationId).toBe(newest);
+    expect(view.activeGeneration?.id).toBe(queued);
   });
 
   it("notes each part it read leniently on the request's one log line, which names the route (P4-15 g)", async () => {
