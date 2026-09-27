@@ -6,7 +6,7 @@ import { assertNotTakenDown, mailerEnv, ownedSite } from "../db.ts";
 import type { AppDeps } from "../deps.ts";
 import { publishRefusal } from "../publish-refusal.ts";
 import { requireOwner } from "../session.ts";
-import { currentAi, draftOf, liveUploads, toVersionSummary } from "../site-view.ts";
+import { currentAi, draftOf, liveUploads, storedJsonNote, toVersionSummary } from "../site-view.ts";
 import type { AppEnv } from "../types.ts";
 
 /** A site's publish requests alert the reviewers at most once an hour, and at most ALERTS_PER_DAY alerts go out per UTC day in all (decision 32). */
@@ -49,8 +49,9 @@ export function publishRoutes(deps: AppDeps): Hono<AppEnv> {
     assertNotTakenDown(site);
     if (site.rev !== rev) throw new ApiError("conflict", "This site changed in another tab or window", { currentRev: site.rev });
 
-    const draft = draftOf(site);
-    const current = await currentAi(db, site.id);
+    const note = storedJsonNote(c);
+    const draft = draftOf(site, note);
+    const current = await currentAi(db, site.id, note);
     const issues: Issue[] = [];
     let document: SiteDocument | null = null;
     if (current === null) {

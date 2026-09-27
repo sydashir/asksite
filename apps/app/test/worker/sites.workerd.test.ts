@@ -48,7 +48,11 @@ describe("GET /api/sites/:siteId", () => {
     }
   });
 
-  it("still opens a draft whose stored parts no longer pass today's rules (decision 36)", async () => {
+  /**
+   * A built site whose stored edits and AI draft no longer pass today's rules, as if a later Plan 1 rule refused
+   * what was valid when it was stored: digits in the AI's headline, and the hero among the owner's hidden sections.
+   */
+  async function staleStoredDraft() {
     const owner = await h.signIn();
     await h.call("PATCH", `/api/sites/${owner.siteId}/draft`, { cookie: owner.cookie, body: { rev: 1, facts: VALID_FACTS, brief: VALID_BRIEF } });
     const db = await h.db();
@@ -59,15 +63,17 @@ describe("GET /api/sites/:siteId", () => {
       .bind(generationId, owner.siteId, owner.ownerId, JSON.stringify({ facts: Facts.parse(VALID_FACTS), brief: VALID_BRIEF }), Date.now())
       .run();
     expect((await h.call("POST", `/__test/generations/${generationId}/finish`, { body: { status: "succeeded" } })).status).toBe(200);
-    // As if a later Plan 1 rule refused what was valid when it was stored: digits in the AI's
-    // headline, and the hero among the owner's hidden sections.
     const stored = await db.prepare("SELECT output_json FROM generations WHERE id = ?").bind(generationId).first<{ output_json: string }>();
     const draft = JSON.parse(stored?.output_json ?? "{}") as { copy: Record<string, unknown> };
     draft.copy["heroHeadline"] = "Call 555 today";
     const edits = { baseGenerationId: generationId, copy: { ctaText: "Call Joe" }, order: null, hidden: ["hero"], theme: null };
     await db.prepare("UPDATE generations SET output_json = ? WHERE id = ?").bind(JSON.stringify(draft), generationId).run();
     await db.prepare("UPDATE sites SET edits_json = ? WHERE id = ?").bind(JSON.stringify(edits), owner.siteId).run();
+    return { ...owner, generationId, edits, rev: 2 };
+  }
 
+  it("still opens a draft whose stored parts no longer pass today's rules (decision 36)", async () => {
+    const { generationId, edits, ...owner } = await staleStoredDraft();
     const res = await h.call("GET", `/api/sites/${owner.siteId}`, { cookie: owner.cookie });
     expect(res.status).toBe(200);
     const view = await json<SiteView>(res);
@@ -75,6 +81,27 @@ describe("GET /api/sites/:siteId", () => {
     // toMatchObject, not toEqual (A12 heads-up): a later OwnerEdits field must not break this test.
     expect(view.edits).toMatchObject({ ...edits, hidden: [] });
     expect([...new Set(view.issues.document.map((i) => i.path.join(".")))]).toEqual(["copy.heroHeadline"]);
+  });
+
+  it("notes each part it read leniently on the request's one log line, which names the route (P4-15 g)", async () => {
+    const owner = await staleStoredDraft();
+    const requests: Array<[method: string, path: string, body?: object]> = [
+      ["GET", `/api/sites/${owner.siteId}`],
+      ["PATCH", `/api/sites/${owner.siteId}/draft`, { rev: owner.rev, brief: VALID_BRIEF }],
+      ["POST", `/api/sites/${owner.siteId}/publish-requests`, { rev: owner.rev + 1 }],
+    ];
+    const lines: Array<Record<string, unknown>> = [];
+    for (const [method, path, body] of requests) {
+      h.server.clearLogs();
+      await h.call(method, path, { cookie: owner.cookie, ...(body === undefined ? {} : { body }) });
+      lines.push(...h.logLines());
+    }
+    expect(lines.map((line) => [line["route"], line["status"], line["event"]])).toEqual([
+      ["GET /api/sites/:siteId", 200, "stored_json_invalid"],
+      ["PATCH /api/sites/:siteId/draft", 200, "stored_json_invalid"],
+      ["POST /api/sites/:siteId/publish-requests", 422, "stored_json_invalid"],
+    ]);
+    for (const line of lines) expect(String(line["part"]).split(",").sort()).toEqual(["ai_draft", "edits"]);
   });
 
   /**

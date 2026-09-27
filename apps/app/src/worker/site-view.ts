@@ -1,4 +1,4 @@
-import { logLine, MAX_ISSUES } from "@asksite/app-common";
+import { MAX_ISSUES, noteLog } from "@asksite/app-common";
 import {
   AiDraft,
   Brief,
@@ -20,6 +20,7 @@ import {
   type VersionSummary,
 } from "@asksite/core";
 import { Facts, SiteDocument } from "@asksite/site-schema";
+import type { Context } from "hono";
 import { parseStored } from "./db.ts";
 import type { AppDeps } from "./deps.ts";
 
@@ -31,14 +32,32 @@ export interface Draft {
 
 export type DraftIssues = SiteView["issues"];
 
+/** A stored part that can be read leniently (decision 36). */
+export type StoredPart = "edits" | "ai_draft";
+
+/** Told when a stored part no longer passed its schema and was read leniently (decision 36). */
+export type NoteStoredInvalid = (part: StoredPart) => void;
+
+/**
+ * The route's NoteStoredInvalid: the request's one log line (P4-3), which names the route, gets event
+ * stored_json_invalid and every part read leniently so far, in the order they were read (P4-15 g).
+ */
+export function storedJsonNote(c: Context): NoteStoredInvalid {
+  const parts: StoredPart[] = [];
+  return (part) => {
+    parts.push(part);
+    noteLog(c, { event: "stored_json_invalid", part: parts.join(",") });
+  };
+}
+
 /**
  * Stored edits passed OwnerEdits when they were saved. If a later rule refuses part of them, every
  * part that still passes is kept and the rest reads as empty, so the editor still opens (decision 36).
  */
-export function storedEdits(value: unknown): OwnerEdits {
+export function storedEdits(value: unknown, note: NoteStoredInvalid): OwnerEdits {
   const parsed = OwnerEdits.safeParse(value);
   if (parsed.success) return parsed.data;
-  logLine({ event: "stored_json_invalid", part: "edits" });
+  note("edits");
   const record = typeof value === "object" && value !== null ? (value as Record<string, unknown>) : {};
   const part = <K extends keyof OwnerEdits>(key: K): OwnerEdits[K] => {
     const one = OwnerEdits.shape[key].safeParse(record[key]);
@@ -52,17 +71,17 @@ export function storedEdits(value: unknown): OwnerEdits {
  * still used when it has its three parts: the composed document then lists that wording as issues,
  * which the owner can change in the editor (decision 36).
  */
-function storedAiDraft(value: unknown): AiDraft | null {
+function storedAiDraft(value: unknown, note: NoteStoredInvalid): AiDraft | null {
   const parsed = AiDraft.safeParse(value);
   if (parsed.success) return parsed.data;
-  logLine({ event: "stored_json_invalid", part: "ai_draft" });
+  note("ai_draft");
   const draft = (typeof value === "object" && value !== null ? value : {}) as { copy?: unknown; layout?: unknown; theme?: unknown };
   const usable = typeof draft.copy === "object" && draft.copy !== null && Array.isArray(draft.layout) && typeof draft.theme === "object" && draft.theme !== null;
   return usable ? (value as AiDraft) : null;
 }
 
-export function draftOf(site: SiteRow): Draft {
-  return { facts: parseStored(site.facts_json), brief: parseStored(site.brief_json), edits: storedEdits(parseStored(site.edits_json)) };
+export function draftOf(site: SiteRow, note: NoteStoredInvalid): Draft {
+  return { facts: parseStored(site.facts_json), brief: parseStored(site.brief_json), edits: storedEdits(parseStored(site.edits_json), note) };
 }
 
 /** Issues from one part of the draft, with that part's name in front of each path ("facts", "brief"). */
@@ -78,15 +97,15 @@ export function currentAiQuery(db: D1Database, siteId: string): D1PreparedStatem
 }
 
 /** The site's AI draft from the row currentAiQuery found, or null before the first build. */
-export function toCurrentAi(row: CurrentAiRow | null | undefined): { ai: CurrentAi; usedFallback: boolean } | null {
-  const draft = row === null || row === undefined || row.output_json === null ? null : storedAiDraft(parseStored(row.output_json));
+export function toCurrentAi(row: CurrentAiRow | null | undefined, note: NoteStoredInvalid): { ai: CurrentAi; usedFallback: boolean } | null {
+  const draft = row === null || row === undefined || row.output_json === null ? null : storedAiDraft(parseStored(row.output_json), note);
   if (row === null || row === undefined || draft === null) return null;
   return { ai: { generationId: row.id, draft }, usedFallback: row.used_fallback === 1 };
 }
 
 /** The site's AI draft: its newest succeeded generation (§2.1), or null before the first build. */
-export async function currentAi(db: D1Database, siteId: string): Promise<{ ai: CurrentAi; usedFallback: boolean } | null> {
-  return toCurrentAi(await currentAiQuery(db, siteId).first<CurrentAiRow>());
+export async function currentAi(db: D1Database, siteId: string, note: NoteStoredInvalid): Promise<{ ai: CurrentAi; usedFallback: boolean } | null> {
+  return toCurrentAi(await currentAiQuery(db, siteId).first<CurrentAiRow>(), note);
 }
 
 /** The read of the site's non-deleted uploads, oldest first, alone or in a batch. */
@@ -150,11 +169,11 @@ async function differsFromLive(draft: Draft, ai: CurrentAi | null, live: SiteVer
   return !parsed.success || (await documentSha256(parsed.data)) !== live.document_sha256;
 }
 
-export async function buildSiteView(env: Env, deps: AppDeps, site: SiteRow, now: number): Promise<SiteView> {
+export async function buildSiteView(env: Env, deps: AppDeps, site: SiteRow, now: number, note: NoteStoredInvalid): Promise<SiteView> {
   const db = env.DB;
-  const draft = draftOf(site);
+  const draft = draftOf(site, note);
   const [current, active, pending, live, uploads, limits] = await Promise.all([
-    currentAi(db, site.id),
+    currentAi(db, site.id, note),
     db.prepare("SELECT * FROM generations WHERE site_id = ? AND status IN ('queued', 'running') LIMIT 1").bind(site.id).first<GenerationRow>(),
     versionRow(db, site.pending_version_id),
     versionRow(db, site.live_version_id),

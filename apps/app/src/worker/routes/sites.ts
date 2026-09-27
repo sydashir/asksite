@@ -4,7 +4,7 @@ import { Hono } from "hono";
 import { foundSite, ownedSite, ownedSiteQuery } from "../db.ts";
 import type { AppDeps } from "../deps.ts";
 import { requireOwner } from "../session.ts";
-import { buildSiteView, currentAiQuery, draftIssues, draftOf, liveUploadsQuery, toCurrentAi, type CurrentAiRow } from "../site-view.ts";
+import { buildSiteView, currentAiQuery, draftIssues, draftOf, liveUploadsQuery, storedJsonNote, toCurrentAi, type CurrentAiRow } from "../site-view.ts";
 import type { AppEnv } from "../types.ts";
 
 const byteLength = (text: string): number => new TextEncoder().encode(text).byteLength;
@@ -15,7 +15,7 @@ export function siteRoutes(deps: AppDeps): Hono<AppEnv> {
 
   sites.get("/sites/:siteId", requireOwner, async (c) => {
     const site = await ownedSite(c.env.DB, c.req.param("siteId"), c.get("owner").id);
-    return c.json(await buildSiteView(c.env, deps, site, Date.now()));
+    return c.json(await buildSiteView(c.env, deps, site, Date.now(), storedJsonNote(c)));
   });
 
   sites.patch("/sites/:siteId/draft", requireOwner, async (c) => {
@@ -55,9 +55,10 @@ export function siteRoutes(deps: AppDeps): Hono<AppEnv> {
       if (site.taken_down_at !== null) throw new ApiError("site_taken_down", "This website has been taken offline. Contact us to restore it.");
       throw new ApiError("conflict", "This site changed in another tab or window", { currentRev: site.rev });
     }
-    const current = toCurrentAi(aiRead?.results[0] as CurrentAiRow | undefined);
+    const note = storedJsonNote(c);
+    const current = toCurrentAi(aiRead?.results[0] as CurrentAiRow | undefined, note);
     const uploads = (uploadsRead?.results ?? []) as UploadRow[];
-    return c.json({ rev: site.rev, issues: draftIssues(draftOf(site), current?.ai ?? null, site.id, c.env.ROOT_DOMAIN, uploads) });
+    return c.json({ rev: site.rev, issues: draftIssues(draftOf(site, note), current?.ai ?? null, site.id, c.env.ROOT_DOMAIN, uploads) });
   });
 
   return sites;
