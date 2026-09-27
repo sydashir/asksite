@@ -59,6 +59,17 @@ describe("GET /api/sites/:siteId/leads", () => {
     expect(only.nextBefore).toBeNull();
   });
 
+  it("keeps spam hidden when a page takes its whole last millisecond (D5, decision 35)", async () => {
+    const owner = await h.signIn();
+    for (const [createdAt, name] of [[5000, "A"], [5000, "B"], [5000, "C"], [3000, "D"]] as const) await addLead(owner.siteId, createdAt, { name });
+    await addLead(owner.siteId, 5000, { spam: 1, name: "Spammer" });
+    const page1 = await json<{ leads: LeadView[]; nextBefore: number | null }>(
+      await h.call("GET", `/api/sites/${owner.siteId}/leads?limit=2`, { cookie: owner.cookie }),
+    );
+    expect(page1.leads.map((l) => l.name).sort()).toEqual(["A", "B", "C"]);
+    expect(page1.nextBefore).toBe(5000);
+  });
+
   it("refuses a bad page size and another owner's leads", async () => {
     const a = await h.signIn();
     const b = await h.signIn();
