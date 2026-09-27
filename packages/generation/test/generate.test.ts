@@ -608,6 +608,30 @@ describe("the input bound (P3-8)", () => {
     expect(provider.requests.map((req) => inputBound(req) <= largest)).toEqual([true, true]);
   });
 
+  // Hangul U+D7A3 is 3 UTF-8 bytes and NFC and NFKC leave it unchanged, so the guard sends a snapshot filled with it,
+  // repair lines included. NFD splits it into three 3-byte jamo (9 bytes), so a bound that also took NFD would refuse
+  // this schema-valid owner text: adding NFD or NFKD waits for measured token counts (inputBound's comment, Task 15).
+  it("sends a schema-valid snapshot filled with Hangul U+D7A3 (owner text and service names), with and without repair lines at their caps", async () => {
+    const hangul = "\uD7A3";
+    const snapshot = capsSnapshot(hangul, hangul);
+    expect(Facts.safeParse(snapshot.facts).success && Brief.safeParse(snapshot.brief).success).toBe(true);
+    for (const repair of [[], capsRepair(hangul)]) {
+      const { system, user } = buildPrompt(snapshot, repair);
+      const text = system + user + JSON.stringify(toWireSchema(AI_DRAFT_JSON_SCHEMA));
+      const bound = inputBound({ system, user, jsonSchema: AI_DRAFT_JSON_SCHEMA });
+      // NFC and NFKC do not grow it: the bound is its raw bytes plus the overhead.
+      expect(bound, `${repair.length} repair lines`).toBe(bytes(text) + PROMPT_OVERHEAD_TOKENS);
+      expect(bound, `${repair.length} repair lines`).toBeLessThanOrEqual(MAX_INPUT_TOKENS);
+      expect(bytes(text.normalize("NFD")) + PROMPT_OVERHEAD_TOKENS, `${repair.length} repair lines`).toBeGreaterThan(MAX_INPUT_TOKENS);
+    }
+    const draft = templateDraft(snapshot.facts, snapshot.brief);
+    const provider = scriptedProvider([answer(withUnknownKeys(draft, hangul)), answer(draft)]);
+    const result = await generateDraft(provider, snapshot, testDeps().deps);
+    expect(result).toMatchObject({ ok: true, attempts: 2, validOnAttempt: 2, inputBoundRefused: false });
+    expect(provider.requests.map((req) => inputBound(req) <= MAX_INPUT_TOKENS)).toEqual([true, true]);
+    expect(provider.requests[1]!.user.split("\n").filter((line) => line.startsWith('- "copy.faq.')).length).toBe(20);
+  });
+
   it("refuses attempt 2 when the real repair lines of attempt 1 push it over: attempts 1, inputBoundRefused, no retry", async () => {
     const { deps, sleeps } = testDeps();
     const provider = scriptedProvider([answer(withUnknownKeys(good, "\uFDFA")), answer(good)]);

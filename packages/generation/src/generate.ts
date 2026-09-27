@@ -37,6 +37,12 @@ const utf8Bytes = (text: string): number => encoder.encode(text).length;
  * form, whichever is largest, plus PROMPT_OVERHEAD_TOKENS. A byte-level tokenizer makes at most one
  * token per byte of the text it reads, and some normalize the text first: U+1D160 is 4 bytes and 12
  * after NFC, U+FDFA 3 bytes and 33 after NFKC [inferred for tokenizers nobody has measured].
+ * Adding NFD or NFKD here is a deliberate decision that needs measured evidence. NFD would refuse
+ * schema-valid, caps-filled Hangul, Kannada and accented Greek (up to 9 bytes per UTF-16 unit: U+D7A3
+ * is 3 bytes and 9 after NFD; generate.test.ts pins that such a Hangul snapshot is sent), and no
+ * candidate tokenizer is known to decompose: gpt-oss has no normalizer, Qwen3.8 uses NFC and Gemma 4
+ * only replaces spaces (their tokenizer.json files, checked 2026-09-27); Claude's is unknown until
+ * Task 15 counts real tokens (count_tokens).
  */
 export function inputBound(req: Pick<ModelRequest, "system" | "user" | "jsonSchema">): number {
   const text = req.system + req.user + JSON.stringify(toWireSchema(req.jsonSchema));
