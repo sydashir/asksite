@@ -478,6 +478,28 @@ describe("AnthropicProvider: ANTHROPIC_CUSTOM_HEADERS never replaces the credent
       expect(http.calls[0]!.headers.get("x-api-key")).toBe("k");
     });
   });
+
+  // Part B review, round 1: buildHeaders passes the variable's x-api-key or authorization value to Headers.append
+  // (internal/headers.mjs:101) inside buildRequest (client.mjs:811), before any fetch (518). A value the Headers class
+  // rejects (a CR inside, a character above U+00FF) throws a TypeError there, which kindOf makes unavailable: nothing
+  // is sent. The three lower-case rows were RED while our credentials were also in the SDK's defaultHeaders option
+  // (6761ef6): `{ ...parsed, ...defaultHeaders }` (client.mjs:125) replaced the entry named exactly x-api-key or
+  // authorization before Headers saw it, and the request went out with our key. The mixed-case row was GREEN there too
+  // (a different object key, so nothing replaced it); it pins "in any case".
+  const cr = String.fromCharCode(13);
+  it.each([
+    ["x-api-key with a CR inside", `x-api-key: a${cr}b`],
+    ["x-api-key with a character above U+00FF", `x-api-key: a${String.fromCharCode(0x20ac)}`],
+    ["authorization with a CR inside", `authorization: a${cr}b`],
+    ["X-Api-Key with a CR inside", `X-Api-Key: a${cr}b`],
+  ])("fails before any fetch, as unavailable, when the variable gives %s", async (_label, value) => {
+    await withEnv("ANTHROPIC_CUSTOM_HEADERS", value, async () => {
+      const http = fakeFetch([{ status: 200, body: message("{}") }]);
+      const provider = new AnthropicProvider({ apiKey: "k", model: "claude-opus-5-5", fetch: http.fetch });
+      await expect(provider.generate(request())).rejects.toMatchObject({ name: "ProviderError", kind: "unavailable", message: "Anthropic request failed (unavailable)" });
+      expect(http.calls).toHaveLength(0);
+    });
+  });
 });
 
 // P3-11 (c): redirects are never followed (fetch's redirect "manual"): a followed redirect would carry every header,
