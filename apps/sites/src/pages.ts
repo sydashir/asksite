@@ -3,9 +3,11 @@ import { fixedPageHeaders, rootHostname } from "./headers.ts";
 
 // Fixed pages. Every word is a constant from this file: they never contain a submitted value.
 // Each has lang, a title, one h1 inside <main>, and reads well at 320 px (checked by axe in e2e).
+// overflow-wrap:break-word (Plan 1's body rule too): abuse@<root> on the apex page has no break
+// opportunity, so without it a long root domain scrolls sideways at 320 px (WCAG 1.4.10).
 
 const STYLE =
-  "body{margin:0;background:#fff;color:#1f2937;font:1.125rem/1.6 system-ui,-apple-system,'Segoe UI',Roboto,sans-serif}" +
+  "body{margin:0;overflow-wrap:break-word;background:#fff;color:#1f2937;font:1.125rem/1.6 system-ui,-apple-system,'Segoe UI',Roboto,sans-serif}" +
   "main{max-width:36rem;margin:0 auto;padding:3rem 1.5rem}h1{font-size:1.75rem;line-height:1.25;margin:0 0 1rem;color:#111827}" +
   "a{color:#1d4ed8;text-decoration:underline;text-underline-offset:.15em}a:focus-visible{outline:3px solid #1d4ed8;outline-offset:3px}" +
   "ul{padding-left:1.25rem}li{margin:.25rem 0}p{margin:0 0 1rem}";

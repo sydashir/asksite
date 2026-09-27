@@ -85,8 +85,12 @@ test.describe("contact form in a real browser", () => {
 });
 
 test.describe("fixed pages", () => {
+  // abuse@<root> on the apex page is the only variable text on a fixed page, and it has no break
+  // opportunity (UAX #14: LB15d, LB28, LB29), so the longest legal root name must reflow too.
+  const LONGEST_ROOT = ["w".repeat(63), "w".repeat(63), "w".repeat(63), "w".repeat(61)].join("."); // 253 characters
   const PAGES: Array<[string, () => Response]> = [
     ["apex placeholder", () => apexPlaceholder(ROOT)],
+    ["apex placeholder for the longest root domain", () => apexPlaceholder(LONGEST_ROOT)],
     ["404", () => notFound(ROOT)],
     ["503", () => unavailable(ROOT)],
     ["thank-you", () => thankYou(ROOT)],
