@@ -1,10 +1,10 @@
 // A cheap look at a multipart body before formData() parses it (P4-15 d). The parser walks every part and every
-// header byte before it answers, and its time grows with them: in workerd, 10 MB of about 205,000 empty parts
-// took 8-10 times a plain 10 MB upload's parse, and one part with a 10 MB file name 15-17 times, while the
-// isolate's other requests waited. An upload is one file part (§4.4, field `file`) with a short header, so a body
-// with more parts than MAX_PARTS, or a part whose headers do not end within MAX_PART_HEADER_BYTES, is refused
-// first. Only the delimiters and the bytes right after each are looked at, so the look stays short whatever the
-// body holds.
+// header byte before it answers, and its time grows with them: in workerd (measured 2026-09-27), 10 MB of about
+// 140,000 empty parts parsed in 7.5-8 times a plain 10 MB upload's time, and one part with a 10 MB file name in
+// 11-12.5 times, while a boundary of 70 or 2,000 characters with near-miss matches cost no more than the plain
+// upload. An upload is one file part (§4.4, field `file`) with a short header, so a body with more parts than
+// MAX_PARTS, or a part whose headers do not end within MAX_PART_HEADER_BYTES, is refused first. Only the
+// delimiters and the bytes right after each are looked at, so the look stays short whatever the body holds.
 
 /** An upload is one file part; a few more fields fit, thousands are no upload. */
 export const MAX_PARTS = 4;
