@@ -480,6 +480,21 @@ describe("unbackedClaims", () => {
     expect(unbackedClaims(text, ALL)).toEqual([claim]);
   });
 
+  // A9g: Ʋ (U+01B2), the capital of ʋ, reads both ways too: V by its name and U as it draws in all six theme font stacks.
+  it("reads Ʋ as U and finds an insurance claim unless the facts back it (A9g)", () => {
+    expect(unbackedClaims("FULLY INSƲRED CREW", NONE)).toEqual(["INSURED"]);
+    expect(unbackedClaims("FULLY INSƲRED CREW", ALL)).toEqual([]);
+  });
+
+  it.each([
+    ["GƲARANTEED WORK", "GUARANTEED"], // Ʋ read U
+    ["HƲNDREDS SERVED", "HUNDREDS"],
+    ["FIƲE-STAR SERVICE", "FIVE-STAR"], // Ʋ read V, as before A9g
+  ])("never allows %j (%j once read as A-Z), whatever the facts (A9g)", (text, claim) => {
+    expect(unbackedClaims(text, NONE)).toEqual([claim]);
+    expect(unbackedClaims(text, ALL)).toEqual([claim]);
+  });
+
   // A9g: ᴉ, Ʊ, ʘ and ʗ, which the table reads as i, U, o and c, also draw as "!", "℧", "⊙" and "(". Glued to a claim word
   // that carries a look-alike, they must not hide it, so they also read as a word break. The A9f round-2 attack's 10 cases:
   // at c76f761 the first six passed; the last four are the letters' own A9f readings, which must still find the claim.
@@ -790,6 +805,7 @@ describe("SiteDocument rejects AI copy that states facts the owner did not give"
     "Estimates are \u0192ree\u1D09", // A9g: U+1D09 ᴉ draws as "!", so it also reads as a word break
     "\u01B1\u0191REE ESTIMATES", // A9g: U+01B1 Ʊ draws as "℧"
     "Ask about our \u0298\u0192ree estimates", // A9g: U+0298 ʘ draws as "⊙"
+    "FULLY INS\u01B2RED CREW", // A9g: U+01B2 Ʋ reads U as well as V
   ])("%j", (claim) => {
     const faq = [{ question: "Why us?", answer: claim }];
     const result = SiteDocument.safeParse({ ...MINIMAL_DOC, copy: { ...MINIMAL_DOC.copy, faq } });

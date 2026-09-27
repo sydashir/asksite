@@ -21,9 +21,9 @@ import { foldings } from "./lookalikes.ts";
 // - as typed, as before A9, so every claim the checker found before A9 is still found;
 // - folded (foldings in lookalikes.ts): composed (NFC), with every combining mark removed that is not part
 //   of a precomposed letter, the look-alikes listed in lookalikes.ts read as the A-Z letters they look like, and
-//   the click letters read as punctuation. A letter that reads two ways (A9f: ʋ as v or u, ꞵ as b or ß, ꟾ as i or l)
-//   is read both ways, so there is one folded reading for each combination of the two-way letters in the text. So an
-//   overlay mark inside a word or between two words ("Licen" +
+//   the click letters read as punctuation. A letter that reads two ways (A9f: ʋ as v or u, ꞵ as b or ß, ꟾ as i or l;
+//   A9g: Ʋ as V or U) is read both ways, so there is one folded reading for each combination of the two-way letters in
+//   the text. So an overlay mark inside a word or between two words ("Licen" +
 //   U+0336 + "sed", "Award" + " " + U+0336 + "winning"), a look-alike letter ("lıcensed", "ƒree", "ŁICENSED")
 //   or a click letter ("ǀCertifiedǀ", where "ǀ" looks like "|") on its own hides no claim. The fold alone would join two
 //   words the page shows apart ("Top" + U+0336 + "rated"), so the typed reading stays: the fold only ever adds a claim.

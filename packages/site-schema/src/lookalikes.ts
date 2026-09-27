@@ -27,7 +27,8 @@
 //   it separates words as it is;
 // - A9e: ɛ (open e) reads e (the moderator's A9e list; confusables.txt maps it to ꞓ, c with bar), and the saltillo ꞌ
 //   and Ꞌ read as an apostrophe (the A9e list and confusables.txt); ʋ reads v like its capital Ʋ, and ꞵ reads b like its
-//   capital Ꞵ (A9f: and each also reads the way confusables.txt reads it, u and ß; SECOND_READINGS below); and the
+//   capital Ꞵ (A9f: and each also reads the way confusables.txt reads it, u and ß; A9g: Ʋ reads U too, like ʋ;
+//   SECOND_READINGS below); and the
 //   abbreviation letters ꝱ ꝲ ꝳ ꝴ ꝵ (DUM, LUM, MUM, NUM, RUM) read d, l, m, n and r, the letter each draws with a stroke
 //   (Unicode 18.0 code chart);
 // - A9f: ꟽ (epigraphic inverted M) reads w, ɘ (reversed e) e, ᴉ (turned i) i, ꟻ (epigraphic reversed F) f and ʊ
@@ -103,9 +104,10 @@ export const LOOKALIKES: Readonly<Record<string, string>> = {
 /**
  * The look-alikes that read two ways (A9f), each under its second reading; the first is in LOOKALIKES. ʋ reads v like its
  * capital Ʋ and u as confusables.txt reads it; ꞵ reads b like its capital Ꞵ and ß ("ss") as confusables.txt reads it;
- * ꟾ (I longa) reads i as its name says and l as confusables.txt reads it. Their capitals read one way.
+ * ꟾ (I longa) reads i as its name says and l as confusables.txt reads it. A9g: Ʋ, the capital of ʋ, reads V by its name
+ * and U too, like ʋ, as it draws like a U in all six theme font stacks. Ꞵ reads B only.
  */
-export const SECOND_READINGS: Readonly<Record<string, string>> = { l: "ꟾ", ss: "ꞵ", u: "ʋ" };
+export const SECOND_READINGS: Readonly<Record<string, string>> = { l: "ꟾ", ss: "ꞵ", u: "ʋ", U: "Ʋ" };
 
 const readAs = (table: Readonly<Record<string, string>>): ReadonlyMap<string, string> =>
   new Map(Object.entries(table).flatMap(([reading, letters]) => Array.from(letters, (letter): [string, string] => [letter, reading])));

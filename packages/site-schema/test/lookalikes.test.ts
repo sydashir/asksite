@@ -71,7 +71,7 @@ describe("foldLookalikes (A9b, A9c, A9e, A9f)", () => {
     ["Ɛ", "E"], // U+0190: the other case of ɛ
     ["\uA78C", "'"], // saltillo (confusables.txt)
     ["\uA78B", "'"], // capital saltillo
-    ["ʋ", "v"], // U+028B: read like its capital Ʋ first, and as u too (confusables.txt; SECOND_READINGS, A9f)
+    ["ʋ", "v"], // U+028B: read like its capital Ʋ first, and as u too (confusables.txt; SECOND_READINGS, A9f; Ʋ too since A9g)
     ["ꞵ", "b"], // U+A7B5 small beta: read like its capital Ꞵ first, and as ß (ss) too (confusables.txt; SECOND_READINGS, A9f)
     ["ɯ", "w"], // U+026F turned m, the small form of Ɯ
     ["ɱ", "m"], // U+0271 m with hook: confusables.txt's "rn" stands for m
@@ -125,20 +125,21 @@ describe("foldLookalikes (A9b, A9c, A9e, A9f)", () => {
 
   // A9f: ʋ, ꞵ and ꟾ read two ways, so a claim spelled with either reading is found. foldings() gives every combination:
   // the first reading (foldLookalikes), then each two-way letter in the text read its second way, alone and together.
+  // A9g: Ʋ, the capital of ʋ, reads both ways too (V by its name, U as it draws in the six theme font stacks).
   it("lists the letters that read two ways, each with its second reading", () => {
-    expect(SECOND_READINGS).toEqual({ l: "ꟾ", ss: "ꞵ", u: "ʋ" });
+    expect(SECOND_READINGS).toEqual({ l: "ꟾ", ss: "ꞵ", u: "ʋ", U: "Ʋ" });
   });
 
-  it("reads each two-way letter a second way that differs from its first, and only the small letter, not its capital", () => {
+  it("reads each two-way letter a second way that differs from its first, in the letter's own case", () => {
     for (const [second, letters] of Object.entries(SECOND_READINGS)) {
       for (const letter of letters) {
         expect(READS.get(letter), letter).toBeDefined(); // the first reading is in LOOKALIKES
         expect(READS.get(letter), letter).not.toBe(second);
-        expect(letter, letter).not.toMatch(/\p{Lu}/u);
-        expect(second, letter).toMatch(/^[a-z]+$/);
+        expect(second, letter).toMatch(/\p{Lu}/u.test(letter) ? /^[A-Z]+$/ : /^[a-z]+$/);
       }
     }
-    expect(foldings("Ʋ Ꞵ")).toEqual(["V B"]); // Ʋ reads V (its name) and Ꞵ reads B (confusables.txt): one way each
+    expect(foldings("Ʋ Ꞵ")).toEqual(["V B", "U B"]); // A9g: Ʋ reads V (its name) and U, like ʋ; Ꞵ reads B only (confusables.txt)
+    expect(foldings("ʋƲ")).toEqual(["vV", "uV", "vU", "uU"]); // the small and the capital letter each on their own
   });
 
   it("gives every combination of the two-way letters' readings, the first reading first", () => {
@@ -149,7 +150,7 @@ describe("foldLookalikes (A9b, A9c, A9e, A9f)", () => {
   });
 
   it("gives one reading, the fold, when no two-way letter is in the text", () => {
-    for (const text of ["", "plain words", "lıcensed", "Licen̶sed", "Ʋ", "Hawaiʻi"]) expect(foldings(text)).toEqual([foldLookalikes(text)]);
+    for (const text of ["", "plain words", "lıcensed", "Licen̶sed", "Ꞵ", "Hawaiʻi"]) expect(foldings(text)).toEqual([foldLookalikes(text)]);
   });
 
   it("finds a two-way letter after its combining marks are removed", () => {
