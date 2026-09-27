@@ -131,7 +131,15 @@ describe("Copy", () => {
     0xa78d, 0x0265, 0x02ae, 0x02af, // A9f: Ɥ ɥ TURNED H, which read as a 4, and ʮ ʯ TURNED H WITH FISHHOOK (AND TAIL)
     0x1df3e, // Unicode 18.0: BARRED TURNED H, confusables.txt ɥ + U+0335; unassigned in this engine
   ];
+  /**
+   * A9g: the Latin epigraphic letters (UnicodeData.txt 18.0.0: U+A7F7 and U+A7FB-A7FF are named LATIN EPIGRAPHIC LETTER)
+   * that no rule above refuses: ꟷ ꟻ ꟽ ꟾ ꟿ. Copy refuses the whole range U+A7F7-A7FF; of the rest, ꟺ is a small capital,
+   * ꟼ looks like a digit, and NFKC turns ꟸ and ꟹ (superscript letters for IPA and UPA) into Ħ and œ first.
+   */
+  const EPIGRAPHIC_LETTERS = [0xa7f7, 0xa7fb, 0xa7fd, 0xa7fe, 0xa7ff];
   const NUMBER_MESSAGE = "Copy must not contain numbers, currency symbols, @ or links; facts come from the owner";
+  const SMALL_CAPITAL_MESSAGE = "AI copy must use Latin script letters, not small capitals such as ɪ, ᴄ or ꜱ";
+  const EPIGRAPHIC_MESSAGE = "AI copy must use Latin script letters, not epigraphic letters such as ꟾ or ꟽ";
   const headlineWith = (letter: string) => issues({ ...valid, heroHeadline: `Crew ${letter} team` });
   const messagesFor = (headline: string) => {
     const result = Copy.safeParse({ ...valid, heroHeadline: headline });
@@ -212,14 +220,44 @@ describe("Copy", () => {
     for (const cp of SMALL_CAPITALS) expect(headlineWith(String.fromCodePoint(cp)), `U+${cp.toString(16)}`).toEqual(["heroHeadline: custom"]);
   });
 
-  it("rejects exactly the small capitals and the digit look-alikes, and no other Latin or Common letter", () => {
+  // A9g: the Latin epigraphic letters have no use in English copy or in real names, and the claim checker cannot read
+  // them safely (ꟾ reads i or l, so "ꟾꟾcensed" hid a claim), so copy refuses them. lookalikes.ts keeps their readings.
+  it.each([
+    "Fully \uA7FE\uA7FEcensed crew", // ꟾ used both ways in one word: "llcensed" or "iicensed", never "licensed"
+    "Help around the c\uA7FEock",
+    "\uA7FDARRANTY INCLUDED", // ꟽ inverted M
+    "\uA7FBREE ESTIMATES", // ꟻ reversed F
+    "Award\uA7F7winning crew", // ꟷ sideways I, which draws as a dash
+    "\uA7FFade with care", // ꟿ archaic M
+  ])("rejects an epigraphic letter (A9g): %j", (headline) => {
+    expect(messagesFor(headline)).toEqual([EPIGRAPHIC_MESSAGE]);
+  });
+
+  it("keeps every code point of U+A7F7-A7FF out of copy, each with one message (A9g)", () => {
+    for (const cp of EPIGRAPHIC_LETTERS) expect(messagesFor(`Crew ${String.fromCodePoint(cp)} team`), `U+${cp.toString(16)}`).toEqual([EPIGRAPHIC_MESSAGE]);
+    expect(messagesFor("Crew \uA7FA team")).toEqual([SMALL_CAPITAL_MESSAGE]); // ꟺ small capital turned M
+    expect(messagesFor("Crew \uA7FC team")).toEqual([NUMBER_MESSAGE]); // ꟼ reversed P, which draws as a 9
+    expect(Copy.parse({ ...valid, heroHeadline: "Crew \uA7F8 team" }).heroHeadline).toBe("Crew \u0126 team"); // NFKC: Ħ
+    expect(Copy.parse({ ...valid, heroHeadline: "Crew \uA7F9 team" }).heroHeadline).toBe("Crew \u0153 team"); // NFKC: œ
+  });
+
+  it("says which letters copy may use, in words Plan 3 and Plan 4 key on, for an epigraphic letter too (A9g)", () => {
+    const messages = messagesFor("Fully \uA7FEicensed");
+    expect(messages).toEqual([EPIGRAPHIC_MESSAGE]);
+    expect(messages[0]?.startsWith("AI copy must use Latin script")).toBe(true);
+    expect(messagesFor("Уборка \uA7FE")).toEqual(["AI copy must use Latin script only; other scripts can spell out numbers and prices"]);
+    expect(messagesFor("\u1D04rew \uA7FE")).toEqual([SMALL_CAPITAL_MESSAGE]); // one message: the small capital's
+    expect(messagesFor("Call \uA7FE\u01A7")).toEqual([NUMBER_MESSAGE]); // one message: the number's
+  });
+
+  it("rejects exactly the small capitals, the digit look-alikes and the epigraphic letters, and no other Latin or Common letter", () => {
     const wrong: string[] = [];
     for (let cp = 0x80; cp <= 0x10ffff; cp++) {
       if (cp >= 0xd800 && cp <= 0xdfff) continue;
       const letter = String.fromCodePoint(cp);
       // Letters NFKC leaves alone (NFKC runs first); other scripts are refused by the Latin-script rule above.
       if (!/^\p{L}$/u.test(letter) || !/[\p{Script=Latin}\p{Script=Common}]/u.test(letter) || letter.normalize("NFKC") !== letter) continue;
-      const expected = SMALL_CAPITALS.includes(cp) || DIGIT_LETTERS.includes(cp);
+      const expected = SMALL_CAPITALS.includes(cp) || DIGIT_LETTERS.includes(cp) || EPIGRAPHIC_LETTERS.includes(cp);
       if ((headlineWith(letter).length > 0) !== expected) wrong.push(`U+${cp.toString(16)} ${expected ? "accepted" : "refused"}`);
     }
     expect(wrong).toEqual([]);
@@ -240,7 +278,7 @@ describe("Copy", () => {
   it("says which letters copy may use, in words Plan 3 and Plan 4 key on", () => {
     const result = Copy.safeParse({ ...valid, heroHeadline: "ɪnsured plumbers" });
     const messages = result.success ? [] : result.error.issues.map((i) => i.message);
-    expect(messages).toEqual(["AI copy must use Latin script letters, not small capitals such as ɪ, ᴄ or ꜱ"]);
+    expect(messages).toEqual([SMALL_CAPITAL_MESSAGE]);
     expect(messages[0]?.startsWith("AI copy must use Latin script")).toBe(true);
   });
 

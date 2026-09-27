@@ -104,9 +104,9 @@ export const HIDDEN_IN_COPY = /(?![\uFE0E\uFE0F])\p{Default_Ignorable_Code_Point
  * Every other dash reads as an em dash (A8c): any \p{Pd} except the hyphens and the dashes the joiner
  * class already lists, plus seven dash-like characters that are not \p{Pd} (U+2043 HYPHEN BULLET,
  * U+23AF, U+2500, U+2501, U+30FC, U+FF70 and, A9f, U+A7F7 LATIN EPIGRAPHIC LETTER SIDEWAYS I, a letter
- * that draws as a dash, which confusables.txt reads as U+30FC through an em dash). So "Award" + U+2015 +
- * "winning" joins like "Award" + U+2014 + "winning", and a free after one of them is a free offer, as
- * after an em dash.
+ * that draws as a dash, which confusables.txt reads as U+30FC through an em dash; since A9g copy refuses it, and the
+ * reading stays, harmless). So "Award" + U+2015 + "winning" joins like "Award" + U+2014 + "winning", and a free after
+ * one of them is a free offer, as after an em dash.
  */
 const OTHER_DASH = /(?![-\u2010-\u2014])[\p{Pd}\u2043\u23AF\u2500\u2501\u30FC\uFF70\uA7F7]/gu;
 

@@ -213,7 +213,8 @@ describe("foldLookalikes (A9b, A9c, A9e, A9f)", () => {
       expect(letter, letter).not.toMatch(/^[A-Za-z]$/);
       expect(letter.normalize("NFD"), letter).toBe(letter);
       expect(letter.normalize("NFKC"), letter).toBe(letter);
-      expect(prose(80).safeParse(`Crew ${letter} team`).success, letter).toBe(true);
+      // A9g: copy refuses the Latin epigraphic letters (ꟻ ꟽ ꟾ ꟿ); their readings stay, which is harmless.
+      expect(prose(80).safeParse(`Crew ${letter} team`).success, letter).toBe(!/[\uA7F7-\uA7FF]/u.test(letter));
       expect(ascii, letter).toMatch(PUNCTUATION.has(ascii) ? /^[^A-Za-z0-9]+$/ : /^[A-Za-z]+$/);
     }
     expect(READS.size).toBe(PAIRS.length); // no letter listed twice

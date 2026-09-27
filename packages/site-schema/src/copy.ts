@@ -9,7 +9,8 @@ import { z } from "zod";
 // - any character outside the Latin, Common (punctuation, symbols, emoji) and Inherited
 //   (combining marks) scripts. Other scripts can write numbers and prices as letters ("五百元")
 //   and have letters that look Latin (Cyrillic "о", U+043E);
-// - a small capital, which looks like an A-Z letter (A9b, A9e): "ɪ", "ᴄ", "ꜱ" and "ʟɪᴄᴇɴꜱᴇᴅ" (SMALL_CAPITAL below).
+// - a small capital, which looks like an A-Z letter (A9b, A9e): "ɪ", "ᴄ", "ꜱ" and "ʟɪᴄᴇɴꜱᴇᴅ" (SMALL_CAPITAL below);
+// - (A9g) a character in U+A7F7-A7FF, the Latin epigraphic letters "ꟷ", "ꟻ", "ꟽ", "ꟾ" and "ꟿ" (EPIGRAPHIC_LETTER below).
 //   Every other Latin letter passes (A9e), phonetic letters included, because real names and places use them:
 //   "café", "Bjørn", "Łukasz", "Straße", "Hawaiʻi" (U+02BB ʻokina), the glottal stop "ʔ" of official US place names
 //   ("dukMéʔem wáťa"), the schwa of Azerbaijani names and US place names ("Rəşad", "Wewətanagok"), the saltillo of Alaska
@@ -72,6 +73,16 @@ const NON_LATIN_SCRIPT = /[^\p{Script=Latin}\p{Script=Common}\p{Script=Inherited
 const SMALL_CAPITAL =
   /[ɢɪɴɶʀʁʏʙʛʜʟʶᴀᴁᴃ-ᴇᴊ-ᴐᴕᴘ-ᴜᴠ-ᴣᴦ-ᴫᵻᵾᶦᶧᶫᶰᶸⱻꜰꜱꝶꞮꞯꟺꭆꭥ\u{10780}\u{10784}\u{10792}\u{10794}\u{10796}\u{1079C}\u{107A3}\u{107AA}\u{107B2}\u{1DF02}\u{1DF04}\u{1DF10}\u{1DF30}\u{1DF35}\u{1DF36}\u{1DF43}\u{1DFD1}\u{1DFE8}-\u{1DFEA}]/u;
 
+/**
+ * A9g: U+A7F7-A7FF, whose letters UnicodeData.txt 18.0.0 names LATIN EPIGRAPHIC LETTER (U+A7F7 SIDEWAYS I, U+A7FB-A7FF
+ * REVERSED F, REVERSED P, INVERTED M, I LONGA and ARCHAIC M): letters of ancient Roman and Celtic inscriptions, with no use
+ * in English copy or in real names, which the claim checker can only read by guessing (ꟾ reads i or l, so "ꟾꟾcensed" hid
+ * "licensed"). lookalikes.ts keeps their readings, which is harmless. The rest of the range is refused before this check:
+ * U+A7FA is a small capital and U+A7FC looks like a digit, and NFKC turns U+A7F8 and U+A7F9 (superscript letters for IPA
+ * and UPA) into Ħ and œ. So copy never holds a character of this range.
+ */
+const EPIGRAPHIC_LETTER = /[\uA7F7-\uA7FF]/u;
+
 export const prose = (max: number) =>
   z
     .string()
@@ -94,6 +105,11 @@ export const prose = (max: number) =>
       // repair rules, Plan 4's owner messages) treat both alike.
       error: "AI copy must use Latin script letters, not small capitals such as ɪ, ᴄ or ꜱ",
       when: (payload) => payload.issues.length === 0, // as above: a non-Latin letter gets only the message above
+    })
+    .refine((s) => !EPIGRAPHIC_LETTER.test(s), {
+      // A9g: starts like the two messages above, for the callers that key on it; one message per string, as above.
+      error: "AI copy must use Latin script letters, not epigraphic letters such as ꟾ or ꟽ",
+      when: (payload) => payload.issues.length === 0,
     });
 
 export const COPY_LIMITS = {

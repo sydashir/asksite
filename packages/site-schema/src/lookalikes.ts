@@ -42,7 +42,8 @@
 // Not listed: other letters that look like no A-Z letter (turned, reversed, open and Greek-derived letters such as
 // Ɔ, ɐ, ɹ, ʌ, Ʌ, Ʃ and Ʒ), and the look-alikes no rule above derives, such as ᴗ, ꞷ, ʃ and ʍ (accepted residuals, design
 // §2.2), and ɞ, ʚ, ʬ and ɿ (weaker look-alikes the A9f attack round left to the moderator; recorded there too). Small
-// capitals and the letters that look like a digit never reach the claim checker: copy refuses them (copy.ts).
+// capitals and the letters that look like a digit never reach the claim checker: copy refuses them (copy.ts). Since A9g
+// copy also refuses the Latin epigraphic letters (ꟻ, ꟽ, ꟾ, ꟿ); their readings here stay, which is harmless.
 
 /** What each look-alike reads as: A-Z letters (capitals as capitals, other letters as small letters) or punctuation. */
 export const LOOKALIKES: Readonly<Record<string, string>> = {

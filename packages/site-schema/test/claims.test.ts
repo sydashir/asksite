@@ -265,6 +265,7 @@ describe("unbackedClaims", () => {
   // A8c: every other dash reads like an em dash. These 16 survive NFKC (so they reach the checker in
   // AI copy) and are not in the joiner list above; the rest of \p{Pd} is added from the engine's tables.
   // A9f adds ꟷ U+A7F7 LATIN EPIGRAPHIC LETTER SIDEWAYS I, a letter that draws as a dash (confusables.txt: ー via —).
+  // A9g: copy refuses it (an epigraphic letter), so it no longer reaches the checker in AI copy; the reading stays.
   const OTHER_DASHES = [
     "―", "⁃", "⎯", "─", "━", "⸗", "⸚", "⸺",
     "⸻", "⹀", "⹝", "〜", "〰", "゠", "ー", "ｰ",
@@ -793,11 +794,8 @@ describe("SiteDocument rejects AI copy that states facts the owner did not give"
     "\u019CARRANTY INCLUDED", // A9c: U+019C reads W
     "Fully ins\u028Bred plumbers", // A9f: U+028B ʋ reads u as well as v
     "Licen\uA7B5ed plumbers", // A9f: U+A7B5 ꞵ reads ß (ss) as well as b
-    "Help around the c\uA7FEock", // A9f: U+A7FE ꟾ reads l as well as i
-    "\uA7FDARRANTY INCLUDED", // A9f: U+A7FD ꟽ reads w
     "Fully ins\u028Ared plumbers", // A9f: U+028A ʊ reads u
     "Save \uA78DO% on drain cleaning.", // A9f: U+A78D Ɥ draws like an open 4 (refused by Copy)
-    "Award\uA7F7winning crew", // A9f: U+A7F7 ꟷ reads as an em dash
     "Our b\u0298nded crew", // A9f round 1: U+0298 ʘ reads o
     "Fully li\u0297ensed plumbers", // A9f round 1: U+0297 ʗ reads c
     "Over \u0267undreds of homes", // A9f round 1: U+0267 ɧ reads h
@@ -811,6 +809,21 @@ describe("SiteDocument rejects AI copy that states facts the owner did not give"
     const result = SiteDocument.safeParse({ ...MINIMAL_DOC, copy: { ...MINIMAL_DOC.copy, faq } });
     expect(result.success).toBe(false);
     expect(result.error?.issues.map((i) => i.path.join("."))).toEqual(["copy.faq.0.answer"]);
+  });
+
+  // A9g: copy refuses the Latin epigraphic letters, and the claim checker, which keeps their A9f readings, still finds the
+  // claim, as it does beside a digit ("Licensed since 1998").
+  it.each([
+    ["Help around the c\uA7FEock", '"around the clock"'], // A9f: U+A7FE ꟾ reads l as well as i
+    ["\uA7FDARRANTY INCLUDED", '"wARRANTY"'], // A9f: U+A7FD ꟽ reads w
+    ["Award\uA7F7winning crew", '"Award—winning"'], // A9f: U+A7F7 ꟷ reads as an em dash
+  ])("%j is refused for its epigraphic letter and as the claim %s (A9g)", (text, claim) => {
+    const faq = [{ question: "Why us?", answer: text }];
+    const result = SiteDocument.safeParse({ ...MINIMAL_DOC, copy: { ...MINIMAL_DOC.copy, faq } });
+    expect(result.success ? [] : result.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`)).toEqual([
+      "copy.faq.0.answer: AI copy must use Latin script letters, not epigraphic letters such as ꟾ or ꟽ",
+      `copy.faq.0.answer: Copy states something the owner's facts do not back: ${claim}`,
+    ]);
   });
 
   // An invisible mark inside a claim word is refused as invisible, and (A9) the claim it splits is
