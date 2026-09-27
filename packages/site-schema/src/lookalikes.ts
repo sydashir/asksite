@@ -11,8 +11,8 @@
 //   https://www.unicode.org/Public/18.0.0/security/confusables.txt): every letter copy allows whose
 //   prototype is A-Z letters once its marks are removed, read through the letters this table lists (A9e: ə, whose
 //   prototype is ǝ, reads e). Its prototype "l" stands for both I and l, so the letters named for I read "I" (Ɩ capital
-//   iota, Ɨ; ꟾ I longa, which has no case, reads "i"); its prototype "rn" stands for both rn and m, so ɱ and ᵯ, named for
-//   M, read "m". Like ASCII I and l, each is read one way only;
+//   iota, Ɨ; ꟾ I longa, which has no case, reads "i", and since A9f "l" too); its prototype "rn" stands for both rn and m,
+//   so ɱ and ᵯ, named for M, read "m". Like ASCII I and l, each of the others is read one way only;
 // - UnicodeData.txt names of the form "LATIN ... LETTER X WITH ...": X with a hook, stroke, bar, curl or tail (A9e: X may
 //   also be a letter this table lists, so ꬶ SCRIPT G WITH CROSSED-TAIL reads g, or two A-Z letters, as in ᵺ); and
 //   (A9e) the letterform names SCRIPT, INSULAR, BLACKLETTER, BARRED, BROKEN, SIGMOID, OLD POLISH, LENIS, ARCHAIC and
@@ -27,12 +27,16 @@
 //   it separates words as it is;
 // - A9e: ɛ (open e) reads e (the moderator's A9e list; confusables.txt maps it to ꞓ, c with bar), and the saltillo ꞌ
 //   and Ꞌ read as an apostrophe (the A9e list and confusables.txt); ʋ reads v like its capital Ʋ, and ꞵ reads b like its
-//   capital Ꞵ, because a case pair reads one way (confusables.txt reads ʋ as u and ꞵ as ß); and the abbreviation letters
-//   ꝱ ꝲ ꝳ ꝴ ꝵ (DUM, LUM, MUM, NUM, RUM) read d, l, m, n and r, the letter each draws with a stroke (Unicode 18.0 code
-//   chart).
+//   capital Ꞵ (A9f: and each also reads the way confusables.txt reads it, u and ß; SECOND_READINGS below); and the
+//   abbreviation letters ꝱ ꝲ ꝳ ꝴ ꝵ (DUM, LUM, MUM, NUM, RUM) read d, l, m, n and r, the letter each draws with a stroke
+//   (Unicode 18.0 code chart);
+// - A9f: ꟽ (epigraphic inverted M) reads w, ɘ (reversed e) e, ᴉ (turned i) i, ꟻ (epigraphic reversed F) f and ʊ
+//   (upsilon) u: the moderator's A9f list of letters that draw like those A-Z letters in the six theme font stacks (the
+//   A9e review's WebKit render), though confusables.txt gives them no A-Z prototype. By the rules above, Ʊ (the other case
+//   of ʊ) reads U, and ᵿ (UPSILON WITH STROKE; confusables.txt: ʊ + U+0335) reads u.
 // Not listed: other letters that look like no A-Z letter (turned, reversed, open and Greek-derived letters such as
-// Ɔ, ɐ, ɹ, ʌ, Ʌ, Ʃ and Ʒ). Small capitals and the letters that look like a digit never reach the claim checker: copy
-// refuses them (copy.ts).
+// Ɔ, ɐ, ɹ, ʌ, Ʌ, Ʃ and Ʒ), and the look-alikes no rule above derives, such as ᴗ, ꞷ, ʃ and ʍ (accepted residuals, design
+// §2.2). Small capitals and the letters that look like a digit never reach the claim checker: copy refuses them (copy.ts).
 
 /** What each look-alike reads as: A-Z letters (capitals as capitals, other letters as small letters) or punctuation. */
 export const LOOKALIKES: Readonly<Record<string, string>> = {
@@ -52,13 +56,13 @@ export const LOOKALIKES: Readonly<Record<string, string>> = {
   co: "ꭃꭄ",
   d: "ðđƌȡɖɗᵭᶁᶑꝱꝺꟈ𝼥", D: "ÐĐƉƊƋꝹꟇ",
   dz: "ʣʥꭦ",
-  e: "ɇⱸǝəɚɛᶒᶓᶕꜫꬲꬳꬴ", E: "ɆƎƏƐꜪ",
+  e: "ɇⱸǝəɘɚɛᶒᶓᶕꜫꬲꬳꬴ", E: "ɆƎƏƐꜪ",
   eo: "ᴔꭁꭂ",
-  f: "ƒẝʄᵮᶂꝼꞙꬵ", F: "ƑꝻꞘ",
+  f: "ƒẝʄᵮᶂꝼꞙꟻꬵ", F: "ƑꝻꞘ",
   fn: "ʩ𝼀",
   g: "ƍǥɠɡᶃꞡꬶ", G: "ƓǤꝽꞠꞬ",
   h: "ħⱨɦꞕ", H: "ĦⱧꞪ",
-  i: "ıɨɩᵼᶖꞽꟾ𝼚", I: "ƖƗꞼ",
+  i: "ıɨɩᴉᵼᶖꞽꟾ𝼚", I: "ƖƗꞼ",
   j: "ȷɉɟʝ", J: "ɈꞲ",
   k: "ĸƙⱪᶄꝁꝃꝅꞣ", K: "ƘⱩꝀꝂꝄꞢ",
   l: "łƚȴⱡɫɬɭᶅꝇꝉꝲꞁꞎꬷꬸꬹ𝼑𝼓𝼦", L: "ŁȽⱠⱢꝆꝈꞭ",
@@ -81,29 +85,55 @@ export const LOOKALIKES: Readonly<Record<string, string>> = {
   tf: "ꝷ",
   th: "þᵺꝥꝧ", TH: "ÞꝤꝦ",
   ts: "ʦꭧ",
-  u: "ʉᶙꞟꞹꞿꭎꭏꭒ", U: "ɄꞞꞸꞾ",
+  u: "ʉʊᵿᶙꞟꞹꞿꭎꭏꭒ", U: "ɄƱꞞꞸꞾ",
   ue: "ᵫ",
   uo: "ꭣ",
   v: "ⱱⱴʋꝟ", V: "ƲꝞ",
-  w: "ⱳɯɰꝡ", W: "ⱲƜꝠ",
+  w: "ⱳɯɰꝡꟽ", W: "ⱲƜꝠ",
   x: "ᳵᶍꭓꭔꭕꭖꭗꭘꭙ", X: "Ꭓ",
   y: "ƴɏỿɣᶌꭚ", Y: "ƳɎỾƔ",
   z: "ƶȥɀⱬʐʑᵶᶎ", Z: "ƵȤⱫⱿꟆ",
 };
 
-const READ_AS: ReadonlyMap<string, string> = new Map(
-  Object.entries(LOOKALIKES).flatMap(([reading, letters]) => Array.from(letters, (letter): [string, string] => [letter, reading])),
-);
+/**
+ * The look-alikes that read two ways (A9f), each under its second reading; the first is in LOOKALIKES. ʋ reads v like its
+ * capital Ʋ and u as confusables.txt reads it; ꞵ reads b like its capital Ꞵ and ß ("ss") as confusables.txt reads it;
+ * ꟾ (I longa) reads i as its name says and l as confusables.txt reads it. Their capitals read one way.
+ */
+export const SECOND_READINGS: Readonly<Record<string, string>> = { l: "ꟾ", ss: "ꞵ", u: "ʋ" };
+
+const readAs = (table: Readonly<Record<string, string>>): ReadonlyMap<string, string> =>
+  new Map(Object.entries(table).flatMap(([reading, letters]) => Array.from(letters, (letter): [string, string] => [letter, reading])));
+const READ_AS = readAs(LOOKALIKES);
+const SECOND_READ_AS = readAs(SECOND_READINGS);
+
+/** Composed (NFC), so a precomposed letter stays as typed, with every combining mark removed that NFC leaves on its own. */
+const composed = (text: string): string => text.normalize("NFC").replace(/\p{M}/gu, "");
+
+/** Every look-alike read as what it looks like: its second way when it is in `secondWay`, else its first. */
+const readLookalikes = (text: string, secondWay: ReadonlySet<string>): string =>
+  text.replace(/[^\x00-\x7F]/gu, (character) => (secondWay.has(character) ? SECOND_READ_AS.get(character) : READ_AS.get(character)) ?? character);
 
 /**
  * The text as a reader takes it, for claim matching (A9, A9b, A9c): composed (NFC), so a precomposed letter stays as
  * typed ("Saïd", "Tiệm Giặt Sấy"), with every combining mark removed that NFC leaves on its own (one that is not part
  * of a precomposed letter, such as U+0336 in "Licen" + U+0336 + "sed" or U+0307 on an i, which draws as a plain i),
- * and then with every look-alike listed above read as what it looks like ("lıcensed", "ǀBondedǀ").
+ * and then with every look-alike listed above read its first way ("lıcensed", "ǀBondedǀ").
  */
 export function foldLookalikes(text: string): string {
-  return text
-    .normalize("NFC")
-    .replace(/\p{M}/gu, "")
-    .replace(/[^\x00-\x7F]/gu, (character) => READ_AS.get(character) ?? character);
+  return readLookalikes(composed(text), new Set());
+}
+
+/**
+ * Every way a reader can take the text (A9f): foldLookalikes' reading first, then one reading for each combination of
+ * the two-way letters in the text read their second way, each letter on its own, so "Fiʋe" (v) and "insʋred" (u) are
+ * both found, and so is "ꟾnsʋred" (i and u). At most 2^3 = 8 readings. All the copies of one letter read the same way in
+ * one reading, so a two-way letter used both ways inside one word ("ꟾꟾcensed") is not read (an accepted residual).
+ */
+export function foldings(text: string): string[] {
+  const letters = composed(text);
+  const twoWay = [...SECOND_READ_AS.keys()].filter((letter) => letters.includes(letter));
+  return Array.from({ length: 2 ** twoWay.length }, (_, combination) =>
+    readLookalikes(letters, new Set(twoWay.filter((_, bit) => combination & (1 << bit)))),
+  );
 }

@@ -1,6 +1,6 @@
 import type { Copy } from "./copy.ts";
 import { DAYS, type Facts } from "./facts.ts";
-import { foldLookalikes } from "./lookalikes.ts";
+import { foldings } from "./lookalikes.ts";
 
 // Claim checker for AI copy. Credentials, insurance, time in business, hours, prices, reviews
 // and contact details are owner facts that the renderer shows from `facts`. Copy may mention a
@@ -15,13 +15,15 @@ import { foldLookalikes } from "./lookalikes.ts";
 // clauses, not join one compound word), so this class is spelled out wherever a pattern below
 // joins two words.
 //
-// Claims are matched on the page read two ways (A9, A9b, A9c), and a claim either reading finds counts. The typed reading
-// runs first (A9c item 1 said "folded, then as typed"; the order only decides which spelling of a found word is shown,
-// recorded by A9e):
+// Claims are matched on the page read as typed and folded (A9, A9b, A9c, A9f), and a claim any reading finds counts. The
+// typed reading runs first (A9c item 1 said "folded, then as typed"; the order only decides which spelling of a found
+// word is shown, recorded by A9e):
 // - as typed, as before A9, so every claim the checker found before A9 is still found;
-// - folded (foldLookalikes in lookalikes.ts): composed (NFC), with every combining mark removed that is not part
+// - folded (foldings in lookalikes.ts): composed (NFC), with every combining mark removed that is not part
 //   of a precomposed letter, the look-alikes listed in lookalikes.ts read as the A-Z letters they look like, and
-//   the click letters read as punctuation. So an overlay mark inside a word or between two words ("Licen" +
+//   the click letters read as punctuation. A letter that reads two ways (A9f: ʋ as v or u, ꞵ as b or ß, ꟾ as i or l)
+//   is read both ways, so there is one folded reading for each combination of the two-way letters in the text. So an
+//   overlay mark inside a word or between two words ("Licen" +
 //   U+0336 + "sed", "Award" + " " + U+0336 + "winning"), a look-alike letter ("lıcensed", "ƒree", "ŁICENSED")
 //   or a click letter ("ǀCertifiedǀ", where "ǀ" looks like "|") on its own hides no claim. The fold alone would join two
 //   words the page shows apart ("Top" + U+0336 + "rated"), so the typed reading stays: the fold only ever adds a claim.
@@ -106,14 +108,14 @@ const OTHER_DASH = /(?![-\u2010-\u2014])[\p{Pd}\u2043\u23AF\u2500\u2501\u30FC\uF
 export const asReadOnPage = (text: string): string =>
   text.replace(/\s+/g, " ").replace(/[\u2010\u2011]/g, "-").replace(OTHER_DASH, "\u2014");
 
-/** The page read as typed and folded (see the top of this file). */
+/** The page read as typed, then folded every way (see the top of this file). */
 function readings(text: string): readonly string[] {
-  return [asReadOnPage(text), asReadOnPage(foldLookalikes(text))];
+  return [text, ...foldings(text)].map(asReadOnPage);
 }
 
 /**
  * The words in `text` that state a claim the owner's facts do not back (empty when the text is
- * fine), matched as a reader sees the page, read the two ways above. A claim either reading finds counts,
+ * fine), matched as a reader sees the page, read the ways above. A claim any reading finds counts,
  * so every word the typed reading alone finds is found. A found word is shown from the first reading that
  * finds it, as typed when it can be, so the owner can find it in the copy; the copy itself is not changed.
  */

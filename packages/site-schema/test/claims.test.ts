@@ -411,6 +411,44 @@ describe("unbackedClaims", () => {
     expect(unbackedClaims(text, ALL)).toEqual([claim]);
   });
 
+  // A9f: ʋ (v or u), ꞵ (b or ß, read "ss") and ꟾ (i or l) read both ways, each two-way letter independently of the
+  // others; and ꟽ ɘ ᴉ ꟻ ʊ (with Ʊ and ᵿ) read as the A-Z letter they draw like. The attacks are from the A9e review rounds.
+  it.each([
+    ["Fully insʋred", "insured"], // ʋ read u
+    ["Aroʋnd the clock help", "Around the clock"],
+    ["Licenꞵed plumbers", "Licenssed"], // ꞵ read ß, which reads "ss"
+    ["Around the cꟾock service", "Around the clock"], // ꟾ read l
+    ["Lꟾcensed crew", "Licensed"], // ꟾ read i
+    ["ꟾicensed crew", "licensed"],
+    ["Fully ꟾnsʋred", "insured"], // ꟾ read i and ʋ read u in one word: each two-way letter reads both ways on its own
+    ["Fully insʊred", "insured"], // U+028A upsilon
+    ["FULLY INSƱRED", "INSURED"], // U+01B1, the other case of ʊ
+    ["Fully insᵿred", "insured"], // U+1D7F upsilon with stroke
+    ["Lᴉcensed crew", "Licensed"], // U+1D09 turned i
+    ["Fully licɘnsɘd", "licensed"], // U+0258 reversed e
+    ["ꟻREE ESTIMATES", "fREE"], // U+A7FB reversed F, a letter with no case, reads a small f
+    ["Get a ꟻree quote", "free"],
+  ])("reads the look-alike letters in %j as A-Z and finds %j unless the facts back it (A9f)", (text, word) => {
+    expect(unbackedClaims(text, NONE)).toEqual([word]);
+    expect(unbackedClaims(text, ALL)).toEqual([]);
+  });
+
+  it.each([
+    ["Fiʋe-star service", "Five-star"], // ʋ read v
+    ["Satisfaction gʋaranteed", "guaranteed"], // ʋ read u
+    ["Over a hʋndred homes", "hundred"],
+    ["ꞵonded crew", "bonded"], // ꞵ read b
+    ["Save doꟾlars today", "dollars"], // ꟾ read l
+    ["Miꟾlions served", "Millions"],
+    ["Estabꟾished crew", "Established"],
+    ["ꟽARRANTY INCLUDED", "wARRANTY"], // U+A7FD inverted M reads a small w
+    ["Open ꟽeekends", "weekends"],
+    ["Eʋe crews since the start", "since"], // found as typed; the two-way letter in the name reads no claim either way
+  ])("never allows %j (%j once read as A-Z), whatever the facts (A9f)", (text, claim) => {
+    expect(unbackedClaims(text, NONE)).toEqual([claim]);
+    expect(unbackedClaims(text, ALL)).toEqual([claim]);
+  });
+
   it.each([
     "Serving Hawaiʻi, Oʻahu and Kāneʻohe",
     "Serving Hawaiʼi and Oʼahu",
@@ -647,6 +685,11 @@ describe("SiteDocument rejects AI copy that states facts the owner did not give"
     "Save \uA72DO% on drain cleaning.", // A9e: U+A72D cuatrillo draws as a 4 (refused by Copy)
     "\u01C0Certi\u0307fied\u01C0 pros", // A9c: a click letter reads as "|", and the leftover U+0307 goes
     "\u019CARRANTY INCLUDED", // A9c: U+019C reads W
+    "Fully ins\u028Bred plumbers", // A9f: U+028B \u028B reads u as well as v
+    "Licen\uA7B5ed plumbers", // A9f: U+A7B5 \uA7B5 reads \u00DF (ss) as well as b
+    "Help around the c\uA7FEock", // A9f: U+A7FE \uA7FE reads l as well as i
+    "\uA7FDARRANTY INCLUDED", // A9f: U+A7FD \uA7FD reads w
+    "Fully ins\u028Ared plumbers", // A9f: U+028A \u028A reads u
   ])("%j", (claim) => {
     const faq = [{ question: "Why us?", answer: claim }];
     const result = SiteDocument.safeParse({ ...MINIMAL_DOC, copy: { ...MINIMAL_DOC.copy, faq } });

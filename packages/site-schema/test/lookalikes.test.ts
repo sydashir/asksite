@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { prose } from "../src/copy.ts";
-import { foldLookalikes, LOOKALIKES } from "../src/lookalikes.ts";
+import { foldings, foldLookalikes, LOOKALIKES, SECOND_READINGS } from "../src/lookalikes.ts";
 
 /** Every [letter, what it reads as] pair of the table. */
 const PAIRS = Object.entries(LOOKALIKES).flatMap(([ascii, letters]) => Array.from(letters, (letter) => [letter, ascii] as const));
@@ -9,7 +9,7 @@ const READS = new Map(PAIRS);
 /** The keys that are punctuation, not A-Z letters: the apostrophe (A9b) and the click letters' punctuation (A9c). */
 const PUNCTUATION = new Set(["'", "|", "||", "!"]);
 
-describe("foldLookalikes (A9b, A9c, A9e)", () => {
+describe("foldLookalikes (A9b, A9c, A9e, A9f)", () => {
   it.each([
     ["ı", "i"],
     ["ȷ", "j"],
@@ -71,8 +71,8 @@ describe("foldLookalikes (A9b, A9c, A9e)", () => {
     ["Ɛ", "E"], // U+0190: the other case of ɛ
     ["\uA78C", "'"], // saltillo (confusables.txt)
     ["\uA78B", "'"], // capital saltillo
-    ["ʋ", "v"], // U+028B: read like its capital Ʋ (confusables.txt reads it as u)
-    ["ꞵ", "b"], // U+A7B5 small beta: read like its capital Ꞵ (confusables.txt reads it as ß)
+    ["ʋ", "v"], // U+028B: read like its capital Ʋ first, and as u too (confusables.txt; SECOND_READINGS, A9f)
+    ["ꞵ", "b"], // U+A7B5 small beta: read like its capital Ꞵ first, and as ß (ss) too (confusables.txt; SECOND_READINGS, A9f)
     ["ɯ", "w"], // U+026F turned m, the small form of Ɯ
     ["ɱ", "m"], // U+0271 m with hook: confusables.txt's "rn" stands for m
     ["Ꝼ", "F"], // U+A77B insular F (letterform name)
@@ -86,9 +86,57 @@ describe("foldLookalikes (A9b, A9c, A9e)", () => {
     ["ꞻ", "a"], // U+A7BB glottal a
     ["Ꜳ", "AA"], // U+A732 (confusables.txt)
     ["ʣ", "dz"], // U+02A3 dz digraph (confusables.txt)
-    ["ꟾ", "i"], // U+A7FE I longa: confusables.txt's "l", named for I (a letter with no case reads small)
+    ["ꟾ", "i"], // U+A7FE I longa: named for I (a letter with no case reads small) first, and as confusables.txt's l too (A9f)
   ])("reads the letter %j that A9e lets into copy as %j", (letter, ascii) => {
     expect(foldLookalikes(letter)).toBe(ascii);
+  });
+
+  // A9f: letters A9e let into copy that draw like an A-Z letter although confusables.txt 18.0.0 gives them no A-Z
+  // prototype (the moderator's A9f list, from the A9e review's WebKit render of the six theme font stacks), and the
+  // letters the table's own rules then add.
+  it.each([
+    ["ꟽ", "w"], // U+A7FD epigraphic inverted M, which draws as W (NamesList.txt cross-refers it to Ɯ, which reads W)
+    ["ɘ", "e"], // U+0258 reversed e
+    ["ᴉ", "i"], // U+1D09 turned i
+    ["ꟻ", "f"], // U+A7FB epigraphic reversed F
+    ["ʊ", "u"], // U+028A upsilon
+    ["Ʊ", "U"], // U+01B1: the other case of ʊ
+    ["ᵿ", "u"], // U+1D7F upsilon with stroke: confusables.txt ʊ + U+0335, named after ʊ
+  ])("reads the letter %j, which draws like an A-Z letter, as %j (A9f)", (letter, ascii) => {
+    expect(foldLookalikes(letter)).toBe(ascii);
+  });
+
+  // A9f: ʋ, ꞵ and ꟾ read two ways, so a claim spelled with either reading is found. foldings() gives every combination:
+  // the first reading (foldLookalikes), then each two-way letter in the text read its second way, alone and together.
+  it("lists the letters that read two ways, each with its second reading", () => {
+    expect(SECOND_READINGS).toEqual({ l: "ꟾ", ss: "ꞵ", u: "ʋ" });
+  });
+
+  it("reads each two-way letter a second way that differs from its first, and only the small letter, not its capital", () => {
+    for (const [second, letters] of Object.entries(SECOND_READINGS)) {
+      for (const letter of letters) {
+        expect(READS.get(letter), letter).toBeDefined(); // the first reading is in LOOKALIKES
+        expect(READS.get(letter), letter).not.toBe(second);
+        expect(letter, letter).not.toMatch(/\p{Lu}/u);
+        expect(second, letter).toMatch(/^[a-z]+$/);
+      }
+    }
+    expect(foldings("Ʋ Ꞵ")).toEqual(["V B"]); // Ʋ reads V (its name) and Ꞵ reads B (confusables.txt): one way each
+  });
+
+  it("gives every combination of the two-way letters' readings, the first reading first", () => {
+    expect(foldings("ꟾꞵʋ")).toEqual(["ibv", "lbv", "issv", "lssv", "ibu", "lbu", "issu", "lssu"]);
+    expect(foldings("Fiʋe insʋred")).toEqual(["Five insvred", "Fiue insured"]); // a letter reads one way per reading
+    expect(foldings("Licenꞵed crew")).toEqual(["Licenbed crew", "Licenssed crew"]);
+    expect(foldings("cꟾock")).toEqual(["ciock", "clock"]);
+  });
+
+  it("gives one reading, the fold, when no two-way letter is in the text", () => {
+    for (const text of ["", "plain words", "lıcensed", "Licen̶sed", "Ʋ", "Hawaiʻi"]) expect(foldings(text)).toEqual([foldLookalikes(text)]);
+  });
+
+  it("finds a two-way letter after its combining marks are removed", () => {
+    expect(foldings("ʋ̶")).toEqual(["v", "u"]);
   });
 
   // A9c: the click letters look like punctuation, so they read as punctuation and never join two words into one.
@@ -120,7 +168,7 @@ describe("foldLookalikes (A9b, A9c, A9e)", () => {
     const ascii = Array.from({ length: 0x80 }, (_, c) => String.fromCharCode(c)).join("");
     expect(foldLookalikes(ascii)).toBe(ascii);
     expect(foldLookalikes("Fast — friendly ’ “ ” ✨ Ɔ Ʃ Ʒ Ƽ ʔ")).toBe("Fast — friendly ’ “ ” ✨ Ɔ Ʃ Ʒ Ƽ ʔ");
-    expect(foldLookalikes("ɐ ɔ ɹ ʌ ʃ ʊ ɥ ʇ")).toBe("ɐ ɔ ɹ ʌ ʃ ʊ ɥ ʇ"); // A9e: turned, open and Greek-derived letters read as themselves
+    expect(foldLookalikes("ɐ ɔ ɹ ʌ ʃ ʇ")).toBe("ɐ ɔ ɹ ʌ ʃ ʇ"); // A9e: turned, open and Greek-derived letters the table does not list
   });
 
   it("lists only single letters that copy accepts and NFD leaves whole, each read as A-Z letters or punctuation", () => {
@@ -133,14 +181,14 @@ describe("foldLookalikes (A9b, A9c, A9e)", () => {
       expect(ascii, letter).toMatch(PUNCTUATION.has(ascii) ? /^[^A-Za-z0-9]+$/ : /^[A-Za-z]+$/);
     }
     expect(READS.size).toBe(PAIRS.length); // no letter listed twice
-    expect(PAIRS).toHaveLength(391); // the A9b derivation, as changed by A9c and A9e (lookalikes.ts); a changed table must be derived again
+    expect(PAIRS).toHaveLength(398); // the A9b derivation, as changed by A9c, A9e and A9f (lookalikes.ts); a changed table must be derived again
   });
 
   it("reads every letter as the derivation says: a digest of every letter and its reading, not only the count (A9d)", () => {
     // Moving a letter to another reading keeps the count (Ɵ read "Q" instead of "O"). A changed table must be derived
     // again (lookalikes.ts), and only then this digest updated.
     const table = PAIRS.map(([letter, reading]) => `U+${letter.codePointAt(0)?.toString(16).toUpperCase()} ${reading}`).sort();
-    expect(createHash("sha256").update(table.join("\n")).digest("hex")).toBe("b7887e1143f57a22cc82a4a4033b0d41362300b6f44c4233f14f40f9cc8c63d2");
+    expect(createHash("sha256").update(table.join("\n")).digest("hex")).toBe("c54dc4241c35b1540f1b58289ddbeb3dad8af26b503f7b4ead9581875d2f2916");
   });
 
   it("reads a capital as capitals and any other letter as small letters", () => {
