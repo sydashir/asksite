@@ -140,6 +140,40 @@ describe("PATCH /api/sites/:siteId/draft", () => {
     expect(view.rev).toBe(2);
   });
 
+  // §4.4: a save replaces only the parts it sends. The questionnaire saves facts and brief, the editor edits alone.
+  it("keeps the saved facts when a later save sends only the brief", async () => {
+    const owner = await h.signIn();
+    const save = (body: object) => h.call("PATCH", `/api/sites/${owner.siteId}/draft`, { cookie: owner.cookie, body });
+    expect((await save({ rev: 1, facts: VALID_FACTS, brief: VALID_BRIEF })).status).toBe(200);
+    const brief = { ...VALID_BRIEF, tone: "professional" };
+    expect((await save({ rev: 2, brief })).status).toBe(200);
+    const view = await json<SiteView>(await h.call("GET", `/api/sites/${owner.siteId}`, { cookie: owner.cookie }));
+    expect(view.rev).toBe(3);
+    expect(view.facts).toEqual(VALID_FACTS);
+    expect(view.brief).toEqual(brief);
+  });
+
+  it("keeps the saved edits and brief when a save sends only the facts, and the facts and brief when one sends only the edits", async () => {
+    const owner = await h.signIn();
+    const save = (body: object) => h.call("PATCH", `/api/sites/${owner.siteId}/draft`, { cookie: owner.cookie, body });
+    const read = async () => json<SiteView>(await h.call("GET", `/api/sites/${owner.siteId}`, { cookie: owner.cookie }));
+    expect((await save({ rev: 1, brief: VALID_BRIEF, edits: { ...EMPTY_EDITS, copy: { ctaText: "Call Joe" } } })).status).toBe(200);
+
+    expect((await save({ rev: 2, facts: VALID_FACTS })).status).toBe(200);
+    const afterFacts = await read();
+    expect(afterFacts.facts).toEqual(VALID_FACTS);
+    expect(afterFacts.brief).toEqual(VALID_BRIEF);
+    // Only the part this test set (A12 heads-up: never the whole edits object).
+    expect(afterFacts.edits.copy).toEqual({ ctaText: "Call Joe" });
+
+    expect((await save({ rev: 3, edits: { ...EMPTY_EDITS, copy: { ctaText: "Call us today" } } })).status).toBe(200);
+    const afterEdits = await read();
+    expect(afterEdits.rev).toBe(4);
+    expect(afterEdits.facts).toEqual(VALID_FACTS);
+    expect(afterEdits.brief).toEqual(VALID_BRIEF);
+    expect(afterEdits.edits.copy).toEqual({ ctaText: "Call us today" });
+  });
+
   it("keeps an incomplete draft and reports what is missing", async () => {
     const owner = await h.signIn();
     const res = await h.call("PATCH", `/api/sites/${owner.siteId}/draft`, { cookie: owner.cookie, body: { rev: 1, facts: { businessName: "Joe's" } } });
