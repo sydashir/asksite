@@ -246,6 +246,63 @@ describe("POST /api/sites/:siteId/uploads", () => {
       expect(res.status).toBe(201);
       expect((await uploadRows(owner.siteId)).map(shape)).toEqual([{ width: 400, height: 300, bytes: expect.any(Number), deleted: false }]);
     });
+
+    // Bodies encoded here, so the test picks the boundary, the line ends and what comes before or inside a part.
+    type Part = { name: string; value: string } | { photo: Uint8Array };
+    const encode = (text: string): Uint8Array => new TextEncoder().encode(text);
+    const joined = (...chunks: Uint8Array[]): Uint8Array => new Uint8Array(chunks.flatMap((chunk) => [...chunk]));
+
+    /** A multipart body as browsers encode it: each part after its delimiter line, then the close delimiter. */
+    function multipart(boundary: string, parts: Part[], eol = "\r\n"): Uint8Array {
+      return joined(
+        ...parts.map((part) =>
+          "photo" in part
+            ? joined(encode(`--${boundary}${eol}Content-Disposition: form-data; name="file"; filename="x.png"${eol}Content-Type: image/png${eol}${eol}`), part.photo, encode(eol))
+            : encode(`--${boundary}${eol}Content-Disposition: form-data; name="${part.name}"${eol}${eol}${part.value}${eol}`),
+        ),
+        encode(`--${boundary}--${eol}`),
+      );
+    }
+
+    const postRaw = (owner: { siteId: string; cookie: string }, contentType: string, body: Uint8Array) =>
+      h.server.fetch(`${APP_ORIGIN}/api/sites/${owner.siteId}/uploads`, { method: "POST", headers: { Origin: APP_ORIGIN, Cookie: owner.cookie, "Content-Type": contentType }, body });
+
+    const fields = (count: number): Part[] => Array.from({ length: count }, (_, i) => ({ name: `field${i}`, value: "x" }));
+
+    // Each body below parses in workerd to a stored photo when the guard lets it through (P4-15 review I1, I2).
+    it.each<[name: string, reason: string, request: (photo: Uint8Array) => [contentType: string, body: Uint8Array]]>([
+      // The parser reads REAL from these two headers; a looser read of the boundary let their extra parts through.
+      ["a boundary= inside an earlier parameter's quoted value", "boundary_not_accepted", (photo) => ['multipart/form-data; x="; boundary=DECOY"; boundary=REAL', multipart("REAL", [{ photo }, ...fields(MAX_PARTS)])]],
+      ["a quoted boundary with a backslash escape", "boundary_not_accepted", (photo) => ['multipart/form-data; boundary="RE\\AL"', multipart("REAL", [{ photo }, ...fields(MAX_PARTS)])]],
+      // RFC 2046 5.1.1: a boundary "must be no longer than 70 characters"; the parser's search costs its length.
+      ["a boundary of 71 characters", "boundary_not_accepted", (photo) => [`multipart/form-data; boundary=${"b".repeat(71)}`, multipart("b".repeat(71), [{ photo }])]],
+      // With the browser's header: a --REAL-- inside a line is no delimiter to the parser, which reads on.
+      ["a --boundary-- inside a line of the first part", "too_many_parts", (photo) => ["multipart/form-data; boundary=REAL", multipart("REAL", [{ name: "note", value: "xx--REAL--yy" }, { photo }, ...fields(MAX_PARTS - 1)])]],
+      ["a preamble before the first delimiter", "no_leading_delimiter", (photo) => ["multipart/form-data; boundary=REAL", joined(encode("preamble\r\n"), multipart("REAL", [{ photo }]))]],
+    ])("refuses %s with 400, noting %s", async (_, reason, request) => {
+      const owner = await h.signIn();
+      const [contentType, body] = request(await png(400, 300));
+      const res = await postRaw(owner, contentType, body);
+      expect(res.status).toBe(400);
+      expect((await json<ErrorJson>(res)).error).toEqual(refused);
+      expect(lastUploadLine()).toMatchObject({ status: 400, code: "bad_request", event: "multipart_refused", reason });
+      expect(await uploadRows(owner.siteId)).toEqual([]);
+    });
+
+    it("still stores a photo sent with a 70-character boundary of RFC 2046's characters, or with bare LF line ends, as the parser reads both", async () => {
+      const owner = await h.signIn();
+      const longest = `'()+_,-./:=?${"Z".repeat(58)}`;
+      expect(longest).toHaveLength(70);
+      const photo = await png(400, 300);
+      for (const [contentType, body] of [
+        [`multipart/form-data; boundary=${longest}`, multipart(longest, [{ photo }])],
+        ["multipart/form-data; boundary=REAL", multipart("REAL", [{ photo }], "\n")],
+      ] as const) {
+        const res = await postRaw(owner, contentType, body);
+        expect(res.status, contentType).toBe(201);
+      }
+      expect(await uploadRows(owner.siteId)).toHaveLength(2);
+    });
   });
 
   it("refuses a multipart body that cannot be parsed with 400 bad_request, not as a server failure", async () => {

@@ -105,10 +105,12 @@ export function uploadRoutes(): Hono<AppEnv> {
     if (!(await underCaps(db, site.id))) throw limitReached();
 
     const body = await readBytes(c.req.raw, LIMITS.uploadMaxBytes + MULTIPART_OVERHEAD_BYTES);
-    // Before the parse, which walks every part and every header byte (P4-15 d): more parts than an upload has,
-    // or a header that runs on for kilobytes, would only make it slow while the isolate's other requests wait.
+    // Before the parse, which walks every part and every header byte (P4-15 d): a Content-Type other than the
+    // browser's form (its boundary could be read otherwise, or be long enough to slow the parser's search), more
+    // parts than an upload has, or a header that runs on for kilobytes, would only make it slow while the
+    // isolate's other requests wait.
     const boundary = multipartBoundary(contentType);
-    const shape = boundary === null ? null : multipartShapeProblem(body, boundary);
+    const shape = boundary === null ? "boundary_not_accepted" : multipartShapeProblem(body, boundary);
     if (shape !== null) {
       noteLog(c, { event: "multipart_refused", reason: shape });
       throw new ApiError("bad_request", "The upload is not valid multipart form data");
