@@ -2,7 +2,9 @@ import { apiHeaders, handleError, handleNotFound, requireOrigin } from "@asksite
 import { Hono } from "hono";
 import type { AppDeps } from "./deps.ts";
 import { authRoutes } from "./routes/auth.ts";
+import { devRoutes } from "./routes/dev.ts";
 import { generationRoutes } from "./routes/generations.ts";
+import { leadRoutes } from "./routes/leads.ts";
 import { meRoutes } from "./routes/me.ts";
 import { publishRoutes } from "./routes/publish.ts";
 import { siteRoutes } from "./routes/sites.ts";
@@ -24,6 +26,8 @@ export function createApp(deps: AppDeps): Hono<AppEnv> {
   app.route("/api", uploadRoutes());
   app.route("/api", generationRoutes(deps));
   app.route("/api", publishRoutes(deps));
+  app.route("/api", leadRoutes());
+  app.route("/api", devRoutes());
   app.notFound(handleNotFound);
   app.onError(handleError);
   return app;
