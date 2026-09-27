@@ -33,10 +33,15 @@
 // - A9f: ꟽ (epigraphic inverted M) reads w, ɘ (reversed e) e, ᴉ (turned i) i, ꟻ (epigraphic reversed F) f and ʊ
 //   (upsilon) u: the moderator's A9f list of letters that draw like those A-Z letters in the six theme font stacks (the
 //   A9e review's WebKit render), though confusables.txt gives them no A-Z prototype. By the rules above, Ʊ (the other case
-//   of ʊ) reads U, and ᵿ (UPSILON WITH STROKE; confusables.txt: ʊ + U+0335) reads u.
+//   of ʊ) reads U, and ᵿ (UPSILON WITH STROKE; confusables.txt: ʊ + U+0335) reads u;
+// - A9f review round 1: ʗ (stretched c) reads c, ʘ (bilabial click, an O with a dot) o, Ꜧ and ꜧ (heng) H and h, and ɧ
+//   (heng with hook) h: they too draw like those A-Z letters in the six theme font stacks (the A9f attack round's
+//   Chromium and WebKit render), and confusables.txt gives them no prototype (NamesList.txt cross-refers Ꜧ to Ⱨ, which
+//   reads H). By the name rule above, U+1DF0F (STRETCHED C WITH CURL) reads c.
 // Not listed: other letters that look like no A-Z letter (turned, reversed, open and Greek-derived letters such as
 // Ɔ, ɐ, ɹ, ʌ, Ʌ, Ʃ and Ʒ), and the look-alikes no rule above derives, such as ᴗ, ꞷ, ʃ and ʍ (accepted residuals, design
-// §2.2). Small capitals and the letters that look like a digit never reach the claim checker: copy refuses them (copy.ts).
+// §2.2), and ɞ, ʚ, ʬ and ɿ (weaker look-alikes the A9f attack round left to the moderator; recorded there too). Small
+// capitals and the letters that look like a digit never reach the claim checker: copy refuses them (copy.ts).
 
 /** What each look-alike reads as: A-Z letters (capitals as capitals, other letters as small letters) or punctuation. */
 export const LOOKALIKES: Readonly<Record<string, string>> = {
@@ -52,7 +57,7 @@ export const LOOKALIKES: Readonly<Record<string, string>> = {
   av: "ꜹꜻ", AV: "ꜸꜺ",
   ay: "ꜽ", AY: "Ꜽ",
   b: "ƀƃƅɓᵬᶀꞗꞵ", B: "ƁƂƄɃꞖꞴ",
-  c: "ƈȼɕꞓꞔ𝼝", C: "ƇȻꞒꟄ",
+  c: "ƈȼɕʗꞓꞔ𝼏𝼝", C: "ƇȻꞒꟄ",
   co: "ꭃꭄ",
   d: "ðđƌȡɖɗᵭᶁᶑꝱꝺꟈ𝼥", D: "ÐĐƉƊƋꝹꟇ",
   dz: "ʣʥꭦ",
@@ -61,7 +66,7 @@ export const LOOKALIKES: Readonly<Record<string, string>> = {
   f: "ƒẝʄᵮᶂꝼꞙꟻꬵ", F: "ƑꝻꞘ",
   fn: "ʩ𝼀",
   g: "ƍǥɠɡᶃꞡꬶ", G: "ƓǤꝽꞠꞬ",
-  h: "ħⱨɦꞕ", H: "ĦⱧꞪ",
+  h: "ħⱨɦɧꜧꞕ", H: "ĦⱧꜦꞪ",
   i: "ıɨɩᴉᵼᶖꞽꟾ𝼚", I: "ƖƗꞼ",
   j: "ȷɉɟʝ", J: "ɈꞲ",
   k: "ĸƙⱪᶄꝁꝃꝅꞣ", K: "ƘⱩꝀꝂꝄꞢ",
@@ -71,7 +76,7 @@ export const LOOKALIKES: Readonly<Record<string, string>> = {
   lz: "ʫ",
   m: "ɱᵯᶆꝳꟿꬺ", M: "Ɱ",
   n: "ŋƞȵɲɳᵰᶇꝴꞑꞥꬻꬼ𝼔𝼧", N: "ŊƝȠꞐꞤ",
-  o: "øⱺɵᴑᴓꝋꝍꟁꬽꬾ𝼛", O: "ØƟꝊꝌꟀ",
+  o: "øⱺɵʘᴑᴓꝋꝍꟁꬽꬾ𝼛", O: "ØƟꝊꝌꟀ",
   oe: "œ", OE: "Œ",
   oo: "ꝏ", OO: "Ꝏ",
   p: "ƥƿᵱᵽᶈꝑꝓꝕ", P: "ƤǷⱣꝐꝒꝔ",

@@ -106,6 +106,23 @@ describe("foldLookalikes (A9b, A9c, A9e, A9f)", () => {
     expect(foldLookalikes(letter)).toBe(ascii);
   });
 
+  // A9f review round 1: more letters A9e let into copy that draw like an A-Z letter in the six theme font stacks
+  // (Chromium and WebKit render) although confusables.txt 18.0.0 gives them no prototype, the letter named after one of
+  // them, and the modifier letters that copy's NFKC turns into one of them.
+  it.each([
+    ["ʗ", "c"], // U+0297 stretched c
+    ["ʘ", "o"], // U+0298 bilabial click, an O with a dot (a letter with no case reads small)
+    ["Ꜧ", "H"], // U+A726 capital heng
+    ["ꜧ", "h"], // U+A727 heng
+    ["ɧ", "h"], // U+0267 heng with hook
+    ["\u{1DF0F}", "c"], // STRETCHED C WITH CURL, named after ʗ
+    ["\u{107B5}", "o"], // MODIFIER LETTER BILABIAL CLICK: copy's NFKC makes it ʘ first
+    ["ꭜ", "h"], // MODIFIER LETTER SMALL HENG: NFKC makes it ꜧ
+    ["\u{10797}", "h"], // MODIFIER LETTER SMALL HENG WITH HOOK: NFKC makes it ɧ
+  ])("reads the letter %j, which draws like an A-Z letter, as %j (A9f round 1)", (letter, ascii) => {
+    expect(foldLookalikes(letter.normalize("NFKC"))).toBe(ascii);
+  });
+
   // A9f: ʋ, ꞵ and ꟾ read two ways, so a claim spelled with either reading is found. foldings() gives every combination:
   // the first reading (foldLookalikes), then each two-way letter in the text read its second way, alone and together.
   it("lists the letters that read two ways, each with its second reading", () => {
@@ -181,14 +198,14 @@ describe("foldLookalikes (A9b, A9c, A9e, A9f)", () => {
       expect(ascii, letter).toMatch(PUNCTUATION.has(ascii) ? /^[^A-Za-z0-9]+$/ : /^[A-Za-z]+$/);
     }
     expect(READS.size).toBe(PAIRS.length); // no letter listed twice
-    expect(PAIRS).toHaveLength(398); // the A9b derivation, as changed by A9c, A9e and A9f (lookalikes.ts); a changed table must be derived again
+    expect(PAIRS).toHaveLength(404); // the A9b derivation, as changed by A9c, A9e and A9f (lookalikes.ts); a changed table must be derived again
   });
 
   it("reads every letter as the derivation says: a digest of every letter and its reading, not only the count (A9d)", () => {
     // Moving a letter to another reading keeps the count (Ɵ read "Q" instead of "O"). A changed table must be derived
     // again (lookalikes.ts), and only then this digest updated.
     const table = PAIRS.map(([letter, reading]) => `U+${letter.codePointAt(0)?.toString(16).toUpperCase()} ${reading}`).sort();
-    expect(createHash("sha256").update(table.join("\n")).digest("hex")).toBe("c54dc4241c35b1540f1b58289ddbeb3dad8af26b503f7b4ead9581875d2f2916");
+    expect(createHash("sha256").update(table.join("\n")).digest("hex")).toBe("e7b21e048e096e7d72ea01b8fef67e69d553a77b7af777d6542bbee860098862");
   });
 
   it("reads a capital as capitals and any other letter as small letters", () => {

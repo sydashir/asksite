@@ -458,6 +458,28 @@ describe("unbackedClaims", () => {
     expect(unbackedClaims(text, ALL)).toEqual([claim]);
   });
 
+  // A9f review round 1: ʗ (c), ʘ (o), Ꜧ ꜧ (H h) and ɧ (h) draw like those A-Z letters. The attacks are from the A9f
+  // attack round, which found them passing although 3fc9a93 refused them.
+  it("reads ʗ as c and finds a licence claim unless the facts back it (A9f round 1)", () => {
+    expect(unbackedClaims("Fully liʗensed", NONE)).toEqual(["licensed"]);
+    expect(unbackedClaims("Fully liʗensed", ALL)).toEqual([]);
+  });
+
+  it.each([
+    ["BʘNDED CREW", "BoNDED"], // U+0298 bilabial click, a letter with no case, reads a small o
+    ["Our bʘnded crew", "bonded"],
+    ["ʗERTIFIED PROS", "cERTIFIED"], // U+0297 stretched c
+    ["Our ʗertified pros", "certified"],
+    ["Aʗʗredited team", "Accredited"],
+    ["Over ɧundreds of homes", "hundreds"], // U+0267 heng with hook
+    ["Tɧousands served", "Thousands"],
+    ["ꜦUNDREDS SERVED", "HUNDREDS"], // U+A726 capital heng
+    ["Over ꜧundreds of homes", "hundreds"], // U+A727 heng
+  ])("never allows %j (%j once read as A-Z), whatever the facts (A9f round 1)", (text, claim) => {
+    expect(unbackedClaims(text, NONE)).toEqual([claim]);
+    expect(unbackedClaims(text, ALL)).toEqual([claim]);
+  });
+
   it.each([
     "Serving Hawaiʻi, Oʻahu and Kāneʻohe",
     "Serving Hawaiʼi and Oʼahu",
@@ -701,6 +723,10 @@ describe("SiteDocument rejects AI copy that states facts the owner did not give"
     "Fully ins\u028Ared plumbers", // A9f: U+028A ʊ reads u
     "Save \uA78DO% on drain cleaning.", // A9f: U+A78D Ɥ draws like an open 4 (refused by Copy)
     "Award\uA7F7winning crew", // A9f: U+A7F7 ꟷ reads as an em dash
+    "Our b\u0298nded crew", // A9f round 1: U+0298 ʘ reads o
+    "Fully li\u0297ensed plumbers", // A9f round 1: U+0297 ʗ reads c
+    "Over \u0267undreds of homes", // A9f round 1: U+0267 ɧ reads h
+    "\uA726UNDREDS SERVED", // A9f round 1: U+A726 Ꜧ reads H
   ])("%j", (claim) => {
     const faq = [{ question: "Why us?", answer: claim }];
     const result = SiteDocument.safeParse({ ...MINIMAL_DOC, copy: { ...MINIMAL_DOC.copy, faq } });
