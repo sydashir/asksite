@@ -111,7 +111,8 @@ describe("Copy", () => {
    * U+1DF18 after EZH; ɝ and ᶔ after REVERSED OPEN E; U+1DF94 after R ROTUNDA). A9d: Ỽ and ỽ, MIDDLE-WELSH V, which
    * draw like a 6 but have no confusables.txt entry. A9e: the letters whose skeleton holds a digit or one of those letters
    * (ᴈ, ᴤ, ɮ, ʤ, Ꜩ, ꜩ) and the letters named after them; the cuatrillo (NamesList.txt: "x (digit four)"); and the letters
-   * that draw as a digit in the code charts and the theme and Noto fonts (Ꜣ, Ꝝ, Ꝣ, ꝸ, ᵷ, ᵹ, Ꞁ, ꭋ, Ꟃ, Ꟑ, ꟼ).
+   * that draw as a digit in the code charts and the theme and Noto fonts (Ꜣ, Ꝝ, Ꝣ, ꝸ, ᵷ, ᵹ, Ꞁ, ꭋ, Ꟃ, Ꟑ, ꟼ). A9f: Ɥ and ɥ
+   * (TURNED H), which read as a 4, the letters named after ɥ (ʮ, ʯ) and U+1DF3E, whose confusables.txt skeleton is ɥ.
    */
   const DIGIT_LETTERS = [
     0x01a7, 0x01a8, 0x01b7, 0x01ba, 0x01bb, 0x01bc, 0x01bd, 0x01ee, 0x01ef, 0x021c, 0x021d, 0x0222, 0x0223, 0x025c, 0x025d,
@@ -127,6 +128,8 @@ describe("Copy", () => {
     0xa722, 0xa723, 0xa75c, 0xa75d, 0xa762, 0xa763, 0xa778, 0x1d77, 0x1d79, 0xa780, 0xab4b, 0xab4c, 0xa7c2, 0xa7c3, 0xa7d0,
     0xa7d1, 0xa7fc,
     0xab6c, 0xab6d, // Unicode 18.0: the capitals of ꭋ and ꭌ; unassigned in this engine
+    0xa78d, 0x0265, 0x02ae, 0x02af, // A9f: Ɥ ɥ TURNED H, which read as a 4, and ʮ ʯ TURNED H WITH FISHHOOK (AND TAIL)
+    0x1df3e, // Unicode 18.0: BARRED TURNED H, confusables.txt ɥ + U+0335; unassigned in this engine
   ];
   const NUMBER_MESSAGE = "Copy must not contain numbers, currency symbols, @ or links; facts come from the owner";
   const headlineWith = (letter: string) => issues({ ...valid, heroHeadline: `Crew ${letter} team` });
@@ -165,6 +168,9 @@ describe("Copy", () => {
     "\uA780icensed crew", // Ꞁ turned L draws like a 7, like ⁊
     "Call \u1D08\u1D24", // ᴈ reads ɜ (3) and ᴤ reads ƨ (2) in confusables.txt
     "A crew of \uA728 vans", // Ꜩ reads T3 in confusables.txt
+    // A9f: Ɥ and ɥ, TURNED H, draw like an open 4 (the A9e review's render: like Cyrillic Ч, which NamesList.txt names)
+    "Save \uA78DO% on drain cleaning.", // "Save 4O% on drain cleaning."
+    "Call l-\u0265\u0265\u0265 today", // ɥ, the small form: "Call 1-444 today"
   ])("rejects a letter that looks like a digit as a number: %j", (headline) => {
     expect(messagesFor(headline)).toEqual([NUMBER_MESSAGE]);
   });

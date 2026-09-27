@@ -685,11 +685,12 @@ describe("SiteDocument rejects AI copy that states facts the owner did not give"
     "Save \uA72DO% on drain cleaning.", // A9e: U+A72D cuatrillo draws as a 4 (refused by Copy)
     "\u01C0Certi\u0307fied\u01C0 pros", // A9c: a click letter reads as "|", and the leftover U+0307 goes
     "\u019CARRANTY INCLUDED", // A9c: U+019C reads W
-    "Fully ins\u028Bred plumbers", // A9f: U+028B \u028B reads u as well as v
-    "Licen\uA7B5ed plumbers", // A9f: U+A7B5 \uA7B5 reads \u00DF (ss) as well as b
-    "Help around the c\uA7FEock", // A9f: U+A7FE \uA7FE reads l as well as i
-    "\uA7FDARRANTY INCLUDED", // A9f: U+A7FD \uA7FD reads w
-    "Fully ins\u028Ared plumbers", // A9f: U+028A \u028A reads u
+    "Fully ins\u028Bred plumbers", // A9f: U+028B ʋ reads u as well as v
+    "Licen\uA7B5ed plumbers", // A9f: U+A7B5 ꞵ reads ß (ss) as well as b
+    "Help around the c\uA7FEock", // A9f: U+A7FE ꟾ reads l as well as i
+    "\uA7FDARRANTY INCLUDED", // A9f: U+A7FD ꟽ reads w
+    "Fully ins\u028Ared plumbers", // A9f: U+028A ʊ reads u
+    "Save \uA78DO% on drain cleaning.", // A9f: U+A78D Ɥ draws like an open 4 (refused by Copy)
   ])("%j", (claim) => {
     const faq = [{ question: "Why us?", answer: claim }];
     const result = SiteDocument.safeParse({ ...MINIMAL_DOC, copy: { ...MINIMAL_DOC.copy, faq } });

@@ -4,7 +4,7 @@ import { z } from "zod";
 // becomes "$89" before it is checked), then rejected if it contains:
 // - a character Unicode classes as a number (\p{N}, e.g. "5", "٥", "½"), a currency symbol
 //   (\p{Sc}), "@", "http:", "https:" or "www.", or one of the Latin letters listed in DIGIT_LETTER below, which
-//   look like a digit ("Ƨ", "ƨ", "Ƽ", A9c; "Ỽ", A9d; "ꜭ", "ᴈ", A9e);
+//   look like a digit ("Ƨ", "ƨ", "Ƽ", A9c; "Ỽ", A9d; "ꜭ", "ᴈ", A9e; "Ɥ", A9f);
 // - a control or invisible formatting character (\p{Cc}, \p{Cf});
 // - any character outside the Latin, Common (punctuation, symbols, emoji) and Inherited
 //   (combining marks) scripts. Other scripts can write numbers and prices as letters ("五百元")
@@ -48,11 +48,15 @@ const FACT_LIKE = /[\p{N}\p{Sc}@]|https?:|www\./iu;
  *   Sans and Noto Serif (the fallback fonts of Android), though confusables.txt has no digit for them: Ꜣ U+A722 and ꜣ
  *   U+A723 (3), Ꝝ U+A75C and ꝝ U+A75D (2 with a stroke), Ꝣ U+A762 and ꝣ U+A763 (3), ꝸ U+A778 (8), ᵷ U+1D77 (6 or 8),
  *   ᵹ U+1D79 (3), Ꞁ U+A780 and ꭋ U+AB4B (7, like ⁊), Ꟃ U+A7C2 and ꟃ U+A7C3 ("V3"), Ꟑ U+A7D0 (8) and ꟑ U+A7D1 (3), ꟼ
- *   U+A7FC (9); ꭌ U+AB4C, named after ꭋ; and U+AB6C and U+AB6D, the capitals of ꭋ and ꭌ (Unicode 18.0).
+ *   U+A7FC (9); ꭌ U+AB4C, named after ꭋ; and U+AB6C and U+AB6D, the capitals of ꭋ and ꭌ (Unicode 18.0);
+ * - (A9f) Ɥ U+A78D and ɥ U+0265, TURNED H, which draw like an open 4 (the moderator's A9f ruling, from the A9e review's
+ *   render of the six theme font stacks; confusables.txt has no digit for them, and NamesList.txt cross-refers Ɥ to
+ *   Cyrillic Ч U+0427), the letters named after ɥ "... WITH ...": ʮ U+02AE and ʯ U+02AF (TURNED H WITH FISHHOOK, AND
+ *   TAIL), and U+1DF3E BARRED TURNED H of Unicode 18.0, whose confusables.txt skeleton is ɥ + U+0335.
  * Not letters, so not listed: symbols that draw like a digit, such as ⁊ U+204A, which looks like "7".
  */
 const DIGIT_LETTER =
-  /[ƧƨƷƺ-ƽǮǯȜȝȢȣɜɝɮʒʓʤᴈᴤᵷᵹᶔᶚỼỽꜢꜣꜨꜩꜬ-ꜯꝚ-ꝝꝢꝣꝪꝫꝮꝯꝸꞀꞫꟂꟃꟐꟑꟼꭋꭌ꭬꭭\u{1DF05}\u{1DF12}\u{1DF18}\u{1DF19}\u{1DF20}\u{1DF2B}\u{1DF67}\u{1DF94}]/u;
+  /[ƧƨƷƺ-ƽǮǯȜȝȢȣɜɝɥɮʒʓʤʮʯᴈᴤᵷᵹᶔᶚỼỽꜢꜣꜨꜩꜬ-ꜯꝚ-ꝝꝢꝣꝪꝫꝮꝯꝸꞀꞍꞫꟂꟃꟐꟑꟼꭋꭌ꭬꭭\u{1DF05}\u{1DF12}\u{1DF18}\u{1DF19}\u{1DF20}\u{1DF2B}\u{1DF3E}\u{1DF67}\u{1DF94}]/u;
 const HIDDEN_CHARACTER = /[\p{Cc}\p{Cf}]/u;
 const NON_LATIN_SCRIPT = /[^\p{Script=Latin}\p{Script=Common}\p{Script=Inherited}]/u;
 
