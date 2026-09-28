@@ -4,6 +4,11 @@
 // check reads each property from the right-hand side itself.
 declare const x: string;
 declare const div: HTMLDivElement;
+// Sources that may be undefined (a default covers them) and our own stand-in, which is not a platform API.
+declare const maybeURL: typeof URL | undefined;
+declare const maybeTuple: [typeof URL] | undefined;
+declare const deep: { a: { b: typeof URL } | undefined };
+declare const own: { canParse: typeof URL.canParse };
 
 // Declarations.
 export const { canParse: declared } = URL; // expect: unsupported api.URL.canParse_static
@@ -23,6 +28,9 @@ export function annotated({ showPopover }: HTMLElement) { // expect: unsupported
 }
 export const { "canParse": quoted } = URL; // expect: unsupported api.URL.canParse_static
 export const { ["canParse"]: computed } = URL; // expect: unsupported api.URL.canParse_static
+export function nullableWithDefault({ canParse }: typeof URL | undefined = URL) { // expect: unsupported api.URL.canParse_static
+  return canParse(x);
+}
 
 // Assignments.
 let canParse: typeof URL.canParse;
@@ -43,6 +51,14 @@ let popover: typeof div.showPopover;
 // source met twice counts once.
 ({ a: { canParse } = { canParse: URL.canParse } } = { a: URL }); // expect: unsupported api.URL.canParse_static; unsupported api.URL.canParse_static
 ({ a: { canParse } = URL } = { a: URL }); // expect: unsupported api.URL.canParse_static
+// An outer property that may be undefined (the default covers it) is judged without undefined: at any
+// depth, in an array pattern, and through a generic's constraint. `own` is not a platform API.
+({ a: { canParse } = own } = { a: maybeURL }); // expect: unsupported api.URL.canParse_static
+({ a: { b: { canParse } = own } = { b: own } } = deep); // expect: unsupported api.URL.canParse_static
+({ a: [{ canParse }] = [own] } = { a: maybeTuple }); // expect: unsupported api.URL.canParse_static
+export function viaNullableConstraint<T extends typeof URL | undefined>(t: T) {
+  ({ a: { canParse } = own } = { a: t }); // expect: unsupported api.URL.canParse_static
+}
 export const assigned = [canParse, renamed, anySignal, popover];
 
 // An assignment pattern in a for-of head reads each element: judged over an array or a tuple, and

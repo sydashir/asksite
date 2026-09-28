@@ -224,16 +224,27 @@ function checkFile(ctx: Context, sf: SourceFile): void {
     return type?.isStringLiteralType() ? String(type.value) : undefined;
   }
 
+  /**
+   * A property as `x?.y` reads it: on the type without null and undefined, so `div?.["showPopover"]`
+   * on `HTMLDivElement | null`, a nullable constraint and a source a default covers all find it (a
+   * union keeps its members together, as in the dot pass).
+   */
+  function propertyOf(type: Type | undefined, name: string): TsSymbol | undefined {
+    const present = type && checker.getNonNullableType(type);
+    return present && checker.getPropertyOfType(present, name);
+  }
+
   /** The property's type on a source type; none when the source has no such property. */
   function typeOfProperty(source: Type, name: string): Type[] {
-    const property = checker.getPropertyOfType(source, name);
+    const property = propertyOf(source, name);
     const type = property && checker.getTypeOfSymbol(property);
     return type ? [type] : [];
   }
 
-  /** The element types of an array or tuple source, at one index or (none given) at any; none for anything else. */
-  function elementTypes(source: Type, index?: number): Type[] {
-    if (!source.isTypeReference()) return [];
+  /** The element types of an array or tuple source (without null and undefined), at one index or (none given) at any; none for anything else. */
+  function elementTypes(type: Type, index?: number): Type[] {
+    const source = checker.getNonNullableType(type);
+    if (!source?.isTypeReference()) return [];
     const args = checker.getTypeArguments(source);
     if (checker.isArrayType(source)) return args.slice(0, 1);
     if (!checker.isTupleType(source)) return [];
@@ -316,8 +327,7 @@ function checkFile(ctx: Context, sf: SourceFile): void {
     const keyType = checker.getTypeAtLocation(n.argumentExpression);
     if (!keyType?.isStringLiteralType()) continue;
     const receiverType = checker.getTypeAtLocation(n.expression);
-    const symbol = receiverType && checker.getPropertyOfType(receiverType, String(keyType.value));
-    evaluate(n.argumentExpression, "element", symbol, () => receiverType);
+    evaluate(n.argumentExpression, "element", propertyOf(receiverType, String(keyType.value)), () => receiverType);
   }
   // const { canParse } = URL, and every other binding pattern: TypeScript types the pattern from its source
   for (const b of bindings) {
@@ -326,7 +336,7 @@ function checkFile(ctx: Context, sf: SourceFile): void {
     const key = keyText(nameNode);
     if (!nameNode || key === undefined) continue;
     const patternType = checker.getTypeAtLocation(b.parent);
-    evaluate(nameNode, "destructure", patternType && checker.getPropertyOfType(patternType, key), () => patternType);
+    evaluate(nameNode, "destructure", propertyOf(patternType, key), () => patternType);
   }
   // ({ canParse } = URL), ({ canParse: c } = URL), nested or with a default: TypeScript types this
   // literal from its targets, so each property is read from the source on the right-hand side.
@@ -338,7 +348,7 @@ function checkFile(ctx: Context, sf: SourceFile): void {
       const name = is.isPropertyAssignment(property) || is.isShorthandPropertyAssignment(property) ? property.name : undefined;
       const key = keyText(name);
       if (!name || key === undefined) continue; // a spread reads the whole object
-      for (const source of sources) evaluate(name, "destructure", checker.getPropertyOfType(source, key), () => source);
+      for (const source of sources) evaluate(name, "destructure", propertyOf(source, key), () => source);
     }
   }
   // { requestIdleCallback }: its name is also the object's own property, so ask for the value it reads

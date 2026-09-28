@@ -26,14 +26,14 @@ export name):
 |---|---|
 | Bare identifier: call, reference | baseline.ts `idle`; forms.ts `idleReference` |
 | `window.X`, `globalThis.X`, `self.X` | forms.ts `viaWindow`, `viaGlobalThis`, `viaSelf`, `viaSelfStatic`, `newViaGlobalThis`; aliases.ts `viaWindow`, `viaGlobalThis` |
-| Member by dot, `?.`, string-literal bracket | baseline.ts; aliases.ts `viaOptionalCall`, `viaBracket`, `viaConstKey`; forms.ts `viaOptionalBracket`, `viaInstanceBracket` |
+| Member by dot, `?.`, string-literal bracket (also `?.[...]` on a receiver that may be null or undefined) | baseline.ts; aliases.ts `viaOptionalCall`, `viaBracket`, `viaConstKey`; forms.ts `viaOptionalBracket`, `viaInstanceBracket`, `viaNullableBracket`, `viaRefBracket`, `viaNullableUnionBracket`, `viaNullableConstraintBracket` |
 | `new X()` (the constructor's own MDN entry too) | statics.ts `interfaceAndConstructor`, `newerConstructor` |
 | `extends X`, instantiation expression | aliases.ts `ViaExtends`, `viaClassExpression`, `viaInstantiation`; statics.ts `ViaIteratorSubclass` |
 | `instanceof X` | forms.ts `isHighlight` |
 | `typeof X.y` reaches X (a bare `typeof X` is a feature test) | statics.ts `typeofReaches` (control `typeofBare`) |
 | Instance members through the type: unions, generics, mixins, optional chaining | a-receivers.ts, b-generics.ts, c-mixins.ts |
-| Destructuring declarations, parameters (with defaults), for-of, rest, array, nested, quoted or literal computed keys | destructuring.ts, "Declarations" |
-| Destructuring ASSIGNMENTS, nested, with defaults, for-of heads | destructuring.ts, "Assignments" and the for-of lines |
+| Destructuring declarations, parameters (with defaults, also typed `X \| undefined`), for-of, rest, array, nested, quoted or literal computed keys | destructuring.ts, "Declarations" (`nullableWithDefault`) |
+| Destructuring ASSIGNMENTS, nested, with defaults (also over an outer property that may be undefined), for-of heads | destructuring.ts, "Assignments" and the for-of lines |
 | Shorthand property | aliases.ts `viaShorthand` (control `ownShorthand`) |
 | Alias through a variable | aliases.ts `viaTypedAlias`, `viaUntypedAlias` |
 | Alias through an import or re-export | alias-import.ts (6 lines); alias-source.ts `idle` |
