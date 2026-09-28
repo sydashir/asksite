@@ -95,6 +95,43 @@ describe("requestGeneration", () => {
     expect((await requestGeneration(env(queue().q, "true", "1"), input("s1"))).ok).toBe(true);
   });
 
+  describe("a used-up lifetime is answered first for a regeneration (P3-16 fix 1)", () => {
+    /** Owner o1's site s1 is built and has `count` succeeded regenerations, none of them today. */
+    async function regenerations(count: number): Promise<void> {
+      await insertGeneration(db, { id: "built", site_id: "s1", owner_id: "o1", status: "succeeded", created_at: 0 });
+      for (let i = 0; i < count; i++) await insertGeneration(db, { id: `r${i}`, site_id: "s1", owner_id: "o1", kind: "regenerate", status: "succeeded", model_slot: 1, attempts: 1, created_at: 0, started_at: 0, finished_at: 0 });
+    }
+    /** Today's model calls: one call, from a first build on s2. */
+    const useTodaysCall = () => insertGeneration(db, { id: "used", site_id: "s2", owner_id: "o1", status: "succeeded", model_slot: 1, started_at: NOW - 1 });
+
+    it("answers generation_cap_reached, not generation_disabled, when the owner's 20 are used up and generation is switched off", async () => {
+      await regenerations(20);
+      const { q, sent } = queue();
+      expect(await requestGeneration(env(q, "false"), input())).toEqual({ ok: false, code: "generation_cap_reached" });
+      expect(sent).toEqual([]);
+    });
+
+    it("answers generation_cap_reached, not budget_exhausted, when the owner's 20 are used up and today's model calls are too", async () => {
+      await regenerations(20);
+      await useTodaysCall();
+      expect(await requestGeneration(env(queue().q, "true", "1"), input())).toEqual({ ok: false, code: "generation_cap_reached" });
+    });
+
+    it("still answers generation_disabled and budget_exhausted while 1 of the 20 is left", async () => {
+      await regenerations(19);
+      expect(await requestGeneration(env(queue().q, "false"), input())).toEqual({ ok: false, code: "generation_disabled" });
+      await useTodaysCall();
+      expect(await requestGeneration(env(queue().q, "true", "1"), input())).toEqual({ ok: false, code: "budget_exhausted" });
+    });
+
+    it("never refuses a first build: at the used-up lifetime with generation switched off, a new site's first build still queues (Decision 30)", async () => {
+      await regenerations(20);
+      await seedOwnerSite(db, "o1", "s3");
+      const result = await requestGeneration(env(queue().q, "false"), input("s3"));
+      expect(result.ok && result.generation.kind).toBe("first");
+    });
+  });
+
   it("marks the row failed and frees the site when the queue send fails", async () => {
     expect(await requestGeneration(env(queue(true).q), input())).toEqual({ ok: false, code: "internal" });
     const row = await db.prepare("SELECT status, error_code, finished_at FROM generations").first();

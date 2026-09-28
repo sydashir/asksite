@@ -24,6 +24,8 @@ const INSERT_JOB = `INSERT INTO generations (id, site_id, owner_id, kind, status
 SELECT ?1, ?2, ?3, ?4, 'queued', ?5, ?6
 WHERE (SELECT COUNT(*) FROM generations WHERE site_id = ?2 AND created_at >= ?7 AND (${COUNTS_TODAY})) < ?8
   AND (?4 = 'first' OR (SELECT COUNT(*) FROM generations WHERE owner_id = ?3 AND (${COUNTS_TOWARD_TOTAL})) < ?9)`;
+// The owner's regenerations that count toward the total, counted exactly as INSERT_JOB counts them.
+const OWNER_TOTAL = `SELECT COUNT(*) AS n FROM generations WHERE owner_id = ?1 AND (${COUNTS_TOWARD_TOTAL})`;
 // In the same batch (one transaction): the audit row exists exactly when the job row does.
 const INSERT_AUDIT = `INSERT INTO audit_log (at, actor, action, site_id, detail_json)
 SELECT ?1, ?2, 'generation.requested', ?3, ?4 WHERE EXISTS (SELECT 1 FROM generations WHERE id = ?5)`;
@@ -49,6 +51,10 @@ export async function requestGeneration(
     const drafted = await env.DB.prepare("SELECT 1 AS one FROM generations WHERE site_id = ?1 AND status = 'succeeded' LIMIT 1").bind(siteId).first();
     const kind = drafted === null ? "first" : "regenerate";
     if (kind === "regenerate") {
+      // The owner's used-up total is answered first, before the kill switch and today's model limit (P3-16 fix 1).
+      // INSERT_JOB still enforces the total atomically.
+      const total = await env.DB.prepare(OWNER_TOTAL).bind(ownerId).first<{ n: number }>();
+      if ((total?.n ?? 0) >= LIMITS.generationsPerOwnerTotal) return { ok: false, code: "generation_cap_reached" };
       if (!(await isGenerationEnabled(env))) return { ok: false, code: "generation_disabled" };
       if ((await modelCallsToday(env.DB, now)) >= (await dailyModelLimit(env))) return { ok: false, code: "budget_exhausted" };
     }
