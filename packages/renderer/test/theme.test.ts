@@ -55,4 +55,11 @@ describe("theme output", () => {
     expect(css).toContain("--aw-color-primary:#B91C1C;");
     expect(css.endsWith("}</style>")).toBe(true);
   });
+  it("appends a design's own properties inside the same :root rule (A12)", () => {
+    const theme = { palette: "charcoal-red", font: "sturdy" } as const;
+    const css = String(themeStyle(theme, { "--aw-impact-accent": "#000000" }));
+    expect(css.match(/:root\{/g)).toHaveLength(1);
+    expect(css.endsWith("--aw-color-link:#B91C1C;--aw-impact-accent:#000000;}</style>")).toBe(true);
+    expect(String(themeStyle(theme, {}))).toBe(String(themeStyle(theme)));
+  });
 });
