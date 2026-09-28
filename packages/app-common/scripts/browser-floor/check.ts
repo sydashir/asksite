@@ -88,6 +88,16 @@ function constructs(node: Node): boolean {
   return is.isExpressionWithTypeArguments(p) && p.expression === n && is.isHeritageClause(p.parent) && runsAtRuntime(p);
 }
 
+/** Whether an object literal is a destructuring assignment target: `({ x } = o)`, nested in one, or a for-of/for-in head. */
+function isAssignmentPattern(literal: Node): boolean {
+  for (let n: Node = literal, p = n.parent; p; n = p, p = p.parent) {
+    if (is.isBinaryExpression(p)) return p.operatorToken.kind === SyntaxKind.EqualsToken && p.left === n;
+    if (is.isForOfStatement(p) || is.isForInStatement(p)) return p.initializer === n;
+    if (!(is.isPropertyAssignment(p) || is.isObjectLiteralExpression(p) || is.isArrayLiteralExpression(p) || is.isSpreadElement(p))) return false;
+  }
+  return false;
+}
+
 interface Lookup {
   node: Node;
   receiver: Expression | undefined;
@@ -120,6 +130,7 @@ function checkFile(ctx: Context, sf: SourceFile): void {
   const elements: Node[] = [];
   const bindings: Node[] = [];
   const shorthands: Node[] = [];
+  const patterns: Node[] = [];
   const regexes: Node[] = [];
   const walk = (n: Node): void => {
     if (is.isPropertyAccessExpression(n) && is.isIdentifier(n.name)) {
@@ -130,6 +141,8 @@ function checkFile(ctx: Context, sf: SourceFile): void {
       bindings.push(n);
     } else if (is.isShorthandPropertyAssignment(n)) {
       shorthands.push(n);
+    } else if (is.isObjectLiteralExpression(n) && isAssignmentPattern(n)) {
+      patterns.push(n);
     } else if (is.isRegularExpressionLiteral(n)) {
       regexes.push(n);
     } else if (is.isIdentifier(n)) {
@@ -192,7 +205,44 @@ function checkFile(ctx: Context, sf: SourceFile): void {
     return out;
   }
 
-  function evaluate(node: Node, how: string, symbol: TsSymbol | undefined, receiver: Expression | undefined): void {
+  /** The property's type on a source type; none when the source has no such property. */
+  function typeOfProperty(source: Type, name: string): Type[] {
+    const property = checker.getPropertyOfType(source, name);
+    const type = property && checker.getTypeOfSymbol(property);
+    return type ? [type] : [];
+  }
+
+  /** The element type at an index of an array or tuple source; none for anything else. */
+  function elementTypes(source: Type, index: number): Type[] {
+    if (!source.isTypeReference()) return [];
+    const args = checker.getTypeArguments(source);
+    const element = checker.isTupleType(source) ? args[index] : checker.isArrayType(source) ? args[0] : undefined;
+    return element ? [element] : [];
+  }
+
+  /**
+   * The types a destructuring assignment pattern reads from: the right-hand side of its `=`; when
+   * nested, the outer pattern's property or element (both, for a nested default). Empty when unknown
+   * (a for-of head).
+   */
+  function patternSources(pattern: Node): Type[] {
+    const p = pattern.parent;
+    if (is.isBinaryExpression(p) && p.left === pattern && p.operatorToken.kind === SyntaxKind.EqualsToken) {
+      const own = checker.getTypeAtLocation(p.right);
+      return [...(own ? [own] : []), ...patternSources(p)];
+    }
+    if (is.isPropertyAssignment(p) && p.initializer === pattern) {
+      const name = is.isIdentifier(p.name) || is.isStringLiteral(p.name) ? p.name.text : undefined;
+      return name === undefined ? [] : patternSources(p.parent).flatMap((source) => typeOfProperty(source, name));
+    }
+    if (is.isArrayLiteralExpression(p)) {
+      const index = p.elements.findIndex((element) => element === pattern);
+      return patternSources(p).flatMap((source) => elementTypes(source, index));
+    }
+    return [];
+  }
+
+  function evaluate(node: Node, how: string, symbol: TsSymbol | undefined, receiverType: () => Type | undefined): void {
     const handle = symbol?.valueDeclaration ?? symbol?.declarations[0];
     if (!symbol || !handle || !lib.isLibFile(handle.path)) return;
     const decl = handle.resolve(project);
@@ -202,7 +252,7 @@ function checkFile(ctx: Context, sf: SourceFile): void {
     if (!d) return record(node, "unmapped", symbol.name, symbol.name, []); // a lib declaration of an unknown shape
     // Each receiver type maps on its own: `Request | Response` checks both, `EventTarget & HTMLDivElement`
     // finds the member on HTMLDivElement.
-    const chains = d.kind === "member" && !d.isStatic && receiver ? receiverTypes(checker.getTypeAtLocation(receiver)).map(typeChain) : [];
+    const chains = d.kind === "member" && !d.isStatic ? receiverTypes(receiverType()).map(typeChain) : [];
     const keys = keysFor(d, chains, lib);
     if (keys.length === 0 && !isPlainObjectMember(d, lib)) record(node, "unmapped", apiName(d), apiName(d), []);
     for (const key of keys) {
@@ -230,7 +280,7 @@ function checkFile(ctx: Context, sf: SourceFile): void {
 
   walk(sf);
   const symbols = lookups.length ? checker.getSymbolAtLocation(lookups.map((l) => l.node)) : [];
-  lookups.forEach((l, i) => evaluate(l.node, l.how, symbols[i], l.receiver));
+  lookups.forEach((l, i) => evaluate(l.node, l.how, symbols[i], () => (l.receiver ? checker.getTypeAtLocation(l.receiver) : undefined)));
   // URL["canParse"], URL[key] with a literal-typed key
   for (const n of elements) {
     if (!is.isElementAccessExpression(n)) continue;
@@ -238,21 +288,31 @@ function checkFile(ctx: Context, sf: SourceFile): void {
     if (!keyType?.isStringLiteralType()) continue;
     const receiverType = checker.getTypeAtLocation(n.expression);
     const symbol = receiverType && checker.getPropertyOfType(receiverType, String(keyType.value));
-    evaluate(n.argumentExpression, "element", symbol, n.expression);
+    evaluate(n.argumentExpression, "element", symbol, () => receiverType);
   }
-  // const { canParse } = URL
+  // const { canParse } = URL, and every other binding pattern: TypeScript types the pattern from its source
   for (const b of bindings) {
     if (!is.isBindingElement(b)) continue;
     const nameNode = b.propertyName ?? b.name;
     if (!nameNode || !is.isIdentifier(nameNode)) continue;
     const patternType = checker.getTypeAtLocation(b.parent);
-    const symbol = patternType && checker.getPropertyOfType(patternType, nameNode.text);
-    const initializer = is.isVariableDeclaration(b.parent.parent) ? b.parent.parent.initializer : undefined;
-    evaluate(nameNode, "destructure", symbol, initializer);
+    evaluate(nameNode, "destructure", patternType && checker.getPropertyOfType(patternType, nameNode.text), () => patternType);
+  }
+  // ({ canParse } = URL), ({ canParse: c } = URL), nested or with a default: TypeScript types this
+  // literal from its targets, so each property is read from the source on the right-hand side.
+  for (const pattern of patterns) {
+    if (!is.isObjectLiteralExpression(pattern)) continue;
+    const sources = patternSources(pattern);
+    if (sources.length === 0) record(pattern, "unmapped", "destructuring assignment", "source not judged", []); // e.g. `for ({ x } of xs)`
+    for (const property of pattern.properties) {
+      const name = is.isPropertyAssignment(property) || is.isShorthandPropertyAssignment(property) ? property.name : undefined;
+      if (!name || !(is.isIdentifier(name) || is.isStringLiteral(name))) continue; // a spread reads the whole object
+      for (const source of sources) evaluate(name, "destructure", checker.getPropertyOfType(source, name.text), () => source);
+    }
   }
   // { requestIdleCallback }: its name is also the object's own property, so ask for the value it reads
   for (const s of shorthands) {
-    if (is.isShorthandPropertyAssignment(s)) evaluate(s.name, "identifier", checker.getShorthandAssignmentValueSymbol(s), undefined);
+    if (is.isShorthandPropertyAssignment(s)) evaluate(s.name, "identifier", checker.getShorthandAssignmentValueSymbol(s), () => undefined);
   }
   for (const r of regexes) checkRegex(r);
 }

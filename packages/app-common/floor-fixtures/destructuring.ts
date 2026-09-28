@@ -1,0 +1,36 @@
+// Destructuring reads a member from its source. A declaration, a parameter with a default, for-of,
+// rest, array and nested forms are typed by TypeScript from the source. An ASSIGNMENT's left side
+// (`({ canParse } = URL)`) is an object literal that TypeScript types from the targets instead, so the
+// check reads each property from the right-hand side itself.
+declare const x: string;
+declare const div: HTMLDivElement;
+
+// Declarations.
+export const { canParse: declared } = URL; // expect: unsupported api.URL.canParse_static
+export function withDefault({ canParse }: typeof URL = URL) { // expect: unsupported api.URL.canParse_static
+  return canParse(x);
+}
+export const { canParse: withRest, ...rest } = URL; // expect: unsupported api.URL.canParse_static
+export const [signalAny] = [AbortSignal.any]; // expect: unsupported api.AbortSignal.any_static
+export const { a: { canParse: nested } } = { a: URL }; // expect: unsupported api.URL.canParse_static
+export const { canParse: withFallback = URL.canParse } = URL; // expect: unsupported api.URL.canParse_static; unsupported api.URL.canParse_static
+for (const { canParse } of [URL]) canParse(x); // expect: unsupported api.URL.canParse_static
+export const { showPopover } = div; // expect: unsupported api.HTMLElement.showPopover
+
+// Assignments.
+let canParse: typeof URL.canParse;
+let renamed: typeof URL.canParse;
+let anySignal: typeof AbortSignal.any;
+let popover: typeof div.showPopover;
+({ canParse } = URL); // expect: unsupported api.URL.canParse_static
+({ canParse: renamed } = URL); // expect: unsupported api.URL.canParse_static
+({ any: anySignal } = AbortSignal); // expect: unsupported api.AbortSignal.any_static
+({ canParse = URL.canParse } = URL); // expect: unsupported api.URL.canParse_static; unsupported api.URL.canParse_static
+({ a: { canParse } } = { a: URL }); // expect: unsupported api.URL.canParse_static
+[{ canParse }] = [URL]; // expect: unsupported api.URL.canParse_static
+[renamed] = [URL.canParse]; // expect: unsupported api.URL.canParse_static
+({ showPopover: popover } = div); // expect: unsupported api.HTMLElement.showPopover
+export const assigned = [canParse, renamed, anySignal, popover];
+
+// An assignment pattern in a for-of head has no `=` source to read: reported, never skipped.
+for ({ canParse } of [URL]) canParse(x); // expect: unmapped source not judged
