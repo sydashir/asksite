@@ -9,3 +9,9 @@ export const typeofReaches = typeof Float16Array.from === "function"; // expect:
 export const typeofBare = typeof Float16Array === "undefined";
 export const fromUint8 = Uint8Array.from([1]);
 export const bytesUint8 = Uint8Array.BYTES_PER_ELEMENT;
+
+// MDN files a subclass's own members under the subclass (Uint8Array.fromBase64, 18.2) and the shared
+// ones under TypedArray (from, 10): the class's own entry is tried first, then the shared one.
+export const fromBase64 = Uint8Array.fromBase64(""); // expect: unsupported javascript.builtins.Uint8Array.fromBase64
+export const toBase64 = new Uint8Array(1).toBase64(); // expect: unsupported javascript.builtins.Uint8Array.toBase64
+export const sharedAt = new Uint8Array(1).at(0);

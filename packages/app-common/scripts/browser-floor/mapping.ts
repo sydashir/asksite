@@ -46,6 +46,8 @@ export function jsOwner(owner: string): string {
 }
 const mdnInterface = (owner: string): string => MDN_INTERFACE[owner] ?? owner;
 const eventOf = (handler: string): string | undefined => /^on([a-z]+)$/.exec(handler)?.[1];
+/** The class's own entry first (Uint8Array.fromBase64), then the builtin MDN files the shared members under (TypedArray.from). */
+const builtinKeys = (owner: string, member: string): string[] => [...new Set([owner, jsOwner(owner)])].map((o) => `javascript.builtins.${o}.${member}`);
 
 function nameOf(node: Node | undefined): string | undefined {
   const name = (node as { name?: Node } | undefined)?.name;
@@ -93,7 +95,7 @@ function candidateKeys(d: Described, chain: string[]): string[] {
     return [`api.${d.name}`, `api.Window.${d.name}`, `javascript.builtins.${d.name}`, ...(event ? [`api.Window.${event}_event`] : [])];
   }
   const { owner, member, isStatic, ns } = d;
-  const keys = [ns ? `javascript.builtins.${ns}.${owner}.${member}` : `javascript.builtins.${jsOwner(owner)}.${member}`];
+  const keys = ns ? [`javascript.builtins.${ns}.${owner}.${member}`] : builtinKeys(owner, member);
   if (isStatic) {
     keys.push(`api.${owner}.${member}_static`, `api.${owner}.${member}`); // MDN omits _static on a few
     return keys;
