@@ -1,5 +1,5 @@
 import { resolve } from "node:path";
-import { API, type Checker, type Project, type Symbol as TsSymbol, type Type } from "typescript/unstable/sync";
+import { API, TypeFlags, type Checker, type Project, type Symbol as TsSymbol, type Type } from "typescript/unstable/sync";
 import { SyntaxKind, type Expression, type Node, type SourceFile } from "typescript/unstable/ast";
 import * as is from "typescript/unstable/ast/is";
 import { BROWSER_FLOOR } from "../../src/browser-floor.ts";
@@ -58,6 +58,7 @@ const GLOBAL_KINDS = new Set([
 ]);
 const TYPED_ARRAY = /^(Int8|Uint8|Uint8Clamped|Int16|Uint16|Int32|Uint32|Float16|Float32|Float64|BigInt64|BigUint64)Array$/;
 const ITERATOR = /^(IteratorObject|Iterator|BuiltinIterator|IteratorHelper)$/;
+const NOTHING = TypeFlags.Null | TypeFlags.Undefined | TypeFlags.Void;
 
 /** The JavaScript builtin that MDN files a lib interface under. */
 function jsOwner(owner: string): string {
@@ -194,20 +195,24 @@ function checkFile(ctx: Context, sf: SourceFile): void {
     return undefined;
   }
 
-  function receiverChain(expr: Expression): string[] {
+  /** The receiver's own types: unions and intersections split, null and undefined dropped. */
+  function receiverTypes(type: Type | undefined, depth = 0): Type[] {
+    if (!type || depth > 8 || type.flags & NOTHING) return [];
+    if (type.isUnionType() || type.isIntersectionType()) return type.getTypes().flatMap((t) => receiverTypes(t, depth + 1));
+    return [type];
+  }
+
+  /** A type's name, then the names of its base types. */
+  function typeChain(type: Type): string[] {
     const out: string[] = [];
-    const seen = new Set<string>();
-    const visit = (type: Type | undefined, depth: number): void => {
-      if (!type || depth > 8) return;
-      const s = type.getSymbol();
-      if (s && !seen.has(s.name)) {
-        seen.add(s.name);
-        out.push(s.name);
-      }
-      if (type.isClassOrInterface()) for (const base of checker.getBaseTypes(type)) visit(base, depth + 1);
-      else if (type.isTypeReference()) visit(type.getTarget(), depth + 1);
+    const visit = (t: Type, depth: number): void => {
+      if (depth > 8) return;
+      const name = t.getSymbol()?.name;
+      if (name && !out.includes(name)) out.push(name);
+      if (t.isClassOrInterface()) for (const base of checker.getBaseTypes(t)) visit(base, depth + 1);
+      else if (t.isTypeReference()) visit(t.getTarget(), depth + 1);
     };
-    visit(checker.getTypeAtLocation(expr), 0);
+    visit(type, 0);
     return out;
   }
 
@@ -219,10 +224,16 @@ function checkFile(ctx: Context, sf: SourceFile): void {
     if (!d) return;
     if (d.kind === "member" && !symbol.valueDeclaration && how === "identifier") return; // e.g. object-literal keys
     report.sites++;
-    const chain = d.kind === "member" && !d.isStatic && receiver ? receiverChain(receiver) : [];
-    const key = candidateKeys(d, chain).find((k) => compatAt(k));
+    // Each receiver type maps on its own: `Request | Response` checks both, `EventTarget & HTMLDivElement`
+    // finds the member on HTMLDivElement.
+    const chains = d.kind === "member" && !d.isStatic && receiver ? receiverTypes(checker.getTypeAtLocation(receiver)).map(typeChain) : [];
+    const keys = new Set<string>();
+    for (const chain of chains.length ? chains : [[]]) {
+      const key = candidateKeys(d, chain).find((k) => compatAt(k));
+      if (key) keys.add(key);
+    }
     const api = d.kind === "global" ? [d.ns, d.name].filter(Boolean).join(".") : `${d.owner}.${d.member}`;
-    if (key) judge(node, api, key); // no key: not a feature (e.g. a dictionary member) or unmapped, not checked
+    for (const key of keys) judge(node, api, key); // no key: not a feature (e.g. a dictionary member) or unmapped, not checked
   }
 
   function checkRegex(node: Node): void {
