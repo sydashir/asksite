@@ -14,6 +14,11 @@ export interface Routed {
   code?: string;
 }
 
+// The pages name no icon, so browsers ask for /favicon.ico on every host they show. An empty answer they
+// may keep for a week needs no D1 or R2 read and spares a 404 page on every visit (A15; a real per-site
+// icon is on the A12 design-build list).
+const noFavicon = () => new Response(null, { status: 204, headers: plainHeaders({ "Cache-Control": "public, max-age=604800" }) });
+
 const FORM = /^\/_f\/([^/]+)$/;
 const SENT = /^\/_f\/([^/]+)\/sent$/;
 
@@ -24,6 +29,7 @@ export async function route(request: Request, env: Env, ctx: ExecutionContext, n
   const root = env.ROOT_DOMAIN;
   const read = request.method === "GET" || request.method === "HEAD";
   const host = parseHost(url.host, root);
+  if (read && path === "/favicon.ico" && (host.kind === "site" || host.kind === "apex")) return { route: "favicon", response: noFavicon() };
 
   switch (host.kind) {
     case "www":

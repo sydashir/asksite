@@ -68,12 +68,31 @@ describe("www", () => {
   });
 });
 
+// A15 minor 7: the pages name no icon, so browsers ask every page's host for /favicon.ico. An empty
+// answer they keep for a week, with no D1 or R2 read, instead of the 404 page on every visit.
+describe("/favicon.ico", () => {
+  it.each([`https://${ROOT}/favicon.ico`, at("joes", "/favicon.ico")])("%s is an empty 204 that browsers may keep for a week", async (url) => {
+    for (const method of ["GET", "HEAD"]) {
+      const response = await get(url, { method });
+      expect(response.status, method).toBe(204);
+      expect(response.headers.get("cache-control"), method).toBe("public, max-age=604800");
+      expect(response.headers.get("x-robots-tag"), method).toBe("noindex");
+      expect(await response.text(), method).toBe("");
+    }
+  });
+
+  it("is still the 404 page for other methods and for hosts we do not serve", async () => {
+    expectFixedPage(await get(at("joes", "/favicon.ico"), { method: "POST", body: "x" }), 404);
+    expectFixedPage(await get(`https://a.b.${ROOT}/favicon.ico`), 404);
+  });
+});
+
 describe("hosts we do not serve", () => {
   it.each([`app.${ROOT}`, `admin.${ROOT}`, `a.b.${ROOT}`, `jo.${ROOT}`, "joes.localhost:8790", "joes.example.com"])("%s gets the 404 page", async (host) => {
     expectFixedPage(await get(`https://${host}/`), 404);
   });
 
-  it("a site host has only / and the form routes", async () => {
+  it("a site host has only /, /favicon.ico and the form routes", async () => {
     expectFixedPage(await get(at("joes", "/wp-admin")), 404);
     expectFixedPage(await get(at("joes", "/_f/not-an-id/sent")), 404);
   });
