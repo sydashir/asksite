@@ -314,4 +314,18 @@ describe("which rows count toward the site's day and the owner's total (P3-11 (p
     expect(results.map(outcome).sort()).toEqual(["generation_cap_reached", "regenerate"]);
     expect((await allowance()).generationsLeftTotal).toBe(0);
   });
+
+  // P3-16 item 3 (review mutant M16): the site's daily bound is checked inside INSERT_JOB, so it stays exact when one
+  // site gets several requests at once. With 1 left today and no active job, the first INSERT to run writes a queued
+  // row, which counts toward the day (COUNTS_TODAY: its error_code is NULL); every later INSERT then selects no row, so
+  // each of the others is generation_cap_reached and none reaches the one-active index (generation_in_progress). A daily
+  // check made before the INSERT instead lets several requests past it, and all but one then hit the index.
+  it("stays exact for five requests at once on one site with 1 left today: one queues, the other four are generation_cap_reached", async () => {
+    for (let i = 0; i < 4; i++) await insertGeneration(db, { id: `d${i}`, site_id: "s1", owner_id: "o1", status: "succeeded", used_fallback: 1, fallback_reason: "budget", created_at: DAY + i, started_at: DAY + i, finished_at: DAY + i });
+    expect(await allowance()).toEqual({ generationsLeftToday: 1, generationsLeftTotal: 20 });
+    const results = await Promise.all(Array.from({ length: 5 }, () => requestGeneration(env(queue().q), input())));
+    expect(results.map(outcome).sort()).toEqual(["generation_cap_reached", "generation_cap_reached", "generation_cap_reached", "generation_cap_reached", "regenerate"]);
+    expect(await allowance()).toEqual({ generationsLeftToday: 0, generationsLeftTotal: 19 });
+    expect(await db.prepare("SELECT COUNT(*) AS n FROM audit_log WHERE site_id = 's1'").first()).toEqual({ n: 1 });
+  });
 });
