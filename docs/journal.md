@@ -186,6 +186,7 @@ Append-only. Newest at the bottom.
 
 ### 2026-09-28 — context 1% handoff
 - Merged main = d0e1b12 (A9..A9g + A13-main + A14), verified (1,286 unit / 23 workerd / 208 e2e, goldens unchanged, 44 commits clean), pushed. Sync OK to Plans 3 and 4.
-- The login expired again (~17:40): A12-0 fix1, the Plan 2B A11c review and the Modern design runs died "Not logged in". Resume per session.md after /login, checking worktrees for mutants first.
+- The login expired again at 17:16 PKT: A12-0 fix1 (after committing 3d5469a "Add design ids", leaving half-done core work uncommitted), the Plan 2B A11c review1/fix2 (fix1 had completed) and the Modern r3 judges + r4 died "Not logged in". Resume per session.md after /login, checking worktrees for mutants first.
 - Review 4b of Plan 3 APPROVED (P3-16 incl. the (B) lifetime rule and the noResponse flag). Production daily model limit confirmed at 8.
 - The scratchpad dir is reported unavailable: design mockups there may be lost; binding decisions are safe in .superpowers/sdd.
+- 17:2x-17:3x: corrected the handoff (the login died at 17:16, not 17:40; A12-0 fix1 had committed 3d5469a and left half-done core work, backed up in .superpowers/sdd/backups/). Reviewed Plan 4's sync 5e6c1cb (clean) and sent the P4-15 decisions plus approval of the site-view toIssues-cap regression fix. Asked Plan 3 to check the same class at its sync. Resumed A12-0 (wxa1jid22), Plan 2B finish (w6runl15b) and designs (wfcomue3g). Backed up design mockups to .superpowers/design-backup/.
