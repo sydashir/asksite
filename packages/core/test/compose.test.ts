@@ -3,10 +3,12 @@ import { SiteDocument, type SiteDocumentInput } from "@asksite/site-schema";
 import { describe, expect, expectTypeOf, it } from "vitest";
 import { FIXTURES, loadFixture } from "../../../fixtures/index.ts";
 import {
+  AiAnswer,
   AiDraft,
   canonicalJson,
   composeDocument,
   documentSha256,
+  draftFromAnswer,
   EMPTY_EDITS,
   mediaUrl,
   OwnerEdits,
@@ -187,6 +189,29 @@ describe("composeDocument", () => {
     const composed = composeDocument(facts, ai, owner);
     expect(composed.hidden).toEqual(["faq"]);
     expect(composed.hidden).not.toBe(owner.hidden);
+  });
+});
+
+describe("page designs in the document (A12)", () => {
+  it("the stored draft's design reaches the document", () => {
+    const fixture = loadFixture("roofing-extreme");
+    const { facts, ai } = split(fixture);
+    const refined = { ...ai, draft: draftFromAnswer(AiAnswer.parse({ ...ai.draft, theme: { palette: "green-amber", font: "sturdy" } }), "roofing") };
+    expect(SiteDocument.parse(composeDocument(facts, refined, EMPTY_EDITS)).theme).toEqual({ palette: "green-amber", font: "sturdy", design: "refined" });
+  });
+
+  it("the owner's theme, design included, overrides the draft's", () => {
+    const { facts, ai } = split(loadFixture("plumber-austin"));
+    const theme = { palette: "blue-yellow", font: "friendly", design: "modern" } as const;
+    expect(SiteDocument.parse(composeDocument(facts, ai, edits({ theme }))).theme).toEqual(theme);
+  });
+
+  it("a design-only change moves documentSha256", async () => {
+    const { facts, ai } = split(loadFixture("hvac-phoenix"));
+    const shaFor = (design: "impact" | "refined") =>
+      documentSha256(SiteDocument.parse(composeDocument(facts, ai, edits({ theme: { ...ai.draft.theme, design } }))));
+    expect(ai.draft.theme.design).toBe("impact");
+    expect(await shaFor("refined")).not.toBe(await shaFor("impact"));
   });
 });
 

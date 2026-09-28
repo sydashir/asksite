@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { OwnerEdits } from "./draft.ts";
+import { OwnerEditsBody } from "./draft.ts";
 import { TOKEN_PATTERN } from "./tokens.ts";
 
 // Request bodies of the owner and admin APIs (design §4.3). Emails are trimmed before the email
@@ -14,7 +14,7 @@ export const AcceptInviteBody = z.strictObject({ token: Token });
 export const LoginBody = z.strictObject({ email: Email });
 export const VerifyLoginBody = z.strictObject({ token: Token });
 export const PatchDraftBody = z
-  .strictObject({ rev: Rev, facts: Json.optional(), brief: Json.optional(), edits: OwnerEdits.optional() })
+  .strictObject({ rev: Rev, facts: Json.optional(), brief: Json.optional(), edits: OwnerEditsBody.optional() })
   .refine((b) => b.facts !== undefined || b.brief !== undefined || b.edits !== undefined, { error: "Nothing to save" });
 export const SetSlugBody = z.strictObject({ rev: Rev, slug: z.string().max(40) });
 export const PublishBody = z.strictObject({ rev: Rev });
