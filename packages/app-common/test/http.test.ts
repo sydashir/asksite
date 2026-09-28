@@ -280,8 +280,9 @@ describe("readJson", () => {
 
   it(`returns at most the first MAX_ISSUES (${MAX_ISSUES}) issues, in order`, async () => {
     const value = { items: Array.from({ length: 60 }, (_, i) => i) }; // 60 numbers: one issue each
+    // zod reports all 60; core's toIssues keeps the first 50 itself (A9), so count zod's own list here.
+    expect(LIST.safeParse(value).error!.issues).toHaveLength(60);
     const all = toIssues(LIST.safeParse(value).error!);
-    expect(all).toHaveLength(60);
     const res = await post("/api/list", JSON.stringify(value));
     expect(res.status).toBe(422);
     const { error } = (await res.json()) as ErrorJson;

@@ -324,7 +324,15 @@ describe("PATCH /api/sites/:siteId/draft", () => {
       photos: photoRefIssues(facts, owner.siteId, ROOT, []),
       document: toIssues(SiteDocument.safeParse(composeDocument(facts, ai, EMPTY_EDITS)).error!).filter((issue) => issue.path[0] !== "facts"),
     };
-    for (const list of Object.values(all)) expect(list.length).toBeGreaterThan(MAX_ISSUES);
+    // Every list has more than MAX_ISSUES issues before any cap. Count zod's own issues: core's toIssues keeps
+    // the first 50 itself (A9), so the lists above are already capped.
+    const uncapped = {
+      facts: Facts.safeParse(facts).error!.issues.length,
+      brief: Brief.safeParse(brief).error!.issues.length,
+      photos: all.photos.length,
+      document: SiteDocument.safeParse(composeDocument(facts, ai, EMPTY_EDITS)).error!.issues.filter((issue) => issue.path[0] !== "facts").length,
+    };
+    for (const count of Object.values(uncapped)) expect(count).toBeGreaterThan(MAX_ISSUES);
     const first = {
       facts: all.facts.slice(0, MAX_ISSUES),
       brief: all.brief.slice(0, MAX_ISSUES),
