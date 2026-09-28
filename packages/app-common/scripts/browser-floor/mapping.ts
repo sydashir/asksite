@@ -37,6 +37,12 @@ const MDN_INTERFACE: Record<string, string> = {
 };
 /** The mixin whose members MDN files at the `api.` root (api/_globals). */
 const GLOBAL_SCOPE_MIXIN = "WindowOrWorkerGlobalScope";
+/** Globals that MDN files under another interface: the legacy element factories. */
+const MDN_GLOBAL: Record<string, string> = {
+  Image: "HTMLImageElement.Image",
+  Audio: "HTMLAudioElement.Audio",
+  Option: "HTMLOptionElement.Option",
+};
 
 /** The JavaScript builtin that MDN files a lib interface under. */
 export function jsOwner(owner: string): string {
@@ -92,7 +98,7 @@ function candidateKeys(d: Described, chain: string[]): string[] {
     // WebIDL namespaces (CSS, console, WebAssembly) are `declare namespace` in lib.dom and `_static` in MDN.
     if (d.ns) return [`javascript.builtins.${d.ns}.${d.name}`, `api.${d.ns}.${d.name}_static`, `api.${d.ns}.${d.name}`];
     const event = eventOf(d.name);
-    return [`api.${d.name}`, `api.Window.${d.name}`, `javascript.builtins.${d.name}`, ...(event ? [`api.Window.${event}_event`] : [])];
+    return [`api.${MDN_GLOBAL[d.name] ?? d.name}`, `api.Window.${d.name}`, `javascript.builtins.${d.name}`, ...(event ? [`api.Window.${event}_event`] : [])];
   }
   const { owner, member, isStatic, ns } = d;
   const keys = ns ? [`javascript.builtins.${ns}.${owner}.${member}`] : builtinKeys(owner, member);

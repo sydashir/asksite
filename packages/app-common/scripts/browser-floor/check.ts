@@ -79,6 +79,15 @@ function isFeatureTest(node: Node): boolean {
   return p !== undefined && is.isTypeOfExpression(p);
 }
 
+/** Whether the global named here is constructed: `new X()`, `new ns.X()`, or `class extends X` (`super()` runs X). */
+function constructs(node: Node): boolean {
+  let n: Node = node;
+  while (is.isPropertyAccessExpression(n.parent) && n.parent.name === n) n = n.parent;
+  const p = n.parent;
+  if (is.isNewExpression(p)) return p.expression === n;
+  return is.isExpressionWithTypeArguments(p) && p.expression === n && is.isHeritageClause(p.parent) && runsAtRuntime(p);
+}
+
 interface Lookup {
   node: Node;
   receiver: Expression | undefined;
@@ -142,10 +151,12 @@ function checkFile(ctx: Context, sf: SourceFile): void {
     report.findings.push(finding);
   }
 
-  function judge(node: Node, api: string, key: string): void {
+  /** Records a finding when the key lacks full support at the floor; says whether it did. */
+  function judge(node: Node, api: string, key: string): boolean {
     const compat = compatAt(key);
     const gaps = compat ? gapsAt(compat, floor) : [];
     if (gaps.length > 0) record(node, gaps.every((g) => g.partial) ? "partial" : "unsupported", api, key, gaps);
+    return gaps.length > 0;
   }
 
   /** The `floor-ok` reason for a finding on this line: a marker on the line, or alone on the line before. */
@@ -194,7 +205,11 @@ function checkFile(ctx: Context, sf: SourceFile): void {
     const chains = d.kind === "member" && !d.isStatic && receiver ? receiverTypes(checker.getTypeAtLocation(receiver)).map(typeChain) : [];
     const keys = keysFor(d, chains, lib);
     if (keys.length === 0 && !isPlainObjectMember(d, lib)) record(node, "unmapped", apiName(d), apiName(d), []);
-    for (const key of keys) judge(node, apiName(d), key);
+    for (const key of keys) {
+      // MDN files a constructor under its interface, and it can be newer (Iterator 10, its constructor
+      // 18.4): a global that passes on its own entry is then judged on the constructor it runs.
+      if (!judge(node, apiName(d), key) && d.kind === "global" && constructs(node)) judge(node, apiName(d), `${key}.${d.name}`);
+    }
   }
 
   function checkRegex(node: Node): void {

@@ -15,3 +15,18 @@ export const bytesUint8 = Uint8Array.BYTES_PER_ELEMENT;
 export const fromBase64 = Uint8Array.fromBase64(""); // expect: unsupported javascript.builtins.Uint8Array.fromBase64
 export const toBase64 = new Uint8Array(1).toBase64(); // expect: unsupported javascript.builtins.Uint8Array.toBase64
 export const sharedAt = new Uint8Array(1).at(0);
+
+// MDN files a constructor under its interface (data-guidelines/api.md), and it can be newer than the
+// interface (VideoColorSpace 15.4, its constructor 17; Iterator 10, its constructor 18.4): `new X()`
+// and `extends X` read the constructor too. The legacy element factories are filed under their
+// element (api.HTMLImageElement.Image).
+export const newerConstructor = new VideoColorSpace(); // expect: unsupported api.VideoColorSpace.VideoColorSpace
+export class ViaIteratorSubclass extends Iterator<number> { // expect: unsupported javascript.builtins.Iterator.Iterator
+  next() {
+    return { done: true as const, value: undefined };
+  }
+}
+export const interfaceAndConstructor = new Highlight(); // expect: unsupported api.Highlight
+export const image = new Image();
+export const audio = new Audio();
+export const option = new Option();
