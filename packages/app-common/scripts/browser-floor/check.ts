@@ -20,7 +20,19 @@ import { apiName, describe, isPlainObjectMember, keysFor } from "./mapping.ts";
 // The browser floor check (P4-7): every runtime use of an API that a TypeScript default lib file
 // declares is mapped to its MDN browser-compat-data entry and checked at the floor. Types only and
 // feature tests (`typeof X`; the `.y` of `typeof X.y`, whose X is still read) are not uses. A use
-// with no MDN key fails as unmapped.
+// with no MDN key fails as unmapped. README.md maps each form it judges to its fixture.
+//
+// Known limits (README.md "Known limits"; our own client code, not an attacker boundary):
+// - computed access (`globalThis[name]`, `Reflect.get`): judged only when the key's type is a string
+//   literal; nothing else covers it;
+// - `eval`, `Function`, string code in timers: not read; the owner app's planned CSP (Task 14,
+//   `script-src 'self'`, no 'unsafe-eval') stops such code from running at all;
+// - `any`-typed receivers: nothing covers them;
+// - CSS and HTML features (and event names in strings or React props): not checked; Tailwind v4
+//   targets Safari 16.4 and Vite lowers some CSS syntax for build.cssTarget, nothing checks the rest.
+// Backstops: Playwright's WebKit and the user's iPhone run CURRENT WebKit, not iOS 16.4, so the
+// browser tests (Task 16) and the iPhone check (Task 27) miss a too-new DOM API. Only the TypeScript
+// lib gate (es2023, for ES built-ins) and this checker catch one.
 //
 // TypeScript 7.0 ships no stable compiler API ("we won't have a stable programmatic API available
 // until at least several months from now with TypeScript 7.1", 7.0 RC notes); `typescript/unstable/*`
