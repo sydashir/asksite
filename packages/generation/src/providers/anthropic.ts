@@ -153,8 +153,17 @@ export class AnthropicProvider implements ModelProvider {
 
   async generate(req: ModelRequest): Promise<ModelResponse> {
     const effort = modelSettings("anthropic", this.#model)?.anthropicEffort;
-    // Our own code runs before the try, so an error in it propagates instead of becoming a ProviderError.
-    const schema = toWireSchema(req.jsonSchema);
+    // Our own request is built and written as JSON before the try, so an error in it propagates instead of becoming a
+    // ProviderError (P3-8, P3-16 fix 3): the wire schema, the message shape, and the JSON.stringify the SDK runs on this
+    // same body inside the call (internal/request-options.mjs:16), where a throw would come back as an outage.
+    const body: Anthropic.MessageCreateParamsNonStreaming = {
+      model: this.#model,
+      max_tokens: req.maxOutputTokens,
+      system: req.system,
+      messages: [{ role: "user", content: req.user }],
+      output_config: { format: { type: "json_schema", schema: toWireSchema(req.jsonSchema) }, ...(effort === undefined ? {} : { effort }) },
+    };
+    JSON.stringify(body);
     let response: Response;
     try {
       // asResponse() returns "as soon as the headers for a successful response are received and does not consume the
@@ -162,13 +171,7 @@ export class AnthropicProvider implements ModelProvider {
       // this try came after a 2xx status line (P3-11 d).
       response = await this.#client.messages
         .create(
-          {
-            model: this.#model,
-            max_tokens: req.maxOutputTokens,
-            system: req.system,
-            messages: [{ role: "user", content: req.user }],
-            output_config: { format: { type: "json_schema", schema }, ...(effort === undefined ? {} : { effort }) },
-          },
+          body,
           // The credential layers (P3-11 b), explained here only. In Node the SDK reads ANTHROPIC_CUSTOM_HEADERS
           // ("name: value" lines, client.mjs:116-125) into its default headers, merged after its own auth headers
           // (client.mjs:837-838), and no option turns that off. These per-request headers

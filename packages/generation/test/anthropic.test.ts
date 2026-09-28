@@ -215,6 +215,22 @@ describe("AnthropicProvider", () => {
     expect(http.calls).toHaveLength(0);
   });
 
+  // P3-16 fix 3, the mirror of openai-compatible.test.ts's "lets an error from our own request building propagate": the
+  // SDK writes the body with JSON.stringify inside the call (internal/request-options.mjs:16), so the adapter builds and
+  // writes it once before its try.
+  it.each([
+    ["a schema toWireSchema refuses", { type: "object", patternProperties: {} }, 'toWireSchema: unsupported JSON schema keyword "patternProperties"'],
+    ["a body JSON.stringify cannot write", { type: "object", enum: [{ toJSON: () => { throw new Error("our own bug"); } }] }, "our own bug"],
+  ])("lets an error from our own request building propagate for %s, and sends nothing", async (_name, jsonSchema, message) => {
+    const http = fakeFetch([]);
+    const provider = new AnthropicProvider({ apiKey: "k", model: "claude-opus-5-5", fetch: http.fetch });
+    const error: unknown = await provider.generate({ ...request(), jsonSchema }).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(Error);
+    expect(error).not.toBeInstanceOf(ProviderError);
+    expect((error as Error).message).toBe(message);
+    expect(http.calls).toHaveLength(0);
+  });
+
   it("returns the model the response names, not the one requested", async () => {
     const http = fakeFetch([{ status: 200, body: { ...message("{}"), model: "claude-opus-5-5-test-snapshot" } }]);
     const res = await new AnthropicProvider({ apiKey: "k", model: "claude-opus-5-5", fetch: http.fetch }).generate(request());
