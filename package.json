@@ -13,6 +13,7 @@
     "test:e2e": "pnpm build:css && playwright test",
     "e2e:install": "playwright install --only-shell chromium webkit",
     "render": "pnpm build:css && node scripts/render-fixture.ts",
+    "check:floor": "pnpm --filter @asksite/app check:floor",
     "check": "pnpm typecheck && pnpm test && pnpm test:e2e"
   },
   "devDependencies": {

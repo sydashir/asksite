@@ -6,7 +6,8 @@
   "scripts": {
     "types": "wrangler types --strict-vars=false",
     "typecheck": "pnpm types && tsc -p tsconfig.worker.json && tsc -p tsconfig.test.json",
-    "test": "vitest run"
+    "test": "vitest run",
+    "check:floor": "tsc -p tsconfig.floor.json && node ../../packages/app-common/scripts/check-browser-floor.ts tsconfig.floor.json"
   },
   "dependencies": {
     "@asksite/app-common": "workspace:*",
