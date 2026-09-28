@@ -1,6 +1,6 @@
 import type { GenerationJob, GenerationRow } from "@asksite/core";
 import type { D1Database, Queue } from "@cloudflare/workers-types";
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { generationAllowance, requestGeneration, type RequestGenerationResult } from "../src/request.ts";
 import { utcDayStart } from "../src/settings.ts";
 import { clearTables, getGeneration, insertGeneration, seedOwnerSite, setSetting, startLocalD1 } from "./support/d1.ts";
@@ -138,6 +138,36 @@ describe("requestGeneration", () => {
     expect(row).toEqual({ status: "failed", error_code: "internal", finished_at: NOW });
     const retry = await requestGeneration(env(queue().q), input());
     expect(retry.ok && retry.generation.kind).toBe("first");
+  });
+
+  it("leaves a row the job already claimed alone when the send then fails: the failed-send UPDATE ends only a queued row (P3-16 fix 4 b)", async () => {
+    // This queue stands in for a job that claims the row between the INSERT and the failed send's return.
+    const racing = {
+      async send(body: GenerationJob) {
+        await db.prepare("UPDATE generations SET status = 'running', started_at = ?2 WHERE id = ?1 AND status = 'queued'").bind(body.generationId, NOW).run();
+        throw new Error("queue send failed");
+      },
+    } as unknown as Queue<GenerationJob>;
+    expect(await requestGeneration(env(racing), input())).toEqual({ ok: false, code: "internal" });
+    const rows = await db.prepare("SELECT status, error_code, started_at, finished_at FROM generations").all();
+    expect(rows.results).toEqual([{ status: "running", error_code: null, started_at: NOW, finished_at: null }]);
+  });
+
+  it("maps only the one-active index's error to generation_in_progress: another UNIQUE error is internal (P3-16 fix 4 c)", async () => {
+    const id = "00000000-0000-4000-8000-000000000001";
+    await insertGeneration(db, { id, site_id: "s2", owner_id: "o1", status: "failed", error_code: "internal", created_at: 0 });
+    // The premise, from the real D1: a job row whose id is taken fails on the primary key, and s1 has no active job.
+    const taken = db.prepare("INSERT INTO generations (id, site_id, owner_id, kind, status, input_json, created_at) VALUES (?1, 's1', 'o1', 'first', 'queued', '{}', 0)").bind(id);
+    await expect(taken.run()).rejects.toThrow(/UNIQUE constraint failed: generations\.id/);
+    // newId() is crypto.randomUUID(): this request's job row gets the taken id.
+    const uuid = vi.spyOn(crypto, "randomUUID").mockReturnValue(id);
+    try {
+      expect(await requestGeneration(env(queue().q), input())).toEqual({ ok: false, code: "internal" });
+      expect(uuid).toHaveBeenCalledTimes(1);
+    } finally {
+      uuid.mockRestore();
+    }
+    expect(await db.prepare("SELECT (SELECT COUNT(*) FROM generations) AS jobs, (SELECT COUNT(*) FROM audit_log) AS audits").first()).toEqual({ jobs: 1, audits: 0 });
   });
 
   it("refuses a site of another owner or a taken-down site, writing and sending nothing", async () => {
