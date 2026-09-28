@@ -3,11 +3,17 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 import { createTestHarness } from "wrangler";
 import { PROBE_BASE_URL, PROBE_KEY, PROBE_MODEL } from "./support/compat-probe.ts";
 
-// P3-16 fix 2: workerd's fetch refuses to run with any `this` other than the global scope ("TypeError: Illegal
-// invocation: function called with incorrect `this` reference", developers.cloudflare.com/workers/observability/errors/
-// #illegal-invocation-errors). The OpenAI-compatible adapter keeps the fetch it is given in a field, so it must call it
-// with no receiver, or a caller that injects the runtime's own fetch gets an outage on every attempt. The probe Worker
-// builds the adapter inside workerd with `fetch: fetch`.
+// P3-16 fix 2, the receiver rule. workerd's fetch is a method of the global scope (`JSG_METHOD(fetch)` in
+// ServiceWorkerGlobalScope, workerd src/workerd/api/global-scope.h), registered with a V8 signature ("Signatures protect
+// our methods from being invoked with the wrong `this`", src/workerd/jsg/resource.h). So it runs when `this` is the
+// global scope, or undefined, which V8 replaces with the global scope (v8 src/builtins/builtins-api.cc: "Do proper
+// receiver conversion for non-strict mode api functions", and IsCompatibleReceiver accepts the global proxy).
+// Any other `this`, such as the object in `holder.fetch(...)` or `this.#fetch(...)`, fails the signature check:
+// "TypeError: Illegal invocation: function called with incorrect `this` reference"
+// (developers.cloudflare.com/workers/observability/errors/#illegal-invocation-errors). The premise row below proves
+// the method call fails; the main row proves a call with no receiver works. The OpenAI-compatible adapter keeps the
+// fetch it is given in a field, so it calls it with no receiver, or a caller that injects the runtime's own fetch gets
+// an outage on every attempt. The probe Worker builds the adapter inside workerd with `fetch: fetch`.
 const WORKER = {
   name: "compat-fetch-probe",
   main: "packages/generation/test/support/compat-fetch-worker.ts",
