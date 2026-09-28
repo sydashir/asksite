@@ -35,21 +35,24 @@ function compareVersions(a: string, b: string): number {
 
 export interface Gap {
   browser: BrowserName;
+  /** MDN's `version_added` of the statement that decided. */
   added: string;
+  /** Supported at the floor only with MDN's `partial_implementation`. */
+  partial: boolean;
 }
 
-/** The floor's browsers that do not support the feature at their floor version. */
+/** The floor's browsers that lack full support at their floor version. */
 export function gapsAt(compat: CompatStatement, floor: Floor): Gap[] {
   const gaps: Gap[] = [];
   for (const [browser, version] of Object.entries(floor) as [BrowserName, string][]) {
     const raw = compat.support[browser];
     if (raw === undefined) {
-      gaps.push({ browser, added: "no data" });
+      gaps.push({ browser, added: "no data", partial: false });
       continue;
     }
     const all = Array.isArray(raw) ? raw : [raw];
-    // Only standard statements count: no flag, no prefix, no other name.
-    const supported = all.some((s) => {
+    // Only standard statements count (no flag, no prefix, no other name) whose versions cover the floor.
+    const covering = all.filter((s) => {
       if (s.flags || s.prefix || s.alternative_name) return false;
       if (typeof s.version_added !== "string" || s.version_added === "preview") return false;
       // "≤37" means "37 or earlier": read as 37, which can only fail more often.
@@ -57,7 +60,9 @@ export function gapsAt(compat: CompatStatement, floor: Floor): Gap[] {
       const removed = s.version_removed;
       return removed === undefined || removed === "preview" || compareVersions(removed.replace("≤", ""), version) > 0;
     });
-    if (!supported) gaps.push({ browser, added: String(all[0]?.version_added) });
+    if (covering.some((s) => !s.partial_implementation)) continue;
+    const partial = covering[0];
+    gaps.push(partial ? { browser, added: String(partial.version_added), partial: true } : { browser, added: String(all[0]?.version_added), partial: false });
   }
   return gaps;
 }

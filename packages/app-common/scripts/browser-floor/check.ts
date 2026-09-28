@@ -112,7 +112,7 @@ function checkFile(ctx: Context, sf: SourceFile): void {
   function judge(node: Node, api: string, key: string): void {
     const compat = compatAt(key);
     const gaps = compat ? gapsAt(compat, floor) : [];
-    if (gaps.length > 0) record(node, "unsupported", api, key, gaps);
+    if (gaps.length > 0) record(node, gaps.every((g) => g.partial) ? "partial" : "unsupported", api, key, gaps);
   }
 
   function suppression(line: number): string | undefined {
