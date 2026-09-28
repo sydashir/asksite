@@ -13,8 +13,8 @@ const COUNTS_TOWARD_TOTAL = "kind = 'regenerate' AND (status IN ('queued', 'runn
 
 // The per-site daily count and the per-owner total are checked in the INSERT itself, so they are
 // exact even when one owner acts on two sites at once (design §6.4).
-// The daily count skips a row that failed with 'internal' before any job claimed it (a failed queue send, or a stuck
-// queued row the sweeper ended), so an infrastructure failure never spends the owner's allowance.
+// Rows that failed before any job claimed them do not count (a failed queue send, or a stuck queued job the sweeper
+// ended as internal). A first build the sweeper finished with the template does count: the owner received a draft.
 // A first build neither counts toward nor is refused by the per-owner total (Decision 30).
 // A regeneration counts while it is queued or running, and afterwards only if it took a model call.
 const INSERT_JOB = `INSERT INTO generations (id, site_id, owner_id, kind, status, input_json, created_at)
