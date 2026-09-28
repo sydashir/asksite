@@ -23,6 +23,9 @@ export const offset = win.pageXOffset; // expect: unmapped Window.pageXOffset
 div.onwebkitanimationend = null; // expect: unmapped GlobalEventHandlers.onwebkitanimationend
 onscrollend = null; // expect: unmapped onscrollend
 div.style.accentColor = "red"; // expect: unmapped CSSStyleProperties.accentColor
+export function decoratorAccess(context: ClassMethodDecoratorContext) {
+  return context.access.has({}); // expect: unmapped has
+}
 
 // Dictionaries are plain objects, not browser features: their members are never checked.
 declare const result: ReadableStreamReadResult<string>;

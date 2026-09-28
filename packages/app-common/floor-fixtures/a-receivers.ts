@@ -18,3 +18,10 @@ export const control = document.querySelector("div")?.showPopover(); // expect: 
 // The same mixin member is supported on one interface and not on another: only the receiver counts.
 export const defaultClosed = defaultReader?.closed;
 export const byobClosed = byobReader?.closed; // expect: unsupported api.ReadableStreamBYOBReader.closed
+
+// The lib declares cssFloat on CSSStyleProperties (MDN: 26), MDN also lists it on CSSStyleDeclaration
+// (1): the receiver's entry wins, and the dropped `null` adds no lookup by the declaring interface.
+declare const style: CSSStyleDeclaration | null;
+declare const styleRule: CSSStyleRule | null;
+export const cssFloat = style?.cssFloat;
+export const nestedRules = styleRule?.cssRules; // expect: unsupported api.CSSStyleRule.cssRules
