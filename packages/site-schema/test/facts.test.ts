@@ -85,6 +85,14 @@ describe("Facts", () => {
     expect(link("yelp", "https://www.facebook.com/mop")).toEqual(["socialLinks.0.url"]);
   });
 
+  it("refuses an https URL without // after the scheme, which a page would resolve against its own address (A9)", () => {
+    const link = (url: string) => issuePaths({ ...minimal, socialLinks: [{ network: "facebook", url }] });
+    expect(link("https:facebook.com/mop")).toEqual(["socialLinks.0.url"]);
+    expect(link("https:/www.facebook.com/mop")).toEqual(["socialLinks.0.url"]);
+    const photo = { alt: "Van", width: 800, height: 600, url: "https:img.example/a.jpg" };
+    expect(issuePaths({ ...minimal, photos: [photo] })).toEqual(["photos.0.url"]);
+  });
+
   it("bounds the founding year without reading the clock", () => {
     expect(issuePaths({ ...minimal, yearFounded: 1850 })).toEqual([]);
     expect(issuePaths({ ...minimal, yearFounded: 2100 })).toEqual([]);

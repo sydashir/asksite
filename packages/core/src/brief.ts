@@ -19,7 +19,7 @@ export const Brief = z.strictObject({
   notes: briefText(2000).optional(), // "Pretend you're texting a friend..."
   comments: z
     .record(z.string().regex(/^[a-z][a-zA-Z0-9]{0,39}$/), briefText(500))
-    .refine((c) => Object.keys(c).length <= 20)
+    .refine((c) => Object.keys(c).length <= 20, { error: "You can add at most 20 comments." })
     .default({}), // per-question comments, keyed by question id
   reviewsAreReal: z.boolean().default(false), // owner attests pasted reviews are real (FTC)
 });

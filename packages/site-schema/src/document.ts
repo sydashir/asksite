@@ -49,8 +49,8 @@ export const SiteDocument = z
     }
 
     for (const [path, text] of proseIn(doc.copy)) {
-      // A hidden mark can split a claim word (e.g. "Licen\u034Fsed") so that the claim check below
-      // misses it, so copy containing one is rejected outright.
+      // A hidden mark can split a claim word (e.g. "Licen\u034Fsed"). The claim check below removes
+      // combining marks (A9) and still finds the claim, but an invisible character is refused outright.
       if (HIDDEN_IN_COPY.test(text)) {
         ctx.addIssue({
           code: "custom",
