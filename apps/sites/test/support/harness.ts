@@ -72,6 +72,28 @@ export function sitesHarness(overrides: { vars?: Record<string, string>; secrets
 
 export const at = (slug: string, path = "/") => `https://${slug}.${ROOT}${path}`;
 
+type LogLine = Record<string, unknown>;
+
+/** The sites Worker's JSON log lines since the harness started or the last clearLogs(). */
+export function sitesLines(h: ReturnType<typeof sitesHarness>): LogLine[] {
+  return h.server.getLogs().flatMap((entry) => {
+    try {
+      const line: unknown = JSON.parse(entry.message);
+      return typeof line === "object" && line !== null && (line as LogLine)["worker"] === "asksite-sites" ? [line as LogLine] : [];
+    } catch {
+      return [];
+    }
+  });
+}
+
+/** The log lines whose `key` is `value`, once at least `count` of them have arrived (logs reach the harness after the response). */
+export async function linesWith(h: ReturnType<typeof sitesHarness>, key: string, value: string, count: number): Promise<LogLine[]> {
+  for (let attempt = 0; attempt < 100 && sitesLines(h).filter((line) => line[key] === value).length < count; attempt++) {
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  return sitesLines(h).filter((line) => line[key] === value);
+}
+
 let counter = 0;
 
 export interface SeededSite { ownerId: string; ownerEmail: string; siteId: string; slug: string; html: string; versionId: string | null }

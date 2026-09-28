@@ -3,7 +3,8 @@ import { resolve } from "node:path";
 import { LIMITS, newId } from "@asksite/core";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { insertLead } from "../src/form.ts";
-import { at, seedSite, settledLeads, sitesHarness, TEST_VARS, type ToolsEnv } from "./support/harness.ts";
+import { holdBatch, metered, writesReturnNoRows } from "./support/d1.ts";
+import { at, linesWith, seedSite, settledLeads, sitesHarness, sitesLines, TEST_VARS, type ToolsEnv } from "./support/harness.ts";
 
 // A11c: lead emails have their own cap for the UTC day across ALL sites, LEAD_EMAILS_PER_DAY (40), so
 // contact-form spam cannot use up the Resend Free budget (100 a day) that sign-in links need too. Over
@@ -44,12 +45,12 @@ function post(h: Harness, site: { slug: string; siteId: string }, fields: Record
   });
 }
 
-/** Stores `count` leads directly, as they look once the Worker has handled them. */
+/** Stores `count` leads directly, as they look once the Worker has handled them, each from its own network (A15 counts a network's leads). */
 async function fill(tools: ToolsEnv, siteId: string, count: number, row: { createdAt: number; status: string; spam?: 0 | 1; error?: string }): Promise<void> {
   await tools.DB.batch(
     Array.from({ length: count }, () =>
-      tools.DB.prepare("INSERT INTO leads (id, site_id, created_at, name, phone, spam, email_status, email_error, ip_hash) VALUES (?, ?, ?, 'n', '5125550100', ?, ?, ?, 'h')")
-        .bind(newId(), siteId, row.createdAt, row.spam ?? 0, row.status, row.error ?? null),
+      tools.DB.prepare("INSERT INTO leads (id, site_id, created_at, name, phone, spam, email_status, email_error, ip_hash) VALUES (?, ?, ?, 'n', '5125550100', ?, ?, ?, ?)")
+        .bind(newId(), siteId, row.createdAt, row.spam ?? 0, row.status, row.error ?? null, newId()),
     ),
   );
 }
@@ -63,87 +64,11 @@ async function leadEmails(tools: ToolsEnv): Promise<Row[]> {
   return (await tools.DB.prepare("SELECT to_addr, subject FROM dev_outbox WHERE tag = 'lead' ORDER BY id").all<Row>()).results;
 }
 
-/**
- * Production D1: "`results` is empty for write operations such as UPDATE, DELETE, or INSERT"
- * (developers.cloudflare.com/d1/worker-api/prepared-statements/). Local D1 still returns RETURNING rows,
- * so this D1 empties the results of every write in a batch, as production does (A10).
- */
-function writesReturnNoRows(db: D1Database): D1Database {
-  const writes = new WeakSet<D1PreparedStatement>();
-  const production = {
-    prepare(sql: string) {
-      const statement = db.prepare(sql);
-      if (!/^\s*(INSERT|UPDATE|DELETE)\b/i.test(sql)) return statement;
-      return {
-        bind(...values: unknown[]) {
-          const bound = statement.bind(...values);
-          writes.add(bound);
-          return bound;
-        },
-      };
-    },
-    async batch(statements: D1PreparedStatement[]) {
-      const isWrite = statements.map((statement) => writes.has(statement));
-      return (await db.batch(statements)).map((result, i) => (isWrite[i] ? { ...result, results: [] } : result));
-    },
-  };
-  return production as unknown as D1Database;
-}
-
-/**
- * A D1 whose batch waits until release(), so a test can land another lead before this one is written:
- * a race in a fixed order (the pattern of packages/publishing/test/versions.workerd.test.ts).
- */
-function holdBatch(db: D1Database) {
-  let arrive = () => {};
-  let release = () => {};
-  const reached = new Promise<void>((done) => (arrive = done));
-  const released = new Promise<void>((done) => (release = done));
-  const held = {
-    prepare: (sql: string) => db.prepare(sql),
-    async batch(statements: D1PreparedStatement[]) {
-      arrive();
-      await released;
-      return db.batch(statements);
-    },
-  };
-  return { db: held as unknown as D1Database, reached, release };
-}
-
-/**
- * insertLead's answer and the rows its batch read. D1 bills rows read, "the number of rows read (scanned)
- * by this query" (D1Result meta.rows_read, developers.cloudflare.com/d1/worker-api/return-object/).
- */
-async function insertCounted(db: D1Database, input: Parameters<typeof insertLead>[1]): Promise<{ status: string | null; rows: number }> {
-  let rows = 0;
-  const counted = {
-    prepare: (sql: string) => db.prepare(sql),
-    async batch(statements: D1PreparedStatement[]) {
-      const results = await db.batch(statements);
-      for (const result of results) rows += result.meta.rows_read;
-      return results;
-    },
-  };
-  const status = await insertLead(counted as unknown as D1Database, input);
-  return { status, rows };
-}
-
-/** The sites Worker's JSON log lines since the harness started or the last clearLogs(). */
-function sitesLines(h: Harness): Row[] {
-  return h.server.getLogs().flatMap((entry) => {
-    try {
-      const line: unknown = JSON.parse(entry.message);
-      return typeof line === "object" && line !== null && (line as Row)["worker"] === "asksite-sites" ? [line as Row] : [];
-    } catch {
-      return [];
-    }
-  });
-}
-
-/** The log lines whose `key` is `value`, once at least `count` of them have arrived (logs reach the harness after the response). */
-async function linesWith(h: Harness, key: string, value: string, count: number): Promise<Row[]> {
-  for (let attempt = 0; attempt < 100 && sitesLines(h).filter((line) => line[key] === value).length < count; attempt++) await sleep(50);
-  return sitesLines(h).filter((line) => line[key] === value);
+/** insertLead's answer and the rows its batch read (D1 bills rows read). */
+async function insertCounted(db: D1Database, input: Parameters<typeof insertLead>[1]): Promise<{ status: string; rows: number }> {
+  const meter = metered(db);
+  const status = await insertLead(meter.db, input);
+  return { status, rows: meter.rowsRead() };
 }
 
 describe(`LEAD_EMAILS_PER_DAY = ${CAP}, the production value`, () => {
@@ -266,7 +191,8 @@ describe(`LEAD_EMAILS_PER_DAY = ${CAP}, the production value`, () => {
   // D1 bills every row a statement scans, and the day's email count scans every lead (A11c adds no
   // index). Only a lead that is stored and not spam may run it: spam and posts the site's own cap refuses
   // are held back only by the per-IP rate limit, so they read just the site's rows for today (at most
-  // LIMITS.leadsPerSitePerDay, through the leads_site index) plus a few for the insert and the read-back.
+  // LIMITS.leadsPerSitePerDay, through the leads_site index), the network's rows for today (A15, through
+  // the leads_network index) and a few for the insert and the read-back.
   it("reads only the site's rows for today for spam and for a post the site's cap refuses, however many leads the table holds", async () => {
     const history = await seedSite(tools);
     const open = await seedSite(tools);
@@ -295,8 +221,8 @@ describe(`LEAD_EMAILS_PER_DAY = ${CAP}, the production value`, () => {
     };
     expect(posts).toEqual({
       spam: { status: "skipped", rows: expect.any(Number) },
-      siteCapped: { status: null, rows: expect.any(Number) },
-      spamSiteCapped: { status: null, rows: expect.any(Number) },
+      siteCapped: { status: "site_daily_cap", rows: expect.any(Number) },
+      spamSiteCapped: { status: "site_daily_cap", rows: expect.any(Number) },
     });
     const tooMany = Object.entries(posts).filter(([, post]) => post.rows > LIMITS.leadsPerSitePerDay + 10);
     expect(tooMany.map(([kind, post]) => `${kind} read ${post.rows} rows`)).toEqual([]);

@@ -24,6 +24,12 @@ function post(site: { slug: string; siteId: string }, fields: Record<string, str
   });
 }
 
+/** A response as "<status>", plus the page's heading for a 429 (the two 429 pages differ only in their words). */
+async function pageOf(response: { status: number; text(): Promise<string> }): Promise<string> {
+  if (response.status !== 429) return String(response.status);
+  return `429 ${/<h1>([^<]*)<\/h1>/.exec(await response.text())?.[1] ?? "?"}`;
+}
+
 async function leads(siteId: string) {
   const { results } = await tools.DB.prepare("SELECT * FROM leads WHERE site_id = ? ORDER BY created_at").bind(siteId).all<Record<string, unknown>>();
   return results;
@@ -96,22 +102,24 @@ describe("POST /_f/<siteId>", () => {
     expect((await post(site, {}, { body: `message=${"a".repeat(17 * 1024)}` })).status).toBe(413);
   });
 
+  // A15: the 4th and 5th posts from one network on one site are refused by its daily limit ("Please call
+  // instead"); they still count toward the rate limit, which refuses the 6th ("Please wait a minute").
   it("rate-limits one visitor to 5 posts a minute per site", async () => {
     const busy = await seedSite(tools);
-    const statuses: number[] = [];
-    for (let i = 0; i < 6; i++) statuses.push((await post(busy, GOOD, { ip: "192.0.2.44" })).status);
-    expect(statuses).toEqual([303, 303, 303, 303, 303, 429]);
+    const pages: string[] = [];
+    for (let i = 0; i < 6; i++) pages.push(await pageOf(await post(busy, GOOD, { ip: "192.0.2.44" })));
+    expect(pages).toEqual(["303", "303", "303", "429 Please call instead", "429 Please call instead", "429 Please wait a minute"]);
     const limited = await post(busy, GOOD, { ip: "192.0.2.44" });
     expect(limited.headers.get("retry-after")).toBe("60");
     expect((await post(busy, GOOD, { ip: "192.0.2.45" })).status).toBe(303);
-    expect(await leads(busy.siteId)).toHaveLength(6);
+    expect(await leads(busy.siteId)).toHaveLength(4);
   });
 
   it("rate-limits an IPv6 visitor by the /64 network, not the full address", async () => {
     const busy = await seedSite(tools);
-    const statuses: number[] = [];
-    for (let i = 1; i <= 6; i++) statuses.push((await post(busy, GOOD, { ip: `2001:db8:4:7::${i}` })).status);
-    expect(statuses).toEqual([303, 303, 303, 303, 303, 429]);
+    const pages: string[] = [];
+    for (let i = 1; i <= 6; i++) pages.push(await pageOf(await post(busy, GOOD, { ip: `2001:db8:4:7::${i}` })));
+    expect(pages).toEqual(["303", "303", "303", "429 Please call instead", "429 Please call instead", "429 Please wait a minute"]);
     expect((await post(busy, GOOD, { ip: "2001:db8:4:8::1" })).status).toBe(303);
   });
 
@@ -240,17 +248,19 @@ describe("form edges", () => {
     const busy = await seedSite(tools);
     const other = await seedSite(tools);
     await earlyInAMinute();
-    const statuses: number[] = [];
-    for (let i = 0; i < 6; i++) statuses.push((await post(busy, GOOD, { ip: "192.0.2.60" })).status);
-    expect(statuses).toEqual([303, 303, 303, 303, 303, 429]);
+    const pages: string[] = [];
+    for (let i = 0; i < 6; i++) pages.push(await pageOf(await post(busy, GOOD, { ip: "192.0.2.60" })));
+    expect(pages).toEqual(["303", "303", "303", "429 Please call instead", "429 Please call instead", "429 Please wait a minute"]);
     expect((await post(other, GOOD, { ip: "192.0.2.60" })).status).toBe(303);
   });
 
-  it("stores the hash of the visitor's full IPv6 address, not of its /64", async () => {
+  // A15: the stored hash is the network's, the key the daily network limits count (was the full address).
+  it("stores the hash of the visitor's IPv6 /64 network, not of its full address", async () => {
     const target = await seedSite(tools);
     expect((await post(target, GOOD, { ip: "2001:db8:9:1::abcd" })).status).toBe(303);
     const [lead] = await leads(target.siteId);
-    expect(lead?.["ip_hash"]).toBe(await hashIp(TEST_SECRETS.IP_HASH_KEY, "2001:db8:9:1::abcd"));
+    expect(lead?.["ip_hash"]).toBe(await hashIp(TEST_SECRETS.IP_HASH_KEY, "2001:db8:9:1::/64"));
+    expect(lead?.["ip_hash"]).not.toBe(await hashIp(TEST_SECRETS.IP_HASH_KEY, "2001:db8:9:1::abcd"));
   });
 
   it("lets D1 decide: a LIVE object for a site D1 does not call live, or under another slug, gets 404 and stores nothing", async () => {

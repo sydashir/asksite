@@ -60,11 +60,11 @@ export async function handleForm(
 
   const key = env.IP_HASH_KEY ?? "";
   if (key === "") return { response: unavailable(root), code: "misconfigured" };
-  const ip = request.headers.get("cf-connecting-ip") ?? "unknown";
-  const ipHash = await hashIp(key, ip); // stored with the lead
-  // Keyed on the IPv6 /64 (an IPv4 address whole), so a visitor cannot dodge the limit by changing
-  // the low bits of their address (Decision 27).
-  const { success } = await env.FORM_RL.limit({ key: `${siteId}:${await hashIp(key, ipRateKey(ip))}` });
+  // The visitor's network: the IPv6 /64 (an IPv4 address whole), so a visitor cannot dodge a limit by
+  // changing the low bits of their address (Decision 27). It keys the rate limit and the daily network
+  // limits, and it is the ip_hash stored with the lead (A15).
+  const ipHash = await hashIp(key, ipRateKey(request.headers.get("cf-connecting-ip") ?? "unknown"));
+  const { success } = await env.FORM_RL.limit({ key: `${siteId}:${ipHash}` });
   if (!success) return { response: tooManyRequests(root), code: "rate_limited" };
 
   const fields = new URLSearchParams(body);
@@ -89,7 +89,8 @@ export async function handleForm(
   const spam = looksLikeSpam(read.lead);
   const emailsPerDay = leadEmailsPerDay(env.LEAD_EMAILS_PER_DAY);
   const status = await insertLead(env.DB, { leadId, siteId, now, lead: read.lead, spam, ipHash, emailsPerDay });
-  if (status === null) return { response: siteBusy(root), code: "site_daily_cap" };
+  // Nothing was stored, so nothing is emailed or counted; the page points the visitor to the phone number.
+  if (status === "site_daily_cap" || status === "network_daily_limit") return { response: siteBusy(root), code: status };
   if (status === "skipped") return { response: seeOther(sent), code: "spam" };
   // A11c: today's lead emails for all sites are used up. The lead is saved (the owner sees it in the app)
   // and the visitor is thanked as usual, but it is never emailed.
@@ -101,24 +102,32 @@ export async function handleForm(
 }
 
 export type StoredStatus = "pending" | "failed" | "skipped";
+/** Why a lead was not stored: the site's day cap, or its network's daily limit on this site or on all sites (A15). */
+export type Refusal = "site_daily_cap" | "network_daily_limit";
 
 /**
- * Inserts the lead unless the site already has LIMITS.leadsPerSitePerDay today. The same statement decides
- * its email (A11c): spam is 'skipped'; any other lead is 'pending' while fewer than `emailsPerDay` of
- * today's leads across all sites had their email tried (not spam, and not capped here), else 'failed'
- * with email_error 'daily_cap'. One statement, so both caps stay exact when visitors post at the same
- * time. That count scans leads (A11c adds no index; the retention cron keeps the table small), and D1
- * bills every row scanned, so only a stored lead that is not spam runs it: `tried` has a row only while
- * the site has room (a SELECT's WHERE comes before its columns), and CASE is lazy, so spam skips it.
- * Production SQL has no RETURNING (A10), so the stored status is read back by a SELECT in the same batch
- * (a transaction). Returns null when the site's cap refused the lead.
+ * Inserts the lead unless its network already left LIMITS.leadsPerNetworkPerSitePerDay leads on this site
+ * today or LIMITS.leadsPerNetworkPerDay on all sites (spam included; A15), or the site already has
+ * LIMITS.leadsPerSitePerDay. The same statement decides its email (A11c): spam is 'skipped'; any other
+ * lead is 'pending' while fewer than `emailsPerDay` of today's leads across all sites had their email
+ * tried (not spam, and not capped here), else 'failed' with email_error 'daily_cap'. One statement, so
+ * every limit stays exact when visitors post at the same time.
+ * D1 bills every row scanned. The network counts read only the network's rows for today (leads_network,
+ * migration 0002) and the site count only the site's (leads_site), so a refused post reads a bounded
+ * number of rows. The email count scans leads (A11c adds no index; the retention cron keeps the table
+ * small), so only a stored lead that is not spam runs it: `tried` has a row only while every limit has
+ * room (measured locally: this SQLite checks that WHERE before it runs the columns), and CASE is lazy,
+ * so spam skips it.
+ * Production SQL has no RETURNING (A10), so a SELECT in the same batch (a transaction) reads back the
+ * stored status or, when nothing was stored, which limit refused it.
  */
 export async function insertLead(
   db: D1Database,
   input: { leadId: string; siteId: string; now: number; lead: Lead; spam: boolean; ipHash: string; emailsPerDay: number },
-): Promise<StoredStatus | null> {
+): Promise<StoredStatus | Refusal> {
   const { leadId, siteId, now, lead, spam, ipHash, emailsPerDay } = input;
-  const [, stored] = await db.batch<{ email_status: StoredStatus }>([
+  const dayStart = utcDayStart(now);
+  const [, outcome] = await db.batch<{ outcome: StoredStatus | Refusal }>([
     db
       .prepare(
         `INSERT INTO leads (id, site_id, created_at, name, phone, email, service, message, spam, email_status, email_error, ip_hash)
@@ -128,13 +137,25 @@ export async function insertLead(
                 ?10
          FROM (SELECT CASE WHEN ?9 = 1 THEN 0
                            ELSE (SELECT COUNT(*) FROM leads WHERE created_at >= ?12 AND spam = 0 AND email_error IS NOT 'daily_cap') END AS n
-               WHERE (SELECT COUNT(*) FROM leads WHERE site_id = ?2 AND created_at >= ?12) < ?13) AS tried`,
+               WHERE (SELECT COUNT(*) FROM leads WHERE ip_hash = ?10 AND site_id = ?2 AND created_at >= ?12) < ?14
+                 AND (SELECT COUNT(*) FROM leads WHERE ip_hash = ?10 AND created_at >= ?12) < ?15
+                 AND (SELECT COUNT(*) FROM leads WHERE site_id = ?2 AND created_at >= ?12) < ?13) AS tried`,
       )
       .bind(leadId, siteId, now, lead.name, lead.phone, lead.email, lead.service, lead.message, spam ? 1 : 0, ipHash,
-        emailsPerDay, utcDayStart(now), LIMITS.leadsPerSitePerDay),
-    db.prepare("SELECT email_status FROM leads WHERE id = ?").bind(leadId),
+        emailsPerDay, dayStart, LIMITS.leadsPerSitePerDay, LIMITS.leadsPerNetworkPerSitePerDay, LIMITS.leadsPerNetworkPerDay),
+    db
+      .prepare(
+        `SELECT CASE WHEN stored.email_status IS NOT NULL THEN stored.email_status
+                     WHEN (SELECT COUNT(*) FROM leads WHERE ip_hash = ?2 AND site_id = ?3 AND created_at >= ?4) >= ?5
+                       OR (SELECT COUNT(*) FROM leads WHERE ip_hash = ?2 AND created_at >= ?4) >= ?6 THEN 'network_daily_limit'
+                     ELSE 'site_daily_cap' END AS outcome
+         FROM (SELECT (SELECT email_status FROM leads WHERE id = ?1) AS email_status) AS stored`,
+      )
+      .bind(leadId, ipHash, siteId, dayStart, LIMITS.leadsPerNetworkPerSitePerDay, LIMITS.leadsPerNetworkPerDay),
   ]);
-  return stored?.results[0]?.email_status ?? null;
+  const result = outcome?.results[0]?.outcome;
+  if (result === undefined) throw new Error("insertLead: the read-back SELECT returned no row");
+  return result;
 }
 
 /**
