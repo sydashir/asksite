@@ -209,9 +209,10 @@ type RowState = { row: Pick<GenerationRow, "kind" | "status"> & Partial<Generati
 const ROW_STATES: [string, RowState][] = [
   ["the job: a regeneration refused at claim time because generation is switched off", { row: { kind: "regenerate", status: "failed", error_code: "generation_disabled" }, started: true, today: true, total: false }],
   ["the job: a regeneration refused at claim time because today's model calls are used up", { row: { kind: "regenerate", status: "failed", error_code: "budget_exhausted" }, started: true, today: true, total: false }],
-  // The job ends these two alike except for model (task-9-brief.md:351 and :356, callModel): a provider it cannot build
-  // (no key) keeps NO_SPEND's model null, while the input guard's refusal stores result.model ?? env.MODEL_ID, the
-  // requested id. Neither count reads model.
+  // The job ends these two alike except for model (task-9-brief.md, callModel): a provider it cannot build (no key)
+  // returns `{ ...NO_SPEND, provider: env.MODEL_PROVIDER }`, so model stays null, while the input guard's refusal stores
+  // `result.model ?? env.MODEL_ID`: no call was sent, so result.model is null and the requested id is stored (as
+  // task-9-additions.md E also gives for a missing model). Neither count reads model.
   ["the job: a regeneration with no key (provider_unavailable, 0 attempts, slot given back, no model)", { row: { kind: "regenerate", status: "failed", error_code: "provider_unavailable", attempts: 0, provider: "anthropic", model: null }, started: true, today: true, total: false }],
   ["the job: a regeneration whose attempt 1 the input guard refused (provider_unavailable, 0 attempts, slot given back, the requested model)", { row: { kind: "regenerate", status: "failed", error_code: "provider_unavailable", attempts: 0, provider: "anthropic", model: "claude-opus-5-5" }, started: true, today: true, total: false }],
   ["the job: a regeneration claimed and then failed by our own code (costUnknown: internal, slot kept)", { row: { kind: "regenerate", status: "failed", error_code: "internal", model_slot: 1 }, started: true, today: true, total: false }],
