@@ -258,6 +258,40 @@ describe("which rows count toward the site's day and the owner's total (P3-11 (p
     await db.prepare("UPDATE generations SET status = 'succeeded', started_at = ?2, model_slot = 1, attempts = 1, finished_at = ?2 WHERE id = ?1 AND status = 'queued'").bind(id, NOW).run();
   }
 
+  /**
+   * Sends one request per site at once and holds each request's INSERT_JOB batch until every request has run its
+   * pre-checks (reached its batch, or ended without one). So every pre-check sees the same rows and INSERT_JOB alone
+   * decides: the race its own counts exist for (design 6.4).
+   */
+  async function atOnce(siteIds: string[]): Promise<RequestGenerationResult[]> {
+    let waiting = siteIds.length;
+    let release!: () => void;
+    const released = new Promise<void>((resolve) => (release = resolve));
+    return Promise.all(
+      siteIds.map(async (siteId) => {
+        let arrived = false;
+        const arrive = () => {
+          if (arrived) return;
+          arrived = true;
+          if (--waiting === 0) release();
+        };
+        const DB = {
+          prepare: (sql: string) => db.prepare(sql),
+          batch: async (...args: Parameters<D1Database["batch"]>) => {
+            arrive();
+            await released;
+            return db.batch(...args);
+          },
+        } as unknown as D1Database;
+        try {
+          return await requestGeneration({ ...env(queue().q), DB }, input(siteId));
+        } finally {
+          arrive();
+        }
+      }),
+    );
+  }
+
   it.each(ROW_STATES)("the site's day at the cap edge: %s", async (_name, state) => {
     // Four of today's rows on s1 that count on any reading: first builds that got the template without a model call.
     for (let i = 0; i < 4; i++) await insertGeneration(db, { id: `d${i}`, site_id: "s1", owner_id: "o1", status: "succeeded", used_fallback: 1, fallback_reason: "budget", created_at: DAY + i, started_at: DAY + i, finished_at: DAY + i });
@@ -268,6 +302,8 @@ describe("which rows count toward the site's day and the owner's total (P3-11 (p
     expect(outcome(await requestGeneration(env(queue().q), input()))).toBe(state.today ? "generation_cap_reached" : "regenerate");
   });
 
+  // A row that counts here is refused by requestGeneration's pre-check (OWNER_TOTAL, P3-16 fix 1) before INSERT_JOB
+  // runs; the next table checks INSERT_JOB's own count of each row.
   it.each(ROW_STATES)("the owner's total at the cap edge: %s", async (_name, state) => {
     await seedOwnerSite(db, "o1", "s3");
     await succeeded("built", "s1", "first");
@@ -275,6 +311,20 @@ describe("which rows count toward the site's day and the owner's total (P3-11 (p
     await seedRowState("x", "s3", 2, state);
     expect(await allowance()).toEqual({ generationsLeftToday: 5, generationsLeftTotal: state.total ? 0 : 1 });
     expect(outcome(await requestGeneration(env(queue().q), input()))).toBe(state.total ? "generation_cap_reached" : "regenerate");
+  });
+
+  // Both requests pass the pre-check (at most 19 counted), so INSERT_JOB alone decides: when the row counts, the second
+  // INSERT sees 20 and selects no row; when it does not, both queue.
+  it.each(ROW_STATES)("the owner's total in INSERT_JOB itself, two sites at once after both pre-checks: %s", async (_name, state) => {
+    await seedOwnerSite(db, "o1", "s3");
+    await succeeded("built1", "s1", "first");
+    await succeeded("built2", "s2", "first");
+    for (let i = 0; i < 18; i++) await succeeded(`r${i}`, "s1", "regenerate");
+    await seedRowState("x", "s3", 2, state);
+    expect((await allowance()).generationsLeftTotal).toBe(state.total ? 1 : 2);
+    const results = await atOnce(["s1", "s2"]);
+    expect(results.map(outcome).sort()).toEqual(state.total ? ["generation_cap_reached", "regenerate"] : ["regenerate", "regenerate"]);
+    expect((await allowance()).generationsLeftTotal).toBe(0);
   });
 
   it("counts regenerations that end invalid_output: an owner whose every regeneration ends that way is refused once 20 exist (P3-16 (B))", async () => {
