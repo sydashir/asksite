@@ -95,6 +95,7 @@ describe("the invariant checks can fail (RED proof, on edited pages)", () => {
       "a honeypot wrapper that differs only in class (the per-design e2e checks keep it off-screen and out of the tab order)",
       page.replace('class="absolute -left-[9999px] h-px w-px overflow-hidden" aria-hidden="true"', 'class="hp" aria-hidden="true"'),
     ],
+    ["a Main nav with one list of links (no separate phone menu)", page.replace(/<details class="group relative lg:hidden">[\s\S]*?<\/details>\n/, "")],
     ["extra links in the Main nav", page.replace('<ul class="hidden items-center gap-1 lg:flex">', '<a href="#top">Open the menu</a>\n<ul class="hidden items-center gap-1 lg:flex">')],
   ])("allow %s", (_, edited) => {
     expect(edited).not.toBe(page);
