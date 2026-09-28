@@ -495,6 +495,21 @@ describe("OpenAICompatibleProvider: JSON Mode not met only where the status give
     const res = await compatible(fakeFetch([{ status, body: phrase }]).fetch).generate(request());
     expect(res).toStrictEqual({ json: undefined, model: "m", usage: { inputTokens: 0, outputTokens: 0 }, stop: "end", usageMissing: true });
   });
+
+  // P3-16 fix 4 (a): the phrase in a 4xx's error fields only after JSON decoding. The body text writes the apostrophe as
+  // a JSON escape (a backslash, then u0027), so the raw text never holds the phrase: only the parsed error fields match.
+  const APOSTROPHE_ESCAPE = `${String.fromCharCode(92)}u0027`;
+  const escaped = `JSON Mode couldn${APOSTROPHE_ESCAPE}t be met`;
+  it.each([
+    ["error.message", 400, `{"error":{"message":"AiError: ${escaped}","type":"invalid_request_error"}}`],
+    ["error string", 422, `{"error":"AiError: ${escaped}"}`],
+    ["errors[].message", 400, `{"success":false,"errors":[{"code":1000,"message":"AiError: ${escaped}"}]}`],
+  ])("answers a 4xx whose %s holds the phrase with an escaped apostrophe (HTTP %i) with no JSON", async (_field, status, text) => {
+    expect(text).not.toContain(JSON_MODE_UNMET);
+    expect(JSON.stringify(JSON.parse(text))).toContain(JSON_MODE_UNMET);
+    const res = await compatible(rawFetch(status, text).fetch).generate(request());
+    expect(res).toStrictEqual({ json: undefined, model: "m", usage: { inputTokens: 0, outputTokens: 0 }, stop: "end", usageMissing: true });
+  });
 });
 
 /**
