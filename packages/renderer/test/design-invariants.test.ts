@@ -58,7 +58,11 @@ describe("the invariant checks can fail (RED proof, on edited pages)", () => {
   it.each([
     ["an attribute before a section's id", page.replace('<section id="services"', '<section class="x" id="services"'), /^sections /],
     ["a section left out", page.replace('<section id="faq"', '<div id="faq"').replace(/(<div id="faq"[\s\S]*?)<\/section>/, "$1</div>"), /^sections /],
+    ["a <body> that does not name the design", page.replace('<body data-design="impact" ', "<body "), /^<body> does not name the design$/],
     ["a second <aside>", page.replace("</footer>", '</footer><aside aria-label="Hours">Open</aside>'), /^2 <aside> elements$/],
+    ['a call bar not labelled "Call us"', page.replace('<aside aria-label="Call us"', '<aside aria-label="Call"'), /^the <aside> is not labelled "Call us"$/],
+    ["a call bar that does not call the business", page.replace(/(<aside\b[^>]*>[\s\S]*?)href="tel:[^"]*"/, '$1href="#contact"'), /^the call bar does not call the business$/],
+    ["a comment that is not the design's attribution", page.replace(BASELINE.attribution, "<!-- Portions adapted from elsewhere. -->"), /^the one comment is not the design's attribution$/],
     ["a call bar without focus-outside:static", page.replace("focus-outside:static", ""), /^the call bar lacks focus-outside:static$/],
     ["a dropped required", page.replace('autocomplete="name" required', 'autocomplete="name"'), /^the contact form differs/],
     ['a renamed "Send request"', page.replace(">Send request<", ">Send<"), /^the contact form differs/],
