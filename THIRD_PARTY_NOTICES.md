@@ -9,7 +9,7 @@ HTML comment in its `<head>` with the AstroWind and Tabler Icons copyright notic
 
 - Source: https://github.com/arthelokyo/astrowind at commit 14e1a691f80548dcc36370847b1a02c0d0b12821
 - Used in: `packages/renderer/src/ui.ts`, `packages/renderer/src/sections/{hero,services,gallery,testimonials,faq,contact,footer}.ts`
-  and the button utilities in `packages/renderer/styles/input.css` (markup and class lists ported to TypeScript).
+  and the button utilities in `packages/renderer/styles/shared.css` (markup and class lists ported to TypeScript).
 
 ```
 MIT License

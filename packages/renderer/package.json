@@ -7,7 +7,7 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "build:css": "tailwindcss -i styles/input.css -o styles/site.css --minify"
+    "build:css": "node scripts/build-css.ts"
   },
   "dependencies": {
     "@asksite/site-schema": "workspace:*"

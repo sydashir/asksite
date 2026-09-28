@@ -15,7 +15,7 @@ export function loadFixture(name: FixtureName): SiteDocumentInput {
 
 /** The shared stylesheet compiled by `pnpm build:css`. */
 export function loadStylesheet(): string {
-  return readFileSync(new URL("../packages/renderer/styles/site.css", import.meta.url), "utf8");
+  return readFileSync(new URL("../packages/renderer/styles/out/baseline.css", import.meta.url), "utf8");
 }
 
 export function renderFixture(name: FixtureName, stylesheet: string = loadStylesheet()): string {

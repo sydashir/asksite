@@ -5,7 +5,7 @@ import { SITE_CSS, SITE_CSS_SHA256 } from "../src/index.ts";
 
 describe("@asksite/site-css", () => {
   it("is exactly the renderer's compiled stylesheet", () => {
-    expect(SITE_CSS).toBe(readFileSync(new URL("../../renderer/styles/site.css", import.meta.url), "utf8"));
+    expect(SITE_CSS).toBe(readFileSync(new URL("../../renderer/styles/out/baseline.css", import.meta.url), "utf8"));
     expect(SITE_CSS).toContain("tailwindcss v4.3.3");
   });
 

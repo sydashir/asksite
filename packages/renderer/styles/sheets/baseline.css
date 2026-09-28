@@ -1,0 +1,7 @@
+/* Today's page stylesheet (Plan 1), compiled by scripts/build-css.ts to styles/out/baseline.css. A design
+   without its own styles/sheets/<id>.css uses it (A12). source(none) turns off automatic scanning, so only
+   our own templates are read; the design folders are left out, so no design's classes reach this sheet. */
+@import "tailwindcss" source(none);
+@import "../shared.css";
+@source "../../src";
+@source not "../../src/designs";

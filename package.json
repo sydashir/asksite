@@ -18,6 +18,7 @@
   "devDependencies": {
     "@asksite/core": "workspace:*",
     "@asksite/renderer": "workspace:*",
+    "@asksite/site-css": "workspace:*",
     "@asksite/site-schema": "workspace:*",
     "@axe-core/playwright": "4.13.0",
     "@cloudflare/workers-types": "5.20260924.1",
