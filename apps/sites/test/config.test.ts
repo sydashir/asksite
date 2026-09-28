@@ -13,7 +13,7 @@ const SECRETS = ["RESEND_API_KEY", "IP_HASH_KEY"];
 // Every key of Env, checked at compile time by Record<keyof Env, true>.
 const ENV_KEYS: Record<keyof Env, true> = {
   DB: true, LIVE: true, MEDIA: true, FORM_RL: true, ENVIRONMENT: true, ROOT_DOMAIN: true, MAILER: true,
-  MAIL_FROM: true, SECURITY_TXT_EXPIRES: true, RESEND_API_KEY: true, IP_HASH_KEY: true,
+  MAIL_FROM: true, SECURITY_TXT_EXPIRES: true, LEAD_EMAILS_PER_DAY: true, RESEND_API_KEY: true, IP_HASH_KEY: true,
 };
 
 describe("apps/sites/wrangler.jsonc (production)", () => {
@@ -63,6 +63,11 @@ describe("apps/sites/wrangler.jsonc (production)", () => {
       ...SECRETS,
     ].sort();
     expect(fromConfig).toEqual(Object.keys(ENV_KEYS).sort());
+  });
+
+  it("sends at most 40 lead emails a UTC day across all sites (A11c)", () => {
+    // Resend Free's 100 a day: sign-in links 40, leads 40, the rest for review alerts and admin emails.
+    expect(vars["LEAD_EMAILS_PER_DAY"]).toBe("40");
   });
 
   it("has a valid security.txt expiry date", () => {

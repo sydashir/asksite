@@ -1,5 +1,6 @@
 import { hashIp, ipRateKey, isId, LIMITS, liveKey, newId, siteUrl, utcDayStart } from "@asksite/core";
 import { createMailer, MailerError } from "@asksite/mailer";
+import { leadEmailsPerDay } from "./config.ts";
 import type { Env } from "./env.ts";
 import { plainHeaders } from "./headers.ts";
 import { leadEmail } from "./lead-email.ts";
@@ -86,28 +87,51 @@ export async function handleForm(
 
   const leadId = newId();
   const spam = looksLikeSpam(read.lead);
-  const stored = await insertLead(env.DB, { leadId, siteId, now, lead: read.lead, spam, ipHash });
-  if (!stored) return { response: siteBusy(root), code: "site_daily_cap" };
-  if (spam) return { response: seeOther(sent), code: "spam" };
+  const emailsPerDay = leadEmailsPerDay(env.LEAD_EMAILS_PER_DAY);
+  const status = await insertLead(env.DB, { leadId, siteId, now, lead: read.lead, spam, ipHash, emailsPerDay });
+  if (status === null) return { response: siteBusy(root), code: "site_daily_cap" };
+  if (status === "skipped") return { response: seeOther(sent), code: "spam" };
+  // A11c: today's lead emails for all sites are used up. The lead is saved (the owner sees it in the app)
+  // and the visitor is thanked as usual, but it is never emailed.
+  if (status === "failed") return { response: seeOther(sent), code: "lead_email_cap_reached" };
 
   // The lead is saved: thank the visitor now and email the owner after the response (Decision 26).
   ctx.waitUntil(emailOwner(env, { leadId, siteId, to: site.email, lead: read.lead, siteUrl: siteUrl(root, site.slug) }));
   return { response: seeOther(sent) };
 }
 
-/** Inserts the lead unless the site already has LIMITS.leadsPerSitePerDay today: one statement, so the cap is exact. */
-async function insertLead(db: D1Database, input: { leadId: string; siteId: string; now: number; lead: Lead; spam: boolean; ipHash: string }): Promise<boolean> {
-  const { leadId, siteId, now, lead, spam, ipHash } = input;
-  const result = await db
-    .prepare(
-      `INSERT INTO leads (id, site_id, created_at, name, phone, email, service, message, spam, email_status, ip_hash)
-       SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
-       WHERE (SELECT COUNT(*) FROM leads WHERE site_id = ? AND created_at >= ?) < ?`,
-    )
-    .bind(leadId, siteId, now, lead.name, lead.phone, lead.email, lead.service, lead.message, spam ? 1 : 0, spam ? "skipped" : "pending", ipHash,
-      siteId, utcDayStart(now), LIMITS.leadsPerSitePerDay)
-    .run();
-  return result.meta.changes === 1;
+export type StoredStatus = "pending" | "failed" | "skipped";
+
+/**
+ * Inserts the lead unless the site already has LIMITS.leadsPerSitePerDay today. The same statement decides
+ * its email (A11c): spam is 'skipped'; any other lead is 'pending' while fewer than `emailsPerDay` of
+ * today's leads across all sites had their email tried (not spam, and not capped here), else 'failed'
+ * with email_error 'daily_cap'. One statement, so both caps stay exact when visitors post at the same
+ * time. That count scans leads: A11c adds no index, since the retention cron keeps the table small.
+ * Production SQL has no RETURNING (A10), so the stored status is read back by a SELECT in the same batch
+ * (a transaction). Returns null when the site's cap refused the lead.
+ */
+export async function insertLead(
+  db: D1Database,
+  input: { leadId: string; siteId: string; now: number; lead: Lead; spam: boolean; ipHash: string; emailsPerDay: number },
+): Promise<StoredStatus | null> {
+  const { leadId, siteId, now, lead, spam, ipHash, emailsPerDay } = input;
+  const [, stored] = await db.batch<{ email_status: StoredStatus }>([
+    db
+      .prepare(
+        `INSERT INTO leads (id, site_id, created_at, name, phone, email, service, message, spam, email_status, email_error, ip_hash)
+         SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9,
+                CASE WHEN ?9 = 1 THEN 'skipped' WHEN tried.n < ?11 THEN 'pending' ELSE 'failed' END,
+                CASE WHEN ?9 = 0 AND tried.n >= ?11 THEN 'daily_cap' END,
+                ?10
+         FROM (SELECT COUNT(*) AS n FROM leads WHERE created_at >= ?12 AND spam = 0 AND email_error IS NOT 'daily_cap') AS tried
+         WHERE (SELECT COUNT(*) FROM leads WHERE site_id = ?2 AND created_at >= ?12) < ?13`,
+      )
+      .bind(leadId, siteId, now, lead.name, lead.phone, lead.email, lead.service, lead.message, spam ? 1 : 0, ipHash,
+        emailsPerDay, utcDayStart(now), LIMITS.leadsPerSitePerDay),
+    db.prepare("SELECT email_status FROM leads WHERE id = ?").bind(leadId),
+  ]);
+  return stored?.results[0]?.email_status ?? null;
 }
 
 /**

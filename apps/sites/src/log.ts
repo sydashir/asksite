@@ -3,3 +3,8 @@
 export function logLine(fields: { route: string; status?: number; ms: number; siteId?: string; code?: string; deleted?: number }): void {
   console.log(JSON.stringify({ worker: "asksite-sites", ...fields }));
 }
+
+/** A variable the Worker cannot use, so it runs on the default: names the variable, never its value. */
+export function logConfigInvalid(variable: string): void {
+  console.log(JSON.stringify({ worker: "asksite-sites", event: "config_invalid", variable }));
+}

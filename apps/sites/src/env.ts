@@ -18,6 +18,8 @@ export interface Env {
   MAIL_FROM: string;
   /** RFC 9116 Expires for /.well-known/security.txt, an ISO 8601 date set at deploy time. */
   SECURITY_TXT_EXPIRES: string;
+  /** Lead emails a UTC day across all sites (A11c), in digits; anything else is logged and 40 applies. */
+  LEAD_EMAILS_PER_DAY: string;
   /** Secrets (wrangler secret put, or .dev.vars locally). Missing ones fail closed. */
   RESEND_API_KEY?: string;
   IP_HASH_KEY?: string;
