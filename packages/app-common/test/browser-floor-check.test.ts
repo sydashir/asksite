@@ -29,7 +29,7 @@ function found(file: string): string[] {
 }
 
 describe("browser floor check", () => {
-  it.each(["baseline.ts", "aliases.ts", "a-receivers.ts", "b-generics.ts"])("%s: fails exactly the marked uses", (file) => {
+  it.each(["baseline.ts", "aliases.ts", "a-receivers.ts", "b-generics.ts", "c-mixins.ts"])("%s: fails exactly the marked uses", (file) => {
     expect(found(file).sort()).toEqual(expected(file).sort());
   });
 });

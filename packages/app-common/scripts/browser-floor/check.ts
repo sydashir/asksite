@@ -3,11 +3,13 @@ import { API, TypeFlags, type Checker, type Project, type Symbol as TsSymbol, ty
 import { SyntaxKind, type Expression, type Node, type SourceFile } from "typescript/unstable/ast";
 import * as is from "typescript/unstable/ast/is";
 import { BROWSER_FLOOR } from "../../src/browser-floor.ts";
-import { compatAt, gapsAt, hasEntry, type Floor, type Gap } from "./bcd.ts";
+import { compatAt, gapsAt, type Floor, type Gap } from "./bcd.ts";
+import { indexLib, type LibIndex } from "./lib-index.ts";
+import { apiName, describe, isPlainObjectMember, keysFor } from "./mapping.ts";
 
 // The browser floor check (P4-7): every runtime use of an API that a TypeScript default lib file
 // declares is mapped to its MDN browser-compat-data entry and checked at the floor. Types only and
-// feature tests (`typeof X.y`) are not uses.
+// feature tests (`typeof X.y`) are not uses. A use with no MDN key fails as unmapped.
 //
 // TypeScript 7.0 ships no stable compiler API ("we won't have a stable programmatic API available
 // until at least several months from now with TypeScript 7.1", 7.0 RC notes); `typescript/unstable/*`
@@ -37,87 +39,7 @@ export interface FloorReport {
   findings: Finding[];
 }
 
-type Described =
-  | { kind: "member"; owner: string; member: string; isStatic: boolean; ns: string }
-  | { kind: "global"; name: string; ns: string };
-
-const MEMBER_KINDS = new Set([
-  SyntaxKind.MethodSignature,
-  SyntaxKind.PropertySignature,
-  SyntaxKind.MethodDeclaration,
-  SyntaxKind.PropertyDeclaration,
-  SyntaxKind.GetAccessor,
-  SyntaxKind.SetAccessor,
-]);
-const GLOBAL_KINDS = new Set([
-  SyntaxKind.VariableDeclaration,
-  SyntaxKind.FunctionDeclaration,
-  SyntaxKind.InterfaceDeclaration,
-  SyntaxKind.ClassDeclaration,
-  SyntaxKind.ModuleDeclaration,
-]);
-const TYPED_ARRAY = /^(Int8|Uint8|Uint8Clamped|Int16|Uint16|Int32|Uint32|Float16|Float32|Float64|BigInt64|BigUint64)Array$/;
-const ITERATOR = /^(IteratorObject|Iterator|BuiltinIterator|IteratorHelper)$/;
 const NOTHING = TypeFlags.Null | TypeFlags.Undefined | TypeFlags.Void;
-
-/** The JavaScript builtin that MDN files a lib interface under. */
-function jsOwner(owner: string): string {
-  if (TYPED_ARRAY.test(owner)) return "TypedArray";
-  if (ITERATOR.test(owner)) return "Iterator";
-  return { ReadonlyArray: "Array", ReadonlySet: "Set", ReadonlyMap: "Map" }[owner] ?? owner;
-}
-const bcdName = (owner: string): string => (owner === "Console" ? "console" : owner);
-
-function nameOf(node: Node | undefined): string | undefined {
-  const name = (node as { name?: Node } | undefined)?.name;
-  return name && (is.isIdentifier(name) || is.isStringLiteral(name)) ? name.text : undefined;
-}
-
-function describe(node: Node): Described | undefined {
-  let ns = "";
-  for (let p = node.parent; p; p = p.parent) {
-    const name = is.isModuleDeclaration(p) ? nameOf(p) : undefined;
-    if (name && name !== "global") ns = name + (ns ? "." + ns : "");
-  }
-  if (MEMBER_KINDS.has(node.kind)) {
-    const container = node.parent;
-    const member = nameOf(node);
-    if (!member) return undefined;
-    if (is.isTypeLiteralNode(container) && is.isVariableDeclaration(container.parent)) {
-      const owner = nameOf(container.parent);
-      return owner ? { kind: "member", owner, member, isStatic: true, ns } : undefined;
-    }
-    if (is.isInterfaceDeclaration(container) || is.isClassDeclaration(container)) {
-      const name = nameOf(container);
-      if (!name) return undefined;
-      if (name.endsWith("Constructor")) return { kind: "member", owner: name.slice(0, -"Constructor".length), member, isStatic: true, ns };
-      return { kind: "member", owner: name, member, isStatic: false, ns };
-    }
-    return undefined;
-  }
-  const name = GLOBAL_KINDS.has(node.kind) ? nameOf(node) : undefined;
-  return name ? { kind: "global", name, ns } : undefined;
-}
-
-function candidateKeys(d: Described, receiverChain: string[]): string[] {
-  if (d.kind === "global") {
-    // WebIDL namespaces (CSS, console, WebAssembly) are `declare namespace` in lib.dom and `_static` in MDN.
-    if (d.ns) return [`javascript.builtins.${d.ns}.${d.name}`, `api.${d.ns}.${d.name}_static`, `api.${d.ns}.${d.name}`];
-    return [`api.${d.name}`, `api.Window.${d.name}`, `javascript.builtins.${d.name}`];
-  }
-  const { owner, member, isStatic, ns } = d;
-  const keys = [ns ? `javascript.builtins.${ns}.${owner}.${member}` : `javascript.builtins.${jsOwner(owner)}.${member}`];
-  if (isStatic) {
-    keys.push(`api.${owner}.${member}_static`, `api.${owner}.${member}`); // MDN omits _static on a few
-    return keys;
-  }
-  const owners = [...receiverChain, owner].map(bcdName);
-  for (const o of owners) keys.push(`api.${o}.${member}`);
-  for (const o of owners) keys.push(`api.${o}.${member}_static`); // namespace objects: console.log
-  const event = /^on([a-z]+)$/.exec(member)?.[1]; // MDN files onX handler properties as X_event
-  if (event) for (const o of owners) keys.push(`api.${o}.${event}_event`);
-  return keys;
-}
 
 function inTypePosition(node: Node): boolean {
   for (let p = node.parent; p; p = p.parent) {
@@ -148,12 +70,13 @@ interface Lookup {
 interface Context {
   project: Project;
   checker: Checker;
+  lib: LibIndex;
   floor: Floor;
   report: FloorReport;
 }
 
 function checkFile(ctx: Context, sf: SourceFile): void {
-  const { project, checker, floor, report } = ctx;
+  const { project, checker, lib, floor, report } = ctx;
   const lines = sf.text.split("\n");
   const lookups: Lookup[] = [];
   const elements: Node[] = [];
@@ -178,16 +101,18 @@ function checkFile(ctx: Context, sf: SourceFile): void {
     n.forEachChild(walk);
   };
 
-  function judge(node: Node, api: string, key: string): void {
-    const compat = compatAt(key);
-    if (!compat) return;
-    const gaps = gapsAt(compat, floor);
-    if (gaps.length === 0) return;
+  function record(node: Node, kind: FindingKind, api: string, key: string, gaps: Gap[]): void {
     const { line, character } = sf.getLineAndCharacterOfPosition(node.getStart(sf));
-    const finding: Finding = { file: sf.fileName, line: line + 1, column: character + 1, api, key, kind: "unsupported", gaps };
+    const finding: Finding = { file: sf.fileName, line: line + 1, column: character + 1, api, key, kind, gaps };
     const reason = suppression(line + 1);
     if (reason !== undefined) finding.suppressed = reason;
     report.findings.push(finding);
+  }
+
+  function judge(node: Node, api: string, key: string): void {
+    const compat = compatAt(key);
+    const gaps = compat ? gapsAt(compat, floor) : [];
+    if (gaps.length > 0) record(node, "unsupported", api, key, gaps);
   }
 
   function suppression(line: number): string | undefined {
@@ -222,22 +147,18 @@ function checkFile(ctx: Context, sf: SourceFile): void {
 
   function evaluate(node: Node, how: string, symbol: TsSymbol | undefined, receiver: Expression | undefined): void {
     const handle = symbol?.valueDeclaration ?? symbol?.declarations[0];
-    if (!symbol || !handle || !isLibPath(handle.path)) return;
+    if (!symbol || !handle || !lib.isLibFile(handle.path)) return;
     const decl = handle.resolve(project);
     const d = decl && describe(decl);
-    if (!d) return;
-    if (d.kind === "member" && !symbol.valueDeclaration && how === "identifier") return; // e.g. object-literal keys
+    if (d?.kind === "member" && !symbol.valueDeclaration && how === "identifier") return; // e.g. object-literal keys
     report.sites++;
+    if (!d) return record(node, "unmapped", symbol.name, symbol.name, []); // a lib declaration of an unknown shape
     // Each receiver type maps on its own: `Request | Response` checks both, `EventTarget & HTMLDivElement`
     // finds the member on HTMLDivElement.
     const chains = d.kind === "member" && !d.isStatic && receiver ? receiverTypes(checker.getTypeAtLocation(receiver)).map(typeChain) : [];
-    const keys = new Set<string>();
-    for (const chain of chains.length ? chains : [[]]) {
-      const key = candidateKeys(d, chain).find((k) => compatAt(k));
-      if (key) keys.add(key);
-    }
-    const api = d.kind === "global" ? [d.ns, d.name].filter(Boolean).join(".") : `${d.owner}.${d.member}`;
-    for (const key of keys) judge(node, api, key); // no key: not a feature (e.g. a dictionary member) or unmapped, not checked
+    const keys = keysFor(d, chains, lib);
+    if (keys.length === 0 && !isPlainObjectMember(d, lib)) record(node, "unmapped", apiName(d), apiName(d), []);
+    for (const key of keys) judge(node, apiName(d), key);
   }
 
   function checkRegex(node: Node): void {
@@ -281,10 +202,6 @@ function checkFile(ctx: Context, sf: SourceFile): void {
   for (const r of regexes) checkRegex(r);
 }
 
-function isLibPath(path: string): boolean {
-  return /[\\/]lib\.[a-z0-9.]+\.d\.ts$/i.test(path) && /typescript/i.test(path);
-}
-
 /** Checks the program of one tsconfig at the floor (default: the owner client's, src/browser-floor.ts). */
 export function checkFloor(tsconfig: string, floor: Floor = BROWSER_FLOOR): FloorReport {
   const api = new API({ cwd: process.cwd() });
@@ -296,9 +213,10 @@ export function checkFloor(tsconfig: string, floor: Floor = BROWSER_FLOOR): Floo
       const { program, checker } = project;
       const files = program.getSourceFileNames().filter((f) => !f.endsWith(".d.ts") && !f.includes("/node_modules/"));
       const report: FloorReport = { floor, files: files.length, sites: 0, findings: [] };
+      const lib = indexLib(program);
       for (const file of files) {
         const sf = program.getSourceFile(file);
-        if (sf) checkFile({ project, checker, floor, report }, sf);
+        if (sf) checkFile({ project, checker, lib, floor, report }, sf);
       }
       return report;
     } finally {
