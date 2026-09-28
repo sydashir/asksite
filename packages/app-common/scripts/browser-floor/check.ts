@@ -225,8 +225,12 @@ function checkFile(ctx: Context, sf: SourceFile): void {
     const args = checker.getTypeArguments(source);
     if (checker.isArrayType(source)) return args.slice(0, 1);
     if (!checker.isTupleType(source)) return [];
-    const picked = index === undefined ? args : args.slice(index, index + 1);
-    return [...new Map(picked.map((t) => [t.id, t])).values()];
+    return index === undefined ? [...args] : args.slice(index, index + 1);
+  }
+
+  /** Each type once, by its id: a source met twice (a tuple's elements, a default) gives one finding. */
+  function distinct(types: Type[]): Type[] {
+    return [...new Map(types.map((t) => [t.id, t])).values()];
   }
 
   /**
@@ -316,7 +320,7 @@ function checkFile(ctx: Context, sf: SourceFile): void {
   // literal from its targets, so each property is read from the source on the right-hand side.
   for (const pattern of patterns) {
     if (!is.isObjectLiteralExpression(pattern)) continue;
-    const sources = patternSources(pattern);
+    const sources = distinct(patternSources(pattern));
     if (sources.length === 0) record(pattern, "unmapped", "destructuring assignment", "source not judged", []); // e.g. `for ({ x } of aSet)`
     for (const property of pattern.properties) {
       const name = is.isPropertyAssignment(property) || is.isShorthandPropertyAssignment(property) ? property.name : undefined;

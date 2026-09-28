@@ -39,6 +39,10 @@ let popover: typeof div.showPopover;
 ({ showPopover: popover } = div); // expect: unsupported api.HTMLElement.showPopover
 ({ "canParse": renamed } = URL); // expect: unsupported api.URL.canParse_static
 ({ ["canParse"]: renamed } = URL); // expect: unsupported api.URL.canParse_static
+// A nested pattern with a default reads the outer property or the default: both are judged, and a
+// source met twice counts once.
+({ a: { canParse } = { canParse: URL.canParse } } = { a: URL }); // expect: unsupported api.URL.canParse_static; unsupported api.URL.canParse_static
+({ a: { canParse } = URL } = { a: URL }); // expect: unsupported api.URL.canParse_static
 export const assigned = [canParse, renamed, anySignal, popover];
 
 // An assignment pattern in a for-of head reads each element: judged over an array or a tuple, and
