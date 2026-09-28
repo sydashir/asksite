@@ -1,0 +1,16 @@
+{
+  // Fixtures of the browser floor check (test/browser-floor-check.test.ts). They use APIs above the
+  // floor on purpose, so they sit outside every tsconfig and test glob of the repo; only this
+  // config (the floor check's program) includes them.
+  "compilerOptions": {
+    "target": "esnext",
+    "lib": ["esnext", "dom", "dom.iterable"],
+    "types": [],
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true
+  },
+  "include": ["*.ts"]
+}
