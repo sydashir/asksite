@@ -601,6 +601,55 @@ describe("OpenAICompatibleProvider: errors after a 2xx status line (P3-11 d)", (
   });
 });
 
+// P3-16 fix 5: an error raised when the call was made but no status line came back (the fetch rejected, our abort
+// before the headers included) carries noResponse, so generateDraft marks that attempt's usage missing: the provider
+// may have received the request and billed it. An error that came with a status line never carries it.
+describe("OpenAICompatibleProvider: errors with no status line (P3-16 fix 5)", () => {
+  it("marks a fetch that rejected unavailable with noResponse", async () => {
+    const error: unknown = await compatible(fakeFetch([new TypeError("fetch failed")]).fetch).generate(request()).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(ProviderError);
+    expect(error).toMatchObject({ kind: "unavailable", noResponse: true });
+    expect(Object.hasOwn(error as object, "afterHeaders")).toBe(false);
+  });
+
+  it("marks our abort before the headers a timeout with noResponse", async () => {
+    const http = fakeFetch([]);
+    const error: unknown = await compatible(http.fetch).generate(request(abortedSignal())).catch((e: unknown) => e);
+    expect(error).toMatchObject({ name: "ProviderError", kind: "timeout", noResponse: true });
+    expect(http.calls).toHaveLength(1);
+  });
+
+  it.each([
+    ["a 302", () => fakeFetch([{ status: 302, body: { error: { message: "m" } } }]).fetch],
+    ["a 400", () => fakeFetch([{ status: 400, body: { error: { message: "m" } } }]).fetch],
+    ["a 429", () => fakeFetch([{ status: 429, body: { error: { message: "m" } } }]).fetch],
+    ["a 503", () => fakeFetch([{ status: 503, body: { error: { message: "m" } } }]).fetch],
+    ["a 401 whose body cannot be read", () => unreadable(401)],
+    ["a 2xx whose body is not JSON (afterHeaders)", () => rawFetch(200, "<html>ok</html>", "text/html").fetch],
+  ])("leaves noResponse out of the error for %s", async (_name, fetchOf) => {
+    const error: unknown = await compatible(fetchOf()).generate(request()).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(ProviderError);
+    expect(Object.hasOwn(error as object, "noResponse")).toBe(false);
+  });
+
+  it("leaves noResponse out of a 429 whose body read our abort cut short (its status line came)", async () => {
+    const controller = new AbortController();
+    const error: unknown = await compatible(abortMidBody(controller, 429)).generate(request(controller.signal)).catch((e: unknown) => e);
+    expect(error).toMatchObject({ name: "ProviderError", kind: "timeout" });
+    expect(Object.hasOwn(error as object, "noResponse")).toBe(false);
+  });
+
+  it.each([
+    ["a fetch that rejected", new TypeError("fetch failed"), [["unavailable", true], ["valid", false]]],
+    ["a 400 with its status line", { status: 400, body: { error: { message: "m" } } }, [["bad_request", false]]],
+    ["a 503 with its status line", { status: 503, body: { error: { message: "m" } } }, [["unavailable", false], ["valid", false]]],
+  ])("lets generateDraft record whether usage is missing after %s", async (_name, first, log) => {
+    const deps = { sleep: async () => {}, timeoutSignal: () => new AbortController().signal, now: () => 0 };
+    const result = await generateDraft(compatible(fakeFetch([first, VALID_ANSWER]).fetch), FULL_SNAPSHOT, deps);
+    expect(result.log.map((a) => [a.outcome, a.usageMissing])).toEqual(log);
+  });
+});
+
 // The 2xx shape checks (P3-11 d, "(o)-style"): every field of a 2xx answer is read only after a type check with
 // own(), so a malformed field is never trusted. Pinned: these hold on the code before P3-11.
 describe("OpenAICompatibleProvider: 2xx shape checks (P3-11 d, pinned)", () => {

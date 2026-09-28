@@ -733,6 +733,69 @@ describe("AnthropicProvider: errors after a 2xx status line (P3-11 d)", () => {
   });
 });
 
+// P3-16 fix 5: an error raised when the call was made but no status line came back carries noResponse, so generateDraft
+// marks that attempt's usage missing: the provider may have received the request and billed it. In the SDK that is an
+// APIConnectionError (the fetch rejected; its APIConnectionTimeoutError subclass included, client.mjs:569 and :576) or
+// an APIUserAbortError (our signal aborted before the headers, client.mjs:515 and :527). An error with a status line
+// never carries it.
+describe("AnthropicProvider: errors with no status line (P3-16 fix 5)", () => {
+  const refusal = { type: "error", error: { type: "x", message: "m" } };
+
+  it.each([
+    ["a fetch that rejected (the SDK's APIConnectionError)", new TypeError("fetch failed"), "unavailable"],
+    ["the SDK's own timer aborting the fetch (APIConnectionTimeoutError)", new DOMException("This operation was aborted", "AbortError"), "timeout"],
+  ])("marks %s noResponse", async (_label, failure, kind) => {
+    const http = fakeFetch([failure]);
+    const error: unknown = await anthropic(http.fetch).generate(request()).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(ProviderError);
+    expect(error).toMatchObject({ kind, noResponse: true });
+    expect(Object.hasOwn(error as object, "afterHeaders")).toBe(false);
+    expect(http.calls).toHaveLength(1);
+  });
+
+  it("marks our abort while the fetch waited for the headers (the SDK's APIUserAbortError) a timeout with noResponse", async () => {
+    const controller = new AbortController();
+    let calls = 0;
+    const abortsBeforeHeaders = async (): Promise<Response> => {
+      calls += 1;
+      controller.abort(new DOMException("timed out", "TimeoutError"));
+      throw new DOMException("The operation was aborted.", "AbortError");
+    };
+    const error: unknown = await anthropic(abortsBeforeHeaders).generate(request(controller.signal)).catch((e: unknown) => e);
+    expect(error).toMatchObject({ name: "ProviderError", kind: "timeout", noResponse: true });
+    expect(calls).toBe(1);
+  });
+
+  it.each([
+    ["a 302", () => fakeFetch([{ status: 302, body: refusal }]).fetch],
+    ["a 400", () => fakeFetch([{ status: 400, body: refusal }]).fetch],
+    ["a 429", () => fakeFetch([{ status: 429, body: refusal }]).fetch],
+    ["a 503", () => fakeFetch([{ status: 503, body: refusal }]).fetch],
+    ["a 401 whose body cannot be read", () => unreadable(401)],
+    ["a 2xx whose body is not JSON (afterHeaders)", () => rawFetch(200, '{"id":')],
+  ])("leaves noResponse out of the error for %s", async (_label, fetchOf) => {
+    const error: unknown = await anthropic(fetchOf()).generate(request()).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(ProviderError);
+    expect(Object.hasOwn(error as object, "noResponse")).toBe(false);
+  });
+
+  it("leaves noResponse out of a 429 whose body read our abort cut short (its status line came)", async () => {
+    const controller = new AbortController();
+    const error: unknown = await anthropic(abortMidBody(controller, 429)).generate(request(controller.signal)).catch((e: unknown) => e);
+    expect(error).toMatchObject({ name: "ProviderError", kind: "timeout" });
+    expect(Object.hasOwn(error as object, "noResponse")).toBe(false);
+  });
+
+  it.each([
+    ["an APIConnectionError", new TypeError("fetch failed"), [["unavailable", true], ["valid", false]]],
+    ["a 400 with its status line", { status: 400, body: refusal }, [["bad_request", false]]],
+    ["a 503 with its status line", { status: 503, body: refusal }, [["unavailable", false], ["valid", false]]],
+  ])("lets generateDraft record whether usage is missing after %s", async (_label, first, log) => {
+    const result = await generateDraft(anthropic(fakeFetch([first, VALID_ANSWER]).fetch), FULL_SNAPSHOT, DEPS);
+    expect(result.log.map((a) => [a.outcome, a.usageMissing])).toEqual(log);
+  });
+});
+
 // P3-11 (d): every field of a 2xx answer is read only after a type check: the model is a string (else the requested
 // id), content is a list, the text block is found by its type and its text is a string.
 describe("AnthropicProvider: 2xx shape checks (P3-11 d)", () => {

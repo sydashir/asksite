@@ -41,11 +41,20 @@ export class ProviderError extends Error {
    * field, so it is never an own property holding undefined). Internal to this package.
    */
   declare readonly afterHeaders?: true;
-  constructor(kind: ProviderErrorKind, message: string, options: { afterHeaders?: true } = {}) {
+  /**
+   * Set by an adapter on an error raised when the call was made but no HTTP status line came back (P3-16 fix 5): the
+   * fetch rejected (the Anthropic SDK's APIConnectionError) or our signal aborted before the headers. The provider may
+   * have received the request and billed it, so generateDraft marks the attempt's usage missing. Failures before the
+   * connection (DNS, a refused connection) are over-reported as unknown on purpose: that is conservative, and they cost
+   * nothing. Otherwise the key is absent, as for afterHeaders. Internal to this package.
+   */
+  declare readonly noResponse?: true;
+  constructor(kind: ProviderErrorKind, message: string, options: { afterHeaders?: true; noResponse?: true } = {}) {
     super(message);
     this.kind = kind;
     this.name = "ProviderError";
     if (options.afterHeaders) this.afterHeaders = true;
+    if (options.noResponse) this.noResponse = true;
   }
 }
 

@@ -75,6 +75,13 @@ function kindOf(error: unknown): ProviderErrorKind {
 }
 
 /**
+ * A failure with no HTTP status line (P3-16 fix 5): the fetch rejected, which the SDK throws as an APIConnectionError
+ * (client.mjs:576; its APIConnectionTimeoutError subclass at :569), or our signal aborted before the headers, an
+ * APIUserAbortError (:515 and :527). A 3xx, 4xx or 5xx is an APIError with its status.
+ */
+const noStatusLine = (error: unknown): boolean => error instanceof Anthropic.APIConnectionError || error instanceof Anthropic.APIUserAbortError;
+
+/**
  * The kind, the HTTP status, the provider's error type, the spend-cap code and, for a spend limit you set, our own
  * SPEND_LIMIT_TOKEN: never the key, the provider's own text or headers. A type or code that shares a fragment with the
  * key (sharesKeyFragment) is left out too.
@@ -195,7 +202,7 @@ export class AnthropicProvider implements ModelProvider {
     } catch (error) {
       // Our abort while the SDK read an error body is a timeout, whatever the status (P3-11 a).
       const kind = req.signal.aborted ? "timeout" : kindOf(error);
-      throw new ProviderError(kind, failureMessage(kind, error, this.#apiKey));
+      throw new ProviderError(kind, failureMessage(kind, error, this.#apiKey), noStatusLine(error) ? { noResponse: true } : {});
     }
     // Every field is read only after a type check: the body is never trusted.
     const data = await readJson(response);

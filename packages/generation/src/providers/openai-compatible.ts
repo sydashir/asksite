@@ -170,7 +170,8 @@ export class OpenAICompatibleProvider implements ModelProvider {
         signal: req.signal,
       });
     } catch {
-      throw new ProviderError(req.signal.aborted ? "timeout" : "unavailable", "OpenAI-compatible request failed");
+      // No status line came back (P3-16 fix 5): the request may have reached the host.
+      throw new ProviderError(req.signal.aborted ? "timeout" : "unavailable", "OpenAI-compatible request failed", { noResponse: true });
     }
     const text = await bodyText(response);
     const data = parseBody(text);
