@@ -60,7 +60,7 @@ describe("the Tailwind inputs, styles/sheets/*.css (A12)", () => {
     expect(SHEETS.filter((file) => !allowed.has(file))).toEqual([]);
   });
 
-  it.each(SHEETS)("%s scans only render.ts, the shared rules and its own design", (file) => {
+  it.each(SHEETS)("%s scans only render.ts, the shared modules and its own design folder", (file) => {
     expect(sourceProblems(file.replace(/\.css$/, ""), read(`sheets/${file}`, STYLES))).toEqual([]);
   });
 });
@@ -99,5 +99,46 @@ describe("the sheet checks can fail (RED proof)", () => {
       "missing @source not ../../src/designs",
     ]);
     expect(sourceProblems("modern", design.replace('@import "../shared.css";\n', ""))).toEqual(['missing @import "../shared.css";']);
+  });
+
+  // A12-0 round-2 rulings: each @source path is normalised (Tailwind resolves it relative to the sheet),
+  // and anything outside the design's own folder and the shared modules is refused, however it is written.
+  const modern = '@import "tailwindcss" source(none);\n@import "../shared.css";\n@source "../../src/render.ts";\n@source "../../src/designs/modern";\n';
+
+  it.each([
+    ['@source "../../src/";', "scans ../../src/"],
+    ['@source "../..";', "scans ../.."],
+    ['@source "../../src/designs/modern/../impact";', "scans ../../src/designs/modern/../impact"],
+    ['@source "../../src/sections/../designs";', "scans ../../src/sections/../designs"],
+    ['@source "/Users/someone/src";', "scans /Users/someone/src"],
+    ['@source not "../../src/designs/impact";', "scans not ../../src/designs/impact"],
+    ['@source "../../src/**/*.ts";', "glob ../../src/**/*.ts"],
+    ['@source "../../src/designs/{impact,modern}";', "glob ../../src/designs/{impact,modern}"],
+    ["@source '../../src';", "unreadable @source '../../src';"],
+    ['@source inline("bg-red-500");', 'unreadable @source inline("bg-red-500");'],
+    ['@import "./impact.css";', 'imports @import "./impact.css";'],
+    ['@import "../sheets/impact.css";', 'imports @import "../sheets/impact.css";'],
+    ['@reference "./impact.css";', 'imports @reference "./impact.css";'],
+    ['@config "../../tailwind.config.js";', 'imports @config "../../tailwind.config.js";'],
+    ['@plugin "@tailwindcss/typography";', 'imports @plugin "@tailwindcss/typography";'],
+  ])("catch %s", (line, problem) => {
+    expect(sourceProblems("modern", `${modern}${line}\n`)).toEqual([problem]);
+  });
+
+  it("catch Tailwind's automatic scanning left on", () => {
+    expect(sourceProblems("modern", modern.replace(" source(none)", ""))).toEqual(['missing @import "tailwindcss" source(none);', 'imports @import "tailwindcss";']);
+  });
+
+  it("catch a baseline input that scans anything more", () => {
+    const baseline = '@import "tailwindcss" source(none);\n@import "../shared.css";\n@source "../../src";\n@source not "../../src/designs";\n';
+    expect(sourceProblems("baseline", baseline)).toEqual([]);
+    expect(sourceProblems("baseline", `${baseline}@source "../../src/designs/impact";\n`)).toEqual(["scans ../../src/designs/impact"]);
+  });
+
+  it("allow the shared modules, sub-paths of the own folder and paths written another way that stay inside", () => {
+    const shared =
+      '@source "../../src/sections";\n@source "../../src/baseline.ts";\n@source "../../src/ui.ts";\n@source "../../src/./icons.ts";\n' +
+      '@source "../../src/designs/modern/";\n@source not "../../src/designs/modern/draft.ts";\n/* @source "../../src"; Tailwind reads no directive in a comment */\n';
+    expect(sourceProblems("modern", `${modern}${shared}`)).toEqual([]);
   });
 });

@@ -5,6 +5,9 @@ import { describe, expect, it } from "vitest";
 // where it lands: no `new SafeHtml(`, and trusted() only around a string literal from its own source.
 // The renderer never imports @asksite/site-css: site-css is built from the renderer's sheets and
 // devDepends on it, so callers pass DESIGN_CSS in (no import cycle).
+// KNOWN LIMIT (A12-0 round-2 rulings): the guard reads names, so an aliased import (`trusted as t`,
+// `SafeHtml as S`) is not seen. Backstop: the page-safety matrix (test/xss.test.ts) renders every fixture
+// in every design, electrical-xss with payloads in all nine sections, and fails on any live markup.
 
 const SRC = new URL("../src/", import.meta.url);
 
