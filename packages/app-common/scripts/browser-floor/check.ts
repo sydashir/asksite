@@ -251,7 +251,7 @@ function checkFile(ctx: Context, sf: SourceFile): void {
     return index === undefined ? [...args] : args.slice(index, index + 1);
   }
 
-  /** Each type once, by its id: a source met twice (a tuple's elements, a default) gives one finding. */
+  /** Each type once, by its id: a source met twice (a tuple's elements, a default and what it covers) gives one finding. */
   function distinct(types: Type[]): Type[] {
     return [...new Map(types.map((t) => [t.id, t])).values()];
   }
@@ -339,10 +339,12 @@ function checkFile(ctx: Context, sf: SourceFile): void {
     evaluate(nameNode, "destructure", propertyOf(patternType, key), () => patternType);
   }
   // ({ canParse } = URL), ({ canParse: c } = URL), nested or with a default: TypeScript types this
-  // literal from its targets, so each property is read from the source on the right-hand side.
+  // literal from its targets, so each property is read from the source on the right-hand side. A
+  // source is read without null and undefined (a default covers them), so an outer property or a
+  // tuple element `X | undefined` and its default `X` are one source, not two.
   for (const pattern of patterns) {
     if (!is.isObjectLiteralExpression(pattern)) continue;
-    const sources = distinct(patternSources(pattern));
+    const sources = distinct(patternSources(pattern).flatMap((t) => checker.getNonNullableType(t) ?? []));
     if (sources.length === 0) record(pattern, "unmapped", "destructuring assignment", "source not judged", []); // e.g. `for ({ x } of aSet)`
     for (const property of pattern.properties) {
       const name = is.isPropertyAssignment(property) || is.isShorthandPropertyAssignment(property) ? property.name : undefined;

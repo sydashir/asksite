@@ -7,6 +7,7 @@ declare const div: HTMLDivElement;
 // Sources that may be undefined (a default covers them) and our own stand-in, which is not a platform API.
 declare const maybeURL: typeof URL | undefined;
 declare const maybeTuple: [typeof URL] | undefined;
+declare const maybeElement: [typeof URL | undefined];
 declare const deep: { a: { b: typeof URL } | undefined };
 declare const own: { canParse: typeof URL.canParse };
 
@@ -48,9 +49,12 @@ let popover: typeof div.showPopover;
 ({ "canParse": renamed } = URL); // expect: unsupported api.URL.canParse_static
 ({ ["canParse"]: renamed } = URL); // expect: unsupported api.URL.canParse_static
 // A nested pattern with a default reads the outer property or the default: both are judged, and a
-// source met twice counts once.
+// source met twice counts once, also when one meeting may be undefined (an outer property or a tuple
+// element that the default covers).
 ({ a: { canParse } = { canParse: URL.canParse } } = { a: URL }); // expect: unsupported api.URL.canParse_static; unsupported api.URL.canParse_static
 ({ a: { canParse } = URL } = { a: URL }); // expect: unsupported api.URL.canParse_static
+({ a: { canParse } = URL } = { a: maybeURL }); // expect: unsupported api.URL.canParse_static
+[{ canParse } = URL] = maybeElement; // expect: unsupported api.URL.canParse_static
 // An outer property that may be undefined (the default covers it) is judged without undefined: at any
 // depth, in an array pattern, and through a generic's constraint. `own` is not a platform API.
 ({ a: { canParse } = own } = { a: maybeURL }); // expect: unsupported api.URL.canParse_static
