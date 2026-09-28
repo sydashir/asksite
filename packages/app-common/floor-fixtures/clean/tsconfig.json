@@ -1,0 +1,5 @@
+{
+  // A program with nothing above the floor.
+  "extends": "../tsconfig.json",
+  "include": ["*.ts"]
+}

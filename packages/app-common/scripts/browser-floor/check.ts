@@ -1,5 +1,15 @@
 import { resolve } from "node:path";
-import { API, TypeFlags, type Checker, type Project, type Symbol as TsSymbol, type Type } from "typescript/unstable/sync";
+import {
+  API,
+  DiagnosticCategory,
+  TypeFlags,
+  type Checker,
+  type Diagnostic,
+  type Program,
+  type Project,
+  type Symbol as TsSymbol,
+  type Type,
+} from "typescript/unstable/sync";
 import { SyntaxKind, type Expression, type Node, type SourceFile } from "typescript/unstable/ast";
 import * as is from "typescript/unstable/ast/is";
 import { BROWSER_FLOOR } from "../../src/browser-floor.ts";
@@ -218,6 +228,23 @@ function checkFile(ctx: Context, sf: SourceFile): void {
   for (const r of regexes) checkRegex(r);
 }
 
+/** A use whose type does not resolve is silently not a use, so only a clean program is judged. */
+function assertTypeChecks(tsconfig: string, program: Program): void {
+  const errors = [
+    ...program.getConfigFileParsingDiagnostics(),
+    ...program.getProgramDiagnostics(),
+    ...program.getSyntacticDiagnostics(),
+    ...program.getSemanticDiagnostics(),
+  ].filter((d) => d.category === DiagnosticCategory.Error);
+  if (errors.length === 0) return;
+  const where = (d: Diagnostic): string => {
+    const at = d.fileName ? program.getSourceFile(d.fileName)?.getLineAndCharacterOfPosition(d.pos) : undefined;
+    return d.fileName ? `${d.fileName}${at ? `:${at.line + 1}:${at.character + 1}` : ""} ` : "";
+  };
+  const list = errors.map((d) => `  ${where(d)}TS${d.code}: ${d.text}`).join("\n");
+  throw new Error(`${tsconfig} does not type-check, so the floor check cannot judge it:\n${list}`);
+}
+
 /** Checks the program of one tsconfig at the floor (default: the owner client's, src/browser-floor.ts). */
 export function checkFloor(tsconfig: string, floor: Floor = BROWSER_FLOOR): FloorReport {
   const api = new API({ cwd: process.cwd() });
@@ -227,6 +254,7 @@ export function checkFloor(tsconfig: string, floor: Floor = BROWSER_FLOOR): Floo
       const project = snapshot.getProjects()[0];
       if (!project) throw new Error(`No TypeScript project for ${tsconfig}`);
       const { program, checker } = project;
+      assertTypeChecks(tsconfig, program);
       const files = program.getSourceFileNames().filter((f) => !f.endsWith(".d.ts") && !f.includes("/node_modules/"));
       const report: FloorReport = { floor, files: files.length, sites: 0, findings: [] };
       const lib = indexLib(program);
