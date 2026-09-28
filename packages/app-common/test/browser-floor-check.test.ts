@@ -29,7 +29,19 @@ function found(file: string): string[] {
 }
 
 describe("browser floor check", () => {
-  it.each(["baseline.ts", "aliases.ts", "a-receivers.ts", "b-generics.ts", "c-mixins.ts", "d-partial.ts"])("%s: fails exactly the marked uses", (file) => {
+  it.each(["baseline.ts", "aliases.ts", "a-receivers.ts", "b-generics.ts", "c-mixins.ts", "d-partial.ts", "e-suppressions.ts"])("%s: fails exactly the marked uses", (file) => {
     expect(found(file).sort()).toEqual(expected(file).sort());
+  });
+
+  it("keeps each floor-ok reason with the finding it accepts", () => {
+    const reasons = report.findings
+      .filter((finding) => finding.file === resolve(FIXTURES, "e-suppressions.ts") && finding.suppressed !== undefined)
+      .map((finding) => `${finding.line} ${finding.suppressed}`);
+    expect(reasons.sort()).toEqual([
+      "10 only opens same-tab links",
+      "11 MDN files it as scrollX's other name",
+      "8 the caller tests typeof URL.canParse first",
+      "9 same-line reason",
+    ]);
   });
 });

@@ -40,6 +40,8 @@ export interface FloorReport {
 }
 
 const NOTHING = TypeFlags.Null | TypeFlags.Undefined | TypeFlags.Void;
+const MARKER = /\/\/\s*floor-ok\b(.*)$/;
+const ONLY_COMMENTS = /^\s*(\/\*.*?\*\/\s*)*$/;
 
 function inTypePosition(node: Node): boolean {
   for (let p = node.parent; p; p = p.parent) {
@@ -77,7 +79,18 @@ interface Context {
 
 function checkFile(ctx: Context, sf: SourceFile): void {
   const { project, checker, lib, floor, report } = ctx;
-  const lines = sf.text.split("\n");
+  // `// floor-ok: <reason>` markers by line. One without a reason accepts nothing and is itself a failure.
+  const markers = new Map<number, { reason: string | undefined; alone: boolean }>();
+  sf.text.split("\n").forEach((text, index) => {
+    const marker = MARKER.exec(text);
+    if (!marker) return;
+    const reason = /^:(.*)$/.exec(marker[1] ?? "")?.[1]?.trim() || undefined;
+    markers.set(index + 1, { reason, alone: ONLY_COMMENTS.test(text.slice(0, marker.index)) });
+    if (!reason) {
+      const finding: Finding = { file: sf.fileName, line: index + 1, column: marker.index + 1, api: "floor-ok", key: "floor-ok", kind: "bad-suppression", gaps: [] };
+      report.findings.push(finding);
+    }
+  });
   const lookups: Lookup[] = [];
   const elements: Node[] = [];
   const bindings: Node[] = [];
@@ -115,9 +128,12 @@ function checkFile(ctx: Context, sf: SourceFile): void {
     if (gaps.length > 0) record(node, gaps.every((g) => g.partial) ? "partial" : "unsupported", api, key, gaps);
   }
 
+  /** The `floor-ok` reason for a finding on this line: a marker on the line, or alone on the line before. */
   function suppression(line: number): string | undefined {
-    for (const text of [lines[line - 1], lines[line - 2]]) if (text && /floor-ok/.test(text)) return text.trim();
-    return undefined;
+    const same = markers.get(line);
+    if (same?.reason) return same.reason;
+    const before = markers.get(line - 1);
+    return before?.alone ? before.reason : undefined;
   }
 
   /**
