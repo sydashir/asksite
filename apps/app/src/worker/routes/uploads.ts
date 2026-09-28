@@ -3,7 +3,7 @@ import { LIMITS, mediaKey, mediaUrl, newId, type UploadView } from "@asksite/cor
 import { Hono } from "hono";
 import { assertNotTakenDown, ownedSite } from "../db.ts";
 import { imageInfo, sizeProblem, sniffImage, toStillWebp } from "../images.ts";
-import { multipartBoundary, multipartShapeProblem } from "../multipart.ts";
+import { multipartBoundary, multipartShapeProblem, type MultipartShapeProblem } from "../multipart.ts";
 import { requireOwner } from "../session.ts";
 import type { AppEnv } from "../types.ts";
 
@@ -22,14 +22,27 @@ function unreadablePhoto(): ApiError {
   return new ApiError("image_rejected", "We could not read that photo. Please choose a JPG or PNG photo.");
 }
 
+const NOT_MULTIPART_FORM_DATA = "The upload is not valid multipart form data";
+
 /** The multipart body as FormData. A body that cannot be parsed makes formData() throw a TypeError: the client's mistake, not ours. */
 async function readForm(url: string, contentType: string, body: Uint8Array): Promise<FormData> {
   try {
     return await new Request(url, { method: "POST", headers: { "Content-Type": contentType }, body }).formData();
   } catch (err) {
-    if (err instanceof TypeError) throw new ApiError("bad_request", "The upload is not valid multipart form data");
+    if (err instanceof TypeError) throw new ApiError("bad_request", NOT_MULTIPART_FORM_DATA);
     throw err;
   }
+}
+
+type RefusedShape = "boundary_not_accepted" | MultipartShapeProblem;
+
+/**
+ * What the owner reads when the body is refused before the parse. For the strict Content-Type rule and the
+ * no-preamble rule it is one plain sentence (P4-17 Condition 3); the two part limits keep the earlier text. The
+ * reason itself goes on the request's log line only, never into the answer.
+ */
+function refusedShapeMessage(reason: RefusedShape): string {
+  return reason === "boundary_not_accepted" || reason === "no_leading_delimiter" ? "That upload didn't work. Please try again." : NOT_MULTIPART_FORM_DATA;
 }
 
 async function underCaps(db: D1Database, siteId: string): Promise<boolean> {
@@ -113,7 +126,7 @@ export function uploadRoutes(): Hono<AppEnv> {
     const shape = boundary === null ? "boundary_not_accepted" : multipartShapeProblem(body, boundary);
     if (shape !== null) {
       noteLog(c, { event: "multipart_refused", reason: shape });
-      throw new ApiError("bad_request", "The upload is not valid multipart form data");
+      throw new ApiError("bad_request", refusedShapeMessage(shape));
     }
     const form = await readForm(c.req.url, contentType, body);
     const file = form.get("file");

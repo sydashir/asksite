@@ -1,6 +1,7 @@
 import { LIMITS, mediaUrl, type SiteView, type UploadView } from "@asksite/core";
 import { describe, expect, it } from "vitest";
 import { MAX_PART_HEADER_BYTES, MAX_PARTS } from "../../src/worker/multipart.ts";
+import { BROWSER_BOUNDARIES, browserContentType, browserMultipart, geckoBoundary } from "../support/browsers.ts";
 import { VALID_FACTS } from "../support/facts.ts";
 import { APP_ORIGIN, awayFromMinuteBoundary, json, ROOT, useAppHarness } from "../support/harness.ts";
 import { animatedWebp, jpeg, jpegWithGps, latin1, png, truncatedJpeg, upload } from "../support/images.ts";
@@ -11,6 +12,10 @@ type ErrorJson = { error: { code: string; message?: string } };
 
 /** The request's one log line of the last upload POST. */
 const lastUploadLine = () => h.logLines().filter((line) => line["route"] === "POST /api/sites/:siteId/uploads").at(-1);
+
+/** An upload POST of a body the test encoded itself, with the Content-Type it chooses. */
+const postRaw = (owner: { siteId: string; cookie: string }, contentType: string, body: Uint8Array) =>
+  h.server.fetch(`${APP_ORIGIN}/api/sites/${owner.siteId}/uploads`, { method: "POST", headers: { Origin: APP_ORIGIN, Cookie: owner.cookie, "Content-Type": contentType }, body });
 
 async function media(key: string) {
   const env = (await h.server.getWorker().getEnv()) as { MEDIA: { get(key: string): Promise<{ arrayBuffer(): Promise<ArrayBuffer>; httpMetadata?: { contentType?: string }; customMetadata?: Record<string, string> } | null> } };
@@ -215,6 +220,9 @@ describe("POST /api/sites/:siteId/uploads", () => {
   });
 
   describe("a multipart body shaped to make the parse slow is refused before it is parsed (P4-15 d)", () => {
+    // P4-17 Condition 3: for the strict Content-Type rule and the no-preamble rule the owner reads one plain
+    // sentence, and the reason is only on the request's log line. The two part limits keep their earlier text.
+    const didNotWork = { code: "bad_request", message: "That upload didn't work. Please try again." };
     const refused = { code: "bad_request", message: "The upload is not valid multipart form data" };
 
     it(`refuses more than MAX_PARTS (${MAX_PARTS}) parts with 400, noting too_many_parts on the request's log line`, async () => {
@@ -264,27 +272,27 @@ describe("POST /api/sites/:siteId/uploads", () => {
       );
     }
 
-    const postRaw = (owner: { siteId: string; cookie: string }, contentType: string, body: Uint8Array) =>
-      h.server.fetch(`${APP_ORIGIN}/api/sites/${owner.siteId}/uploads`, { method: "POST", headers: { Origin: APP_ORIGIN, Cookie: owner.cookie, "Content-Type": contentType }, body });
-
     const fields = (count: number): Part[] => Array.from({ length: count }, (_, i) => ({ name: `field${i}`, value: "x" }));
 
     // Each body below parses in workerd to a stored photo when the guard lets it through (P4-15 review I1, I2).
-    it.each<[name: string, reason: string, request: (photo: Uint8Array) => [contentType: string, body: Uint8Array]]>([
+    it.each<[name: string, reason: string, answer: ErrorJson["error"], request: (photo: Uint8Array) => [contentType: string, body: Uint8Array]]>([
       // The parser reads REAL from these two headers; a looser read of the boundary let their extra parts through.
-      ["a boundary= inside an earlier parameter's quoted value", "boundary_not_accepted", (photo) => ['multipart/form-data; x="; boundary=DECOY"; boundary=REAL', multipart("REAL", [{ photo }, ...fields(MAX_PARTS)])]],
-      ["a quoted boundary with a backslash escape", "boundary_not_accepted", (photo) => ['multipart/form-data; boundary="RE\\AL"', multipart("REAL", [{ photo }, ...fields(MAX_PARTS)])]],
+      ["a boundary= inside an earlier parameter's quoted value", "boundary_not_accepted", didNotWork, (photo) => ['multipart/form-data; x="; boundary=DECOY"; boundary=REAL', multipart("REAL", [{ photo }, ...fields(MAX_PARTS)])]],
+      ["a quoted boundary with a backslash escape", "boundary_not_accepted", didNotWork, (photo) => ['multipart/form-data; boundary="RE\\AL"', multipart("REAL", [{ photo }, ...fields(MAX_PARTS)])]],
       // RFC 2046 5.1.1: a boundary "must be no longer than 70 characters"; the parser's search costs its length.
-      ["a boundary of 71 characters", "boundary_not_accepted", (photo) => [`multipart/form-data; boundary=${"b".repeat(71)}`, multipart("b".repeat(71), [{ photo }])]],
+      ["a boundary of 71 characters", "boundary_not_accepted", didNotWork, (photo) => [`multipart/form-data; boundary=${"b".repeat(71)}`, multipart("b".repeat(71), [{ photo }])]],
       // With the browser's header: a --REAL-- inside a line is no delimiter to the parser, which reads on.
-      ["a --boundary-- inside a line of the first part", "too_many_parts", (photo) => ["multipart/form-data; boundary=REAL", multipart("REAL", [{ name: "note", value: "xx--REAL--yy" }, { photo }, ...fields(MAX_PARTS - 1)])]],
-      ["a preamble before the first delimiter", "no_leading_delimiter", (photo) => ["multipart/form-data; boundary=REAL", joined(encode("preamble\r\n"), multipart("REAL", [{ photo }]))]],
-    ])("refuses %s with 400, noting %s", async (_, reason, request) => {
+      ["a --boundary-- inside a line of the first part", "too_many_parts", refused, (photo) => ["multipart/form-data; boundary=REAL", multipart("REAL", [{ name: "note", value: "xx--REAL--yy" }, { photo }, ...fields(MAX_PARTS - 1)])]],
+      ["a preamble before the first delimiter", "no_leading_delimiter", didNotWork, (photo) => ["multipart/form-data; boundary=REAL", joined(encode("preamble\r\n"), multipart("REAL", [{ photo }]))]],
+    ])("refuses %s with 400, noting %s", async (_, reason, answer, request) => {
       const owner = await h.signIn();
       const [contentType, body] = request(await png(400, 300));
       const res = await postRaw(owner, contentType, body);
       expect(res.status).toBe(400);
-      expect((await json<ErrorJson>(res)).error).toEqual(refused);
+      const text = await res.text();
+      expect((JSON.parse(text) as ErrorJson).error).toEqual(answer);
+      // The reason is for the log line only: nothing in the answer names it.
+      expect(text).not.toContain(reason);
       expect(lastUploadLine()).toMatchObject({ status: 400, code: "bad_request", event: "multipart_refused", reason });
       expect(await uploadRows(owner.siteId)).toEqual([]);
     });
@@ -302,6 +310,27 @@ describe("POST /api/sites/:siteId/uploads", () => {
         expect(res.status, contentType).toBe(201);
       }
       expect(await uploadRows(owner.siteId)).toHaveLength(2);
+    });
+  });
+
+  describe("stores a photo sent as each browser encodes it: its Content-Type and body as the engine's source writes them (P4-17 Condition 1)", () => {
+    // The encodings, with their sources, are in test/support/browsers.ts: the guard lets each through, the parser reads it, the photo is stored.
+    async function stored(boundary: string): Promise<void> {
+      const owner = await h.signIn();
+      const body = browserMultipart(boundary, [{ name: "file", filename: "photo.png", type: "image/png", content: await png(400, 300) }]);
+      const res = await postRaw(owner, browserContentType(boundary), body);
+      expect(res.status, boundary).toBe(201);
+      expect(await json<UploadView>(res)).toMatchObject({ width: 400, height: 300 });
+      expect((await uploadRows(owner.siteId)).map(shape)).toEqual([{ width: 400, height: 300, bytes: expect.any(Number), deleted: false }]);
+    }
+
+    it.each(BROWSER_BOUNDARIES)("%s", async (_, draw) => {
+      await stored(draw());
+    });
+
+    it("Firefox's shortest and longest boundaries, 23 and 53 characters", async () => {
+      await stored(geckoBoundary(0n, 0n));
+      await stored(geckoBoundary(2n ** 64n - 1n, 2n ** 64n - 1n));
     });
   });
 

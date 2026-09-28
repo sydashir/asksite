@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { MAX_PART_HEADER_BYTES, MAX_PARTS, multipartBoundary, multipartShapeProblem } from "../../src/worker/multipart.ts";
+import { BROWSER_BOUNDARIES, blinkBoundary, browserContentType, browserMultipart, geckoBoundary, webKitBoundary } from "../support/browsers.ts";
 
 // A cheap look at a multipart body before formData() parses it (P4-15 d): more parts than an upload
 // has, or a part whose headers run on for kilobytes, are refused before the parser spends seconds on them.
@@ -8,7 +9,8 @@ import { MAX_PART_HEADER_BYTES, MAX_PARTS, multipartBoundary, multipartShapeProb
 // line feed, as in the parser.
 
 const encode = (text: string): Uint8Array => new TextEncoder().encode(text);
-const BOUNDARY = "----WebKitFormBoundary7MA4YWxkTrZu0gW";
+// Blink's and WebKit's shape: the prefix plus 16 alphanumerics (test/support/browsers.ts cites the sources).
+const BOUNDARY = "----WebKitFormBoundary7MA4YWxkTrZu0gWq";
 
 /** A multipart body of the given parts (each already holding its headers, a blank line and its content). */
 function body(parts: string[], boundary = BOUNDARY): Uint8Array {
@@ -134,5 +136,53 @@ describe("multipartShapeProblem", () => {
       multipartShapeProblem(counted as unknown as Uint8Array, boundary);
       expect(reads).toBeLessThanOrEqual(3 * bytes.length);
     });
+  });
+});
+
+describe("accepts each browser's upload as its source writes it: its Content-Type and a body of one file part (P4-17 Condition 1)", () => {
+  // The formats, transcribed from the Blink, WebKit and Gecko sources with file and line, are in test/support/browsers.ts.
+  const photo = encode("\xff\xd8\xff--\r\n----WebKit\r\n----gecko\r\n\r\n--");
+  const upload = (boundary: string): Uint8Array => browserMultipart(boundary, [{ name: "file", filename: "photo.jpg", type: "image/jpeg", content: photo }]);
+
+  const accepted = (boundary: string): void => {
+    expect(multipartBoundary(browserContentType(boundary)), boundary).toBe(boundary);
+    expect(multipartShapeProblem(upload(boundary), boundary), boundary).toBeNull();
+  };
+
+  it.each(BROWSER_BOUNDARIES)("%s: 200 boundaries drawn as the engine draws them", (_, draw) => {
+    for (let i = 0; i < 200; i += 1) accepted(draw());
+  });
+
+  it("Chromium and Safari: ----WebKitFormBoundary plus 16 characters of the engines' map, 38 in all, its ends and wrap-around included", () => {
+    // Blink maps each random byte with `c & 0x3F`: the map's first and last entries, and bytes past 63 wrap.
+    const blink = blinkBoundary(new Uint8Array([0, 25, 26, 51, 52, 61, 62, 63, 64, 255, 128, 191, 1, 2, 3, 4]));
+    expect(blink).toBe("----WebKitFormBoundaryAZaz09ABABABBCDE");
+    // WebKit takes four 6-bit indexes from each of four 32-bit numbers, high bits first.
+    const webkit = webKitBoundary(new Uint32Array([0x00193334, 0xffffffff, 0x3f3e3d3c, 0x01020304]));
+    expect(webkit).toBe("----WebKitFormBoundaryAZz0BBBBBA98BCDE");
+    for (const boundary of [blink, webkit]) {
+      expect(boundary).toHaveLength(38);
+      accepted(boundary);
+    }
+  });
+
+  it("Firefox: ----geckoformboundary plus two 64-bit values in unpadded lower-case hex, 23 to 53 characters, the shortest and the longest included", () => {
+    const shortest = geckoBoundary(0n, 0n);
+    const longest = geckoBoundary(2n ** 64n - 1n, 2n ** 64n - 1n);
+    const sample = geckoBoundary(0x1a2b3c4d5e6f7081n, 0xdeadbeefn);
+    expect(shortest).toBe("----geckoformboundary00");
+    expect(longest).toBe(`----geckoformboundary${"f".repeat(32)}`);
+    expect(sample).toBe("----geckoformboundary1a2b3c4d5e6f7081deadbeef");
+    expect([shortest.length, longest.length]).toEqual([23, 53]);
+    for (const boundary of [shortest, longest, sample]) accepted(boundary);
+  });
+
+  it("with the fields a form may add around the file, up to MAX_PARTS parts in all", () => {
+    for (const [, draw] of BROWSER_BOUNDARIES) {
+      const boundary = draw();
+      const fields = Array.from({ length: MAX_PARTS - 1 }, (_, i) => ({ name: `field${i}`, value: `value ${i}` }));
+      const body = browserMultipart(boundary, [...fields, { name: "file", filename: "photo.jpg", type: "image/jpeg", content: photo }]);
+      expect(multipartShapeProblem(body, boundary), boundary).toBeNull();
+    }
   });
 });
