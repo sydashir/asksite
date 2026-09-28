@@ -109,6 +109,7 @@ function checkFile(ctx: Context, sf: SourceFile): void {
   const lookups: Lookup[] = [];
   const elements: Node[] = [];
   const bindings: Node[] = [];
+  const shorthands: Node[] = [];
   const regexes: Node[] = [];
   const walk = (n: Node): void => {
     if (is.isPropertyAccessExpression(n) && is.isIdentifier(n.name)) {
@@ -117,6 +118,8 @@ function checkFile(ctx: Context, sf: SourceFile): void {
       elements.push(n);
     } else if (is.isBindingElement(n) && is.isObjectBindingPattern(n.parent) && !n.dotDotDotToken) {
       bindings.push(n);
+    } else if (is.isShorthandPropertyAssignment(n)) {
+      shorthands.push(n);
     } else if (is.isRegularExpressionLiteral(n)) {
       regexes.push(n);
     } else if (is.isIdentifier(n)) {
@@ -229,6 +232,10 @@ function checkFile(ctx: Context, sf: SourceFile): void {
     const symbol = patternType && checker.getPropertyOfType(patternType, nameNode.text);
     const initializer = is.isVariableDeclaration(b.parent.parent) ? b.parent.parent.initializer : undefined;
     evaluate(nameNode, "destructure", symbol, initializer);
+  }
+  // { requestIdleCallback }: its name is also the object's own property, so ask for the value it reads
+  for (const s of shorthands) {
+    if (is.isShorthandPropertyAssignment(s)) evaluate(s.name, "identifier", checker.getShorthandAssignmentValueSymbol(s), undefined);
   }
   for (const r of regexes) checkRegex(r);
 }

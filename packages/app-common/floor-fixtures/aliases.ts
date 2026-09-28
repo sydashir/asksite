@@ -37,6 +37,12 @@ export class Deadline implements IdleDeadline {
 }
 export interface OwnHighlight extends Highlight {}
 
+// A shorthand property reads the value its name resolves to: the global here, a parameter below.
+export const viaShorthand = { requestIdleCallback }; // expect: unsupported api.Window.requestIdleCallback
+export function ownShorthand(requestIdleCallback: () => void) {
+  return { requestIdleCallback };
+}
+
 // Known misses by design (ios16-floor-proposal.md section 3): an `any` cast and reflection.
 export const viaAny = (URL as any).canParse(x);
 export const viaReflect = Reflect.get(URL, "canParse");
