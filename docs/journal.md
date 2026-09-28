@@ -181,3 +181,11 @@ Append-only. Newest at the bottom.
 - My review 4b of Plan 3: APPROVED (0/0), 11 minors -> P3-16, incl. the fairer lifetime rule (q2: failed regenerations never count).
 - Verified: production daily model limit = 8 (generator vars; DB setting can override; the core fallback 30 is unused in production). Plan 4's app config already ships DAILY_MODEL_LIMIT "8"; asked Plan 4 to pin it in its config test (and in the admin Worker's).
 - A9..A9g APPROVED (A9g review + attack clean under the hard-stop standard). My verification at 8e9e044: typecheck 0; 1,286 unit + 23 workerd; 208 e2e passed / 44 skipped (incl. the iPhone/Pixel projects); goldens unchanged vs acae4ab; 44 commits sydashir, 3 words or fewer, no bodies; no leftover processes. Fixed 2 wrong title counts in design §2.2. Merging to main.
+- MERGED: main = d0e1b12 (A9..A9g, A13-main, A14 + docs), pushed main + plan2-hosting as sydashir; gh restored to dev778d. Sync OK sent to Plans 3 and 4 (lockfile via pnpm install; Plan 4 http.test 60->50 known). Plan 2B syncs after its Task 18 workflow. Next for me: the A12-0 contract step (3 page designs) on plan2-hosting from main.
+- A12-0 contract step launched on plan2-hosting from main d0e1b12: workflow wf_77fd928c-b88 (task wj0j7yyuq), implement + review + attack up to 3 rounds.
+
+### 2026-09-28 — context 1% handoff
+- Merged main = d0e1b12 (A9..A9g + A13-main + A14), verified (1,286 unit / 23 workerd / 208 e2e, goldens unchanged, 44 commits clean), pushed. Sync OK to Plans 3 and 4.
+- The login expired again (~17:40): A12-0 fix1, the Plan 2B A11c review and the Modern design runs died "Not logged in". Resume per session.md after /login, checking worktrees for mutants first.
+- Review 4b of Plan 3 APPROVED (P3-16 incl. the (B) lifetime rule and the noResponse flag). Production daily model limit confirmed at 8.
+- The scratchpad dir is reported unavailable: design mockups there may be lost; binding decisions are safe in .superpowers/sdd.

@@ -2,6 +2,23 @@
 
 Last updated: 2026-09-25 (written at the user's context-limit signal)
 
+## NOW (2026-09-28 late) — CONTEXT 1% HANDOFF — read this first
+- LOGIN EXPIRED again: every agent since ~17:40 failed "Not logged in · Please run /login". Before resuming anything: user runs /login in THIS tab (and ⌘8/⌘9 if their agents also fail). Moderator name changes after restarts (last: web-maker-1c); on restart run ListAgents, announce the new name to asksite-plan3-* and asksite-plan4-*, update CLAUDE.md "currently" name.
+- GitHub: main = d0e1b12 (Plan 1 + Stage 0 + A8..A9g + A13-main + A14), pushed with plan2-hosting. NOT on GitHub: plan2b-serve (31 commits), plan3-generation (~85), plan4-app (~55). User was asked "OK to back up these 3 branches to GitHub (push branches only, not main)?" — NO ANSWER yet.
+- BEFORE RESUMING ANY WORKFLOW: check every worktree with git status for half-done work and MUTANTS left by dead agents (a dead agent once left form.ts 16->17 KiB). Restore only proven mutants; back up anything unclear as a patch.
+- To resume (all dead on login; resume with Workflow({scriptPath, resumeFromRunId})):
+  1. A12-0 contract step: scripts/a12-0-design-contract-wf_77fd928c-b88.js, run wf_77fd928c-b88, args {head:"d0e1b12"} (fix1 died; check git log/status on plan2-hosting first).
+  2. Plan 2B finish: scripts/plan2b-lead-cap-then-finish-wf_d4607939-932.js, run wf_d4607939-932, args {head:"24dbc53"} (fix1 done? check asksite-plan2b git log; review1 died). After it: Plan 2B must "Sync with main" (d0e1b12) before its merge.
+  3. Designs: Classic DONE earlier at 9.1/9/9 (classic-v2/r4); Bold DONE (bold-v2/r4, 8.5/8/8.5, must-fixes go into its build; user: embed Archivo font); Modern r4 judge1 = 9, rest unfinished. WARNING: the design mockups lived in the session SCRATCHPAD, which the environment says is no longer available: they may be gone. The binding design decisions are in .superpowers/sdd/A12.md + plan-decisions.md; the real designs get rebuilt in the design builds anyway.
+- Sessions: Plan 3 (asksite-plan3-34): P3-16 running, gated to stop before Task 9 until it syncs main d0e1b12 (sync OK given). Plan 4 (asksite-plan4-2a): P4-15 last review round, then sync main (OK given; known red: http.test.ts toIssues 60->50), then Task 10 fix (P4-16) + config pins, then P4-7, then Tasks 12-26.
+- User decisions today: lead emails capped at 40/day (A11c); Bold embeds Archivo; 3 designs chosen by trade; colour presets renamed; stay on Resend Free; exact-PID-only kills (rules only, no hook).
+- Open for the user: backup push of the 3 branches; later: Cloudflare account + domain + Turnstile key, Anthropic key, Resend account, real iPhone check.
+
+## NOW (2026-09-28 ~17:30)
+- main = d0e1b12 on GitHub (A9..A9g letter/safety fixes + A13-main + A14 merged and pushed). Sync OK sent to Plans 3 and 4. Plan 2B finishing Task 18 (workflow wf_d4607939-932: A11c lead cap 40/day, then final checks) and then must sync with main before its merge.
+- Next for me: A12-0 contract step (3 page designs; A12.md final + user decisions: trade-based design, Bold embeds Archivo, colour presets renamed). Designs: Bold done (must-fixes into its build), Classic done 9.1/9/9, Modern r4 judges still running (wf_f197899d-364).
+- Pending from the user: OK to back up the plan3/plan4/plan2b work branches to GitHub (asked; no answer yet).
+
 ## NOW (2026-09-27 15:00) — WEEKLY USAGE LIMIT HIT — read this first
 - The account in use (integrations@districtbehavioralhealth.com per session context) hit its WEEKLY limit around 08:05; it resets Sep 29 01:00 PKT. Every agent failing since then says "You've hit your weekly limit". Resume = log in with an account that has capacity (/login in each tab), or wait.
 - State per line (all committed work is safe; nothing pushed since acae4ab):
