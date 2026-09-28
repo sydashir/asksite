@@ -24,7 +24,7 @@ describe("DESIGN_CSS (A12)", () => {
     expect(DESIGN_CSS[id].sha256).toBe(await sha256Hex(DESIGN_CSS[id].css));
   });
 
-  it.each(DESIGN_IDS)("%s: equals its lock, sheets/%s.sha256, so a build that changes another design's sheet fails here", (id) => {
+  it.each(DESIGN_IDS)("%s: equals its lock in packages/site-css/sheets/, so a build that changes another design's sheet fails here", (id) => {
     expect(DESIGN_CSS[id].sha256).toBe(read(`../sheets/${id}.sha256`, import.meta.url).trim());
   });
 
