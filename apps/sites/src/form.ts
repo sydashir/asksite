@@ -107,7 +107,9 @@ export type StoredStatus = "pending" | "failed" | "skipped";
  * its email (A11c): spam is 'skipped'; any other lead is 'pending' while fewer than `emailsPerDay` of
  * today's leads across all sites had their email tried (not spam, and not capped here), else 'failed'
  * with email_error 'daily_cap'. One statement, so both caps stay exact when visitors post at the same
- * time. That count scans leads: A11c adds no index, since the retention cron keeps the table small.
+ * time. That count scans leads (A11c adds no index; the retention cron keeps the table small), and D1
+ * bills every row scanned, so only a stored lead that is not spam runs it: `tried` has a row only while
+ * the site has room (a SELECT's WHERE comes before its columns), and CASE is lazy, so spam skips it.
  * Production SQL has no RETURNING (A10), so the stored status is read back by a SELECT in the same batch
  * (a transaction). Returns null when the site's cap refused the lead.
  */
@@ -124,8 +126,9 @@ export async function insertLead(
                 CASE WHEN ?9 = 1 THEN 'skipped' WHEN tried.n < ?11 THEN 'pending' ELSE 'failed' END,
                 CASE WHEN ?9 = 0 AND tried.n >= ?11 THEN 'daily_cap' END,
                 ?10
-         FROM (SELECT COUNT(*) AS n FROM leads WHERE created_at >= ?12 AND spam = 0 AND email_error IS NOT 'daily_cap') AS tried
-         WHERE (SELECT COUNT(*) FROM leads WHERE site_id = ?2 AND created_at >= ?12) < ?13`,
+         FROM (SELECT CASE WHEN ?9 = 1 THEN 0
+                           ELSE (SELECT COUNT(*) FROM leads WHERE created_at >= ?12 AND spam = 0 AND email_error IS NOT 'daily_cap') END AS n
+               WHERE (SELECT COUNT(*) FROM leads WHERE site_id = ?2 AND created_at >= ?12) < ?13) AS tried`,
       )
       .bind(leadId, siteId, now, lead.name, lead.phone, lead.email, lead.service, lead.message, spam ? 1 : 0, ipHash,
         emailsPerDay, utcDayStart(now), LIMITS.leadsPerSitePerDay),

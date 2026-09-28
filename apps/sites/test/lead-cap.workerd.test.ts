@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { newId } from "@asksite/core";
+import { LIMITS, newId } from "@asksite/core";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { insertLead } from "../src/form.ts";
 import { at, seedSite, settledLeads, sitesHarness, TEST_VARS, type ToolsEnv } from "./support/harness.ts";
@@ -108,6 +108,24 @@ function holdBatch(db: D1Database) {
     },
   };
   return { db: held as unknown as D1Database, reached, release };
+}
+
+/**
+ * insertLead's answer and the rows its batch read. D1 bills rows read, "the number of rows read (scanned)
+ * by this query" (D1Result meta.rows_read, developers.cloudflare.com/d1/worker-api/return-object/).
+ */
+async function insertCounted(db: D1Database, input: Parameters<typeof insertLead>[1]): Promise<{ status: string | null; rows: number }> {
+  let rows = 0;
+  const counted = {
+    prepare: (sql: string) => db.prepare(sql),
+    async batch(statements: D1PreparedStatement[]) {
+      const results = await db.batch(statements);
+      for (const result of results) rows += result.meta.rows_read;
+      return results;
+    },
+  };
+  const status = await insertLead(counted as unknown as D1Database, input);
+  return { status, rows };
 }
 
 /** The sites Worker's JSON log lines since the harness started or the last clearLogs(). */
@@ -243,6 +261,45 @@ describe(`LEAD_EMAILS_PER_DAY = ${CAP}, the production value`, () => {
       { name: "Fortieth", email_status: "pending", email_error: null },
       { name: "Late", email_status: "failed", email_error: "daily_cap" },
     ]);
+  });
+
+  // D1 bills every row a statement scans, and the day's email count scans every lead (A11c adds no
+  // index). Only a lead that is stored and not spam may run it: spam and posts the site's own cap refuses
+  // are held back only by the per-IP rate limit, so they read just the site's rows for today (at most
+  // LIMITS.leadsPerSitePerDay, through the leads_site index) plus a few for the insert and the read-back.
+  it("reads only the site's rows for today for spam and for a post the site's cap refuses, however many leads the table holds", async () => {
+    const history = await seedSite(tools);
+    const open = await seedSite(tools);
+    const full = await seedSite(tools);
+    const now = Date.now();
+    const today = dayStart(now);
+    const HISTORY = 2_000;
+    // Earlier days' leads, which retention keeps for 180 days: one statement, since a batch of 2,000 is slow.
+    await tools.DB.prepare(
+      `WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < ?1)
+       INSERT INTO leads (id, site_id, created_at, name, phone, spam, email_status, ip_hash) SELECT 'old-' || i, ?2, ?3, 'n', '5125550100', 0, 'sent', 'h' FROM n`,
+    ).bind(HISTORY, history.siteId, today - DAY_MS).run();
+    await fill(tools, full.siteId, LIMITS.leadsPerSitePerDay, { createdAt: today, status: "sent" });
+    // The meter works: counting the whole table reads every row.
+    const [scan] = await tools.DB.batch([tools.DB.prepare("SELECT COUNT(*) AS n FROM leads")]);
+    expect(scan?.meta.rows_read).toBeGreaterThanOrEqual(HISTORY);
+
+    const input = (site: { siteId: string }, spam: boolean) => ({
+      leadId: newId(), siteId: site.siteId, now, spam, ipHash: "h", emailsPerDay: CAP,
+      lead: { name: "Dana Price", phone: "5125550199", email: null, service: null, message: null },
+    });
+    const posts = {
+      spam: await insertCounted(tools.DB, input(open, true)),
+      siteCapped: await insertCounted(tools.DB, input(full, false)),
+      spamSiteCapped: await insertCounted(tools.DB, input(full, true)),
+    };
+    expect(posts).toEqual({
+      spam: { status: "skipped", rows: expect.any(Number) },
+      siteCapped: { status: null, rows: expect.any(Number) },
+      spamSiteCapped: { status: null, rows: expect.any(Number) },
+    });
+    const tooMany = Object.entries(posts).filter(([, post]) => post.rows > LIMITS.leadsPerSitePerDay + 10);
+    expect(tooMany.map(([kind, post]) => `${kind} read ${post.rows} rows`)).toEqual([]);
   });
 
   it(`holds a flood to the cap: 50 + 50 + 1 posts on three sites are all saved and thanked, and only ${CAP} are emailed`, async () => {
