@@ -65,8 +65,20 @@ export const siteBusy = (root: string) =>
     { "Retry-After": "3600" },
   );
 
-export const unreadableForm = (root: string, status: 413 | 415) =>
-  respond(root, status, page("We could not send that", '<p>Your message could not be read. Please go back and try again.</p>\n<p><a href="/#contact">Go back to the form</a></p>'));
+export const unreadableForm = (root: string) =>
+  respond(root, 415, page("We could not send that", '<p>Your message could not be read. Please go back and try again.</p>\n<p><a href="/#contact">Go back to the form</a></p>'));
+
+/** 413: only a very long message makes a visitor's form this large (A15). */
+export const messageTooLong = (root: string) =>
+  respond(
+    root,
+    413,
+    page(
+      "Your message is too long",
+      "<p>Please shorten your message and send it again, or call the business instead. Their phone number is on the website.</p>\n" +
+        `<p>Use your browser's Back button to return to the form with what you typed, or <a href="/#contact">go back to the form</a>.</p>`,
+    ),
+  );
 
 /** Plain-words problems, chosen by code: the page never repeats what was typed. */
 export function formProblems(root: string, problems: readonly string[]): Response {

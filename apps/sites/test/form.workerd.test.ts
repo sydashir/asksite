@@ -96,10 +96,43 @@ describe("POST /_f/<siteId>", () => {
     expect(await leads(fresh.siteId)).toEqual([]);
   });
 
-  it("refuses other content types (415) and bodies over 16 KB (413)", async () => {
+  it("refuses other content types (415) and bodies over 24 KiB (413)", async () => {
     expect((await post(site, {}, { headers: { "content-type": "application/json" }, body: "{}" })).status).toBe(415);
     expect((await post(site, {}, { headers: { "content-type": "multipart/form-data; boundary=x" }, body: "x" })).status).toBe(415);
-    expect((await post(site, {}, { body: `message=${"a".repeat(17 * 1024)}` })).status).toBe(413);
+    expect((await post(site, {}, { body: `message=${"a".repeat(25 * 1024)}` })).status).toBe(413);
+  });
+
+  // A15 minor 1: only a very long message can make a visitor's body this large, so the page says so.
+  it("tells a visitor whose body is too large that the message is too long, to shorten it or call", async () => {
+    const response = await post(site, {}, { body: `message=${"a".repeat(25 * 1024)}` });
+    expect(response.status).toBe(413);
+    expect(response.headers.get("x-robots-tag")).toBe("noindex");
+    const body = await response.text();
+    expect(body).toContain("<h1>Your message is too long</h1>");
+    expect(body).toContain("Please shorten your message and send it again, or call the business instead.");
+    expect(body).toContain('href="/#contact"');
+  });
+
+  // A15 minor 1: the form allows 2,000 characters (maxlength and lead.ts). A character of a 3-byte
+  // script (Chinese, Japanese, Korean, Hindi, Thai) is 9 bytes once form-encoded, so 2,000 of them with
+  // every other field at its costliest valid maximum is the largest body a visitor can send.
+  it("accepts the largest body a visitor can send: 2,000 CJK characters and every other field at its maximum", async () => {
+    const target = await seedSite(tools);
+    const cjk = (n: number) => "漢".repeat(n);
+    const fields = {
+      name: cjk(80),
+      phone: `${"+".repeat(23)}5125550`, // 30 characters, 7 digits; "+" is 3 bytes encoded
+      email: `${"'".repeat(248)}+@a.co`, // 254 characters; ' and + are the costliest characters an email may hold
+      service: cjk(60),
+      message: cjk(2000),
+      website: "",
+    };
+    const body = new URLSearchParams(fields).toString();
+    expect(body.length).toBeGreaterThan(16 * 1024);
+    expect(body.length).toBeLessThanOrEqual(24 * 1024);
+    expect((await post(target, {}, { body })).status).toBe(303);
+    const [lead] = await leads(target.siteId);
+    expect(lead).toMatchObject({ name: fields.name, phone: fields.phone, email: fields.email, service: fields.service, message: fields.message });
   });
 
   // A15: the 4th and 5th posts from one network on one site are refused by its daily limit ("Please call
@@ -290,12 +323,12 @@ describe("form edges", () => {
     expect(response.status).toBe(303);
   });
 
-  it("accepts a body of exactly 16 KB and refuses one byte more", async () => {
+  it("accepts a body of exactly 24 KiB and refuses one byte more", async () => {
     const target = await seedSite(tools);
     const head = new URLSearchParams({ name: "Al", phone: "5125550199", pad: "" }).toString();
     const body = (bytes: number) => head + "a".repeat(bytes - head.length);
-    expect((await post(target, {}, { body: body(16 * 1024) })).status).toBe(303);
-    expect((await post(target, {}, { body: body(16 * 1024 + 1) })).status).toBe(413);
+    expect((await post(target, {}, { body: body(24 * 1024) })).status).toBe(303);
+    expect((await post(target, {}, { body: body(24 * 1024 + 1) })).status).toBe(413);
   });
 });
 

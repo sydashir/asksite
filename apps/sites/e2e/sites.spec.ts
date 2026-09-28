@@ -1,6 +1,6 @@
 import { AxeBuilder } from "@axe-core/playwright";
 import { expect, test, type Page } from "@playwright/test";
-import { apexPlaceholder, formProblems, notFound, siteBusy, thankYou, tooManyRequests, unavailable, unreadableForm } from "../src/pages.ts";
+import { apexPlaceholder, formProblems, messageTooLong, notFound, siteBusy, thankYou, tooManyRequests, unavailable, unreadableForm } from "../src/pages.ts";
 import { watchCsp } from "./csp.ts";
 import { E2E_FIXTURES } from "./global-setup.ts";
 
@@ -96,7 +96,8 @@ test.describe("fixed pages", () => {
     ["thank-you", () => thankYou(ROOT)],
     ["rate limited", () => tooManyRequests(ROOT)],
     ["site busy", () => siteBusy(ROOT)],
-    ["unreadable form", () => unreadableForm(ROOT, 415)],
+    ["unreadable form", () => unreadableForm(ROOT)],
+    ["message too long", () => messageTooLong(ROOT)],
     ["form problems", () => formProblems(ROOT, ["Please enter your name (up to 80 characters).", "Please check your email address, or leave it empty."])],
   ];
 

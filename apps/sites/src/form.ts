@@ -6,9 +6,11 @@ import { plainHeaders } from "./headers.ts";
 import { leadEmail } from "./lead-email.ts";
 import { looksLikeSpam, PROBLEM_TEXT, readLead, type Lead } from "./lead.ts";
 import { logLine } from "./log.ts";
-import { formProblems, notFound, siteBusy, tooManyRequests, unavailable, unreadableForm } from "./pages.ts";
+import { formProblems, messageTooLong, notFound, siteBusy, tooManyRequests, unavailable, unreadableForm } from "./pages.ts";
 
-const MAX_BODY_BYTES = 16 * 1024;
+// The largest body a visitor can send is 20,136 bytes: 2,000 characters of a 3-byte script (9 bytes each
+// once form-encoded) with every other field at its costliest valid maximum (A15; form.workerd.test.ts).
+const MAX_BODY_BYTES = 24 * 1024;
 
 /** Reads at most `max` bytes, counting as it reads, so a missing or false Content-Length cannot get past it. */
 async function readLimited(request: Request, max: number): Promise<string | null> {
@@ -54,9 +56,9 @@ export async function handleForm(
   if (!isId(siteId)) return { response: notFound(root) };
 
   const type = (request.headers.get("content-type") ?? "").split(";")[0]?.trim().toLowerCase();
-  if (type !== "application/x-www-form-urlencoded") return { response: unreadableForm(root, 415), code: "unsupported_media_type" };
+  if (type !== "application/x-www-form-urlencoded") return { response: unreadableForm(root), code: "unsupported_media_type" };
   const body = await readLimited(request, MAX_BODY_BYTES);
-  if (body === null) return { response: unreadableForm(root, 413), code: "payload_too_large" };
+  if (body === null) return { response: messageTooLong(root), code: "payload_too_large" };
 
   const key = env.IP_HASH_KEY ?? "";
   if (key === "") return { response: unavailable(root), code: "misconfigured" };
