@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { looksLikeSpam, readLead } from "../src/lead.ts";
+import { looksLikeSpam, PROBLEM_TEXT, readLead } from "../src/lead.ts";
 
 const fields = (values: Record<string, string>) => new URLSearchParams(values);
 
@@ -47,6 +47,13 @@ describe("readLead", () => {
     expect(result).toEqual({ ok: true, lead: { name: "Ana \u{1F469}\u200D\u{1F527}", phone: "5125550199", email: null, service: null, message: "a\nb" } });
   });
 
+  // A15 minor 5: U+2028 LINE SEPARATOR and U+2029 PARAGRAPH SEPARATOR (Zl, Zp) are neither Cc nor Cf, and
+  // some mail clients break a subject line at them.
+  it("removes line and paragraph separators (U+2028, U+2029) from every field, as it removes control characters", () => {
+    const result = readLead(fields({ name: "Ana\u2028Bell", phone: "512\u20295550199", email: "a\u2028@b.co", service: "Drain\u2029 cleaning", message: "One\u2028two\u2029three\r\nfour" }));
+    expect(result).toEqual({ ok: true, lead: { name: "AnaBell", phone: "5125550199", email: "a@b.co", service: "Drain cleaning", message: "Onetwothree\nfour" } });
+  });
+
   it("keeps a single-line field on one line", () => {
     const result = readLead(fields({ name: "Al\r\nBcc: x@y.example", phone: "5125550199" }));
     expect(result.ok && result.lead.name).toBe("AlBcc: x@y.example");
@@ -64,6 +71,15 @@ describe("looksLikeSpam", () => {
 
 // Pins added after the brief (test-only). Each one goes red on a mutant that the tests above let through.
 describe("readLead edges", () => {
+  // A15 minor 2: the rule is unchanged; the message names what it allows, since "ext 4" or "/" was
+  // refused with a message about digits.
+  it.each(["512 555 0123 ext 4", "512-555-0123 x12", "512/555-0123"])("refuses %s with a message that names the allowed characters and the extension", (phone) => {
+    expect(readLead(fields({ name: "Al", phone }))).toEqual({ ok: false, problems: ["phone"] });
+    expect(PROBLEM_TEXT.phone).toBe(
+      "Please enter a phone number we can call back, with at least 7 digits. Use only digits, spaces, dashes, dots, parentheses and a plus sign, and leave out any extension.",
+    );
+  });
+
   it("keeps an emoji joiner in the message too", () => {
     const mechanic = String.fromCodePoint(0x1f469, 0x200d, 0x1f527);
     const result = readLead(fields({ name: "Al", phone: "5125550199", message: `Ask for the ${mechanic}` }));

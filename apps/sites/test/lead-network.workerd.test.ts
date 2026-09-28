@@ -77,8 +77,14 @@ describe("A15 per-network daily limits", () => {
     const site = await seedSite(tools);
     const statuses: number[] = [];
     for (let i = 1; i <= PER_SITE; i++) statuses.push((await post(site, "192.0.2.10", { name: `Visitor ${i}` })).status);
+    const before = Date.now();
     const refused = await post(site, "192.0.2.10", { name: "Visitor 4" });
+    const after = Date.now();
     expect([...statuses, refused.status]).toEqual([303, 303, 303, 429]);
+    // Retry when the limits start again, at the next 00:00 UTC.
+    const secondsLeft = (t: number) => Math.ceil((dayStart(t) + DAY_MS - t) / 1000);
+    expect(Number(refused.headers.get("retry-after"))).toBeGreaterThanOrEqual(secondsLeft(after));
+    expect(Number(refused.headers.get("retry-after"))).toBeLessThanOrEqual(secondsLeft(before));
     expect(refused.headers.get("x-robots-tag")).toBe("noindex");
     expect(refused.headers.get("cache-control")).toBe("no-store");
     expect(await refused.text()).toContain("<h1>Please call instead</h1>");

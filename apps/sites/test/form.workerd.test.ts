@@ -87,7 +87,7 @@ describe("POST /_f/<siteId>", () => {
     expect(response.headers.get("x-robots-tag")).toBe("noindex");
     const body = await response.text();
     expect(body).toContain("<li>Please enter your name (up to 80 characters).</li>");
-    expect(body).toContain("<li>Please enter a phone number we can call back, with at least 7 digits.</li>");
+    expect(body).toContain("<li>Please enter a phone number we can call back, with at least 7 digits. Use only digits, spaces, dashes, dots, parentheses and a plus sign, and leave out any extension.</li>");
     expect(body).toContain("<li>Please check your email address, or leave it empty.</li>");
     expect(body).toContain("<li>Please shorten your message to 2,000 characters or fewer.</li>");
     expect(body).not.toContain("script");

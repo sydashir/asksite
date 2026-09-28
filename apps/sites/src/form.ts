@@ -92,7 +92,7 @@ export async function handleForm(
   const emailsPerDay = leadEmailsPerDay(env.LEAD_EMAILS_PER_DAY);
   const status = await insertLead(env.DB, { leadId, siteId, now, lead: read.lead, spam, ipHash, emailsPerDay });
   // Nothing was stored, so nothing is emailed or counted; the page points the visitor to the phone number.
-  if (status === "site_daily_cap" || status === "network_daily_limit") return { response: siteBusy(root), code: status };
+  if (status === "site_daily_cap" || status === "network_daily_limit") return { response: siteBusy(root, now), code: status };
   if (status === "skipped") return { response: seeOther(sent), code: "spam" };
   // A11c: today's lead emails for all sites are used up. The lead is saved (the owner sees it in the app)
   // and the visitor is thanked as usual, but it is never emailed.

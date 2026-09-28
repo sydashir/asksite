@@ -78,7 +78,7 @@ test.describe("contact form in a real browser", () => {
     await page.getByLabel("Phone").fill("call me");
     await page.getByRole("button", { name: "Send request" }).click();
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("Please check your details");
-    await expect(page.getByRole("listitem")).toHaveText(["Please enter a phone number we can call back, with at least 7 digits."]);
+    await expect(page.getByRole("listitem")).toHaveText(["Please enter a phone number we can call back, with at least 7 digits. Use only digits, spaces, dashes, dots, parentheses and a plus sign, and leave out any extension."]);
     expect(await page.content()).not.toContain("call me");
     expect(await axeProblems(page)).toEqual([]);
   });
@@ -95,7 +95,7 @@ test.describe("fixed pages", () => {
     ["503", () => unavailable(ROOT)],
     ["thank-you", () => thankYou(ROOT)],
     ["rate limited", () => tooManyRequests(ROOT)],
-    ["site busy", () => siteBusy(ROOT)],
+    ["site busy", () => siteBusy(ROOT, Date.now())],
     ["unreadable form", () => unreadableForm(ROOT)],
     ["message too long", () => messageTooLong(ROOT)],
     ["form problems", () => formProblems(ROOT, ["Please enter your name (up to 80 characters).", "Please check your email address, or leave it empty."])],

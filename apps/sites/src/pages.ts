@@ -1,3 +1,4 @@
+import { utcDayStart } from "@asksite/core";
 import { escapeAttr, escapeText } from "@asksite/renderer";
 import { fixedPageHeaders, rootHostname } from "./headers.ts";
 
@@ -57,12 +58,19 @@ export const tooManyRequests = (root: string) =>
     { "Retry-After": "60" },
   );
 
-export const siteBusy = (root: string) =>
+/** Whole seconds until the next 00:00 UTC, when the form's daily limits start again (at least 1). */
+const secondsToNextUtcDay = (now: number): number => Math.ceil((utcDayStart(now) + 86_400_000 - now) / 1000);
+
+/**
+ * 429: a daily limit refused the form, the site's own or the visitor's network's (A15). They start again at
+ * 00:00 UTC, which is the afternoon or evening of the same day in the US, so the page names no day.
+ */
+export const siteBusy = (root: string, now: number) =>
   respond(
     root,
     429,
-    page("Please call instead", `<p>This business has received a lot of messages today, so the form is closed until tomorrow. Their phone number is on the website.</p>\n${HOME_LINK}`),
-    { "Retry-After": "3600" },
+    page("Please call instead", `<p>This form cannot take more messages for now. The business's phone number is on the website.</p>\n${HOME_LINK}`),
+    { "Retry-After": String(secondsToNextUtcDay(now)) },
   );
 
 export const unreadableForm = (root: string) =>

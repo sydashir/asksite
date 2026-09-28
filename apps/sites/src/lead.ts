@@ -15,16 +15,17 @@ export type LeadProblem = "name" | "phone" | "email" | "service" | "message";
 
 export const PROBLEM_TEXT: Record<LeadProblem, string> = {
   name: "Please enter your name (up to 80 characters).",
-  phone: "Please enter a phone number we can call back, with at least 7 digits.",
+  phone: "Please enter a phone number we can call back, with at least 7 digits. Use only digits, spaces, dashes, dots, parentheses and a plus sign, and leave out any extension.",
   email: "Please check your email address, or leave it empty.",
   service: "Please choose a service from the list.",
   message: "Please shorten your message to 2,000 characters or fewer.",
 };
 
-// Control characters, and invisible formatting characters (e.g. U+202E, which can make a name
-// read backwards in the owner's inbox). U+200D stays so emoji in names survive.
-const HIDDEN = /\p{Cc}|(?!\u200D)\p{Cf}/gu;
-const HIDDEN_EXCEPT_NEWLINE = /(?!\n)\p{Cc}|(?!\u200D)\p{Cf}/gu;
+// Control characters, invisible formatting characters (e.g. U+202E, which can make a name read
+// backwards in the owner's inbox), and the line and paragraph separators U+2028 and U+2029 (Zl, Zp),
+// which some mail clients break a subject line at (A15). U+200D stays so emoji in names survive.
+const HIDDEN = /\p{Cc}|(?!\u200D)\p{Cf}|\p{Zl}|\p{Zp}/gu;
+const HIDDEN_EXCEPT_NEWLINE = /(?!\n)\p{Cc}|(?!\u200D)\p{Cf}|\p{Zl}|\p{Zp}/gu;
 const PHONE = /^[0-9+().\- ]{7,30}$/;
 const Email = z.email().max(254);
 
