@@ -15,15 +15,13 @@ function between(page: string, from: string, to: string): string {
   return end === -1 ? "" : page.slice(start, end + to.length);
 }
 
-/** The <form>…</form> markup with every class attribute removed: fields, names, labels, limits, "Send request". */
+/**
+ * The <form>…</form> markup with every class attribute removed: fields, names, labels, limits, "Send
+ * request", and the honeypot (its wrapper's aria-hidden, the field's tabindex="-1" and autocomplete="off").
+ * A design may restyle all of it, the honeypot wrapper included; the per-design e2e checks prove the
+ * honeypot stays wholly off-screen and out of the tab order (A12-0 round-2 rulings).
+ */
 export const formSkeleton = (page: string): string => between(page, "<form", "</form>").replace(/\sclass="[^"]*"/g, "");
-
-/** The element around the honeypot field, classes included: they keep it off-screen. */
-export function honeypot(page: string): string {
-  const field = page.indexOf('id="contact-website"');
-  if (field === -1) return "";
-  return page.slice(page.lastIndexOf("<div", field), page.indexOf("</div>", field) + "</div>".length);
-}
 
 const idsOf = (page: string) => startTags(page).flatMap((t) => t.attributes.filter((a) => a.name === "id").map((a) => a.value));
 
@@ -79,7 +77,6 @@ export function invariantProblems(page: string, baseline: string, doc: SiteDocum
   if (!bar.includes(`href="tel:${doc.facts.phone}"`)) problems.push("the call bar does not call the business");
 
   if (formSkeleton(page) !== formSkeleton(baseline)) problems.push("the contact form differs from today's (classes aside)");
-  if (honeypot(page) === "" || honeypot(page) !== honeypot(baseline)) problems.push("the honeypot differs from today's");
 
   const ids = idsOf(page);
   const baselineIds = idsOf(baseline);

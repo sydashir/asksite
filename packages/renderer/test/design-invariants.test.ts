@@ -4,7 +4,7 @@ import { FIXTURE_FORM_ACTION, FIXTURES, inDesign, loadFixture, stubStylesheets }
 import { BASELINE } from "../src/baseline.ts";
 import { DESIGNS } from "../src/designs/index.ts";
 import { render, renderDocument } from "../src/render.ts";
-import { formSkeleton, honeypot, invariantProblems, navLinks, variableProblems } from "./support/design-invariants.ts";
+import { formSkeleton, invariantProblems, navLinks, variableProblems } from "./support/design-invariants.ts";
 
 const OPTIONS = { stylesheets: stubStylesheets(), formAction: FIXTURE_FORM_ACTION };
 
@@ -50,7 +50,7 @@ describe("the invariant checks can fail (RED proof, on edited pages)", () => {
   it("pass today's page", () => {
     expect(problems(page)).toEqual([]);
     expect(formSkeleton(page)).toContain("Send request");
-    expect(honeypot(page)).toContain('tabindex="-1"');
+    expect(formSkeleton(page)).toContain('<div aria-hidden="true"><label for="contact-website">Leave this field empty</label><input id="contact-website" name="website" type="text" tabindex="-1" autocomplete="off"></div>');
     expect(navLinks(page)).toContain("#faq FAQ");
   });
 
@@ -61,7 +61,8 @@ describe("the invariant checks can fail (RED proof, on edited pages)", () => {
     ["a call bar without focus-outside:static", page.replace("focus-outside:static", ""), /^the call bar lacks focus-outside:static$/],
     ["a dropped required", page.replace('autocomplete="name" required', 'autocomplete="name"'), /^the contact form differs/],
     ['a renamed "Send request"', page.replace(">Send request<", ">Send<"), /^the contact form differs/],
-    ["a honeypot moved on-screen", page.replace("absolute -left-[9999px] h-px w-px overflow-hidden", "block"), /^the honeypot differs/],
+    ["a honeypot field keyboard focus can reach", page.replace('name="website" type="text" tabindex="-1"', 'name="website" type="text"'), /^the contact form differs/],
+    ["a honeypot not hidden from screen readers", page.replace('overflow-hidden" aria-hidden="true"><label for="contact-website"', 'overflow-hidden"><label for="contact-website"'), /^the contact form differs/],
     ["a renamed id", page.replace('id="contact-message"', 'id="message"').replace('for="contact-message"', 'for="message"'), /^ids /],
     ["a duplicate id", page.replace('<main id="main">', '<main id="main"><p id="top">x</p>'), /^duplicate ids$/],
     ["a relabelled menu link", page.replaceAll('href="#faq">FAQ<', 'href="#faq">Questions<'), /^navigation /],
@@ -84,6 +85,10 @@ describe("the invariant checks can fail (RED proof, on edited pages)", () => {
     [
       "a Main nav whose aria-label is not its first attribute",
       page.replace('<nav aria-label="Main" class="order-last lg:order-none">', '<nav class="order-last lg:order-none" aria-label="Main">'),
+    ],
+    [
+      "a honeypot wrapper that differs only in class (the per-design e2e checks keep it off-screen and out of the tab order)",
+      page.replace('class="absolute -left-[9999px] h-px w-px overflow-hidden" aria-hidden="true"', 'class="hp" aria-hidden="true"'),
     ],
     ["extra links in the Main nav", page.replace('<ul class="hidden items-center gap-1 lg:flex">', '<a href="#top">Open the menu</a>\n<ul class="hidden items-center gap-1 lg:flex">')],
   ])("allow %s", (_, edited) => {
