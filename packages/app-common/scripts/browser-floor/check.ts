@@ -195,10 +195,14 @@ function checkFile(ctx: Context, sf: SourceFile): void {
     return undefined;
   }
 
-  /** The receiver's own types: unions and intersections split, null and undefined dropped. */
+  /**
+   * The receiver's own types: unions and intersections split, null and undefined dropped, a type
+   * parameter replaced by its constraint (for `this`, the class it belongs to).
+   */
   function receiverTypes(type: Type | undefined, depth = 0): Type[] {
     if (!type || depth > 8 || type.flags & NOTHING) return [];
     if (type.isUnionType() || type.isIntersectionType()) return type.getTypes().flatMap((t) => receiverTypes(t, depth + 1));
+    if (type.isTypeParameter()) return receiverTypes(checker.getConstraintOfTypeParameter(type) ?? checker.getBaseConstraintOfType(type), depth + 1);
     return [type];
   }
 
