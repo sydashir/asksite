@@ -9,6 +9,7 @@ export type RequestGenerationResult =
 // Which rows count. INSERT_JOB and generationAllowance use these same two expressions, so they always agree.
 // IS never yields NULL (unlike =), so a row with no error code still counts toward the site's day.
 const COUNTS_TODAY = "NOT (error_code IS 'internal' AND started_at IS NULL)";
+// IS (not =) keeps this NULL-safe if it is ever negated, as COUNTS_TODAY is; inside these plain WHERE clauses = and IS select the same rows, so no test can tell them apart.
 const COUNTS_TOWARD_TOTAL = "kind = 'regenerate' AND (status IN ('queued', 'running', 'succeeded') OR (status = 'failed' AND error_code IS 'invalid_output'))";
 
 // The per-site daily count and the per-owner total are checked in the INSERT itself, so they are
