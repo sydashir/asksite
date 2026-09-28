@@ -1,13 +1,16 @@
-import { SiteDocument, type SiteDocumentInput } from "@asksite/site-schema";
+import { DESIGN_IDS, SiteDocument, type DesignId, type SiteDocumentInput } from "@asksite/site-schema";
 import { describe, expect, it } from "vitest";
-import { pageTitle, render } from "../src/index.ts";
+import { inDesign, stubStylesheets } from "../../../fixtures/index.ts";
+import { DESIGNS } from "../src/designs/index.ts";
+import { pageTitle, render, type RenderOptions } from "../src/index.ts";
 import { FULL, MINIMAL } from "./support/doc.ts";
 
-const OPTIONS = { stylesheet: "/* compiled css */", formAction: "https://forms.example.com/submit" };
+const OPTIONS: RenderOptions = { stylesheets: stubStylesheets("/* compiled css */"), formAction: "https://forms.example.com/submit" };
+const renderHtml = (input: SiteDocumentInput, options: RenderOptions = OPTIONS) => render(input, options).html;
 const scriptTags = (html: string) => [...html.matchAll(/<script\b[^>]*>/gi)].map((m) => m[0]);
 
 describe("render", () => {
-  const page = render(FULL, OPTIONS);
+  const page = renderHtml(FULL);
 
   it("returns one complete HTML document", () => {
     expect(page.startsWith("<!DOCTYPE html>\n<html lang=\"en\"")).toBe(true);
@@ -17,9 +20,11 @@ describe("render", () => {
     expect(page).toContain('<meta name="description" content="Leaks, clogs and water heaters fixed right the first time.">');
   });
 
-  it("inlines the shared stylesheet and the 12 theme variables", () => {
+  it("inlines the design's stylesheet, the 12 theme variables and the design's own variables", () => {
     expect(page).toContain("<style>/* compiled css */</style>");
-    expect(page.match(/--aw-[a-z-]+:/g)).toHaveLength(12);
+    const parsed = SiteDocument.parse(FULL);
+    expect(page.match(/--aw-[a-z0-9-]+:/g)).toHaveLength(12 + Object.keys(DESIGNS[parsed.theme.design].variables(parsed.theme)).length);
+    expect(page.match(/<style>:root\{/g)).toHaveLength(1);
   });
 
   it("ships zero JavaScript: the only scripts are JSON-LD", () => {
@@ -30,14 +35,15 @@ describe("render", () => {
     expect(page).not.toMatch(/http-equiv/i);
   });
 
-  it("carries the MIT copyright notices in one comment", () => {
+  it("carries the MIT copyright notices in one comment, the design's attribution", () => {
     expect(page.match(/<!--/g)).toHaveLength(1);
+    expect(page).toContain(DESIGNS.impact.attribution);
     expect(page).toContain("<!-- Portions adapted from AstroWind, Copyright (c) 2023 onWidget, and Tabler Icons");
   });
 
   it("emits FAQPage JSON-LD only when the FAQ section renders", () => {
     expect(page).toContain('"@type":"FAQPage"');
-    const minimal = render(MINIMAL, OPTIONS);
+    const minimal = renderHtml(MINIMAL);
     expect(minimal).not.toContain("FAQPage");
     expect(scriptTags(minimal)).toHaveLength(1);
   });
@@ -45,18 +51,18 @@ describe("render", () => {
   it("renders sections in layout order, hiding empty ones", () => {
     const ids = [...page.matchAll(/<section id="([a-z-]+)"/g)].map((m) => m[1]);
     expect(ids).toEqual(["top", "credentials", "services", "reviews", "our-work", "about", "service-area", "faq", "contact"]);
-    const minimalIds = [...render(MINIMAL, OPTIONS).matchAll(/<section id="([a-z-]+)"/g)].map((m) => m[1]);
+    const minimalIds = [...renderHtml(MINIMAL).matchAll(/<section id="([a-z-]+)"/g)].map((m) => m[1]);
     expect(minimalIds).toEqual(["top", "services", "service-area", "contact"]);
   });
 
   it("is deterministic", () => {
-    expect(render(FULL, OPTIONS)).toBe(page);
+    expect(renderHtml(FULL)).toBe(page);
   });
 
   it("re-validates input and refuses bad options", () => {
-    expect(() => render({ ...FULL, copy: { ...FULL.copy, heroHeadline: "Call 512-555-0142" } }, OPTIONS)).toThrow();
-    expect(() => render(FULL, { ...OPTIONS, formAction: "http://forms.example.com" })).toThrow("Unsafe URL");
-    expect(() => render(FULL, { ...OPTIONS, stylesheet: "</style><script>alert(1)</script>" })).toThrow("</style");
+    expect(() => renderHtml({ ...FULL, copy: { ...FULL.copy, heroHeadline: "Call 512-555-0142" } })).toThrow();
+    expect(() => renderHtml(FULL, { ...OPTIONS, formAction: "http://forms.example.com" })).toThrow("Unsafe URL");
+    expect(() => renderHtml(FULL, { ...OPTIONS, stylesheets: stubStylesheets("</style><script>alert(1)</script>") })).toThrow("</style");
   });
 
   it("falls back to the business name when the title would be too long", () => {
@@ -66,7 +72,7 @@ describe("render", () => {
 });
 
 describe("facts and copy stay separate", () => {
-  const page = render(FULL, OPTIONS);
+  const page = renderHtml(FULL);
 
   it("takes phone, prices, licences, hours and reviews only from facts", () => {
     const changed: SiteDocumentInput = {
@@ -80,7 +86,7 @@ describe("facts and copy stay separate", () => {
         testimonials: [{ quote: "Changed quote.", name: "Pat" }],
       },
     };
-    const out = render(changed, OPTIONS);
+    const out = renderHtml(changed);
     expect(page).toContain("(512) 555-0142");
     expect(out).not.toContain("(512) 555-0142");
     expect(out).toContain("(212) 555-0100");
@@ -93,8 +99,40 @@ describe("facts and copy stay separate", () => {
   });
 
   it("renders the same facts no matter what the copy says", () => {
-    const otherCopy = render({ ...FULL, copy: { ...FULL.copy, heroHeadline: "Different words entirely" } }, OPTIONS);
+    const otherCopy = renderHtml({ ...FULL, copy: { ...FULL.copy, heroHeadline: "Different words entirely" } });
     const facts = (html: string) => [...html.matchAll(/tel:\+\d+|From \$[\d,]+|M-40123/g)].map((m) => m[0]);
     expect(facts(otherCopy)).toEqual(facts(page));
+  });
+});
+
+describe("page designs (A12)", () => {
+  it("renders a stored document without a design in the default design, impact", () => {
+    const page = render(FULL, OPTIONS);
+    expect(page.design).toBe("impact");
+    expect(page.html).toContain('<body data-design="impact" class="');
+  });
+
+  it.each(DESIGN_IDS)("%s: names the parsed document's design on <body> and in the result", (design) => {
+    const page = render(inDesign(FULL, design), OPTIONS);
+    expect(page.design).toBe(design);
+    expect(page.html.match(/<body\b[^>]*>/g)).toEqual([`<body data-design="${design}" class="${DESIGNS[design].bodyClass}">`]);
+  });
+
+  it.each(DESIGN_IDS)("%s: inlines its own stylesheet, never another design's, and returns that sheet's SHA-256", (design) => {
+    const stylesheets = stubStylesheets((id) => `/* the ${id} sheet */`);
+    const page = render(inDesign(FULL, design), { ...OPTIONS, stylesheets });
+    for (const id of DESIGN_IDS) expect(page.html.includes(`<style>/* the ${id} sheet */</style>`)).toBe(id === design);
+    expect(page.stylesheetSha256).toBe(stylesheets[design].sha256);
+    expect(new Set(DESIGN_IDS.map((id) => stylesheets[id].sha256)).size).toBe(DESIGN_IDS.length); // the stubs differ
+  });
+
+  it("refuses stylesheets that have no sheet for the page's design", () => {
+    const { refined: _refined, ...others } = stubStylesheets();
+    expect(() => render(inDesign(FULL, "refined"), { ...OPTIONS, stylesheets: others as never })).toThrow('No stylesheet for the "refined" design');
+    expect(render(inDesign(FULL, "modern"), { ...OPTIONS, stylesheets: others as never }).design).toBe("modern");
+  });
+
+  it("refuses a design the schema does not list", () => {
+    expect(() => render(inDesign(FULL, "brutalist" as DesignId), OPTIONS)).toThrow('"design"');
   });
 });

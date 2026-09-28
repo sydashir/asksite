@@ -1,13 +1,15 @@
-import { SECTION_VARIANTS, type SiteDocumentInput } from "@asksite/site-schema";
+import { DESIGN_IDS, SECTION_VARIANTS, type SiteDocumentInput } from "@asksite/site-schema";
 import { describe, expect, it } from "vitest";
+import { inDesign, stubStylesheets } from "../../../fixtures/index.ts";
 import { render } from "../src/index.ts";
 import { loadCompiledCss, missingClasses } from "./support/css-classes.ts";
 import { FULL, MINIMAL } from "./support/doc.ts";
 
-// Renders every section variant with 1, 2, 3, 4 and 12 items, so every branch of every class
-// lookup table is exercised, then checks each class against the compiled stylesheet.
-const css = loadCompiledCss();
+// Renders every section variant with 1, 2, 3, 4 and 12 items in every design, so every branch of every
+// class lookup table is exercised, then checks each class against that design's compiled stylesheet.
 const COUNTS = [1, 2, 3, 4, 12];
+const VARIANT_INDEXES = Array.from({ length: Math.max(...Object.values(SECTION_VARIANTS).map((v) => v.length)) }, (_, i) => i);
+const OPTIONS = { stylesheets: stubStylesheets(""), formAction: "https://forms.example.com/submit" };
 
 function layoutUsingVariant(index: number): SiteDocumentInput["layout"] {
   return Object.entries(SECTION_VARIANTS).map(([id, variants]) => ({ id, variant: variants[Math.min(index, variants.length - 1)] })) as SiteDocumentInput["layout"];
@@ -29,12 +31,13 @@ function withCount(count: number, variantIndex: number): SiteDocumentInput {
   };
 }
 
-describe("class drift", () => {
-  it("every class in every variant and item count exists in the compiled CSS", () => {
-    const pages = [render(MINIMAL, { stylesheet: "", formAction: "https://forms.example.com/submit" })];
-    for (const variantIndex of [0, 1]) {
-      for (const count of COUNTS) pages.push(render(withCount(count, variantIndex), { stylesheet: "", formAction: "https://forms.example.com/submit" }));
+describe.each(DESIGN_IDS)("class drift in the %s design", (design) => {
+  it("every class in every variant and item count exists in the design's compiled CSS", () => {
+    const pages = [render(inDesign(MINIMAL, design), OPTIONS).html];
+    for (const variantIndex of VARIANT_INDEXES) {
+      for (const count of COUNTS) pages.push(render(inDesign(withCount(count, variantIndex), design), OPTIONS).html);
     }
-    expect(pages.flatMap((page) => missingClasses(page, css))).toEqual([]);
+    expect(VARIANT_INDEXES.length).toBeGreaterThan(1);
+    expect(pages.flatMap((page) => missingClasses(page, loadCompiledCss(design)))).toEqual([]);
   });
 });

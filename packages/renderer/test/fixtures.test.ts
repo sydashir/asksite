@@ -1,18 +1,20 @@
-import { SiteDocument } from "@asksite/site-schema";
+import { DESIGN_IDS, SiteDocument, type DesignId } from "@asksite/site-schema";
 import { formatterFactory, HtmlValidate, StaticConfigLoader } from "html-validate";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { FIXTURES, loadFixture, renderFixture } from "../../../fixtures/index.ts";
+import { FIXTURES, loadFixture, renderFixture, stubStylesheets } from "../../../fixtures/index.ts";
 import { loadCompiledCss, missingClasses } from "./support/css-classes.ts";
 
 // Golden files hold markup only; the real stylesheet would add ~30 KB of noise to every diff.
-const STUB_CSS = "/* site.css */";
+const STUB_CSS = stubStylesheets("/* site.css */");
 
 // A missing or changed golden fails the run; only UPDATE_GOLDENS=1 writes them (A9). Vitest's own
-// file snapshots would be rewritten by any local run that finds one missing, and by -u.
+// file snapshots would be rewritten by any local run that finds one missing, and by -u. One golden per
+// design and fixture: fixtures/golden/<design>/<fixture>.html (A12).
 const UPDATE_GOLDENS = process.env["UPDATE_GOLDENS"] === "1";
-const goldenPath = (name: string) => fileURLToPath(new URL(`../../../fixtures/golden/${name}.html`, import.meta.url));
+const goldenPath = (design: DesignId, name: string) => fileURLToPath(new URL(`../../../fixtures/golden/${design}/${name}.html`, import.meta.url));
 
 // html-validate's recommended rules. tel-non-breaking is satisfied with CSS instead of
 // &nbsp;/&#8209; entities: every tel: link carries whitespace-nowrap, so it cannot wrap.
@@ -29,24 +31,31 @@ describe.each(FIXTURES)("fixture %s", (name) => {
   it("is a valid SiteDocument", () => {
     expect(SiteDocument.safeParse(loadFixture(name)).success).toBe(true);
   });
+});
 
-  it("matches its golden HTML", () => {
-    const html = renderFixture(name, STUB_CSS);
-    const golden = goldenPath(name);
-    if (UPDATE_GOLDENS) writeFileSync(golden, html);
-    expect(existsSync(golden), `${golden} is missing: review the page, then run the tests with UPDATE_GOLDENS=1`).toBe(true);
-    expect(html).toBe(readFileSync(golden, "utf8"));
-  });
+// Every fixture in every design (A12).
+describe.each(DESIGN_IDS)("the %s design", (design) => {
+  describe.each(FIXTURES)("with fixture %s", (name) => {
+    it("matches its golden HTML", () => {
+      const html = renderFixture(name, STUB_CSS, design);
+      const golden = goldenPath(design, name);
+      if (UPDATE_GOLDENS) {
+        mkdirSync(dirname(golden), { recursive: true });
+        writeFileSync(golden, html);
+      }
+      expect(existsSync(golden), `${golden} is missing: review the page, then run the tests with UPDATE_GOLDENS=1`).toBe(true);
+      expect(html).toBe(readFileSync(golden, "utf8"));
+    });
 
-  it("passes html-validate (recommended)", async () => {
-    const report = await htmlValidate.validateString(renderFixture(name, STUB_CSS));
-    if (!report.valid) console.log(formatterFactory("text")(report.results));
-    expect(report.valid).toBe(true);
-  });
+    it("passes html-validate (recommended)", async () => {
+      const report = await htmlValidate.validateString(renderFixture(name, STUB_CSS, design));
+      if (!report.valid) console.log(formatterFactory("text")(report.results));
+      expect(report.valid).toBe(true);
+    });
 
-  it("uses only classes that exist in the compiled stylesheet", () => {
-    const css = loadCompiledCss();
-    expect(missingClasses(renderFixture(name, css), css)).toEqual([]);
+    it("uses only classes that exist in the design's compiled stylesheet", () => {
+      expect(missingClasses(renderFixture(name, STUB_CSS, design), loadCompiledCss(design))).toEqual([]);
+    });
   });
 });
 

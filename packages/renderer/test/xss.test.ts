@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { loadFixture, renderFixture } from "../../../fixtures/index.ts";
+import { loadFixture, renderFixture, stubStylesheets } from "../../../fixtures/index.ts";
 import { render } from "../src/index.ts";
 import { FULL } from "./support/doc.ts";
 
 // Every free-text field of this fixture holds an XSS payload (script tags, event handlers,
 // attribute breakouts, javascript: URLs, </script> and </style> breakouts).
-const page = renderFixture("electrical-xss", "/* css */");
+const page = renderFixture("electrical-xss", stubStylesheets());
 
 const ALLOWED_TAGS = new Set(
   (
@@ -84,7 +84,7 @@ describe("XSS payloads are neutralised", () => {
   });
 
   it("refuses a theme payload at the render boundary", () => {
-    const options = { stylesheet: "", formAction: "https://forms.example.com/submit" };
+    const options = { stylesheets: stubStylesheets(""), formAction: "https://forms.example.com/submit" };
     const payload = "red;}</style><script>alert(1)</script>";
     expect(() => render({ ...FULL, theme: { palette: payload, font: "clean" } } as never, options)).toThrow('"palette"');
     expect(() => render({ ...FULL, theme: { palette: "navy-orange", font: payload } } as never, options)).toThrow('"font"');

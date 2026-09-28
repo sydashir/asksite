@@ -1,7 +1,7 @@
 import { AxeBuilder } from "@axe-core/playwright";
 import { fileURLToPath } from "node:url";
 import { expect, test, type Page } from "@playwright/test";
-import { FIXTURES, loadStylesheet, renderFixture, type FixtureName } from "../fixtures/index.ts";
+import { FIXTURES, renderFixture, type FixtureName } from "../fixtures/index.ts";
 
 const WCAG_TAGS = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"];
 // Best-practice rules for page structure: all content inside landmarks, headings in order,
@@ -18,7 +18,6 @@ const STRUCTURE_RULES = [
   "landmark-contentinfo-is-top-level",
   "landmark-main-is-top-level",
 ];
-const stylesheet = loadStylesheet();
 const SCREENSHOT_CSS = fileURLToPath(new URL("./screenshot.css", import.meta.url));
 
 // A 4x3 light-gray PNG. Every remote image is served from memory, so screenshots never
@@ -31,7 +30,7 @@ async function open(page: Page, name: FixtureName): Promise<void> {
       ? route.fulfill({ body: GRAY_PNG, contentType: "image/png" })
       : route.abort(),
   );
-  await page.setContent(renderFixture(name, stylesheet), { waitUntil: "load" });
+  await page.setContent(renderFixture(name), { waitUntil: "load" });
 }
 
 /**

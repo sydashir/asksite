@@ -3,7 +3,7 @@
 asksite includes code and assets adapted from the projects below. Each licence text is
 copied from the project's own LICENSE file. Every rendered customer page also carries a one-line
 HTML comment in its `<head>` with the AstroWind and Tabler Icons copyright notices
-(`packages/renderer/src/render.ts`).
+(`packages/renderer/src/baseline.ts`; each page design carries its own attribution, A12).
 
 ## AstroWind
 

@@ -1,7 +1,7 @@
 import { render } from "@asksite/renderer";
 import { SiteDocument, type SiteDocumentInput } from "@asksite/site-schema";
 import { describe, expect, expectTypeOf, it } from "vitest";
-import { FIXTURES, loadFixture } from "../../../fixtures/index.ts";
+import { FIXTURES, loadFixture, stubStylesheets } from "../../../fixtures/index.ts";
 import {
   AiAnswer,
   AiDraft,
@@ -40,8 +40,8 @@ describe("composeDocument", () => {
     const fixture = loadFixture(name);
     const { facts, ai } = split(fixture);
     const composed = SiteDocument.parse(composeDocument(facts, ai, EMPTY_EDITS));
-    const options = { stylesheet: "/* css */", formAction: "https://joes.asksite.example/_f/x" };
-    expect(render(composed, options)).toBe(render(fixture, options));
+    const options = { stylesheets: stubStylesheets(), formAction: "https://joes.asksite.example/_f/x" };
+    expect(render(composed, options)).toEqual(render(fixture, options));
   });
 
   it("stays valid when the owner adds a first photo, review and licence after generation", () => {
