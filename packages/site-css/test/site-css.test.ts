@@ -1,11 +1,11 @@
-import { readFileSync } from "node:fs";
 import { sha256Hex } from "@asksite/core";
 import { describe, expect, it } from "vitest";
 import { SITE_CSS, SITE_CSS_SHA256 } from "../src/index.ts";
 
+// SITE_CSS is the deprecated alias of the impact sheet (A12 addendum H2). design-css.test.ts pins it to
+// DESIGN_CSS.impact and each design's sheet to its compiled file, so no check here names a sheet file.
 describe("@asksite/site-css", () => {
-  it("is exactly the renderer's compiled stylesheet", () => {
-    expect(SITE_CSS).toBe(readFileSync(new URL("../../renderer/styles/out/baseline.css", import.meta.url), "utf8"));
+  it("is a compiled Tailwind stylesheet", () => {
     expect(SITE_CSS).toContain("tailwindcss v4.3.3");
   });
 
