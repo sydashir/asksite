@@ -205,6 +205,13 @@ function checkFile(ctx: Context, sf: SourceFile): void {
     return out;
   }
 
+  /** A destructured key's text: an identifier, a string literal, or a computed key of a string-literal type (as `URL[key]`). */
+  function keyText(name: Node | undefined): string | undefined {
+    if (name && (is.isIdentifier(name) || is.isStringLiteral(name))) return name.text;
+    const type = name && is.isComputedPropertyName(name) ? checker.getTypeAtLocation(name.expression) : undefined;
+    return type?.isStringLiteralType() ? String(type.value) : undefined;
+  }
+
   /** The property's type on a source type; none when the source has no such property. */
   function typeOfProperty(source: Type, name: string): Type[] {
     const property = checker.getPropertyOfType(source, name);
@@ -232,7 +239,7 @@ function checkFile(ctx: Context, sf: SourceFile): void {
       return [...(own ? [own] : []), ...patternSources(p)];
     }
     if (is.isPropertyAssignment(p) && p.initializer === pattern) {
-      const name = is.isIdentifier(p.name) || is.isStringLiteral(p.name) ? p.name.text : undefined;
+      const name = keyText(p.name);
       return name === undefined ? [] : patternSources(p.parent).flatMap((source) => typeOfProperty(source, name));
     }
     if (is.isArrayLiteralExpression(p)) {
@@ -294,9 +301,10 @@ function checkFile(ctx: Context, sf: SourceFile): void {
   for (const b of bindings) {
     if (!is.isBindingElement(b)) continue;
     const nameNode = b.propertyName ?? b.name;
-    if (!nameNode || !is.isIdentifier(nameNode)) continue;
+    const key = keyText(nameNode);
+    if (!nameNode || key === undefined) continue;
     const patternType = checker.getTypeAtLocation(b.parent);
-    evaluate(nameNode, "destructure", patternType && checker.getPropertyOfType(patternType, nameNode.text), () => patternType);
+    evaluate(nameNode, "destructure", patternType && checker.getPropertyOfType(patternType, key), () => patternType);
   }
   // ({ canParse } = URL), ({ canParse: c } = URL), nested or with a default: TypeScript types this
   // literal from its targets, so each property is read from the source on the right-hand side.
@@ -306,8 +314,9 @@ function checkFile(ctx: Context, sf: SourceFile): void {
     if (sources.length === 0) record(pattern, "unmapped", "destructuring assignment", "source not judged", []); // e.g. `for ({ x } of xs)`
     for (const property of pattern.properties) {
       const name = is.isPropertyAssignment(property) || is.isShorthandPropertyAssignment(property) ? property.name : undefined;
-      if (!name || !(is.isIdentifier(name) || is.isStringLiteral(name))) continue; // a spread reads the whole object
-      for (const source of sources) evaluate(name, "destructure", checker.getPropertyOfType(source, name.text), () => source);
+      const key = keyText(name);
+      if (!name || key === undefined) continue; // a spread reads the whole object
+      for (const source of sources) evaluate(name, "destructure", checker.getPropertyOfType(source, key), () => source);
     }
   }
   // { requestIdleCallback }: its name is also the object's own property, so ask for the value it reads

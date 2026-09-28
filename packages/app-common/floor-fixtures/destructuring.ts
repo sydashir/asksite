@@ -16,6 +16,13 @@ export const { a: { canParse: nested } } = { a: URL }; // expect: unsupported ap
 export const { canParse: withFallback = URL.canParse } = URL; // expect: unsupported api.URL.canParse_static; unsupported api.URL.canParse_static
 for (const { canParse } of [URL]) canParse(x); // expect: unsupported api.URL.canParse_static
 export const { showPopover } = div; // expect: unsupported api.HTMLElement.showPopover
+export const [{ canParse: inArray }] = [URL]; // expect: unsupported api.URL.canParse_static
+export const arrowDefault = ({ canParse } = URL) => canParse(x); // expect: unsupported api.URL.canParse_static
+export function annotated({ showPopover }: HTMLElement) { // expect: unsupported api.HTMLElement.showPopover
+  return showPopover;
+}
+export const { "canParse": quoted } = URL; // expect: unsupported api.URL.canParse_static
+export const { ["canParse"]: computed } = URL; // expect: unsupported api.URL.canParse_static
 
 // Assignments.
 let canParse: typeof URL.canParse;
@@ -30,6 +37,8 @@ let popover: typeof div.showPopover;
 [{ canParse }] = [URL]; // expect: unsupported api.URL.canParse_static
 [renamed] = [URL.canParse]; // expect: unsupported api.URL.canParse_static
 ({ showPopover: popover } = div); // expect: unsupported api.HTMLElement.showPopover
+({ "canParse": renamed } = URL); // expect: unsupported api.URL.canParse_static
+({ ["canParse"]: renamed } = URL); // expect: unsupported api.URL.canParse_static
 export const assigned = [canParse, renamed, anySignal, popover];
 
 // An assignment pattern in a for-of head has no `=` source to read: reported, never skipped.
