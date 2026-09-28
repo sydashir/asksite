@@ -65,12 +65,30 @@ describe("the invariant checks can fail (RED proof, on edited pages)", () => {
     ["a renamed id", page.replace('id="contact-message"', 'id="message"').replace('for="contact-message"', 'for="message"'), /^ids /],
     ["a duplicate id", page.replace('<main id="main">', '<main id="main"><p id="top">x</p>'), /^duplicate ids$/],
     ["a relabelled menu link", page.replaceAll('href="#faq">FAQ<', 'href="#faq">Questions<'), /^navigation /],
+    [
+      "a reordered Main nav",
+      page.replaceAll('href="#reviews">Reviews<', "\u0000").replaceAll('href="#faq">FAQ<', 'href="#reviews">Reviews<').replaceAll("\u0000", 'href="#faq">FAQ<'),
+      /^navigation /,
+    ],
+    ['a nav that is not labelled "Main"', page.replace('<nav aria-label="Main"', '<nav aria-label="Site"'), /^navigation /],
     ["an FAQ item that is not exclusive", page.replace('name="faq"', ""), /details\[name=faq\]/],
     ["a second comment", page.replace("<main", "<!-- x --><main"), /^the one comment/],
     ["changed JSON-LD", page.replace('"@type":"Plumber"', '"@type":"LocalBusiness"'), /^JSON-LD differs/],
   ])("catch %s", (_, edited, problem) => {
     expect(edited).not.toBe(page);
     expect(problems(edited).filter((found) => problem.test(found))).toHaveLength(1);
+  });
+
+  // What a design may change (A12-0 round-2 rulings): the checks must not fail these.
+  it.each([
+    [
+      "a Main nav whose aria-label is not its first attribute",
+      page.replace('<nav aria-label="Main" class="order-last lg:order-none">', '<nav class="order-last lg:order-none" aria-label="Main">'),
+    ],
+    ["extra links in the Main nav", page.replace('<ul class="hidden items-center gap-1 lg:flex">', '<a href="#top">Open the menu</a>\n<ul class="hidden items-center gap-1 lg:flex">')],
+  ])("allow %s", (_, edited) => {
+    expect(edited).not.toBe(page);
+    expect(problems(edited)).toEqual([]);
   });
 
   it("catch unsafe or misnamed custom properties", () => {

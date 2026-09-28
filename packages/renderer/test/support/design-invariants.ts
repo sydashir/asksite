@@ -27,11 +27,25 @@ export function honeypot(page: string): string {
 
 const idsOf = (page: string) => startTags(page).flatMap((t) => t.attributes.filter((a) => a.name === "id").map((a) => a.value));
 
-/** The header navigation's links as "href label", once each, in order. */
+/**
+ * The links of the navigation labelled "Main" as "href label", in page order (a phone menu repeats
+ * them). The <nav> is found by its aria-label attribute, whatever the attribute order.
+ */
 export function navLinks(page: string): string[] {
-  const nav = between(page, '<nav aria-label="Main"', "</nav>");
-  const links = [...nav.matchAll(/<a\b[^>]*\bhref="([^"]*)"[^>]*>([\s\S]*?)<\/a>/g)].map((m) => `${m[1]} ${(m[2] ?? "").replace(/<[^>]*>/g, "").trim()}`);
-  return [...new Set(links)];
+  const nav = startTags(page).find((t) => t.name === "nav" && t.attributes.some((a) => a.name === "aria-label" && a.value === "Main"));
+  if (nav === undefined) return [];
+  const end = page.indexOf("</nav>", nav.index);
+  const markup = page.slice(nav.index, end === -1 ? page.length : end);
+  return [...markup.matchAll(/<a\b[^>]*\bhref="([^"]*)"[^>]*>([\s\S]*?)<\/a>/g)].map(
+    (m) => `${m[1]} ${(m[2] ?? "").replace(/<[^>]*>/g, "").replace(/\s+/g, " ").trim()}`,
+  );
+}
+
+/** True when `wanted` appears in `list` in the same order, other items allowed between and around. */
+function inOrder(wanted: readonly string[], list: readonly string[]): boolean {
+  let next = 0;
+  for (const item of list) if (item === wanted[next]) next++;
+  return next === wanted.length;
 }
 
 const faqDetails = (page: string) =>
@@ -73,7 +87,10 @@ export function invariantProblems(page: string, baseline: string, doc: SiteDocum
   const kept = ids.filter((id) => baselineIds.includes(id));
   if (!same(kept, baselineIds)) problems.push(`ids ${JSON.stringify(kept)}, expected ${JSON.stringify(baselineIds)}`);
 
-  if (!same(navLinks(page), navLinks(baseline))) problems.push(`navigation ${JSON.stringify(navLinks(page))}, expected ${JSON.stringify(navLinks(baseline))}`);
+  // Today's section links (href and label) stay in the Main nav, in today's order. A design may add
+  // links (a menu toggle, a call link); ids, axe and the e2e menu test cover those.
+  const todaysLinks = [...new Set(navLinks(baseline))];
+  if (!inOrder(todaysLinks, navLinks(page))) problems.push(`navigation ${JSON.stringify(navLinks(page))} lacks, in order, ${JSON.stringify(todaysLinks)}`);
   if (faqDetails(page) !== faqDetails(baseline)) problems.push(`${faqDetails(page)} details[name=faq], expected ${faqDetails(baseline)}`);
   if (!same(jsonLd(page), jsonLd(baseline))) problems.push("JSON-LD differs from today's");
   return problems;

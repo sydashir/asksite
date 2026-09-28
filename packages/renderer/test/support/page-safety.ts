@@ -34,6 +34,8 @@ export interface StartTag {
   readonly name: string;
   readonly attributes: readonly Attribute[];
   readonly raw: string;
+  /** Where the tag starts in the page. */
+  readonly index: number;
 }
 
 export function startTags(page: string): StartTag[] {
@@ -45,6 +47,7 @@ export function startTags(page: string): StartTag[] {
       doubleQuoted: a[3] === undefined && a[4] === undefined,
     })),
     raw: m[0],
+    index: m.index,
   }));
 }
 
