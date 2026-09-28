@@ -261,8 +261,11 @@ const ROW_STATES: [string, RowState][] = [
   // task-9-additions.md E also gives for a missing model). Neither count reads model.
   ["the job: a regeneration with no key (provider_unavailable, 0 attempts, slot given back, no model)", { row: { kind: "regenerate", status: "failed", error_code: "provider_unavailable", attempts: 0, provider: "anthropic", model: null }, started: true, today: true, total: false }],
   ["the job: a regeneration whose attempt 1 the input guard refused (provider_unavailable, 0 attempts, slot given back, the requested model)", { row: { kind: "regenerate", status: "failed", error_code: "provider_unavailable", attempts: 0, provider: "anthropic", model: "claude-opus-5-5" }, started: true, today: true, total: false }],
-  ["the job: a regeneration claimed and then failed by our own code (costUnknown: internal, slot kept)", { row: { kind: "regenerate", status: "failed", error_code: "internal", model_slot: 1 }, started: true, today: true, total: false }],
-  ["the sweeper: a running regeneration with a model slot, ended as internal", { row: { kind: "regenerate", status: "failed", error_code: "internal", model_slot: 1 }, started: true, today: true, total: false }],
+  // One row for two writers, as no field is known to differ. The sweeper's UPDATE sets only status, error_code and
+  // finished_at (task-10-brief.md, sweepStuckJobs). The job's costUnknown write keeps the slot and records 0 tokens and
+  // 0 cost (task-9-additions.md C), and the plan's catch-all writes NO_SPEND's provider and model (null) and attempts (0)
+  // (task-9-brief.md): the values the claimed row already holds. Neither count reads these fields.
+  ["the job's costUnknown catch (claimed, then failed by our own code) or the sweeper ending a running regeneration with a model slot: internal, slot kept", { row: { kind: "regenerate", status: "failed", error_code: "internal", model_slot: 1 }, started: true, today: true, total: false }],
   ["the sweeper: a running regeneration without a model slot, ended as internal", { row: { kind: "regenerate", status: "failed", error_code: "internal", model_slot: 0 }, started: true, today: true, total: false }],
   ["the sweeper: a queued regeneration never claimed, ended as internal", { row: { kind: "regenerate", status: "failed", error_code: "internal" }, started: false, today: false, total: false }],
   // task-10-brief.md:138-143 and task-10-additions.md A: a stuck queued first build with readable input gets the
