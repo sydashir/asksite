@@ -91,7 +91,7 @@ export const FONTS: Record<FontId, FontPreset> = {
 };
 
 /** The 12 per-site CSS custom properties (3 fonts + 9 colours) read by the shared stylesheet. */
-export function themeVariables(theme: Theme): Record<string, string> {
+export function themeVariables(theme: Pick<Theme, "palette" | "font">): Record<string, string> {
   const p = PALETTES[theme.palette];
   const f = FONTS[theme.font];
   return {
@@ -111,7 +111,7 @@ export function themeVariables(theme: Theme): Record<string, string> {
 }
 
 /** Inline <style> block for the page head. Values are our own constants, never user input. */
-export function themeStyle(theme: Theme): SafeHtml {
+export function themeStyle(theme: Pick<Theme, "palette" | "font">): SafeHtml {
   const declarations = Object.entries(themeVariables(theme))
     .map(([name, value]) => `${name}:${value};`)
     .join("");

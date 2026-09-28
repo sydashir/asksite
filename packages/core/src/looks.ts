@@ -6,4 +6,4 @@ export const LOOKS = [
   { id: "bright", name: "Bright", theme: { palette: "blue-yellow", font: "friendly" } },
   { id: "outdoor", name: "Outdoor", theme: { palette: "green-amber", font: "sturdy" } },
   { id: "bold", name: "Bold", theme: { palette: "charcoal-red", font: "sturdy" } },
-] as const satisfies ReadonlyArray<{ id: string; name: string; theme: Theme }>;
+] as const satisfies ReadonlyArray<{ id: string; name: string; theme: Pick<Theme, "palette" | "font"> }>;

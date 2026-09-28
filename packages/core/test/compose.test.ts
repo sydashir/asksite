@@ -100,13 +100,13 @@ describe("composeDocument", () => {
       copy: { heroHeadline: "Old wording" },
       order: ["hero", "faq", ...SECTION_IDS.filter((id) => id !== "hero" && id !== "faq")],
       hidden: ["faq"],
-      theme: { palette: "charcoal-red", font: "sturdy" },
+      theme: { palette: "charcoal-red", font: "sturdy", design: "refined" },
     });
     const composed = composeDocument(facts, ai, stale);
     expect(composed.copy.heroHeadline).toBe(ai.draft.copy.heroHeadline);
     expect(composed.layout.map((s) => s.id)).toEqual(ai.draft.layout.map((s) => s.id));
     expect(composed.hidden).toEqual(["faq"]);
-    expect(composed.theme).toEqual({ palette: "charcoal-red", font: "sturdy" });
+    expect(composed.theme).toEqual({ palette: "charcoal-red", font: "sturdy", design: "refined" });
     expect(ownerEditedPaths(ai, stale)).toEqual([]);
   });
 
