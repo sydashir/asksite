@@ -28,4 +28,15 @@ describe("toIssues", () => {
     if (refined.success) throw new Error("expected a refinement issue");
     expect(toIssues(refined.error)).toEqual([{ path: ["Symbol(s)"], code: "custom", message: "symbolic" }]);
   });
+
+  it("returns only the first 50 issues (A9)", () => {
+    const issuesFor = (count: number) => {
+      const result = z.array(z.string()).safeParse(Array.from({ length: count }, () => 0));
+      if (result.success) throw new Error("expected type issues");
+      return { zod: result.error.issues.length, ours: toIssues(result.error).map((issue) => issue.path) };
+    };
+    expect(issuesFor(50)).toEqual({ zod: 50, ours: Array.from({ length: 50 }, (_, i) => [i]) });
+    expect(issuesFor(51)).toEqual({ zod: 51, ours: Array.from({ length: 50 }, (_, i) => [i]) });
+    expect(issuesFor(10_000)).toEqual({ zod: 10_000, ours: Array.from({ length: 50 }, (_, i) => [i]) });
+  });
 });

@@ -82,10 +82,10 @@ Update them as work happens, not only at the end. The user will say when context
 
 ## Parallel build sessions (user instruction 2026-09-25)
 
-- The moderator session `web-maker-99` (folder `/Users/ashir/Documents/workk2/web_maker`) is the controller of every build session. Build sessions talk to it with SendMessage; it relays to the user only when a decision is the user's.
-- Build sessions never assume or guess: if the plan, design or code does not answer something with certainty, stop and ask `web-maker-99`. The moderator asks the user when it is unsure.
-- User rule (2026-09-25): web-maker-99 reviews a build session's code before any git action beyond a local commit on that session's own branch. Build sessions may only run read-only git, `git add <named paths>` and `git commit` on their own branch; push, merge (including "Sync with main"), rebase, reset, revert, cherry-pick, amend, switching branches, branch/tag changes, stash, worktree commands and `git clean` need web-maker-99's explicit OK for that one action, given after review.
-- Only web-maker-99 pushes or runs `gh` (the active gh account is machine-wide, so parallel switching can leave the wrong one active); build sessions never push, and web-maker-99 pushes their branches.
+- The moderator session (currently `web-maker-1c`, formerly `web-maker-76` and `web-maker-99`; after any restart it announces its new name and socket to every session) in folder `/Users/ashir/Documents/workk2/web_maker` is the controller of every build session. Build sessions talk to it with SendMessage; it relays to the user only when a decision is the user's.
+- Build sessions never assume or guess: if the plan, design or code does not answer something with certainty, stop and ask the moderator. The moderator asks the user when it is unsure.
+- User rule (2026-09-25): the moderator reviews a build session's code before any git action beyond a local commit on that session's own branch. Build sessions may only run read-only git, `git add <named paths>` and `git commit` on their own branch; push, merge (including "Sync with main"), rebase, reset, revert, cherry-pick, amend, switching branches, branch/tag changes, stash, worktree commands and `git clean` need the moderator's explicit OK for that one action, given after review.
+- Only the moderator pushes or runs `gh` (the active gh account is machine-wide, so parallel switching can leave the wrong one active); build sessions never push, and the moderator pushes their branches.
 - No clobbering: each session works only in its own worktree and branch; never touches another session's folder, `main`, or another branch; never force-pushes, rebases, deletes branches or prunes worktrees; stops only processes it started; never kills a process holding a port it did not open.
 
 ## Separate sessions for big work

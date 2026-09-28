@@ -2,13 +2,30 @@
 
 Last updated: 2026-09-25 (written at the user's context-limit signal)
 
+## NOW (2026-09-27 15:00) — WEEKLY USAGE LIMIT HIT — read this first
+- The account in use (integrations@districtbehavioralhealth.com per session context) hit its WEEKLY limit around 08:05; it resets Sep 29 01:00 PKT. Every agent failing since then says "You've hit your weekly limit". Resume = log in with an account that has capacity (/login in each tab), or wait.
+- State per line (all committed work is safe; nothing pushed since acae4ab):
+  - web_maker plan2-hosting @ a8869cb (A9..A9f). A9f review APPROVED; the attack had 1 Important (ʗ ʘ ɧ Ꜧ ꜧ look-alikes not read); fix2 was mid-work when the limit hit: UNCOMMITTED edits in lookalikes.ts, claims.test.ts, lookalikes.test.ts (they look like the intended fix; the digest test is probably not updated). Resume: workflow a9f-final-letters (wf_9b940ca6-9c3, resumeFromRunId). Then my verification -> merge + push -> sync OK to the sessions -> A12-0.
+  - Plan 2B asksite-plan2b @ 24dbc53: Tasks 7-17 done; Task 18 (final checks) BLOCKED on a decision: lead emails can exceed Resend Free 100/day (measured 101). Needs the user's ruling on the lead-email daily cap L (<= 60 - 10*alert recipients - admin emails; suggest 40) and acceptance that lead emails pause for all owners until 00:00 UTC once L is hit (leads still saved + shown in the app). See p2-task-18-report.md "Fix round".
+  - Plan 3 asksite-plan3 @ 2a7ba94 (P3-11 parts A-C done, D in progress when the limit hit).
+  - Plan 4 asksite-plan4 @ 68116bc (P4-15 in progress; Task 10/11 fixes queued).
+  - Designs: Bold done (8.5/8/8.5; must-fixes carried into its build; USER: embed Archivo font). Classic DONE at 9.1/9/9 (classic-v2/r4). Modern r4: judge 1 = 9, judges 2-3 cut off by the limit (resume wf_f197899d-364).
+- INCIDENT 06:08: a Modern design agent ran `pkill -f "cat" -U <uid>` and killed many of the user's apps (Chrome fully restarted, Slack/VS Code likely closed, Grammarly/macOS agents restarted). The user declined a hook-based block ("rules only"): every future agent prompt must say "stop processes ONLY by exact PID you started; never pkill/killall".
+
+## NOW (2026-09-27 01:55) — read this first
+- Restart at ~01:50 (process ended overnight). The moderator is now web-maker-76 (socket uds:/tmp/cc-socks/49136.sock). Sessions: Plan 3 = asksite-plan3-34 (49266.sock), Plan 4 = asksite-plan4-2a (49189.sock); both were told the new name.
+- A dead Plan 2B fixer had left a MUTANT uncommitted (form.ts MAX_BODY_BYTES 16->17 KiB, plus test edits). Backed up to scratchpad/p2b-t13-dead-fixer.patch; the 4 files restored to 614a292.
+- Resumed: A9d (wf_6070eb4f-974, task wjnr9djyl; A9d commits ab48423..3fc9a93, code review APPROVED), Plan 2B (wf_7da60e6d-e9c, task wfmsoid3t; at Task 13 contact form), Bold design (wo5uqk4oo), Classic+Modern design (w6vtqc8mk).
+- A9d approved; A9e (with A13-main + A14 bundled) running: wf_3e13be8f-adc, task wb8grv55m. Then: my verification -> merge + push -> second sync OK to sessions -> A12-0 contract step.
+
 ## NOW (2026-09-25 ~22:20) — read this first
-- A8c APPROVED (040e841) and verified by me: typecheck 0; 842 unit + 14 workerd; 138 e2e pass / 34 skipped; goldens unchanged; 16 commits clean. Merging to main now with the docs commit.
-- Next in this folder: A9 (13 items, from the docs audit; plan-decisions.md) on plan2-hosting, then its own merge.
-- Plan 2B runs in worktree /Users/ashir/Documents/workk2/asksite-plan2b (branch plan2b-serve from 2438620), workflow wf_f3dfaf94-b6c, task wmi35a7h7. It syncs with main at handback.
+- A8c APPROVED (040e841) and verified by me: typecheck 0; 842 unit + 14 workerd; 138 e2e pass / 34 skipped; goldens unchanged; 16 commits clean. MERGED: main = acae4ab, pushed.
+- A9 + A9b approved (to 1d6aed2); A9c running (wf_e2be10dc-f9d, task w62fdtamq); THEN A13-main + A14 (flags + typeof-process tests in the core migration and site-css workerd tests; AUDIT_ACTIONS += admin.login_link_sent); THEN verify + merge + push + second sync. A9b RUNNING (workflow wf_0a2bb706-ab5, task wbt922apw). After A9b: verify, merge, push, second sync to the sessions (Plan 4 must update http.test.ts:264, which expects 60 issues). Then verify, merge, push, and a second sync OK to the sessions.
+- Plan 2B runs in worktree /Users/ashir/Documents/workk2/asksite-plan2b (branch plan2b-serve from 2438620), workflow wf_7da60e6d-e9c (resumed from Task 9 at 10bd62c), task w0d42my29. It syncs with main at handback.
 - Plan 3 (asksite-plan3-d1, socket uds:/tmp/cc-socks/10057.sock): Tasks 1-5 done; P3-4a/P3-5/P3-6 in progress; Task 6 next. My reviews 1-2 done; review 3 = f512f0f..(Task 5 + fixes).
 - Plan 4 (asksite-plan4-a1, socket uds:/tmp/cc-socks/17986.sock): Tasks 1-4 done, 5 in progress, then P4-3/4/6 fix, then admin 19-22; Task 6 waits for the A8c main + my sync OK. Review 1 done (approved).
 - Rules added today: build sessions never push or run gh; my review comes before any git action other than local commits; context7/official docs for every library use (context7 monthly quota is out: WebFetch the official docs); I red-team my own decisions before sending them (memory: red-team-decisions-first).
+- Design upgrade track: stage 1 done (Classic 7.5 / Bold 7.2 / Modern 6.8; gallery in scratchpad design/index.html). USER CHOSE BOLD. Stage 2 = workflow wf_0023fe94-0e4 (task wqtvld67d), iterating Bold to >= 9 from all 3 judges (max 4 rounds), output scratchpad design/bold-v2/rN. Then show the user, decide the font variant (system vs data: font, which needs a CSP font-src change in Plan 2), then build in its own worktree after A9 merges.
 - Decisions log: .superpowers/sdd/plan-decisions.md (A8c-2, A8c-3, A9, P3-1..P3-6, P4-1..P4-6).
 
 ## Read first after a compaction
@@ -27,7 +44,7 @@ CLAUDE.md, docs/context.md, this file, the end of docs/journal.md, .superpowers/
 ## Next steps (in order)
 1. A8c workflow run wf_6db34b64-6bd, task ID wl71dilnq (TaskStop takes the task ID), on top of A8b 420cfa1, is running. The old A8b workflow w8kmslz6i and the first A8c run ww4g3f0w8 are stopped. When approved: check review/attack; verify myself (pnpm typecheck, pnpm test, pnpm test:e2e = 138 passed/34 skipped expected, goldens unchanged via git diff --stat fec8ac9..HEAD -- fixtures/golden e2e); commit docs; fast-forward main to the A8b head (git fetch . plan2-hosting:main or switch+merge --ff-only); push main + plan2-hosting with gh switch sydashir → dev778d.
 2. Fast-forward plan3-generation and plan4-app to main ONLY if they still have no commits (git -C <worktree> merge --ff-only main), then SendMessage "GO" to both sessions (tell Plan 3: Task 14 Step 7 now lists 2 known gaps).
-3. RUNNING in worktree asksite-plan2b (branch plan2b-serve, workflow wf_f3dfaf94-b6c, task wmi35a7h7): Plan 2 Part B (Tasks 7–18) with the full pipeline (per-task implement/review/checker/fix, QA for the public Worker, whole-branch review with fable, Task 18 checks, no push by agents). Briefs: .superpowers/sdd/p2-task-{7..19}-brief.md; constraints p2-global-constraints.md; decisions p2-plan-decisions.md; ledger p2-progress.md. Reuse the stage0 workflow script pattern (…/workflows/scripts/stage0-core-wf_18186a08-2bd.js) with task numbers 7..18. Task 19 needs the user's Cloudflare account/domain.
+3. RUNNING in worktree asksite-plan2b (branch plan2b-serve, workflow wf_7da60e6d-e9c (resumed from Task 9 at 10bd62c), task w0d42my29): Plan 2 Part B (Tasks 7–18) with the full pipeline (per-task implement/review/checker/fix, QA for the public Worker, whole-branch review with fable, Task 18 checks, no push by agents). Briefs: .superpowers/sdd/p2-task-{7..19}-brief.md; constraints p2-global-constraints.md; decisions p2-plan-decisions.md; ledger p2-progress.md. Reuse the stage0 workflow script pattern (…/workflows/scripts/stage0-core-wf_18186a08-2bd.js) with task numbers 7..18. Task 19 needs the user's Cloudflare account/domain.
 4. Review each session's handoff when they message "ready for moderator review"; merge (Sync with main first if main moved); push.
 
 ## Needed from the user (later)

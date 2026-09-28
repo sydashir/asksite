@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { isSafeUrl } from "./url.ts";
+import { isSafeUrl, parseUrl } from "./url.ts";
 
 // Owner-entered facts. Nothing in here ever comes from the AI.
 
@@ -31,8 +31,10 @@ const text = (min: number, max: number) =>
     .max(max)
     .refine((s) => !HIDDEN_CHARACTER.test(s), { error: "Control and invisible formatting characters are not allowed" });
 
-const hasNoCredentials = (url: string) =>
-  !URL.canParse(url) || (new URL(url).username === "" && new URL(url).password === "");
+const hasNoCredentials = (url: string) => {
+  const parsed = parseUrl(url);
+  return parsed === undefined || (parsed.username === "" && parsed.password === "");
+};
 
 const HttpsUrl = z
   .string()

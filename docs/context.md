@@ -175,3 +175,6 @@ New sections any niche needs: price list/menu, booking/order link-out, service-a
 - Plan 1 (renderer) and Stage 0 (shared contracts, D1 schema, site-css, owner-hidden sections A6) are built, reviewed, QA'd and merged to main.
 - Plans 2B (hosting/publish/leads, moderator folder), 3 (AI generation, session asksite-generation) and 4 (owner app, session asksite-app) build in parallel; web-maker-99 controls and merges. Binding decisions: design 'Moderator decisions' M1–M6 + D1–D6, amendments A1–A8b in .superpowers/sdd/plan-decisions.md.
 - Owner-edited sentences stay strict (no numbers/links/@; facts in their own boxes) — user decision 2026-09-25.
+
+- Layouts (user decision 2026-09-26): owners choose between THREE page layouts (Bold, Classic, Modern), each a distinct design at 9+/10 quality; the AI recommends one; the owner can switch in the editor. On top: 4 palettes x 3 font presets. The contract change is amendment A12 (in design).
+- Email (user decision 2026-09-26): stay on Resend Free (100/day, 3,000/month) at launch. Sign-in emails are capped at 40/day to protect lead emails. Accepted risk: a determined person can pause new sign-in emails for all owners until midnight UTC; existing sessions (30 days) are unaffected; the admin can send sign-in links by hand. Resend Pro ($20/mo, no daily limit) removes this if needed later.
