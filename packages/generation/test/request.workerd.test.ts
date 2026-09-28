@@ -379,6 +379,20 @@ describe("which rows count toward the site's day and the owner's total (P3-11 (p
     expect(await requestGeneration(env(queue().q), input())).toEqual({ ok: false, code: "generation_cap_reached" });
   });
 
+  it("counts only the owner's own regenerations: another owner's 20 counted ones neither refuse o1 nor count against o1", async () => {
+    await seedOwnerSite(db, "o2", "s9");
+    await insertGeneration(db, { id: "o2-built", site_id: "s9", owner_id: "o2", status: "succeeded", created_at: 1 });
+    for (let i = 0; i < 20; i++) await insertGeneration(db, { id: `o2-r${i}`, site_id: "s9", owner_id: "o2", kind: "regenerate", status: "succeeded", model_slot: 1, attempts: 1, created_at: 1, started_at: 1, finished_at: 1 });
+    const o2 = () => generationAllowance({ DB: db }, { siteId: "s9", ownerId: "o2", now: NOW });
+    expect(await o2()).toEqual({ generationsLeftToday: 5, generationsLeftTotal: 0 });
+    await succeeded("built", "s1", "first");
+    expect(await allowance()).toEqual({ generationsLeftToday: 5, generationsLeftTotal: 20 });
+    // o1's regeneration passes the pre-check (OWNER_TOTAL) and INSERT_JOB's own count, and then counts for o1 alone.
+    expect(outcome(await requestGeneration(env(queue().q), input()))).toBe("regenerate");
+    expect(await allowance()).toEqual({ generationsLeftToday: 4, generationsLeftTotal: 19 });
+    expect(await o2()).toEqual({ generationsLeftToday: 5, generationsLeftTotal: 0 });
+  });
+
   it("a failed queue send spends neither count: at the cap edge the next request still queues; the failed row and its audit row stay", async () => {
     await succeeded("built", "s1", "first");
     for (let i = 0; i < 4; i++) await insertGeneration(db, { id: `t${i}`, site_id: "s1", owner_id: "o1", kind: "regenerate", status: "succeeded", model_slot: 1, attempts: 1, created_at: DAY + i, started_at: DAY + i, finished_at: DAY + i });
