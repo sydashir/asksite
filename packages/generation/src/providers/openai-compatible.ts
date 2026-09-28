@@ -155,9 +155,14 @@ export class OpenAICompatibleProvider implements ModelProvider {
       max_tokens: req.maxOutputTokens,
       response_format: { type: "json_schema", json_schema: { name: "site_draft", strict: true, schema: toWireSchema(req.jsonSchema) } },
     });
+    // The stored fetch is called with no receiver (P3-16 fix 2): `this.#fetch(...)` would pass this adapter as `this`,
+    // and workerd's own fetch then throws "Illegal invocation: function called with incorrect `this` reference"
+    // (developers.cloudflare.com/workers/observability/errors/#illegal-invocation-errors; compat-fetch.workerd.test.ts).
+    // The Anthropic SDK calls its fetch the same way (client.mjs:670, `baseFetch.call(undefined, ...)`).
+    const send = this.#fetch;
     let response: Response;
     try {
-      response = await this.#fetch(this.#url, {
+      response = await send(this.#url, {
         method: "POST",
         headers: { authorization: `Bearer ${this.#apiKey}`, "content-type": "application/json" },
         body,
