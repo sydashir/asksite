@@ -19,7 +19,8 @@ import { apiName, describe, isPlainObjectMember, keysFor } from "./mapping.ts";
 
 // The browser floor check (P4-7): every runtime use of an API that a TypeScript default lib file
 // declares is mapped to its MDN browser-compat-data entry and checked at the floor. Types only and
-// feature tests (`typeof X.y`) are not uses. A use with no MDN key fails as unmapped.
+// feature tests (`typeof X`; the `.y` of `typeof X.y`, whose X is still read) are not uses. A use
+// with no MDN key fails as unmapped.
 //
 // TypeScript 7.0 ships no stable compiler API ("we won't have a stable programmatic API available
 // until at least several months from now with TypeScript 7.1", 7.0 RC notes); `typescript/unstable/*`
@@ -123,11 +124,12 @@ function checkFile(ctx: Context, sf: SourceFile): void {
     } else if (is.isRegularExpressionLiteral(n)) {
       regexes.push(n);
     } else if (is.isIdentifier(n)) {
-      // Not a declared name, a property name (handled above), a type or a JSX attribute name.
+      // Not a declared name, a property name (handled above), a type or a JSX attribute name. The
+      // receiver of `X.y` is a use of X: `Float16Array.from` and `typeof Float16Array.from` both read
+      // the global first, whatever MDN says about the member.
       const p = n.parent as Node & { name?: Node; propertyName?: Node };
       const isName = p.name === n || p.propertyName === n;
-      if (!isName && !is.isPropertyAccessExpression(p) && !inTypePosition(n) && !is.isJsxAttribute(p) && !isFeatureTest(n))
-        lookups.push({ node: n, receiver: undefined, how: "identifier" });
+      if (!isName && !inTypePosition(n) && !is.isJsxAttribute(p) && !isFeatureTest(n)) lookups.push({ node: n, receiver: undefined, how: "identifier" });
     }
     n.forEachChild(walk);
   };
