@@ -1,5 +1,6 @@
 export { auditStatement, type AuditAction, type SqlDatabase } from "./audit.ts";
 export { inBackground, runToEnd, type WaitUntil } from "./background.ts";
+export { BROWSER_FLOOR, BROWSER_FLOOR_BUILD_TARGET } from "./browser-floor.ts";
 export {
   adminAlertEmail,
   cleanSubject,
