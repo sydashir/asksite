@@ -30,3 +30,24 @@ export const interfaceAndConstructor = new Highlight(); // expect: unsupported a
 export const image = new Image();
 export const audio = new Audio();
 export const option = new Option();
+
+// Every other typed array (MDN: iOS 4.2, the BigInt ones 15) has no own from, of or BYTES_PER_ELEMENT
+// entry, so each resolves to TypedArray's (iOS 10, 10 and 4.2). All pass.
+export const int8 = [Int8Array.from([1]), Int8Array.of(1), Int8Array.BYTES_PER_ELEMENT];
+export const uint8 = [Uint8Array.of(1), Uint8Array.prototype.at];
+export const uint8Clamped = [Uint8ClampedArray.from([1]), Uint8ClampedArray.of(1), Uint8ClampedArray.BYTES_PER_ELEMENT];
+export const int16 = [Int16Array.from([1]), Int16Array.of(1), Int16Array.BYTES_PER_ELEMENT];
+export const uint16 = [Uint16Array.from([1]), Uint16Array.of(1), Uint16Array.BYTES_PER_ELEMENT];
+export const int32 = [Int32Array.from([1]), Int32Array.of(1), Int32Array.BYTES_PER_ELEMENT];
+export const uint32 = [Uint32Array.from([1]), Uint32Array.of(1), Uint32Array.BYTES_PER_ELEMENT];
+export const float32 = [Float32Array.from([1]), Float32Array.of(1), Float32Array.BYTES_PER_ELEMENT];
+export const float64 = [Float64Array.from([1]), Float64Array.of(1), Float64Array.BYTES_PER_ELEMENT];
+export const bigInt64 = [BigInt64Array.from([1n]), BigInt64Array.of(1n), BigInt64Array.BYTES_PER_ELEMENT];
+export const bigUint64 = [BigUint64Array.from([1n]), BigUint64Array.of(1n), BigUint64Array.BYTES_PER_ELEMENT];
+
+// A subclass of our own inherits the statics: each is judged on the lib class's own entry first.
+class OwnURL extends URL {}
+export const viaOwnSubclass = OwnURL.canParse(""); // expect: unsupported api.URL.canParse_static
+class OwnBytes extends Uint8Array {}
+export const viaOwnTypedSubclass = OwnBytes.fromBase64(""); // expect: unsupported javascript.builtins.Uint8Array.fromBase64
+export const viaOwnTypedShared = OwnBytes.from([1]);

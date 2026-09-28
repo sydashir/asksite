@@ -31,7 +31,7 @@ function found(file: string): string[] {
 }
 
 describe("browser floor check", () => {
-  it.each(["baseline.ts", "aliases.ts", "a-receivers.ts", "b-generics.ts", "c-mixins.ts", "d-partial.ts", "e-suppressions.ts", "statics.ts", "destructuring.ts"])("%s: fails exactly the marked uses", (file) => {
+  it.each(["baseline.ts", "aliases.ts", "a-receivers.ts", "b-generics.ts", "c-mixins.ts", "d-partial.ts", "e-suppressions.ts", "statics.ts", "destructuring.ts", "forms.ts", "alias-source.ts", "alias-reexport.ts", "alias-import.ts"])("%s: fails exactly the marked uses", (file) => {
     expect(found(file).sort()).toEqual(expected(file).sort());
   });
 
