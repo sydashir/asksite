@@ -137,10 +137,10 @@ describe("requestGeneration", () => {
   });
 
   describe("a used-up lifetime is answered first for a regeneration (P3-16 fix 1)", () => {
-    /** Owner o1's site s1 is built and has `count` succeeded regenerations, none of them today. */
-    async function regenerations(count: number): Promise<void> {
+    /** Owner o1's site s1 is built and has `count` regenerations, none of them today, each succeeded or ended as `end`. */
+    async function regenerations(count: number, end: Partial<GenerationRow> = {}): Promise<void> {
       await insertGeneration(db, { id: "built", site_id: "s1", owner_id: "o1", status: "succeeded", created_at: 0 });
-      for (let i = 0; i < count; i++) await insertGeneration(db, { id: `r${i}`, site_id: "s1", owner_id: "o1", kind: "regenerate", status: "succeeded", model_slot: 1, attempts: 1, created_at: 0, started_at: 0, finished_at: 0 });
+      for (let i = 0; i < count; i++) await insertGeneration(db, { id: `r${i}`, site_id: "s1", owner_id: "o1", kind: "regenerate", status: "succeeded", model_slot: 1, attempts: 1, created_at: 0, started_at: 0, finished_at: 0, ...end });
     }
     /** Today's model calls: one call, from a first build on s2. */
     const useTodaysCall = () => insertGeneration(db, { id: "used", site_id: "s2", owner_id: "o1", status: "succeeded", model_slot: 1, started_at: NOW - 1 });
@@ -150,6 +150,11 @@ describe("requestGeneration", () => {
       const { q, sent } = queue();
       expect(await requestGeneration(env(q, "false"), input())).toEqual({ ok: false, code: "generation_cap_reached" });
       expect(sent).toEqual([]);
+    });
+
+    it("answers generation_cap_reached, not generation_disabled, when the owner's 20 all ended invalid_output and generation is switched off", async () => {
+      await regenerations(20, { status: "failed", error_code: "invalid_output", attempts: 3 });
+      expect(await requestGeneration(env(queue().q, "false"), input())).toEqual({ ok: false, code: "generation_cap_reached" });
     });
 
     it("answers generation_cap_reached, not budget_exhausted, when the owner's 20 are used up and today's model calls are too", async () => {
