@@ -59,8 +59,18 @@ describe("the page checks can fail (RED proof)", () => {
     ["<style>p{}</style>", ["3 style blocks"]],
     ["<!-- x -->", ["2 comments"]],
     ["1 < 2", ['a raw "<" that starts none of our tags']],
+    ['<small onclick="alert(1)">x</small>', ["handler onclick"]],
+    ['<svg aria-hidden="true"><rect width="8" height="8" xlink:href="javascript:alert(1)"/></svg>', ["url xlink:href=javascript:alert(1)", "scheme xlink:href=javascript:alert(1)"]],
   ])("catch %s", (markup, problems) => {
     expect(pageSafetyProblems(inject(markup))).toEqual(problems);
+  });
+
+  // The page designs' mockups use these (A12-0 round-2 rulings); every attribute check still applies to them.
+  it("pass the harmless elements designs use: dl, dt, dd, strong, small, wbr and the svg shapes", () => {
+    const markup =
+      '<dl><dt>Mon</dt><dd>7 AM</dd></dl><p><strong>A</strong> <small>b</small> c<wbr>d</p>' +
+      '<svg aria-hidden="true" viewBox="0 0 8 8"><g><rect width="8" height="8"/><circle r="1"/><line x2="1"/><polyline points="0 0 1 1"/><polygon points="0 0 1 1"/></g></svg>';
+    expect(pageSafetyProblems(inject(markup))).toEqual([]);
   });
 });
 

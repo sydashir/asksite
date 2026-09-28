@@ -2,11 +2,14 @@
 // markup is ours, but the owner's facts and the AI's copy fill it, so each page is checked as the HTML
 // tokenizer reads it.
 
+// Elements a page may hold. dl dt dd strong small wbr and the svg shapes were added for the page
+// designs (A12-0 round-2 rulings); the attribute, URL and handler checks below apply to every element.
 const ALLOWED_TAGS = new Set(
   (
-    "html head meta title style script body a header div nav ul li details summary span svg path g main section " +
+    "html head meta title style script body a header div nav ul li details summary span main section " +
     "p h1 h2 h3 img figure figcaption blockquote hr table tbody tr th td address br form label input select option " +
-    "textarea button aside footer"
+    "textarea button aside footer dl dt dd strong small wbr " +
+    "svg g path rect circle line polyline polygon"
   ).split(" "),
 );
 
