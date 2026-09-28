@@ -1,9 +1,11 @@
 import { DESIGN_IDS } from "@asksite/site-schema";
 import { describe, expect, it } from "vitest";
 import { FIXTURES, loadFixture, renderFixture, stubStylesheets } from "../../../fixtures/index.ts";
+import { escapeText } from "../src/escape.ts";
 import { render } from "../src/index.ts";
 import { FULL } from "./support/doc.ts";
 import { pageSafetyProblems, startTags } from "./support/page-safety.ts";
+import { squash, squashedText } from "./support/page-text.ts";
 
 const STUB = stubStylesheets();
 
@@ -28,7 +30,10 @@ describe.each(DESIGN_IDS)("the %s design", (design) => {
     it("shows payloads as text", () => {
       expect(page).toContain("&lt;img src=x onerror=alert(1)&gt;");
       expect(page).toContain('alt="&quot; onerror=&quot;alert(1)"');
-      expect(page).toContain("&lt;script&gt;alert(document.domain)&lt;/script&gt;</h1>");
+      // The headline is the payload: the h1's text is exactly its escaped form, however a design wraps it.
+      const h1 = page.slice(page.indexOf("<h1"), page.indexOf("</h1>"));
+      expect(squashedText(h1)).toBe(squash(escapeText(loadFixture("electrical-xss").copy.heroHeadline)));
+      expect(squashedText(h1)).toBe(squash("&lt;script&gt;alert(document.domain)&lt;/script&gt;"));
     });
 
     it("keeps JSON-LD intact: payloads round-trip without breaking out", () => {

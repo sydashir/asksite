@@ -97,6 +97,27 @@ const honeypotOffScreen = (page: Page) =>
     return box.right + window.scrollX <= 0 || box.bottom + window.scrollY <= 0;
   });
 
+/**
+ * Opens the header's phone menu and follows its FAQ link, whatever the design's menu is (a <details>
+ * disclosure or a :target link, both work without JavaScript), and lists what went wrong. The menu is
+ * found by role and name: the navigation named "Main", then the one visible control whose text names the
+ * menu. Playwright 1.63 gives <summary> no ARIA role, so that control is matched by its text among
+ * summary, link and button elements.
+ */
+async function phoneMenuProblems(page: Page): Promise<string[]> {
+  const nav = page.getByRole("navigation", { name: "Main" });
+  const faq = nav.getByRole("link", { name: "FAQ", exact: true }).filter({ visible: true });
+  if ((await faq.count()) > 0) return ["the FAQ link shows before the menu opens"];
+  const toggle = nav.locator("summary, a, button").filter({ hasText: /menu/i, visible: true });
+  const toggles = await toggle.count();
+  if (toggles !== 1) return [`${toggles} visible menu controls`];
+  await toggle.click();
+  const shown = await faq.first().waitFor({ state: "visible", timeout: 5_000 }).then(() => true, () => false);
+  if (!shown) return ["the FAQ link stays hidden after the menu opens"];
+  await faq.first().click();
+  return (await page.waitForURL(/#faq$/, { timeout: 5_000 }).then(() => true, () => false)) ? [] : [`the FAQ link leads to ${page.url()}`];
+}
+
 /** The id of each element keyboard focus lands on, over `steps` presses ("" for one without an id). */
 async function focusedIds(page: Page, browserName: string, steps = 80): Promise<string[]> {
   const ids: string[] = [];
@@ -209,11 +230,7 @@ for (const design of DESIGN_IDS) {
       test("the phone menu opens and its links work", async ({ page }) => {
         test.skip((page.viewportSize()?.width ?? 0) >= 1024, "the menu is replaced by inline links on wide screens");
         await open(page, "plumber-austin", design);
-        const menu = page.locator("header details");
-        await menu.locator("summary").click();
-        await expect(menu).toHaveAttribute("open", "");
-        await menu.getByRole("link", { name: "FAQ" }).click();
-        await expect(page).toHaveURL(/#faq$/);
+        expect(await phoneMenuProblems(page)).toEqual([]);
       });
     });
 
@@ -296,6 +313,13 @@ test.describe("the gates can fail (RED proof)", () => {
     await open(page, "plumber-austin");
     await page.addStyleTag({ content: "div:has(> #contact-website){left:0!important}" });
     expect(await honeypotOffScreen(page)).toBe(false);
+  });
+
+  test("the phone menu check sees a menu that does not open", async ({ page }) => {
+    test.skip((page.viewportSize()?.width ?? 0) >= 1024, "the menu is replaced by inline links on wide screens");
+    await open(page, "plumber-austin");
+    await page.addStyleTag({ content: 'nav[aria-label="Main"] ul{display:none!important}' });
+    expect(await phoneMenuProblems(page)).toEqual(["the FAQ link stays hidden after the menu opens"]);
   });
 
   test("the focus check sees a honeypot field that keyboard focus can reach", async ({ page, browserName }) => {

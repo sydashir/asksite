@@ -4,6 +4,7 @@ import { inDesign, stubStylesheets } from "../../../fixtures/index.ts";
 import { DESIGNS } from "../src/designs/index.ts";
 import { pageTitle, render, type RenderOptions } from "../src/index.ts";
 import { FULL, MINIMAL } from "./support/doc.ts";
+import { squash, squashedText } from "./support/page-text.ts";
 
 const OPTIONS: RenderOptions = { stylesheets: stubStylesheets("/* compiled css */"), formAction: "https://forms.example.com/submit" };
 const renderHtml = (input: SiteDocumentInput, options: RenderOptions = OPTIONS) => render(input, options).html;
@@ -38,7 +39,6 @@ describe("render", () => {
   it("carries the MIT copyright notices in one comment, the design's attribution", () => {
     expect(page.match(/<!--/g)).toHaveLength(1);
     expect(page).toContain(DESIGNS.impact.attribution);
-    expect(page).toContain("<!-- Portions adapted from AstroWind, Copyright (c) 2023 onWidget, and Tabler Icons");
   });
 
   it("emits FAQPage JSON-LD only when the FAQ section renders", () => {
@@ -87,20 +87,23 @@ describe("facts and copy stay separate", () => {
       },
     };
     const out = renderHtml(changed);
-    expect(page).toContain("(512) 555-0142");
+    // The new facts are read as page text (any design's markup); the old ones must be gone from the markup.
+    const text = squashedText(out);
+    expect(squashedText(page)).toContain(squash("(512) 555-0142"));
     expect(out).not.toContain("(512) 555-0142");
-    expect(out).toContain("(212) 555-0100");
-    expect(out).toContain("From $95");
-    expect(out).not.toContain("From $89");
-    expect(out).toContain("NYC master plumber: MP-7");
-    expect(out).toContain("7:00 AM – 3:00 PM");
-    expect(out).toContain("Changed quote.");
+    expect(text).toContain(squash("(212) 555-0100"));
+    expect(text).toContain(squash("From $95"));
+    expect(out).not.toContain("$89");
+    expect(text).toContain(squash("NYC master plumber: MP-7"));
+    expect(text).toContain(squash("7:00 AM – 3:00 PM"));
+    expect(text).toContain(squash("Changed quote."));
     expect(out).not.toContain("Fixed our burst pipe");
   });
 
   it("renders the same facts no matter what the copy says", () => {
     const otherCopy = renderHtml({ ...FULL, copy: { ...FULL.copy, heroHeadline: "Different words entirely" } });
-    const facts = (html: string) => [...html.matchAll(/tel:\+\d+|From \$[\d,]+|M-40123/g)].map((m) => m[0]);
+    const facts = (html: string) => [...html.matchAll(/tel:\+\d+/g), ...squashedText(html).matchAll(/From\$[\d,]+|M-40123/g)].map((m) => m[0]);
+    expect(facts(page)).toEqual(expect.arrayContaining(["tel:+15125550142", "From$89", "M-40123"]));
     expect(facts(otherCopy)).toEqual(facts(page));
   });
 });

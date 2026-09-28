@@ -44,8 +44,9 @@ describe.each(DESIGN_IDS)("the %s design", (design) => {
 });
 
 describe("the invariant checks can fail (RED proof, on edited pages)", () => {
-  const { doc, page, baseline } = pages(loadFixture("plumber-austin"));
-  const problems = (edited: string) => invariantProblems(edited, baseline, doc, BASELINE);
+  // The edits apply to today's page (BASELINE), which no design build changes.
+  const { doc, baseline: page } = pages(loadFixture("plumber-austin"));
+  const problems = (edited: string) => invariantProblems(edited, page, doc, BASELINE);
 
   it("pass today's page", () => {
     expect(problems(page)).toEqual([]);

@@ -8,6 +8,7 @@ import { FIXTURES, loadFixture, renderFixture, stubStylesheets } from "../../../
 import { escapeText } from "../src/escape.ts";
 import { loadCompiledCss, missingClasses } from "./support/css-classes.ts";
 import { startTags } from "./support/page-safety.ts";
+import { countInText, squash, squashedText } from "./support/page-text.ts";
 
 // Golden files hold markup only; the real stylesheet would add ~30 KB of noise to every diff.
 const STUB_CSS = stubStylesheets("/* site.css */");
@@ -93,13 +94,13 @@ describe.each(DESIGN_IDS)("content resilience in the %s design", (design) => {
     const html = renderFixture("roofing-extreme", STUB_CSS, design);
     const { facts, copy } = loadFixture("roofing-extreme");
     expect(sectionIds(html)).toEqual(["top", "credentials", "services", "reviews", "our-work", "about", "service-area", "faq", "contact"]);
-    expect(html.match(/From \$100,000/g)).toHaveLength(12);
+    expect(countInText(html, "From $100,000")).toBe(12);
     expect(tagsWith(sectionOf(html, "our-work"), "img", "loading", "lazy")).toHaveLength(12);
     expect(tagsWith(html, "details", "name", "faq")).toHaveLength(8);
     const places = textIn(sectionOf(html, "service-area"));
     expect(facts.serviceArea.places).toHaveLength(30);
     expect(facts.serviceArea.places.filter((place) => !places.includes(escapeText(place)))).toEqual([]);
-    expect(textIn(html.slice(html.indexOf("<h1"), html.indexOf("</h1>") + 5))).toEqual([escapeText(copy.heroHeadline)]);
+    expect(squashedText(html.slice(html.indexOf("<h1"), html.indexOf("</h1>")))).toBe(squash(escapeText(copy.heroHeadline)));
     expect(html).toContain("<title>Longhorn Storm Restoration Roofing, Gutters, Siding &amp; Window</title>");
   });
 });
