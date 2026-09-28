@@ -219,21 +219,27 @@ function checkFile(ctx: Context, sf: SourceFile): void {
     return type ? [type] : [];
   }
 
-  /** The element type at an index of an array or tuple source; none for anything else. */
-  function elementTypes(source: Type, index: number): Type[] {
+  /** The element types of an array or tuple source, at one index or (none given) at any; none for anything else. */
+  function elementTypes(source: Type, index?: number): Type[] {
     if (!source.isTypeReference()) return [];
     const args = checker.getTypeArguments(source);
-    const element = checker.isTupleType(source) ? args[index] : checker.isArrayType(source) ? args[0] : undefined;
-    return element ? [element] : [];
+    if (checker.isArrayType(source)) return args.slice(0, 1);
+    if (!checker.isTupleType(source)) return [];
+    const picked = index === undefined ? args : args.slice(index, index + 1);
+    return [...new Map(picked.map((t) => [t.id, t])).values()];
   }
 
   /**
-   * The types a destructuring assignment pattern reads from: the right-hand side of its `=`; when
-   * nested, the outer pattern's property or element (both, for a nested default). Empty when unknown
-   * (a for-of head).
+   * The types a destructuring assignment pattern reads from: the right-hand side of its `=`, or the
+   * elements of a for-of over an array or tuple; when nested, the outer pattern's property or element
+   * (both, for a nested default). Empty when unknown (a for-of over any other iterable).
    */
   function patternSources(pattern: Node): Type[] {
     const p = pattern.parent;
+    if (is.isForOfStatement(p) && p.initializer === pattern) {
+      const iterable = checker.getTypeAtLocation(p.expression);
+      return iterable ? elementTypes(iterable) : [];
+    }
     if (is.isBinaryExpression(p) && p.left === pattern && p.operatorToken.kind === SyntaxKind.EqualsToken) {
       const own = checker.getTypeAtLocation(p.right);
       return [...(own ? [own] : []), ...patternSources(p)];
@@ -311,7 +317,7 @@ function checkFile(ctx: Context, sf: SourceFile): void {
   for (const pattern of patterns) {
     if (!is.isObjectLiteralExpression(pattern)) continue;
     const sources = patternSources(pattern);
-    if (sources.length === 0) record(pattern, "unmapped", "destructuring assignment", "source not judged", []); // e.g. `for ({ x } of xs)`
+    if (sources.length === 0) record(pattern, "unmapped", "destructuring assignment", "source not judged", []); // e.g. `for ({ x } of aSet)`
     for (const property of pattern.properties) {
       const name = is.isPropertyAssignment(property) || is.isShorthandPropertyAssignment(property) ? property.name : undefined;
       const key = keyText(name);

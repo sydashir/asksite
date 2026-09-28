@@ -41,5 +41,8 @@ let popover: typeof div.showPopover;
 ({ ["canParse"]: renamed } = URL); // expect: unsupported api.URL.canParse_static
 export const assigned = [canParse, renamed, anySignal, popover];
 
-// An assignment pattern in a for-of head has no `=` source to read: reported, never skipped.
-for ({ canParse } of [URL]) canParse(x); // expect: unmapped source not judged
+// An assignment pattern in a for-of head reads each element: judged over an array or a tuple, and
+// reported (never skipped) over any other iterable, whose element type the check does not derive.
+for ({ canParse } of [URL]) canParse(x); // expect: unsupported api.URL.canParse_static
+for ({ canParse } of [URL, URL] as const) canParse(x); // expect: unsupported api.URL.canParse_static
+for ({ canParse } of new Set([URL])) canParse(x); // expect: unmapped source not judged
