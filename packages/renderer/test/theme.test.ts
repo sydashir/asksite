@@ -1,36 +1,23 @@
-import { FONT_IDS, PALETTE_IDS } from "@asksite/site-schema";
+import { DESIGN_IDS, FONT_IDS, PALETTE_IDS } from "@asksite/site-schema";
 import { describe, expect, it } from "vitest";
 import { AA_NORMAL_TEXT, contrastRatio, hexToRgb } from "../src/contrast.ts";
-import { FONTS, PALETTES, themeStyle, themeVariables, type Palette } from "../src/theme.ts";
+import { FONTS, PALETTES, themeStyle, themeVariables } from "../src/theme.ts";
+import { pairs } from "./designs/baseline-pairs.ts";
+import { DESIGN_PAIRS } from "./designs/index.ts";
 
 const WHITE = "#FFFFFF";
-
-// Every text-on-background pair the section templates use. Adding a new pairing to a
-// template means adding it here first.
-function pairs(p: Palette): Array<[label: string, fg: string, bg: string]> {
-  const onSurfaces = (["textHeading", "textDefault", "textMuted", "primary", "secondary", "link"] as const).flatMap(
-    (key): Array<[string, string, string]> => [
-      [`${key} on page`, p[key], p.bgPage],
-      [`${key} on white card`, p[key], WHITE],
-    ],
-  );
-  return [
-    ...onSurfaces,
-    ["white on primary button", WHITE, p.primary],
-    ["white on secondary (button hover)", WHITE, p.secondary],
-    ["white on dark band", WHITE, p.bgPageDark],
-    ["heading text on accent badge", p.textHeading, p.accent],
-  ];
-}
 
 describe("palette presets", () => {
   it("covers every palette id in the schema", () => {
     expect(Object.keys(PALETTES).sort()).toEqual([...PALETTE_IDS].sort());
   });
 
-  describe.each(PALETTE_IDS)("%s", (id) => {
-    it.each(pairs(PALETTES[id]))("%s passes AA (4.5:1)", (_label, fg, bg) => {
-      expect(contrastRatio(hexToRgb(fg), hexToRgb(bg))).toBeGreaterThanOrEqual(AA_NORMAL_TEXT);
+  // Every design with every palette, from that design's own pairs (A12).
+  describe.each(DESIGN_IDS)("in the %s design", (design) => {
+    describe.each(PALETTE_IDS)("%s", (id) => {
+      it.each(DESIGN_PAIRS[design](PALETTES[id]))("%s passes AA (4.5:1)", (_label, fg, bg) => {
+        expect(contrastRatio(hexToRgb(fg), hexToRgb(bg))).toBeGreaterThanOrEqual(AA_NORMAL_TEXT);
+      });
     });
   });
 

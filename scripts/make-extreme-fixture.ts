@@ -104,7 +104,7 @@ const doc = {
     { id: "faq", variant: "accordion" },
     { id: "contact", variant: "card" },
   ],
-  theme: { palette: "charcoal-red", font: "friendly" },
+  theme: { palette: "charcoal-red", font: "friendly", design: "refined" },
 };
 
 writeFileSync(new URL("../fixtures/roofing-extreme.json", import.meta.url), `${JSON.stringify(doc, null, 2)}\n`);

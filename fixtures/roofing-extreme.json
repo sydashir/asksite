@@ -493,6 +493,7 @@
   ],
   "theme": {
     "palette": "charcoal-red",
-    "font": "friendly"
+    "font": "friendly",
+    "design": "refined"
   }
 }

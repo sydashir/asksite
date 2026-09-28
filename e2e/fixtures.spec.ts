@@ -1,7 +1,9 @@
 import { AxeBuilder } from "@axe-core/playwright";
 import { fileURLToPath } from "node:url";
 import { expect, test, type Page } from "@playwright/test";
-import { FIXTURES, renderFixture, type FixtureName } from "../fixtures/index.ts";
+import { render } from "@asksite/renderer";
+import { DESIGN_IDS, FONT_IDS, type DesignId, type SiteDocumentInput } from "@asksite/site-schema";
+import { DESIGN_CSS, FIXTURE_FORM_ACTION, FIXTURES, inDesign, loadFixture, type FixtureName } from "../fixtures/index.ts";
 
 const WCAG_TAGS = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"];
 // Best-practice rules for page structure: all content inside landmarks, headings in order,
@@ -24,14 +26,17 @@ const SCREENSHOT_CSS = fileURLToPath(new URL("./screenshot.css", import.meta.url
 // depend on the network (a live image gave a steady pixel diff in earlier research).
 const GRAY_PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAQAAAADCAIAAAA7ljmRAAAAEUlEQVR42mM4ffUhHDHg5AAASSceDT8mdlEAAAAASUVORK5CYII=", "base64");
 
-async function open(page: Page, name: FixtureName): Promise<void> {
+async function openDocument(page: Page, doc: SiteDocumentInput): Promise<void> {
   await page.route(/^https?:\/\//, (route) =>
     route.request().resourceType() === "image"
       ? route.fulfill({ body: GRAY_PNG, contentType: "image/png" })
       : route.abort(),
   );
-  await page.setContent(renderFixture(name), { waitUntil: "load" });
+  await page.setContent(render(doc, { stylesheets: DESIGN_CSS, formAction: FIXTURE_FORM_ACTION }).html, { waitUntil: "load" });
 }
+
+/** The fixture's page in the given design (A12), or in its own design when none is given. */
+const open = (page: Page, name: FixtureName, design?: DesignId): Promise<void> => openDocument(page, inDesign(loadFixture(name), design));
 
 /**
  * Every WCAG 2.2 A/AA violation, whatever axe's impact rating (impact is severity, not the WCAG level:
@@ -85,64 +90,158 @@ async function focusHiddenByCallBar(page: Page, browserName: string): Promise<st
   return hidden;
 }
 
-for (const name of FIXTURES) {
-  test.describe(name, () => {
-    test.beforeEach(async ({ page }) => {
-      await open(page, name);
-    });
+/** True when the contact form's honeypot field lies wholly left of or above the page, where no one can scroll to it. */
+const honeypotOffScreen = (page: Page) =>
+  page.locator("#contact-website").evaluate((field) => {
+    const box = field.getBoundingClientRect();
+    return box.right + window.scrollX <= 0 || box.bottom + window.scrollY <= 0;
+  });
 
-    test("passes axe (every WCAG 2.2 A/AA violation, landmarks, heading order) with every <details> closed, then open", MOBILE, async ({ page }) => {
-      test.slow(); // four axe runs: triple the 30 s timeout (31.7 s once on a busy machine, Plan 2 Task 6)
-      const closed = await axeProblems(page);
-      // Content inside a closed <details> is not rendered, so axe skips it: open them all and scan again.
-      await page.evaluate(() => {
-        for (const details of document.querySelectorAll("details")) {
-          details.removeAttribute("name");
-          details.open = true;
-        }
+/** The id of each element keyboard focus lands on, over `steps` presses ("" for one without an id). */
+async function focusedIds(page: Page, browserName: string, steps = 80): Promise<string[]> {
+  const ids: string[] = [];
+  for (let step = 0; step < steps; step++) {
+    await page.keyboard.press(nextFocusKey(browserName));
+    ids.push(await page.evaluate(() => document.activeElement?.id ?? ""));
+  }
+  return ids;
+}
+
+// Every check below runs in every page design (A12).
+for (const design of DESIGN_IDS) {
+  test.describe(design, () => {
+    for (const name of FIXTURES) {
+      test.describe(name, () => {
+        test.beforeEach(async ({ page }) => {
+          await open(page, name, design);
+        });
+
+        test("passes axe (every WCAG 2.2 A/AA violation, landmarks, heading order) with every <details> closed, then open", MOBILE, async ({ page }) => {
+          test.slow(); // four axe runs: triple the 30 s timeout (31.7 s once on a busy machine, Plan 2 Task 6)
+          const closed = await axeProblems(page);
+          // Content inside a closed <details> is not rendered, so axe skips it: open them all and scan again.
+          await page.evaluate(() => {
+            for (const details of document.querySelectorAll("details")) {
+              details.removeAttribute("name");
+              details.open = true;
+            }
+          });
+          expect({ closed, open: await axeProblems(page) }).toEqual({ closed: [], open: [] });
+        });
+
+        test("never scrolls sideways", MOBILE, async ({ page }) => {
+          expect(await sidewaysScroll(page)).toBe(0);
+        });
+
+        test("reflows at 320 px without sideways scrolling (WCAG 1.4.10)", MOBILE, async ({ page }) => {
+          test.skip(!isPhoneProject(page), "checked once per engine, in the phone projects");
+          await page.setViewportSize({ width: 320, height: 800 });
+          expect(await sidewaysScroll(page)).toBe(0);
+        });
+
+        test("still reflows at 320 px after any service is chosen in the contact form", MOBILE, async ({ page }) => {
+          test.skip(!isPhoneProject(page), "checked once per engine, in the phone projects");
+          await page.setViewportSize({ width: 320, height: 800 });
+          const select = page.locator("#contact-service");
+          const scrolled: Record<string, number> = {};
+          for (const label of await select.locator("option").allTextContents()) {
+            await select.selectOption({ label });
+            const sideways = await sidewaysScroll(page);
+            if (sideways > 0) scrolled[label] = sideways;
+          }
+          expect(scrolled).toEqual({});
+        });
+
+        test("keyboard focus is never hidden under the call bar (WCAG 2.4.11)", async ({ page, browserName }) => {
+          test.skip(!isPhoneProject(page), "the call bar only shows below 768 px");
+          expect(await focusHiddenByCallBar(page, browserName)).toEqual([]);
+        });
+
+        test("ships no JavaScript: only JSON-LD scripts, no event handlers", async ({ page }) => {
+          const scriptTypes = await page.locator("script").evaluateAll((els) => els.map((el) => el.getAttribute("type")));
+          expect(scriptTypes.every((type) => type === "application/ld+json")).toBe(true);
+          const handlers = await page.evaluate(() =>
+            [...document.querySelectorAll("*")].flatMap((el) => el.getAttributeNames().filter((n) => n.startsWith("on"))),
+          );
+          expect(handlers).toEqual([]);
+        });
+
+        test("matches the screenshot baseline", async ({ page }) => {
+          await expect(page).toHaveScreenshot([design, `${name}.png`], { fullPage: true, stylePath: SCREENSHOT_CSS });
+        });
       });
-      expect({ closed, open: await axeProblems(page) }).toEqual({ closed: [], open: [] });
+    }
+
+    test("the contact form's honeypot field lies wholly off-screen", MOBILE, async ({ page }) => {
+      await open(page, "plumber-austin", design);
+      expect(await honeypotOffScreen(page)).toBe(true);
     });
 
-    test("never scrolls sideways", MOBILE, async ({ page }) => {
-      expect(await sidewaysScroll(page)).toBe(0);
+    test("keyboard focus reaches the contact form but never its honeypot field", async ({ page, browserName }) => {
+      await open(page, "plumber-austin", design);
+      const ids = await focusedIds(page, browserName);
+      expect(ids).toContain("contact-message");
+      expect(ids).not.toContain("contact-website");
     });
 
-    test("reflows at 320 px without sideways scrolling (WCAG 1.4.10)", MOBILE, async ({ page }) => {
-      test.skip(!isPhoneProject(page), "checked once per engine, in the phone projects");
-      await page.setViewportSize({ width: 320, height: 800 });
-      expect(await sidewaysScroll(page)).toBe(0);
-    });
-
-    test("still reflows at 320 px after any service is chosen in the contact form", MOBILE, async ({ page }) => {
-      test.skip(!isPhoneProject(page), "checked once per engine, in the phone projects");
-      await page.setViewportSize({ width: 320, height: 800 });
-      const select = page.locator("#contact-service");
-      const scrolled: Record<string, number> = {};
-      for (const label of await select.locator("option").allTextContents()) {
-        await select.selectOption({ label });
-        const sideways = await sidewaysScroll(page);
-        if (sideways > 0) scrolled[label] = sideways;
+    test("each lettering choice gives the page a different font", async ({ page }) => {
+      const doc = inDesign(loadFixture("plumber-austin"), design);
+      const fonts = new Set<string>();
+      for (const font of FONT_IDS) {
+        await openDocument(page, { ...doc, theme: { ...doc.theme, font } });
+        fonts.add(await page.evaluate(() => `${getComputedStyle(document.querySelector("h1") ?? document.body).fontFamily} | ${getComputedStyle(document.body).fontFamily}`));
       }
-      expect(scrolled).toEqual({});
+      expect(fonts.size).toBe(FONT_IDS.length);
     });
 
-    test("keyboard focus is never hidden under the call bar (WCAG 2.4.11)", async ({ page, browserName }) => {
-      test.skip(!isPhoneProject(page), "the call bar only shows below 768 px");
-      expect(await focusHiddenByCallBar(page, browserName)).toEqual([]);
+    test.describe("with JavaScript disabled", () => {
+      test.use({ javaScriptEnabled: false });
+
+      test("the FAQ accordion is exclusive", async ({ page }) => {
+        await open(page, "plumber-austin", design);
+        const items = page.locator('details[name="faq"]');
+        await expect(items.nth(0)).toHaveAttribute("open", "");
+        await items.nth(1).locator("summary").click();
+        await expect(items.nth(1)).toHaveAttribute("open", "");
+        await expect(items.nth(0)).not.toHaveAttribute("open", "");
+      });
+
+      test("the phone menu opens and its links work", async ({ page }) => {
+        test.skip((page.viewportSize()?.width ?? 0) >= 1024, "the menu is replaced by inline links on wide screens");
+        await open(page, "plumber-austin", design);
+        const menu = page.locator("header details");
+        await menu.locator("summary").click();
+        await expect(menu).toHaveAttribute("open", "");
+        await menu.getByRole("link", { name: "FAQ" }).click();
+        await expect(page).toHaveURL(/#faq$/);
+      });
     });
 
-    test("ships no JavaScript: only JSON-LD scripts, no event handlers", async ({ page }) => {
-      const scriptTypes = await page.locator("script").evaluateAll((els) => els.map((el) => el.getAttribute("type")));
-      expect(scriptTypes.every((type) => type === "application/ld+json")).toBe(true);
-      const handlers = await page.evaluate(() =>
-        [...document.querySelectorAll("*")].flatMap((el) => el.getAttributeNames().filter((n) => n.startsWith("on"))),
-      );
-      expect(handlers).toEqual([]);
+    test("XSS payloads never execute", async ({ page }) => {
+      const dialogs: string[] = [];
+      page.on("dialog", async (dialog) => {
+        dialogs.push(dialog.message());
+        await dialog.dismiss();
+      });
+      await open(page, "electrical-xss", design);
+      for (const field of await page.locator("input:not([tabindex='-1']), select, textarea").all()) await field.focus();
+      await page.mouse.move(10, 10);
+      await page.locator("h1").hover();
+      expect(dialogs).toEqual([]);
+      expect(await page.title()).toBe("<img src=x onerror=alert(1)>");
+      const ld = await page.locator('script[type="application/ld+json"]').first().textContent();
+      expect(JSON.parse(ld ?? "{}").name).toBe("<img src=x onerror=alert(1)>");
     });
 
-    test("matches the screenshot baseline", async ({ page }) => {
-      await expect(page).toHaveScreenshot(`${name}.png`, { fullPage: true, stylePath: SCREENSHOT_CSS });
+    test("the service select has the same size and shape as the text fields", async ({ page }) => {
+      await open(page, "plumber-austin", design);
+      const shape = (selector: string) =>
+        page.locator(selector).evaluate((el) => {
+          const style = getComputedStyle(el);
+          const box = el.getBoundingClientRect();
+          return { width: box.width, height: box.height, radius: style.borderTopLeftRadius, paddingTop: style.paddingTop, paddingLeft: style.paddingLeft };
+        });
+      expect(await shape("#contact-service")).toEqual(await shape("#contact-name"));
     });
   });
 }
@@ -193,6 +292,18 @@ test.describe("the gates can fail (RED proof)", () => {
     expect((await axeProblems(page)).map((line) => line.split(":")[0])).toContain("target-size");
   });
 
+  test("the honeypot check sees the field moved on-screen", MOBILE, async ({ page }) => {
+    await open(page, "plumber-austin");
+    await page.addStyleTag({ content: "div:has(> #contact-website){left:0!important}" });
+    expect(await honeypotOffScreen(page)).toBe(false);
+  });
+
+  test("the focus check sees a honeypot field that keyboard focus can reach", async ({ page, browserName }) => {
+    await open(page, "plumber-austin");
+    await page.locator("#contact-website").evaluate((field) => field.removeAttribute("tabindex"));
+    expect(await focusedIds(page, browserName)).toContain("contact-website");
+  });
+
   test("the focus check sees a field hidden under a call bar that always sticks", async ({ page, browserName }) => {
     test.skip(!isPhoneProject(page), "the call bar only shows below 768 px");
     await open(page, "plumber-austin");
@@ -234,54 +345,4 @@ test("each phone project runs its own engine: webkit-iphone in WebKit, chromium-
   expect(phones).toEqual(Object.keys(PHONE_ENGINES));
   test.skip(!Object.hasOwn(PHONE_ENGINES, testInfo.project.name), "only the phone-emulation projects run a phone engine");
   expect(browser.browserType().name()).toBe(PHONE_ENGINES[testInfo.project.name]);
-});
-
-test.describe("with JavaScript disabled", () => {
-  test.use({ javaScriptEnabled: false });
-
-  test("the FAQ accordion is exclusive", async ({ page }) => {
-    await open(page, "plumber-austin");
-    const items = page.locator('details[name="faq"]');
-    await expect(items.nth(0)).toHaveAttribute("open", "");
-    await items.nth(1).locator("summary").click();
-    await expect(items.nth(1)).toHaveAttribute("open", "");
-    await expect(items.nth(0)).not.toHaveAttribute("open", "");
-  });
-
-  test("the phone menu opens and its links work", async ({ page }) => {
-    test.skip((page.viewportSize()?.width ?? 0) >= 1024, "the menu is replaced by inline links on wide screens");
-    await open(page, "plumber-austin");
-    const menu = page.locator("header details");
-    await menu.locator("summary").click();
-    await expect(menu).toHaveAttribute("open", "");
-    await menu.getByRole("link", { name: "FAQ" }).click();
-    await expect(page).toHaveURL(/#faq$/);
-  });
-});
-
-test("XSS payloads never execute", async ({ page }) => {
-  const dialogs: string[] = [];
-  page.on("dialog", async (dialog) => {
-    dialogs.push(dialog.message());
-    await dialog.dismiss();
-  });
-  await open(page, "electrical-xss");
-  for (const field of await page.locator("input:not([tabindex='-1']), select, textarea").all()) await field.focus();
-  await page.mouse.move(10, 10);
-  await page.locator("h1").hover();
-  expect(dialogs).toEqual([]);
-  expect(await page.title()).toBe("<img src=x onerror=alert(1)>");
-  const ld = await page.locator('script[type="application/ld+json"]').first().textContent();
-  expect(JSON.parse(ld ?? "{}").name).toBe("<img src=x onerror=alert(1)>");
-});
-
-test("the service select has the same size and shape as the text fields", async ({ page }) => {
-  await open(page, "plumber-austin");
-  const shape = (selector: string) =>
-    page.locator(selector).evaluate((el) => {
-      const style = getComputedStyle(el);
-      const box = el.getBoundingClientRect();
-      return { width: box.width, height: box.height, radius: style.borderTopLeftRadius, paddingTop: style.paddingTop, paddingLeft: style.paddingLeft };
-    });
-  expect(await shape("#contact-service")).toEqual(await shape("#contact-name"));
 });

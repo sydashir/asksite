@@ -1,5 +1,6 @@
 import { SiteDocument, type DesignId, type SiteDocumentInput } from "@asksite/site-schema";
 import { isVisible, type RenderContext } from "./context.ts";
+import type { Design } from "./design.ts";
 import { DESIGNS } from "./designs/index.ts";
 import { escapeText } from "./escape.ts";
 import { TRADE_LABEL } from "./format.ts";
@@ -55,8 +56,16 @@ function styleTag(css: string): SafeHtml {
  */
 export function render(input: SiteDocumentInput, options: RenderOptions): RenderedPage {
   const doc = SiteDocument.parse(input);
+  return renderDocument(doc, DESIGNS[doc.theme.design], options);
+}
+
+/**
+ * The page of a parsed document, drawn by `design`, with the stylesheet of the document's own design.
+ * render() is its only caller outside tests; the tests also use it to draw today's page (BASELINE) for
+ * the same document, which every design is compared with. Not exported from the package.
+ */
+export function renderDocument(doc: SiteDocument, design: Design, options: RenderOptions): RenderedPage {
   const id = doc.theme.design;
-  const design = DESIGNS[id];
   const stylesheet = options.stylesheets[id];
   if (stylesheet === undefined) throw new Error(`No stylesheet for the "${id}" design`);
   const ctx: RenderContext = {
