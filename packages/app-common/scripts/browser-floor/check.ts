@@ -53,15 +53,20 @@ const NOTHING = TypeFlags.Null | TypeFlags.Undefined | TypeFlags.Void;
 const MARKER = /\/\/\s*floor-ok\b(.*)$/;
 const ONLY_COMMENTS = /^\s*(\/\*.*?\*\/\s*)*$/;
 
+/**
+ * TypeScript parses every heritage clause element and an instantiation expression (`Map<string, number>`)
+ * as ExpressionWithTypeArguments, which it counts as a type node. A class's `extends` clause and an
+ * instantiation expression still run; `implements` and an interface's `extends` are types.
+ */
+function runsAtRuntime(expressionWithTypeArguments: Node): boolean {
+  const clause = expressionWithTypeArguments.parent;
+  return !is.isHeritageClause(clause) || (clause.token === SyntaxKind.ExtendsKeyword && is.isClassLikeDeclaration(clause.parent));
+}
+
 function inTypePosition(node: Node): boolean {
   for (let p = node.parent; p; p = p.parent) {
-    if (
-      is.isTypeNode(p) ||
-      p.kind === SyntaxKind.TypeAliasDeclaration ||
-      p.kind === SyntaxKind.InterfaceDeclaration ||
-      (p.kind === SyntaxKind.HeritageClause && p.parent.kind === SyntaxKind.InterfaceDeclaration)
-    )
-      return true;
+    if (is.isExpressionWithTypeArguments(p)) return !runsAtRuntime(p);
+    if (is.isTypeNode(p) || p.kind === SyntaxKind.TypeAliasDeclaration || p.kind === SyntaxKind.InterfaceDeclaration) return true;
     if (is.isStatement(p) || (is.isExpression(p) && p.kind !== SyntaxKind.Identifier)) return false;
   }
   return false;

@@ -23,6 +23,20 @@ export const detected = typeof URL.canParse === "function";
 export const guardedByTypeof = typeof URL.canParse === "function" ? URL.canParse(x) : false; // expect: unsupported api.URL.canParse_static
 export const guardedByIn = "canParse" in URL && URL.canParse(x); // expect: unsupported api.URL.canParse_static
 
+// A class's `extends` clause and an instantiation expression read the global at runtime (TypeScript
+// parses both as ExpressionWithTypeArguments, a type node); `implements` and an interface's
+// `extends` are types only.
+export class ViaExtends extends Highlight {} // expect: unsupported api.Highlight
+export const viaClassExpression = class extends Highlight {}; // expect: unsupported api.Highlight
+export const viaInstantiation = Float16Array<ArrayBuffer>; // expect: unsupported javascript.builtins.Float16Array
+export class Deadline implements IdleDeadline {
+  readonly didTimeout = false;
+  timeRemaining() {
+    return 0;
+  }
+}
+export interface OwnHighlight extends Highlight {}
+
 // Known misses by design (ios16-floor-proposal.md section 3): an `any` cast and reflection.
 export const viaAny = (URL as any).canParse(x);
 export const viaReflect = Reflect.get(URL, "canParse");
