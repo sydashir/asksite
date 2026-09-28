@@ -69,7 +69,7 @@ describe("requestGeneration", () => {
   it("allows 20 regenerations per owner in total, exactly, even with two sites at once; first builds do not count and still queue at the cap", async () => {
     await insertGeneration(db, { id: "f1", site_id: "s1", owner_id: "o1", status: "succeeded", created_at: 0 });
     await insertGeneration(db, { id: "f2", site_id: "s2", owner_id: "o1", status: "succeeded", created_at: 0 });
-    for (let i = 0; i < 19; i++) await insertGeneration(db, { id: `t${i}`, site_id: i % 2 ? "s1" : "s2", owner_id: "o1", kind: "regenerate", status: "failed", model_slot: 1, created_at: 0, started_at: 1 });
+    for (let i = 0; i < 19; i++) await insertGeneration(db, { id: `t${i}`, site_id: i % 2 ? "s1" : "s2", owner_id: "o1", kind: "regenerate", status: "failed", error_code: "invalid_output", model_slot: 1, created_at: 0, started_at: 1 });
     const results = await Promise.all([requestGeneration(env(queue().q), input("s1")), requestGeneration(env(queue().q), input("s2"))]);
     expect(results.filter((r) => r.ok && r.generation.kind === "regenerate")).toHaveLength(1);
     expect(results.filter((r) => !r.ok && r.code === "generation_cap_reached")).toHaveLength(1);
@@ -121,23 +121,23 @@ describe("requestGeneration", () => {
 
 describe("generationAllowance", () => {
   it("reports what is left today for the site and in total for the owner; first builds do not count toward the total", async () => {
-    await insertGeneration(db, { id: "a", site_id: "s1", owner_id: "o1", kind: "regenerate", status: "failed", model_slot: 1, created_at: utcDayStart(NOW), started_at: utcDayStart(NOW) });
+    await insertGeneration(db, { id: "a", site_id: "s1", owner_id: "o1", kind: "regenerate", status: "failed", error_code: "invalid_output", model_slot: 1, created_at: utcDayStart(NOW), started_at: utcDayStart(NOW) });
     await insertGeneration(db, { id: "b", site_id: "s1", owner_id: "o1", status: "succeeded", created_at: utcDayStart(NOW) - 1 });
     await insertGeneration(db, { id: "c", site_id: "s2", owner_id: "o1", status: "succeeded", created_at: NOW });
     expect(await generationAllowance({ DB: db }, { siteId: "s1", ownerId: "o1", now: NOW })).toEqual({ generationsLeftToday: 4, generationsLeftTotal: 19 });
   });
 
   it("never goes below zero", async () => {
-    for (let i = 0; i < 21; i++) await insertGeneration(db, { id: `t${i}`, site_id: "s1", owner_id: "o1", kind: "regenerate", status: "failed", model_slot: 1, created_at: NOW, started_at: NOW });
+    for (let i = 0; i < 21; i++) await insertGeneration(db, { id: `t${i}`, site_id: "s1", owner_id: "o1", kind: "regenerate", status: "failed", error_code: "invalid_output", model_slot: 1, created_at: NOW, started_at: NOW });
     expect(await generationAllowance({ DB: db }, { siteId: "s1", ownerId: "o1", now: NOW })).toEqual({ generationsLeftToday: 0, generationsLeftTotal: 0 });
   });
 });
 
-// P3-11 (p) + (q): which rows count. Each row is one state a generations row can be in, seeded directly here and named
-// after the code that writes it: requestGeneration (INSERT_JOB writes the queued row; its failed-send UPDATE ends it),
-// the job (Task 9: its claim makes the row running, its terminal write ends it) or the sweeper (Task 10). Queued and
-// running rows are live states, not end-states. The end-to-end proofs come with Tasks 9 and 10. today: counts toward
-// the site's 5 per UTC day. total: counts toward the owner's 20 regenerations.
+// P3-11 (p) and P3-16 (B, which replaced (q)): which rows count. Each row is one state a generations row can be in,
+// seeded directly here and named after the code that writes it: requestGeneration (INSERT_JOB writes the queued row;
+// its failed-send UPDATE ends it), the job (Task 9: its claim makes the row running, its terminal write ends it) or the
+// sweeper (Task 10). Queued and running rows are live states, not end-states. The end-to-end proofs come with Tasks 9
+// and 10. today: counts toward the site's 5 per UTC day. total: counts toward the owner's 20 regenerations.
 type RowState = { row: Pick<GenerationRow, "kind" | "status"> & Partial<GenerationRow>; started: boolean; today: boolean; total: boolean };
 const ROW_STATES: [string, RowState][] = [
   ["the job: a regeneration refused at claim time because generation is switched off", { row: { kind: "regenerate", status: "failed", error_code: "generation_disabled" }, started: true, today: true, total: false }],
@@ -147,8 +147,8 @@ const ROW_STATES: [string, RowState][] = [
   // requested id. Neither count reads model.
   ["the job: a regeneration with no key (provider_unavailable, 0 attempts, slot given back, no model)", { row: { kind: "regenerate", status: "failed", error_code: "provider_unavailable", attempts: 0, provider: "anthropic", model: null }, started: true, today: true, total: false }],
   ["the job: a regeneration whose attempt 1 the input guard refused (provider_unavailable, 0 attempts, slot given back, the requested model)", { row: { kind: "regenerate", status: "failed", error_code: "provider_unavailable", attempts: 0, provider: "anthropic", model: "claude-opus-5-5" }, started: true, today: true, total: false }],
-  ["the job: a regeneration claimed and then failed by our own code (costUnknown: internal, slot kept)", { row: { kind: "regenerate", status: "failed", error_code: "internal", model_slot: 1 }, started: true, today: true, total: true }],
-  ["the sweeper: a running regeneration with a model slot, ended as internal", { row: { kind: "regenerate", status: "failed", error_code: "internal", model_slot: 1 }, started: true, today: true, total: true }],
+  ["the job: a regeneration claimed and then failed by our own code (costUnknown: internal, slot kept)", { row: { kind: "regenerate", status: "failed", error_code: "internal", model_slot: 1 }, started: true, today: true, total: false }],
+  ["the sweeper: a running regeneration with a model slot, ended as internal", { row: { kind: "regenerate", status: "failed", error_code: "internal", model_slot: 1 }, started: true, today: true, total: false }],
   ["the sweeper: a running regeneration without a model slot, ended as internal", { row: { kind: "regenerate", status: "failed", error_code: "internal", model_slot: 0 }, started: true, today: true, total: false }],
   ["the sweeper: a queued regeneration never claimed, ended as internal", { row: { kind: "regenerate", status: "failed", error_code: "internal" }, started: false, today: false, total: false }],
   // task-10-brief.md:138-143 and task-10-additions.md A: a stuck queued first build with readable input gets the
@@ -161,14 +161,15 @@ const ROW_STATES: [string, RowState][] = [
   ["the job's claim: a running regeneration with a model slot (live)", { row: { kind: "regenerate", status: "running", model_slot: 1 }, started: true, today: true, total: true }],
   ["the job: a succeeded regeneration", { row: { kind: "regenerate", status: "succeeded", model_slot: 1, attempts: 1 }, started: true, today: true, total: true }],
   ["the job: a regeneration that failed after its model calls (invalid_output)", { row: { kind: "regenerate", status: "failed", error_code: "invalid_output", model_slot: 1, attempts: 3 }, started: true, today: true, total: true }],
-  ["the job: a regeneration whose provider failed after its model calls (provider_unavailable, 3 attempts)", { row: { kind: "regenerate", status: "failed", error_code: "provider_unavailable", model_slot: 1, attempts: 3 }, started: true, today: true, total: true }],
+  ["the job: a regeneration whose provider failed after its model calls (provider_unavailable, 3 attempts)", { row: { kind: "regenerate", status: "failed", error_code: "provider_unavailable", model_slot: 1, attempts: 3 }, started: true, today: true, total: false }],
+  ["the job: a regeneration whose provider timed out after its model calls (provider_timeout, 3 attempts)", { row: { kind: "regenerate", status: "failed", error_code: "provider_timeout", model_slot: 1, attempts: 3 }, started: true, today: true, total: false }],
   ["requestGeneration: a queued first build (live)", { row: { kind: "first", status: "queued" }, started: false, today: true, total: false }],
   ["the job's claim: a running first build with a model slot (live)", { row: { kind: "first", status: "running", model_slot: 1 }, started: true, today: true, total: false }],
   ["the job: a first build that took a model call", { row: { kind: "first", status: "succeeded", model_slot: 1, attempts: 1 }, started: true, today: true, total: false }],
   ["the job: a first build that got the template without a model call", { row: { kind: "first", status: "succeeded", used_fallback: 1, fallback_reason: "budget" }, started: true, today: true, total: false }],
 ];
 
-describe("which rows count toward the site's day and the owner's total (P3-11 (p) + (q)); generationAllowance agrees with INSERT_JOB", () => {
+describe("which rows count toward the site's day and the owner's total (P3-11 (p), P3-16 (B)); generationAllowance agrees with INSERT_JOB", () => {
   const DAY = utcDayStart(NOW);
   const allowance = (siteId = "s1") => generationAllowance({ DB: db }, { siteId, ownerId: "o1", now: NOW });
   const outcome = (result: RequestGenerationResult) => (result.ok ? result.generation.kind : result.code);
@@ -206,6 +207,17 @@ describe("which rows count toward the site's day and the owner's total (P3-11 (p
     await seedRowState("x", "s3", 2, state);
     expect(await allowance()).toEqual({ generationsLeftToday: 5, generationsLeftTotal: state.total ? 0 : 1 });
     expect(outcome(await requestGeneration(env(queue().q), input()))).toBe(state.total ? "generation_cap_reached" : "regenerate");
+  });
+
+  it("counts regenerations that end invalid_output: an owner whose every regeneration ends that way is refused once 20 exist (P3-16 (B))", async () => {
+    await succeeded("built", "s1", "first");
+    const invalid = (id: string) =>
+      insertGeneration(db, { id, site_id: "s2", owner_id: "o1", kind: "regenerate", status: "failed", error_code: "invalid_output", model_slot: 1, attempts: 3, created_at: 1, started_at: 1, finished_at: 1 });
+    for (let i = 0; i < 19; i++) await invalid(`v${i}`);
+    expect(await allowance()).toEqual({ generationsLeftToday: 5, generationsLeftTotal: 1 });
+    await invalid("v19");
+    expect(await allowance()).toEqual({ generationsLeftToday: 5, generationsLeftTotal: 0 });
+    expect(await requestGeneration(env(queue().q), input())).toEqual({ ok: false, code: "generation_cap_reached" });
   });
 
   it("a failed queue send spends neither count: at the cap edge the next request still queues; the failed row and its audit row stay", async () => {

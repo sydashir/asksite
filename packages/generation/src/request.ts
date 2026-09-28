@@ -9,14 +9,17 @@ export type RequestGenerationResult =
 // Which rows count. INSERT_JOB and generationAllowance use these same two expressions, so they always agree.
 // IS never yields NULL (unlike =), so a row with no error code still counts toward the site's day.
 const COUNTS_TODAY = "NOT (error_code IS 'internal' AND started_at IS NULL)";
-const COUNTS_TOWARD_TOTAL = "kind = 'regenerate' AND (status IN ('queued', 'running') OR model_slot = 1)";
+const COUNTS_TOWARD_TOTAL = "kind = 'regenerate' AND (status IN ('queued', 'running', 'succeeded') OR (status = 'failed' AND error_code IS 'invalid_output'))";
 
 // The per-site daily count and the per-owner total are checked in the INSERT itself, so they are
 // exact even when one owner acts on two sites at once (design §6.4).
 // Rows that failed before any job claimed them do not count (a failed queue send, or a stuck queued job the sweeper
 // ended as internal). A first build the sweeper finished with the template does count: the owner received a draft.
 // A first build neither counts toward nor is refused by the per-owner total (Decision 30).
-// A regeneration counts while it is queued or running, and afterwards only if it took a model call.
+// A regeneration counts toward the owner's total while it is queued or running, once it succeeded, or once it failed
+// with invalid_output (P3-16 (B)). Failures that are not the owner's fault never count (a revoked key, the spend cap,
+// 5xx, timeouts, internal errors). invalid_output counts because it is billed (up to 3 model calls) and the owner's own
+// text can cause it. The daily model limit and the per-site 5 per UTC day keep protecting cost.
 const INSERT_JOB = `INSERT INTO generations (id, site_id, owner_id, kind, status, input_json, created_at)
 SELECT ?1, ?2, ?3, ?4, 'queued', ?5, ?6
 WHERE (SELECT COUNT(*) FROM generations WHERE site_id = ?2 AND created_at >= ?7 AND (${COUNTS_TODAY})) < ?8
