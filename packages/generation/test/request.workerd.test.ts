@@ -1,5 +1,5 @@
 import type { GenerationJob, GenerationRow } from "@asksite/core";
-import type { D1Database, Queue } from "@cloudflare/workers-types";
+import type { D1Database, D1PreparedStatement, Queue } from "@cloudflare/workers-types";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { generationAllowance, requestGeneration, type RequestGenerationResult } from "../src/request.ts";
 import { utcDayStart } from "../src/settings.ts";
@@ -31,6 +31,47 @@ beforeEach(async () => {
 
 const env = (q: Queue<GenerationJob>, enabled = "true", limit = "30") => ({ DB: db, GEN_QUEUE: q, GENERATION_ENABLED: enabled, DAILY_MODEL_LIMIT: limit });
 const input = (siteId = "s1") => ({ siteId, ownerId: "o1", snapshot: FULL_SNAPSHOT, now: NOW });
+
+/**
+ * The test's D1 binding for one request (named by its site). It logs "<site> check" when requestGeneration sends a
+ * check (a read) and "<site> insert" when it sends its INSERT_JOB batch, and forwards only what requestGeneration calls
+ * (prepare, bind, first, batch). requestGeneration awaits each check before it sends the next, and three checks (the
+ * kill switch, today's model calls, today's limit) follow its owner-total check. So a log in which both requests sent
+ * every check before either INSERT proves that both owner-total checks had answered before either INSERT ran.
+ */
+function logged(site: string, steps: string[]): D1Database {
+  const real = new Map<D1PreparedStatement, D1PreparedStatement>();
+  const wrap = (statement: D1PreparedStatement): D1PreparedStatement => {
+    const wrapped = {
+      bind: (...values: unknown[]) => wrap(statement.bind(...values)),
+      first: () => {
+        steps.push(`${site} check`);
+        return statement.first();
+      },
+    } as unknown as D1PreparedStatement;
+    real.set(wrapped, statement);
+    return wrapped;
+  };
+  return {
+    prepare: (sql: string) => wrap(db.prepare(sql)),
+    batch: (statements: D1PreparedStatement[]) => {
+      steps.push(`${site} insert`);
+      return db.batch(statements.map((statement) => real.get(statement) ?? statement));
+    },
+  } as unknown as D1Database;
+}
+
+/**
+ * Sends the regenerations of s1 and s2 at once and asserts that the race happened: both reached INSERT_JOB, and neither
+ * sent its INSERT before both had sent every check. So INSERT_JOB's own count decided, not the pre-check.
+ */
+async function raceTwoSites(): Promise<[RequestGenerationResult, RequestGenerationResult]> {
+  const steps: string[] = [];
+  const send = (site: string) => requestGeneration({ ...env(queue().q), DB: logged(site, steps) }, input(site));
+  const results = await Promise.all([send("s1"), send("s2")]);
+  expect(steps.slice(steps.findIndex((step) => step.endsWith(" insert"))).sort()).toEqual(["s1 insert", "s2 insert"]);
+  return results;
+}
 
 describe("requestGeneration", () => {
   it("queues a first generation, sends { v: 1, generationId } and writes the audit row", async () => {
@@ -70,7 +111,7 @@ describe("requestGeneration", () => {
     await insertGeneration(db, { id: "f1", site_id: "s1", owner_id: "o1", status: "succeeded", created_at: 0 });
     await insertGeneration(db, { id: "f2", site_id: "s2", owner_id: "o1", status: "succeeded", created_at: 0 });
     for (let i = 0; i < 19; i++) await insertGeneration(db, { id: `t${i}`, site_id: i % 2 ? "s1" : "s2", owner_id: "o1", kind: "regenerate", status: "failed", error_code: "invalid_output", model_slot: 1, created_at: 0, started_at: 1 });
-    const results = await Promise.all([requestGeneration(env(queue().q), input("s1")), requestGeneration(env(queue().q), input("s2"))]);
+    const results = await raceTwoSites();
     expect(results.filter((r) => r.ok && r.generation.kind === "regenerate")).toHaveLength(1);
     expect(results.filter((r) => !r.ok && r.code === "generation_cap_reached")).toHaveLength(1);
     // At the cap (20 regenerations): a new site's first build still queues; a regeneration is refused.
@@ -391,7 +432,7 @@ describe("which rows count toward the site's day and the owner's total (P3-11 (p
     for (const [i, [, state]] of spared.entries()) await seedRowState(`n${i}`, i % 2 ? "s1" : "s2", 2, state);
     expect(spared.length).toBeGreaterThan(0);
     expect((await allowance()).generationsLeftTotal).toBe(1);
-    const results = await Promise.all([requestGeneration(env(queue().q), input("s1")), requestGeneration(env(queue().q), input("s2"))]);
+    const results = await raceTwoSites();
     expect(results.map(outcome).sort()).toEqual(["generation_cap_reached", "regenerate"]);
     expect((await allowance()).generationsLeftTotal).toBe(0);
   });
