@@ -16,6 +16,8 @@ export interface CandidateSummary {
   maxInputTokensPerRun: number;
   totalCostMicrousd: number;
   costPerPassingSiteMicrousd: number | null;
+  /** Attempts whose provider left the usage out (usageMissing): the costs above cannot include them. */
+  usageMissingAttempts: number;
   /** The automatic half of the proposed gate: >= 95 % pass within 2 retries and >= 80 % first try. */
   meetsAutomaticGate: boolean;
 }
@@ -75,6 +77,7 @@ export function summarise(runs: readonly EvalRun[]): CandidateSummary[] {
       maxInputTokensPerRun: Math.max(0, ...mine.map((r) => r.result.usage.inputTokens)),
       totalCostMicrousd,
       costPerPassingSiteMicrousd: passes === 0 ? null : Math.round(totalCostMicrousd / passes),
+      usageMissingAttempts: mine.reduce((sum, r) => sum + r.result.log.filter((attempt) => attempt.usageMissing).length, 0),
       meetsAutomaticGate: passRate >= 0.95 && firstTryPassRate >= 0.8,
     };
   });
@@ -83,6 +86,8 @@ export function summarise(runs: readonly EvalRun[]): CandidateSummary[] {
 const pct = (x: number): string => `${Math.round(x * 100)}%`;
 const usd = (micro: number | null): string => (micro === null ? "n/a" : `$${(micro / 1_000_000).toFixed(4)}`);
 const counts = (c: Record<string, number>): string => Object.entries(c).map(([k, v]) => `${k} ${v}`).join(", ") || "none";
+/** What a cost is when a provider left the usage of some attempts out (additions B). */
+const unknownCost = (attempts: number): string => `unknown (${attempts} ${attempts === 1 ? "attempt" : "attempts"} without usage)`;
 
 export function formatReport(summaries: readonly CandidateSummary[]): string {
   return [
@@ -90,7 +95,7 @@ export function formatReport(summaries: readonly CandidateSummary[]): string {
     "",
     "| model | runs | first try | within 2 retries | p50 ms | p95 ms | cost per passing site | automatic gate |",
     "|---|---|---|---|---|---|---|---|",
-    ...summaries.map((s) => `| ${s.label} | ${s.runs} | ${pct(s.firstTryPassRate)} | ${pct(s.passRate)} | ${s.latencyMsP50} | ${s.latencyMsP95} | ${usd(s.costPerPassingSiteMicrousd)} | ${s.meetsAutomaticGate ? "pass" : "fail"} |`),
+    ...summaries.map((s) => `| ${s.label} | ${s.runs} | ${pct(s.firstTryPassRate)} | ${pct(s.passRate)} | ${s.latencyMsP50} | ${s.latencyMsP95} | ${s.usageMissingAttempts === 0 ? usd(s.costPerPassingSiteMicrousd) : unknownCost(s.usageMissingAttempts)} | ${s.meetsAutomaticGate ? "pass" : "fail"} |`),
     "",
     ...summaries.flatMap((s) => [`## ${s.label}`, "", `- Rules broken (attempts): ${counts(s.failedRules)}`, `- Claim words caught: ${counts(s.claimWords)}`, `- Provider errors: ${counts(s.providerErrors)}`, `- Largest input per run: ${s.maxInputTokensPerRun} tokens`, ""]),
     "The automatic gate is >= 95% within 2 retries and >= 80% first try. The human half (blind rating in ratings.csv: no unbacked claim found, mean score within 0.3 of Claude) is the user's step.",

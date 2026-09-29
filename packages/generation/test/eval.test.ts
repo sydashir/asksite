@@ -7,6 +7,7 @@ import { formatReport, percentile, ruleOf, summarise } from "../eval/metrics.ts"
 import { EVAL_PROFILES } from "../eval/profiles.ts";
 import { ratingSheet } from "../eval/ratings.ts";
 import { runEval } from "../eval/run.ts";
+import type { ModelProvider } from "../src/provider.ts";
 import { FakeProvider, type FakeMode } from "../src/providers/fake.ts";
 
 let clock = 0;
@@ -101,5 +102,32 @@ describe("pnpm eval:generation without keys", () => {
     const cli = fileURLToPath(new URL("../eval/cli.ts", import.meta.url));
     const out = execFileSync(process.execPath, [cli], { env: { PATH: process.env.PATH ?? "" }, encoding: "utf8" });
     expect(out).toContain("No model keys found");
+  });
+});
+
+/** A candidate whose provider answers like FakeProvider "ok" but leaves the usage out, as an adapter flags with usageMissing. */
+const noUsageCandidate = (label: string) => ({
+  label,
+  provider: "fake",
+  modelId: "fake-template",
+  makeProvider: (snapshot: GenerationInputSnapshot): ModelProvider => {
+    const inner = new FakeProvider("ok", snapshot);
+    return { id: "fake", generate: async (req) => ({ ...(await inner.generate(req)), usageMissing: true }) };
+  },
+});
+
+describe("attempts without usage (additions B)", () => {
+  it("counts them per model and shows that model's cost as unknown", async () => {
+    const runs = await runEval({ candidates: [fakeCandidate("good", "ok"), noUsageCandidate("blind")], profiles: EVAL_PROFILES.slice(0, 2), runs: 1, deps });
+    const summaries = summarise(runs);
+    expect(summaries.map((s) => [s.label, s.usageMissingAttempts])).toEqual([["good", 0], ["blind", 2]]);
+    const report = formatReport(summaries);
+    expect(report).toContain("| good | 2 | 100% | 100% | 250 | 250 | $0.0000 | pass |");
+    expect(report).toContain("| blind | 2 | 100% | 100% | 250 | 250 | unknown (2 attempts without usage) | pass |");
+  });
+
+  it("names a single attempt without usage in the singular", async () => {
+    const runs = await runEval({ candidates: [noUsageCandidate("blind")], profiles: EVAL_PROFILES.slice(0, 1), runs: 1, deps });
+    expect(formatReport(summarise(runs))).toContain("| blind | 1 | 100% | 100% | 250 | 250 | unknown (1 attempt without usage) | pass |");
   });
 });
