@@ -112,6 +112,12 @@ describe("the sheet checks can fail (RED proof)", () => {
     ['@source "../../src/sections/../designs";', "scans ../../src/sections/../designs"],
     ['@source "/Users/someone/src";', "scans /Users/someone/src"],
     ['@source not "../../src/designs/impact";', "scans not ../../src/designs/impact"],
+    // This Mac's APFS volume is case-insensitive, so these name another design's folder, or all of them
+    // (A12-0 round-4 rulings, M1).
+    ['@source "../../src/Designs/impact";', "scans ../../src/Designs/impact"],
+    ['@source "../../src/DESIGNS";', "scans ../../src/DESIGNS"],
+    ['@source "../../src/designs/Impact/sections";', "scans ../../src/designs/Impact/sections"],
+    ['@source "../../src/designs/modern/../IMPACT";', "scans ../../src/designs/modern/../IMPACT"],
     ['@source "../../src/**/*.ts";', "glob ../../src/**/*.ts"],
     ['@source "../../src/designs/{impact,modern}";', "glob ../../src/designs/{impact,modern}"],
     ["@source '../../src';", "unreadable @source '../../src';"],
@@ -123,6 +129,13 @@ describe("the sheet checks can fail (RED proof)", () => {
     ['@plugin "@tailwindcss/typography";', 'imports @plugin "@tailwindcss/typography";'],
   ])("catch %s", (line, problem) => {
     expect(sourceProblems("modern", `${modern}${line}\n`)).toEqual([problem]);
+  });
+
+  it("judge a path in lower case, and still need each required path written exactly, as a case-sensitive build reads it", () => {
+    expect(sourceProblems("modern", modern.replace('"../../src/designs/modern"', '"../../src/designs/Modern"'))).toEqual(["missing @source ../../src/designs/modern"]);
+    expect(sourceProblems("baseline", '@import "tailwindcss" source(none);\n@import "../shared.css";\n@source "../../SRC";\n@source not "../../src/designs";\n')).toEqual([
+      "missing @source ../../src",
+    ]);
   });
 
   it("catch Tailwind's automatic scanning left on", () => {

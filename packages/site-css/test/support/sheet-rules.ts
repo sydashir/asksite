@@ -82,9 +82,13 @@ export function sourceProblems(name: string, source: string): string[] {
   }
 
   const own = name === "baseline" ? ["src", "not src/designs"] : ["src/render.ts", `src/designs/${name}`];
+  // Judged in lower case: this Mac's APFS volume is case-insensitive, so "src/Designs/impact" scans
+  // src/designs/impact here (A12-0 round-4 rulings, M1). Each required path must still be written exactly,
+  // as a case-sensitive Linux build reads it.
   const allowed = (path: string): boolean => {
-    if (name === "baseline") return own.includes(path);
-    const target = path.replace(/^not /, "");
+    const judged = path.toLowerCase();
+    if (name === "baseline") return own.includes(judged);
+    const target = judged.replace(/^not /, "");
     return target === own[1] || target.startsWith(`${own[1]}/`) || isShared(target);
   };
   return [
