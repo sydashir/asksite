@@ -4,7 +4,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { JOB_DEPS, runGenerationJob, type JobEnv } from "../src/job.ts";
 import { generationAllowance, requestGeneration } from "../src/request.ts";
 import { modelCallsToday } from "../src/settings.ts";
-import { JOB_STUCK_AFTER_MS, SWEEP_BATCH, sweepStuckJobs } from "../src/sweep.ts";
+import { JOB_STUCK_AFTER_MS, SWEEP_BATCH, SWEEP_MAX_PER_RUN, sweepStuckJobs } from "../src/sweep.ts";
 import { templateDraft } from "../src/template.ts";
 import { clearTables, getGeneration, insertGeneration, seedOwnerSite, startLocalD1 } from "./support/d1.ts";
 import { FULL_SNAPSHOT } from "./support/samples.ts";
@@ -111,6 +111,58 @@ describe("sweepStuckJobs", () => {
     for (const id of ["q1", "q2"]) expect(await getGeneration(db, id)).toMatchObject({ status: "running", started_at: NOW, finished_at: null, error_code: null, output_json: null });
     expect(await getGeneration(db, "r1")).toMatchObject({ status: "succeeded", output_json: modelDraft, used_fallback: 0, fallback_reason: null, attempts: 1, finished_at: NOW - 1 });
     expect(await getGeneration(db, "r2")).toMatchObject({ status: "failed", error_code: "provider_timeout", output_json: null, attempts: 3, finished_at: NOW - 1 });
+  });
+
+  it("never touches a finished job, even one that started long ago", async () => {
+    const draft = JSON.stringify(templateDraft(FULL_SNAPSHOT.facts, FULL_SNAPSHOT.brief));
+    await insertGeneration(db, { id: "ok", site_id: "s1", owner_id: "o1", kind: "first", status: "succeeded", input_json: INPUT, output_json: draft, model_slot: 1, attempts: 1, created_at: OLD, started_at: OLD, finished_at: OLD + 1 });
+    await insertGeneration(db, { id: "bad", site_id: "s2", owner_id: "o1", kind: "regenerate", status: "failed", error_code: "invalid_output", input_json: INPUT, model_slot: 1, attempts: 3, created_at: OLD, started_at: OLD, finished_at: OLD + 1 });
+    const before = [await getGeneration(db, "ok"), await getGeneration(db, "bad")];
+    expect(await sweepStuckJobs({ DB: db }, NOW)).toEqual({ fallback: 0, failed: 0 });
+    expect([await getGeneration(db, "ok"), await getGeneration(db, "bad")]).toEqual(before);
+  });
+
+  it("measures a running job from started_at: exactly JOB_STUCK_AFTER_MS is not stuck yet, 1 ms more is", async () => {
+    await insertGeneration(db, { id: "edge", site_id: "s1", owner_id: "o1", status: "running", input_json: INPUT, created_at: 0, started_at: NOW - JOB_STUCK_AFTER_MS });
+    await insertGeneration(db, { id: "past", site_id: "s2", owner_id: "o1", status: "running", input_json: INPUT, created_at: 0, started_at: NOW - JOB_STUCK_AFTER_MS - 1 });
+    expect(await sweepStuckJobs({ DB: db }, NOW)).toEqual({ fallback: 1, failed: 0 });
+    expect((await getGeneration(db, "edge")).status).toBe("running");
+    expect((await getGeneration(db, "past")).status).toBe("succeeded");
+  });
+
+  it("ends the job stuck the longest first: a queued job counts from created_at, a running one from started_at", async () => {
+    // Queued since OLD - 1, so stuck for longer than the running job, although that one was created long before.
+    await insertGeneration(db, { id: "queued", site_id: "s1", owner_id: "o1", status: "queued", input_json: INPUT, created_at: OLD - 1 });
+    await insertGeneration(db, { id: "running", site_id: "s2", owner_id: "o1", status: "running", input_json: INPUT, created_at: 0, started_at: OLD });
+    expect(await sweepStuckJobs({ DB: db }, NOW, 1)).toEqual({ fallback: 1, failed: 0 });
+    expect((await getGeneration(db, "queued")).status).toBe("succeeded");
+    expect((await getGeneration(db, "running")).status).toBe("running");
+  });
+
+  it("reads SWEEP_BATCH rows a query and ends at most 400 a run: 16 reads and 400 writes stay under D1's 1,000 queries per invocation (Decision 27)", async () => {
+    expect([SWEEP_BATCH, SWEEP_MAX_PER_RUN]).toEqual([25, 400]);
+    expect(Math.ceil(SWEEP_MAX_PER_RUN / SWEEP_BATCH) + SWEEP_MAX_PER_RUN).toBeLessThanOrEqual(1_000);
+    // 51 stuck jobs and a limit of 50: two full reads and 50 writes; the newest is left for the next run.
+    await db.batch(
+      Array.from({ length: 51 }, (_, i) => [
+        db.prepare("INSERT INTO sites (id, owner_id, created_at, updated_at) VALUES (?1, 'o1', 0, 0)").bind(`m${i}`),
+        db.prepare("INSERT INTO generations (id, site_id, owner_id, kind, status, input_json, created_at) VALUES (?1, ?1, 'o1', 'first', 'queued', ?2, ?3)").bind(`m${i}`, INPUT, OLD - i),
+      ]).flat(),
+    );
+    const queries: string[] = [];
+    const counted = new Proxy(db, {
+      get(target, prop, receiver) {
+        if (prop !== "prepare") return Reflect.get(target, prop, receiver);
+        return (sql: string) => {
+          queries.push(sql.slice(0, 6));
+          return target.prepare(sql);
+        };
+      },
+    });
+    expect(await sweepStuckJobs({ DB: counted }, NOW, 50)).toEqual({ fallback: 50, failed: 0 });
+    expect(queries.filter((query) => query === "SELECT")).toHaveLength(2);
+    expect(queries.filter((query) => query === "UPDATE")).toHaveLength(50);
+    expect((await getGeneration(db, "m0")).status).toBe("queued");
   });
 });
 
