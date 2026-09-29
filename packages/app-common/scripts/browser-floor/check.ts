@@ -334,7 +334,8 @@ function checkFile(ctx: Context, sf: SourceFile): void {
     if (!is.isRegularExpressionLiteral(node)) return;
     const src = node.text;
     const flags = src.slice(src.lastIndexOf("/") + 1);
-    const body = src.slice(1, src.lastIndexOf("/"));
+    // Each escape (`\(`, `\\`) read as one plain character, so an escaped `(` never opens a group.
+    const body = src.slice(1, src.lastIndexOf("/")).replace(/\\./g, "_");
     const features: string[] = [];
     if (flags.includes("v")) features.push("javascript.builtins.RegExp.unicodeSets");
     if (flags.includes("d")) features.push("javascript.builtins.RegExp.hasIndices");
