@@ -77,31 +77,41 @@ export const browserContentType = (boundary: string): string => `multipart/form-
 
 export type BrowserPart = { name: string; value: string } | { name: string; filename: string; type: string; content: Uint8Array };
 
-const encode = (text: string): Uint8Array => new TextEncoder().encode(text);
+// The tests' one home for building multipart bodies (P4-15 follow-up m2): encode, joined and browserMultipart.
+
+/** The text as UTF-8 bytes. */
+export const encode = (text: string): Uint8Array => new TextEncoder().encode(text);
+
+/** The chunks' bytes, one after another. */
+export function joined(...chunks: Uint8Array[]): Uint8Array {
+  const bytes = new Uint8Array(chunks.reduce((total, chunk) => total + chunk.byteLength, 0));
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return bytes;
+}
 
 /**
  * The body all three engines write for these parts (form_data.cc :298-362, FormData.cpp :261-290,
  * HTMLFormSubmission.cpp :374-398 and :513-541): for each part its delimiter line, its Content-Disposition (a
  * file's with its filename and Content-Type), a blank line, its content and CRLF; then the closing delimiter line.
+ * The engines end every line with CRLF; `eol` "\n" writes the same body with bare LF line ends instead, which no
+ * engine sends but workerd's parser reads.
  */
-export function browserMultipart(boundary: string, parts: BrowserPart[]): Uint8Array {
+export function browserMultipart(boundary: string, parts: BrowserPart[], eol = "\r\n"): Uint8Array {
   const chunks: Uint8Array[] = [];
   for (const part of parts) {
     if ("content" in part) {
-      chunks.push(encode(`--${boundary}\r\nContent-Disposition: form-data; name="${part.name}"; filename="${part.filename}"\r\nContent-Type: ${part.type}\r\n\r\n`), part.content);
+      chunks.push(encode(`--${boundary}${eol}Content-Disposition: form-data; name="${part.name}"; filename="${part.filename}"${eol}Content-Type: ${part.type}${eol}${eol}`), part.content);
     } else {
-      chunks.push(encode(`--${boundary}\r\nContent-Disposition: form-data; name="${part.name}"\r\n\r\n${part.value}`));
+      chunks.push(encode(`--${boundary}${eol}Content-Disposition: form-data; name="${part.name}"${eol}${eol}${part.value}`));
     }
-    chunks.push(encode("\r\n"));
+    chunks.push(encode(eol));
   }
-  chunks.push(encode(`--${boundary}--\r\n`));
-  const body = new Uint8Array(chunks.reduce((total, chunk) => total + chunk.byteLength, 0));
-  let offset = 0;
-  for (const chunk of chunks) {
-    body.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  return body;
+  chunks.push(encode(`--${boundary}--${eol}`));
+  return joined(...chunks);
 }
 
 /** Each engine, with a boundary drawn as its source draws one. */
