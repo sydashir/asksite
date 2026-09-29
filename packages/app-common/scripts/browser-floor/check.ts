@@ -7,6 +7,7 @@ import {
   type Diagnostic,
   type Program,
   type Project,
+  type Snapshot,
   type Symbol as TsSymbol,
   type Type,
 } from "typescript/unstable/sync";
@@ -382,14 +383,23 @@ function assertTypeChecks(tsconfig: string, program: Program): void {
   throw new Error(`${tsconfig} does not type-check, so the floor check cannot judge it:\n${list}`);
 }
 
+/**
+ * The project of one tsconfig in a snapshot, selected by the config file's path: the API lists a
+ * snapshot's projects in its own order (by path), not in the order they were opened.
+ */
+export function projectFor(snapshot: Snapshot, tsconfig: string): Project {
+  const project = snapshot.getProject(resolve(tsconfig));
+  if (!project) throw new Error(`No TypeScript project for ${tsconfig}`);
+  return project;
+}
+
 /** Checks the program of one tsconfig at the floor (default: the owner client's, src/browser-floor.ts). */
 export function checkFloor(tsconfig: string, floor: Floor = BROWSER_FLOOR): FloorReport {
   const api = new API({ cwd: process.cwd() });
   try {
     const snapshot = api.updateSnapshot({ openProjects: [resolve(tsconfig)] });
     try {
-      const project = snapshot.getProjects()[0];
-      if (!project) throw new Error(`No TypeScript project for ${tsconfig}`);
+      const project = projectFor(snapshot, tsconfig);
       const { program, checker } = project;
       assertTypeChecks(tsconfig, program);
       const files = program.getSourceFileNames().filter((f) => !f.endsWith(".d.ts") && !f.includes("/node_modules/"));

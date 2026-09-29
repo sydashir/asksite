@@ -1,8 +1,9 @@
 import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { API } from "typescript/unstable/sync";
 import { beforeAll, describe, expect, it, vi } from "vitest";
-import { checkFloor, type FloorReport } from "../scripts/browser-floor/check.ts";
+import { checkFloor, projectFor, type FloorReport } from "../scripts/browser-floor/check.ts";
 import { main } from "../scripts/browser-floor/cli.ts";
 
 // The floor check (P4-7) run over floor-fixtures/, at the floor of src/browser-floor.ts (16.4; its
@@ -40,6 +41,21 @@ describe("browser floor check", () => {
     // detection has a line that must fail.
     const below = checkFloor(resolve(FIXTURES, "regex/tsconfig.json"), { safari: "14", safari_ios: "14" });
     expect(found(below, "regex/regex.ts").sort()).toEqual(expected("regex/regex.ts").sort());
+  }, 120_000);
+
+  it("selects the project of the tsconfig it is given, whatever order the snapshot lists them in", () => {
+    // The TypeScript API lists a snapshot's projects in its own order (by path, not by the order they
+    // were opened in), so the check selects its project by the config file's path.
+    const configs = [resolve(FIXTURES, "clean/tsconfig.json"), resolve(FIXTURES, "broken/tsconfig.json")];
+    for (const opened of [configs, configs.toReversed()]) {
+      const api = new API({ cwd: FIXTURES });
+      try {
+        const snapshot = api.updateSnapshot({ openProjects: opened });
+        for (const config of configs) expect(projectFor(snapshot, config).configFileName).toBe(config);
+      } finally {
+        api.close();
+      }
+    }
   }, 120_000);
 
   it("refuses a program that does not type-check", () => {
