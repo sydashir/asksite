@@ -131,8 +131,9 @@ export function uploadRoutes(): Hono<AppEnv> {
     // Pre-check so a refused upload costs no image transformation. Past it, transformAndCount runs the transform and
     // counts it in one runToEnd: a photo as its upload, and a transform that gives no WebP to store (the file made it
     // fail, or the service answered another format) as an upload deleted at once (P4-14, P4-15 b); a transform whose
-    // failure does not blame the file (images.ts), or whose photo MEDIA cannot store, leaves no row. So the 150 total
-    // cap bounds those counted transforms, within two accepted known limits:
+    // failure does not blame the file (images.ts) leaves no row, nor does one whose photo MEDIA cannot store
+    // (storeUpload deletes its row again; should that DELETE fail too, the row stays and counts). So the 150 total cap
+    // bounds those counted transforms, within two accepted known limits:
     // - after a client disconnects, waitUntil keeps the work going for at most 30 s ("waitUntil() can extend
     //   execution for up to 30 seconds after the response is sent or the client disconnects",
     //   developers.cloudflare.com/workers/platform/limits/), so a transform not yet counted by then may go
@@ -168,8 +169,8 @@ export function uploadRoutes(): Hono<AppEnv> {
 
     // The .info() above is not billed (developers.cloudflare.com/images/pricing/), so the transform is the first
     // billed call. From it to the row that counts it, the work runs as one runToEnd (P4-8): should the client go
-    // away, waitUntil keeps it going for up to 30 s (see the pre-check), so the client cannot stop it between a
-    // billed transform and its count, or between a row and its photo.
+    // away, waitUntil keeps it going for up to 30 s more (see the pre-check), so the client cannot stop it between a
+    // billed transform and its count, or between a row and its photo, unless the work outlasts those 30 s.
     const row = await runToEnd(c.executionCtx, transformAndCount(c.env, site.id, bytes));
     const view: UploadView = {
       id: row.id,
