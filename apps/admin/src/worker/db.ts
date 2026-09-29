@@ -70,7 +70,5 @@ export function mailerEnv(env: Env): MailerEnv {
   return { MAILER: env.MAILER, MAIL_FROM: env.MAIL_FROM, RESEND_API_KEY: env.RESEND_API_KEY, DB: env.DB, ENVIRONMENT: env.ENVIRONMENT };
 }
 
-export const utcDayStart = (now: number): number => {
-  const day = new Date(now);
-  return Date.UTC(day.getUTCFullYear(), day.getUTCMonth(), day.getUTCDate());
-};
+/** @asksite/core's own, not a copy: the admin's "today" starts at the same instant as every other Worker's. */
+export { utcDayStart } from "@asksite/core";
