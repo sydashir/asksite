@@ -1,4 +1,4 @@
-import { MAX_ISSUES, noteLog } from "@asksite/app-common";
+import { MAX_ISSUES } from "@asksite/app-common";
 import {
   AiDraft,
   Brief,
@@ -20,7 +20,6 @@ import {
   type VersionSummary,
 } from "@asksite/core";
 import { Facts, SiteDocument } from "@asksite/site-schema";
-import type { Context } from "hono";
 import { parseStored } from "./db.ts";
 import type { AppDeps } from "./deps.ts";
 
@@ -37,18 +36,6 @@ export type StoredPart = "edits" | "ai_draft";
 
 /** Told when a stored part no longer passed its schema and was read leniently (decision 36). */
 export type NoteStoredInvalid = (part: StoredPart) => void;
-
-/**
- * The route's NoteStoredInvalid: the request's one log line (P4-3), which names the route, gets event
- * stored_json_invalid and every part read leniently so far, in the order they were read (P4-15 g).
- */
-export function storedJsonNote(c: Context): NoteStoredInvalid {
-  const parts: StoredPart[] = [];
-  return (part) => {
-    parts.push(part);
-    noteLog(c, { event: "stored_json_invalid", part: parts.join(",") });
-  };
-}
 
 /**
  * Stored edits passed OwnerEdits when they were saved. If a later rule refuses part of them, every

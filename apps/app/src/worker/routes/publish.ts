@@ -6,8 +6,9 @@ import { assertNotTakenDown, mailerEnv, ownedSite } from "../db.ts";
 import type { AppDeps } from "../deps.ts";
 import { publishRefusal } from "../publish-refusal.ts";
 import { requireOwner } from "../session.ts";
-import { currentAi, draftOf, liveUploads, storedJsonNote, toVersionSummary } from "../site-view.ts";
+import { currentAi, draftOf, liveUploads, toVersionSummary } from "../site-view.ts";
 import type { AppEnv } from "../types.ts";
+import { storedJsonNote } from "./stored-json-note.ts";
 
 /** A site's publish requests alert the reviewers at most once an hour, and at most ALERTS_PER_DAY alerts go out per UTC day in all (decision 32). */
 const ALERT_QUIET_MS = 3_600_000;

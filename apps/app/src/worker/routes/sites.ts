@@ -4,8 +4,9 @@ import { Hono } from "hono";
 import { foundSite, ownedSite, ownedSiteQuery } from "../db.ts";
 import type { AppDeps } from "../deps.ts";
 import { requireOwner } from "../session.ts";
-import { buildSiteView, currentAiQuery, draftIssues, draftOf, liveUploadsQuery, storedJsonNote, toCurrentAi, type CurrentAiRow } from "../site-view.ts";
+import { buildSiteView, currentAiQuery, draftIssues, draftOf, liveUploadsQuery, toCurrentAi, type CurrentAiRow } from "../site-view.ts";
 import type { AppEnv } from "../types.ts";
+import { storedJsonNote } from "./stored-json-note.ts";
 
 const byteLength = (text: string): number => new TextEncoder().encode(text).byteLength;
 
