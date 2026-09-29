@@ -11,6 +11,7 @@ describe("the site-busy page (a daily limit refused the form)", () => {
     ["2026-09-28T00:00:00.000Z", "86400"],
     ["2026-09-28T17:30:15.500Z", String(6 * 3600 + 29 * 60 + 45)],
     ["2026-09-28T23:59:59.001Z", "1"],
+    ["2026-09-28T23:59:59.600Z", "1"], // 0.4 s left: rounded up, never to 0 (a retry before 00:00 would be refused)
   ])("at %s asks the visitor to retry after %s seconds (the next 00:00 UTC)", (at, seconds) => {
     expect(siteBusy("asksite.example", Date.parse(at), null).headers.get("retry-after")).toBe(seconds);
   });
