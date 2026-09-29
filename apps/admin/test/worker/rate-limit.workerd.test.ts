@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { accessToken, useAdminHarness } from "../support/harness.ts";
+import { accessToken, json, useAdminHarness } from "../support/harness.ts";
 
 // ADMIN_RL (design §4.1): 300 requests per 60 s for each admin email. This file has its own local runtime, so a
 // budget spent here never holds up another file's tests.
@@ -43,5 +43,17 @@ describe("ADMIN_RL", () => {
     expect(refused).toEqual(Array.from({ length: LIMIT + 1 }, () => 403));
     const own = await h.call("GET", "/api/admin/me", { token, headers: { "Sec-Fetch-Site": "same-origin" } });
     expect(own.status).toBe(200);
+  }, 120_000);
+
+  it("answers 429 once an admin has made 300 requests in a minute, and counts each admin on their own", async () => {
+    const token = await accessToken({ email: "second@example.com" });
+    await awayFromMinuteBoundary(30_000);
+    expect(await burst(LIMIT, () => h.call("GET", "/api/admin/me", { token }))).toEqual(Array.from({ length: LIMIT }, () => 200));
+    const over = await h.call("GET", "/api/admin/me", { token });
+    expect(over.status).toBe(429);
+    expect(over.headers.get("Retry-After")).toBe("60");
+    expect(await json<{ error: { code: string; retryAfter: number } }>(over)).toMatchObject({ error: { code: "rate_limited", retryAfter: 60 } });
+    // The limit is kept per admin email: another admin still gets in.
+    expect((await h.call("GET", "/api/admin/me")).status).toBe(200);
   }, 120_000);
 });

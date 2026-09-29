@@ -5,6 +5,8 @@ import { describe, expect, it } from "vitest";
 const config = JSON.parse(readFileSync(new URL("../../wrangler.jsonc", import.meta.url), "utf8")) as {
   compatibility_date: unknown;
   compatibility_flags?: string[];
+  routes: unknown;
+  ratelimits: unknown;
   workers_dev: unknown;
   preview_urls: unknown;
   observability: { enabled: unknown; logs: { invocation_logs: unknown } };
@@ -38,6 +40,17 @@ describe("production wrangler.jsonc", () => {
     expect(config.workers_dev).toBe(false);
     expect(config.preview_urls).toBe(false);
     expect(config.observability.logs.invocation_logs).toBe(false);
+  });
+
+  it("is served only on the admin host of its root domain", () => {
+    // Pinned against ROOT_DOMAIN: the product's domain replaces asksite.example in both at once (plan Task 27).
+    const root = config.vars["ROOT_DOMAIN"];
+    expect(root).toMatch(/^[a-z0-9-]+(\.[a-z0-9-]+)+$/);
+    expect(config.routes).toEqual([{ pattern: `admin.${root}/*`, zone_name: root }]);
+  });
+
+  it("limits each admin to 300 requests a minute (ADMIN_RL, design §4.1)", () => {
+    expect(config.ratelimits).toEqual([{ name: "ADMIN_RL", namespace_id: "1005", simple: { limit: 300, period: 60 } }]);
   });
 
   it("runs on the pinned runtime: compatibility date 2026-09-21 with Node.js compatibility turned off (A13)", () => {
