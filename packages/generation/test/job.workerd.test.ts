@@ -139,6 +139,43 @@ describe("runGenerationJob", () => {
     expect(slots).toEqual([0, 1]);
   });
 
+  // The claim is the exact check of the daily model limit (request.ts only advises) and keeps its own copy of
+  // modelCallsToday's count: jobs of any owner holding a model slot, started since 00:00 UTC of the claim (design 6.3
+  // step 1). With a limit of 1, one earlier job decides whether the next one gets the day's only model call.
+  describe("counts today's model calls from 00:00 UTC, as modelCallsToday does (a limit of 1)", () => {
+    const DAY_START = Date.UTC(2026, 8, 24); // 00:00 UTC of NOW's day
+    const TAKEN = { status: "succeeded", model_slot: 1, used_fallback: 0, fallback_reason: null, attempts: 1 };
+    const REFUSED = { status: "succeeded", model_slot: 0, used_fallback: 1, fallback_reason: "budget", attempts: 0 };
+    const limitOne = (over: Partial<JobEnv> = {}) => envWith({ DAILY_MODEL_LIMIT: "1", ...over });
+
+    it.each([
+      ["a slot taken an hour earlier today uses it up", 1, NOW - 3_600_000, true],
+      ["a slot taken at exactly 00:00 UTC today uses it up", 1, DAY_START, true],
+      ["a slot taken 1 ms before 00:00 UTC (yesterday) does not", 1, DAY_START - 1, false],
+      ["a job started earlier today without a slot (given back or never taken) does not", 0, NOW - 60_000, false],
+    ] as const)("%s", async (_name, modelSlot, startedAt, counted) => {
+      await seedOwnerSite(db, "o2", "s3");
+      await insertGeneration(db, { id: "earlier", site_id: "s3", owner_id: "o2", status: "succeeded", input_json: INPUT, created_at: startedAt - 1, started_at: startedAt, finished_at: startedAt, model_slot: modelSlot });
+      expect(await modelCallsToday(db, NOW)).toBe(counted ? 1 : 0);
+      await queued("g");
+      await runGenerationJob(limitOne(), "g", deps());
+      expect(await getGeneration(db, "g")).toMatchObject(counted ? REFUSED : TAKEN);
+    });
+
+    it("a slot given back by a job with no key goes to the next job, which uses it up", async () => {
+      await queued("f");
+      await queued("g", "first", "s2");
+      // "auth" shows f claimed the slot (without one it would not build a provider), then gave it back: no call was sent.
+      expect(await runGenerationJob(limitOne({ MODEL_PROVIDER: "anthropic", MODEL_ID: "claude-opus-5-5" }), "f", deps())).toMatchObject({ outcome: "fallback", providerErrorKind: "auth" });
+      expect(await getGeneration(db, "f")).toMatchObject({ model_slot: 0, started_at: NOW, attempts: 0 });
+      await runGenerationJob(limitOne(), "g", deps());
+      expect(await getGeneration(db, "g")).toMatchObject(TAKEN);
+      await queued("h"); // s1 again: f has finished
+      await runGenerationJob(limitOne(), "h", deps());
+      expect(await getGeneration(db, "h")).toMatchObject(REFUSED);
+    });
+  });
+
   it.each([
     ["timeout", "provider_error", "provider_timeout"],
     ["error", "provider_error", "provider_unavailable"],
