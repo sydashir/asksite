@@ -1,9 +1,12 @@
 import { AxeBuilder } from "@axe-core/playwright";
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { expect, test, type Page } from "@playwright/test";
 import { render } from "@asksite/renderer";
-import { DESIGN_IDS, FONT_IDS, type DesignId, type SiteDocumentInput } from "@asksite/site-schema";
-import { DESIGN_CSS, FIXTURE_FORM_ACTION, FIXTURES, inDesign, loadFixture, type FixtureName } from "../fixtures/index.ts";
+import { DESIGN_IDS, FONT_IDS, SiteDocument, type DesignId, type SiteDocumentInput } from "@asksite/site-schema";
+import { DESIGN_CSS, FIXTURE_FORM_ACTION, FIXTURES, inDesign, loadFixture, stubStylesheets, type FixtureName } from "../fixtures/index.ts";
+import { BASELINE } from "../packages/renderer/src/baseline.ts";
+import { renderDocument } from "../packages/renderer/src/render.ts";
 
 const WCAG_TAGS = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"];
 // Best-practice rules for page structure: all content inside landmarks, headings in order,
@@ -26,17 +29,33 @@ const SCREENSHOT_CSS = fileURLToPath(new URL("./screenshot.css", import.meta.url
 // depend on the network (a live image gave a steady pixel diff in earlier research).
 const GRAY_PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAQAAAADCAIAAAA7ljmRAAAAEUlEQVR42mM4ffUhHDHg5AAASSceDT8mdlEAAAAASUVORK5CYII=", "base64");
 
-async function openDocument(page: Page, doc: SiteDocumentInput): Promise<void> {
+async function openHtml(page: Page, html: string): Promise<void> {
   await page.route(/^https?:\/\//, (route) =>
     route.request().resourceType() === "image"
       ? route.fulfill({ body: GRAY_PNG, contentType: "image/png" })
       : route.abort(),
   );
-  await page.setContent(render(doc, { stylesheets: DESIGN_CSS, formAction: FIXTURE_FORM_ACTION }).html, { waitUntil: "load" });
+  await page.setContent(html, { waitUntil: "load" });
 }
+
+const openDocument = (page: Page, doc: SiteDocumentInput): Promise<void> =>
+  openHtml(page, render(doc, { stylesheets: DESIGN_CSS, formAction: FIXTURE_FORM_ACTION }).html);
 
 /** The fixture's page in the given design (A12), or in its own design when none is given. */
 const open = (page: Page, name: FixtureName, design?: DesignId): Promise<void> => openDocument(page, inDesign(loadFixture(name), design));
+
+/** The baseline sheet (styles/sheets/baseline.css, compiled by `pnpm build:css`): today's page's sheet. */
+const BASELINE_CSS = readFileSync(new URL("../packages/renderer/styles/out/baseline.css", import.meta.url), "utf8");
+
+/**
+ * Today's page (BASELINE) for the fixture, with the baseline sheet. It is built only from files that no
+ * design build may change (A12 §9), so a design's own traits (a hero that clips, a scroll padding that
+ * keeps focus clear of the call bar) can never hide what a RED proof checks (A12-0 round-2 attack, I-1).
+ */
+function openToday(page: Page, name: FixtureName): Promise<void> {
+  const options = { stylesheets: stubStylesheets(BASELINE_CSS), formAction: FIXTURE_FORM_ACTION };
+  return openHtml(page, renderDocument(SiteDocument.parse(loadFixture(name)), BASELINE, options).html);
+}
 
 /**
  * Every WCAG 2.2 A/AA violation, whatever axe's impact rating (impact is severity, not the WCAG level:
@@ -264,15 +283,16 @@ for (const design of DESIGN_IDS) {
 }
 
 test.describe("the gates can fail (RED proof)", () => {
+  // Each proof edits today's page (BASELINE), which no design build changes; the unit RED blocks do the same.
   test("axe reports low-contrast text as serious", MOBILE, async ({ page }) => {
-    await open(page, "plumber-austin");
+    await openToday(page, "plumber-austin");
     await page.addStyleTag({ content: ":root{--aw-color-text-muted:#BBBBBB}" });
     const results = await new AxeBuilder({ page }).withTags(WCAG_TAGS).analyze();
     expect(results.violations.filter((v) => v.impact === "serious").map((v) => v.id)).toContain("color-contrast");
   });
 
   test("the sideways-scroll check sees a word that cannot wrap", MOBILE, async ({ page }) => {
-    await open(page, "plumber-austin");
+    await openToday(page, "plumber-austin");
     await page.addStyleTag({ content: "body{overflow-wrap:normal!important}" });
     await page.locator("h1").evaluate((h1) => {
       h1.textContent = "W".repeat(300);
@@ -281,7 +301,7 @@ test.describe("the gates can fail (RED proof)", () => {
   });
 
   test("the axe gate fails on a WCAG AA violation that axe rates moderate (zoom turned off)", MOBILE, async ({ page }) => {
-    await open(page, "plumber-austin");
+    await openToday(page, "plumber-austin");
     await page.locator('meta[name="viewport"]').evaluate((meta) => {
       meta.setAttribute("content", "width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no");
     });
@@ -289,19 +309,19 @@ test.describe("the gates can fail (RED proof)", () => {
   });
 
   test("the axe gate fails on a WCAG A violation that axe rates minor (a deprecated ARIA role)", MOBILE, async ({ page }) => {
-    await open(page, "plumber-austin");
+    await openToday(page, "plumber-austin");
     await page.locator("main").evaluate((main) => main.insertAdjacentHTML("afterbegin", '<div role="directory"><p>Old role</p></div>'));
     expect((await axeProblems(page)).map((line) => line.split(":")[0])).toContain("aria-deprecated-role");
   });
 
   test("axe reports content outside a landmark", MOBILE, async ({ page }) => {
-    await open(page, "plumber-austin");
+    await openToday(page, "plumber-austin");
     await page.evaluate(() => document.body.insertAdjacentHTML("beforeend", "<p>Outside every landmark</p>"));
     expect((await axeProblems(page)).map((line) => line.split(":")[0])).toContain("region");
   });
 
   test("the axe gate sees tap targets that are too small and too close (WCAG 2.5.8)", MOBILE, async ({ page }) => {
-    await open(page, "plumber-austin");
+    await openToday(page, "plumber-austin");
     await page.locator("main").evaluate((main) => {
       const tiny = "display:block;width:8px;height:8px;overflow:hidden";
       main.insertAdjacentHTML("afterbegin", `<div style="display:flex"><a href="#a" style="${tiny}">A</a><a href="#b" style="${tiny}">B</a></div>`);
@@ -310,34 +330,34 @@ test.describe("the gates can fail (RED proof)", () => {
   });
 
   test("the honeypot check sees the field moved on-screen", MOBILE, async ({ page }) => {
-    await open(page, "plumber-austin");
+    await openToday(page, "plumber-austin");
     await page.addStyleTag({ content: "div:has(> #contact-website){left:0!important}" });
     expect(await honeypotOffScreen(page)).toBe(false);
   });
 
   test("the phone menu check sees a menu that does not open", async ({ page }) => {
     test.skip((page.viewportSize()?.width ?? 0) >= 1024, "the menu is replaced by inline links on wide screens");
-    await open(page, "plumber-austin");
+    await openToday(page, "plumber-austin");
     await page.addStyleTag({ content: 'nav[aria-label="Main"] ul{display:none!important}' });
     expect(await phoneMenuProblems(page)).toEqual(["the FAQ link stays hidden after the menu opens"]);
   });
 
   test("the focus check sees a honeypot field that keyboard focus can reach", async ({ page, browserName }) => {
-    await open(page, "plumber-austin");
+    await openToday(page, "plumber-austin");
     await page.locator("#contact-website").evaluate((field) => field.removeAttribute("tabindex"));
     expect(await focusedIds(page, browserName)).toContain("contact-website");
   });
 
   test("the focus check sees a field hidden under a call bar that always sticks", async ({ page, browserName }) => {
     test.skip(!isPhoneProject(page), "the call bar only shows below 768 px");
-    await open(page, "plumber-austin");
+    await openToday(page, "plumber-austin");
     await page.addStyleTag({ content: "aside{position:sticky!important}" });
     expect(await focusHiddenByCallBar(page, browserName)).not.toEqual([]);
   });
 
   test("the focus check sees a link hidden under a call bar that sticks while a link has focus", async ({ page, browserName }) => {
     test.skip(!isPhoneProject(page), "the call bar only shows below 768 px");
-    await open(page, "plumber-austin");
+    await openToday(page, "plumber-austin");
     // The bar stays static while a form field has focus, so only a hidden link can be found.
     await page.addStyleTag({ content: "html:has(a:focus-visible) aside{position:sticky!important}" });
     expect((await focusHiddenByCallBar(page, browserName)).filter((stop) => stop.startsWith("A "))).not.toEqual([]);
