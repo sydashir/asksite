@@ -34,7 +34,11 @@ describe("approveVersion", () => {
     const live = await env.LIVE.get(liveKey(p.slug));
     expect(await live?.text()).toBe(work);
     expect(live?.httpMetadata?.contentType).toBe("text/html; charset=utf-8");
-    expect(live?.customMetadata).toEqual({ siteId: p.siteId, versionId: p.versionId, sha256: p.htmlSha256 });
+    // A15: the business phone of the approved document (plumber-austin: +15125550142), for the sites
+    // Worker's "Please call instead" page: the text the page shows and the number its tel: links call.
+    expect(live?.customMetadata).toEqual({
+      siteId: p.siteId, versionId: p.versionId, sha256: p.htmlSha256, phoneText: "(512) 555-0142", phoneTel: "+15125550142",
+    });
     expect(await sha256Hex(String(work))).toBe(p.htmlSha256);
 
     expect(await siteRow(env.DB, p.siteId)).toMatchObject({ live_version_id: p.versionId, pending_version_id: null, indexable: 0 });
@@ -93,7 +97,8 @@ describe("approveVersion", () => {
     const secondSha = String((await versionRow(env.DB, second.id))?.html_sha256);
     await approve(second.id, secondSha, { now: 41 });
     expect((await failure(approve(p.versionId, p.htmlSha256, { now: 42 }))).code).toBe("version_not_pending");
-    expect((await env.LIVE.get(liveKey(p.slug)))?.customMetadata?.["versionId"]).toBe(second.id);
+    // The phone follows the live document too (hvac-phoenix: +16025550118).
+    expect((await env.LIVE.get(liveKey(p.slug)))?.customMetadata).toMatchObject({ versionId: second.id, phoneText: "(602) 555-0118", phoneTel: "+16025550118" });
     expect((await versionRow(env.DB, p.versionId))?.status).toBe("approved");
   });
 });

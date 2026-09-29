@@ -224,7 +224,10 @@ describe("what takedown, restore and the search switch change and record (design
     await restore(env, { siteId: s.siteId, reviewer: ADMIN, now: 60 });
     const live = await env.LIVE.head(liveKey(s.slug));
     expect(live?.httpMetadata?.contentType).toBe("text/html; charset=utf-8");
-    expect(live?.customMetadata).toEqual({ siteId: s.siteId, versionId: s.liveVersionId, sha256: (await versionRow(env.DB, s.liveVersionId))?.html_sha256 });
+    expect(live?.customMetadata).toEqual({
+      siteId: s.siteId, versionId: s.liveVersionId, sha256: (await versionRow(env.DB, s.liveVersionId))?.html_sha256,
+      phoneText: "(512) 555-0142", phoneTel: "+15125550142", // A15: the live document's business phone (plumber-austin)
+    });
   });
 
   it("writes the page before clearing the takedown: if the write fails, the site stays down", async () => {

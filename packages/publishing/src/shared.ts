@@ -1,8 +1,21 @@
 import { AUDIT_ACTIONS, canonicalJson } from "@asksite/core";
+import { formatPhone } from "@asksite/renderer";
+import type { SiteDocument } from "@asksite/site-schema";
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
 
 export const HTML_TYPE = "text/html; charset=utf-8";
+
+/**
+ * The business phone that goes into the LIVE object's customMetadata with siteId, versionId and sha256
+ * (A15): the sites Worker prints it on its "Please call instead" page from the LIVE.head it already makes.
+ * Taken from the approved document's facts, so it is already public on the page: the text the page shows
+ * and the E.164 number its tel: links call.
+ */
+export function livePhoneMetadata(documentJson: string): { phoneText: string; phoneTel: string } {
+  const { facts } = JSON.parse(documentJson) as SiteDocument;
+  return { phoneText: formatPhone(facts.phone), phoneTel: facts.phone };
+}
 
 /**
  * An audit row that is written only when the statement just before it in the same D1 batch
