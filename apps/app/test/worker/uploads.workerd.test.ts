@@ -10,6 +10,9 @@ const h = useAppHarness();
 
 type ErrorJson = { error: { code: string; message?: string } };
 
+/** The answer to every upload refused as multipart (P4-17 Condition 3, P4-15 follow-up 2): one plain sentence, never the reason. */
+const didNotWork = { code: "bad_request", message: "That upload didn't work. Please try again." };
+
 /** The request's one log line of the last upload POST. */
 const lastUploadLine = () => h.logLines().filter((line) => line["route"] === "POST /api/sites/:siteId/uploads").at(-1);
 
@@ -220,10 +223,8 @@ describe("POST /api/sites/:siteId/uploads", () => {
   });
 
   describe("a multipart body shaped to make the parse slow is refused before it is parsed (P4-15 d)", () => {
-    // P4-17 Condition 3: for the strict Content-Type rule and the no-preamble rule the owner reads one plain
-    // sentence, and the reason is only on the request's log line. The two part limits keep their earlier text.
-    const didNotWork = { code: "bad_request", message: "That upload didn't work. Please try again." };
-    const refused = { code: "bad_request", message: "The upload is not valid multipart form data" };
+    // P4-17 Condition 3, for every refusal here (P4-15 follow-up 2): the owner reads one plain sentence, and the
+    // reason is only on the request's log line.
 
     it(`refuses more than MAX_PARTS (${MAX_PARTS}) parts with 400, noting too_many_parts on the request's log line`, async () => {
       const owner = await h.signIn();
@@ -231,7 +232,7 @@ describe("POST /api/sites/:siteId/uploads", () => {
       for (let i = 0; i < MAX_PARTS; i += 1) form.append(`field${i}`, "x");
       const res = await h.call("POST", `/api/sites/${owner.siteId}/uploads`, { cookie: owner.cookie, body: form });
       expect(res.status).toBe(400);
-      expect((await json<ErrorJson>(res)).error).toEqual(refused);
+      expect((await json<ErrorJson>(res)).error).toEqual(didNotWork);
       expect(lastUploadLine()).toMatchObject({ status: 400, code: "bad_request", event: "multipart_refused", reason: "too_many_parts" });
       expect(await uploadRows(owner.siteId)).toEqual([]);
     });
@@ -241,7 +242,7 @@ describe("POST /api/sites/:siteId/uploads", () => {
       const form = upload(await png(400, 300), `${"a".repeat(MAX_PART_HEADER_BYTES)}.png`, "image/png");
       const res = await h.call("POST", `/api/sites/${owner.siteId}/uploads`, { cookie: owner.cookie, body: form });
       expect(res.status).toBe(400);
-      expect((await json<ErrorJson>(res)).error).toEqual(refused);
+      expect((await json<ErrorJson>(res)).error).toEqual(didNotWork);
       expect(lastUploadLine()).toMatchObject({ status: 400, code: "bad_request", event: "multipart_refused", reason: "part_header_too_long" });
       expect(await uploadRows(owner.siteId)).toEqual([]);
     });
@@ -260,22 +261,22 @@ describe("POST /api/sites/:siteId/uploads", () => {
     const fields = (count: number): BrowserPart[] => Array.from({ length: count }, (_, i) => ({ name: `field${i}`, value: "x" }));
 
     // Each body below parses in workerd to a stored photo when the guard lets it through (P4-15 review I1, I2).
-    it.each<[name: string, reason: string, answer: ErrorJson["error"], request: (photo: Uint8Array) => [contentType: string, body: Uint8Array]]>([
+    it.each<[name: string, reason: string, request: (photo: Uint8Array) => [contentType: string, body: Uint8Array]]>([
       // The parser reads REAL from these two headers; a looser read of the boundary let their extra parts through.
-      ["a boundary= inside an earlier parameter's quoted value", "boundary_not_accepted", didNotWork, (photo) => ['multipart/form-data; x="; boundary=DECOY"; boundary=REAL', browserMultipart("REAL", [photoPart(photo), ...fields(MAX_PARTS)])]],
-      ["a quoted boundary with a backslash escape", "boundary_not_accepted", didNotWork, (photo) => ['multipart/form-data; boundary="RE\\AL"', browserMultipart("REAL", [photoPart(photo), ...fields(MAX_PARTS)])]],
+      ["a boundary= inside an earlier parameter's quoted value", "boundary_not_accepted", (photo) => ['multipart/form-data; x="; boundary=DECOY"; boundary=REAL', browserMultipart("REAL", [photoPart(photo), ...fields(MAX_PARTS)])]],
+      ["a quoted boundary with a backslash escape", "boundary_not_accepted", (photo) => ['multipart/form-data; boundary="RE\\AL"', browserMultipart("REAL", [photoPart(photo), ...fields(MAX_PARTS)])]],
       // RFC 2046 5.1.1: a boundary "must be no longer than 70 characters"; the parser's search costs its length.
-      ["a boundary of 71 characters", "boundary_not_accepted", didNotWork, (photo) => [`multipart/form-data; boundary=${"b".repeat(71)}`, browserMultipart("b".repeat(71), [photoPart(photo)])]],
+      ["a boundary of 71 characters", "boundary_not_accepted", (photo) => [`multipart/form-data; boundary=${"b".repeat(71)}`, browserMultipart("b".repeat(71), [photoPart(photo)])]],
       // With the browser's header: a --REAL-- inside a line is no delimiter to the parser, which reads on.
-      ["a --boundary-- inside a line of the first part", "too_many_parts", refused, (photo) => ["multipart/form-data; boundary=REAL", browserMultipart("REAL", [{ name: "note", value: "xx--REAL--yy" }, photoPart(photo), ...fields(MAX_PARTS - 1)])]],
-      ["a preamble before the first delimiter", "no_leading_delimiter", didNotWork, (photo) => ["multipart/form-data; boundary=REAL", joined(encode("preamble\r\n"), browserMultipart("REAL", [photoPart(photo)]))]],
-    ])("refuses %s with 400, noting %s", async (_, reason, answer, request) => {
+      ["a --boundary-- inside a line of the first part", "too_many_parts", (photo) => ["multipart/form-data; boundary=REAL", browserMultipart("REAL", [{ name: "note", value: "xx--REAL--yy" }, photoPart(photo), ...fields(MAX_PARTS - 1)])]],
+      ["a preamble before the first delimiter", "no_leading_delimiter", (photo) => ["multipart/form-data; boundary=REAL", joined(encode("preamble\r\n"), browserMultipart("REAL", [photoPart(photo)]))]],
+    ])("refuses %s with 400, noting %s", async (_, reason, request) => {
       const owner = await h.signIn();
       const [contentType, body] = request(await png(400, 300));
       const res = await postRaw(owner, contentType, body);
       expect(res.status).toBe(400);
       const text = await res.text();
-      expect((JSON.parse(text) as ErrorJson).error).toEqual(answer);
+      expect((JSON.parse(text) as ErrorJson).error).toEqual(didNotWork);
       // The reason is for the log line only: nothing in the answer names it.
       expect(text).not.toContain(reason);
       expect(lastUploadLine()).toMatchObject({ status: 400, code: "bad_request", event: "multipart_refused", reason });
@@ -319,25 +320,27 @@ describe("POST /api/sites/:siteId/uploads", () => {
     });
   });
 
-  it("refuses a multipart body that cannot be parsed with 400 bad_request, not as a server failure", async () => {
+  it("refuses a multipart body that cannot be parsed with 400 bad_request and the same plain sentence, not as a server failure", async () => {
     const owner = await h.signIn();
     const part = '------b\r\nContent-Disposition: form-data; name="file"; filename="a.jpg"\r\nContent-Type: image/jpeg\r\n\r\nÿØÿ';
-    const bodies: Array<[contentType: string, body: string]> = [
-      ["multipart/form-data; boundary=----b", "not multipart at all"],
-      ["multipart/form-data; boundary=----b", part],
-      ["multipart/form-data;", part],
-      ["multipart/form-data; boundary=----b", ""],
+    // With the reason each request's log line gives: the guard refuses three of these bodies; the part that never
+    // closes passes it, and then formData() cannot parse it (readForm's 400, which notes no reason).
+    const bodies: Array<[contentType: string, body: string, reason: string | undefined]> = [
+      ["multipart/form-data; boundary=----b", "not multipart at all", "no_leading_delimiter"],
+      ["multipart/form-data; boundary=----b", part, undefined],
+      ["multipart/form-data;", part, "boundary_not_accepted"],
+      ["multipart/form-data; boundary=----b", "", "no_leading_delimiter"],
     ];
-    const answers: Array<[number, string]> = [];
+    const answers: Array<[number, ErrorJson["error"], unknown]> = [];
     for (const [contentType, body] of bodies) {
       const res = await h.server.fetch(`${APP_ORIGIN}/api/sites/${owner.siteId}/uploads`, {
         method: "POST",
         headers: { Origin: APP_ORIGIN, Cookie: owner.cookie, "Content-Type": contentType },
         body,
       });
-      answers.push([res.status, (await json<ErrorJson>(res)).error.code]);
+      answers.push([res.status, (await json<ErrorJson>(res)).error, lastUploadLine()?.["reason"]]);
     }
-    expect(answers).toEqual(bodies.map(() => [400, "bad_request"]));
+    expect(answers).toEqual(bodies.map(([, , reason]) => [400, didNotWork, reason]));
   });
 
   it("stops at 40 kept photos and at 150 uploads in total (429 upload_limit_reached)", async () => {
