@@ -25,6 +25,8 @@ export interface CallOptions {
   token?: string | null;
   origin?: string | null;
   host?: string;
+  /** More request headers, sent as given (a browser's Fetch Metadata, say). */
+  headers?: Record<string, string>;
 }
 
 export const VALID_FACTS = {
@@ -60,6 +62,12 @@ export function useAdminHarness(vars: Record<string, string> = {}) {
       headers["Content-Type"] = "application/json";
       body = JSON.stringify(options.body);
     }
+    Object.assign(headers, options.headers);
+    // The fetch under server.fetch (undici) always sets Sec-Fetch-Mode to its own mode, "cors". Miniflare's
+    // entry Worker puts back a mode sent as MF-Sec-Fetch-Mode (its pass-through for the Vite plugin), so the
+    // Worker sees the mode the test asked for (checked with an echo Worker: "navigate" arrives only this way).
+    const mode = options.headers?.["Sec-Fetch-Mode"];
+    if (mode !== undefined) headers["MF-Sec-Fetch-Mode"] = mode;
     return server.fetch(`https://${options.host ?? "admin.localhost:8788"}${path}`, { method, headers, ...(body === undefined ? {} : { body }) });
   }
 
