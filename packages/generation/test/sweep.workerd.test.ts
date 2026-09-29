@@ -1,6 +1,9 @@
-import { AiDraft } from "@asksite/core";
-import type { D1Database } from "@cloudflare/workers-types";
+import { AiDraft, type GenerationJob, type GenerationRow } from "@asksite/core";
+import type { D1Database, Queue } from "@cloudflare/workers-types";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { JOB_DEPS, runGenerationJob, type JobEnv } from "../src/job.ts";
+import { generationAllowance, requestGeneration } from "../src/request.ts";
+import { modelCallsToday } from "../src/settings.ts";
 import { JOB_STUCK_AFTER_MS, SWEEP_BATCH, sweepStuckJobs } from "../src/sweep.ts";
 import { templateDraft } from "../src/template.ts";
 import { clearTables, getGeneration, insertGeneration, seedOwnerSite, startLocalD1 } from "./support/d1.ts";
@@ -69,5 +72,63 @@ describe("sweepStuckJobs", () => {
     }
     expect(SWEEP_BATCH).toBeLessThan(30);
     expect(await sweepStuckJobs({ DB: db }, NOW)).toEqual({ fallback: 30, failed: 0 });
+  });
+});
+
+// task-10-additions A: which sweeper end-states count toward the site's 5 per UTC day and the owner's 20 regenerations,
+// end to end. requestGeneration queues the job at START and its queue message is lost. A running job was also claimed
+// at START by the job, which then could not read the row back and left it to the sweeper (job.ts, read_failed). The
+// sweeper ends it at NOW, the same UTC day, and generationAllowance before and after shows how the end-state counts
+// (request.ts COUNTS_TODAY and COUNTS_TOWARD_TOTAL). A job the sweeper failed before any job claimed it (internal,
+// started_at NULL) is our infrastructure failure, so it counts toward neither. A template counts toward the day,
+// because the owner received a draft. No sweeper end-state counts toward the owner's total.
+describe("the sweeper's end-states and the allowance counts, end to end (task-10-additions A)", () => {
+  const START = OLD;
+  const lostQueue = { send: async () => {} } as unknown as Queue<GenerationJob>;
+  const allowance = () => generationAllowance({ DB: db }, { siteId: "s1", ownerId: "o1", now: NOW });
+  /** The job's claim works; reading the row back fails, so the job leaves the row running (job.ts, read_failed). */
+  const cannotReadBack = (): D1Database =>
+    new Proxy(db, {
+      get(target, prop, receiver) {
+        if (prop !== "prepare") return Reflect.get(target, prop, receiver);
+        return (sql: string) => {
+          if (sql.startsWith("SELECT kind")) throw new Error("D1 down");
+          return target.prepare(sql);
+        };
+      },
+    });
+  const jobEnv = (generationEnabled: string): JobEnv => ({
+    DB: cannotReadBack(), GENERATION_ENABLED: generationEnabled, DAILY_MODEL_LIMIT: "30", ENVIRONMENT: "development", MODEL_PROVIDER: "fake", MODEL_ID: "fake-template",
+  });
+  type Stuck = { kind: "first" | "regenerate"; claimed?: "with a model slot" | "without a model slot"; unreadable?: true; end: Partial<GenerationRow>; today: boolean };
+
+  it.each<[string, Stuck]>([
+    ["a queued regeneration ends failed and counts toward neither", { kind: "regenerate", end: { status: "failed", error_code: "internal", started_at: null, model_slot: 0, output_json: null }, today: false }],
+    ["a queued first build whose input cannot be read ends failed and counts toward neither", { kind: "first", unreadable: true, end: { status: "failed", error_code: "internal", started_at: null, model_slot: 0, output_json: null }, today: false }],
+    ["a queued first build gets the template and counts toward the day only", { kind: "first", end: { status: "succeeded", used_fallback: 1, fallback_reason: "provider_error", error_code: null, started_at: null, model_slot: 0 }, today: true }],
+    ["a running regeneration with a model slot ends failed and counts toward the day only", { kind: "regenerate", claimed: "with a model slot", end: { status: "failed", error_code: "internal", started_at: START, model_slot: 1, output_json: null }, today: true }],
+    ["a running regeneration without a model slot ends failed and counts toward the day only", { kind: "regenerate", claimed: "without a model slot", end: { status: "failed", error_code: "internal", started_at: START, model_slot: 0, output_json: null }, today: true }],
+    ["a running first build gets the template and counts toward the day only", { kind: "first", claimed: "with a model slot", end: { status: "succeeded", used_fallback: 1, fallback_reason: "provider_error", error_code: null, started_at: START, model_slot: 1 }, today: true }],
+    ["a running first build whose input cannot be read ends failed and counts toward the day only", { kind: "first", claimed: "with a model slot", unreadable: true, end: { status: "failed", error_code: "internal", started_at: START, model_slot: 1, output_json: null }, today: true }],
+  ])("%s", async (_name, stuck) => {
+    // A regeneration needs a site whose first build succeeded; that was long ago, so it counts toward nothing today.
+    if (stuck.kind === "regenerate") await insertGeneration(db, { id: "built", site_id: "s1", owner_id: "o1", status: "succeeded", created_at: 1, started_at: 1, finished_at: 1 });
+    const request = await requestGeneration({ DB: db, GEN_QUEUE: lostQueue, GENERATION_ENABLED: "true", DAILY_MODEL_LIMIT: "30" }, { siteId: "s1", ownerId: "o1", snapshot: FULL_SNAPSHOT, now: START });
+    if (!request.ok) throw new Error(`the request was refused: ${request.code}`);
+    const { id } = request.generation;
+    expect(request.generation.kind).toBe(stuck.kind);
+    // No code stores input it cannot read back today: this stands for a stored snapshot that a later schema rejects.
+    if (stuck.unreadable) await db.prepare("UPDATE generations SET input_json = 'not json' WHERE id = ?1").bind(id).run();
+    if (stuck.claimed) {
+      const env = jobEnv(stuck.claimed === "with a model slot" ? "true" : "false");
+      expect(await runGenerationJob(env, id, { ...JOB_DEPS, now: () => START })).toMatchObject({ outcome: "read_failed" });
+    }
+    // While it is live, the job counts toward the day and, as a regeneration, toward the owner's total.
+    expect(await allowance()).toEqual({ generationsLeftToday: 4, generationsLeftTotal: stuck.kind === "regenerate" ? 19 : 20 });
+    expect(await sweepStuckJobs({ DB: db }, NOW)).toEqual(stuck.end.status === "succeeded" ? { fallback: 1, failed: 0 } : { fallback: 0, failed: 1 });
+    expect(await getGeneration(db, id)).toMatchObject({ kind: stuck.kind, created_at: START, finished_at: NOW, ...stuck.end });
+    // A model slot the job took stays taken (it may have paid for a call), so it still counts toward today's model limit.
+    expect(await modelCallsToday(db, NOW)).toBe(stuck.end.model_slot);
+    expect(await allowance()).toEqual({ generationsLeftToday: stuck.today ? 4 : 5, generationsLeftTotal: 20 });
   });
 });
