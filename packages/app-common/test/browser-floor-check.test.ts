@@ -31,7 +31,7 @@ function found(checked: FloorReport, file: string): string[] {
 }
 
 describe("browser floor check", () => {
-  it.each(["baseline.ts", "aliases.ts", "a-receivers.ts", "b-generics.ts", "c-mixins.ts", "d-partial.ts", "e-suppressions.ts", "statics.ts", "destructuring.ts", "forms.ts", "alias-source.ts", "alias-reexport.ts", "alias-import.ts"])("%s: fails exactly the marked uses", (file) => {
+  it.each(["baseline.ts", "aliases.ts", "a-receivers.ts", "b-generics.ts", "c-mixins.ts", "d-partial.ts", "e-suppressions.ts", "e-suppressions-jsx.tsx", "statics.ts", "destructuring.ts", "forms.ts", "alias-source.ts", "alias-reexport.ts", "alias-import.ts"])("%s: fails exactly the marked uses", (file) => {
     expect(found(report, file).sort()).toEqual(expected(file).sort());
   });
 
@@ -47,14 +47,25 @@ describe("browser floor check", () => {
   }, 120_000);
 
   it("keeps each floor-ok reason with the finding it accepts", () => {
-    const reasons = report.findings
-      .filter((finding) => finding.file === resolve(FIXTURES, "e-suppressions.ts") && finding.suppressed !== undefined)
-      .map((finding) => `${finding.line} ${finding.suppressed}`);
-    expect(reasons.sort()).toEqual([
+    const reasons = (file: string): string[] =>
+      report.findings
+        .filter((finding) => finding.file === resolve(FIXTURES, file) && finding.suppressed !== undefined)
+        .map((finding) => `${finding.line} ${finding.suppressed}`)
+        .sort();
+    expect(reasons("e-suppressions.ts")).toEqual([
       "10 only opens same-tab links",
       "11 MDN files it as scrollX's other name",
       "8 the caller tests typeof URL.canParse first",
       "9 same-line reason",
+    ]);
+    // The JSX form: the reason ends where its comment does.
+    expect(reasons("e-suppressions-jsx.tsx")).toEqual([
+      "19 the popover is an optional extra",
+      "20 same-line reason",
+      "21 only opens same-tab links",
+      "22 MDN files it as scrollX's other name",
+      "25 a note may stand on either side",
+      "26 covers its own line only",
     ]);
   });
 });

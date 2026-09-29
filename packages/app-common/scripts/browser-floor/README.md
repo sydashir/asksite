@@ -11,8 +11,11 @@ that MDN's browser-compat-data (8.1.3, pinned) does not list as fully supported 
 - Each failing line prints `file:line:col  kind  API  MDN key  (browser: version_added)`. Kinds: not
   supported, partial support (MDN `partial_implementation`), no MDN key (unmapped: fails, never
   skipped), and a `floor-ok` marker without a reason.
-- To accept one finding: `// floor-ok: <reason>` at the end of its line, or alone on the line before.
-  An empty reason accepts nothing and is itself a failure.
+- To accept one finding: `// floor-ok: <reason>` at the end of its line, or alone on the line before
+  (only comments beside it); a marker after code does not reach the next line. Between JSX children,
+  where a `//` line is text that the page shows, write `{/* floor-ok: <reason> */}` the same way. An
+  empty reason (or no colon) accepts nothing and is itself a failure. Markers are read from the text,
+  so one in a string or in JSX text counts too: keep them in comments.
 - Tests: `test/browser-floor-check.test.ts` runs the checker over `floor-fixtures/`. A fixture line
   that must fail carries `expect: <kind> <key>`; every other line must pass, so a miss and a false
   alarm both fail the test. `floor-fixtures/regex/` is checked at a floor below every regular
@@ -68,9 +71,8 @@ This is our own client code, not an attacker boundary. These forms are not judge
   Nothing checks the rest.
 
 Also known, from the reviews (each fails loudly or is rare): a qualified name in a type-only heritage
-clause (`interface X extends WebAssembly.Global {}`) is reported as unmapped; a `// floor-ok` marker
-does not fit inside JSX; CSSOM properties written as `el.style.x` have no MDN key and are reported
-as unmapped.
+clause (`interface X extends WebAssembly.Global {}`) is reported as unmapped; CSSOM properties written
+as `el.style.x` have no MDN key and are reported as unmapped.
 
 ## Backstops (what else would catch a too-new API)
 

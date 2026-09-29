@@ -63,8 +63,11 @@ export interface FloorReport {
 }
 
 const NOTHING = TypeFlags.Null | TypeFlags.Undefined | TypeFlags.Void;
-const MARKER = /\/\/\s*floor-ok\b(.*)$/;
-const ONLY_COMMENTS = /^\s*(\/\*.*?\*\/\s*)*$/;
+// `// floor-ok: <reason>` to the end of a line, or `{/* floor-ok: <reason> */}` between JSX children
+// (where a `//` line is text that the page shows).
+const MARKER = /\/\/\s*floor-ok\b(.*)$|\{\s*\/\*\s*floor-ok\b(.*?)\*\/\s*\}/;
+// Nothing but whitespace and comments: `/* ... */`, or `{/* ... */}` in JSX.
+const ONLY_COMMENTS = /^\s*((\{\s*\/\*.*?\*\/\s*\}|\/\*.*?\*\/)\s*)*$/;
 
 /**
  * TypeScript parses every heritage clause element and an instantiation expression (`Map<string, number>`)
@@ -126,13 +129,15 @@ interface Context {
 
 function checkFile(ctx: Context, sf: SourceFile): void {
   const { project, checker, lib, floor, report } = ctx;
-  // `// floor-ok: <reason>` markers by line. One without a reason accepts nothing and is itself a failure.
+  // `floor-ok` markers by line; one alone on its line (only comments around it) also covers the next
+  // line. One without a reason accepts nothing and is itself a failure.
   const markers = new Map<number, { reason: string | undefined; alone: boolean }>();
   sf.text.split("\n").forEach((text, index) => {
     const marker = MARKER.exec(text);
     if (!marker) return;
-    const reason = /^:(.*)$/.exec(marker[1] ?? "")?.[1]?.trim() || undefined;
-    markers.set(index + 1, { reason, alone: ONLY_COMMENTS.test(text.slice(0, marker.index)) });
+    const reason = /^:(.*)$/.exec(marker[1] ?? marker[2] ?? "")?.[1]?.trim() || undefined;
+    const around = [text.slice(0, marker.index), text.slice(marker.index + marker[0].length)];
+    markers.set(index + 1, { reason, alone: around.every((part) => ONLY_COMMENTS.test(part)) });
     if (!reason) {
       const finding: Finding = { file: sf.fileName, line: index + 1, column: marker.index + 1, api: "floor-ok", key: "floor-ok", kind: "bad-suppression", gaps: [] };
       report.findings.push(finding);
