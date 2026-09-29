@@ -117,6 +117,17 @@ describe("A15 per-network daily limits", () => {
     expect(await linesWith(h, "code", "network_daily_limit", 1)).toHaveLength(1);
   });
 
+  it(`counts the network's leads on the site it posts to toward its ${ALL_SITES} across all sites`, async () => {
+    const [a, b] = [await seedSite(tools), await seedSite(tools)];
+    const statuses: number[] = [];
+    for (const site of [a, a, a, b, b]) statuses.push((await post(site, "192.0.2.25")).status);
+    expect(statuses).toEqual([303, 303, 303, 303, 303]);
+    // B holds 2 of this network's leads, under its 3 per site, but 3 on A + 2 on B use up its 5 for all sites.
+    expect((await post(b, "192.0.2.25")).status).toBe(429);
+    expect(await leadsOf(b.siteId)).toHaveLength(ALL_SITES - PER_SITE);
+    expect(await linesWith(h, "code", "network_daily_limit", 1)).toHaveLength(1);
+  });
+
   it("counts spam: the network's spam uses up its leads on a site and across sites, and its next post, spam or not, is refused and not stored", async () => {
     const [site, second, third] = [await seedSite(tools), await seedSite(tools), await seedSite(tools)];
     for (let i = 0; i < PER_SITE; i++) expect((await post(site, "192.0.2.30", SPAM)).status).toBe(303);
@@ -157,15 +168,18 @@ describe("A15 per-network daily limits", () => {
   // Worker-level posts cannot be made to interleave (local requests run one at a time), so a version that
   // counted first and inserted later would pass the tests above. Here the order is fixed: a lead that
   // started before the network's last allowed lead but is written after it must be refused.
+  // `here`: the network's earlier leads on the late lead's site; `elsewhere`: on other sites, one each.
   it.each([
-    ["on one site", PER_SITE - 1, true],
-    ["across all sites", ALL_SITES - 1, false],
+    ["on one site", { here: PER_SITE - 1, elsewhere: 0 }, true],
+    ["across all sites", { here: 0, elsewhere: ALL_SITES - 1 }, false],
+    ["across all sites, counting its leads on this site", { here: PER_SITE - 1, elsewhere: ALL_SITES - PER_SITE }, false],
   ])("decides when the lead is written, in the same statement: %s", async (_, earlier, sameSite) => {
     const site = await seedSite(tools);
     const elsewhere = await seedSite(tools);
     const ipHash = `race-${newId()}`;
     const now = Date.now();
-    for (let i = 0; i < earlier; i++) await fill(sameSite ? site.siteId : (await seedSite(tools)).siteId, 1, { createdAt: dayStart(now), ipHash });
+    for (let i = 0; i < earlier.here; i++) await fill(site.siteId, 1, { createdAt: dayStart(now), ipHash });
+    for (let i = 0; i < earlier.elsewhere; i++) await fill((await seedSite(tools)).siteId, 1, { createdAt: dayStart(now), ipHash });
     const target = sameSite ? site : elsewhere;
 
     const production = writesReturnNoRows(tools.DB);
@@ -175,7 +189,7 @@ describe("A15 per-network daily limits", () => {
     expect(await insertLead(production, input(target, ipHash, { now }))).toBe("pending");
     held.release();
     expect(await late).toBe("network_daily_limit");
-    expect(await leadsOf(site.siteId)).toHaveLength(sameSite ? PER_SITE : 0);
+    expect(await leadsOf(site.siteId)).toHaveLength(earlier.here + (sameSite ? 1 : 0));
   });
 
   it("learns which limit refused a lead from a SELECT in the same batch (production D1 returns no rows for the INSERT)", async () => {
