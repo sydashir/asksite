@@ -34,6 +34,10 @@ export interface JobReport {
   providerErrorKind: ProviderErrorKind | null;
   /** Each attempt's outcome code, in order. */
   attemptOutcomes: AttemptOutcome[];
+  /** An attempt's usage is unknown and counted as 0: the provider sent none, or a sent call that may be billed failed (P3-4a). */
+  usageMissing: boolean;
+  /** The input-bound guard refused an attempt's prompt before its call (P3-8). */
+  inputBoundRefused: boolean;
   durationMs: number;
 }
 
@@ -47,8 +51,9 @@ SET status = 'running', started_at = ?2,
 WHERE id = ?1 AND status = 'queued'`;
 
 // §6.3 step 4: conditional on 'running', so a late or duplicate invocation never overwrites the
-// sweeper. A job that made no attempt (the provider could not be built, e.g. no key) gives its
-// model slot back, so a broken configuration cannot use up the day's model calls.
+// sweeper. A job that sent no provider call gives its model slot back, so a broken configuration
+// cannot use up the day's model calls: the provider could not be built (e.g. no key), or the input
+// guard or a passed deadline stopped every attempt before its call (attempts counts calls sent).
 const FINISH = `UPDATE generations
 SET status = ?2, output_json = ?3, used_fallback = ?4, fallback_reason = ?5, error_code = ?6, provider = ?7, model = ?8,
     attempts = ?9, input_tokens = ?10, output_tokens = ?11, cost_microusd = ?12, finished_at = ?13,
@@ -69,8 +74,10 @@ const NO_SPEND: Spend = { provider: null, model: null, attempts: 0, inputTokens:
 interface Trace {
   providerErrorKind: ProviderErrorKind | null;
   attemptOutcomes: AttemptOutcome[];
+  usageMissing: boolean;
+  inputBoundRefused: boolean;
 }
-const NO_TRACE: Trace = { providerErrorKind: null, attemptOutcomes: [] };
+const NO_TRACE: Trace = { providerErrorKind: null, attemptOutcomes: [], usageMissing: false, inputBoundRefused: false };
 
 type Ending =
   | { status: "succeeded"; draft: AiDraft; fallbackReason: FallbackReason | null }
@@ -88,7 +95,7 @@ async function callModel(env: JobEnv, snapshot: GenerationInputSnapshot, hasSlot
     provider = deps.createProvider(env, snapshot);
   } catch (error) {
     if (!(error instanceof ProviderError)) throw error;
-    return { ok: false, reason: "provider_error", timedOut: false, spend: { ...NO_SPEND, provider: env.MODEL_PROVIDER }, trace: { providerErrorKind: error.kind, attemptOutcomes: [] } };
+    return { ok: false, reason: "provider_error", timedOut: false, spend: { ...NO_SPEND, provider: env.MODEL_PROVIDER }, trace: { ...NO_TRACE, providerErrorKind: error.kind } };
   }
   const result = await generateDraft(provider, snapshot, deps.generate);
   const spend: Spend = {
@@ -99,7 +106,12 @@ async function callModel(env: JobEnv, snapshot: GenerationInputSnapshot, hasSlot
     outputTokens: result.usage.outputTokens,
     cost: costMicrousd(env.MODEL_PROVIDER, env.MODEL_ID, result.usage),
   };
-  const trace: Trace = { providerErrorKind: result.ok ? null : result.providerErrorKind, attemptOutcomes: result.log.map((attempt) => attempt.outcome) };
+  const trace: Trace = {
+    providerErrorKind: result.ok ? null : result.providerErrorKind,
+    attemptOutcomes: result.log.map((attempt) => attempt.outcome),
+    usageMissing: result.log.some((attempt) => attempt.usageMissing),
+    inputBoundRefused: result.inputBoundRefused,
+  };
   if (result.ok) return { ok: true, draft: result.draft, spend, trace };
   return { ok: false, reason: result.failure, timedOut: result.providerErrorKind === "timeout", spend, trace };
 }
@@ -132,7 +144,8 @@ export async function runGenerationJob(env: JobEnv, generationId: string, deps: 
   const startedAt = deps.now();
   const report = (outcome: JobReport["outcome"], extra: Partial<JobReport> = {}): JobReport => ({
     outcome, generationId, attempts: 0, usedFallback: false, errorCode: null, fallbackReason: null,
-    providerErrorKind: null, attemptOutcomes: [], durationMs: deps.now() - startedAt, ...extra,
+    providerErrorKind: null, attemptOutcomes: [], usageMissing: false, inputBoundRefused: false,
+    durationMs: deps.now() - startedAt, ...extra,
   });
 
   const enabled = await isGenerationEnabled(env);
@@ -170,7 +183,7 @@ export async function runGenerationJob(env: JobEnv, generationId: string, deps: 
 
   const fallbackReason = ending.status === "succeeded" ? ending.fallbackReason : null;
   const errorCode = ending.status === "failed" ? ending.errorCode : null;
-  const calls = { attempts: spend.attempts, providerErrorKind: trace.providerErrorKind, attemptOutcomes: trace.attemptOutcomes };
+  const calls = { attempts: spend.attempts, ...trace };
   try {
     const finish = await env.DB.prepare(FINISH)
       .bind(

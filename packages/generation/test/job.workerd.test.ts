@@ -2,6 +2,7 @@ import { AiDraft } from "@asksite/core";
 import { SiteDocument } from "@asksite/site-schema";
 import type { D1Database } from "@cloudflare/workers-types";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { capsSnapshot } from "../eval/caps.ts";
 import { runGenerationJob, type JobDeps, type JobEnv } from "../src/job.ts";
 import { createProvider } from "../src/providers/create.ts";
 import type { ModelProvider } from "../src/provider.ts";
@@ -48,8 +49,21 @@ const deps = (provider?: ModelProvider): JobDeps => ({
   generate: { sleep: async () => {}, timeoutSignal: () => new AbortController().signal, now: () => NOW },
   createProvider: provider === undefined ? createProvider : () => provider,
 });
-const queued = (id: string, kind: "first" | "regenerate" = "first", site = "s1") =>
-  insertGeneration(db, { id, site_id: site, owner_id: "o1", kind, status: "queued", input_json: INPUT, created_at: NOW - 1000 });
+const queued = (id: string, kind: "first" | "regenerate" = "first", site = "s1", input = INPUT) =>
+  insertGeneration(db, { id, site_id: site, owner_id: "o1", kind, status: "queued", input_json: input, created_at: NOW - 1000 });
+
+/** U+FDFA: 3 UTF-8 bytes, 33 after NFKC, so the input guard (generate.ts inputBound) counts it as 33. */
+const FDFA = String.fromCharCode(0xfdfa);
+/** Schema-valid owner text over the input bound: every capped field filled with U+FDFA (the P3-8 tests in generate.test.ts). */
+const OVER_BOUND = capsSnapshot(FDFA);
+/**
+ * The P3-8 attempt-2 construction (generate.test.ts): 20 faq entries whose unknown keys repeat `fill`. Zod's
+ * "Unrecognized key" message repeats each key, so the model's own text reaches attempt 2's repair lines.
+ */
+const withUnknownKeys = (draft: AiDraft, fill: string) => ({
+  ...draft,
+  copy: { ...draft.copy, faq: Array.from({ length: 20 }, (_, i) => ({ question: "Do you fix leaks?", answer: "Yes, we do.", [fill.repeat(300) + String(i)]: "x" })) },
+});
 
 describe("runGenerationJob", () => {
   it("claims the job with a model slot and stores the validated draft", async () => {
@@ -210,5 +224,77 @@ describe("runGenerationJob", () => {
     });
     await expect(runGenerationJob(envWith({ DB: flaky }), "g1", deps())).resolves.toMatchObject({ outcome: "write_failed" });
     expect(calls).toBeGreaterThan(0);
+  });
+
+  it("reports the whole outcome for the log line, with every flag false when nothing went wrong (task-9-additions A)", async () => {
+    await queued("g1");
+    expect(await runGenerationJob(envWith(), "g1", deps())).toEqual({
+      outcome: "succeeded",
+      generationId: "g1",
+      attempts: 1,
+      usedFallback: false,
+      errorCode: null,
+      fallbackReason: null,
+      providerErrorKind: null,
+      attemptOutcomes: ["valid"],
+      usageMissing: false,
+      inputBoundRefused: false,
+      durationMs: 0,
+    });
+  });
+
+  // P3-4a: an attempt whose usage is unknown (the provider sent none, or a sent call timed out) flags the report.
+  it.each([
+    ["an answer came without usage", true, {}, () => scriptedProvider([{ ...answer({}), usageMissing: true }, answer(TEMPLATE)])],
+    ["every sent call timed out", true, { FAKE_MODE: "timeout" }, undefined],
+    ["every answer came with usage", false, {}, () => scriptedProvider([answer({}), answer(TEMPLATE)])],
+  ] as const)("reports usageMissing when %s: %s", async (_case, usageMissing, over, provider) => {
+    await queued("g1");
+    expect(await runGenerationJob(envWith(over), "g1", deps(provider?.()))).toMatchObject({ usageMissing });
+  });
+
+  // task-9-additions B: attempts counts only the calls sent, so a job whose every attempt was stopped before its call
+  // gives its model slot back; OVER_BOUND makes the input guard refuse attempt 1.
+  it("gives the model slot back when the input guard refuses attempt 1: no call is sent, a first build gets the template, a regeneration fails", async () => {
+    await queued("f", "first", "s1", JSON.stringify(OVER_BOUND));
+    await queued("r", "regenerate", "s2", JSON.stringify(OVER_BOUND));
+    const neverCalled = scriptedProvider([]);
+    const refused = { attempts: 0, providerErrorKind: "bad_request", attemptOutcomes: ["bad_request"], inputBoundRefused: true, usageMissing: false };
+    expect(await runGenerationJob(envWith(), "f", deps(neverCalled))).toMatchObject({ outcome: "fallback", fallbackReason: "provider_error", ...refused });
+    expect(await runGenerationJob(envWith(), "r", deps(neverCalled))).toMatchObject({ outcome: "failed", errorCode: "provider_unavailable", ...refused });
+    expect(neverCalled.requests).toHaveLength(0);
+    const unsent = { attempts: 0, model_slot: 0, input_tokens: 0, output_tokens: 0, cost_microusd: 0, provider: "fake", model: "fake-template" };
+    const first = await getGeneration(db, "f");
+    expect(first).toMatchObject({ status: "succeeded", used_fallback: 1, fallback_reason: "provider_error", error_code: null, ...unsent });
+    expect(AiDraft.parse(JSON.parse(first.output_json!))).toEqual(templateDraft(OVER_BOUND.facts, OVER_BOUND.brief));
+    expect(await getGeneration(db, "r")).toMatchObject({ status: "failed", error_code: "provider_unavailable", output_json: null, ...unsent });
+  });
+
+  it("gives the model slot back when every attempt's deadline had passed before its call: no call is sent", async () => {
+    await queued("f");
+    await queued("r", "regenerate", "s2");
+    const neverCalled = scriptedProvider([]);
+    const expired: JobDeps = { ...deps(neverCalled), generate: { ...deps().generate, timeoutSignal: () => AbortSignal.abort() } };
+    const unsent = { attempts: 0, providerErrorKind: "timeout", attemptOutcomes: ["timeout", "timeout", "timeout"], usageMissing: false, inputBoundRefused: false };
+    expect(await runGenerationJob(envWith(), "f", expired)).toMatchObject({ outcome: "fallback", fallbackReason: "provider_error", ...unsent });
+    expect(await runGenerationJob(envWith(), "r", expired)).toMatchObject({ outcome: "failed", errorCode: "provider_timeout", ...unsent });
+    expect(neverCalled.requests).toHaveLength(0);
+    expect(await getGeneration(db, "f")).toMatchObject({ status: "succeeded", used_fallback: 1, fallback_reason: "provider_error", attempts: 0, model_slot: 0 });
+    expect(await getGeneration(db, "r")).toMatchObject({ status: "failed", error_code: "provider_timeout", attempts: 0, model_slot: 0 });
+  });
+
+  it("keeps the model slot when the input guard refuses attempt 2 after attempt 1 was sent", async () => {
+    await queued("g1");
+    const provider = scriptedProvider([answer(withUnknownKeys(TEMPLATE, FDFA)), answer(TEMPLATE)]);
+    expect(await runGenerationJob(envWith(), "g1", deps(provider))).toMatchObject({
+      outcome: "fallback",
+      fallbackReason: "provider_error",
+      attempts: 1,
+      providerErrorKind: "bad_request",
+      attemptOutcomes: ["invalid", "bad_request"],
+      inputBoundRefused: true,
+    });
+    expect(provider.requests).toHaveLength(1);
+    expect(await getGeneration(db, "g1")).toMatchObject({ status: "succeeded", used_fallback: 1, fallback_reason: "provider_error", attempts: 1, model_slot: 1, input_tokens: 100, output_tokens: 50 });
   });
 });
