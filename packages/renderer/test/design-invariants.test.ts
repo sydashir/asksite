@@ -2,6 +2,8 @@ import {
   DESIGN_IDS,
   FONT_IDS,
   HIDEABLE_SECTIONS,
+  NEEDS_A_FACT,
+  NEVER_IN_COPY,
   PALETTE_IDS,
   SECTION_VARIANTS,
   SiteDocument,
@@ -14,8 +16,9 @@ import { FIXTURE_FORM_ACTION, FIXTURES, inDesign, loadFixture, stubStylesheets }
 import { BASELINE } from "../src/baseline.ts";
 import type { Design } from "../src/design.ts";
 import { DESIGNS } from "../src/designs/index.ts";
+import { html } from "../src/html.ts";
 import { render, renderDocument } from "../src/render.ts";
-import { formSkeleton, invariantProblems, navLinks, variableProblems } from "./support/design-invariants.ts";
+import { CREDENTIAL_CLAIMS, formSkeleton, invariantProblems, navLinks, pageClaims, ROUND_THE_CLOCK, variableProblems } from "./support/design-invariants.ts";
 
 const OPTIONS = { stylesheets: stubStylesheets(), formAction: FIXTURE_FORM_ACTION };
 
@@ -148,6 +151,84 @@ describe("the invariant checks can fail (RED proof, on edited pages)", () => {
     const edited = baseline.replace("</main>", '<p><a href="#reviews">Read our reviews</a></p>\n<div id="reviews"><p>Great work, fair price.</p></div>\n</main>');
     expect(edited).not.toBe(baseline);
     expect(invariantProblems(edited, baseline, doc, BASELINE)).toEqual(['left-out sections keep ids ["reviews"]']);
+  });
+
+  // The honesty rule (design §2.2; Plan 1 decisions 5 and 7): a page states no credential the owner's facts
+  // do not back, and never the contractor bond. BASELINE's own module tests pin it for today's text; a design
+  // build replaces those modules, so the shared check compares the design's text with today's (A12-0
+  // round-4 rulings: attack3 I-1, review3 I-1).
+  const boasting: Design = {
+    ...BASELINE,
+    footer: (ctx) => html`${BASELINE.footer(ctx)}\n<p>Licensed, insured and bonded. Free estimates and emergency service. Satisfaction guaranteed.</p>`,
+  };
+  it.each([
+    ["plumber-austin", ["bonded", "guaranteed"]],
+    ["hvac-phoenix", ["bonded", "guaranteed", "free"]],
+    ["roofing-extreme", ["bonded", "guaranteed"]],
+    ["cleaning-minimal", ["bonded", "guaranteed", "licensed", "insured", "emergency", "free"]],
+    ["electrical-xss", ["bonded", "guaranteed", "emergency", "free"]],
+  ] as const)("catch a design whose own text states claims no owner fact backs, on %s", (name, claims) => {
+    const doc = SiteDocument.parse(loadFixture(name));
+    const baseline = renderDocument(doc, BASELINE, OPTIONS).html;
+    expect(invariantProblems(renderDocument(doc, boasting, OPTIONS).html, baseline, doc, boasting)).toEqual([`unbacked claims ${JSON.stringify(claims)}`]);
+  });
+
+  it.each([
+    ["an entity between the words", "<p>Licensed &amp; insured</p>", ["licensed", "insured"]],
+    ["a badge label only a screen reader reads", '<p><svg aria-label="Certified and bonded" width="1" height="1"></svg></p>', ["bonded", "certified"]],
+    ["a warranty and a price boast", "<ul><li>Lifetime warranty</li><li>Lowest prices in town</li></ul>", ["warranty", "lowest"]],
+    ["round-the-clock hours", "<p>Open 7 days a week, day or night.</p>", ["day or night"]],
+    ["a 24/7 pill", '<p><span class="pill">24/7</span> Call now</p>', ["24/7"]],
+    ["a claim inside quotation marks", '<p>"Fully insured crew"</p>', ["insured"]],
+  ])("catch %s on cleaning-minimal", (_, extra, claims) => {
+    const doc = SiteDocument.parse(loadFixture("cleaning-minimal"));
+    const baseline = renderDocument(doc, BASELINE, OPTIONS).html;
+    const edited = baseline.replace("</footer>", `${extra}\n</footer>`);
+    expect(edited).not.toBe(baseline);
+    expect(invariantProblems(edited, baseline, doc, BASELINE)).toEqual([`unbacked claims ${JSON.stringify(claims)}`]);
+  });
+
+  it("allow a design to repeat a claim the owner's facts back, in quotation marks too", () => {
+    const edited = page.replace("</footer>", '<p>Licensed and insured. Free estimates. 24/7 emergency service.</p>\n<p>"Licensed and insured"</p>\n</footer>');
+    expect(edited).not.toBe(page);
+    expect(problems(edited)).toEqual([]);
+  });
+
+  // Why the check is relative: owner words the claim checker never reads (a real review) can hold a claim
+  // word, and every design shows them too.
+  it("today's pages state only the claim words of the owner's own reviews", () => {
+    const claims = FIXTURES.map((name) => {
+      const doc = SiteDocument.parse(loadFixture(name));
+      return [name, pageClaims(renderDocument(doc, BASELINE, OPTIONS).html, doc.facts)];
+    });
+    expect(claims).toEqual(FIXTURES.map((name) => [name, name === "hvac-phoenix" ? ["warranty"] : []]));
+    expect(JSON.stringify(loadFixture("hvac-phoenix").facts.testimonials)).toContain("registered the warranty for us");
+  });
+
+  it("allow a design to show today's review in its own quotation marks", () => {
+    const doc = SiteDocument.parse(loadFixture("hvac-phoenix"));
+    const baseline = renderDocument(doc, BASELINE, OPTIONS).html;
+    const review = "Clean install, great crew, and they registered the warranty for us.";
+    const edited = baseline.replace(`>${review}<`, `>"${review}"<`);
+    expect(edited).not.toBe(baseline);
+    expect(invariantProblems(edited, baseline, doc, BASELINE)).toEqual([]);
+  });
+
+  it("read the credential claims: every NEEDS_A_FACT pattern, and NEVER_IN_COPY's bond, rating, guarantee and price words only", () => {
+    expect(CREDENTIAL_CLAIMS).toEqual([NEVER_IN_COPY[0], NEVER_IN_COPY[1], NEVER_IN_COPY[4], NEVER_IN_COPY[5], ...NEEDS_A_FACT.map((n) => n.pattern)]);
+    // NEVER_IN_COPY's other patterns guard AI copy only. A curly quote or a quoted caption (decorative in the
+    // Classic and Modern mockups), review words, years, weekdays and web addresses state no credential.
+    const doc = SiteDocument.parse(loadFixture("cleaning-minimal"));
+    expect(pageClaims("<p>\u201c</p><figcaption>\"Kitchen\" after</figcaption><p>Reviews since 1990, Monday. mop.com</p>", doc.facts)).toEqual([]);
+  });
+
+  it('read "24/7" as the round-the-clock claim, backed only by the 24/7 fact', () => {
+    const texts = ["Open 24/7", "24 / 7 service", "24/7/365", "Call 124/7", "Back in 24/72 h", "Open 24 hours"];
+    expect(texts.map((text) => ROUND_THE_CLOCK.pattern.exec(text)?.[0] ?? null)).toEqual(["24/7", "24 / 7", "24/7", null, null, null]);
+    const withFact = SiteDocument.parse(loadFixture("plumber-austin")).facts;
+    const without = SiteDocument.parse(loadFixture("electrical-xss")).facts;
+    expect([withFact.emergency247, without.emergency247]).toEqual([true, false]);
+    expect([pageClaims("<p>Open 24/7</p>", withFact), pageClaims("<p>Open 24/7</p>", without)]).toEqual([[], ["24/7"]]);
   });
 
   it("catch unsafe or misnamed custom properties", () => {

@@ -2,11 +2,12 @@
 // code and tests rely on it (Plan 4's editor matches `<section id="…"`, the focus-outside rule needs the
 // call bar to be the only <aside>, the contact form posts these exact fields). A design is free in
 // everything else. Each check compares a design's page with today's page (BASELINE) for the same document.
-import type { SiteDocument } from "@asksite/site-schema";
+import { NEEDS_A_FACT, NEVER_IN_COPY, unbackedClaims, type Facts, type SiteDocument } from "@asksite/site-schema";
 import type { Design } from "../../src/design.ts";
 import { DOM_ID } from "../../src/sections/ids.ts";
 import { visibleSections } from "../../src/visibility.ts";
 import { startTags } from "./page-safety.ts";
+import { readableTexts } from "./page-text.ts";
 
 /** page.slice from the first `from` to the end of the first `to` after it; "" when either is missing. */
 function between(page: string, from: string, to: string): string {
@@ -67,6 +68,39 @@ const jsonLd = (page: string) => [...page.matchAll(/<script type="application\/l
 
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 
+/**
+ * The claims a page design's own text is checked for (A12-0 round-4 rulings): every NEEDS_A_FACT pattern
+ * (licence, insurance, emergency and round-the-clock hours, the full week, free) and NEVER_IN_COPY's bond,
+ * rating, guarantee and price patterns. NEVER_IN_COPY's other patterns guard AI copy only: a design's
+ * decorative curly quote, a quoted caption, review words, years or weekdays state no credential.
+ */
+export const CREDENTIAL_CLAIMS: readonly RegExp[] = [
+  ...NEVER_IN_COPY.filter((pattern) => ["bonded", "certified", "guaranteed", "cheapest"].some((word) => pattern.test(word))),
+  ...NEEDS_A_FACT.map((claim) => claim.pattern),
+];
+
+/**
+ * "24/7": NEEDS_A_FACT's round-the-clock claim ("around the clock", "day or night", "anytime") in digits,
+ * backed by the same fact. site-schema's lists leave it out because copy may hold no digit at all; a
+ * design's own text can hold it, and the approved mockups show a "24/7" pill to owners with that fact.
+ */
+export const ROUND_THE_CLOCK = { pattern: /\b24\s*\/\s*7\b/, backedBy: (facts: Facts): boolean => facts.emergency247 } as const;
+
+/**
+ * The credential claims `page` states that the owner's `facts` do not back, lower-cased, each once:
+ * site-schema's unbackedClaims on every text a person reads or hears, each word it finds cut down to the
+ * unbacked credential claim it holds, and an unbacked "24/7". So a quoted phrase or a web address around a
+ * claim counts as that claim, and one around a backed claim counts as nothing. unbackedClaims gives the
+ * first word of each pattern in a text, so a text that holds two words of one pattern shows the first.
+ */
+export function pageClaims(page: string, facts: Facts): string[] {
+  const texts = [...new Set(readableTexts(page))];
+  const unbacked = CREDENTIAL_CLAIMS.filter((pattern) => !NEEDS_A_FACT.some((claim) => claim.pattern === pattern && claim.backedBy(facts)));
+  const words = texts.flatMap((text) => unbackedClaims(text, facts)).flatMap((word) => unbacked.flatMap((pattern) => pattern.exec(word)?.[0] ?? []));
+  const digits = ROUND_THE_CLOCK.backedBy(facts) ? [] : texts.flatMap((text) => ROUND_THE_CLOCK.pattern.exec(text)?.[0] ?? []);
+  return [...new Set([...words, ...digits].map((claim) => claim.toLowerCase()))];
+}
+
 /** Every shared invariant `page` (drawn by `design` for `doc`) breaks, compared with today's page; [] when it keeps them all. */
 export function invariantProblems(page: string, baseline: string, doc: SiteDocument, design: Design): string[] {
   const problems: string[] = [];
@@ -110,6 +144,16 @@ export function invariantProblems(page: string, baseline: string, doc: SiteDocum
   if (!inOrder(todaysLinks, navLinks(page))) problems.push(`navigation ${JSON.stringify(navLinks(page))} lacks, in order, ${JSON.stringify(todaysLinks)}`);
   if (faqDetails(page) !== faqDetails(baseline)) problems.push(`${faqDetails(page)} details[name=faq], expected ${faqDetails(baseline)}`);
   if (!same(jsonLd(page), jsonLd(baseline))) problems.push("JSON-LD differs from today's");
+
+  // The honesty rule (design §2.2; Plan 1 decisions 5 and 7): no credential claim the owner's facts do not
+  // back, beyond those today's page shows for the same document, which come from the owner's own words, such
+  // as a review (A12-0 round-4 rulings).
+  const claims = pageClaims(page, doc.facts);
+  if (claims.length > 0) {
+    const todays = pageClaims(baseline, doc.facts);
+    const added = claims.filter((claim) => !todays.includes(claim));
+    if (added.length > 0) problems.push(`unbacked claims ${JSON.stringify(added)}`);
+  }
   return problems;
 }
 
