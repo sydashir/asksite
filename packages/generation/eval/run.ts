@@ -1,7 +1,8 @@
 import type { GenerationInputSnapshot } from "@asksite/core";
 import { generateDraft, type GenerateDeps, type GenerateResult } from "../src/generate.ts";
-import { costMicrousd } from "../src/models.ts";
+import { costMicrousd, worstCaseJobMicrousd } from "../src/models.ts";
 import type { ModelProvider } from "../src/provider.ts";
+import type { Budget } from "./budget.ts";
 import type { EvalProfile } from "./profiles.ts";
 
 export interface EvalCandidate {
@@ -22,7 +23,10 @@ export interface EvalRun {
 
 /**
  * Every candidate x profile x run, one after another (gentle on rate limits), through the same
- * generateDraft loop, prompt and validators the production job uses.
+ * generateDraft loop, prompt and validators the production job uses. With a budget (a live run,
+ * amendment P3-17), each site is sent only while its worst case (worstCaseJobMicrousd) still fits,
+ * and a site with an attempt without usage counts at that worst case; once the budget stops, no
+ * further site of any candidate is sent, and the runs so far are returned.
  */
 export async function runEval(options: {
   candidates: readonly EvalCandidate[];
@@ -30,13 +34,18 @@ export async function runEval(options: {
   runs: number;
   deps: GenerateDeps;
   onRun?: (done: number, total: number) => void;
+  budget?: Budget;
 }): Promise<EvalRun[]> {
   const out: EvalRun[] = [];
   const total = options.candidates.length * options.profiles.length * options.runs;
-  for (const candidate of options.candidates)
+  for (const candidate of options.candidates) {
+    const worst = worstCaseJobMicrousd(candidate.provider, candidate.modelId);
     for (const profile of options.profiles)
       for (let run = 1; run <= options.runs; run++) {
-        const result = await generateDraft(candidate.makeProvider(profile.snapshot), profile.snapshot, options.deps);
+        const site = () => generateDraft(candidate.makeProvider(profile.snapshot), profile.snapshot, options.deps);
+        const costOf = (sent: GenerateResult) => ({ actualMicrousd: costMicrousd(candidate.provider, candidate.modelId, sent.usage), usageMissing: sent.log.some((attempt) => attempt.usageMissing) });
+        const result = options.budget === undefined ? await site() : await options.budget.send(`${candidate.label} ${profile.id} run ${run}`, worst, site, costOf);
+        if (result === undefined) return out;
         out.push({
           candidate: candidate.label,
           profile,
@@ -47,5 +56,6 @@ export async function runEval(options: {
         });
         options.onRun?.(out.length, total);
       }
+  }
   return out;
 }

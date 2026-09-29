@@ -1,4 +1,5 @@
 import type { Issue } from "@asksite/core";
+import { describeStop, formatUsd, type BudgetStop } from "./budget.ts";
 import type { EvalRun } from "./run.ts";
 
 export interface CandidateSummary {
@@ -89,7 +90,32 @@ const counts = (c: Record<string, number>): string => Object.entries(c).map(([k,
 /** What a cost is when a provider left the usage of some attempts out (additions B). */
 const unknownCost = (attempts: number): string => `unknown (${attempts} ${attempts === 1 ? "attempt" : "attempts"} without usage)`;
 
-export function formatReport(summaries: readonly CandidateSummary[]): string {
+/** What a live run spent (amendment P3-17): its budget, what the budget counted, and whether it stopped the run. */
+export interface SpendReport {
+  budgetMicrousd: number;
+  /** Actual costs, and the worst case of each site that has an attempt without usage. */
+  countedMicrousd: number;
+  stop: BudgetStop | null;
+}
+
+const spent = (label: string, micro: number, missing: number): string => `- ${label}: spent ${formatUsd(micro)}${missing === 0 ? "" : `, plus ${unknownCost(missing)}`}`;
+
+function spendSection(summaries: readonly CandidateSummary[], spend: SpendReport): string[] {
+  const total = summaries.reduce((sum, s) => sum + s.totalCostMicrousd, 0);
+  const missing = summaries.reduce((sum, s) => sum + s.usageMissingAttempts, 0);
+  return [
+    "## Spend",
+    "",
+    `- Budget: ${formatUsd(spend.budgetMicrousd)}. Counted against it: ${formatUsd(spend.countedMicrousd)} (a site with an attempt without usage counts at its worst case).`,
+    ...summaries.map((s) => spent(s.label, s.totalCostMicrousd, s.usageMissingAttempts)),
+    spent("In total", total, missing),
+    `- ${describeStop(spend.stop)}`,
+    "",
+  ];
+}
+
+/** The report; with `spend` (a live run), also what it spent against its budget. */
+export function formatReport(summaries: readonly CandidateSummary[], spend?: SpendReport): string {
   return [
     "# Generation eval",
     "",
@@ -98,6 +124,7 @@ export function formatReport(summaries: readonly CandidateSummary[]): string {
     ...summaries.map((s) => `| ${s.label} | ${s.runs} | ${pct(s.firstTryPassRate)} | ${pct(s.passRate)} | ${s.latencyMsP50} | ${s.latencyMsP95} | ${s.usageMissingAttempts === 0 ? usd(s.costPerPassingSiteMicrousd) : unknownCost(s.usageMissingAttempts)} | ${s.meetsAutomaticGate ? "pass" : "fail"} |`),
     "",
     ...summaries.flatMap((s) => [`## ${s.label}`, "", `- Rules broken (attempts): ${counts(s.failedRules)}`, `- Claim words caught: ${counts(s.claimWords)}`, `- Provider errors: ${counts(s.providerErrors)}`, `- Largest input per run: ${s.maxInputTokensPerRun} tokens`, ""]),
+    ...(spend === undefined ? [] : spendSection(summaries, spend)),
     "The automatic gate is >= 95% within 2 retries and >= 80% first try. The human half (blind rating in ratings.csv: no unbacked claim found, mean score within 0.3 of Claude) is the user's step.",
   ].join("\n");
 }
