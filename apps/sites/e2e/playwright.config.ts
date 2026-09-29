@@ -6,6 +6,12 @@ import { defineConfig, devices } from "@playwright/test";
 // web server before globalSetup, so global-setup.ts seeds the sites into the running server's state.
 const REPO = resolve(import.meta.dirname, "../../..");
 
+// Each project posts as its own visitor network (A15 limits each network to 3 stored leads a UTC day per
+// site and 5 across all sites). Local wrangler keeps a CF-Connecting-IP the browser sends and sets it from
+// the socket only when it is missing, so without this every project would count as the same loopback
+// visitor. A project stores one lead per run, so up to 3 attempts of it (a retry or --repeat-each) fit.
+const visitor = (ip: string) => ({ extraHTTPHeaders: { "cf-connecting-ip": ip } });
+
 export default defineConfig({
   testDir: ".",
   testIgnore: "smoke.spec.ts", // the deployed-page check has its own config (smoke.config.ts)
@@ -27,8 +33,8 @@ export default defineConfig({
     stderr: "pipe",
   },
   projects: [
-    { name: "chromium-390", use: { ...devices["Desktop Chrome"], viewport: { width: 390, height: 844 } } },
-    { name: "chromium-1280", use: { ...devices["Desktop Chrome"], viewport: { width: 1280, height: 900 } } },
-    { name: "webkit-390", use: { ...devices["Desktop Safari"], viewport: { width: 390, height: 844 } } },
+    { name: "chromium-390", use: { ...devices["Desktop Chrome"], viewport: { width: 390, height: 844 }, ...visitor("192.0.2.101") } },
+    { name: "chromium-1280", use: { ...devices["Desktop Chrome"], viewport: { width: 1280, height: 900 }, ...visitor("192.0.2.102") } },
+    { name: "webkit-390", use: { ...devices["Desktop Safari"], viewport: { width: 390, height: 844 }, ...visitor("192.0.2.103") } },
   ],
 });
