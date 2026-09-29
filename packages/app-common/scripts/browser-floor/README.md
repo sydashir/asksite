@@ -1,8 +1,10 @@
 # Browser floor check
 
 The owner client must run on iOS/Safari 16.4 (`src/browser-floor.ts`, the one place the floor lives).
-This checker reads the client's TypeScript program and fails on every runtime use of a platform API
-that MDN's browser-compat-data (8.1.3, pinned) does not list as fully supported at that floor.
+This checker reads the client's TypeScript program. It fails on a runtime use of a platform API (one
+that TypeScript's default lib files declare), in the forms listed below, that MDN's browser-compat-data
+(8.1.3, pinned) does not list as fully supported at that floor. What it does not judge is listed
+under "Known limits"; each says what else covers it, or that nothing does.
 
 - Run: `pnpm check:floor` (root) or `pnpm --filter @asksite/app check:floor`. It runs `tsc` on
   `apps/app/tsconfig.floor.json` first, then `node scripts/check-browser-floor.ts <tsconfig>`.
@@ -49,7 +51,7 @@ reported as `no MDN key  destructuring assignment  source not judged`: it fails,
 
 ## Known limits
 
-This is our own client code, not an attacker boundary. These forms are not judged here:
+This is our own client code, not an attacker boundary. The check does not judge:
 
 - Computed access: `globalThis[name]` or `X[key]` with a key typed `string`, a computed destructuring
   key of such a type, and `Reflect.get(X, "y")`. Covered only when the key's type is a string
@@ -62,6 +64,36 @@ This is our own client code, not an attacker boundary. These forms are not judge
 - `any`-typed receivers: `(URL as any).canParse`, a member read from `JSON.parse(...)` or from
   `Response.json()`. The receiver has no type to map, so the member passes. Nothing covers them (the
   repo has no lint rule against `any`; `strict` only stops an implicit `any`).
+- APIs typed by our own declarations: a structural annotation (`const U: { canParse(u: string):
+  boolean } = URL; U.canParse(x)`) or an augmentation (`declare global { var EyeDropper: ... }`).
+  The check judges only what TypeScript's default lib files declare, and the lib gate accepts our own
+  declarations. Nothing covers them.
+- Sub-features under a member: options and parameters (`div.focus({ focusVisible: true })`, MDN
+  `api.HTMLElement.focus.options_focusVisible_parameter`, iOS 18.4) and behaviors such as symbols as
+  WeakMap keys (`javascript.builtins.WeakMap.symbol_as_keys`, 16.4, so it passes at today's floor).
+  The check reads the member's own MDN entry only. For DOM APIs nothing covers them: `lib.dom`
+  declares the newest options (`FocusOptions.focusVisible`). For ES built-ins the TypeScript lib gate
+  stops an option or parameter its es2023 files do not declare (`Intl.PluralRules` `roundingMode`,
+  17.2, and the `context` argument of a `JSON.parse` reviver, 18.4, are type errors there), but not a
+  behavior: symbols as WeakMap keys pass it.
+- Iteration protocols: `for...of`, spread and `for await` use an object's iterator without naming it.
+  In MDN 8.1.3 the only one above the floor on an interface that passes is `for await` over a
+  `ReadableStream` (`api.ReadableStream.@@asyncIterator`, 27). `lib.dom` declares that iterator, so
+  the lib gate passes it too. Nothing covers it.
+- Regular expressions: only literals are read, and only for the `d` and `v` flags, lookbehind and
+  modifiers. A pattern or flags in a string (`new RegExp("(?<=a)b")`) is not read, nor is any other
+  syntax: duplicate named groups (MDN 17) pass. The lib gate (target es2023) stops only the `v` flag
+  in a literal (TS1501). Nothing else covers them.
+- Code in dependencies (`node_modules`, for example React or Zod): the check reads only the program's
+  own files and the workspace packages they import, and the lib gate reads a dependency's type
+  declarations only, never its JavaScript. Nothing checks which APIs a dependency calls.
+- Members of plain-object types (mapping.ts `isPlainObjectMember`): a member with no MDN key passes
+  when its lib type has no MDN entry, is not a mixin MDN files under other interfaces, and names no
+  global value. These are WebIDL dictionaries (`*Init`, `*Options`, `ReadableStreamReadResult`,
+  `StorageEstimate`), TypeScript helper shapes (`IArguments`, `TemplateStringsArray`), deprecated
+  aliases (`ClientRect`) and `Console`, plus `X.prototype` itself. Reading a dictionary's field is
+  not a browser feature (review r1 scanned the 724 such names and found no gap at 16.4). Nothing else
+  covers them.
 - CSS and HTML features: CSS properties and values, HTML elements and attributes (including JSX
   attributes such as `popover`), and DOM event names given as strings or React props
   (`addEventListener("scrollend")`, `onScrollEnd`). Partly covered: Tailwind CSS v4 targets Safari 16.4
@@ -77,15 +109,18 @@ This is our own client code, not an attacker boundary. These forms are not judge
   VideoColorSpace), where nothing covers it, and the ES built-in Iterator, which the TypeScript lib
   gate stops (es2023 declares no `Iterator` value: TS2693).
 
-Also known, from the reviews (each fails loudly or is rare): a qualified name in a type-only heritage
-clause (`interface X extends WebAssembly.Global {}`) is reported as unmapped; CSSOM properties written
-as `el.style.x` have no MDN key and are reported as unmapped.
+Reported as unmapped although the code may be fine (each fails loudly; check it by hand, then accept
+it with a `floor-ok` reason):
 
-WebIDL constants (`Node.ELEMENT_NODE`, `Event.AT_TARGET`) have no MDN data ("not known to be a source
-of any compatibility issues", MDN data guidelines). One read from its interface object passes when
-that interface is fully supported at the floor; in MDN 8.1.3 every interface with constants is, except
-NodeFilter, which has no MDN entry, so `NodeFilter.SHOW_ELEMENT` is reported as unmapped. A constant
-read from an instance (`node.ELEMENT_NODE`) is reported as unmapped too (statics.ts, the last lines).
+- A qualified name in a type-only heritage clause (`interface X extends WebAssembly.Global {}`) is
+  reported as unmapped.
+- CSSOM properties written as `el.style.x` have no MDN key and are reported as unmapped.
+- WebIDL constants (`Node.ELEMENT_NODE`, `Event.AT_TARGET`) have no MDN data ("not known to be a
+  source of any compatibility issues", MDN data guidelines). One read from its interface object passes
+  when that interface is fully supported at the floor; in MDN 8.1.3 every interface with constants is,
+  except NodeFilter, which has no MDN entry, so `NodeFilter.SHOW_ELEMENT` is reported as unmapped. A
+  constant read from an instance (`node.ELEMENT_NODE`) is reported as unmapped too (statics.ts, the
+  last lines).
 
 ## Backstops (what else would catch a too-new API)
 
@@ -98,6 +133,8 @@ read from an instance (`node.ELEMENT_NODE`) is reported as unmapped too (statics
     newer than ES2023 is a type error (TS2339). It says nothing about DOM APIs: `lib.dom` declares
     the newest ones;
   - this checker, for DOM and ES APIs alike. That is why the closed list above matters.
+- Neither gate reads the code of dependencies (`node_modules`): nothing checks which APIs they call
+  (Known limits).
 
 ## Updating
 

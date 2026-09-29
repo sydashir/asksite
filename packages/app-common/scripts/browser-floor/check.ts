@@ -18,23 +18,36 @@ import { compatAt, gapsAt, type Floor, type Gap } from "./bcd.ts";
 import { indexLib, type LibIndex } from "./lib-index.ts";
 import { apiName, describe, isPlainObjectMember, isSupportedConstant, keysFor } from "./mapping.ts";
 
-// The browser floor check (P4-7): every runtime use of an API that a TypeScript default lib file
-// declares is mapped to its MDN browser-compat-data entry and checked at the floor. Types only and
-// feature tests (`typeof X`; the `y` of `typeof X.y` or `typeof X["y"]`, whose X is still read) are
-// not uses. A use with no MDN key fails as unmapped. README.md maps each form it judges to its
-// fixture.
+// The browser floor check (P4-7): a runtime use of an API that a TypeScript default lib file
+// declares, in the forms README.md lists (each with its fixture), is mapped to its MDN
+// browser-compat-data entry and checked at the floor. Types only and feature tests (`typeof X`; the
+// `y` of `typeof X.y` or `typeof X["y"]`, whose X is still read) are not uses. A use with no MDN key
+// fails as unmapped.
 //
-// Known limits (README.md "Known limits"; our own client code, not an attacker boundary):
+// Known limits (each in full in README.md "Known limits"; our own client code, not an attacker
+// boundary):
 // - computed access (`globalThis[name]`, `Reflect.get`): judged only when the key's type is a string
 //   literal; nothing else covers it;
 // - `eval`, `Function`, string code in timers: not read; the owner app's planned CSP (Task 14,
 //   `script-src 'self'`, no 'unsafe-eval') stops such code from running at all;
 // - `any`-typed receivers: nothing covers them;
+// - APIs typed by our own declarations (a structural annotation, `declare global`): only lib
+//   declarations are judged; nothing covers them;
+// - sub-features under a member: options and parameters (`focus({ focusVisible: true })`, iOS 18.4)
+//   and behaviors such as symbols as WeakMap keys (16.4): only the member's own entry is read; nothing
+//   covers them for DOM APIs, and the lib gate stops only an ES option its es2023 files do not declare;
+// - iteration protocols: `for await` over a ReadableStream (MDN 27) is not judged; nothing covers it;
+// - regular expressions: only literals, for the d and v flags, lookbehind and modifiers; the lib gate
+//   stops only the v flag; nothing covers the rest (duplicate named groups, patterns in strings);
+// - code in node_modules: read by neither this check nor the lib gate; nothing covers it;
+// - members of plain-object types (mapping.ts isPlainObjectMember) pass; nothing else covers them;
+// - a constructor reached through an alias is judged on its interface only; the lib gate stops the
+//   Iterator one, nothing covers the eight DOM ones;
 // - CSS and HTML features (and event names in strings or React props): not checked; Tailwind v4
 //   targets Safari 16.4 and Vite lowers some CSS syntax for build.cssTarget, nothing checks the rest.
 // Backstops: Playwright's WebKit and the user's iPhone run CURRENT WebKit, not iOS 16.4, so the
 // browser tests (Task 16) and the iPhone check (Task 27) miss a too-new DOM API. Only the TypeScript
-// lib gate (es2023, for ES built-ins) and this checker catch one.
+// lib gate (es2023, for ES built-ins) and this checker catch one, and neither reads dependency code.
 //
 // TypeScript 7.0 ships no stable compiler API ("we won't have a stable programmatic API available
 // until at least several months from now with TypeScript 7.1", 7.0 RC notes); `typescript/unstable/*`
