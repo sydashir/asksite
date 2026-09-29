@@ -1,7 +1,17 @@
-import { DESIGN_IDS, FONT_IDS, PALETTE_IDS, SECTION_VARIANTS, SiteDocument, Theme, type SiteDocumentInput } from "@asksite/site-schema";
+import {
+  DESIGN_IDS,
+  FONT_IDS,
+  PALETTE_IDS,
+  SECTION_VARIANTS,
+  SiteDocument,
+  Theme,
+  type HideableSectionId,
+  type SiteDocumentInput,
+} from "@asksite/site-schema";
 import { describe, expect, it } from "vitest";
 import { FIXTURE_FORM_ACTION, FIXTURES, inDesign, loadFixture, stubStylesheets } from "../../../fixtures/index.ts";
 import { BASELINE } from "../src/baseline.ts";
+import type { Design } from "../src/design.ts";
 import { DESIGNS } from "../src/designs/index.ts";
 import { render, renderDocument } from "../src/render.ts";
 import { formSkeleton, invariantProblems, navLinks, variableProblems } from "./support/design-invariants.ts";
@@ -21,6 +31,8 @@ function withoutHeroPhoto(input: SiteDocumentInput): SiteDocumentInput {
 
 const withHeroVariant = (input: SiteDocumentInput, variant: string): SiteDocumentInput =>
   ({ ...input, layout: input.layout.map((s) => (s.id === "hero" ? { ...s, variant } : s)) }) as SiteDocumentInput;
+
+const withHidden = (input: SiteDocumentInput, hidden: readonly HideableSectionId[]): SiteDocumentInput => ({ ...input, hidden: [...hidden] });
 
 // A12 §7 + addendum H1, for every design and every fixture.
 describe.each(DESIGN_IDS)("the %s design", (design) => {
@@ -80,6 +92,7 @@ describe("the invariant checks can fail (RED proof, on edited pages)", () => {
     ["an FAQ item that is not exclusive", page.replace('name="faq"', ""), /details\[name=faq\]/],
     ["a second comment", page.replace("<main", "<!-- x --><main"), /^the one comment/],
     ["changed JSON-LD", page.replace('"@type":"Plumber"', '"@type":"LocalBusiness"'), /^JSON-LD differs/],
+    ["a link to an element the page lacks", page.replace("</footer>", '<p><a href="#quote">Get a quote</a></p>\n</footer>'), /^in-page links to missing ids \["#quote"\]$/],
   ])("catch %s", (_, edited, problem) => {
     expect(edited).not.toBe(page);
     expect(problems(edited).filter((found) => problem.test(found))).toHaveLength(1);
@@ -97,9 +110,23 @@ describe("the invariant checks can fail (RED proof, on edited pages)", () => {
     ],
     ["a Main nav with one list of links (no separate phone menu)", page.replace(/<details class="group relative lg:hidden">[\s\S]*?<\/details>\n/, "")],
     ["extra links in the Main nav", page.replace('<ul class="hidden items-center gap-1 lg:flex">', '<a href="#top">Open the menu</a>\n<ul class="hidden items-center gap-1 lg:flex">')],
+    // The Bold r4 mockup closes its :target phone menu with href="#", which leads to the top of the page.
+    ["a link to the top of the page (href=\"#\")", page.replace('<ul class="hidden items-center gap-1 lg:flex">', '<a href="#">Close the menu</a>\n<ul class="hidden items-center gap-1 lg:flex">')],
   ])("allow %s", (_, edited) => {
     expect(edited).not.toBe(page);
     expect(problems(edited)).toEqual([]);
+  });
+
+  // A design that draws today's header from the whole layout instead of the sections the page shows
+  // passes every other check, yet links sections the page leaves out (A12-0 round-2 attack, I-2).
+  const leaky: Design = { ...BASELINE, header: (ctx) => BASELINE.header({ ...ctx, sections: ctx.doc.layout }) };
+  it.each([
+    ["the owner hid", withHidden(loadFixture("plumber-austin"), ["testimonials", "gallery"]), ["#reviews", "#our-work"]],
+    ["that have no content", loadFixture("cleaning-minimal"), ["#reviews", "#our-work", "#about", "#faq"]],
+  ])("catch a design whose navigation links sections %s", (_, input, dead) => {
+    const doc = SiteDocument.parse(input);
+    const baseline = renderDocument(doc, BASELINE, OPTIONS).html;
+    expect(invariantProblems(renderDocument(doc, leaky, OPTIONS).html, baseline, doc, leaky)).toEqual([`in-page links to missing ids ${JSON.stringify(dead)}`]);
   });
 
   it("catch unsafe or misnamed custom properties", () => {

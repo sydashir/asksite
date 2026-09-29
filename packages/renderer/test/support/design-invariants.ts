@@ -26,6 +26,17 @@ export const formSkeleton = (page: string): string => between(page, "<form", "</
 const idsOf = (page: string) => startTags(page).flatMap((t) => t.attributes.filter((a) => a.name === "id").map((a) => a.value));
 
 /**
+ * Each in-page link (href="#…") whose target id is not on the page, once, in page order. A design must
+ * not link a section the page leaves out: one the owner hid (amendment A6) or one without content.
+ * href="#" is never dead: an empty fragment leads to the top of the page (HTML, "select the indicated part").
+ */
+function deadLinks(page: string): string[] {
+  const ids = new Set(idsOf(page));
+  const hrefs = startTags(page).flatMap((t) => t.attributes.filter((a) => a.name === "href" && a.value.startsWith("#")).map((a) => a.value));
+  return [...new Set(hrefs.filter((href) => href !== "#" && !ids.has(href.slice(1))))];
+}
+
+/**
  * The links of the navigation labelled "Main" as "href label", in page order (a phone menu repeats
  * them). The <nav> is found by its aria-label attribute, whatever the attribute order.
  */
@@ -83,9 +94,11 @@ export function invariantProblems(page: string, baseline: string, doc: SiteDocum
   if (new Set(ids).size !== ids.length) problems.push("duplicate ids");
   const kept = ids.filter((id) => baselineIds.includes(id));
   if (!same(kept, baselineIds)) problems.push(`ids ${JSON.stringify(kept)}, expected ${JSON.stringify(baselineIds)}`);
+  const dead = deadLinks(page);
+  if (dead.length > 0) problems.push(`in-page links to missing ids ${JSON.stringify(dead)}`);
 
   // Today's section links (href and label) stay in the Main nav, in today's order. A design may add
-  // links (a menu toggle, a call link); ids, axe and the e2e menu test cover those.
+  // links (a menu toggle, a call link); the in-page link check above, ids, axe and the e2e menu test cover those.
   const todaysLinks = [...new Set(navLinks(baseline))];
   if (!inOrder(todaysLinks, navLinks(page))) problems.push(`navigation ${JSON.stringify(navLinks(page))} lacks, in order, ${JSON.stringify(todaysLinks)}`);
   if (faqDetails(page) !== faqDetails(baseline)) problems.push(`${faqDetails(page)} details[name=faq], expected ${faqDetails(baseline)}`);
