@@ -64,6 +64,16 @@ const withUnknownKeys = (draft: AiDraft, fill: string) => ({
   ...draft,
   copy: { ...draft.copy, faq: Array.from({ length: 20 }, (_, i) => ({ question: "Do you fix leaks?", answer: "Yes, we do.", [fill.repeat(300) + String(i)]: "x" })) },
 });
+/**
+ * An answer whose json is a revoked Proxy: checking it throws a TypeError in our own validator, so generateDraft rejects
+ * after the call was sent. It proves the rule, not a production path (P3-7c's technique): no JSON parser returns one,
+ * but the provider contract (json: unknown) allows it.
+ */
+const answerOurCodeCannotCheck = () => {
+  const { proxy, revoke } = Proxy.revocable({}, {});
+  revoke();
+  return answer(proxy);
+};
 
 describe("runGenerationJob", () => {
   it("claims the job with a model slot and stores the validated draft", async () => {
@@ -239,6 +249,7 @@ describe("runGenerationJob", () => {
       attemptOutcomes: ["valid"],
       usageMissing: false,
       inputBoundRefused: false,
+      costUnknown: false,
       durationMs: 0,
     });
   });
@@ -296,5 +307,34 @@ describe("runGenerationJob", () => {
     });
     expect(provider.requests).toHaveLength(1);
     expect(await getGeneration(db, "g1")).toMatchObject({ status: "succeeded", used_fallback: 1, fallback_reason: "provider_error", attempts: 1, model_slot: 1, input_tokens: 100, output_tokens: 50 });
+  });
+
+  // task-9-additions C: generateDraft rejects only when our own code throws (a bug), and paid calls may have been sent by
+  // then. Decision 24 still holds (a first build gets the template, a regeneration fails with internal), but the job
+  // keeps the model slot, records tokens and cost as 0 (unknown) and flags costUnknown.
+  it("keeps the model slot and flags the cost as unknown when our own code throws after a call was sent", async () => {
+    await queued("f");
+    await queued("r", "regenerate", "s2");
+    const first = scriptedProvider([answerOurCodeCannotCheck()]);
+    const regeneration = scriptedProvider([answerOurCodeCannotCheck()]);
+    const unknown = { attempts: 0, costUnknown: true, usageMissing: false, providerErrorKind: null, attemptOutcomes: [] };
+    expect(await runGenerationJob(envWith(), "f", deps(first))).toMatchObject({ outcome: "fallback", fallbackReason: "provider_error", ...unknown });
+    expect(await runGenerationJob(envWith(), "r", deps(regeneration))).toMatchObject({ outcome: "failed", errorCode: "internal", ...unknown });
+    expect([first.requests.length, regeneration.requests.length]).toEqual([1, 1]);
+    const kept = { model_slot: 1, attempts: 0, input_tokens: 0, output_tokens: 0, cost_microusd: 0, provider: null, model: null };
+    const firstRow = await getGeneration(db, "f");
+    expect(firstRow).toMatchObject({ status: "succeeded", used_fallback: 1, fallback_reason: "provider_error", error_code: null, ...kept });
+    expect(AiDraft.parse(JSON.parse(firstRow.output_json!))).toEqual(TEMPLATE);
+    expect(await getGeneration(db, "r")).toMatchObject({ status: "failed", error_code: "internal", output_json: null, ...kept });
+  });
+
+  it("gives the model slot back when our own code throws before any call: nothing was sent, so the cost is known", async () => {
+    await queued("f");
+    await queued("r", "regenerate", "s2");
+    const broken: JobDeps = { ...deps(), createProvider: () => { throw new TypeError("bug"); } };
+    expect(await runGenerationJob(envWith(), "f", broken)).toMatchObject({ outcome: "fallback", fallbackReason: "provider_error", attempts: 0, costUnknown: false });
+    expect(await runGenerationJob(envWith(), "r", broken)).toMatchObject({ outcome: "failed", errorCode: "internal", attempts: 0, costUnknown: false });
+    expect(await getGeneration(db, "f")).toMatchObject({ status: "succeeded", used_fallback: 1, fallback_reason: "provider_error", attempts: 0, model_slot: 0 });
+    expect(await getGeneration(db, "r")).toMatchObject({ status: "failed", error_code: "internal", attempts: 0, model_slot: 0 });
   });
 });

@@ -1,6 +1,6 @@
 import type { AiDraft, FallbackReason, GenerationErrorCode, GenerationInputSnapshot } from "@asksite/core";
 import type { D1Database } from "@cloudflare/workers-types";
-import { generateDraft, REAL_DEPS, type AttemptOutcome, type GenerateDeps } from "./generate.ts";
+import { generateDraft, REAL_DEPS, type AttemptOutcome, type GenerateDeps, type GenerateResult } from "./generate.ts";
 import { costMicrousd } from "./models.ts";
 import { ProviderError, type ModelProvider, type ProviderErrorKind } from "./provider.ts";
 import { createProvider, type ProviderEnv } from "./providers/create.ts";
@@ -38,6 +38,8 @@ export interface JobReport {
   usageMissing: boolean;
   /** The input-bound guard refused an attempt's prompt before its call (P3-8). */
   inputBoundRefused: boolean;
+  /** generateDraft rejected (our own bug), maybe after paid calls: their tokens and cost are unknown, recorded as 0. */
+  costUnknown: boolean;
   durationMs: number;
 }
 
@@ -51,13 +53,15 @@ SET status = 'running', started_at = ?2,
 WHERE id = ?1 AND status = 'queued'`;
 
 // §6.3 step 4: conditional on 'running', so a late or duplicate invocation never overwrites the
-// sweeper. A job that sent no provider call gives its model slot back, so a broken configuration
-// cannot use up the day's model calls: the provider could not be built (e.g. no key), or the input
-// guard or a passed deadline stopped every attempt before its call (attempts counts calls sent).
+// sweeper. ?14 = 1 gives the model slot back; the job sets it only when it knows that no provider
+// call was sent, so a broken configuration cannot use up the day's model calls: the provider could
+// not be built (e.g. no key), or the input guard or a passed deadline stopped every attempt before
+// its call (attempts counts calls sent). After generateDraft rejected, calls may have been sent, so
+// the slot stays taken (task-9-additions B and C).
 const FINISH = `UPDATE generations
 SET status = ?2, output_json = ?3, used_fallback = ?4, fallback_reason = ?5, error_code = ?6, provider = ?7, model = ?8,
     attempts = ?9, input_tokens = ?10, output_tokens = ?11, cost_microusd = ?12, finished_at = ?13,
-    model_slot = CASE WHEN ?9 = 0 THEN 0 ELSE model_slot END
+    model_slot = CASE WHEN ?14 = 1 THEN 0 ELSE model_slot END
 WHERE id = ?1 AND status = 'running'`;
 
 interface Spend {
@@ -76,8 +80,15 @@ interface Trace {
   attemptOutcomes: AttemptOutcome[];
   usageMissing: boolean;
   inputBoundRefused: boolean;
+  costUnknown: boolean;
 }
-const NO_TRACE: Trace = { providerErrorKind: null, attemptOutcomes: [], usageMissing: false, inputBoundRefused: false };
+const NO_TRACE: Trace = { providerErrorKind: null, attemptOutcomes: [], usageMissing: false, inputBoundRefused: false, costUnknown: false };
+
+/**
+ * generateDraft rejected: our own code threw (a bug; it rejects for nothing else), maybe after paid calls were sent.
+ * How many were sent, and their tokens and cost, are unknown (task-9-additions C).
+ */
+class DraftRejected extends Error {}
 
 type Ending =
   | { status: "succeeded"; draft: AiDraft; fallbackReason: FallbackReason | null }
@@ -97,7 +108,12 @@ async function callModel(env: JobEnv, snapshot: GenerationInputSnapshot, hasSlot
     if (!(error instanceof ProviderError)) throw error;
     return { ok: false, reason: "provider_error", timedOut: false, spend: { ...NO_SPEND, provider: env.MODEL_PROVIDER }, trace: { ...NO_TRACE, providerErrorKind: error.kind } };
   }
-  const result = await generateDraft(provider, snapshot, deps.generate);
+  let result: GenerateResult;
+  try {
+    result = await generateDraft(provider, snapshot, deps.generate);
+  } catch (error) {
+    throw new DraftRejected("generateDraft rejected", { cause: error });
+  }
   const spend: Spend = {
     provider: env.MODEL_PROVIDER,
     model: result.model ?? env.MODEL_ID,
@@ -111,6 +127,7 @@ async function callModel(env: JobEnv, snapshot: GenerationInputSnapshot, hasSlot
     attemptOutcomes: result.log.map((attempt) => attempt.outcome),
     usageMissing: result.log.some((attempt) => attempt.usageMissing),
     inputBoundRefused: result.inputBoundRefused,
+    costUnknown: false,
   };
   if (result.ok) return { ok: true, draft: result.draft, spend, trace };
   return { ok: false, reason: result.failure, timedOut: result.providerErrorKind === "timeout", spend, trace };
@@ -144,7 +161,7 @@ export async function runGenerationJob(env: JobEnv, generationId: string, deps: 
   const startedAt = deps.now();
   const report = (outcome: JobReport["outcome"], extra: Partial<JobReport> = {}): JobReport => ({
     outcome, generationId, attempts: 0, usedFallback: false, errorCode: null, fallbackReason: null,
-    providerErrorKind: null, attemptOutcomes: [], usageMissing: false, inputBoundRefused: false,
+    providerErrorKind: null, attemptOutcomes: [], usageMissing: false, inputBoundRefused: false, costUnknown: false,
     durationMs: deps.now() - startedAt, ...extra,
   });
 
@@ -175,8 +192,11 @@ export async function runGenerationJob(env: JobEnv, generationId: string, deps: 
       if (model.ok) ending = { status: "succeeded", draft: model.draft, fallbackReason: null };
       else if (kind === "first") ending = templateEnding(snapshot, model.reason);
       else ending = { status: "failed", errorCode: model.timedOut ? "provider_timeout" : REGENERATE_CODE[model.reason] };
-    } catch {
-      // Something unexpected (a bug, not a provider answer): a first build still gets its draft.
+    } catch (error) {
+      // Something unexpected (a bug, not a provider answer): a first build still gets its draft (Decision 24). When
+      // generateDraft itself rejected, calls may have been sent: their cost is unknown (task-9-additions C). Anything
+      // else threw before any call.
+      trace = { ...NO_TRACE, costUnknown: error instanceof DraftRejected };
       ending = kind === "first" ? templateEnding(snapshot, "provider_error") : { status: "failed", errorCode: "internal" };
     }
   }
@@ -184,6 +204,8 @@ export async function runGenerationJob(env: JobEnv, generationId: string, deps: 
   const fallbackReason = ending.status === "succeeded" ? ending.fallbackReason : null;
   const errorCode = ending.status === "failed" ? ending.errorCode : null;
   const calls = { attempts: spend.attempts, ...trace };
+  // FINISH ?14: known to have sent no provider call (the count is not unknown, and it is 0).
+  const releaseSlot = spend.attempts === 0 && !trace.costUnknown;
   try {
     const finish = await env.DB.prepare(FINISH)
       .bind(
@@ -200,6 +222,7 @@ export async function runGenerationJob(env: JobEnv, generationId: string, deps: 
         spend.outputTokens,
         spend.cost,
         deps.now(),
+        releaseSlot ? 1 : 0,
       )
       .run();
     if (finish.meta.changes !== 1) return report("lost", calls);
