@@ -98,13 +98,17 @@ let counter = 0;
 
 export interface SeededSite { ownerId: string; ownerEmail: string; siteId: string; slug: string; html: string; versionId: string | null }
 
+/** The business phone approveVersion adds to the LIVE object's metadata (A15), here plumber-austin's. */
+export const PHONE_METADATA = { phoneText: "(512) 555-0142", phoneTel: "+15125550142" };
+
 /** An owner and a site. By default the site is live (a live version id and a LIVE object) and indexable.
- *  The LIVE object carries the metadata approveVersion writes, which the Worker checks (Decision 24). */
+ *  The LIVE object carries the metadata approveVersion writes, which the Worker checks (Decision 24), plus
+ *  `metadata` (e.g. PHONE_METADATA); without the phone it is an object approved before A15 stored it. */
 export async function seedSite(
   env: ToolsEnv,
-  options: { live?: boolean; indexable?: boolean; takenDown?: boolean; withObject?: boolean } = {},
+  options: { live?: boolean; indexable?: boolean; takenDown?: boolean; withObject?: boolean; metadata?: Record<string, string> } = {},
 ): Promise<SeededSite> {
-  const { live = true, indexable = true, takenDown = false, withObject = live } = options;
+  const { live = true, indexable = true, takenDown = false, withObject = live, metadata = {} } = options;
   counter += 1;
   const ownerId = newId();
   const siteId = newId();
@@ -118,15 +122,15 @@ export async function seedSite(
       .bind(siteId, ownerId, slug, versionId, indexable ? 1 : 0, takenDown ? 5 : null),
   ]);
   const site = { ownerId, ownerEmail, siteId, slug, html, versionId };
-  if (withObject) await putLive(env, site);
+  if (withObject) await putLive(env, site, metadata);
   return site;
 }
 
-/** Stores a site's page in LIVE the way approveVersion does: content type and { siteId, versionId } metadata. */
-export async function putLive(env: ToolsEnv, site: Pick<SeededSite, "slug" | "siteId" | "versionId" | "html">): Promise<void> {
+/** Stores a site's page in LIVE the way approveVersion does: content type and { siteId, versionId } metadata, plus `metadata`. */
+export async function putLive(env: ToolsEnv, site: Pick<SeededSite, "slug" | "siteId" | "versionId" | "html">, metadata: Record<string, string> = {}): Promise<void> {
   await env.LIVE.put(liveKey(site.slug), site.html, {
     httpMetadata: { contentType: "text/html; charset=utf-8" },
-    customMetadata: { siteId: site.siteId, versionId: site.versionId ?? "" },
+    customMetadata: { siteId: site.siteId, versionId: site.versionId ?? "", ...metadata },
   });
 }
 

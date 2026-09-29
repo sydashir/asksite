@@ -85,8 +85,9 @@ test.describe("contact form in a real browser", () => {
 });
 
 test.describe("fixed pages", () => {
-  // abuse@<root> on the apex page is the only variable text on a fixed page, and it has no break
-  // opportunity (UAX #14: LB15d, LB28, LB29), so the longest legal root name must reflow too.
+  // Two fixed pages hold variable text: the business phone on the site-busy page (A15), and abuse@<root>
+  // on the apex page. The latter has no break opportunity (UAX #14: LB15d, LB28, LB29), so the longest
+  // legal root name must reflow too.
   const LONGEST_ROOT = ["w".repeat(63), "w".repeat(63), "w".repeat(63), "w".repeat(61)].join("."); // 253 characters
   const PAGES: Array<[string, () => Response]> = [
     ["apex placeholder", () => apexPlaceholder(ROOT)],
@@ -95,7 +96,8 @@ test.describe("fixed pages", () => {
     ["503", () => unavailable(ROOT)],
     ["thank-you", () => thankYou(ROOT)],
     ["rate limited", () => tooManyRequests(ROOT)],
-    ["site busy", () => siteBusy(ROOT, Date.now())],
+    ["site busy", () => siteBusy(ROOT, Date.now(), null)],
+    ["site busy with the business phone", () => siteBusy(ROOT, Date.now(), { text: "(512) 555-0142", tel: "+15125550142" })],
     ["unreadable form", () => unreadableForm(ROOT)],
     ["message too long", () => messageTooLong(ROOT)],
     ["form problems", () => formProblems(ROOT, ["Please enter your name (up to 80 characters).", "Please check your email address, or leave it empty."])],

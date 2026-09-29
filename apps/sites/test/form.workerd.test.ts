@@ -1,6 +1,6 @@
-import { hashIp, newId } from "@asksite/core";
+import { hashIp, LIMITS, newId } from "@asksite/core";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { at, linesWith, putLive, seedSite, settledLeads, sitesHarness, TEST_SECRETS, type SeededSite, type ToolsEnv } from "./support/harness.ts";
+import { at, linesWith, PHONE_METADATA, putLive, seedSite, settledLeads, sitesHarness, TEST_SECRETS, type SeededSite, type ToolsEnv } from "./support/harness.ts";
 
 const harness = sitesHarness();
 let tools: ToolsEnv;
@@ -362,5 +362,67 @@ describe("form edges: the day cap's window and the form address's methods", () =
     const response = await harness.server.fetch(at(target.slug, `/_f/${target.siteId}`));
     expect(response.status).toBe(404);
     expect(await response.text()).toContain("<h1>Page not found</h1>");
+  });
+});
+
+// A15: both "Please call instead" refusals print the business phone as a tel: link. approveVersion stores
+// it in the LIVE object's metadata, which the handler already reads with LIVE.head (no extra R2 read).
+describe("the 'Please call instead' page and the business phone", () => {
+  const CALL = '<p>This form cannot take more messages for now.</p>\n<p><a href="tel:+15125550142">Call (512) 555-0142</a></p>';
+  const ON_THE_WEBSITE = "<p>This form cannot take more messages for now. The business's phone number is on the website.</p>";
+
+  /** A live site whose day cap other networks have used up. */
+  async function fullSite(metadata: Record<string, string>): Promise<SeededSite> {
+    const site = await seedSite(tools, { metadata });
+    const now = Date.now();
+    await tools.DB.batch(
+      Array.from({ length: LIMITS.leadsPerSitePerDay }, () =>
+        tools.DB.prepare("INSERT INTO leads (id, site_id, created_at, name, phone, email_status, ip_hash) VALUES (?, ?, ?, 'n', '5125550100', 'sent', ?)").bind(newId(), site.siteId, now, newId()),
+      ),
+    );
+    return site;
+  }
+
+  it("prints it as a tel: link when the site's day cap refuses a post", async () => {
+    const response = await post(await fullSite(PHONE_METADATA), GOOD);
+    expect(response.status).toBe(429);
+    const body = await response.text();
+    expect(body).toContain(CALL);
+    expect(body).not.toContain(ON_THE_WEBSITE);
+  });
+
+  it("prints it as a tel: link when the visitor's network has used up its daily limit", async () => {
+    const site = await seedSite(tools, { metadata: PHONE_METADATA });
+    for (let i = 0; i < LIMITS.leadsPerNetworkPerSitePerDay; i++) expect((await post(site, GOOD, { ip: "192.0.2.70" })).status).toBe(303);
+    const response = await post(site, GOOD, { ip: "192.0.2.70" });
+    expect(response.status).toBe(429);
+    expect(await response.text()).toContain(CALL);
+  });
+
+  it("points to the phone number on the website for a page approved before the phone was stored", async () => {
+    const body = await (await post(await fullSite({}), GOOD)).text();
+    expect(body).toContain(ON_THE_WEBSITE);
+    expect(body).not.toContain("tel:");
+  });
+
+  it("escapes the phone text", async () => {
+    const body = await (await post(await fullSite({ ...PHONE_METADATA, phoneText: '<img src=x onerror="alert(1)">' }), GOOD)).text();
+    expect(body).toContain('<a href="tel:+15125550142">Call &lt;img src=x onerror="alert(1)"&gt;</a>');
+    expect(body).not.toContain("<img");
+  });
+
+  it("prints no link unless the metadata holds a phone text and an E.164 number", async () => {
+    const site = await fullSite(PHONE_METADATA);
+    const odd = [
+      { phoneTel: "+15125550142" },
+      { phoneText: "(512) 555-0142" },
+      { phoneText: "", phoneTel: "+15125550142" },
+      ...["", "5125550142", "+1 512 555 0142", "+05125550142", "+1234567890123456", "javascript:alert(1)", '+15125550142"'].map((phoneTel) => ({ phoneText: "(512) 555-0142", phoneTel })),
+    ];
+    for (const metadata of odd) {
+      await putLive(tools, site, metadata);
+      const body = await (await post(site, GOOD)).text();
+      expect({ metadata, fallback: body.includes(ON_THE_WEBSITE), link: body.includes("tel:") }).toEqual({ metadata, fallback: true, link: false });
+    }
   });
 });

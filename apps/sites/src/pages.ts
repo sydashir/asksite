@@ -2,7 +2,8 @@ import { utcDayStart } from "@asksite/core";
 import { escapeAttr, escapeText } from "@asksite/renderer";
 import { fixedPageHeaders, rootHostname } from "./headers.ts";
 
-// Fixed pages. Every word is a constant from this file: they never contain a submitted value.
+// Fixed pages. Every word is a constant from this file, except two escaped values that are never
+// submitted ones: the root domain on the apex page and the business phone on the site-busy page.
 // Each has lang, a title, one h1 inside <main>, and reads well at 320 px (checked by axe in e2e).
 // overflow-wrap:break-word (Plan 1's body rule too): abuse@<root> on the apex page has no break
 // opportunity, so without it a long root domain scrolls sideways at 320 px (WCAG 1.4.10).
@@ -61,15 +62,27 @@ export const tooManyRequests = (root: string) =>
 /** Whole seconds until the next 00:00 UTC, when the form's daily limits start again (at least 1). */
 const secondsToNextUtcDay = (now: number): number => Math.ceil((utcDayStart(now) + 86_400_000 - now) / 1000);
 
+/** The business's phone as its approved page shows it (the link text) and calls it (the tel: number). */
+export interface BusinessPhone {
+  text: string;
+  tel: string;
+}
+
 /**
  * 429: a daily limit refused the form, the site's own or the visitor's network's (A15). They start again at
  * 00:00 UTC, which is the afternoon or evening of the same day in the US, so the page names no day.
+ * The page links the business phone when it is known (null: it points to the number on the website).
  */
-export const siteBusy = (root: string, now: number) =>
+export const siteBusy = (root: string, now: number, phone: BusinessPhone | null) =>
   respond(
     root,
     429,
-    page("Please call instead", `<p>This form cannot take more messages for now. The business's phone number is on the website.</p>\n${HOME_LINK}`),
+    page(
+      "Please call instead",
+      (phone === null
+        ? "<p>This form cannot take more messages for now. The business's phone number is on the website.</p>"
+        : `<p>This form cannot take more messages for now.</p>\n<p><a href="tel:${escapeAttr(phone.tel)}">Call ${escapeText(phone.text)}</a></p>`) + `\n${HOME_LINK}`,
+    ),
     { "Retry-After": String(secondsToNextUtcDay(now)) },
   );
 

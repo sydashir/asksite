@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { EMPTY_EDITS, newId, versionKey } from "@asksite/core";
+import { EMPTY_EDITS, LIMITS, newId, versionKey } from "@asksite/core";
 import { approveVersion, createPendingVersion, restore, takeDown } from "@asksite/publishing";
 import { SiteDocument } from "@asksite/site-schema";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -48,6 +48,29 @@ describe("publish, approve, serve, contact", () => {
     expect(response.status).toBe(303);
     const [lead] = await settledLeads(tools, site.siteId);
     expect(lead).toMatchObject({ name: "Pat", service: "Drain cleaning", email_status: "sent" });
+  });
+
+  // A15: approveVersion stores the business phone with the LIVE object, and the form's "Please call instead"
+  // page prints it: the same number and text the approved page already shows.
+  it("prints the approved page's own phone link when the form is closed for the day", async () => {
+    const site = await publishAndApprove("plumber-austin");
+    const html = await (await harness.server.fetch(at(site.slug))).text();
+    expect(html).toContain('href="tel:+15125550142"');
+    expect(html).toContain("Call (512) 555-0142");
+    const now = Date.now();
+    await tools.DB.batch(
+      Array.from({ length: LIMITS.leadsPerSitePerDay }, () =>
+        tools.DB.prepare("INSERT INTO leads (id, site_id, created_at, name, phone, email_status, ip_hash) VALUES (?, ?, ?, 'n', '5125550100', 'sent', ?)").bind(newId(), site.siteId, now, newId()),
+      ),
+    );
+    const response = await harness.server.fetch(at(site.slug, `/_f/${site.siteId}`), {
+      method: "POST",
+      redirect: "manual",
+      headers: { "content-type": "application/x-www-form-urlencoded", "cf-connecting-ip": "198.51.100.98" },
+      body: new URLSearchParams({ name: "Pat", phone: "512-555-0123", email: "", service: "", message: "", website: "" }).toString(),
+    });
+    expect(response.status).toBe(429);
+    expect(await response.text()).toContain('<p><a href="tel:+15125550142">Call (512) 555-0142</a></p>');
   });
 
   it("a takedown stops a page that no data centre has cached; restore brings it back", async () => {

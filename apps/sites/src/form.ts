@@ -6,7 +6,7 @@ import { plainHeaders } from "./headers.ts";
 import { leadEmail } from "./lead-email.ts";
 import { looksLikeSpam, PROBLEM_TEXT, readLead, type Lead } from "./lead.ts";
 import { logLine } from "./log.ts";
-import { formProblems, messageTooLong, notFound, siteBusy, tooManyRequests, unavailable, unreadableForm } from "./pages.ts";
+import { formProblems, messageTooLong, notFound, siteBusy, tooManyRequests, unavailable, unreadableForm, type BusinessPhone } from "./pages.ts";
 
 // The largest body a visitor can send is 20,136 bytes: 2,000 characters of a 3-byte script (9 bytes each
 // once form-encoded) with every other field at its costliest valid maximum (A15; form.workerd.test.ts).
@@ -40,6 +40,19 @@ async function readLimited(request: Request, max: number): Promise<string | null
 }
 
 const seeOther = (location: string) => new Response(null, { status: 303, headers: plainHeaders({ Location: location }) });
+
+/** A global number as a tel: link carries it (E.164: "+", then at most 15 digits, the first not 0). */
+const E164 = /^\+[1-9]\d{1,14}$/;
+
+/**
+ * The business phone approveVersion stores in the LIVE object's metadata (A15), or null when the object has
+ * none (one approved before it did), so the "Please call instead" page points to the website instead.
+ */
+function businessPhone(metadata: Record<string, string> | undefined): BusinessPhone | null {
+  const text = metadata?.["phoneText"] ?? "";
+  const tel = metadata?.["phoneTel"] ?? "";
+  return text !== "" && E164.test(tel) ? { text, tel } : null;
+}
 
 interface SiteForForm { slug: string | null; live_version_id: string | null; taken_down_at: number | null; email: string }
 
@@ -91,8 +104,8 @@ export async function handleForm(
   const spam = looksLikeSpam(read.lead);
   const emailsPerDay = leadEmailsPerDay(env.LEAD_EMAILS_PER_DAY);
   const status = await insertLead(env.DB, { leadId, siteId, now, lead: read.lead, spam, ipHash, emailsPerDay });
-  // Nothing was stored, so nothing is emailed or counted; the page points the visitor to the phone number.
-  if (status === "site_daily_cap" || status === "network_daily_limit") return { response: siteBusy(root, now), code: status };
+  // Nothing was stored, so nothing is emailed or counted; the page gives the visitor the phone number.
+  if (status === "site_daily_cap" || status === "network_daily_limit") return { response: siteBusy(root, now, businessPhone(page.customMetadata)), code: status };
   if (status === "skipped") return { response: seeOther(sent), code: "spam" };
   // A11c: today's lead emails for all sites are used up. The lead is saved (the owner sees it in the app)
   // and the visitor is thanked as usual, but it is never emailed.
