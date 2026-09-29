@@ -72,6 +72,8 @@ describe("browser floor check", () => {
       "10 only opens same-tab links",
       "11 MDN files it as scrollX's other name",
       "21 code stands between two comments",
+      "26 one marker accepts every finding on its line",
+      "26 one marker accepts every finding on its line",
       "8 the caller tests typeof URL.canParse first",
       "9 same-line reason",
     ]);

@@ -1,4 +1,4 @@
-// Hardening e: `// floor-ok: <reason>` accepts a finding on the same line, or on the next line when
+// Hardening e: `// floor-ok: <reason>` accepts every finding on the same line, or on the next line when
 // the marker is the only thing on its line; the reason is required. A marker with no reason (or no
 // colon) is itself a failure and accepts nothing.
 declare const x: string;
@@ -20,3 +20,7 @@ export const afterNoColon = URL.canParse(x); // expect: unsupported api.URL.canP
 // A marker after code does not reach the next line, also when a comment stands before that code.
 /* note */ export const betweenComments = URL.canParse(x); /* expect: suppressed api.URL.canParse_static */ // floor-ok: code stands between two comments
 export const belowBetween = URL.canParse(x); // expect: unsupported api.URL.canParse_static
+
+// One marker accepts every finding on its line: `either.bytes()` reads two MDN entries.
+declare const either: Request | Response;
+export const both = either.bytes(); /* expect: suppressed api.Request.bytes; suppressed api.Response.bytes */ // floor-ok: one marker accepts every finding on its line

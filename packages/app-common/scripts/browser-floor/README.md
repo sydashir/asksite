@@ -13,11 +13,13 @@ under "Known limits"; each says what else covers it, or that nothing does.
 - Each failing line prints `file:line:col  kind  API  MDN key  (browser: version_added)`. Kinds: not
   supported, partial support (MDN `partial_implementation`), no MDN key (unmapped: fails, never
   skipped), and a `floor-ok` marker without a reason.
-- To accept one finding: `// floor-ok: <reason>` at the end of its line, or alone on the line before
-  (only comments beside it); a marker after code does not reach the next line. Between JSX children,
-  where a `//` line is text that the page shows, write `{/* floor-ok: <reason> */}` the same way. An
-  empty reason (or no colon) accepts nothing and is itself a failure. Markers are read from the text,
-  so one in a string or in JSX text counts too: keep them in comments.
+- To accept findings: `// floor-ok: <reason>` at the end of a line accepts every finding on that line
+  (`either.bytes()` on a `Request | Response` gives two, and one marker accepts both); alone on a
+  line (only comments beside it), it accepts every finding on the next line. A marker after code
+  does not reach the next line. Between JSX children, where a `//` line is text that the page
+  shows, write `{/* floor-ok: <reason> */}` the same way. An empty reason (or no colon) accepts
+  nothing and is itself a failure. Markers are read from the text, so one in a string or in JSX text
+  counts too: keep them in comments.
 - Tests: `test/browser-floor-check.test.ts` runs the checker over `floor-fixtures/`. A fixture line
   that must fail carries `expect: <kind> <key>`; every other line must pass, so a miss and a false
   alarm both fail the test. `floor-fixtures/regex/` is checked at a floor below every regular
