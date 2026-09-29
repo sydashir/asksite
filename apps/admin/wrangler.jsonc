@@ -1,0 +1,45 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "asksite-admin",
+  "main": "./src/worker/index.ts",
+  "compatibility_date": "2026-09-21",
+  "compatibility_flags": ["no_nodejs_compat", "no_nodejs_compat_v2"],
+  "workers_dev": false,
+  "preview_urls": false,
+  "observability": { "enabled": true, "logs": { "invocation_logs": false } },
+  "assets": { "directory": "./dist/client", "not_found_handling": "single-page-application", "run_worker_first": ["/api/*"] },
+  "routes": [{ "pattern": "admin.asksite.example/*", "zone_name": "asksite.example" }],
+  "vars": {
+    "ENVIRONMENT": "production",
+    "ROOT_DOMAIN": "asksite.example",
+    "APP_ORIGIN": "https://app.asksite.example",
+    "ADMIN_ORIGIN": "https://admin.asksite.example",
+    "MAILER": "resend",
+    "MAIL_FROM": "Website team <hello@mail.asksite.example>",
+    "SUPPORT_EMAIL": "help@asksite.example",
+    "GENERATION_ENABLED": "false",
+    "DAILY_MODEL_LIMIT": "8",
+    "ACCESS_TEAM_DOMAIN": "",
+    "ACCESS_AUD": "",
+    "ADMIN_EMAILS": "",
+    "ADMIN_AUTH_MODE": "access",
+    "DEV_ADMIN_EMAIL": "",
+    "MODEL_PROVIDER": "anthropic",
+    "MODEL_ID": "claude-opus-5-5"
+  },
+  "secrets": { "required": ["RESEND_API_KEY"] },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "asksite",
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "../../packages/core/migrations"
+    }
+  ],
+  "r2_buckets": [
+    { "binding": "WORK", "bucket_name": "asksite-work" },
+    { "binding": "LIVE", "bucket_name": "asksite-live" },
+    { "binding": "MEDIA", "bucket_name": "asksite-media" }
+  ],
+  "ratelimits": [{ "name": "ADMIN_RL", "namespace_id": "1005", "simple": { "limit": 300, "period": 60 } }]
+}
