@@ -55,3 +55,16 @@ export const viaOwnSubclass = OwnURL.canParse(""); // expect: unsupported api.UR
 class OwnBytes extends Uint8Array {}
 export const viaOwnTypedSubclass = OwnBytes.fromBase64(""); // expect: unsupported javascript.builtins.Uint8Array.fromBase64
 export const viaOwnTypedShared = OwnBytes.from([1]);
+
+// WebIDL constants: MDN keeps no data for them (data-guidelines/api.md: "not known to be a source of
+// any compatibility issues"). One read from its interface object passes when that interface is fully
+// supported at the floor and stays unmapped on any other. In MDN 8.1.3 no interface with constants is
+// too new; the one without full support has no MDN entry at all (NodeFilter). A constant read from an
+// instance is not carved out.
+declare const node: Node;
+export const elementNode = Node.ELEMENT_NODE;
+export const atTarget = Event.AT_TARGET;
+export const keyLeft = KeyboardEvent.DOM_KEY_LOCATION_LEFT;
+export const timeoutIgnored = WebGL2RenderingContext.TIMEOUT_IGNORED; // typed -1
+export const showElement = NodeFilter.SHOW_ELEMENT; // expect: unmapped NodeFilter; unmapped NodeFilter.SHOW_ELEMENT
+export const instanceConstant = node.ELEMENT_NODE; // expect: unmapped Node.ELEMENT_NODE

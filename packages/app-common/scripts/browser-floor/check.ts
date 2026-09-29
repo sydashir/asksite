@@ -16,7 +16,7 @@ import * as is from "typescript/unstable/ast/is";
 import { BROWSER_FLOOR } from "../../src/browser-floor.ts";
 import { compatAt, gapsAt, type Floor, type Gap } from "./bcd.ts";
 import { indexLib, type LibIndex } from "./lib-index.ts";
-import { apiName, describe, isPlainObjectMember, keysFor } from "./mapping.ts";
+import { apiName, describe, isPlainObjectMember, isSupportedConstant, keysFor } from "./mapping.ts";
 
 // The browser floor check (P4-7): every runtime use of an API that a TypeScript default lib file
 // declares is mapped to its MDN browser-compat-data entry and checked at the floor. Types only and
@@ -296,12 +296,13 @@ function checkFile(ctx: Context, sf: SourceFile): void {
     const d = decl && describe(decl);
     if (d?.kind === "member" && !symbol.valueDeclaration && how === "identifier") return; // e.g. object-literal keys
     report.sites++;
-    if (!d) return record(node, "unmapped", symbol.name, symbol.name, []); // a lib declaration of an unknown shape
+    if (!decl || !d) return record(node, "unmapped", symbol.name, symbol.name, []); // a lib declaration of an unknown shape
     // Each receiver type maps on its own: `Request | Response` checks both, `EventTarget & HTMLDivElement`
     // finds the member on HTMLDivElement.
     const chains = d.kind === "member" && !d.isStatic ? receiverTypes(receiverType()).map(typeChain) : [];
     const keys = keysFor(d, chains, lib);
-    if (keys.length === 0 && !isPlainObjectMember(d, lib)) record(node, "unmapped", apiName(d), apiName(d), []);
+    const passesUnmapped = isPlainObjectMember(d, lib) || isSupportedConstant(d, decl, floor);
+    if (keys.length === 0 && !passesUnmapped) record(node, "unmapped", apiName(d), apiName(d), []);
     for (const key of keys) {
       // MDN files a constructor under its interface, and it can be newer (Iterator 10, its constructor
       // 18.4): a global that passes on its own entry is then judged on the constructor it runs.

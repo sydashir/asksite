@@ -81,6 +81,12 @@ Also known, from the reviews (each fails loudly or is rare): a qualified name in
 clause (`interface X extends WebAssembly.Global {}`) is reported as unmapped; CSSOM properties written
 as `el.style.x` have no MDN key and are reported as unmapped.
 
+WebIDL constants (`Node.ELEMENT_NODE`, `Event.AT_TARGET`) have no MDN data ("not known to be a source
+of any compatibility issues", MDN data guidelines). One read from its interface object passes when
+that interface is fully supported at the floor; in MDN 8.1.3 every interface with constants is, except
+NodeFilter, which has no MDN entry, so `NodeFilter.SHOW_ELEMENT` is reported as unmapped. A constant
+read from an instance (`node.ELEMENT_NODE`) is reported as unmapped too (statics.ts, the last lines).
+
 ## Backstops (what else would catch a too-new API)
 
 - Playwright's WebKit (1.63.0 ships WebKit 26.6, `playwright-core/browsers.json`) and the user's
