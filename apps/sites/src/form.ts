@@ -8,8 +8,10 @@ import { looksLikeSpam, PROBLEM_TEXT, readLead, type Lead } from "./lead.ts";
 import { logLine } from "./log.ts";
 import { formProblems, messageTooLong, notFound, siteBusy, tooManyRequests, unavailable, unreadableForm, type BusinessPhone } from "./pages.ts";
 
-// The largest body a visitor can send is 20,136 bytes: 2,000 characters of a 3-byte script (9 bytes each
-// once form-encoded) with every other field at its costliest valid maximum (A15; form.workerd.test.ts).
+// 24 KiB (A15). The real form cannot send more than about 20,100 bytes: maxlength 80/30/254/2,000, a
+// service from the list, and 9 bytes a character for a 3-byte script once form-encoded. form.workerd.test.ts
+// posts 20,136 bytes with every field at the Worker's own limit (303). A hand-made body can be larger, as
+// cleaning strips characters before the length checks, so only this cap bounds it (413).
 const MAX_BODY_BYTES = 24 * 1024;
 
 /** Reads at most `max` bytes, counting as it reads, so a missing or false Content-Length cannot get past it. */
