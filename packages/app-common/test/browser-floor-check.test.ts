@@ -24,16 +24,23 @@ beforeAll(() => {
   report = checkFloor(resolve(FIXTURES, "tsconfig.json"));
 }, 120_000);
 
-function found(file: string): string[] {
-  return report.findings
+function found(checked: FloorReport, file: string): string[] {
+  return checked.findings
     .filter((finding) => finding.file === resolve(FIXTURES, file))
     .map((finding) => `${finding.line} ${finding.suppressed === undefined ? finding.kind : "suppressed"} ${finding.key}`);
 }
 
 describe("browser floor check", () => {
   it.each(["baseline.ts", "aliases.ts", "a-receivers.ts", "b-generics.ts", "c-mixins.ts", "d-partial.ts", "e-suppressions.ts", "statics.ts", "destructuring.ts", "forms.ts", "alias-source.ts", "alias-reexport.ts", "alias-import.ts"])("%s: fails exactly the marked uses", (file) => {
-    expect(found(file).sort()).toEqual(expected(file).sort());
+    expect(found(report, file).sort()).toEqual(expected(file).sort());
   });
+
+  it("detects each regular expression feature at a floor below its version", () => {
+    // Below every feature the check reads from a regular expression (the d flag is 15 in MDN), so each
+    // detection has a line that must fail.
+    const below = checkFloor(resolve(FIXTURES, "regex/tsconfig.json"), { safari: "14", safari_ios: "14" });
+    expect(found(below, "regex/regex.ts").sort()).toEqual(expected("regex/regex.ts").sort());
+  }, 120_000);
 
   it("refuses a program that does not type-check", () => {
     expect(() => checkFloor(resolve(FIXTURES, "broken/tsconfig.json"))).toThrow(/does not type-check[\s\S]*broken\.ts:2:22 .*Missing/);

@@ -15,7 +15,9 @@ that MDN's browser-compat-data (8.1.3, pinned) does not list as fully supported 
   An empty reason accepts nothing and is itself a failure.
 - Tests: `test/browser-floor-check.test.ts` runs the checker over `floor-fixtures/`. A fixture line
   that must fail carries `expect: <kind> <key>`; every other line must pass, so a miss and a false
-  alarm both fail the test.
+  alarm both fail the test. `floor-fixtures/regex/` is checked at a floor below every regular
+  expression feature the check detects (the `d` and `v` flags, lookbehind, modifiers), so each
+  detection has a line that must fail.
 
 ## Forms it judges (the closed list, p4-7-brief.md "DECIDED 2026-09-28")
 
