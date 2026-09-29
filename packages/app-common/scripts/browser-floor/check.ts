@@ -20,8 +20,9 @@ import { apiName, describe, isPlainObjectMember, keysFor } from "./mapping.ts";
 
 // The browser floor check (P4-7): every runtime use of an API that a TypeScript default lib file
 // declares is mapped to its MDN browser-compat-data entry and checked at the floor. Types only and
-// feature tests (`typeof X`; the `.y` of `typeof X.y`, whose X is still read) are not uses. A use
-// with no MDN key fails as unmapped. README.md maps each form it judges to its fixture.
+// feature tests (`typeof X`; the `y` of `typeof X.y` or `typeof X["y"]`, whose X is still read) are
+// not uses. A use with no MDN key fails as unmapped. README.md maps each form it judges to its
+// fixture.
 //
 // Known limits (README.md "Known limits"; our own client code, not an attacker boundary):
 // - computed access (`globalThis[name]`, `Reflect.get`): judged only when the key's type is a string
@@ -154,7 +155,7 @@ function checkFile(ctx: Context, sf: SourceFile): void {
     if (is.isPropertyAccessExpression(n) && is.isIdentifier(n.name)) {
       if (!isFeatureTest(n)) lookups.push({ node: n.name, receiver: n.expression, how: "property" });
     } else if (is.isElementAccessExpression(n)) {
-      elements.push(n);
+      if (!isFeatureTest(n)) elements.push(n);
     } else if (is.isBindingElement(n) && is.isObjectBindingPattern(n.parent) && !n.dotDotDotToken) {
       bindings.push(n);
     } else if (is.isShorthandPropertyAssignment(n)) {

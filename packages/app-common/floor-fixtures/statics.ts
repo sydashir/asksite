@@ -6,6 +6,7 @@ export const ofFloat16 = Float16Array.of(1); // expect: unsupported javascript.b
 export const bytesFloat16 = Float16Array.BYTES_PER_ELEMENT; // expect: unsupported javascript.builtins.Float16Array
 export const protoFloat16 = Float16Array.prototype.at.call(new Uint8Array(1), 0); // expect: unsupported javascript.builtins.Float16Array
 export const typeofReaches = typeof Float16Array.from === "function"; // expect: unsupported javascript.builtins.Float16Array
+export const typeofBracketReaches = typeof Float16Array["from"] === "function"; // expect: unsupported javascript.builtins.Float16Array
 export const typeofBare = typeof Float16Array === "undefined";
 export const fromUint8 = Uint8Array.from([1]);
 export const bytesUint8 = Uint8Array.BYTES_PER_ELEMENT;

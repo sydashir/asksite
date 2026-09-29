@@ -35,7 +35,7 @@ export name):
 | `new X()`, also `new (X)()` (the constructor's own MDN entry too) | statics.ts `interfaceAndConstructor`, `newerConstructor`, `parenthesizedConstructor`, `parenthesizedWindowConstructor` |
 | `extends X`, instantiation expression | aliases.ts `ViaExtends`, `viaClassExpression`, `viaInstantiation`; statics.ts `ViaIteratorSubclass`, `ViaParenthesizedBase` |
 | `instanceof X` | forms.ts `isHighlight` |
-| `typeof X.y` reaches X (a bare `typeof X` is a feature test) | statics.ts `typeofReaches` (control `typeofBare`) |
+| `typeof X.y` and `typeof X["y"]` reach X (their `y`, and a bare `typeof X`, are feature tests) | statics.ts `typeofReaches`, `typeofBracketReaches` (control `typeofBare`); aliases.ts `detected`, `detectedByBracket` |
 | Instance members through the type: unions, generics, mixins, optional chaining | a-receivers.ts, b-generics.ts, c-mixins.ts |
 | Destructuring declarations, parameters (with defaults, also typed `X \| undefined`), for-of, rest, array, nested, quoted or literal computed keys | destructuring.ts, "Declarations" (`nullableWithDefault`) |
 | Destructuring ASSIGNMENTS, nested, with defaults (also over an outer property that may be undefined), for-of heads | destructuring.ts, "Assignments" and the for-of lines |

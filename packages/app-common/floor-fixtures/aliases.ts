@@ -20,7 +20,9 @@ export const viaGeneric = pick(URL).canParse(x); // expect: unsupported api.URL.
 
 // A feature test is not a use; the guarded call still is (it needs a `floor-ok` reason).
 export const detected = typeof URL.canParse === "function";
+export const detectedByBracket = typeof URL["canParse"] === "function";
 export const guardedByTypeof = typeof URL.canParse === "function" ? URL.canParse(x) : false; // expect: unsupported api.URL.canParse_static
+export const guardedByBracketTypeof = typeof URL["canParse"] === "function" ? URL["canParse"](x) : false; // expect: unsupported api.URL.canParse_static
 export const guardedByIn = "canParse" in URL && URL.canParse(x); // expect: unsupported api.URL.canParse_static
 
 // A class's `extends` clause and an instantiation expression read the global at runtime (TypeScript
