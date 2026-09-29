@@ -1,11 +1,13 @@
-import { AiDraft } from "@asksite/core";
+import { AiDraft, type GenerationInputSnapshot, type GenerationJob, type GenerationRow } from "@asksite/core";
 import { SiteDocument } from "@asksite/site-schema";
-import type { D1Database } from "@cloudflare/workers-types";
+import type { D1Database, Queue } from "@cloudflare/workers-types";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { capsSnapshot } from "../eval/caps.ts";
 import { runGenerationJob, type JobDeps, type JobEnv } from "../src/job.ts";
 import { createProvider } from "../src/providers/create.ts";
 import type { ModelProvider } from "../src/provider.ts";
+import { generationAllowance, requestGeneration } from "../src/request.ts";
+import { modelCallsToday } from "../src/settings.ts";
 import { templateDraft } from "../src/template.ts";
 import { clearTables, getGeneration, insertGeneration, seedOwnerSite, setSetting, startLocalD1 } from "./support/d1.ts";
 import { FULL_SNAPSHOT } from "./support/samples.ts";
@@ -356,5 +358,39 @@ describe("runGenerationJob", () => {
     const provider = scriptedProvider([{ ...answer(TEMPLATE), model: model as unknown as string }]);
     await runGenerationJob(envWith(), "g1", deps(provider));
     expect(await getGeneration(db, "g1")).toMatchObject({ status: "succeeded", model: stored });
+  });
+});
+
+// task-9-additions F: requestGeneration queues a regeneration (the site already has a draft), the job ends it, and
+// generationAllowance before the request and after the job shows whether that end-state counts toward the owner's 20
+// (request.ts COUNTS_TOWARD_TOTAL): it counts once it succeeded or failed with invalid_output, never after any other
+// failure. A model slot the job kept still counts toward today's model limit, which bounds even an unknown cost.
+describe("the job's end-states and the owner's lifetime total, end to end (task-9-additions F)", () => {
+  const GEN_QUEUE = { send: async () => {} } as unknown as Queue<GenerationJob>;
+  const allowance = () => generationAllowance({ DB: db }, { siteId: "s1", ownerId: "o1", now: NOW });
+  type EndState = { snapshot?: GenerationInputSnapshot; env?: Partial<JobEnv>; setting?: [string, string]; provider?: () => ModelProvider; row: Partial<GenerationRow>; counted: boolean };
+
+  it.each<[string, EndState]>([
+    ["refused at claim time: generation is switched off", { env: { GENERATION_ENABLED: "false" }, row: { status: "failed", error_code: "generation_disabled", attempts: 0, model_slot: 0 }, counted: false }],
+    ["refused at claim time: today's model calls are used up", { setting: ["generation.daily_model_limit", "0"], row: { status: "failed", error_code: "budget_exhausted", attempts: 0, model_slot: 0 }, counted: false }],
+    ["refused at claim time: no key", { env: { MODEL_PROVIDER: "anthropic", MODEL_ID: "claude-opus-5-5" }, row: { status: "failed", error_code: "provider_unavailable", attempts: 0, model_slot: 0 }, counted: false }],
+    ["the input guard refused attempt 1", { snapshot: OVER_BOUND, provider: () => scriptedProvider([]), row: { status: "failed", error_code: "provider_unavailable", attempts: 0, model_slot: 0 }, counted: false }],
+    ["our own code threw after a call was sent (costUnknown)", { provider: () => scriptedProvider([answerOurCodeCannotCheck()]), row: { status: "failed", error_code: "internal", attempts: 0, model_slot: 1 }, counted: false }],
+    ["three invalid answers", { env: { FAKE_MODE: "invalid-always" }, row: { status: "failed", error_code: "invalid_output", attempts: 3, model_slot: 1 }, counted: true }],
+    ["a valid answer", { row: { status: "succeeded", error_code: null, attempts: 1, model_slot: 1 }, counted: true }],
+  ])("%s", async (_name, end) => {
+    // The site's first build succeeded long ago, so the next request is a regeneration.
+    await insertGeneration(db, { id: "built", site_id: "s1", owner_id: "o1", status: "succeeded", created_at: 1, started_at: 1, finished_at: 1 });
+    expect(await allowance()).toEqual({ generationsLeftToday: 5, generationsLeftTotal: 20 });
+    const request = await requestGeneration({ DB: db, GEN_QUEUE, GENERATION_ENABLED: "true", DAILY_MODEL_LIMIT: "30" }, { siteId: "s1", ownerId: "o1", snapshot: end.snapshot ?? FULL_SNAPSHOT, now: NOW });
+    if (!request.ok) throw new Error(`the request was refused: ${request.code}`);
+    expect(request.generation.kind).toBe("regenerate");
+    // A queued regeneration counts until the job ends it.
+    expect(await allowance()).toEqual({ generationsLeftToday: 4, generationsLeftTotal: 19 });
+    if (end.setting) await setSetting(db, ...end.setting);
+    await runGenerationJob(envWith(end.env), request.generation.id, deps(end.provider?.()));
+    expect(await getGeneration(db, request.generation.id)).toMatchObject({ kind: "regenerate", ...end.row });
+    expect(await modelCallsToday(db, NOW)).toBe(end.row.model_slot);
+    expect(await allowance()).toEqual({ generationsLeftToday: 4, generationsLeftTotal: end.counted ? 19 : 20 });
   });
 });
