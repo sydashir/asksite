@@ -112,8 +112,8 @@ This is our own client code, not an attacker boundary. The check does not judge:
   VideoColorSpace), where nothing covers it, and the ES built-in Iterator, which the TypeScript lib
   gate stops (es2023 declares no `Iterator` value: TS2693).
 
-Reported as unmapped although the code may be fine (each fails loudly; check it by hand, then accept
-it with a `floor-ok` reason):
+Reported although the code may be fine (each fails loudly; check it by hand, then accept it with a
+`floor-ok` reason):
 
 - A qualified name in a type-only heritage clause (`interface X extends WebAssembly.Global {}`) is
   reported as unmapped.
@@ -124,6 +124,10 @@ it with a `floor-ok` reason):
   except NodeFilter, which has no MDN entry, so `NodeFilter.SHOW_ELEMENT` is reported as unmapped. A
   constant read from an instance (`node.ELEMENT_NODE`) is reported as unmapped too (statics.ts, the
   last lines).
+- A `(` inside a regular expression's character class, where it is a plain character, is read as a
+  group: `/[(?i:]/` is reported as not supported (modifiers, MDN 26), and `/[(?<=]/` would be too at
+  a floor below 16.4 (lookbehind, MDN 16.4). It only adds a false alarm, never a silent miss: a real
+  group beside such a class is still found.
 
 ## Backstops (what else would catch a too-new API)
 
