@@ -1,0 +1,7 @@
+{
+  // A floor-ok line with 200 block comments before its code (review r6 m-r6-2). The fixture test runs
+  // the command on this program in a child process with a time limit: a comment pattern that
+  // backtracks exponentially would never return from that line.
+  "extends": "../tsconfig.json",
+  "include": ["*.ts"]
+}

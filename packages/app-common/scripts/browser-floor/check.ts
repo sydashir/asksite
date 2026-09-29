@@ -81,8 +81,10 @@ const NOTHING = TypeFlags.Null | TypeFlags.Undefined | TypeFlags.Void;
 // `// floor-ok: <reason>` to the end of a line, or `{/* floor-ok: <reason> */}` between JSX children
 // (where a `//` line is text that the page shows).
 const MARKER = /\/\/\s*floor-ok\b(.*)$|\{\s*\/\*\s*floor-ok\b(.*?)\*\/\s*\}/;
-// Nothing but whitespace and comments: `/* ... */`, or `{/* ... */}` in JSX.
-const ONLY_COMMENTS = /^\s*((\{\s*\/\*.*?\*\/\s*\}|\/\*.*?\*\/)\s*)*$/;
+// Nothing but whitespace and comments: `/* ... */`, or `{/* ... */}` in JSX. A comment ends at its
+// first `*/`: one that could run past it would take code between two comments for a comment, and would
+// backtrack exponentially over a line of many comments.
+const ONLY_COMMENTS = /^\s*((\{\s*\/\*(?:[^*]|\*(?!\/))*\*\/\s*\}|\/\*(?:[^*]|\*(?!\/))*\*\/)\s*)*$/;
 
 /**
  * TypeScript parses every heritage clause element and an instantiation expression (`Map<string, number>`)

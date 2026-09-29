@@ -16,3 +16,7 @@ export const afterEmpty = URL.canParse(x); // expect: unsupported api.URL.canPar
 export const sameLineEmpty = URL.canParse(x); /* expect: unsupported api.URL.canParse_static; bad-suppression floor-ok */ // floor-ok:
 /* expect: bad-suppression floor-ok */ // floor-ok no colon
 export const afterNoColon = URL.canParse(x); // expect: unsupported api.URL.canParse_static
+
+// A marker after code does not reach the next line, also when a comment stands before that code.
+/* note */ export const betweenComments = URL.canParse(x); /* expect: suppressed api.URL.canParse_static */ // floor-ok: code stands between two comments
+export const belowBetween = URL.canParse(x); // expect: unsupported api.URL.canParse_static

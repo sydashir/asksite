@@ -71,6 +71,7 @@ describe("browser floor check", () => {
     expect(reasons("e-suppressions.ts")).toEqual([
       "10 only opens same-tab links",
       "11 MDN files it as scrollX's other name",
+      "21 code stands between two comments",
       "8 the caller tests typeof URL.canParse first",
       "9 same-line reason",
     ]);
@@ -82,13 +83,16 @@ describe("browser floor check", () => {
       "22 MDN files it as scrollX's other name",
       "25 a note may stand on either side",
       "26 covers its own line only",
+      "34 code stands between two notes",
     ]);
   });
 });
 
 describe("check-browser-floor command", () => {
   const CLI = resolve(import.meta.dirname, "../scripts/check-browser-floor.ts");
-  const run = (tsconfig: string) => spawnSync(process.execPath, [CLI, tsconfig], { cwd: FIXTURES, encoding: "utf8" });
+  // A time limit, far above a normal run: a check stuck in one regular expression cannot be
+  // interrupted in its own thread, so it then fails with ETIMEDOUT instead of blocking the run.
+  const run = (tsconfig: string) => spawnSync(process.execPath, [CLI, tsconfig], { cwd: FIXTURES, encoding: "utf8", timeout: 100_000 });
 
   it("exits 0 when nothing is above the floor", () => {
     const result = run("clean/tsconfig.json");
@@ -106,6 +110,15 @@ describe("check-browser-floor command", () => {
     expect(result.stdout).toContain("e-suppressions.ts:14:40  floor-ok needs a reason");
     expect(result.stdout).toContain("e-suppressions.ts:8:31  accepted  URL.canParse  api.URL.canParse_static  (safari: 17, safari_ios: 17)  floor-ok: the caller tests typeof URL.canParse first");
     expect(result.status).toBe(1);
+  }, 120_000);
+
+  it("finishes on a floor-ok line with 200 block comments", () => {
+    // Deciding whether a marker stands alone reads the comments beside it. A comment pattern that could
+    // run past `*/` backtracks exponentially over such a line, and only run's limit would stop it.
+    const result = run("comments/tsconfig.json");
+    expect(result.error?.message).toBeUndefined();
+    expect(result.stdout).toContain("accepted  URL.canParse  api.URL.canParse_static  (safari: 17, safari_ios: 17)  floor-ok: two hundred comments stand before this code");
+    expect(result.status).toBe(0);
   }, 120_000);
 
   it("exits 2 with its usage unless given exactly one tsconfig", () => {

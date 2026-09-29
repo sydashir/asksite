@@ -30,5 +30,8 @@ export const markers = (
     <button onClick={() => div.showPopover()} />{/* floor-ok: */}{/* expect: unsupported api.HTMLElement.showPopover; bad-suppression floor-ok */}
     {/* expect: bad-suppression floor-ok */}{/* floor-ok no colon */}
     <button onClick={() => div.showPopover()} />{/* expect: unsupported api.HTMLElement.showPopover */}
+    {/* A marker after code does not reach the next line, also when a note stands before that code. */}
+    {/* a note */}<button onClick={() => div.showPopover()} />{/* expect: suppressed api.HTMLElement.showPopover */}{/* floor-ok: code stands between two notes */}
+    <button onClick={() => div.showPopover()} />{/* expect: unsupported api.HTMLElement.showPopover */}
   </div>
 );

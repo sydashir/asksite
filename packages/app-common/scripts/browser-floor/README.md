@@ -22,7 +22,8 @@ under "Known limits"; each says what else covers it, or that nothing does.
   that must fail carries `expect: <kind> <key>`; every other line must pass, so a miss and a false
   alarm both fail the test. `floor-fixtures/regex/` is checked at a floor below every regular
   expression feature the check detects (the `d` and `v` flags, lookbehind, modifiers), so each
-  detection has a line that must fail.
+  detection has a line that must fail. `floor-fixtures/comments/` holds a `floor-ok` line with 200
+  block comments, which the command must finish within a time limit.
 
 ## Forms it judges (the closed list, p4-7-brief.md "DECIDED 2026-09-28")
 
