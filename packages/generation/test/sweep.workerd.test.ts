@@ -73,6 +73,45 @@ describe("sweepStuckJobs", () => {
     expect(SWEEP_BATCH).toBeLessThan(30);
     expect(await sweepStuckJobs({ DB: db }, NOW)).toEqual({ fallback: 30, failed: 0 });
   });
+
+  it("never overwrites a job that claimed or finished the row after the sweeper read it (each write is conditional on the status read)", async () => {
+    await insertGeneration(db, { id: "q1", site_id: "s1", owner_id: "o1", kind: "first", status: "queued", input_json: INPUT, created_at: OLD - 3 });
+    await insertGeneration(db, { id: "q2", site_id: "s2", owner_id: "o1", kind: "regenerate", status: "queued", input_json: INPUT, created_at: OLD - 2 });
+    await insertGeneration(db, { id: "r1", site_id: "s3", owner_id: "o1", kind: "first", status: "running", input_json: INPUT, created_at: 0, started_at: OLD - 1 });
+    await insertGeneration(db, { id: "r2", site_id: "s4", owner_id: "o1", kind: "regenerate", status: "running", input_json: INPUT, created_at: 0, started_at: OLD });
+    const modelDraft = JSON.stringify(templateDraft(FULL_SNAPSHOT.facts, FULL_SNAPSHOT.brief));
+    // Between the sweeper's read and each of its writes, the job gets there first: it claims a queued row (job.ts CLAIM)
+    // and ends a running one (job.ts FINISH): a first build with the model's draft, a regeneration with a timeout.
+    const jobWritesFirst = async (id: string): Promise<void> => {
+      const row = await getGeneration(db, id);
+      if (row.status === "queued") await db.prepare("UPDATE generations SET status = 'running', started_at = ?2 WHERE id = ?1").bind(id, NOW).run();
+      else if (row.kind === "first") await db.prepare("UPDATE generations SET status = 'succeeded', output_json = ?2, attempts = 1, finished_at = ?3 WHERE id = ?1").bind(id, modelDraft, NOW - 1).run();
+      else await db.prepare("UPDATE generations SET status = 'failed', error_code = 'provider_timeout', attempts = 3, finished_at = ?2 WHERE id = ?1").bind(id, NOW - 1).run();
+    };
+    const raced: string[] = [];
+    const jobFirst = new Proxy(db, {
+      get(target, prop, receiver) {
+        if (prop !== "prepare") return Reflect.get(target, prop, receiver);
+        return (sql: string) => {
+          if (!sql.startsWith("UPDATE")) return target.prepare(sql);
+          return {
+            bind: (...values: unknown[]) => ({
+              run: async () => {
+                raced.push(String(values[0]));
+                await jobWritesFirst(String(values[0]));
+                return target.prepare(sql).bind(...values).run();
+              },
+            }),
+          };
+        };
+      },
+    });
+    expect(await sweepStuckJobs({ DB: jobFirst }, NOW)).toEqual({ fallback: 0, failed: 0 });
+    expect(raced).toEqual(["q1", "q2", "r1", "r2"]);
+    for (const id of ["q1", "q2"]) expect(await getGeneration(db, id)).toMatchObject({ status: "running", started_at: NOW, finished_at: null, error_code: null, output_json: null });
+    expect(await getGeneration(db, "r1")).toMatchObject({ status: "succeeded", output_json: modelDraft, used_fallback: 0, fallback_reason: null, attempts: 1, finished_at: NOW - 1 });
+    expect(await getGeneration(db, "r2")).toMatchObject({ status: "failed", error_code: "provider_timeout", output_json: null, attempts: 3, finished_at: NOW - 1 });
+  });
 });
 
 // task-10-additions A: which sweeper end-states count toward the site's 5 per UTC day and the owner's 20 regenerations,
