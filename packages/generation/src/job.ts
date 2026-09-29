@@ -74,6 +74,17 @@ interface Spend {
 }
 const NO_SPEND: Spend = { provider: null, model: null, attempts: 0, inputTokens: 0, outputTokens: 0, cost: 0 };
 
+/** The longest provider model string the job stores and logs as given (web-maker-99 D5c). */
+const MAX_MODEL_LENGTH = 200;
+
+/**
+ * The model to store and log. The provider's answer is unbounded provider text, so it is kept only when it is a
+ * string of 1 to MAX_MODEL_LENGTH UTF-16 units (JavaScript's length); otherwise (no answer, empty, longer, or not a
+ * string at run time) the requested MODEL_ID (task-9-additions E).
+ */
+const storedModel = (answered: unknown, requested: string): string =>
+  typeof answered === "string" && answered.length >= 1 && answered.length <= MAX_MODEL_LENGTH ? answered : requested;
+
 /** What the log line needs about the model calls. */
 interface Trace {
   providerErrorKind: ProviderErrorKind | null;
@@ -116,7 +127,7 @@ async function callModel(env: JobEnv, snapshot: GenerationInputSnapshot, hasSlot
   }
   const spend: Spend = {
     provider: env.MODEL_PROVIDER,
-    model: result.model ?? env.MODEL_ID,
+    model: storedModel(result.model, env.MODEL_ID),
     attempts: result.attempts,
     inputTokens: result.usage.inputTokens,
     outputTokens: result.usage.outputTokens,

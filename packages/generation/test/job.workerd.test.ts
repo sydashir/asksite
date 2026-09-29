@@ -54,6 +54,8 @@ const queued = (id: string, kind: "first" | "regenerate" = "first", site = "s1",
 
 /** U+FDFA: 3 UTF-8 bytes, 33 after NFKC, so the input guard (generate.ts inputBound) counts it as 33. */
 const FDFA = String.fromCharCode(0xfdfa);
+/** U+1F600: one code point, two UTF-16 units. */
+const EMOJI = String.fromCodePoint(0x1f600);
 /** Schema-valid owner text over the input bound: every capped field filled with U+FDFA (the P3-8 tests in generate.test.ts). */
 const OVER_BOUND = capsSnapshot(FDFA);
 /**
@@ -336,5 +338,23 @@ describe("runGenerationJob", () => {
     expect(await runGenerationJob(envWith(), "r", broken)).toMatchObject({ outcome: "failed", errorCode: "internal", attempts: 0, costUnknown: false });
     expect(await getGeneration(db, "f")).toMatchObject({ status: "succeeded", used_fallback: 1, fallback_reason: "provider_error", attempts: 0, model_slot: 0 });
     expect(await getGeneration(db, "r")).toMatchObject({ status: "failed", error_code: "internal", attempts: 0, model_slot: 0 });
+  });
+
+  // task-9-additions E: the provider's model string is unbounded provider text. The job stores it (Task 12 logs the
+  // stored value) only when it is a string of 1 to 200 UTF-16 units (JavaScript's length), else the requested id.
+  it.each([
+    ["a normal model string: kept", "scripted-1", "scripted-1"],
+    ["200 UTF-16 units: kept", "m".repeat(200), "m".repeat(200)],
+    ["201 UTF-16 units: the requested id", "m".repeat(201), "fake-template"],
+    ["100 emoji, 200 UTF-16 units: kept", EMOJI.repeat(100), EMOJI.repeat(100)],
+    ["101 emoji, 202 UTF-16 units but 101 code points: the requested id", EMOJI.repeat(101), "fake-template"],
+    ["empty: the requested id", "", "fake-template"],
+    ["not a string (a number): the requested id", 42, "fake-template"],
+    ["not a string (an array with a length of 1): the requested id", ["scripted-1"], "fake-template"],
+  ] as const)("stores the provider's model string only when it is 1 to 200 UTF-16 units: %s", async (_case, model, stored) => {
+    await queued("g1");
+    const provider = scriptedProvider([{ ...answer(TEMPLATE), model: model as unknown as string }]);
+    await runGenerationJob(envWith(), "g1", deps(provider));
+    expect(await getGeneration(db, "g1")).toMatchObject({ status: "succeeded", model: stored });
   });
 });
