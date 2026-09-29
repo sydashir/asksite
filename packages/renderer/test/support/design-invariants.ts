@@ -36,6 +36,9 @@ function deadLinks(page: string): string[] {
   return [...new Set(hrefs.filter((href) => href !== "#" && !ids.has(href.slice(1))))];
 }
 
+/** The element id of every section (DOM_ID's values). */
+const SECTION_DOM_IDS: readonly string[] = Object.values(DOM_ID);
+
 /**
  * The links of the navigation labelled "Main" as "href label", in page order (a phone menu repeats
  * them). The <nav> is found by its aria-label attribute, whatever the attribute order.
@@ -94,6 +97,10 @@ export function invariantProblems(page: string, baseline: string, doc: SiteDocum
   if (new Set(ids).size !== ids.length) problems.push("duplicate ids");
   const kept = ids.filter((id) => baselineIds.includes(id));
   if (!same(kept, baselineIds)) problems.push(`ids ${JSON.stringify(kept)}, expected ${JSON.stringify(baselineIds)}`);
+  // A section the page leaves out (hidden by the owner, amendment A6, or without content) leaves no
+  // element with its id behind, so no link can reach it either.
+  const leftOut = ids.filter((id) => SECTION_DOM_IDS.includes(id) && !expected.includes(id));
+  if (leftOut.length > 0) problems.push(`left-out sections keep ids ${JSON.stringify(leftOut)}`);
   const dead = deadLinks(page);
   if (dead.length > 0) problems.push(`in-page links to missing ids ${JSON.stringify(dead)}`);
 

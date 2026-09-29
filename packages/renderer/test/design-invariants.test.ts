@@ -1,6 +1,7 @@
 import {
   DESIGN_IDS,
   FONT_IDS,
+  HIDEABLE_SECTIONS,
   PALETTE_IDS,
   SECTION_VARIANTS,
   SiteDocument,
@@ -34,11 +35,23 @@ const withHeroVariant = (input: SiteDocumentInput, variant: string): SiteDocumen
 
 const withHidden = (input: SiteDocumentInput, hidden: readonly HideableSectionId[]): SiteDocumentInput => ({ ...input, hidden: [...hidden] });
 
+/** What an owner can hide (amendment A6): each hideable section alone, then all of them. */
+const HIDE_SETS: readonly (readonly HideableSectionId[])[] = [...HIDEABLE_SECTIONS.map((id) => [id]), HIDEABLE_SECTIONS];
+
 // A12 §7 + addendum H1, for every design and every fixture.
 describe.each(DESIGN_IDS)("the %s design", (design) => {
   it.each(FIXTURES)("keeps the shared invariants with fixture %s", (name) => {
     const { doc, page, baseline } = pages(inDesign(loadFixture(name), design));
     expect(invariantProblems(page, baseline, doc, DESIGNS[design])).toEqual([]);
+  });
+
+  // A section the owner hid is gone from <main> and from every link (A6), in every design.
+  it.each(FIXTURES)("keeps the shared invariants with fixture %s when the owner hides sections", (name) => {
+    const problems = HIDE_SETS.map((hidden) => {
+      const { doc, page, baseline } = pages(withHidden(inDesign(loadFixture(name), design), hidden));
+      return { hidden, problems: invariantProblems(page, baseline, doc, DESIGNS[design]) };
+    });
+    expect(problems).toEqual(HIDE_SETS.map((hidden) => ({ hidden, problems: [] })));
   });
 
   it.each(FIXTURES)("renders the same page with either hero variant when %s has no hero photo", (name) => {
@@ -127,6 +140,14 @@ describe("the invariant checks can fail (RED proof, on edited pages)", () => {
     const doc = SiteDocument.parse(input);
     const baseline = renderDocument(doc, BASELINE, OPTIONS).html;
     expect(invariantProblems(renderDocument(doc, leaky, OPTIONS).html, baseline, doc, leaky)).toEqual([`in-page links to missing ids ${JSON.stringify(dead)}`]);
+  });
+
+  it("catch a section the owner hid that is still on the page as another element (with its link)", () => {
+    const doc = SiteDocument.parse(withHidden(loadFixture("plumber-austin"), ["testimonials"]));
+    const baseline = renderDocument(doc, BASELINE, OPTIONS).html;
+    const edited = baseline.replace("</main>", '<p><a href="#reviews">Read our reviews</a></p>\n<div id="reviews"><p>Great work, fair price.</p></div>\n</main>');
+    expect(edited).not.toBe(baseline);
+    expect(invariantProblems(edited, baseline, doc, BASELINE)).toEqual(['left-out sections keep ids ["reviews"]']);
   });
 
   it("catch unsafe or misnamed custom properties", () => {
