@@ -6,6 +6,13 @@
 // Usage: pnpm dev:seed [--slug demo] [--fixture plumber-austin] [--persist-to .wrangler/state]
 //          [--root localhost:8789] [--owner-email <email>] [--hero-photo] [--noindex] [--remote]
 // Prints one JSON line: {"siteId":"…","url":"https://demo.localhost:8789/","created":true}
+//
+// The demo's contact form keeps the production limits (A15): one visitor network may leave 3 leads a
+// UTC day on a site and 5 across all sites, then gets "Please call instead" until 00:00 UTC. Without a
+// CF-Connecting-IP header, local wrangler uses the loopback address a post came from (::1 or 127.0.0.1),
+// so your own test posts share one visitor's limits. To post as another visitor, send the header (local
+// wrangler keeps it), e.g. curl -k -H 'cf-connecting-ip: 192.0.2.7' -d 'name=Pat&phone=5125550123'
+// https://demo.localhost:8789/_f/<siteId>; or start again from a fresh --persist-to folder.
 import { spawnSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
