@@ -1,3 +1,4 @@
+import { themeVariables } from "@asksite/renderer";
 import {
   Copy,
   DESIGN_IDS,
@@ -173,6 +174,17 @@ describe("naming rules (A12 §1)", () => {
     const designIds: readonly string[] = DESIGN_IDS;
     expect(ids.filter(([kind, id]) => kind !== "design id" && designIds.includes(id.toLowerCase()))).toEqual([]);
     expect(new Set(DESIGN_IDS).size).toBe(DESIGN_IDS.length);
+  });
+
+  // A design names its own custom properties --aw-<id>-* (A12 §5), and they follow the theme's 12 in the
+  // same :root rule, so a design id "color" or "font" would override the owner's colours or lettering
+  // (A12-0 round-4 rulings, M5).
+  it("a design id starts no theme variable's name with its --aw-<id>- prefix", () => {
+    const themeNames = Object.keys(themeVariables(LOOKS[0].theme));
+    const overrides = (id: string) => themeNames.filter((name) => name.startsWith(`--aw-${id}-`));
+    expect(themeNames).toHaveLength(12);
+    expect(DESIGN_IDS.flatMap(overrides)).toEqual([]);
+    expect(["color", "font", "color-text"].map((id) => overrides(id).length > 0)).toEqual([true, true, true]); // the check can fail
   });
 
   it("owner-facing names collide with nothing, except the documented overlap with two LOOKS ids", () => {
