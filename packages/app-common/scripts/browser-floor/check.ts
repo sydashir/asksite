@@ -312,8 +312,10 @@ function checkFile(ctx: Context, sf: SourceFile): void {
   }
 
   function evaluate(node: Node, how: string, symbol: TsSymbol | undefined, receiverType: () => Type | undefined): void {
-    const handle = symbol?.valueDeclaration ?? symbol?.declarations[0];
-    if (!symbol || !handle || !lib.isLibFile(handle.path)) return;
+    // The first lib declaration: a member of a union or intersection whose parts declare it in
+    // different places has no valueDeclaration, and our own part's declaration can come first.
+    const handle = symbol && [symbol.valueDeclaration, ...symbol.declarations].find((h) => h !== undefined && lib.isLibFile(h.path));
+    if (!symbol || !handle) return;
     const decl = handle.resolve(project);
     const d = decl && describe(decl);
     if (d?.kind === "member" && !symbol.valueDeclaration && how === "identifier") return; // e.g. object-literal keys

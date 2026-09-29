@@ -25,3 +25,15 @@ declare const style: CSSStyleDeclaration | null;
 declare const styleRule: CSSStyleRule | null;
 export const cssFloat = style?.cssFloat;
 export const nestedRules = styleRule?.cssRules; // expect: unsupported api.CSSStyleRule.cssRules
+
+// Our own type beside a lib type that declares the same member: the member is judged on the lib's
+// declaration, whichever part comes first. An intersection keeps its written order; TypeScript 7
+// orders a union's parts by type name, so OwnBody comes before Response.
+interface PopoverHandle { showPopover(): void }
+interface OwnBody { bytes(): Promise<Uint8Array> }
+declare const handle: PopoverHandle & HTMLElement;
+declare const ownOrResponse: OwnBody | Response;
+declare const ownOnly: PopoverHandle;
+export const ownFirstIntersection = handle.showPopover(); // expect: unsupported api.HTMLElement.showPopover
+export const ownFirstUnion = ownOrResponse.bytes(); // expect: unsupported api.Response.bytes
+export const ownOnlyMember = ownOnly.showPopover(); // only our own declaration: README "Known limits"

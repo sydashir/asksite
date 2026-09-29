@@ -41,7 +41,7 @@ export name):
 | `extends X`, instantiation expression | aliases.ts `ViaExtends`, `viaClassExpression`, `viaInstantiation`; statics.ts `ViaIteratorSubclass`, `ViaParenthesizedBase` |
 | `instanceof X` | forms.ts `isHighlight` |
 | `typeof X.y` and `typeof X["y"]` reach X (their `y`, and a bare `typeof X`, are feature tests) | statics.ts `typeofReaches`, `typeofBracketReaches` (control `typeofBare`); aliases.ts `detected`, `detectedByBracket` |
-| Instance members through the type: unions, generics, mixins, optional chaining | a-receivers.ts, b-generics.ts, c-mixins.ts |
+| Instance members through the type: unions and intersections (also with our own type that declares the same member), generics, mixins, optional chaining | a-receivers.ts (`ownFirstIntersection`, `ownFirstUnion`), b-generics.ts, c-mixins.ts |
 | Destructuring declarations, parameters (with defaults, also typed `X \| undefined`), for-of, rest, array, nested, quoted or literal computed keys | destructuring.ts, "Declarations" (`nullableWithDefault`) |
 | Destructuring ASSIGNMENTS, nested, with defaults (also over an outer property that may be undefined), for-of heads | destructuring.ts, "Assignments" and the for-of lines |
 | Shorthand property | aliases.ts `viaShorthand` (control `ownShorthand`) |
@@ -70,7 +70,9 @@ This is our own client code, not an attacker boundary. The check does not judge:
 - APIs typed by our own declarations: a structural annotation (`const U: { canParse(u: string):
   boolean } = URL; U.canParse(x)`) or an augmentation (`declare global { var EyeDropper: ... }`).
   The check judges only what TypeScript's default lib files declare, and the lib gate accepts our own
-  declarations. Nothing covers them.
+  declarations. Nothing covers them. A receiver whose type also holds a lib type that declares the
+  member (`PopoverHandle & HTMLElement`, `OwnBody | Response`) is judged on the lib's declaration
+  (a-receivers.ts `ownFirstIntersection`, `ownFirstUnion`; `ownOnlyMember` passes).
 - Sub-features under a member: options and parameters (`div.focus({ focusVisible: true })`, MDN
   `api.HTMLElement.focus.options_focusVisible_parameter`, iOS 18.4) and behaviors such as symbols as
   WeakMap keys (`javascript.builtins.WeakMap.symbol_as_keys`, 16.4, so it passes at today's floor).
