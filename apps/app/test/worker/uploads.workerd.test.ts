@@ -443,6 +443,41 @@ describe("POST /api/sites/:siteId/uploads", () => {
     await h.backgroundDone(path);
   });
 
+  describe("keeps the work from the transform to the row that counts it running, should the client go away (P4-15 follow-up 1)", () => {
+    // The local runtime finishes a request's work after its client has gone (test-worker.ts), so a disconnect cannot
+    // be made here. The test Worker notes instead, as each step's result comes back, how many waitUntil promises the
+    // request had handed over and how many of them still ran. Inside one runToEnd, the transform's .output() (the
+    // first billed Images call: .info() is not billed) and the INSERT that counts it both come back while that one
+    // promise runs; a step outside it comes back with none running, or under a second promise.
+    const underOneRunToEnd = [
+      { step: "output", waitUntil: 1, pending: 1 },
+      { step: "insert", waitUntil: 1, pending: 1 },
+    ];
+
+    /** An owner's upload whose steps the test Worker notes: its status, the steps and the site's upload rows. */
+    async function uploadNotingSteps(photo: Uint8Array) {
+      const owner = await h.signIn();
+      const path = `/api/sites/${owner.siteId}/uploads`;
+      await h.call("POST", "/__test/watch-steps", { body: { path } });
+      const res = await h.call("POST", path, { cookie: owner.cookie, body: upload(photo) });
+      const steps = await json<unknown[]>(await h.call("GET", `/__test/steps?path=${encodeURIComponent(path)}`));
+      return { status: res.status, steps, rows: (await uploadRows(owner.siteId)).map(shape) };
+    }
+
+    it("for a photo it stores (201)", async () => {
+      expect(await uploadNotingSteps(await jpeg(800, 600))).toEqual({ status: 201, steps: underOneRunToEnd, rows: [{ width: 800, height: 600, bytes: expect.any(Number), deleted: false }] });
+    });
+
+    it("for a photo that fails in the transform (422, counted)", async () => {
+      expect(await uploadNotingSteps(await truncatedJpeg(800, 600))).toEqual({ status: 422, steps: underOneRunToEnd, rows: [COUNTED_FAILURE] });
+    });
+
+    it("for a transform that answers another format than WebP (422, counted)", async () => {
+      await h.call("POST", "/__test/images-output-format", { body: { format: "image/jpeg" } });
+      expect(await uploadNotingSteps(await jpeg(800, 600))).toEqual({ status: 422, steps: underOneRunToEnd, rows: [COUNTED_FAILURE] });
+    });
+  });
+
   it("removes the row again when the photo cannot be stored (500 internal, nothing left behind)", async () => {
     const owner = await h.signIn();
     await h.call("POST", "/__test/media-put-fails");

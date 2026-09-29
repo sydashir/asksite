@@ -92,6 +92,29 @@ async function storeUpload(env: Env, row: UploadRowValues, webp: Uint8Array): Pr
   return true;
 }
 
+/**
+ * From the first billed Images call to the row that counts it (P4-15 follow-up 1): the transform (toStillWebp: its
+ * .output(), the read of its image and the free .info() of the result), then either the photo's row and object
+ * (storeUpload) or, when the transform gave no WebP to store, the counted failure row. The route runs all of it as
+ * one runToEnd. Gives the stored photo's row; throws image_rejected once a failure row is counted, and
+ * upload_limit_reached when the caps refuse the row.
+ */
+async function transformAndCount(env: Env, siteId: string, bytes: Uint8Array): Promise<UploadRowValues> {
+  const still = await toStillWebp(env.IMAGES, bytes);
+  const now = Date.now();
+  if (still === null) {
+    // The transform ran and gave no WebP to store: the file made it fail, or it answered another format (P4-15 b).
+    // It is counted like an upload deleted at once (P4-14), in the runToEnd that ran the transform, so the 150 total
+    // cap bounds these too, within waitUntil's 30 s after a client disconnects (see the route's pre-check); the row
+    // has no object and is never shown.
+    const counted = await insertUnderCaps(env.DB, { id: newId(), siteId, width: 0, height: 0, bytes: 0, createdAt: now, deletedAt: now });
+    throw counted ? unreadablePhoto() : limitReached();
+  }
+  const row: UploadRowValues = { id: newId(), siteId, width: still.width, height: still.height, bytes: still.webp.byteLength, createdAt: now, deletedAt: null };
+  if (!(await storeUpload(env, row, still.webp))) throw limitReached();
+  return row;
+}
+
 /** POST and DELETE /api/sites/:siteId/uploads (§4.4, §8). */
 export function uploadRoutes(): Hono<AppEnv> {
   const uploads = new Hono<AppEnv>();
@@ -105,12 +128,18 @@ export function uploadRoutes(): Hono<AppEnv> {
     const site = await ownedSite(db, c.req.param("siteId"), owner.id);
     // A taken-down site is frozen: no image work and no storage for it (decision 39).
     assertNotTakenDown(site);
-    // Pre-check so a refused upload costs no image transformation. A transform that gives no WebP to store (the
-    // file made it fail, or the service answered another format) is counted as a deleted upload (P4-14, P4-15 b),
-    // so the 150 total cap bounds those transforms too. The accepted known limit (P4-13, security review I2) is
-    // only the concurrency window at a cap boundary: uploads racing there each pass this pre-check and each run
-    // a transform, while the exact INSERT below creates rows only up to the caps; past the boundary the pre-check
-    // refuses before any transform.
+    // Pre-check so a refused upload costs no image transformation. Past it, transformAndCount runs the transform and
+    // counts it in one runToEnd: a photo as its upload, and a transform that gives no WebP to store (the file made it
+    // fail, or the service answered another format) as an upload deleted at once (P4-14, P4-15 b); a transform whose
+    // failure does not blame the file (images.ts), or whose photo MEDIA cannot store, leaves no row. So the 150 total
+    // cap bounds those counted transforms, within two accepted known limits:
+    // - after a client disconnects, waitUntil keeps the work going for at most 30 s ("waitUntil() can extend
+    //   execution for up to 30 seconds after the response is sent or the client disconnects",
+    //   developers.cloudflare.com/workers/platform/limits/), so a transform not yet counted by then may go
+    //   uncounted (Task 27 measures it);
+    // - uploads racing at a cap boundary (P4-13, security review I2) each pass this pre-check and each run a
+    //   transform, while the exact INSERT creates rows only up to the caps; past the boundary the pre-check refuses
+    //   before any transform.
     if (!(await underCaps(db, site.id))) throw limitReached();
 
     const body = await readBytes(c.req.raw, LIMITS.uploadMaxBytes + MULTIPART_OVERHEAD_BYTES);
@@ -137,27 +166,18 @@ export function uploadRoutes(): Hono<AppEnv> {
     if (problem === "too_small") throw new ApiError("image_rejected", "That photo is too small. Please choose one at least 200 pixels wide and tall.");
     if (problem === "too_many_pixels") throw new ApiError("image_rejected", "That photo is too large. Please choose a smaller one.");
 
-    const still = await toStillWebp(c.env.IMAGES, bytes);
-    const now = Date.now();
-    if (still === null) {
-      // The transform ran and gave no WebP to store: the file made it fail, or it answered another format
-      // (P4-15 b). It is counted like an upload deleted at once, so the 150 total cap bounds these too
-      // (P4-14); the row has no object and is never shown.
-      const counted = await insertUnderCaps(db, { id: newId(), siteId: site.id, width: 0, height: 0, bytes: 0, createdAt: now, deletedAt: now });
-      throw counted ? unreadablePhoto() : limitReached();
-    }
-    const id = newId();
-    const row: UploadRowValues = { id, siteId: site.id, width: still.width, height: still.height, bytes: still.webp.byteLength, createdAt: now, deletedAt: null };
-    // From the row to its object, the work runs to its end even if the client goes away (P4-8's runToEnd), so
-    // no row is left without its photo.
-    if (!(await runToEnd(c.executionCtx, storeUpload(c.env, row, still.webp)))) throw limitReached();
+    // The .info() above is not billed (developers.cloudflare.com/images/pricing/), so the transform is the first
+    // billed call. From it to the row that counts it, the work runs as one runToEnd (P4-8): should the client go
+    // away, waitUntil keeps it going for up to 30 s (see the pre-check), so the client cannot stop it between a
+    // billed transform and its count, or between a row and its photo.
+    const row = await runToEnd(c.executionCtx, transformAndCount(c.env, site.id, bytes));
     const view: UploadView = {
-      id,
-      url: mediaUrl(c.env.ROOT_DOMAIN, site.id, id),
-      width: still.width,
-      height: still.height,
-      bytes: still.webp.byteLength,
-      createdAt: now,
+      id: row.id,
+      url: mediaUrl(c.env.ROOT_DOMAIN, site.id, row.id),
+      width: row.width,
+      height: row.height,
+      bytes: row.bytes,
+      createdAt: row.createdAt,
     };
     return c.json(view, 201);
   });
