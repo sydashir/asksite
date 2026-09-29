@@ -320,27 +320,33 @@ describe("POST /api/sites/:siteId/uploads", () => {
     });
   });
 
-  it("refuses a multipart body that cannot be parsed with 400 bad_request and the same plain sentence, not as a server failure", async () => {
+  it("refuses a multipart body that cannot be parsed with 400 bad_request and the same plain sentence, noting form_unreadable, not as a server failure", async () => {
     const owner = await h.signIn();
     const part = '------b\r\nContent-Disposition: form-data; name="file"; filename="a.jpg"\r\nContent-Type: image/jpeg\r\n\r\nÿØÿ';
     // With the reason each request's log line gives: the guard refuses three of these bodies; the part that never
-    // closes passes it, and then formData() cannot parse it (readForm's 400, which notes no reason).
-    const bodies: Array<[contentType: string, body: string, reason: string | undefined]> = [
+    // closes passes it, and then formData() cannot parse it (readForm's 400, noted like the guard's: P4-15 parity).
+    const bodies: Array<[contentType: string, body: string, reason: string]> = [
       ["multipart/form-data; boundary=----b", "not multipart at all", "no_leading_delimiter"],
-      ["multipart/form-data; boundary=----b", part, undefined],
+      ["multipart/form-data; boundary=----b", part, "form_unreadable"],
       ["multipart/form-data;", part, "boundary_not_accepted"],
       ["multipart/form-data; boundary=----b", "", "no_leading_delimiter"],
     ];
-    const answers: Array<[number, ErrorJson["error"], unknown]> = [];
-    for (const [contentType, body] of bodies) {
+    const answers: Array<[number, unknown, unknown]> = [];
+    for (const [contentType, body, reason] of bodies) {
       const res = await h.server.fetch(`${APP_ORIGIN}/api/sites/${owner.siteId}/uploads`, {
         method: "POST",
         headers: { Origin: APP_ORIGIN, Cookie: owner.cookie, "Content-Type": contentType },
         body,
       });
-      answers.push([res.status, (await json<ErrorJson>(res)).error, lastUploadLine()?.["reason"]]);
+      const text = await res.text();
+      // The reason is for the log line only: nothing in the answer names it.
+      expect(text).not.toContain(reason);
+      answers.push([res.status, JSON.parse(text), lastUploadLine()]);
     }
-    expect(answers).toEqual(bodies.map(([, , reason]) => [400, didNotWork, reason]));
+    // The whole answer is the plain sentence, so it names no reason code at all.
+    expect(answers).toEqual(
+      bodies.map(([, , reason]) => [400, { error: didNotWork }, expect.objectContaining({ status: 400, code: "bad_request", event: "multipart_refused", reason })]),
+    );
   });
 
   it("stops at 40 kept photos and at 150 uploads in total (429 upload_limit_reached)", async () => {

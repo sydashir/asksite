@@ -1,6 +1,6 @@
 import { ApiError, noteLog, rateLimit, readBytes, runToEnd } from "@asksite/app-common";
 import { LIMITS, mediaKey, mediaUrl, newId, type UploadView } from "@asksite/core";
-import { Hono } from "hono";
+import { type Context, Hono } from "hono";
 import { assertNotTakenDown, ownedSite } from "../db.ts";
 import { imageInfo, sizeProblem, sniffImage, toStillWebp } from "../images.ts";
 import { multipartBoundary, multipartShapeProblem } from "../multipart.ts";
@@ -24,19 +24,25 @@ function unreadablePhoto(): ApiError {
 
 /**
  * What the owner reads when an upload is refused as multipart, whichever rule refused it: one plain sentence
- * (P4-17 Condition 3, for every such refusal: P4-15 follow-up 2). The guard's reason goes on the request's log
- * line only, never into the answer.
+ * (P4-17 Condition 3, for every such refusal: P4-15 follow-up 2). The reason, the guard's or readForm's
+ * form_unreadable (P4-15 parity), goes on the request's log line only, never into the answer.
  */
 function uploadDidNotWork(): ApiError {
   return new ApiError("bad_request", "That upload didn't work. Please try again.");
 }
 
-/** The multipart body as FormData. A body that cannot be parsed makes formData() throw a TypeError: the client's mistake, not ours. */
-async function readForm(url: string, contentType: string, body: Uint8Array): Promise<FormData> {
+/**
+ * The multipart body as FormData. A body that cannot be parsed makes formData() throw a TypeError: the client's
+ * mistake, not ours, refused like the guard's shapes, with its reason (form_unreadable) on the log line only.
+ */
+async function readForm(c: Context<AppEnv>, contentType: string, body: Uint8Array): Promise<FormData> {
   try {
-    return await new Request(url, { method: "POST", headers: { "Content-Type": contentType }, body }).formData();
+    return await new Request(c.req.url, { method: "POST", headers: { "Content-Type": contentType }, body }).formData();
   } catch (err) {
-    if (err instanceof TypeError) throw uploadDidNotWork();
+    if (err instanceof TypeError) {
+      noteLog(c, { event: "multipart_refused", reason: "form_unreadable" });
+      throw uploadDidNotWork();
+    }
     throw err;
   }
 }
@@ -154,7 +160,7 @@ export function uploadRoutes(): Hono<AppEnv> {
       noteLog(c, { event: "multipart_refused", reason: shape });
       throw uploadDidNotWork();
     }
-    const form = await readForm(c.req.url, contentType, body);
+    const form = await readForm(c, contentType, body);
     const file = form.get("file");
     if (!(file instanceof File)) throw new ApiError("bad_request", "Choose a photo to upload");
     if (file.size > LIMITS.uploadMaxBytes) throw new ApiError("payload_too_large", "That photo is over 10 MB. Please choose a smaller one.");
