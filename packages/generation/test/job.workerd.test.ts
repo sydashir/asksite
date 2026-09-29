@@ -162,6 +162,45 @@ describe("runGenerationJob", () => {
       expect(await getGeneration(db, "g")).toMatchObject(counted ? REFUSED : TAKEN);
     });
 
+    // Which rows count: every job that kept its slot, of either kind and whatever its end. A kept slot may have paid for
+    // calls, and a first build is never refused at request time (request.ts), so only this count stops it from going
+    // over the limit. Each earlier job here is run by the job itself, on another site.
+    it.each<[string, "first" | "regenerate", Partial<JobEnv>, (() => ModelProvider) | undefined, Partial<GenerationRow>]>([
+      ["a regeneration that succeeded", "regenerate", {}, undefined, { status: "succeeded", error_code: null }],
+      ["a regeneration that failed after three invalid answers", "regenerate", { FAKE_MODE: "invalid-always" }, undefined, { status: "failed", error_code: "invalid_output" }],
+      ["a regeneration that failed after three timeouts", "regenerate", { FAKE_MODE: "timeout" }, undefined, { status: "failed", error_code: "provider_timeout" }],
+      ["a regeneration that failed after three provider errors", "regenerate", { FAKE_MODE: "error" }, undefined, { status: "failed", error_code: "provider_unavailable" }],
+      ["a regeneration that failed when our own code threw after a call (costUnknown)", "regenerate", {}, () => scriptedProvider([answerOurCodeCannotCheck()]), { status: "failed", error_code: "internal" }],
+      ["a first build that fell back to the template after three timeouts", "first", { FAKE_MODE: "timeout" }, undefined, { status: "succeeded", used_fallback: 1, fallback_reason: "provider_error" }],
+    ])("the slot kept by %s uses it up", async (_name, kind, over, provider, ended) => {
+      await queued("earlier", kind, "s2");
+      await runGenerationJob(limitOne(over), "earlier", deps(provider?.()));
+      expect(await getGeneration(db, "earlier")).toMatchObject({ kind, model_slot: 1, started_at: NOW, ...ended });
+      expect(await modelCallsToday(db, NOW)).toBe(1);
+      await queued("g");
+      await runGenerationJob(limitOne(), "g", deps());
+      expect(await getGeneration(db, "g")).toMatchObject(REFUSED);
+    });
+
+    it("a job still running with the slot uses it up", async () => {
+      await queued("earlier", "regenerate", "s2");
+      await queued("g");
+      // The next job is claimed while the earlier job's model call is in flight.
+      let whileRunning: unknown;
+      const inFlight: ModelProvider = {
+        id: "fake",
+        async generate() {
+          whileRunning = await getGeneration(db, "earlier");
+          await runGenerationJob(limitOne(), "g", deps());
+          return answer(TEMPLATE);
+        },
+      };
+      await runGenerationJob(limitOne(), "earlier", deps(inFlight));
+      expect(whileRunning).toMatchObject({ status: "running", model_slot: 1 });
+      expect(await getGeneration(db, "g")).toMatchObject(REFUSED);
+      expect(await getGeneration(db, "earlier")).toMatchObject({ status: "succeeded", model_slot: 1, attempts: 1 });
+    });
+
     it("a slot given back by a job with no key goes to the next job, which uses it up", async () => {
       await queued("f");
       await queued("g", "first", "s2");
