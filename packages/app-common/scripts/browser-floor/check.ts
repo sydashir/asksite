@@ -95,10 +95,10 @@ function isFeatureTest(node: Node): boolean {
   return p !== undefined && is.isTypeOfExpression(p);
 }
 
-/** Whether the global named here is constructed: `new X()`, `new ns.X()`, or `class extends X` (`super()` runs X). */
+/** Whether the global named here is constructed: `new X()`, `new ns.X()`, `new (X)()`, or `class extends X` (`super()` runs X). */
 function constructs(node: Node): boolean {
   let n: Node = node;
-  while (is.isPropertyAccessExpression(n.parent) && n.parent.name === n) n = n.parent;
+  while ((is.isPropertyAccessExpression(n.parent) && n.parent.name === n) || is.isParenthesizedExpression(n.parent)) n = n.parent;
   const p = n.parent;
   if (is.isNewExpression(p)) return p.expression === n;
   return is.isExpressionWithTypeArguments(p) && p.expression === n && is.isHeritageClause(p.parent) && runsAtRuntime(p);

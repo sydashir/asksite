@@ -32,8 +32,8 @@ export name):
 | Bare identifier: call, reference | baseline.ts `idle`; forms.ts `idleReference` |
 | `window.X`, `globalThis.X`, `self.X` | forms.ts `viaWindow`, `viaGlobalThis`, `viaSelf`, `viaSelfStatic`, `newViaGlobalThis`; aliases.ts `viaWindow`, `viaGlobalThis` |
 | Member by dot, `?.`, string-literal bracket (also `?.[...]` on a receiver that may be null or undefined) | baseline.ts; aliases.ts `viaOptionalCall`, `viaBracket`, `viaConstKey`; forms.ts `viaOptionalBracket`, `viaInstanceBracket`, `viaNullableBracket`, `viaRefBracket`, `viaNullableUnionBracket`, `viaNullableConstraintBracket` |
-| `new X()` (the constructor's own MDN entry too) | statics.ts `interfaceAndConstructor`, `newerConstructor` |
-| `extends X`, instantiation expression | aliases.ts `ViaExtends`, `viaClassExpression`, `viaInstantiation`; statics.ts `ViaIteratorSubclass` |
+| `new X()`, also `new (X)()` (the constructor's own MDN entry too) | statics.ts `interfaceAndConstructor`, `newerConstructor`, `parenthesizedConstructor`, `parenthesizedWindowConstructor` |
+| `extends X`, instantiation expression | aliases.ts `ViaExtends`, `viaClassExpression`, `viaInstantiation`; statics.ts `ViaIteratorSubclass`, `ViaParenthesizedBase` |
 | `instanceof X` | forms.ts `isHighlight` |
 | `typeof X.y` reaches X (a bare `typeof X` is a feature test) | statics.ts `typeofReaches` (control `typeofBare`) |
 | Instance members through the type: unions, generics, mixins, optional chaining | a-receivers.ts, b-generics.ts, c-mixins.ts |
@@ -69,6 +69,13 @@ This is our own client code, not an attacker boundary. These forms are not judge
   newer CSS syntax for `build.cssTarget` (defaults to `build.target`, which Task 14 is to set from
   `BROWSER_FLOOR_BUILD_TARGET`). That lowers syntax; it does not check for a property the floor lacks.
   Nothing checks the rest.
+- A constructor reached through an alias (`const V = VideoColorSpace; new V()`): judged on the
+  interface's entry only, not on the constructor's (`new X()`, `new (X)()` and `class extends X` are
+  judged on both; aliases.ts `viaConstructorAlias` pins the miss). In MDN 8.1.3 nine APIs have a
+  constructor newer than their interface at the floor: eight DOM APIs (CSSMathMax, CSSMathMin,
+  CSSMathProduct, CSSMathSum, CustomElementRegistry, RTCEncodedAudioFrame, RTCEncodedVideoFrame,
+  VideoColorSpace), where nothing covers it, and the ES built-in Iterator, which the TypeScript lib
+  gate stops (es2023 declares no `Iterator` value: TS2693).
 
 Also known, from the reviews (each fails loudly or is rare): a qualified name in a type-only heritage
 clause (`interface X extends WebAssembly.Global {}`) is reported as unmapped; CSSOM properties written
