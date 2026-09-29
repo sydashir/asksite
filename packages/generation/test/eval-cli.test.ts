@@ -301,3 +301,47 @@ describe("a live --record (P3-17 D3)", () => {
     expect(h.out).toContain("Spent: $0.001150 counted against the $0.030000 budget.");
   });
 });
+
+describe("the Anthropic SDK's environment (additions A)", () => {
+  // The SDK 0.128.0 client reads these when it is built (client.mjs:70, 80, 109, 116).
+  const NAMES = ["ANTHROPIC_CUSTOM_HEADERS", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_LOG", "ANTHROPIC_BASE_URL"] as const;
+  const present = () => NAMES.filter((name) => name in process.env);
+
+  /** Runs `body` with a marker in each variable, and puts back what was there before, whatever happens. */
+  async function withMarkers(body: () => Promise<void>): Promise<void> {
+    const before = NAMES.map((name) => [name, process.env[name]] as const);
+    try {
+      for (const name of NAMES) process.env[name] = `marker-${name.toLowerCase()}`;
+      expect(present()).toEqual([...NAMES]);
+      await body();
+    } finally {
+      for (const [name, value] of before) {
+        if (value === undefined) delete process.env[name];
+        else process.env[name] = value;
+      }
+    }
+  }
+
+  it("deletes each variable from process.env before the first provider is built", async () => {
+    await withMarkers(async () => {
+      const seen: string[][] = [];
+      const h = harness({ answer: async () => ({ json: undefined, model: "fake", usage: { inputTokens: 51_234, outputTokens: 256 }, stop: "max_tokens" }) });
+      const build = h.deps.makeProvider;
+      h.deps.makeProvider = (env, snapshot, fetchImpl) => {
+        seen.push(present());
+        return build(env, snapshot, fetchImpl);
+      };
+      expect(await main(["--caps-probe", "--live", "--max-usd", "1", "--only", `${GEMMA},${GROQ}`], h.deps)).toBe(0);
+      expect(seen).toEqual([[], []]);
+    });
+  });
+
+  it("deletes them at the start of every run, a dry run or a refused one included", async () => {
+    for (const argv of [[], ["--live"]]) {
+      await withMarkers(async () => {
+        await main(argv, harness().deps);
+        expect(present()).toEqual([]);
+      });
+    }
+  });
+});

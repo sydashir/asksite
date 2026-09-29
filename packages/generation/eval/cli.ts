@@ -137,8 +137,17 @@ function worstCaseOf(mode: Mode, { provider, modelId }: Candidate): number | nul
 const NO_KEYS = "No model keys found: nothing to run. Put ANTHROPIC_API_KEY, or CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_AI_TOKEN, or GROQ_API_KEY, or HF_TOKEN in the gitignored .env at the repo root.";
 const NO_PRICE = "no recorded price: cannot be run live";
 
+/**
+ * Variables the Anthropic SDK reads when a client is built (SDK 0.128.0 client.mjs:70, 80, 109, 116): another API host,
+ * a bearer token, a log level that can print request bodies, and extra request headers. The adapter overrides each
+ * (its own baseURL, authToken null, logLevel "off", per-request credential headers; Node only); deleting them before
+ * any provider exists is the outer layer (additions A).
+ */
+const SDK_VARIABLES = ["ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_LOG", "ANTHROPIC_CUSTOM_HEADERS"] as const;
+
 /** Runs the command; returns its exit code: 0, 1 when --caps-probe could not measure every model, 2 for refused flags. */
 export async function main(argv: readonly string[], deps: CliDeps = REAL): Promise<number> {
+  for (const name of SDK_VARIABLES) delete process.env[name];
   const flags = parseFlags(argv, deps.candidates.map((candidate) => candidate.label));
   if (typeof flags === "string") {
     deps.warn(flags);
