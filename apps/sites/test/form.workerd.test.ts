@@ -1,6 +1,6 @@
 import { hashIp, newId } from "@asksite/core";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { at, putLive, seedSite, settledLeads, sitesHarness, TEST_SECRETS, type SeededSite, type ToolsEnv } from "./support/harness.ts";
+import { at, linesWith, putLive, seedSite, settledLeads, sitesHarness, TEST_SECRETS, type SeededSite, type ToolsEnv } from "./support/harness.ts";
 
 const harness = sitesHarness();
 let tools: ToolsEnv;
@@ -203,6 +203,10 @@ describe("POST /_f/<siteId>", () => {
     expect(response.status).toBe(429);
     expect(await response.text()).toContain("<h1>Please call instead</h1>");
     expect(await leads(popular.siteId)).toHaveLength(50);
+    // The site's own cap refused it, not the visitor's network (A15): the log line names which.
+    expect(await linesWith(harness, "siteId", popular.siteId, 1)).toEqual([
+      { worker: "asksite-sites", route: "form", status: 429, ms: expect.any(Number), siteId: popular.siteId, code: "site_daily_cap" },
+    ]);
   });
 
   it("stores link-heavy messages as spam without emailing the owner", async () => {
