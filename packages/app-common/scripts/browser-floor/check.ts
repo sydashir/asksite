@@ -191,6 +191,9 @@ function checkFile(ctx: Context, sf: SourceFile): void {
   function record(node: Node, kind: FindingKind, api: string, key: string, gaps: Gap[]): void {
     const { line, character } = sf.getLineAndCharacterOfPosition(node.getStart(sf));
     const finding: Finding = { file: sf.fileName, line: line + 1, column: character + 1, api, key, kind, gaps };
+    // One finding per place and key: a member reached through two sources (a generic and its
+    // constraint, a union and one of its members) is reported once.
+    if (report.findings.some((f) => f.file === finding.file && f.line === finding.line && f.column === finding.column && f.kind === kind && f.key === key)) return;
     const reason = suppression(line + 1);
     if (reason !== undefined) finding.suppressed = reason;
     report.findings.push(finding);
@@ -271,7 +274,11 @@ function checkFile(ctx: Context, sf: SourceFile): void {
     return index === undefined ? [...args] : args.slice(index, index + 1);
   }
 
-  /** Each type once, by its id: a source met twice (a tuple's elements, a default and what it covers) gives one finding. */
+  /**
+   * Each type once, by its id: a tuple's elements, or a default and the property it covers, are then
+   * one source. Two types that hold the same member (a generic and its constraint, a union and one of
+   * its members) stay two sources; `record` keeps their finding once.
+   */
   function distinct(types: Type[]): Type[] {
     return [...new Map(types.map((t) => [t.id, t])).values()];
   }
@@ -362,7 +369,9 @@ function checkFile(ctx: Context, sf: SourceFile): void {
   // ({ canParse } = URL), ({ canParse: c } = URL), nested or with a default: TypeScript types this
   // literal from its targets, so each property is read from the source on the right-hand side. A
   // source is read without null and undefined (a default covers them), so an outer property or a
-  // tuple element `X | undefined` and its default `X` are one source, not two.
+  // tuple element `X | undefined` and its default `X` are one source, not two. Different sources that
+  // hold the same member (a generic and its constraint, a union and one of its members) still give
+  // one finding: `record` keeps one per place and key.
   for (const pattern of patterns) {
     if (!is.isObjectLiteralExpression(pattern)) continue;
     const sources = distinct(patternSources(pattern).flatMap((t) => checker.getNonNullableType(t) ?? []));
