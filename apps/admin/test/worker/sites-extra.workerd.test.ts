@@ -171,6 +171,43 @@ describe("the takedown's post-commit throw path (web-maker-f4, 2026-09-30, optio
   });
 });
 
+describe("the takedown clean-up retry and the single notice (web-maker-f4, 2026-09-30: retry once, notice only when this call took the site down)", () => {
+  const takedown = (siteId: string) => `/api/admin/sites/${siteId}/takedown`;
+  const notices = async (email: string) => (await h.outbox(email)).filter((m) => m.tag === "site_notice");
+
+  it("retries the takedown once in the same call: the first LIVE delete throws, the second works -> no cleanupFailed, exactly one notice", async () => {
+    const site = await h.pendingSite();
+    h.server.clearLogs();
+    const res = await h.call("POST", takedown(site.siteId), { body: { reason: "Spam report" }, headers: { "X-Test-Takedown-Fault": "live-delete-once" } });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ noticeSent: true });
+    expect(await notices(site.email)).toHaveLength(1);
+    expect(h.logLines().filter((l) => l["event"] === "takedown_cleanup_failed")).toEqual([]);
+    await h.backgroundDone(takedown(site.siteId));
+  });
+
+  it("a re-run on an already-down site sends no notice and answers noticeSent null; its clean-up now works so no cleanupFailed", async () => {
+    const site = await h.pendingSite();
+    const first = await h.call("POST", takedown(site.siteId), { body: { reason: "Spam report" }, headers: { "X-Test-Takedown-Fault": "live-delete" } });
+    expect(await first.json()).toEqual({ noticeSent: true, cleanupFailed: true });
+    const again = await h.call("POST", takedown(site.siteId), { body: { reason: "Spam report" } });
+    expect(again.status).toBe(200);
+    expect(await again.json()).toEqual({ noticeSent: null });
+    expect(await notices(site.email)).toHaveLength(1);
+    await h.backgroundDone(takedown(site.siteId));
+  });
+
+  it("a re-run on an already-down site whose clean-up still fails answers cleanupFailed true and still sends no notice", async () => {
+    const site = await h.pendingSite();
+    await h.call("POST", takedown(site.siteId), { body: { reason: "Spam report" } });
+    const again = await h.call("POST", takedown(site.siteId), { body: { reason: "Spam report" }, headers: { "X-Test-Takedown-Fault": "live-delete" } });
+    expect(again.status).toBe(200);
+    expect(await again.json()).toEqual({ noticeSent: null, cleanupFailed: true });
+    expect(await notices(site.email)).toHaveLength(1);
+    await h.backgroundDone(takedown(site.siteId));
+  });
+});
+
 describe("settings storage (Plan 3 reads generation OFF only when the setting is exactly the string \"false\")", () => {
   it("writes exactly \"false\" and \"true\", and a limit as digits, through the settings route", async () => {
     const stored = async () =>

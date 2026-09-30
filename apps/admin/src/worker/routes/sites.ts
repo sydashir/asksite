@@ -81,6 +81,8 @@ export function siteRoutes(deps: AdminDeps): Hono<AdminEnv> {
     // leaves the site up. After the takedown commits the notice is sent inside the same runToEnd and the answer says
     // whether it went out: a takedown is never undone by a failed email, but the admin must learn the owner was not told.
     const mailer = deps.createMailer(mailerEnv(c.env));
+    // Read before takeDown runs: a re-run on a site that is already down must not email the owner a second time.
+    const alreadyDown = site.taken_down_at !== null;
     const ownerMessage = body.ownerMessage === undefined || body.ownerMessage === "" ? null : body.ownerMessage;
     // The owner always hears about it, with the admin's message when there is one, and where to ask (decision 34).
     const email = siteNoticeEmail({ appOrigin: c.env.APP_ORIGIN, supportEmail: c.env.SUPPORT_EMAIL, ownerMessage });
@@ -92,16 +94,23 @@ export function siteRoutes(deps: AdminDeps): Hono<AdminEnv> {
           c.executionCtx,
           (async (): Promise<TakedownView> => {
             const send = () => trySend(mailer, { to: site.owner_email, ...email, replyTo: c.env.SUPPORT_EMAIL, tag: "site_notice", idempotencyKey: `takedown:${site.id}:${Date.now()}` });
+            const takeDown = () => deps.publishing.takeDown(c.env, { siteId: site.id, reviewer: c.get("admin"), reason: body.reason, purgeMedia: body.purgeMedia, now: Date.now() });
+            let cleanupFailed = false;
             try {
-              await deps.publishing.takeDown(c.env, { siteId: site.id, reviewer: c.get("admin"), reason: body.reason, purgeMedia: body.purgeMedia, now: Date.now() });
+              await takeDown();
             } catch (err) {
               // A PublishError means nothing was taken down. Any other error may have come after the commit (LIVE delete, media purge):
-              // if the site is down the owner must still be told, and the admin learns the cleanup did not finish.
+              // if the site is down, run the takedown once more (Plan 2's takeDown is idempotent) before giving up on the cleanup.
               if (err instanceof deps.publishing.PublishError || !(await isTakenDown(c.env.DB, site.id))) throw err;
-              logLine({ event: "takedown_cleanup_failed", siteId: site.id });
-              return { noticeSent: await send(), cleanupFailed: true };
+              try {
+                await takeDown();
+              } catch {
+                cleanupFailed = true;
+                logLine({ event: "takedown_cleanup_failed", siteId: site.id });
+              }
             }
-            return { noticeSent: await send() };
+            // The owner is told once: only the call that took the site down sends the notice, so a re-run never emails twice.
+            return { noticeSent: alreadyDown ? null : await send(), ...(cleanupFailed ? { cleanupFailed: true as const } : {}) };
           })(),
         ),
       "change",

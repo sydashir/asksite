@@ -147,11 +147,12 @@ function disablingBeforeTokenInsert(db: D1Database, ownerId: string): D1Database
 }
 
 /** The faults a takedown request can be given (header X-Test-Takedown-Fault), each thrown as a plain Error, never a PublishError. */
-type TakedownFault = "live-delete" | "live-delete-reread" | "before-commit";
+type TakedownFault = "live-delete" | "live-delete-once" | "live-delete-reread" | "before-commit";
 
 /**
  * A fault seam for the takedown's post-commit path. "live-delete" fails LIVE.delete, which real takeDown runs AFTER its
- * D1 batch committed; "live-delete-reread" also fails the route's re-read of taken_down_at; "before-commit" fails the
+ * D1 batch committed; "live-delete-once" fails only the first LIVE.delete of the request (the route's retry succeeds);
+ * "live-delete-reread" also fails the route's re-read of taken_down_at; "before-commit" fails the
  * D1 batch itself, so the site stays up. Every other call passes through.
  */
 function withTakedownFault(env: TestEnv, fault: TakedownFault): TestEnv {
@@ -159,8 +160,13 @@ function withTakedownFault(env: TestEnv, fault: TakedownFault): TestEnv {
     const value: unknown = Reflect.get(target, key);
     return typeof value === "function" ? value.bind(target) : value;
   };
+  let deletes = 0;
   const live = new Proxy(env.LIVE, {
-    get: (target, key) => (key === "delete" && fault !== "before-commit" ? () => Promise.reject(new Error("LIVE delete failed")) : passThrough(target, key)),
+    get(target, key) {
+      if (key !== "delete" || fault === "before-commit") return passThrough(target, key);
+      deletes += 1;
+      return fault === "live-delete-once" && deletes > 1 ? passThrough(target, key) : () => Promise.reject(new Error("LIVE delete failed"));
+    },
   });
   const db = new Proxy(env.DB, {
     get(target, key) {

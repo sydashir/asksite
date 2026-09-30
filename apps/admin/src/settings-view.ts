@@ -21,10 +21,15 @@ export interface SignInEmailsView {
 /**
  * What POST /api/admin/sites/:siteId/takedown answers once the takedown has committed: whether the owner's notice
  * email went out. false means the owner was NOT told (for example the email service's daily cap was reached), so the
- * admin must contact them by hand. The takedown itself stands either way.
+ * admin must contact them by hand; null means no notice was due because the site was already down before this call
+ * (a re-run never emails twice). The takedown itself stands either way.
  */
 export interface TakedownView {
-  noticeSent: boolean;
-  /** Present (true) when a step after the commit (the LIVE delete or the media purge) threw: the site is offline but its cleanup did not finish, so cleanup did not finish. The leftover LIVE object or media is NOT served (the sites Worker gates on taken_down_at) and is removed by the Task 27 ops clean-up sweep (task-27-checklist item 42). */
+  noticeSent: boolean | null;
+  /**
+   * Present (true) when a step after the commit (the LIVE delete or the media purge) still failed after one retry in the same call.
+   * The page and photos are gated on taken_down_at, but until the LIVE object is deleted the business name (and, on the 429 page,
+   * the phone) can still show on the 404, form thank-you and 429 pages. Finish the takedown re-runs it; Task 27 item 42 is the ops backstop.
+   */
   cleanupFailed?: true;
 }
