@@ -5,7 +5,7 @@ import type { D1Database } from "@cloudflare/workers-types";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { dailyModelLimit, isGenerationEnabled, modelCallsToday, utcDayStart } from "../src/settings.ts";
 import { toGenerationView } from "../src/view.ts";
-import { clearTables, insertGeneration, seedOwnerSite, setSetting, startLocalD1, type LocalD1 } from "./support/d1.ts";
+import { clearTables, insertGeneration, LOCAL_D1_WORKER, seedOwnerSite, setSetting, startLocalD1, type LocalD1 } from "./support/d1.ts";
 
 let db: D1Database;
 let local: LocalD1 | undefined;
@@ -110,4 +110,10 @@ describe("startLocalD1 (test/support/d1.ts)", () => {
     const left = await waitFor(started, (pids) => pids.length === 0, 30_000);
     expect({ started: seen.length > 0, closed, stillRunning: seen.filter(running), left }).toEqual({ started: true, closed: "closed", stillRunning: [], left: [] });
   }, 120_000);
+
+  // Global constraint K (A13), as every other harness config asserts it (Task 10 follow-up item 8).
+  it("runs its Worker with Node.js compatibility off: both opt-out flags, and no flag starting with nodejs", () => {
+    expect(LOCAL_D1_WORKER.compatibility_flags).toEqual(expect.arrayContaining(["no_nodejs_compat", "no_nodejs_compat_v2"]));
+    expect(LOCAL_D1_WORKER.compatibility_flags.filter((flag) => flag.startsWith("nodejs"))).toEqual([]);
+  });
 });

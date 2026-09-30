@@ -12,26 +12,22 @@ export interface LocalD1 {
   close(): Promise<void>;
 }
 
+/** The harness Worker's config; settings.workerd.test.ts asserts its A13 flags (global constraint K). */
+export const LOCAL_D1_WORKER = {
+  name: "generation-test-db",
+  main: "./packages/generation/test/support/noop-worker.ts",
+  compatibility_date: "2026-09-21",
+  compatibility_flags: ["no_nodejs_compat", "no_nodejs_compat_v2"], // A13
+  d1_databases: [{ binding: "DB", database_name: "asksite", database_id: "00000000-0000-0000-0000-000000000000", migrations_dir: "./packages/core/migrations" }],
+};
+
 /**
  * A real local D1 (Miniflare, via wrangler's test harness). It returns at once, before awaiting listen, so a file's
  * afterAll holds the closer even when its beforeAll timed out waiting for `ready`; otherwise workerd outlives the run
  * (Task 9 follow-up item 4). Use: `local = startLocalD1(); db = await local.ready;` and `afterAll(() => local?.close())`.
  */
 export function startLocalD1(): LocalD1 {
-  const server = createTestHarness({
-    root: ROOT,
-    workers: [
-      {
-        config: {
-          name: "generation-test-db",
-          main: "./packages/generation/test/support/noop-worker.ts",
-          compatibility_date: "2026-09-21",
-          compatibility_flags: ["no_nodejs_compat", "no_nodejs_compat_v2"],
-          d1_databases: [{ binding: "DB", database_name: "asksite", database_id: "00000000-0000-0000-0000-000000000000", migrations_dir: "./packages/core/migrations" }],
-        },
-      },
-    ],
-  });
+  const server = createTestHarness({ root: ROOT, workers: [{ config: LOCAL_D1_WORKER }] });
   const ready = (async () => {
     await server.listen();
     const worker = server.getWorker();
