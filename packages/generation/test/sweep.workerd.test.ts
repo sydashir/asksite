@@ -238,20 +238,19 @@ describe("sweepStuckJobs", () => {
     // The cron calls sweepStuckJobs(env, now) with no limit, so the default is what bounds a production run.
     it("stops at SWEEP_MAX_PER_RUN when called without a limit, as the cron calls it: 16 full reads and 400 writes", async () => {
       const limits: unknown[] = [];
-      let writes = 0;
+      const writes: string[] = [];
       let next = 0;
-      // A D1 that always has a full batch of stuck regenerations and ends each one it is asked to.
+      // A D1 that always has a full batch of stuck regenerations and ends each one it is asked to. It only records:
+      // the sweeper catches what a write throws, so an assertion in here could be swallowed.
       const alwaysFull = {
         prepare: (sql: string) => ({
           bind: (...values: unknown[]) => ({
             all: async () => {
-              expect(sql.startsWith("SELECT")).toBe(true);
-              limits.push(values[1]);
+              limits.push(sql.startsWith("SELECT") ? values[1] : sql);
               return { results: Array.from({ length: Number(values[1]) }, () => ({ id: `x${next++}`, kind: "regenerate", status: "queued", input_json: "{}" })), meta: {} };
             },
             run: async () => {
-              expect(sql.startsWith("UPDATE")).toBe(true);
-              writes += 1;
+              writes.push(sql.slice(0, 6));
               return { meta: { changes: 1 } };
             },
           }),
@@ -259,7 +258,7 @@ describe("sweepStuckJobs", () => {
       } as unknown as D1Database;
       expect(await sweepStuckJobs({ DB: alwaysFull }, NOW)).toEqual({ fallback: 0, failed: SWEEP_MAX_PER_RUN });
       expect(limits).toEqual(Array.from({ length: 16 }, () => SWEEP_BATCH));
-      expect(writes).toBe(400);
+      expect(writes).toEqual(Array.from({ length: 400 }, () => "UPDATE"));
     });
 
     it.each<[number, unknown[]]>([
