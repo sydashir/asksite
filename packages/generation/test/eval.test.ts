@@ -99,7 +99,7 @@ describe("candidates", () => {
 
 describe("pnpm eval:generation without keys", () => {
   it("says there is nothing to run and exits 0", () => {
-    const cli = fileURLToPath(new URL("../eval/cli.ts", import.meta.url));
+    const cli = fileURLToPath(new URL("../eval/main.ts", import.meta.url));
     const out = execFileSync(process.execPath, [cli], { env: { PATH: process.env.PATH ?? "" }, encoding: "utf8" });
     expect(out).toContain("No model keys found");
   });

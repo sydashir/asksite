@@ -7,7 +7,7 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "eval": "node --env-file-if-exists=../../.env eval/cli.ts"
+    "eval": "node --env-file-if-exists=../../.env eval/main.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "0.128.0",

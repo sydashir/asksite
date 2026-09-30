@@ -316,7 +316,3 @@ async function record(plan: readonly LiveRow[], budget: Budget, deps: CliDeps): 
     deps.print(`${candidate.label}: recorded test/fixtures/${fixtureName(candidate.label)}`);
   }
 }
-
-// Only as the command itself (Node sets import.meta.main for the entry module; Vitest sets it false), so the tests can
-// import main() without running it.
-if (import.meta.main) process.exitCode = await main(process.argv.slice(2));
