@@ -39,18 +39,58 @@ function counting(ctx: ExecutionContext, path: string): ExecutionContext {
   });
 }
 
+/**
+ * A step of an upload whose result the test Worker can note: the transform's .output(), an uploads INSERT, the
+ * MEDIA.put of the photo, or the uploads DELETE that removes a row again when its photo cannot be stored.
+ */
+type StepName = "output" | "insert" | "put" | "delete";
+
+/**
+ * Per watched path: each step as its result came back, with how many waitUntil promises the path's requests had
+ * handed over by then and how many of those still ran. Work that one runToEnd keeps going (P4-8) comes back while
+ * its one promise runs; work outside it comes back with none running, or under another promise (P4-15 follow-up 1).
+ */
+const stepsOf = new Map<string, Array<{ step: StepName; waitUntil: number; pending: number }>>();
+
+/** Notes the step for the path, if its steps are watched. */
+function noteStep(path: string, step: StepName): void {
+  const steps = stepsOf.get(path);
+  if (steps === undefined) return;
+  const seen = waitUntilSeen.get(path) ?? { count: 0, pending: 0 };
+  steps.push({ step, waitUntil: seen.count, pending: seen.pending });
+}
+
+/** The work, noting the step for a watched path once its result (a value or an error) comes back. */
+function noted<T>(path: string, step: StepName, work: Promise<T>): Promise<T> {
+  if (!stepsOf.has(path)) return work;
+  return work.then(
+    (value) => {
+      noteStep(path, step);
+      return value;
+    },
+    (err: unknown) => {
+      noteStep(path, step);
+      throw err;
+    },
+  );
+}
+
 /** Owners (by email) to disable just before a request's next D1 batch: an admin's disable that lands between a route's checks and its batch. */
 const disableBeforeBatch = new Set<string>();
 
-/** Sites that get a twin of their next stored version right after its batch: a second request of the site, committed before the first one's alert check runs. */
-const twinAfterBatch = new Set<string>();
+/**
+ * Sites that get a twin of their next stored version right after its batch: a second request of the site, committed
+ * before the first one's alert check runs. Per site: when the twin was asked for, or null for a millisecond later.
+ */
+const twinAfterBatch = new Map<string, number | null>();
 
 /**
  * What a second request of the site commits, as Plan 2's batch does (§7.2): the pending version is superseded and a
- * copy of it, numbered one higher and asked for a millisecond later, is the new pending one. The number follows
- * commit order, as Plan 2's MAX + 1 inside the batch does.
+ * copy of it, numbered one higher and asked for a millisecond later (or at `requestedAt`: a request that took its
+ * time earlier yet committed later), is the new pending one. The number follows commit order, as Plan 2's MAX + 1
+ * inside the batch does.
  */
-async function storeTwin(db: D1Database, siteId: string): Promise<void> {
+async function storeTwin(db: D1Database, siteId: string, requestedAt: number | null): Promise<void> {
   const twinId = newId();
   await db.batch([
     db.prepare("UPDATE site_versions SET status = 'superseded' WHERE site_id = ? AND status = 'pending'").bind(siteId),
@@ -59,10 +99,10 @@ async function storeTwin(db: D1Database, siteId: string): Promise<void> {
         `INSERT INTO site_versions (id, site_id, number, status, document_json, document_sha256, edits_json, generation_id,
            html_key, html_sha256, stylesheet_sha256, requested_by, requested_at)
          SELECT ?, site_id, number + 1, 'pending', document_json, document_sha256, edits_json, generation_id,
-           html_key, html_sha256, stylesheet_sha256, requested_by, requested_at + 1
+           html_key, html_sha256, stylesheet_sha256, requested_by, COALESCE(?, requested_at + 1)
          FROM site_versions WHERE site_id = ? ORDER BY number DESC LIMIT 1`,
       )
-      .bind(twinId, siteId),
+      .bind(twinId, requestedAt, siteId),
     db.prepare("UPDATE sites SET pending_version_id = ? WHERE id = ?").bind(twinId, siteId),
   ]);
 }
@@ -103,6 +143,9 @@ async function saveOtherTabs(db: D1Database): Promise<void> {
   }
 }
 
+/** Per recorded path: the SQL text of every statement its requests prepared, oldest first. */
+const sqlOf = new Map<string, string[]>();
+
 /** Work done just before or just after a statement runs. */
 interface Around {
   before?: () => Promise<void>;
@@ -134,18 +177,23 @@ function aroundRun(statement: D1PreparedStatement, around: Around): D1PreparedSt
 }
 
 /**
- * The Worker's env, with a D1 binding that runs the armed hooks: around a route's batch(), disable owners before
- * it and store twins after it; before an uploads INSERT, take the site's last upload slot; after a write to a
- * site, commit another tab's save of it.
+ * The Worker's env for a request to `path`, with a D1 binding that runs the armed hooks: around a route's batch(),
+ * disable owners before it and store twins after it; before an uploads INSERT, take the site's last upload slot,
+ * and after it, and after an uploads DELETE, note the step if the path is watched; after a write to a site, commit
+ * another tab's save of it; and record each statement's SQL text if the path is recorded.
  */
-function withD1Hooks(env: Env): Env {
-  if (disableBeforeBatch.size === 0 && twinAfterBatch.size === 0 && takeSlotBeforeUploadInsert.size === 0 && saveAfterSiteWrite.size === 0) return env;
+function withD1Hooks(env: Env, path: string): Env {
+  if (disableBeforeBatch.size === 0 && twinAfterBatch.size === 0 && takeSlotBeforeUploadInsert.size === 0 && saveAfterSiteWrite.size === 0 && !stepsOf.has(path) && !sqlOf.has(path)) return env;
   const DB = new Proxy(env.DB, {
     get(target, key) {
       if (key === "prepare") {
         return (sql: string) => {
+          sqlOf.get(path)?.push(sql);
           const statement = target.prepare(sql);
-          if (takeSlotBeforeUploadInsert.size > 0 && sql.trimStart().startsWith("INSERT INTO uploads")) return aroundRun(statement, { before: () => takeLastUploadSlots(target) });
+          if (sql.trimStart().startsWith("INSERT INTO uploads") && (takeSlotBeforeUploadInsert.size > 0 || stepsOf.has(path))) {
+            return aroundRun(statement, { before: () => takeLastUploadSlots(target), after: async () => noteStep(path, "insert") });
+          }
+          if (sql.trimStart().startsWith("DELETE FROM uploads") && stepsOf.has(path)) return aroundRun(statement, { after: async () => noteStep(path, "delete") });
           if (saveAfterSiteWrite.size > 0 && sql.trimStart().startsWith("UPDATE sites ")) return aroundRun(statement, { after: () => saveOtherTabs(target) });
           return statement;
         };
@@ -160,7 +208,7 @@ function withD1Hooks(env: Env): Env {
           const results = await target.batch(statements);
           const twins = [...twinAfterBatch];
           twinAfterBatch.clear();
-          for (const siteId of twins) await storeTwin(target, siteId);
+          for (const [siteId, requestedAt] of twins) await storeTwin(target, siteId, requestedAt);
           for (const around of arounds) await around.after?.();
           return results;
         };
@@ -201,37 +249,40 @@ function takeImagesFailure(step: ImagesStep): Error | undefined {
 /** When set, the next .output() asks the real binding for this format instead of the one the Worker asked for (which is still recorded). */
 let nextOutputFormat: ImageOutputOptions["format"] | undefined;
 
-/** The real transformer, recording the options it is given; its .output() can be made to fail once, or to answer another format once. */
-function recordingTransformer(transformer: ImageTransformer): ImageTransformer {
+/**
+ * The real transformer of a request to `path`, recording the options it is given; its .output() can be made to fail
+ * once, or to answer another format once, and is noted as a step when the path is watched.
+ */
+function recordingTransformer(transformer: ImageTransformer, path: string): ImageTransformer {
   return {
     transform(transform) {
       imagesCalls.push({ transform });
-      return recordingTransformer(transformer.transform(transform));
+      return recordingTransformer(transformer.transform(transform), path);
     },
     draw(image, options) {
-      return recordingTransformer(transformer.draw(image, options));
+      return recordingTransformer(transformer.draw(image, options), path);
     },
     output(options) {
       imagesCalls.push({ output: options });
       const failure = takeImagesFailure("output");
-      if (failure !== undefined) return Promise.reject(failure);
+      if (failure !== undefined) return noted(path, "output", Promise.reject(failure));
       const format = nextOutputFormat ?? options.format;
       nextOutputFormat = undefined;
-      return transformer.output({ ...options, format });
+      return noted(path, "output", transformer.output({ ...options, format }));
     },
   };
 }
 
-/** The Worker's env, with an Images binding that does the real work, records what it is asked and can fail one step once. */
-function withImagesHook(env: Env): Env {
+/** The Worker's env for a request to `path`, with an Images binding that does the real work, records what it is asked and can fail one step once. */
+function withImagesHook(env: Env, path: string): Env {
   const images = env.IMAGES;
   const IMAGES: ImagesBinding = {
     info(stream, options) {
       const failure = takeImagesFailure("info");
       return failure === undefined ? images.info(stream, options) : Promise.reject(failure);
     },
-    input: (stream, options) => recordingTransformer(images.input(stream, options)),
-    text: (content, options) => recordingTransformer(images.text(content, options)),
+    input: (stream, options) => recordingTransformer(images.input(stream, options), path),
+    text: (content, options) => recordingTransformer(images.text(content, options), path),
     get hosted() {
       return images.hosted;
     },
@@ -242,15 +293,19 @@ function withImagesHook(env: Env): Env {
 /** When true, the next MEDIA.put of any request fails, as an R2 outage would. */
 let nextMediaPutFails = false;
 
-/** The Worker's env, with a MEDIA binding whose next put() can be made to fail once. */
-function withMediaHook(env: Env): Env {
-  if (!nextMediaPutFails) return env;
+/**
+ * The Worker's env for a request to `path`, with a MEDIA binding whose next put() can be made to fail once, and
+ * whose put() is noted as a step, failed or not, when the path is watched.
+ */
+function withMediaHook(env: Env, path: string): Env {
+  if (!nextMediaPutFails && !stepsOf.has(path)) return env;
   const MEDIA = new Proxy(env.MEDIA, {
     get(target, key) {
       if (key === "put" && nextMediaPutFails) {
         nextMediaPutFails = false;
-        return () => Promise.reject(new Error("R2 put failed: made by the test Worker"));
+        return () => noted(path, "put", Promise.reject(new Error("R2 put failed: made by the test Worker")));
       }
+      if (key === "put") return (...args: Parameters<R2Bucket["put"]>) => noted(path, "put", target.put(...args));
       const value: unknown = Reflect.get(target, key);
       return typeof value === "function" ? value.bind(target) : value;
     },
@@ -284,10 +339,13 @@ helpers.post("/__test/disable-before-batch", async (c) => {
   return c.json({ ok: true });
 });
 
-/** Arms the hook above for one site: right after the next D1 batch of any request, a second request of the site is committed (storeTwin). */
+/**
+ * Arms the hook above for one site: right after the next D1 batch of any request, a second request of the site is
+ * committed (storeTwin), asked for at `requestedAt` if given.
+ */
 helpers.post("/__test/twin-after-batch", async (c) => {
-  const { siteId } = await c.req.json<{ siteId: string }>();
-  twinAfterBatch.add(siteId);
+  const { siteId, requestedAt } = await c.req.json<{ siteId: string; requestedAt?: number }>();
+  twinAfterBatch.set(siteId, requestedAt ?? null);
   return c.json({ ok: true });
 });
 
@@ -365,6 +423,26 @@ helpers.post("/__test/media-put-fails", (c) => {
  */
 helpers.get("/__test/wait-until", (c) => c.json(waitUntilSeen.get(c.req.query("path") ?? "") ?? { count: 0, pending: 0 }));
 
+/** Arms the step notes above for one path: from now on, its requests note each .output(), uploads INSERT, MEDIA.put and uploads DELETE as its result comes back. */
+helpers.post("/__test/watch-steps", async (c) => {
+  const { path } = await c.req.json<{ path: string }>();
+  stepsOf.set(path, []);
+  return c.json({ ok: true });
+});
+
+/** The steps noted for a watched path, oldest first (see stepsOf). */
+helpers.get("/__test/steps", (c) => c.json(stepsOf.get(c.req.query("path") ?? "") ?? []));
+
+/** Starts recording for one path, afresh: from now on, the SQL text of each statement its requests prepare (see sqlOf). */
+helpers.post("/__test/record-sql", async (c) => {
+  const { path } = await c.req.json<{ path: string }>();
+  sqlOf.set(path, []);
+  return c.json({ ok: true });
+});
+
+/** The SQL text recorded for a path, oldest first (see sqlOf). */
+helpers.get("/__test/sql", (c) => c.json(sqlOf.get(c.req.query("path") ?? "") ?? []));
+
 // The Worker's types have no `process` (Node.js compatibility is off), so the probe below declares it
 // for this file only; the bundler erases the declaration and the name is looked up in the runtime.
 declare const process: unknown;
@@ -418,7 +496,7 @@ helpers.post("/__test/versions/:versionId/approve", async (c) => c.json(await fa
 export default {
   fetch(request, env, ctx) {
     const path = new URL(request.url).pathname;
-    return path.startsWith("/__test/") ? helpers.fetch(request, env, ctx) : worker.fetch!(request, withMediaHook(withImagesHook(withD1Hooks(env))), counting(ctx, path));
+    return path.startsWith("/__test/") ? helpers.fetch(request, env, ctx) : worker.fetch!(request, withMediaHook(withImagesHook(withD1Hooks(env, path), path), path), counting(ctx, path));
   },
   scheduled(controller, env, ctx) {
     return worker.scheduled!(controller, env, ctx);

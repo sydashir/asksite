@@ -75,6 +75,11 @@ describe("production wrangler.jsonc", () => {
     ]);
   });
 
+  it("ships with generation off and a limit of 8 model calls a day (M1, D3)", () => {
+    expect(config.vars["GENERATION_ENABLED"]).toBe("false");
+    expect(config.vars["DAILY_MODEL_LIMIT"]).toBe("8");
+  });
+
   it("sends at most 40 sign-in emails a day, and never uses a Turnstile test sitekey (A11)", () => {
     expect(config.vars["LOGIN_EMAILS_PER_DAY"]).toBe("40");
     expect(typeof config.vars["TURNSTILE_SITE_KEY"]).toBe("string");

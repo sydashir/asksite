@@ -417,7 +417,7 @@ describe("readJson's shape guard (P4-6)", () => {
       },
       order: [...SECTION_IDS],
       hidden: [...HIDEABLE_SECTIONS],
-      theme: { palette: "navy-orange", font: "clean" },
+      theme: { palette: "navy-orange", font: "clean", design: "refined" }, // the longest design id (A12)
     };
     expect(Facts.safeParse(facts).success).toBe(true);
     expect(Brief.safeParse(brief).success).toBe(true);

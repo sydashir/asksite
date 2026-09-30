@@ -1,7 +1,8 @@
 import { DRAFT_JSON_MAX_BYTES, MAX_ISSUES } from "@asksite/app-common";
 import { Brief, composeDocument, EMPTY_EDITS, LIMITS, photoRefIssues, toIssues, type AiDraft, type SiteVersionRow, type SiteView } from "@asksite/core";
-import { Facts, SiteDocument } from "@asksite/site-schema";
+import { DEFAULT_DESIGN, Facts, SiteDocument } from "@asksite/site-schema";
 import { describe, expect, it } from "vitest";
+import { z } from "zod";
 import { VALID_BRIEF, VALID_FACTS } from "../support/facts.ts";
 import { json, readyOwner, ROOT, useAppHarness } from "../support/harness.ts";
 
@@ -81,6 +82,46 @@ describe("GET /api/sites/:siteId", () => {
     // toMatchObject, not toEqual (A12 heads-up): a later OwnerEdits field must not break this test.
     expect(view.edits).toMatchObject({ ...edits, hidden: [] });
     expect([...new Set(view.issues.document.map((i) => i.path.join(".")))]).toEqual(["copy.heroHeadline"]);
+  });
+
+  /** Stores `theme` as the theme of the stored AI draft of build `generationId`. */
+  async function storeDraftTheme(generationId: string, theme: unknown): Promise<void> {
+    const db = await h.db();
+    const stored = await db.prepare("SELECT output_json FROM generations WHERE id = ?").bind(generationId).first<{ output_json: string }>();
+    const draft = JSON.parse(stored?.output_json ?? "{}") as Record<string, unknown>;
+    await db.prepare("UPDATE generations SET output_json = ? WHERE id = ?").bind(JSON.stringify({ ...draft, theme }), generationId).run();
+  }
+
+  it("reads a leniently read AI draft's theme stored before designs existed with the default design (A12)", async () => {
+    const { generationId, ...owner } = await staleStoredDraft();
+    await storeDraftTheme(generationId, { palette: "green-amber", font: "sturdy" });
+    const view = await json<SiteView>(await h.call("GET", `/api/sites/${owner.siteId}`, { cookie: owner.cookie }));
+    expect(view.ai?.draft.theme).toEqual({ palette: "green-amber", font: "sturdy", design: DEFAULT_DESIGN });
+  });
+
+  it("does not use a leniently read AI draft whose theme no longer passes Theme (A12)", async () => {
+    const { generationId, ...owner } = await staleStoredDraft();
+    await storeDraftTheme(generationId, { palette: "sepia", font: "sturdy", design: "impact" });
+    const view = await json<SiteView>(await h.call("GET", `/api/sites/${owner.siteId}`, { cookie: owner.cookie }));
+    expect(view.ai).toBeNull();
+  });
+
+  it("still lists the page's own issues when more than MAX_ISSUES facts issues come before them (A9 caps after the filter)", async () => {
+    const { generationId, edits, ...owner } = await staleStoredDraft();
+    // Sixty service-area places that are not text: the composed document's facts issues come first, all sixty.
+    const facts = { ...VALID_FACTS, serviceArea: { places: Array.from({ length: 60 }, (_, i) => i) } };
+    const saved = await h.call("PATCH", `/api/sites/${owner.siteId}/draft`, { cookie: owner.cookie, body: { rev: owner.rev, facts } });
+    expect(saved.status).toBe(200);
+    const afterSave = (await json<{ issues: SiteView["issues"] }>(saved)).issues;
+    const view = await json<SiteView>(await h.call("GET", `/api/sites/${owner.siteId}`, { cookie: owner.cookie }));
+    const stored = await (await h.db()).prepare("SELECT output_json FROM generations WHERE id = ?").bind(generationId).first<{ output_json: string }>();
+    const ai = { generationId, draft: JSON.parse(stored?.output_json ?? "{}") as AiDraft };
+    const zodIssues = SiteDocument.safeParse(composeDocument(facts, ai, { ...edits, hidden: [] })).error!.issues;
+    expect(zodIssues.slice(0, MAX_ISSUES).every((issue) => issue.path[0] === "facts")).toBe(true);
+
+    const pageIssues = (issues: SiteView["issues"]) => [...new Set(issues.document.map((i) => i.path.join(".")))];
+    expect(pageIssues(afterSave)).toEqual(["copy.heroHeadline"]);
+    expect(pageIssues(view.issues)).toEqual(["copy.heroHeadline"]);
   });
 
   it("shows the newest succeeded build as the AI draft: not an older one, nor a newer failed or queued one (§2.1)", async () => {
@@ -261,6 +302,70 @@ describe("PATCH /api/sites/:siteId/draft", () => {
     expect(empty.status).toBe(422);
   });
 
+  // A12 §3: an edits save whose theme is null (a tab that still holds no theme) never replaces a stored one.
+  describe("the stored theme (A12 §3)", () => {
+    const GREEN = { palette: "green-amber", font: "sturdy", design: "modern" } as const;
+    const CHARCOAL = { palette: "charcoal-red", font: "friendly", design: "refined" } as const;
+
+    /** A new owner whose saved edits hold GREEN as their theme (rev 2). */
+    async function ownerWithTheme() {
+      const owner = await h.signIn();
+      const save = (body: object) => h.call("PATCH", `/api/sites/${owner.siteId}/draft`, { cookie: owner.cookie, body });
+      const read = async () => json<SiteView>(await h.call("GET", `/api/sites/${owner.siteId}`, { cookie: owner.cookie }));
+      expect((await save({ rev: 1, edits: { ...EMPTY_EDITS, theme: GREEN } })).status).toBe(200);
+      return { save, read };
+    }
+
+    it("keeps the stored theme when a save's edits have no theme, saves the rest and bumps rev", async () => {
+      const { save, read } = await ownerWithTheme();
+      const res = await save({ rev: 2, edits: { ...EMPTY_EDITS, copy: { ctaText: "Call Joe" } } });
+      expect(res.status).toBe(200);
+      expect((await json<{ rev: number }>(res)).rev).toBe(3);
+      const view = await read();
+      expect(view.edits.theme).toEqual(GREEN);
+      expect(view.edits.copy).toEqual({ ctaText: "Call Joe" });
+    });
+
+    it("replaces the stored theme with the one a save's edits name", async () => {
+      const { save, read } = await ownerWithTheme();
+      expect((await save({ rev: 2, edits: { ...EMPTY_EDITS, theme: CHARCOAL } })).status).toBe(200);
+      expect((await read()).edits.theme).toEqual(CHARCOAL);
+    });
+
+    it("keeps the stored theme when a save sends no edits", async () => {
+      const { save, read } = await ownerWithTheme();
+      expect((await save({ rev: 2, brief: VALID_BRIEF })).status).toBe(200);
+      expect((await read()).edits.theme).toEqual(GREEN);
+    });
+
+    it("changes nothing on a stale rev", async () => {
+      const { save, read } = await ownerWithTheme();
+      expect((await save({ rev: 1, edits: { ...EMPTY_EDITS, theme: CHARCOAL } })).status).toBe(409);
+      const view = await read();
+      expect(view.rev).toBe(2);
+      expect(view.edits.theme).toEqual(GREEN);
+    });
+
+    it("refuses a theme without a design with 422 at edits.theme.design", async () => {
+      const owner = await h.signIn();
+      const res = await h.call("PATCH", `/api/sites/${owner.siteId}/draft`, {
+        cookie: owner.cookie,
+        body: { rev: 1, edits: { ...EMPTY_EDITS, theme: { palette: "green-amber", font: "sturdy" } } },
+      });
+      expect(res.status).toBe(422);
+      expect((await json<ErrorJson>(res)).error.issues?.map((issue) => [issue.path.join("."), issue.code])).toEqual([["edits.theme.design", "invalid_value"]]);
+    });
+
+    it("saves edits over stored edits that are not valid JSON", async () => {
+      const owner = await h.signIn();
+      await (await h.db()).prepare("UPDATE sites SET edits_json = ? WHERE id = ?").bind('{"theme":', owner.siteId).run();
+      const edits = { ...EMPTY_EDITS, copy: { ctaText: "Call Joe" } };
+      expect((await h.call("PATCH", `/api/sites/${owner.siteId}/draft`, { cookie: owner.cookie, body: { rev: 1, edits } })).status).toBe(200);
+      const stored = await (await h.db()).prepare("SELECT edits_json FROM sites WHERE id = ?").bind(owner.siteId).first<{ edits_json: string }>();
+      expect(JSON.parse(stored?.edits_json ?? "null")).toEqual(edits);
+    });
+  });
+
   it("refuses facts over LIMITS.factsJsonMaxBytes with the per-part 413, in a body the draft limit lets through (A8c)", async () => {
     const owner = await h.signIn();
     // One byte over the facts limit once JSON-encoded, in a body far under DRAFT_JSON_MAX_BYTES, so only
@@ -322,7 +427,8 @@ describe("PATCH /api/sites/:siteId/draft", () => {
       facts: toIssues(Facts.safeParse(facts).error!).map((issue) => ({ ...issue, path: ["facts", ...issue.path] })),
       brief: toIssues(Brief.safeParse(brief).error!).map((issue) => ({ ...issue, path: ["brief", ...issue.path] })),
       photos: photoRefIssues(facts, owner.siteId, ROOT, []),
-      document: toIssues(SiteDocument.safeParse(composeDocument(facts, ai, EMPTY_EDITS)).error!).filter((issue) => issue.path[0] !== "facts"),
+      // Filtered before toIssues keeps its first 50 (A9), as the route does.
+      document: toIssues(new z.ZodError(SiteDocument.safeParse(composeDocument(facts, ai, EMPTY_EDITS)).error!.issues.filter((issue) => issue.path[0] !== "facts"))),
     };
     // Every list has more than MAX_ISSUES issues before any cap. Count zod's own issues: core's toIssues keeps
     // the first 50 itself (A9), so the lists above are already capped.

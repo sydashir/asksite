@@ -1,4 +1,4 @@
-import { afterAll, beforeAll } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach } from "vitest";
 import { createTestHarness } from "wrangler";
 import { TURNSTILE_DUMMY_TOKEN, type SiteverifyCall } from "./turnstile.ts";
 
@@ -38,6 +38,27 @@ export async function awayFromMinuteBoundary(needMs = 5_000): Promise<void> {
 
 const HOUR_MS = 3_600_000;
 
+/** The fields of the Worker's log lines a failed test prints: never a body, token, email, IP or key. */
+const PRINTED_FIELDS = ["route", "status", "code", "error", "event"];
+
+/** Parsed JSON log lines from the Worker's captured log entries. */
+function jsonLines(entries: Array<{ message: string }>): Array<Record<string, unknown>> {
+  return entries.flatMap((entry) => {
+    try {
+      const line: unknown = JSON.parse(entry.message);
+      return typeof line === "object" && line !== null ? [line as Record<string, unknown>] : [];
+    } catch {
+      return [];
+    }
+  });
+}
+
+/** One log line as a failed test prints it: its PRINTED_FIELDS only. */
+const printed = (line: Record<string, unknown>): string =>
+  PRINTED_FIELDS.filter((field) => field in line)
+    .map((field) => `${field}=${String(line[field])}`)
+    .join(" ");
+
 /**
  * Waits out the last 10 s of the current UTC hour (every UTC day ends on an hour too), so the requests of
  * a test that places rows by the clock fall in the hour and the day it computed.
@@ -61,6 +82,24 @@ export function useAppHarness(options: { vars?: Record<string, string> } = {}) {
     await server.close();
   });
 
+  // When a test fails (a status assertion, say), it prints each /api request it made with the status it got, and
+  // the Worker's log lines since it started, so a 500 shows whether the Worker answered it (its code and error
+  // name) or the local runtime between the test and the Worker did (no such line).
+  let testStartedAt = 0;
+  let requestsThisTest: string[] = [];
+  beforeEach(() => {
+    testStartedAt = Date.now();
+    requestsThisTest = [];
+  });
+  afterEach(({ task }) => {
+    if (task.result?.state !== "fail") return;
+    const lines = jsonLines(server.getLogs().filter((entry) => entry.timestamp >= testStartedAt)).map(printed);
+    const indented = (items: string[]) => items.map((item) => `  ${item}`);
+    console.error(
+      ["This failed test's /api requests and the status each got:", ...indented(requestsThisTest), "The Worker's log lines since it started:", ...indented(lines)].join("\n"),
+    );
+  });
+
   async function call(method: string, path: string, options: CallOptions = {}): Promise<Response> {
     const headers: Record<string, string> = { ...options.headers };
     if (options.origin !== null) headers["Origin"] = options.origin ?? APP_ORIGIN;
@@ -76,7 +115,11 @@ export function useAppHarness(options: { vars?: Record<string, string> } = {}) {
       headers["Content-Type"] = "application/json";
       body = JSON.stringify(options.body);
     }
-    return server.fetch(`${APP_ORIGIN}${path}`, { method, headers, ...(body === undefined ? {} : { body }) });
+    const res = await server.fetch(`${APP_ORIGIN}${path}`, { method, headers, ...(body === undefined ? {} : { body }) });
+    // The path without its query, which may hold an email address (the dev outbox's ?to=).
+    const { pathname } = new URL(path, APP_ORIGIN);
+    if (pathname.startsWith("/api/")) requestsThisTest.push(`${method} ${pathname} -> ${res.status}`);
+    return res;
   }
 
   /** POST /api/auth/login from a fresh address, with a Turnstile token the fake siteverify accepts unless told otherwise (null: no token). */
@@ -104,16 +147,20 @@ export function useAppHarness(options: { vars?: Record<string, string> } = {}) {
     await eventually(() => waitUntilSeen(path), (seen) => seen.pending === 0, `the background work of ${path}`);
   }
 
+  /** From now on, the test Worker records the SQL text of every statement that requests to `path` prepare. */
+  async function recordSql(path: string): Promise<void> {
+    const res = await call("POST", "/__test/record-sql", { body: { path } });
+    if (res.status !== 200) throw new Error(`record-sql failed: ${res.status}`);
+  }
+
+  /** The SQL text of each statement requests to `path` prepared since recordSql(path), oldest first. */
+  async function recordedSql(path: string): Promise<string[]> {
+    return (await call("GET", `/__test/sql?path=${encodeURIComponent(path)}`)).json() as Promise<string[]>;
+  }
+
   /** The Worker's JSON log lines since the harness started or server.clearLogs(). */
   function logLines(): Array<Record<string, unknown>> {
-    return server.getLogs().flatMap((entry) => {
-      try {
-        const line: unknown = JSON.parse(entry.message);
-        return typeof line === "object" && line !== null ? [line as Record<string, unknown>] : [];
-      } catch {
-        return [];
-      }
-    });
+    return jsonLines(server.getLogs());
   }
 
   async function db(): Promise<D1Like> {
@@ -142,7 +189,7 @@ export function useAppHarness(options: { vars?: Record<string, string> } = {}) {
     await (await db()).prepare("DELETE FROM login_tokens").bind().run();
   }
 
-  return { server, call, db, invite, signIn, login, siteverifyCalls, waitUntilCount, backgroundDone, clearLoginTokens, logLines };
+  return { server, call, db, invite, signIn, login, siteverifyCalls, waitUntilCount, backgroundDone, clearLoginTokens, logLines, recordSql, recordedSql };
 }
 
 /** Polls `read` every 100 ms until `done` accepts its value (at most 5 s). */

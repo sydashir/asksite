@@ -81,5 +81,5 @@
     { "id": "faq", "variant": "accordion" },
     { "id": "contact", "variant": "card" }
   ],
-  "theme": { "palette": "navy-orange", "font": "clean" }
+  "theme": { "palette": "navy-orange", "font": "clean", "design": "impact" }
 }

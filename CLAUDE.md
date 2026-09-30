@@ -47,6 +47,12 @@ Read this whole file at the start of every session. These rules override default
   - Do NOT leave orphaned processes running in the background. Use killall or pkill to verify your spawned servers are dead before moving to the next step.
   - Safety scope: only stop processes this project started — target them by PID or by an exact command pattern that includes this repo's path (e.g. `pkill -f "/Users/ashir/Documents/workk2/web_maker/"`). Never run a bare `killall node` or `pkill node`: this Mac also runs the user's other projects (e.g. dmchat-tg) on node, and they must not be touched.
 
+- Mac load (user instruction 2026-09-29: "don't lag my Mac"):
+  - Run every heavy suite (`pnpm test`, `pnpm test:e2e`, any Playwright or workerd suite) through `/Users/ashir/Documents/workk2/.asksite-heavy/run.sh <command>`. It allows at most 2 such runs machine-wide and runs them at nice 10.
+  - Run light commands under `nice -n 10`.
+  - Playwright uses at most 2 workers; vitest at most 3.
+  - The moderator's governor (PID in `.superpowers/sdd/governor.pid`) lowers the priority of this project's processes and never stops anything.
+
 ## Security
 
 - API keys never go into git, logs, chat output, screenshots or client-side code.
@@ -82,7 +88,7 @@ Update them as work happens, not only at the end. The user will say when context
 
 ## Parallel build sessions (user instruction 2026-09-25)
 
-- The moderator session (currently `web-maker-1c`, formerly `web-maker-76` and `web-maker-99`; after any restart it announces its new name and socket to every session) in folder `/Users/ashir/Documents/workk2/web_maker` is the controller of every build session. Build sessions talk to it with SendMessage; it relays to the user only when a decision is the user's.
+- The moderator session (currently `web-maker-d3`, formerly `web-maker-42`, `web-maker-5f`, `web-maker-1c`, `web-maker-76` and `web-maker-99`; after any restart it announces its new name and socket to every session) in folder `/Users/ashir/Documents/workk2/web_maker` is the controller of every build session. Build sessions talk to it with SendMessage; it relays to the user only when a decision is the user's.
 - Build sessions never assume or guess: if the plan, design or code does not answer something with certainty, stop and ask the moderator. The moderator asks the user when it is unsure.
 - User rule (2026-09-25): the moderator reviews a build session's code before any git action beyond a local commit on that session's own branch. Build sessions may only run read-only git, `git add <named paths>` and `git commit` on their own branch; push, merge (including "Sync with main"), rebase, reset, revert, cherry-pick, amend, switching branches, branch/tag changes, stash, worktree commands and `git clean` need the moderator's explicit OK for that one action, given after review.
 - Only the moderator pushes or runs `gh` (the active gh account is machine-wide, so parallel switching can leave the wrong one active); build sessions never push, and the moderator pushes their branches.

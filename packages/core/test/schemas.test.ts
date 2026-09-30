@@ -1,4 +1,4 @@
-import { DAYS, Facts, FONT_IDS, HIDEABLE_SECTIONS, PALETTE_IDS, SOCIAL_NETWORKS, Theme, TRADES } from "@asksite/site-schema";
+import { DAYS, DESIGN_IDS, Facts, FONT_IDS, HIDEABLE_SECTIONS, PALETTE_IDS, SOCIAL_NETWORKS, Theme, TRADES } from "@asksite/site-schema";
 import { describe, expect, expectTypeOf, it } from "vitest";
 import { z } from "zod";
 import {
@@ -243,7 +243,7 @@ describe("LIMITS.editsJsonMaxBytes", () => {
     },
     order: [...SECTION_IDS], // every order lists the same ids, so every order is the same size
     hidden: [...HIDEABLE_SECTIONS],
-    theme: { palette: longest(PALETTE_IDS), font: longest(FONT_IDS) },
+    theme: { palette: longest(PALETTE_IDS), font: longest(FONT_IDS), design: longest(DESIGN_IDS) },
   };
 
   it("fills every field OwnerEdits allows", () => {
@@ -258,7 +258,7 @@ describe("LIMITS.editsJsonMaxBytes", () => {
 
   it("holds the largest valid OwnerEdits once JSON-encoded, rounded up to a whole KiB (never below 64 KiB)", () => {
     const bytes = jsonBytes(OwnerEdits.parse(largest));
-    expect(bytes).toBe(435_810);
+    expect(bytes).toBe(435_829); // 435,810 before A12, plus ,"design":"refined" (19 bytes)
     expect(bytes).toBeLessThanOrEqual(LIMITS.editsJsonMaxBytes);
     expect(LIMITS.editsJsonMaxBytes).toBe(Math.max(65_536, Math.ceil(bytes / 1024) * 1024));
   });
@@ -288,6 +288,7 @@ describe("LIMITS.editsJsonMaxBytes", () => {
     ["the section order", { order: [...SECTION_IDS, "faq"] }],
     ["the hidden list", { hidden: [...HIDEABLE_SECTIONS, "faq"] }],
     ["the look", { theme: { ...largest.theme, palette: `${largest.theme.palette}x` } }],
+    ["the design", { theme: { ...largest.theme, design: `${largest.theme.design}x` } }],
     ["an unknown wording field", { copy: { ...copy, motto: text } }],
     ["an unknown top-level field", { note: text }],
   ] as Array<[string, object]>)("is measured at the caps: one more in %s is refused", (_, change) => {

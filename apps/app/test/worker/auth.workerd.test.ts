@@ -106,6 +106,39 @@ describe("signed-in routes", () => {
     );
   });
 
+  it("read only what /api/me shows from each site's row: never its brief or edits", async () => {
+    const owner = await h.signIn();
+    await h.recordSql("/api/me");
+    expect((await h.call("GET", "/api/me", { cookie: owner.cookie })).status).toBe(200);
+    const reads = (await h.recordedSql("/api/me")).filter((sql) => /\bFROM sites\b/.test(sql));
+    expect(reads).toHaveLength(1);
+    expect(reads[0]).not.toMatch(/\*|brief_json|edits_json/);
+  });
+
+  it("show each site's business name on /api/me as saved (quotes, accents, JSON escapes), and none for a name that is not text", async () => {
+    const owner = await h.signIn();
+    const saved: Array<[string, unknown]> = [
+      [owner.siteId, `Joe's "Best" Plumbing`],
+      [await acceptInvite(owner.email), "Café Ñandú"],
+      [await acceptInvite(owner.email), { first: "Ace" }],
+      [await acceptInvite(owner.email), 42],
+    ];
+    for (const [siteId, businessName] of saved) {
+      expect((await h.call("PATCH", `/api/sites/${siteId}/draft`, { cookie: owner.cookie, body: { rev: 1, facts: { businessName } } })).status).toBe(200);
+    }
+    // The accented name again, written with JSON escapes (JSON.stringify never writes these, another writer might).
+    const escaped = await acceptInvite(owner.email);
+    await (await h.db()).prepare("UPDATE sites SET facts_json = ? WHERE id = ?").bind(String.raw`{"businessName":"Caf\u00e9 \u00d1and\u00fa"}`, escaped).run();
+    const me = await json<{ sites: Array<{ id: string; businessName: unknown }> }>(await h.call("GET", "/api/me", { cookie: owner.cookie }));
+    expect(Object.fromEntries(me.sites.map((site) => [site.id, site.businessName]))).toEqual({
+      [saved[0]![0]]: `Joe's "Best" Plumbing`,
+      [saved[1]![0]]: "Café Ñandú",
+      [saved[2]![0]]: null,
+      [saved[3]![0]]: null,
+      [escaped]: "Café Ñandú",
+    });
+  });
+
   it("show each owner only their own sites on /api/me", async () => {
     const owners = [await h.signIn(), await h.signIn()];
     for (const owner of owners) {

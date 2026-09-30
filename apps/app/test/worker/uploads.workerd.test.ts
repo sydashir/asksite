@@ -1,7 +1,7 @@
 import { LIMITS, mediaUrl, type SiteView, type UploadView } from "@asksite/core";
 import { describe, expect, it } from "vitest";
 import { MAX_PART_HEADER_BYTES, MAX_PARTS } from "../../src/worker/multipart.ts";
-import { BROWSER_BOUNDARIES, browserContentType, browserMultipart, geckoBoundary } from "../support/browsers.ts";
+import { BROWSER_BOUNDARIES, browserContentType, browserMultipart, encode, geckoBoundary, joined, type BrowserPart } from "../support/browsers.ts";
 import { VALID_FACTS } from "../support/facts.ts";
 import { APP_ORIGIN, awayFromMinuteBoundary, json, ROOT, useAppHarness } from "../support/harness.ts";
 import { animatedWebp, jpeg, jpegWithGps, latin1, png, truncatedJpeg, upload } from "../support/images.ts";
@@ -9,6 +9,9 @@ import { animatedWebp, jpeg, jpegWithGps, latin1, png, truncatedJpeg, upload } f
 const h = useAppHarness();
 
 type ErrorJson = { error: { code: string; message?: string } };
+
+/** The answer to every upload refused as multipart (P4-17 Condition 3, P4-15 follow-up 2): one plain sentence, never the reason. */
+const didNotWork = { code: "bad_request", message: "That upload didn't work. Please try again." };
 
 /** The request's one log line of the last upload POST. */
 const lastUploadLine = () => h.logLines().filter((line) => line["route"] === "POST /api/sites/:siteId/uploads").at(-1);
@@ -32,6 +35,15 @@ async function mediaKeys(siteId: string): Promise<string[]> {
 async function imagesCalls(): Promise<Array<Record<string, unknown>>> {
   return json<Array<Record<string, unknown>>>(await h.call("GET", "/__test/images-calls"));
 }
+
+/** Arms the test Worker's step notes for the path: from now on its requests note each step as its result comes back (test-worker.ts). */
+const watchSteps = (path: string) => h.call("POST", "/__test/watch-steps", { body: { path } });
+
+/** The steps noted for a watched path, oldest first, each with the waitUntil promises handed over by then and still running. */
+const notedSteps = async (path: string) => json<unknown[]>(await h.call("GET", `/__test/steps?path=${encodeURIComponent(path)}`));
+
+/** A step that came back while the request's one runToEnd promise still ran (P4-15 Minor c, follow-up 1). */
+const inOneRunToEnd = (step: string) => ({ step, waitUntil: 1, pending: 1 });
 
 type UploadRow = { id: string; width: number; height: number; bytes: number; created_at: number; deleted_at: number | null };
 
@@ -220,10 +232,8 @@ describe("POST /api/sites/:siteId/uploads", () => {
   });
 
   describe("a multipart body shaped to make the parse slow is refused before it is parsed (P4-15 d)", () => {
-    // P4-17 Condition 3: for the strict Content-Type rule and the no-preamble rule the owner reads one plain
-    // sentence, and the reason is only on the request's log line. The two part limits keep their earlier text.
-    const didNotWork = { code: "bad_request", message: "That upload didn't work. Please try again." };
-    const refused = { code: "bad_request", message: "The upload is not valid multipart form data" };
+    // P4-17 Condition 3, for every refusal here (P4-15 follow-up 2): the owner reads one plain sentence, and the
+    // reason is only on the request's log line.
 
     it(`refuses more than MAX_PARTS (${MAX_PARTS}) parts with 400, noting too_many_parts on the request's log line`, async () => {
       const owner = await h.signIn();
@@ -231,7 +241,7 @@ describe("POST /api/sites/:siteId/uploads", () => {
       for (let i = 0; i < MAX_PARTS; i += 1) form.append(`field${i}`, "x");
       const res = await h.call("POST", `/api/sites/${owner.siteId}/uploads`, { cookie: owner.cookie, body: form });
       expect(res.status).toBe(400);
-      expect((await json<ErrorJson>(res)).error).toEqual(refused);
+      expect((await json<ErrorJson>(res)).error).toEqual(didNotWork);
       expect(lastUploadLine()).toMatchObject({ status: 400, code: "bad_request", event: "multipart_refused", reason: "too_many_parts" });
       expect(await uploadRows(owner.siteId)).toEqual([]);
     });
@@ -241,7 +251,7 @@ describe("POST /api/sites/:siteId/uploads", () => {
       const form = upload(await png(400, 300), `${"a".repeat(MAX_PART_HEADER_BYTES)}.png`, "image/png");
       const res = await h.call("POST", `/api/sites/${owner.siteId}/uploads`, { cookie: owner.cookie, body: form });
       expect(res.status).toBe(400);
-      expect((await json<ErrorJson>(res)).error).toEqual(refused);
+      expect((await json<ErrorJson>(res)).error).toEqual(didNotWork);
       expect(lastUploadLine()).toMatchObject({ status: 400, code: "bad_request", event: "multipart_refused", reason: "part_header_too_long" });
       expect(await uploadRows(owner.siteId)).toEqual([]);
     });
@@ -256,41 +266,26 @@ describe("POST /api/sites/:siteId/uploads", () => {
     });
 
     // Bodies encoded here, so the test picks the boundary, the line ends and what comes before or inside a part.
-    type Part = { name: string; value: string } | { photo: Uint8Array };
-    const encode = (text: string): Uint8Array => new TextEncoder().encode(text);
-    const joined = (...chunks: Uint8Array[]): Uint8Array => new Uint8Array(chunks.flatMap((chunk) => [...chunk]));
-
-    /** A multipart body as browsers encode it: each part after its delimiter line, then the close delimiter. */
-    function multipart(boundary: string, parts: Part[], eol = "\r\n"): Uint8Array {
-      return joined(
-        ...parts.map((part) =>
-          "photo" in part
-            ? joined(encode(`--${boundary}${eol}Content-Disposition: form-data; name="file"; filename="x.png"${eol}Content-Type: image/png${eol}${eol}`), part.photo, encode(eol))
-            : encode(`--${boundary}${eol}Content-Disposition: form-data; name="${part.name}"${eol}${eol}${part.value}${eol}`),
-        ),
-        encode(`--${boundary}--${eol}`),
-      );
-    }
-
-    const fields = (count: number): Part[] => Array.from({ length: count }, (_, i) => ({ name: `field${i}`, value: "x" }));
+    const photoPart = (photo: Uint8Array): BrowserPart => ({ name: "file", filename: "x.png", type: "image/png", content: photo });
+    const fields = (count: number): BrowserPart[] => Array.from({ length: count }, (_, i) => ({ name: `field${i}`, value: "x" }));
 
     // Each body below parses in workerd to a stored photo when the guard lets it through (P4-15 review I1, I2).
-    it.each<[name: string, reason: string, answer: ErrorJson["error"], request: (photo: Uint8Array) => [contentType: string, body: Uint8Array]]>([
+    it.each<[name: string, reason: string, request: (photo: Uint8Array) => [contentType: string, body: Uint8Array]]>([
       // The parser reads REAL from these two headers; a looser read of the boundary let their extra parts through.
-      ["a boundary= inside an earlier parameter's quoted value", "boundary_not_accepted", didNotWork, (photo) => ['multipart/form-data; x="; boundary=DECOY"; boundary=REAL', multipart("REAL", [{ photo }, ...fields(MAX_PARTS)])]],
-      ["a quoted boundary with a backslash escape", "boundary_not_accepted", didNotWork, (photo) => ['multipart/form-data; boundary="RE\\AL"', multipart("REAL", [{ photo }, ...fields(MAX_PARTS)])]],
+      ["a boundary= inside an earlier parameter's quoted value", "boundary_not_accepted", (photo) => ['multipart/form-data; x="; boundary=DECOY"; boundary=REAL', browserMultipart("REAL", [photoPart(photo), ...fields(MAX_PARTS)])]],
+      ["a quoted boundary with a backslash escape", "boundary_not_accepted", (photo) => ['multipart/form-data; boundary="RE\\AL"', browserMultipart("REAL", [photoPart(photo), ...fields(MAX_PARTS)])]],
       // RFC 2046 5.1.1: a boundary "must be no longer than 70 characters"; the parser's search costs its length.
-      ["a boundary of 71 characters", "boundary_not_accepted", didNotWork, (photo) => [`multipart/form-data; boundary=${"b".repeat(71)}`, multipart("b".repeat(71), [{ photo }])]],
+      ["a boundary of 71 characters", "boundary_not_accepted", (photo) => [`multipart/form-data; boundary=${"b".repeat(71)}`, browserMultipart("b".repeat(71), [photoPart(photo)])]],
       // With the browser's header: a --REAL-- inside a line is no delimiter to the parser, which reads on.
-      ["a --boundary-- inside a line of the first part", "too_many_parts", refused, (photo) => ["multipart/form-data; boundary=REAL", multipart("REAL", [{ name: "note", value: "xx--REAL--yy" }, { photo }, ...fields(MAX_PARTS - 1)])]],
-      ["a preamble before the first delimiter", "no_leading_delimiter", didNotWork, (photo) => ["multipart/form-data; boundary=REAL", joined(encode("preamble\r\n"), multipart("REAL", [{ photo }]))]],
-    ])("refuses %s with 400, noting %s", async (_, reason, answer, request) => {
+      ["a --boundary-- inside a line of the first part", "too_many_parts", (photo) => ["multipart/form-data; boundary=REAL", browserMultipart("REAL", [{ name: "note", value: "xx--REAL--yy" }, photoPart(photo), ...fields(MAX_PARTS - 1)])]],
+      ["a preamble before the first delimiter", "no_leading_delimiter", (photo) => ["multipart/form-data; boundary=REAL", joined(encode("preamble\r\n"), browserMultipart("REAL", [photoPart(photo)]))]],
+    ])("refuses %s with 400, noting %s", async (_, reason, request) => {
       const owner = await h.signIn();
       const [contentType, body] = request(await png(400, 300));
       const res = await postRaw(owner, contentType, body);
       expect(res.status).toBe(400);
       const text = await res.text();
-      expect((JSON.parse(text) as ErrorJson).error).toEqual(answer);
+      expect((JSON.parse(text) as ErrorJson).error).toEqual(didNotWork);
       // The reason is for the log line only: nothing in the answer names it.
       expect(text).not.toContain(reason);
       expect(lastUploadLine()).toMatchObject({ status: 400, code: "bad_request", event: "multipart_refused", reason });
@@ -303,8 +298,8 @@ describe("POST /api/sites/:siteId/uploads", () => {
       expect(longest).toHaveLength(70);
       const photo = await png(400, 300);
       for (const [contentType, body] of [
-        [`multipart/form-data; boundary=${longest}`, multipart(longest, [{ photo }])],
-        ["multipart/form-data; boundary=REAL", multipart("REAL", [{ photo }], "\n")],
+        [`multipart/form-data; boundary=${longest}`, browserMultipart(longest, [photoPart(photo)])],
+        ["multipart/form-data; boundary=REAL", browserMultipart("REAL", [photoPart(photo)], "\n")],
       ] as const) {
         const res = await postRaw(owner, contentType, body);
         expect(res.status, contentType).toBe(201);
@@ -334,25 +329,33 @@ describe("POST /api/sites/:siteId/uploads", () => {
     });
   });
 
-  it("refuses a multipart body that cannot be parsed with 400 bad_request, not as a server failure", async () => {
+  it("refuses a multipart body that cannot be parsed with 400 bad_request and the same plain sentence, noting form_unreadable, not as a server failure", async () => {
     const owner = await h.signIn();
     const part = '------b\r\nContent-Disposition: form-data; name="file"; filename="a.jpg"\r\nContent-Type: image/jpeg\r\n\r\nÿØÿ';
-    const bodies: Array<[contentType: string, body: string]> = [
-      ["multipart/form-data; boundary=----b", "not multipart at all"],
-      ["multipart/form-data; boundary=----b", part],
-      ["multipart/form-data;", part],
-      ["multipart/form-data; boundary=----b", ""],
+    // With the reason each request's log line gives: the guard refuses three of these bodies; the part that never
+    // closes passes it, and then formData() cannot parse it (readForm's 400, noted like the guard's: P4-15 parity).
+    const bodies: Array<[contentType: string, body: string, reason: string]> = [
+      ["multipart/form-data; boundary=----b", "not multipart at all", "no_leading_delimiter"],
+      ["multipart/form-data; boundary=----b", part, "form_unreadable"],
+      ["multipart/form-data;", part, "boundary_not_accepted"],
+      ["multipart/form-data; boundary=----b", "", "no_leading_delimiter"],
     ];
-    const answers: Array<[number, string]> = [];
-    for (const [contentType, body] of bodies) {
+    const answers: Array<[number, unknown, unknown]> = [];
+    for (const [contentType, body, reason] of bodies) {
       const res = await h.server.fetch(`${APP_ORIGIN}/api/sites/${owner.siteId}/uploads`, {
         method: "POST",
         headers: { Origin: APP_ORIGIN, Cookie: owner.cookie, "Content-Type": contentType },
         body,
       });
-      answers.push([res.status, (await json<ErrorJson>(res)).error.code]);
+      const text = await res.text();
+      // The reason is for the log line only: nothing in the answer names it.
+      expect(text).not.toContain(reason);
+      answers.push([res.status, JSON.parse(text), lastUploadLine()]);
     }
-    expect(answers).toEqual(bodies.map(() => [400, "bad_request"]));
+    // The whole answer is the plain sentence, so it names no reason code at all.
+    expect(answers).toEqual(
+      bodies.map(([, , reason]) => [400, { error: didNotWork }, expect.objectContaining({ status: 400, code: "bad_request", event: "multipart_refused", reason })]),
+    );
   });
 
   it("stops at 40 kept photos and at 150 uploads in total (429 upload_limit_reached)", async () => {
@@ -455,12 +458,50 @@ describe("POST /api/sites/:siteId/uploads", () => {
     await h.backgroundDone(path);
   });
 
+  describe("keeps the work from the transform to the row that counts it running, should the client go away (P4-15 follow-up 1)", () => {
+    // The local runtime finishes a request's work after its client has gone (test-worker.ts), so a disconnect cannot
+    // be made here. The test Worker notes instead, as each step's result comes back, how many waitUntil promises the
+    // request had handed over and how many of them still ran. Inside one runToEnd, the transform's .output() (the
+    // first billed Images call: .info() is not billed), the INSERT that counts it and, for a photo it stores, the
+    // MEDIA.put of that photo (P4-15 Minor c) all come back while that one promise runs; a step outside it comes back
+    // with none running, or under a second promise.
+    const underOneRunToEnd = [inOneRunToEnd("output"), inOneRunToEnd("insert")];
+
+    /** An owner's upload whose steps the test Worker notes: its status, the steps and the site's upload rows. */
+    async function uploadNotingSteps(photo: Uint8Array) {
+      const owner = await h.signIn();
+      const path = `/api/sites/${owner.siteId}/uploads`;
+      await watchSteps(path);
+      const res = await h.call("POST", path, { cookie: owner.cookie, body: upload(photo) });
+      return { status: res.status, steps: await notedSteps(path), rows: (await uploadRows(owner.siteId)).map(shape) };
+    }
+
+    it("for a photo it stores (201)", async () => {
+      expect(await uploadNotingSteps(await jpeg(800, 600))).toEqual({ status: 201, steps: [...underOneRunToEnd, inOneRunToEnd("put")], rows: [{ width: 800, height: 600, bytes: expect.any(Number), deleted: false }] });
+    });
+
+    it("for a photo that fails in the transform (422, counted)", async () => {
+      expect(await uploadNotingSteps(await truncatedJpeg(800, 600))).toEqual({ status: 422, steps: underOneRunToEnd, rows: [COUNTED_FAILURE] });
+    });
+
+    it("for a transform that answers another format than WebP (422, counted)", async () => {
+      await h.call("POST", "/__test/images-output-format", { body: { format: "image/jpeg" } });
+      expect(await uploadNotingSteps(await jpeg(800, 600))).toEqual({ status: 422, steps: underOneRunToEnd, rows: [COUNTED_FAILURE] });
+    });
+  });
+
   it("removes the row again when the photo cannot be stored (500 internal, nothing left behind)", async () => {
     const owner = await h.signIn();
+    const path = `/api/sites/${owner.siteId}/uploads`;
+    await watchSteps(path);
     await h.call("POST", "/__test/media-put-fails");
-    const res = await h.call("POST", `/api/sites/${owner.siteId}/uploads`, { cookie: owner.cookie, body: upload(await png(400, 300), "x.png") });
+    const res = await h.call("POST", path, { cookie: owner.cookie, body: upload(await png(400, 300), "x.png") });
     expect(res.status).toBe(500);
     expect((await json<ErrorJson>(res)).error.code).toBe("internal");
+    // The failed put and the DELETE that removes its row again come back inside the same one runToEnd as the
+    // transform and the INSERT (P4-15 Minor c), so a client that goes away does not stop the row being removed
+    // (within waitUntil's 30 s: see the route).
+    expect(await notedSteps(path)).toEqual(["output", "insert", "put", "delete"].map(inOneRunToEnd));
     expect(await uploadRows(owner.siteId)).toEqual([]);
     expect(await mediaKeys(owner.siteId)).toEqual([]);
   });

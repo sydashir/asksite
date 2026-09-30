@@ -2,6 +2,72 @@
 
 Last updated: 2026-09-25 (written at the user's context-limit signal)
 
+## NOW (2026-09-30 06:1x) — moderator web-maker-d3 on the asksite login (read this first)
+- Launch the asksite tabs ONLY with ~/Documents/workk2/asksite-claude.sh moderator|plan3|plan4 (CLAUDE_CONFIG_DIR=~/.claude-asksite, a separate keychain login, API key unset). Never /login in a normal tab for asksite.
+- Sessions: Plan 3 = asksite-plan3-2b, Plan 4 = asksite-plan4-53.
+- Running:
+  - A12-0 round 5 (wndbxt3qu): claims regexes, the lettering check page-wide, select toBeCloseTo, id naming, and the CALL-BAR-OVER-SEND fix plus its shared e2e invariant.
+  - Plan 2B QA-2 (wcgifrutl): fix, review/attack, QA re-check, final review.
+- Design references are fixed (classic-v2/r6, modern-v2/r6, bold-v2/r4, with must-fix lists in plan-decisions.md). The 3 design builds start in parallel worktrees after A12-0 merges (.superpowers/sdd/design-build-wf.js; read it first, since it was changed on disk).
+- My reviews happen at merge points: Plan 4 lane C at "Merge client lane" (cc8b583..), lane B at "Merge admin lane" (c52c3b4..), lane A before its A12-0 sync (3d325e0..); Plan 3 P3-16 plus Task 9 when Task 9 is approved.
+- Open decisions: none waiting on the user.
+
+## NOW (2026-09-30 02:15) — read this first
+- The asksite sessions run on their OWN Claude config: ~/.claude-asksite (own /login; launcher ~/Documents/workk2/asksite-claude.sh moderator|plan3|plan4; it unsets ANTHROPIC_API_KEY). The moderator is web-maker-42, Plan 3 is asksite-plan3-73, Plan 4 is asksite-plan4-26. Workflow scripts and journals now live under ~/.claude-asksite/projects/...
+- Session limits hit at 19:35, 19:52, 21:14 and 00:04 (resets 22:40/22:10/1am/2:10am). After a reset the workflows RETRY their interrupted agents by themselves: check journals before stopping/resuming anything.
+- My jobs (all auto-retried at 02:10):
+  - A12-0 round 4 (wnbvupoat): fix4 continues the claims check (half-done edits backed up in backups/a12-0-fix4-0211.patch);
+  - Plan 2B A15 (wkakr8l0g): attack2 APPROVED, review2 re-running, then QA x2, then the final review;
+  - designs (wxm143kez): Classic r6 (last round), Modern r5 judges.
+- Plan 3: Task 9 fix round then the follow-up (items 1-8 approved), then step 2 (Task 10 review plus Task 11 build). Lane B (Task 13 eval fix round) HELD for memory until load < ~20 or A12-0 merges.
+- Plan 4: lanes A (P4-15 re-review, then the Task 10 fix), B (Task 19 re-review, then Tasks 20-22), C (P4-7 closed-list review, then Task 12). All rulings are recorded in their briefs.
+- Mac: the governor (nice 15 only) and run.sh 2-slot limiter are active. Heavy load at night comes mostly from other projects (iOS simulators, dmchat-tg).
+- The cloud idea was rejected by the user (the design-briefs branch was deleted). Everything stays local.
+
+## NOW (2026-09-29 17:1x) — 2-DAY PUSH (user)
+- USER: all 3 designs at launch; maximum parallel but the Mac must stay responsive; the Anthropic key used very frugally; Cloudflare later (MVP runs locally end to end first); GitHub backup approved and DONE (4 branches pushed to the private repo; gh restored to dev778d).
+- Lanes:
+  - me: A12-0 (w3ldd074u) -> verify -> merge main; then 3 design builds in parallel worktrees (script .superpowers/sdd/design-build-wf.js; mockups from .superpowers/design-backup; outputs in .superpowers/design-builds/<id>); Plan 2B A15 (wf9ef0mf9) -> QA -> final -> sync -> merge; design mockups (wlr24uvv5).
+  - Plan 3 (asksite-plan3-e3): lane A Tasks 9-12, 14 (pipelined); lane B Task 13 eval in worktree asksite-plan3-eval, branch plan3-eval, with P3-17 cost rules.
+  - Plan 4 (asksite-plan4-a4): lane A fixes then Tasks 12-18 (pipelined); lane B admin Tasks 19-22 in worktree asksite-plan4-admin, branch plan4-admin.
+- The product is NOT a CLI: owner web app + admin web app (React SPAs), public sites, generator Worker. The owner/admin screens are Plan 4 Tasks 12-18 and 23 (not built yet).
+
+## NOW (2026-09-29 16:45) — after restart; read this first
+- Moderator is now web-maker-5f (CLAUDE.md updated in the working tree, not committed while A12-0 runs on this branch). Sessions: Plan 3 = asksite-plan3-e3, Plan 4 = asksite-plan4-a4; both told. The login account is now claude3@trymax.ai.
+- Everything sat idle from ~23:50 (Sep 28) until 16:42: the old process ended and nothing ran overnight.
+- Resumed at 16:43: A12-0 w3ldd074u (fix3 continues its half-done test work, backed up in backups/a12-0-fix3-halfdone.patch); Plan 2B A15 wf9ef0mf9 (fix2 with the A15 round-2 rulings); designs wlr24uvv5 (Classic r5 = 9.2/8.5/9, r6 is the last round; Modern r4 = 8.5/8.4/8, r5 next).
+- Plan 4: HEAD c52c3b4, clean. P4-7 re-review against the closed list running, then the P4-15 follow-up, then the Task 10 fix. Open P4-7 minors await my ruling (P4-7-report.md: r3 n2-n6, r1 m1-m6, r2 n1).
+- Plan 3: Task 9 continuing from f07b12f. I asked about the reviewer glob delete (p316b-*.sh).
+- Progress: 53 of 79 plan tasks built (P1 18/18; P2 17/19; P3 8/15; P4 10/27). Estimate given to the user: ~10-12 working days of agent time, ~2-3 calendar weeks with outages. Proposed a parallel tab for Plan 4 admin Tasks 19-22 (they depend only on Tasks 1-5; Task 23 needs Task 14).
+- Still open for the user: the GitHub backup of the 3 branches; accounts for launch.
+
+## NOW (2026-09-28 late) — CONTEXT 1% HANDOFF — read this first
+- LOGIN EXPIRED again: every agent died at 17:16 PKT with "Not logged in · Please run /login". Before resuming anything: user runs /login in THIS tab (and ⌘8/⌘9 if their agents also fail). Moderator name changes after restarts (last: web-maker-1c); on restart run ListAgents, announce the new name to asksite-plan3-* and asksite-plan4-*, update CLAUDE.md "currently" name.
+- GitHub: main = d0e1b12 (Plan 1 + Stage 0 + A8..A9g + A13-main + A14), pushed with plan2-hosting. NOT on GitHub: plan2b-serve (31 commits), plan3-generation (~85), plan4-app (~55). User was asked "OK to back up these 3 branches to GitHub (push branches only, not main)?" — NO ANSWER yet.
+- BEFORE RESUMING ANY WORKFLOW: check every worktree with git status for half-done work and MUTANTS left by dead agents (a dead agent once left form.ts 16->17 KiB). Restore only proven mutants; back up anything unclear as a patch.
+- 17:3x RESUMED all three (tasks: A12-0 wxa1jid22 with args {head:"d0e1b12", start:"f54f333"} and a RESUME NOTE telling fix1 to re-check 3d5469a + the half-done core work; Plan 2B w6runl15b; designs wfcomue3g). Plan 2B tree was clean (only 099788b "Cap lead emails"). Design mockups ARE on disk (scratchpad came back); a durable copy is now in .superpowers/design-backup/ (4.1 GB, untracked).
+- Plan 4 at 17:2x: sync 5e6c1cb reviewed clean (empty --cc); decisions sent: P4-15 I1 -> (a) runToEnd from first billed Images call to its counted row + 30 s waitUntil note in Task 27; plain message for all multipart 400s; m4 + C12 ratified; m1 + m2 fixed now; site-view.ts:134 regression (filter after toIssues cap) fix approved in Task 10 slot. Plan 4 order: P4-7 (running) -> P4-15 follow-up + review -> Task 10 fix + regression -> Tasks 12-26.
+- Plan 3 told to check checkDraft issue consumers for the same cap regression during its sync.
+- 19:5x: design workflow now wv849fj84 (resumed with the recovery note). Classic's 9.1 files were lost to an in-place rebuild (see journal); its screenshots and judge notes are saved in .superpowers/design-backup/classic-v2/r4-scored-9.1-0927-screens/ and classic-v2/judging-r4-0927. Classic r4 is being redone to match or beat it.
+- P4-7: closed-list acceptance standard sent (see journal 19:3x).
+- 20:3x: A12-0 now w26twfan3. fix1 done: 3d5469a + 3a247f3..398cfd7. review1 NOT approved (2 Important: shared checks the Bold build will break); attack1 re-verifying its recorded result (1 Important). Round 2 fix is next. Agents restart from scratch on ~3 min API stalls: add CHECKPOINT result files to any new workflow prompt.
+- 21:4x LOGIN DOWN AGAIN (agents fail "Not logged in" since ~21:05; Plan 4's tab too). After /login, resume:
+  1. A12-0: Workflow resume wf_77fd928c-b88, args {head:"d0e1b12", start:"dfd9edf"}. fix1 and round-1 reviews are cached; fix2 carries the "A12-0 round-2 rulings" (plan-decisions.md). fix2's first attempt left PROBE files in the real tree; I restored them (backup backups/a12-0-fix2-probe-leftover.patch). CSS was rebuilt, and baseline f816c3ac / generated.ts 22379b84 match review1.
+  2. Plan 2B: A11c APPROVED at 02ba87b (0/0/7 minor). QA round 2: the qa-specialist found 1 Major (one IP closes a site's form, and burns the global 40 lead emails) + 7 Minor; decided as A15 in plan-decisions.md. The real-user QA died on login. Next: a Plan 2B fix workflow for A15 + minors (test-first, review + attack), then BOTH QA agents again, then whole-branch review, then sync main + A12-0.
+  3. Designs: resume wf_f197899d-364. Classic r4 designer finished; its 3 judges died on login. Modern r3 re-judged 8.5/8/8.5; modern r4 died on login.
+- Old resume notes (kept for reference):
+  1. A12-0 contract step: scripts/a12-0-design-contract-wf_77fd928c-b88.js, run wf_77fd928c-b88, args {head:"d0e1b12"}. fix1 ran 17:01-17:16, committed 3d5469a "Add design ids" (site-schema Theme.design + renderer/core touch-ups), then died mid-way through the core part: UNCOMMITTED half-done work in web_maker packages/core (api.ts, draft.ts, index.ts, looks.ts, compose.test.ts, new designs.ts + designs.test.ts). Back it up as a patch before resuming; the new fix1 must be told about it.
+  2. Plan 2B finish: scripts/plan2b-lead-cap-then-finish-wf_d4607939-932.js, run wf_d4607939-932, args {head:"24dbc53"} (a11c:fix1 COMPLETED with a report; review1 and fix2 died at 17:16; check asksite-plan2b git log/status). After it: Plan 2B must "Sync with main" (d0e1b12) before its merge.
+  3. Designs: Classic DONE earlier at 9.1/9/9 (classic-v2/r4); Bold DONE (bold-v2/r4, 8.5/8/8.5, must-fixes go into its build; user: embed Archivo font); Modern r4 judge1 = 9, rest unfinished. (The scratchpad came back; mockups are on disk and backed up in .superpowers/design-backup/.) The binding design decisions are in .superpowers/sdd/A12.md + plan-decisions.md; the real designs get rebuilt in the design builds anyway.
+- Sessions: Plan 3 (asksite-plan3-34): P3-16 running, gated to stop before Task 9 until it syncs main d0e1b12 (sync OK given). Plan 4 (asksite-plan4-2a): P4-15 last review round, then sync main (OK given; known red: http.test.ts toIssues 60->50), then Task 10 fix (P4-16) + config pins, then P4-7, then Tasks 12-26.
+- User decisions today: lead emails capped at 40/day (A11c); Bold embeds Archivo; 3 designs chosen by trade; colour presets renamed; stay on Resend Free; exact-PID-only kills (rules only, no hook).
+- Open for the user: backup push of the 3 branches; later: Cloudflare account + domain + Turnstile key, Anthropic key, Resend account, real iPhone check.
+
+## NOW (2026-09-28 ~17:30)
+- main = d0e1b12 on GitHub (A9..A9g letter/safety fixes + A13-main + A14 merged and pushed). Sync OK sent to Plans 3 and 4. Plan 2B finishing Task 18 (workflow wf_d4607939-932: A11c lead cap 40/day, then final checks) and then must sync with main before its merge.
+- Next for me: A12-0 contract step (3 page designs; A12.md final + user decisions: trade-based design, Bold embeds Archivo, colour presets renamed). Designs: Bold done (must-fixes into its build), Classic done 9.1/9/9, Modern r4 judges still running (wf_f197899d-364).
+- Pending from the user: OK to back up the plan3/plan4/plan2b work branches to GitHub (asked; no answer yet).
+
 ## NOW (2026-09-27 15:00) — WEEKLY USAGE LIMIT HIT — read this first
 - The account in use (integrations@districtbehavioralhealth.com per session context) hit its WEEKLY limit around 08:05; it resets Sep 29 01:00 PKT. Every agent failing since then says "You've hit your weekly limit". Resume = log in with an account that has capacity (/login in each tab), or wait.
 - State per line (all committed work is safe; nothing pushed since acae4ab):

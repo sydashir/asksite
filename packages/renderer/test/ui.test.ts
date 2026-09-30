@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { html } from "../src/html.ts";
 import { headline, sectionShell } from "../src/ui.ts";
-import { classesIn, hasClassSelector, loadCompiledCss, missingClasses } from "./support/css-classes.ts";
+import { classesIn, hasClassSelector, loadBaselineCss, missingClasses } from "./support/css-classes.ts";
 
-const css = loadCompiledCss();
+const css = loadBaselineCss();
 
 describe("headline", () => {
   it("renders an escaped h2 with an id for aria-labelledby, and an optional subtitle", () => {

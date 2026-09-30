@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { MAX_PART_HEADER_BYTES, MAX_PARTS, multipartBoundary, multipartShapeProblem } from "../../src/worker/multipart.ts";
-import { BROWSER_BOUNDARIES, blinkBoundary, browserContentType, browserMultipart, geckoBoundary, webKitBoundary } from "../support/browsers.ts";
+import { BROWSER_BOUNDARIES, blinkBoundary, browserContentType, browserMultipart, encode, geckoBoundary, joined, webKitBoundary, type BrowserPart } from "../support/browsers.ts";
 
 // A cheap look at a multipart body before formData() parses it (P4-15 d): more parts than an upload
 // has, or a part whose headers run on for kilobytes, are refused before the parser spends seconds on them.
@@ -8,18 +8,11 @@ import { BROWSER_BOUNDARIES, blinkBoundary, browserContentType, browserMultipart
 // from the one Content-Type form browsers send, and a delimiter counts only at the body's start or after a
 // line feed, as in the parser.
 
-const encode = (text: string): Uint8Array => new TextEncoder().encode(text);
 // Blink's and WebKit's shape: the prefix plus 16 alphanumerics (test/support/browsers.ts cites the sources).
 const BOUNDARY = "----WebKitFormBoundary7MA4YWxkTrZu0gWq";
 
-/** A multipart body of the given parts (each already holding its headers, a blank line and its content). */
-function body(parts: string[], boundary = BOUNDARY): Uint8Array {
-  return encode(parts.map((part) => `--${boundary}\r\n${part}\r\n`).join("") + `--${boundary}--\r\n`);
-}
-
-const filePart = (content: string, filename = "photo.jpg"): string => `Content-Disposition: form-data; name="file"; filename="${filename}"\r\nContent-Type: image/jpeg\r\n\r\n${content}`;
-const fieldPart = (name: string, value: string): string => `Content-Disposition: form-data; name="${name}"\r\n\r\n${value}`;
-const joined = (...chunks: Uint8Array[]): Uint8Array => new Uint8Array(chunks.flatMap((chunk) => [...chunk]));
+const filePart = (content: string, filename = "photo.jpg"): BrowserPart => ({ name: "file", filename, type: "image/jpeg", content: encode(content) });
+const fieldPart = (name: string, value: string): BrowserPart => ({ name, value });
 
 describe("multipartBoundary", () => {
   it("reads the boundary of the form browsers send: multipart/form-data; boundary=<1 to 70 of RFC 2046's bcharsnospace>", () => {
@@ -55,27 +48,29 @@ describe("multipartBoundary", () => {
 
 describe("multipartShapeProblem", () => {
   it("passes an upload: one file part, with or without a few fields, whose content may hold dashes and the boundary's first letters", () => {
-    expect(multipartShapeProblem(body([filePart("\xff\xd8\xff--------\r\n\r\n----WebKit")]), BOUNDARY)).toBeNull();
+    expect(multipartShapeProblem(browserMultipart(BOUNDARY, [filePart("\xff\xd8\xff--------\r\n\r\n----WebKit")]), BOUNDARY)).toBeNull();
     const fields = Array.from({ length: MAX_PARTS - 1 }, (_, i) => fieldPart(`field${i}`, "x"));
-    expect(multipartShapeProblem(body([...fields, filePart("data")]), BOUNDARY)).toBeNull();
+    expect(multipartShapeProblem(browserMultipart(BOUNDARY, [...fields, filePart("data")]), BOUNDARY)).toBeNull();
   });
 
   it(`refuses more than MAX_PARTS (${MAX_PARTS}) parts, without reading past the part that is one too many`, () => {
     const parts = Array.from({ length: MAX_PARTS + 1 }, (_, i) => fieldPart(`field${i}`, "x"));
-    expect(multipartShapeProblem(body(parts), BOUNDARY)).toBe("too_many_parts");
+    expect(multipartShapeProblem(browserMultipart(BOUNDARY, parts), BOUNDARY)).toBe("too_many_parts");
     // The closing delimiter is not a part.
-    expect(multipartShapeProblem(body(parts.slice(0, MAX_PARTS)), BOUNDARY)).toBeNull();
+    expect(multipartShapeProblem(browserMultipart(BOUNDARY, parts.slice(0, MAX_PARTS)), BOUNDARY)).toBeNull();
   });
 
   it(`refuses a part whose headers do not end within MAX_PART_HEADER_BYTES (${MAX_PART_HEADER_BYTES})`, () => {
     // The headers end where the blank line (CRLF CRLF) starts, so a part whose header text is exactly the limit passes.
-    const headerOf = (part: string): number => part.indexOf("\r\n\r\n");
-    const fits = filePart("data", "a".repeat(MAX_PART_HEADER_BYTES - headerOf(filePart("data", ""))));
+    // A body of one file part with this filename, and the length of that part's headers (its delimiter line to the blank line).
+    const withFilename = (filename: string): Uint8Array => browserMultipart(BOUNDARY, [filePart("data", filename)]);
+    const headerOf = (body: Uint8Array): number => new TextDecoder().decode(body).indexOf("\r\n\r\n") - `--${BOUNDARY}\r\n`.length;
+    const fits = withFilename("a".repeat(MAX_PART_HEADER_BYTES - headerOf(withFilename(""))));
     expect(headerOf(fits)).toBe(MAX_PART_HEADER_BYTES);
-    expect(multipartShapeProblem(body([fits]), BOUNDARY)).toBeNull();
-    const over = filePart("data", "a".repeat(MAX_PART_HEADER_BYTES - headerOf(filePart("data", "")) + 1));
+    expect(multipartShapeProblem(fits, BOUNDARY)).toBeNull();
+    const over = withFilename("a".repeat(MAX_PART_HEADER_BYTES - headerOf(withFilename("")) + 1));
     expect(headerOf(over)).toBe(MAX_PART_HEADER_BYTES + 1);
-    expect(multipartShapeProblem(body([over]), BOUNDARY)).toBe("part_header_too_long");
+    expect(multipartShapeProblem(over, BOUNDARY)).toBe("part_header_too_long");
     // A part with no blank line at all (a header that is the whole body).
     expect(multipartShapeProblem(encode(`--${BOUNDARY}\r\nContent-Disposition: form-data; name="file"; filename="${"a".repeat(2 * MAX_PART_HEADER_BYTES)}`), BOUNDARY)).toBe("part_header_too_long");
   });
@@ -85,29 +80,28 @@ describe("multipartShapeProblem", () => {
     expect(multipartShapeProblem(new Uint8Array(), BOUNDARY)).toBe("no_leading_delimiter");
     // RFC 2046 5.1.1 allows a preamble but says it "should generally be left blank"; no browser sends one, and the
     // parser's search for the first delimiter across it costs the preamble's length times the boundary's.
-    expect(multipartShapeProblem(joined(encode("preamble\r\n"), body([filePart("data")])), BOUNDARY)).toBe("no_leading_delimiter");
+    expect(multipartShapeProblem(joined(encode("preamble\r\n"), browserMultipart(BOUNDARY, [filePart("data")])), BOUNDARY)).toBe("no_leading_delimiter");
   });
 
   it("counts a delimiter only at a line start, as the parser does: a --boundary-- inside a line does not end the body", () => {
     const fields = Array.from({ length: MAX_PARTS }, (_, i) => fieldPart(`field${i}`, "x"));
-    expect(multipartShapeProblem(body([fieldPart("note", `xx--${BOUNDARY}--yy`), ...fields]), BOUNDARY)).toBe("too_many_parts");
+    expect(multipartShapeProblem(browserMultipart(BOUNDARY, [fieldPart("note", `xx--${BOUNDARY}--yy`), ...fields]), BOUNDARY)).toBe("too_many_parts");
     // Nor does a --boundary inside a line start a part.
     const inLine = Array.from({ length: MAX_PARTS + 1 }, () => `x--${BOUNDARY}\r\n`).join("");
-    expect(multipartShapeProblem(body([filePart(inLine)]), BOUNDARY)).toBeNull();
+    expect(multipartShapeProblem(browserMultipart(BOUNDARY, [filePart(inLine)]), BOUNDARY)).toBeNull();
   });
 
   it("does not stop at a close delimiter: every delimiter line after it counts too", () => {
     // Browsers send nothing after the close. Counting every delimiter line keeps the count at or above the
     // parser's parts, whatever it makes of the lines around a close.
-    const after = Array.from({ length: MAX_PARTS }, (_, i) => `--${BOUNDARY}\r\n${fieldPart(`late${i}`, "x")}\r\n`).join("");
-    expect(multipartShapeProblem(joined(body([filePart("data")]), encode(after)), BOUNDARY)).toBe("too_many_parts");
+    const after = Array.from({ length: MAX_PARTS }, (_, i) => `--${BOUNDARY}\r\nContent-Disposition: form-data; name="late${i}"\r\n\r\nx\r\n`).join("");
+    expect(multipartShapeProblem(joined(browserMultipart(BOUNDARY, [filePart("data")]), encode(after)), BOUNDARY)).toBe("too_many_parts");
   });
 
   it("reads bare LF line ends as the parser does: a delimiter after a LF counts, and headers may end with LF LF", () => {
-    const lf = (parts: string[]): Uint8Array => encode(parts.map((part) => `--${BOUNDARY}\n${part}\n`).join("") + `--${BOUNDARY}--\n`);
-    expect(multipartShapeProblem(lf([`Content-Disposition: form-data; name="file"; filename="a.jpg"\nContent-Type: image/jpeg\n\ndata`]), BOUNDARY)).toBeNull();
-    const fields = Array.from({ length: MAX_PARTS + 1 }, (_, i) => `Content-Disposition: form-data; name="field${i}"\n\nx`);
-    expect(multipartShapeProblem(lf(fields), BOUNDARY)).toBe("too_many_parts");
+    expect(multipartShapeProblem(browserMultipart(BOUNDARY, [filePart("data", "a.jpg")], "\n"), BOUNDARY)).toBeNull();
+    const fields = Array.from({ length: MAX_PARTS + 1 }, (_, i) => fieldPart(`field${i}`, "x"));
+    expect(multipartShapeProblem(browserMultipart(BOUNDARY, fields, "\n"), BOUNDARY)).toBe("too_many_parts");
   });
 
   describe("reads each body byte a bounded number of times, whatever the body holds", () => {

@@ -1,13 +1,14 @@
 import { ApiError, MAX_ISSUES, readJson, secondsUntilUtcMidnight } from "@asksite/app-common";
 import { Brief, photoRefIssues, toIssues, type GenerationRow } from "@asksite/core";
-import { Facts } from "@asksite/site-schema";
+import { Facts, type Theme } from "@asksite/site-schema";
 import { Hono } from "hono";
 import { z } from "zod";
 import { assertNotTakenDown, ownedSite, parseStored } from "../db.ts";
 import type { AppDeps, RequestGenerationResult } from "../deps.ts";
 import { requireOwner } from "../session.ts";
-import { liveUploads, under } from "../site-view.ts";
+import { currentAi, liveUploads, under } from "../site-view.ts";
 import type { AppEnv } from "../types.ts";
+import { storedJsonNote } from "./stored-json-note.ts";
 
 /** The lifetime cap is not time-based: like the upload cap, the value only says "not at once" (decisions 15 and 40). */
 const LIFETIME_CAP_RETRY_SECONDS = 86_400;
@@ -35,6 +36,23 @@ async function isRegeneration(db: D1Database, siteId: string): Promise<boolean> 
   return drafted !== null;
 }
 
+/**
+ * Pins the look the page shows now before a rebuild is asked for (A12 §3). An owner who never chose a theme sees
+ * the AI draft's, which a new draft could change, so that theme is written into the stored edits first. Only a
+ * null theme is set: an owner's choice and stored edits that are not valid JSON are left alone. Only $.theme
+ * changes and rev is not bumped, so no open tab gets a conflict; PATCH /draft never replaces the pinned theme
+ * with a null one.
+ */
+async function pinTheme(db: D1Database, siteId: string, ownerId: string, theme: Theme, now: number): Promise<void> {
+  await db
+    .prepare(
+      `UPDATE sites SET edits_json = json_set(edits_json, '$.theme', json(?1)), updated_at = ?2
+       WHERE id = ?3 AND owner_id = ?4 AND json_valid(edits_json) AND json_extract(edits_json, '$.theme') IS NULL`,
+    )
+    .bind(JSON.stringify(theme), now, siteId, ownerId)
+    .run();
+}
+
 /** POST and GET /api/sites/:siteId/generations (§3.1 step 4, §4.4, §6.4). */
 export function generationRoutes(deps: AppDeps): Hono<AppEnv> {
   const generations = new Hono<AppEnv>();
@@ -57,6 +75,9 @@ export function generationRoutes(deps: AppDeps): Hono<AppEnv> {
       throw new ApiError("not_ready", "A few answers need attention before we can build your website", { issues: issues.slice(0, MAX_ISSUES) });
     }
     const now = Date.now();
+    // Before the generator is asked, so a refused request leaves the page as it was; if the pin throws, nothing is queued.
+    const before = await currentAi(db, site.id, storedJsonNote(c));
+    if (before !== null) await pinTheme(db, site.id, owner.id, before.ai.draft.theme, now);
     const result = await deps.generation.requestGeneration(c.env, {
       siteId: site.id,
       ownerId: owner.id,

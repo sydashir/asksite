@@ -1,6 +1,6 @@
 import { MAX_ISSUES, secondsUntilUtcMidnight } from "@asksite/app-common";
-import { Brief, mediaUrl, photoRefIssues, toIssues, type GenerationView, type SiteView, type UploadView } from "@asksite/core";
-import { Facts } from "@asksite/site-schema";
+import { Brief, composeDocument, EMPTY_EDITS, mediaUrl, photoRefIssues, toIssues, type GenerationView, type SiteView, type UploadView } from "@asksite/core";
+import { Facts, SiteDocument } from "@asksite/site-schema";
 import { describe, expect, it } from "vitest";
 import { VALID_BRIEF, VALID_FACTS } from "../support/facts.ts";
 import { APP_ORIGIN, awayFromUtcHourEnd, builtOwner, json, readyOwner, ROOT, useAppHarness } from "../support/harness.ts";
@@ -234,5 +234,68 @@ describe("POST /api/sites/:siteId/generations", () => {
     const owner = await readyOwner(h, VALID_FACTS, VALID_BRIEF);
     await (await h.db()).prepare("UPDATE sites SET taken_down_at = 1 WHERE id = ?").bind(owner.siteId).run();
     expect((await h.call("POST", `/api/sites/${owner.siteId}/generations`, { cookie: owner.cookie, body: {} })).status).toBe(423);
+  });
+});
+
+// A12 §3: before a rebuild is asked for, the look the page shows now is written into the owner's edits, so the new
+// draft cannot change it. A roofing site's draft starts on the "refined" design, not the default one.
+describe("POST /api/sites/:siteId/generations pins the current look (A12 §3)", () => {
+  const ROOFING = { ...VALID_FACTS, trade: "roofing" };
+
+  /** The site's stored edits (as text), rev and last change time. */
+  async function siteRow(siteId: string) {
+    return (await h.db()).prepare("SELECT edits_json, rev, updated_at FROM sites WHERE id = ?").bind(siteId).first<{ edits_json: string; rev: number; updated_at: number }>();
+  }
+
+  const rebuild = (owner: { siteId: string; cookie: string }) => h.call("POST", `/api/sites/${owner.siteId}/generations`, { cookie: owner.cookie, body: {} });
+  const view = async (owner: { siteId: string; cookie: string }) => json<SiteView>(await h.call("GET", `/api/sites/${owner.siteId}`, { cookie: owner.cookie }));
+
+  it("sets a null theme to the AI draft's, changes nothing else in the edits and keeps the rev", async () => {
+    const owner = await builtOwner(h, ROOFING, VALID_BRIEF);
+    const edits = { ...EMPTY_EDITS, copy: { ctaText: "Call Joe" }, hidden: ["faq"] };
+    expect((await h.call("PATCH", `/api/sites/${owner.siteId}/draft`, { cookie: owner.cookie, body: { rev: owner.rev, edits } })).status).toBe(200);
+    const before = await siteRow(owner.siteId);
+    // The first build pinned nothing: there was no AI draft yet.
+    expect(JSON.parse(before?.edits_json ?? "null")).toMatchObject({ theme: null });
+    const aiTheme = (await view(owner)).ai?.draft.theme;
+    expect(aiTheme).toEqual({ palette: "navy-orange", font: "clean", design: "refined" });
+
+    expect((await rebuild(owner)).status).toBe(202);
+    const after = await siteRow(owner.siteId);
+    expect(JSON.parse(after?.edits_json ?? "null")).toEqual({ ...JSON.parse(before?.edits_json ?? "null"), theme: aiTheme });
+    expect(after?.rev).toBe(before?.rev);
+  });
+
+  it("leaves a theme the owner chose alone", async () => {
+    const owner = await builtOwner(h, ROOFING, VALID_BRIEF);
+    const theme = { palette: "green-amber", font: "sturdy", design: "modern" };
+    expect((await h.call("PATCH", `/api/sites/${owner.siteId}/draft`, { cookie: owner.cookie, body: { rev: owner.rev, edits: { ...EMPTY_EDITS, theme } } })).status).toBe(200);
+    const before = await siteRow(owner.siteId);
+    expect((await rebuild(owner)).status).toBe(202);
+    expect(await siteRow(owner.siteId)).toEqual(before);
+    expect(JSON.parse(before?.edits_json ?? "null")).toMatchObject({ theme });
+  });
+
+  it("skips stored edits that are not valid JSON: they stay as they are and the rebuild still queues", async () => {
+    const owner = await builtOwner(h, ROOFING, VALID_BRIEF);
+    await (await h.db()).prepare("UPDATE sites SET edits_json = ? WHERE id = ?").bind('{"theme":null', owner.siteId).run();
+    const before = await siteRow(owner.siteId);
+    expect((await rebuild(owner)).status).toBe(202);
+    expect(await siteRow(owner.siteId)).toEqual(before);
+  });
+
+  it("a rebuild refused after the pin leaves the page as it was: the pinned theme is the one it showed", async () => {
+    const owner = await builtOwner(h, ROOFING, VALID_BRIEF);
+    const before = await view(owner);
+    expect(before.edits.theme).toBeNull();
+    await h.call("POST", "/__test/generation-refuses", { body: { code: "generation_disabled" } });
+    expect((await rebuild(owner)).status).toBe(503);
+
+    const after = await view(owner);
+    // Pinned before the generator was asked, which refused.
+    expect(after.edits.theme).toEqual(before.ai?.draft.theme);
+    const page = (site: SiteView) => (site.ai === null ? null : SiteDocument.parse(composeDocument(site.facts, site.ai, site.edits)));
+    expect(page(before)).not.toBeNull();
+    expect(page(after)).toEqual(page(before));
   });
 });

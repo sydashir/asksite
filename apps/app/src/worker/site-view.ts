@@ -1,4 +1,4 @@
-import { MAX_ISSUES, noteLog } from "@asksite/app-common";
+import { MAX_ISSUES } from "@asksite/app-common";
 import {
   AiDraft,
   Brief,
@@ -19,8 +19,8 @@ import {
   type UploadRow,
   type VersionSummary,
 } from "@asksite/core";
-import { Facts, SiteDocument } from "@asksite/site-schema";
-import type { Context } from "hono";
+import { Facts, SiteDocument, Theme } from "@asksite/site-schema";
+import { z } from "zod";
 import { parseStored } from "./db.ts";
 import type { AppDeps } from "./deps.ts";
 
@@ -37,18 +37,6 @@ export type StoredPart = "edits" | "ai_draft";
 
 /** Told when a stored part no longer passed its schema and was read leniently (decision 36). */
 export type NoteStoredInvalid = (part: StoredPart) => void;
-
-/**
- * The route's NoteStoredInvalid: the request's one log line (P4-3), which names the route, gets event
- * stored_json_invalid and every part read leniently so far, in the order they were read (P4-15 g).
- */
-export function storedJsonNote(c: Context): NoteStoredInvalid {
-  const parts: StoredPart[] = [];
-  return (part) => {
-    parts.push(part);
-    noteLog(c, { event: "stored_json_invalid", part: parts.join(",") });
-  };
-}
 
 /**
  * Stored edits passed OwnerEdits when they were saved. If a later rule refuses part of them, every
@@ -68,7 +56,8 @@ export function storedEdits(value: unknown, note: NoteStoredInvalid): OwnerEdits
 
 /**
  * Plan 3 stored the draft after AiDraft checked it. If a later rule refuses some of its wording, it is
- * still used when it has its three parts: the composed document then lists that wording as issues,
+ * still used when it has its three parts and its theme still passes Theme (A12: a theme stored before
+ * designs existed gets the default design): the composed document then lists that wording as issues,
  * which the owner can change in the editor (decision 36).
  */
 function storedAiDraft(value: unknown, note: NoteStoredInvalid): AiDraft | null {
@@ -76,8 +65,9 @@ function storedAiDraft(value: unknown, note: NoteStoredInvalid): AiDraft | null 
   if (parsed.success) return parsed.data;
   note("ai_draft");
   const draft = (typeof value === "object" && value !== null ? value : {}) as { copy?: unknown; layout?: unknown; theme?: unknown };
-  const usable = typeof draft.copy === "object" && draft.copy !== null && Array.isArray(draft.layout) && typeof draft.theme === "object" && draft.theme !== null;
-  return usable ? (value as AiDraft) : null;
+  const theme = Theme.safeParse(draft.theme);
+  const usable = typeof draft.copy === "object" && draft.copy !== null && Array.isArray(draft.layout);
+  return usable && theme.success ? { ...(value as AiDraft), theme: theme.data } : null;
 }
 
 export function draftOf(site: SiteRow, note: NoteStoredInvalid): Draft {
@@ -122,6 +112,15 @@ export async function liveUploads(db: D1Database, siteId: string): Promise<Uploa
 const firstIssues = (issues: Issue[]): Issue[] => issues.slice(0, MAX_ISSUES);
 
 /**
+ * The composed document's own issues: those under "facts" are left out, because they are already listed under
+ * `facts`. They are left out before core's toIssues keeps the first 50 (A9), so facts issues listed first can
+ * never crowd out the page's.
+ */
+function pageIssues(error: z.ZodError): Issue[] {
+  return toIssues(new z.ZodError(error.issues.filter((issue) => issue.path[0] !== "facts")));
+}
+
+/**
  * Everything wrong with the draft right now, at most the first MAX_ISSUES issues in each list.
  * Document issues leave out paths under "facts", because those are already listed under `facts`.
  */
@@ -131,7 +130,7 @@ export function draftIssues(draft: Draft, ai: CurrentAi | null, siteId: string, 
   let document: Issue[] = [];
   if (ai !== null) {
     const parsed = SiteDocument.safeParse(composeDocument(draft.facts, ai, draft.edits));
-    if (!parsed.success) document = toIssues(parsed.error).filter((issue) => issue.path[0] !== "facts");
+    if (!parsed.success) document = pageIssues(parsed.error);
   }
   return {
     facts: facts.success ? [] : firstIssues(under("facts", toIssues(facts.error))),
@@ -141,12 +140,15 @@ export function draftIssues(draft: Draft, ai: CurrentAi | null, siteId: string, 
   };
 }
 
+/** The columns of a version that toVersionSummary reads: a list of summaries selects only these (m2). */
+export type VersionSummaryRow = Pick<SiteVersionRow, "id" | "number" | "status" | "requested_at" | "reviewed_at" | "review_note">;
+
 /**
  * A version as the owner sees it. The reviewer's note reaches the owner only on a rejected version, where it
  * is the reason they are given; on every other status it is for the record only (moderator decision (a)).
  * An allowlist, so a note on any other status, today's or a later one, stays hidden (P4-12).
  */
-export function toVersionSummary(row: Pick<SiteVersionRow, "id" | "number" | "status" | "requested_at" | "reviewed_at" | "review_note">): VersionSummary {
+export function toVersionSummary(row: VersionSummaryRow): VersionSummary {
   return {
     id: row.id,
     number: row.number,
