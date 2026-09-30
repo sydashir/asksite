@@ -262,4 +262,16 @@ describe("the Bold sheet carries the round-4 must-fixes", () => {
     expect(rule(".menu-panel")).toContain("height:calc(100svh - 100%)");
     expect(css).not.toContain("3.8125rem");
   });
+
+  // Round 2 (the builder's own sweep): a long licence number in the desktop credentials band squeezed the other
+  // items until "INSURANCE" ran 24 px out of its column; a one-word call-to-action ran out of the services card's
+  // button. The house items keep their width and only the owner's licences wrap; the card's button breaks the word.
+  it("lets only the licences give way in the desktop credentials band", () => {
+    expect(rule(".spec", "@media (min-width:64rem)")).toContain("flex:none");
+    expect(rule(".spec-lic", "@media (min-width:64rem)")).toContain("flex-shrink:1");
+  });
+
+  it("breaks a call-to-action word too long for the services card's button inside the button", () => {
+    expect(rule(".cta-actions .bt")).toContain("overflow-wrap:anywhere");
+  });
 });

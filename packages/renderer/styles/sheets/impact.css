@@ -1214,8 +1214,13 @@
       justify-content: space-between;
       gap: 2rem;
     }
+    /* The house items (a short label and fact) keep their width; only the owner's licences give way and wrap,
+       so a long licence number never squeezes "Insurance" out of its column. */
     .spec {
-      flex: 0 1 auto;
+      flex: none;
+    }
+    .spec-lic {
+      flex-shrink: 1;
     }
     .spec + .spec {
       padding-left: 2rem;
@@ -1318,8 +1323,11 @@
     gap: 0.625rem;
     margin-top: 1.5rem;
   }
+  /* A call-to-action word too long for the card's column breaks inside its button (the Call button's number is
+     whitespace-nowrap, so it never breaks). */
   .cta-actions .bt {
     padding-inline: 0.75rem;
+    overflow-wrap: anywhere;
   }
   @media (min-width: 64rem) {
     .svc-layout {
