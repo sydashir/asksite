@@ -1,6 +1,6 @@
 import { DRAFT_JSON_MAX_BYTES, MAX_ISSUES } from "@asksite/app-common";
 import { Brief, composeDocument, EMPTY_EDITS, LIMITS, photoRefIssues, toIssues, type AiDraft, type SiteVersionRow, type SiteView } from "@asksite/core";
-import { Facts, SiteDocument } from "@asksite/site-schema";
+import { DEFAULT_DESIGN, Facts, SiteDocument } from "@asksite/site-schema";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { VALID_BRIEF, VALID_FACTS } from "../support/facts.ts";
@@ -82,6 +82,28 @@ describe("GET /api/sites/:siteId", () => {
     // toMatchObject, not toEqual (A12 heads-up): a later OwnerEdits field must not break this test.
     expect(view.edits).toMatchObject({ ...edits, hidden: [] });
     expect([...new Set(view.issues.document.map((i) => i.path.join(".")))]).toEqual(["copy.heroHeadline"]);
+  });
+
+  /** Stores `theme` as the theme of the stored AI draft of build `generationId`. */
+  async function storeDraftTheme(generationId: string, theme: unknown): Promise<void> {
+    const db = await h.db();
+    const stored = await db.prepare("SELECT output_json FROM generations WHERE id = ?").bind(generationId).first<{ output_json: string }>();
+    const draft = JSON.parse(stored?.output_json ?? "{}") as Record<string, unknown>;
+    await db.prepare("UPDATE generations SET output_json = ? WHERE id = ?").bind(JSON.stringify({ ...draft, theme }), generationId).run();
+  }
+
+  it("reads a leniently read AI draft's theme stored before designs existed with the default design (A12)", async () => {
+    const { generationId, ...owner } = await staleStoredDraft();
+    await storeDraftTheme(generationId, { palette: "green-amber", font: "sturdy" });
+    const view = await json<SiteView>(await h.call("GET", `/api/sites/${owner.siteId}`, { cookie: owner.cookie }));
+    expect(view.ai?.draft.theme).toEqual({ palette: "green-amber", font: "sturdy", design: DEFAULT_DESIGN });
+  });
+
+  it("does not use a leniently read AI draft whose theme no longer passes Theme (A12)", async () => {
+    const { generationId, ...owner } = await staleStoredDraft();
+    await storeDraftTheme(generationId, { palette: "sepia", font: "sturdy", design: "impact" });
+    const view = await json<SiteView>(await h.call("GET", `/api/sites/${owner.siteId}`, { cookie: owner.cookie }));
+    expect(view.ai).toBeNull();
   });
 
   it("still lists the page's own issues when more than MAX_ISSUES facts issues come before them (A9 caps after the filter)", async () => {

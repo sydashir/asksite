@@ -19,7 +19,7 @@ import {
   type UploadRow,
   type VersionSummary,
 } from "@asksite/core";
-import { Facts, SiteDocument } from "@asksite/site-schema";
+import { Facts, SiteDocument, Theme } from "@asksite/site-schema";
 import { z } from "zod";
 import { parseStored } from "./db.ts";
 import type { AppDeps } from "./deps.ts";
@@ -56,7 +56,8 @@ export function storedEdits(value: unknown, note: NoteStoredInvalid): OwnerEdits
 
 /**
  * Plan 3 stored the draft after AiDraft checked it. If a later rule refuses some of its wording, it is
- * still used when it has its three parts: the composed document then lists that wording as issues,
+ * still used when it has its three parts and its theme still passes Theme (A12: a theme stored before
+ * designs existed gets the default design): the composed document then lists that wording as issues,
  * which the owner can change in the editor (decision 36).
  */
 function storedAiDraft(value: unknown, note: NoteStoredInvalid): AiDraft | null {
@@ -64,8 +65,9 @@ function storedAiDraft(value: unknown, note: NoteStoredInvalid): AiDraft | null 
   if (parsed.success) return parsed.data;
   note("ai_draft");
   const draft = (typeof value === "object" && value !== null ? value : {}) as { copy?: unknown; layout?: unknown; theme?: unknown };
-  const usable = typeof draft.copy === "object" && draft.copy !== null && Array.isArray(draft.layout) && typeof draft.theme === "object" && draft.theme !== null;
-  return usable ? (value as AiDraft) : null;
+  const theme = Theme.safeParse(draft.theme);
+  const usable = typeof draft.copy === "object" && draft.copy !== null && Array.isArray(draft.layout);
+  return usable && theme.success ? { ...(value as AiDraft), theme: theme.data } : null;
 }
 
 export function draftOf(site: SiteRow, note: NoteStoredInvalid): Draft {
