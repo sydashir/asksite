@@ -5,8 +5,19 @@ import { createTestHarness } from "wrangler";
 
 const ROOT = fileURLToPath(new URL("../../../../", import.meta.url));
 
-/** A real local D1 (Miniflare, via wrangler's test harness) with packages/core/migrations applied. */
-export async function startLocalD1(): Promise<{ db: D1Database; close(): Promise<void> }> {
+export interface LocalD1 {
+  /** The D1 binding, once workerd is up and packages/core/migrations are applied. */
+  ready: Promise<D1Database>;
+  /** Stops workerd, also while it is still starting (wrangler's close waits for the start, then tears it down). */
+  close(): Promise<void>;
+}
+
+/**
+ * A real local D1 (Miniflare, via wrangler's test harness). It returns at once, before awaiting listen, so a file's
+ * afterAll holds the closer even when its beforeAll timed out waiting for `ready`; otherwise workerd outlives the run
+ * (Task 9 follow-up item 4). Use: `local = startLocalD1(); db = await local.ready;` and `afterAll(() => local?.close())`.
+ */
+export function startLocalD1(): LocalD1 {
   const server = createTestHarness({
     root: ROOT,
     workers: [
@@ -21,11 +32,19 @@ export async function startLocalD1(): Promise<{ db: D1Database; close(): Promise
       },
     ],
   });
-  await server.listen();
-  const worker = server.getWorker();
-  await worker.applyD1Migrations("DB");
-  const env = (await worker.getEnv()) as { DB: D1Database };
-  return { db: env.DB, close: () => server.close() };
+  const ready = (async () => {
+    await server.listen();
+    const worker = server.getWorker();
+    await worker.applyD1Migrations("DB");
+    return ((await worker.getEnv()) as { DB: D1Database }).DB;
+  })();
+  return {
+    ready,
+    close: async () => {
+      void ready.catch(() => undefined); // once closing, a start cut short is expected, not an unhandled rejection
+      await server.close();
+    },
+  };
 }
 
 export async function clearTables(db: D1Database): Promise<void> {

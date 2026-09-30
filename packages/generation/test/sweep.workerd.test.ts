@@ -6,7 +6,7 @@ import { generationAllowance, requestGeneration } from "../src/request.ts";
 import { modelCallsToday } from "../src/settings.ts";
 import { JOB_STUCK_AFTER_MS, SWEEP_BATCH, SWEEP_MAX_PER_RUN, sweepStuckJobs } from "../src/sweep.ts";
 import { templateDraft } from "../src/template.ts";
-import { clearTables, getGeneration, insertGeneration, seedOwnerSite, startLocalD1 } from "./support/d1.ts";
+import { clearTables, getGeneration, insertGeneration, seedOwnerSite, startLocalD1, type LocalD1 } from "./support/d1.ts";
 import { FULL_SNAPSHOT } from "./support/samples.ts";
 
 const NOW = Date.UTC(2026, 8, 24, 15);
@@ -14,9 +14,12 @@ const OLD = NOW - JOB_STUCK_AFTER_MS - 1;
 const INPUT = JSON.stringify(FULL_SNAPSHOT);
 
 let db: D1Database;
-let close: () => Promise<void>;
-beforeAll(async () => ({ db, close } = await startLocalD1()), 120_000);
-afterAll(async () => close());
+let local: LocalD1 | undefined;
+beforeAll(async () => {
+  local = startLocalD1(); // before the await: afterAll can close workerd even if this hook times out
+  db = await local.ready;
+}, 120_000);
+afterAll(async () => local?.close());
 beforeEach(async () => {
   await clearTables(db);
   for (const site of ["s1", "s2", "s3", "s4", "s5"]) await seedOwnerSite(db, "o1", site);

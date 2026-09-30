@@ -9,7 +9,7 @@ import type { ModelProvider } from "../src/provider.ts";
 import { generationAllowance, requestGeneration } from "../src/request.ts";
 import { modelCallsToday } from "../src/settings.ts";
 import { templateDraft } from "../src/template.ts";
-import { clearTables, getGeneration, insertGeneration, seedOwnerSite, setSetting, startLocalD1 } from "./support/d1.ts";
+import { clearTables, getGeneration, insertGeneration, seedOwnerSite, setSetting, startLocalD1, type LocalD1 } from "./support/d1.ts";
 import { FULL_SNAPSHOT } from "./support/samples.ts";
 import { answer, scriptedProvider } from "./support/scripted.ts";
 
@@ -18,9 +18,12 @@ const INPUT = JSON.stringify(FULL_SNAPSHOT);
 const TEMPLATE = templateDraft(FULL_SNAPSHOT.facts, FULL_SNAPSHOT.brief);
 
 let db: D1Database;
-let close: () => Promise<void>;
-beforeAll(async () => ({ db, close } = await startLocalD1()), 120_000);
-afterAll(async () => close());
+let local: LocalD1 | undefined;
+beforeAll(async () => {
+  local = startLocalD1(); // before the await: afterAll can close workerd even if this hook times out
+  db = await local.ready;
+}, 120_000);
+afterAll(async () => local?.close());
 beforeEach(async () => {
   await clearTables(db);
   await seedOwnerSite(db, "o1", "s1");

@@ -1,14 +1,19 @@
+import { execFileSync } from "node:child_process";
+import { basename } from "node:path";
 import type { GenerationRow } from "@asksite/core";
 import type { D1Database } from "@cloudflare/workers-types";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { dailyModelLimit, isGenerationEnabled, modelCallsToday, utcDayStart } from "../src/settings.ts";
 import { toGenerationView } from "../src/view.ts";
-import { clearTables, insertGeneration, seedOwnerSite, setSetting, startLocalD1 } from "./support/d1.ts";
+import { clearTables, insertGeneration, seedOwnerSite, setSetting, startLocalD1, type LocalD1 } from "./support/d1.ts";
 
 let db: D1Database;
-let close: () => Promise<void>;
-beforeAll(async () => ({ db, close } = await startLocalD1()), 120_000);
-afterAll(async () => close());
+let local: LocalD1 | undefined;
+beforeAll(async () => {
+  local = startLocalD1(); // before the await: afterAll can close workerd even if this hook times out
+  db = await local.ready;
+}, 120_000);
+afterAll(async () => local?.close());
 beforeEach(async () => clearTables(db));
 
 describe("isGenerationEnabled", () => {
@@ -61,4 +66,48 @@ describe("toGenerationView", () => {
     expect(toGenerationView({ ...row, status: "failed", error_code: "boom", fallback_reason: "x", used_fallback: 0 })).toMatchObject({ errorCode: "internal", fallbackReason: null, usedFallback: false });
     expect(toGenerationView({ ...row, status: "weird" as GenerationRow["status"], kind: "odd" as GenerationRow["kind"] })).toMatchObject({ status: "failed", kind: "first" });
   });
+});
+
+// Task 9 follow-up item 4: each workerd test file's beforeAll starts the harness and then awaits it. When a hook timeout
+// ends that wait, vitest runs afterAll with only what startLocalD1 has already handed back; without a closer by then,
+// workerd outlives the run. This test is that sequence, with the timeout struck while workerd is starting.
+describe("startLocalD1 (test/support/d1.ts)", () => {
+  /** workerd processes whose parent is this test process: vitest's default pool runs each test file in its own process. */
+  const workerdChildren = (): number[] =>
+    execFileSync("ps", ["-A", "-o", "pid=,ppid=,comm="], { encoding: "utf8" })
+      .split("\n")
+      .flatMap((line) => {
+        const match = /^\s*(\d+)\s+(\d+)\s+(.+)$/.exec(line);
+        return match !== null && Number(match[2]) === process.pid && basename(match[3]!.trim()) === "workerd" ? [Number(match[1])] : [];
+      });
+  /** Whether the process exists: signal 0 only checks (kill -0), it stops nothing. */
+  const running = (pid: number): boolean => {
+    try {
+      process.kill(pid, 0);
+      return true;
+    } catch (error) {
+      return (error as NodeJS.ErrnoException).code === "EPERM";
+    }
+  };
+  /** Reads every 100 ms until `done` holds or `ms` have passed, and returns the last value read. */
+  const waitFor = async <T>(read: () => T, done: (value: T) => boolean, ms: number): Promise<T> => {
+    const until = Date.now() + ms;
+    for (let value = read(); ; value = read()) {
+      if (done(value) || Date.now() > until) return value;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+  };
+
+  it("hands back its closer before workerd is ready, so an afterAll stops every workerd it started even when the beforeAll timed out", async () => {
+    const fileHarness = new Set(workerdChildren()); // this file's own harness, started in beforeAll
+    const started = () => workerdChildren().filter((pid) => !fileHarness.has(pid));
+    const harness = startLocalD1(); // the beforeAll's first step; its wait for workerd is what times out
+    const seen = await waitFor(started, (pids) => pids.length > 0, 60_000);
+    // The hook timed out: afterAll calls the closer it was handed.
+    const closed = await Promise.resolve()
+      .then(() => harness.close())
+      .then(() => "closed", (error: unknown) => String(error));
+    const left = await waitFor(started, (pids) => pids.length === 0, 30_000);
+    expect({ started: seen.length > 0, closed, stillRunning: seen.filter(running), left }).toEqual({ started: true, closed: "closed", stillRunning: [], left: [] });
+  }, 120_000);
 });

@@ -3,7 +3,7 @@ import type { D1Database, D1PreparedStatement, Queue } from "@cloudflare/workers
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { generationAllowance, requestGeneration, type RequestGenerationResult } from "../src/request.ts";
 import { utcDayStart } from "../src/settings.ts";
-import { clearTables, getGeneration, insertGeneration, seedOwnerSite, setSetting, startLocalD1 } from "./support/d1.ts";
+import { clearTables, getGeneration, insertGeneration, seedOwnerSite, setSetting, startLocalD1, type LocalD1 } from "./support/d1.ts";
 import { FULL_SNAPSHOT } from "./support/samples.ts";
 
 const NOW = Date.UTC(2026, 8, 24, 15);
@@ -20,9 +20,12 @@ function queue(fail = false) {
 }
 
 let db: D1Database;
-let close: () => Promise<void>;
-beforeAll(async () => ({ db, close } = await startLocalD1()), 120_000);
-afterAll(async () => close());
+let local: LocalD1 | undefined;
+beforeAll(async () => {
+  local = startLocalD1(); // before the await: afterAll can close workerd even if this hook times out
+  db = await local.ready;
+}, 120_000);
+afterAll(async () => local?.close());
 beforeEach(async () => {
   await clearTables(db);
   await seedOwnerSite(db, "o1", "s1");
