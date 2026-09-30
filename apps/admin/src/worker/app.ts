@@ -3,6 +3,7 @@ import { Hono, type MiddlewareHandler } from "hono";
 import { adminEmail, type AccessKeys } from "./access.ts";
 import type { AdminDeps } from "./deps.ts";
 import { inviteRoutes } from "./routes/invites.ts";
+import { reviewRoutes } from "./routes/reviews.ts";
 import type { AdminEnv } from "./types.ts";
 
 /**
@@ -35,6 +36,7 @@ export function createAdminApp(deps: AdminDeps, keys: AccessKeys): Hono<AdminEnv
   });
   app.get("/api/admin/me", (c) => c.json({ email: c.get("admin") }));
   app.route("/api/admin", inviteRoutes(deps));
+  app.route("/api/admin", reviewRoutes(deps));
   app.notFound(handleNotFound);
   app.onError(handleError);
   return app;
