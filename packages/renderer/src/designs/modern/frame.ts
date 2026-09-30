@@ -47,7 +47,8 @@ const SOCIAL_LABEL: Record<SocialLink["network"], string> = {
 
 /**
  * The footer on the brand band: the business, how to reach it and every license (several states require them in all
- * advertising), then a closing row under a rule: the business name and a way back to the top.
+ * advertising), then a closing row under a rule: a copyright line in the business's name (no year: the renderer
+ * has no clock) and a way back to the top.
  */
 export function renderFooter(ctx: RenderContext): SafeHtml {
   const { facts } = ctx.doc;
@@ -76,7 +77,7 @@ ${facts.insured && html`<li>Insured</li>`}
 </ul>
 </div>`}
 </div>
-<div class="wrap"><div class="foot-end"><p>${facts.businessName}</p><a href="${fragment(DOM_ID.hero)}">Back to top</a></div></div>
+<div class="wrap"><div class="foot-end"><p>© ${facts.businessName}</p><a href="${fragment(DOM_ID.hero)}">Back to top</a></div></div>
 </footer>`;
 }
 

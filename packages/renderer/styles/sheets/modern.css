@@ -466,7 +466,8 @@
   .board-h { display: flex; align-items: center; gap: 10px; padding: 14px 20px; border-radius: 5px 5px 0 0; background: var(--brand); color: #fff; font: 700 1.0625rem/1.3 var(--body); }
   .board-h .i { color: var(--band-accent); }
   .board-body { padding: 4px 20px 20px; }
-  .places { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 8.5rem), 1fr)); column-gap: 20px; }
+  /* auto-fit: a single row of places spreads across the board instead of leaving empty columns after it */
+  .places { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 8.5rem), 1fr)); column-gap: 20px; }
   .place { min-width: 0; padding-block: 9px; border-bottom: 1px solid var(--line); color: var(--ink); font-weight: 600; }
   .place.span { grid-column: 1 / -1; }
   .addr { display: flex; gap: 12px; padding-top: 16px; color: var(--text); }

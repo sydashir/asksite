@@ -347,6 +347,22 @@ describe.each(ENGINES)("Modern in %s", (_engine, engine) => {
     expect(found).toEqual([]);
   }, 60_000);
 
+  // Round 2's judge 3: six places used six of the board's seven columns at 1280 px, an empty column at the end.
+  it("spreads a row of places across the whole board (round 2 judges)", async () => {
+    const found: string[] = [];
+    await open(page("hvac-phoenix"), 1280);
+    for (const width of [768, 1024, 1280, 1920]) {
+      await tab.setViewportSize({ width, height: 800 });
+      // The widest row reaches the board's right edge: no empty column after the places.
+      const gap = await tab.evaluate(() => {
+        const list = document.querySelector("#service-area .places").getBoundingClientRect();
+        return Math.round(list.right - Math.max(...[...document.querySelectorAll("#service-area .place")].map((place) => place.getBoundingClientRect().right)));
+      });
+      if (Math.abs(gap) > 1) found.push(`${width}: ${gap} px empty after the last place`);
+    }
+    expect(found).toEqual([]);
+  }, 60_000);
+
   // Round 2's judges: the "From $X" pill was 3 px taller than "Price on request", so the descriptions of priced and
   // unpriced cards in one row started 3-4 px apart.
   it("gives every price line one height, so descriptions in a row of cards start on one line (round 2 judges)", async () => {

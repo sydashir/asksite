@@ -367,9 +367,9 @@ describe("Modern: small pieces the judges and the text-spacing check asked for",
     expect(addr).toContain("<address>4100 S Congress Ave<br>Austin, TX 78745</address>");
   });
 
-  it("the footer ends on a closing row with the business name and a way back to the top", () => {
+  it("the footer ends on a closing row with a copyright line in the business's name (no year: the renderer has no clock) and a way back to the top", () => {
     const footer = element(fixture("plumber-austin"), "<footer");
-    expect(footer).toMatch(/<div class="wrap"><div class="foot-end"><p>Reliable Rooter Plumbing<\/p><a href="#top">Back to top<\/a><\/div><\/div>\n<\/footer>$/);
+    expect(footer).toMatch(/<div class="wrap"><div class="foot-end"><p>© Reliable Rooter Plumbing<\/p><a href="#top">Back to top<\/a><\/div><\/div>\n<\/footer>$/);
   });
 
   it("each time in the hours keeps its own words together, so a squeezed column wraps only after the dash", () => {
