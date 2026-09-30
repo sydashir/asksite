@@ -355,6 +355,9 @@ async function record(plan: readonly LiveRow[], budget: Budget, deps: CliDeps): 
       writeFileSync(new URL(fixtureName(candidate.label), deps.fixturesDir), `${JSON.stringify(recorded, null, 2)}\n`);
       deps.print(`${candidate.label}: recorded test/fixtures/${fixtureName(candidate.label)}`);
     }
+    // Without usage the budget counts the larger of the partial cost and the worst case (budget.ts): the worst case,
+    // unless the partial cost alone passed it, which the overrun line then reports.
+    if (res.usageMissing === true && !budget.overruns.some((o) => o.at === candidate.label)) deps.print(`${candidate.label}: the answer had no usage, so it was counted at its worst case of ${formatUsd(worstMicrousd)}`);
     printOverrun(candidate.label, res.usage, budget, deps);
   }
 }

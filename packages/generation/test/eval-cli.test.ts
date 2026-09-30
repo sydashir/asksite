@@ -432,6 +432,23 @@ describe("a live --record (P3-17 D3)", () => {
   });
 });
 
+describe("a live --record without usage (fix round #12)", () => {
+  it("says when a response without usage was counted at its worst case", async () => {
+    const body = { model: "m", choices: [{ message: { content: "{}" }, finish_reason: "stop" }] };
+    const http = fakeFetch([{ status: 200, body }]);
+    const recorded: Answer = async (env, snapshot, fetchImpl) => {
+      await fetchImpl!("https://record.example.invalid/v1/chat/completions", { method: "POST", body: "{}" });
+      return { ...(await validDraft(env, snapshot, fetchImpl)), usageMissing: true };
+    };
+    const h = harness({ answer: recorded, fetch: http.fetch });
+    // groq's --record worst case: 70,000 x 0.15 + 8,192 x 0.6 = 15,415.2, so 15,416.
+    expect(await main(["--record", "--live", "--max-usd", "1", "--only", GROQ], h.deps)).toBe(0);
+    expect(h.out).toContain("groq/gpt-oss-120b: recorded test/fixtures/groq__gpt-oss-120b.json");
+    expect(h.out).toContain("groq/gpt-oss-120b: the answer had no usage, so it was counted at its worst case of $0.015416");
+    expect(h.out).toContain("Spent: $0.015416 counted against the $1.000000 budget.");
+  });
+});
+
 describe("--caps-probe and --record build a provider only once the budget lets its request go (fix round #3, #15)", () => {
   it.each([
     ["--caps-probe", `${OPUS}: not measured: the budget stopped the run`],
