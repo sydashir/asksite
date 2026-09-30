@@ -104,11 +104,13 @@ export const insuredItem = (): Credential => ({ mark: icon("shield-check", "i"),
 /** 24/7 service as a credential. */
 export const emergencyItem = (): Credential => ({ mark: icon("clock", "i"), text: "24/7 emergency service" });
 
-/** The owner's other trust facts, each exactly as given: insured, the founding year and free estimates. */
-export function otherCredentials(facts: Facts): Credential[] {
+/** The founding year and free estimates, each exactly as given. */
+export function businessCredentials(facts: Facts): Credential[] {
   const items: Credential[] = [];
-  if (facts.insured) items.push(insuredItem());
   if (facts.yearFounded !== undefined) items.push({ mark: CALENDAR, text: `Since ${facts.yearFounded}` });
   if (facts.freeEstimates) items.push({ mark: icon("circle-check", "i"), text: "Free estimates" });
   return items;
 }
+
+/** The owner's other trust facts, each exactly as given: insured, the founding year and free estimates. */
+export const otherCredentials = (facts: Facts): Credential[] => [...(facts.insured ? [insuredItem()] : []), ...businessCredentials(facts)];

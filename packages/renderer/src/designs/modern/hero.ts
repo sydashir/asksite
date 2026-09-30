@@ -15,7 +15,7 @@ import { fragment, html, safeUrl, type SafeHtml } from "../../html.ts";
 import { icon } from "../../icons.ts";
 import { DOM_ID } from "../../sections/ids.ts";
 import { ARROW_DOWN } from "./icons.ts";
-import { callButton, credential, emailText, head, emergencyItem, emergencyNote, hoursTable, insuredItem, licenseItem, licenseText, otherCredentials, quoteButton } from "./parts.ts";
+import { businessCredentials, callButton, credential, emailText, head, emergencyItem, emergencyNote, hoursTable, insuredItem, licenseItem, licenseText, otherCredentials, quoteButton } from "./parts.ts";
 import { areaSummary, tradeAndCity } from "./text.ts";
 
 /** Where the full list of licenses is: the footer's credentials (every license, exactly as entered). */
@@ -58,13 +58,23 @@ function heroCredentials(facts: Facts): SafeHtml {
 </section>`;
 }
 
-/** The trust section as a band of its own on the brand colour, when the layout puts it anywhere but straight after the hero. */
+/**
+ * The trust section as a band of its own on the brand colour, when the layout puts it anywhere but straight after the
+ * hero. Three groups, each a list: the licenses, insurance, then the founding year, free estimates and 24/7 service.
+ * From 768 px the groups flow in rows at their own widths with one gap (styles/sheets/modern.css), and a group that
+ * does not fit moves to the next row whole: a credential never wraps where it fits, and "Insured" joins whichever
+ * row has room for it.
+ */
 export function renderTrustBand(facts: Facts): SafeHtml {
-  const items = [...facts.licences.map((licence) => licenseItem(licence, false)), ...otherCredentials(facts), ...(facts.emergency247 ? [emergencyItem()] : [])];
+  const groups = [
+    facts.licences.map((licence) => licenseItem(licence, false)),
+    facts.insured ? [insuredItem()] : [],
+    [...businessCredentials(facts), ...(facts.emergency247 ? [emergencyItem()] : [])],
+  ].filter((group) => group.length > 0);
   return html`<section id="${DOM_ID.trust}" class="trust on-brand" aria-labelledby="${DOM_ID.trust}-title">
 <div class="wrap">
 ${head("trust", "Credentials")}
-<ul class="creds">${items.map(credential)}</ul>
+<div class="creds">${groups.map((group) => html`<ul>${group.map(credential)}</ul>`)}</div>
 </div>
 </section>`;
 }
@@ -98,7 +108,9 @@ ${proofLine(ctx)}
 /**
  * The no-photo hero's card. With opening hours (and the service area section on the page): the hours and the 24/7
  * note, so the first screen says when the business is open. Without them: where the business works (unless the
- * owner hid the service area) and its email, so the fewest-facts page still has a composed first screen.
+ * owner hid the service area) and its email, so the fewest-facts page still has a composed first screen. That card
+ * balances the split hero, so it shows from 1024 px only (door--reach): on a phone or tablet it would repeat the
+ * town under the subheadline and push the services down; the page says both again further down.
  */
 function heroCard(ctx: RenderContext): SafeHtml {
   const { facts } = ctx.doc;
@@ -109,7 +121,7 @@ ${hoursTable(facts)}
 ${emergencyNote(facts)}
 </div>`;
   }
-  return html`<div class="door"><dl class="reach">${isVisible(ctx, "serviceArea") && html`<dt>Service area</dt><dd>${icon("map-pin", "i")}${areaSummary(facts)}</dd>`}<dt>Email</dt><dd><a href="${mailtoUrl(facts.email)}">${emailText(facts.email)}</a></dd></dl></div>`;
+  return html`<div class="door door--reach"><dl class="reach">${isVisible(ctx, "serviceArea") && html`<dt>Service area</dt><dd>${icon("map-pin", "i")}${areaSummary(facts)}</dd>`}<dt>Email</dt><dd><a href="${mailtoUrl(facts.email)}">${emailText(facts.email)}</a></dd></dl></div>`;
 }
 
 /**

@@ -141,6 +141,26 @@ describe("Modern: the credentials", () => {
     for (const fact of ["License ROC 999001", "License ROC 999002", "Insured", "Since 2011", "24/7 emergency service"]) expect(text).toContain(fact);
   });
 
+  it("in the band, come in three groups that each move to a new row whole: the licenses, insured, then the other facts (round 2 judges)", () => {
+    const groups = (page: string) =>
+      [...element(element(page, '<section id="credentials"'), '<div class="creds"').matchAll(/<ul>([\s\S]*?)<\/ul>/g)].map((m) => [...(m[1] ?? "").matchAll(/<strong>([\s\S]*?)<\/strong>/g)].map((s) => (s[1] ?? "").replace(/<[^>]*>/g, "")));
+    expect(groups(fixture("hvac-phoenix"))).toEqual([["License ROC 999001", "License ROC 999002"], ["Insured"], ["Since 2011", "24/7 emergency service"]]);
+    // An empty group leaves no empty list.
+    const hvac = loadFixture("hvac-phoenix");
+    expect(groups(modern(withFacts(hvac, { insured: false })))).toEqual([["License ROC 999001", "License ROC 999002"], ["Since 2011", "24/7 emergency service"]]);
+    expect(groups(modern(withFacts(hvac, { yearFounded: undefined })))).toEqual([["License ROC 999001", "License ROC 999002"], ["Insured"], ["24/7 emergency service"]]);
+    // Insurance alone (copy that claims nothing else, so the schema accepts the other facts off).
+    const plumber = loadFixture("plumber-austin");
+    const rest = plumber.layout.filter((s) => s.id !== "trust");
+    const at = rest.findIndex((s) => s.id === "services") + 1;
+    const later: SiteDocumentInput = {
+      ...plumber,
+      copy: { ...plumber.copy, ctaText: "Get a quote", heroSubheadline: "Clear prices and tidy work, start to finish.", faq: [] },
+      layout: [...rest.slice(0, at), ...plumber.layout.filter((s) => s.id === "trust"), ...rest.slice(at)],
+    };
+    expect(groups(modern(withFacts(later, { yearFounded: undefined, freeEstimates: false, emergency247: false, licences: [] })))).toEqual([["Insured"]]);
+  });
+
   it("when they come later, the hero still names the licenses and insurance in one short line", () => {
     const top = hero(fixture("hvac-phoenix"));
     const line = element(top, '<ul class="proof-line"').replace(/<[^>]*>/g, "");
@@ -273,14 +293,16 @@ describe("Modern: a hero without a photo", () => {
 
   it("without hours, its card says where the business works and how to write to it (judges' must-fix)", () => {
     const top = hero(fixture("cleaning-minimal"));
-    const card = element(top, '<div class="door"').replace(/<[^>]*>/g, "");
+    const card = element(top, '<div class="door door--reach"').replace(/<[^>]*>/g, "");
     expect(card).toBe("Service areaBoise, IDEmailhi@mop.example.com");
     expect(top).toContain('href="mailto:hi@mop.example.com"');
     // The owner hid the service area: the card keeps the email only.
-    expect(element(hero(modern(withHidden(loadFixture("cleaning-minimal"), ["serviceArea"]))), '<div class="door"').replace(/<[^>]*>/g, "")).toBe("Emailhi@mop.example.com");
-    // A photo hero has no card; a no-photo hero with hours shows the hours instead.
-    expect(hero(fixture("plumber-austin"))).not.toContain('class="door"');
+    expect(element(hero(modern(withHidden(loadFixture("cleaning-minimal"), ["serviceArea"]))), '<div class="door door--reach"').replace(/<[^>]*>/g, "")).toBe("Emailhi@mop.example.com");
+    // A photo hero has no card; a no-photo hero with hours shows the hours instead, on every screen (not door--reach,
+    // which shows beside the headline from 1024 px only: test/designs/modern/layout.test.ts).
+    expect(hero(fixture("plumber-austin"))).not.toContain('class="door');
     expect(hero(modern(noPhoto))).not.toContain("hi@");
+    expect(hero(modern(noPhoto))).toContain('<div class="door">');
   });
 
   it("a service area of one or two places is a slim band, not a full section", () => {

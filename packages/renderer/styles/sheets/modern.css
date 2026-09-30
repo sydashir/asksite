@@ -230,6 +230,10 @@
   .proof-line { display: flex; flex-wrap: wrap; gap: 8px 22px; margin-top: 14px; color: var(--ink); font-size: 0.9375rem; font-weight: 700; line-height: 1.3; }
   .proof-line li { display: flex; align-items: center; gap: 8px; }
   .proof-line .i { width: 18px; height: 18px; color: var(--brand); }
+  /* Owner text in a flex row (the town on the hero line, a license here, the address beside its icon, the footer's
+     closing name): a flex item's automatic minimum is its min-content, and overflow-wrap: break-word does not lower
+     that (MDN min-width, overflow-wrap), so one long unbroken word would push the page sideways. anywhere does. */
+  .line-tag, .proof-line li, .proof-line li > span, .addr > address, .addr > span, .foot-end p { min-width: 0; overflow-wrap: anywhere; }
 
   /* no-photo hero: the card with the opening hours, or where the business works and its email */
   .door {
@@ -257,6 +261,10 @@
     .proof { margin-top: 28px; padding-top: 22px; }
     .proof-list { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 28px; }
     .door { margin-top: 32px; padding: 26px 30px 24px; }
+  }
+  /* the no-hours card balances the split hero; below it the card would only repeat the town above the services */
+  @media (max-width: 1023px) {
+    .door--reach { display: none; }
   }
   @media (min-width: 1024px) {
     .proof-list { grid-template-columns: repeat(2, minmax(0, max-content)); gap: 16px 56px; }
@@ -310,16 +318,19 @@
   }
 
   /* the trust section as a band of its own on the brand colour (when the layout does not put it straight after the
-     hero): the livery rule over it, a heading and the credentials in even columns across the width */
+     hero): the livery rule over it, a heading and the credentials, one under another on phones. From 768 px the three
+     groups (licenses, insured, the other facts) flow in rows at their own widths with one gap; a group that does
+     not fit moves down whole, so a credential never wraps where it fits and "Insured" fills a row with room. */
   .trust { padding-block: 48px; border-top: 4px solid var(--act); }
   .trust .head { margin-bottom: 28px; }
   .trust .h2 { font-size: clamp(1.5rem, 1.3rem + 0.8vw, 2rem); }
-  .creds { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 13rem), 1fr)); gap: 20px 32px; }
+  .creds, .creds > ul { display: grid; gap: 20px; }
   .trust .cred { color: #fff; font-size: 1.0625rem; }
   .trust .cred .i { color: var(--band-accent); }
   .trust .cred small { color: var(--on-brand-muted); }
   @media (min-width: 768px) {
     .trust { padding-block: 64px; }
+    .creds, .creds > ul { display: flex; flex-wrap: wrap; column-gap: 32px; }
   }
 
   /* services: priced cards, each price on its own line under the name; the owner's call to action closes the grid as a
@@ -331,7 +342,8 @@
   .price { width: fit-content; margin-top: 10px; padding: 3px 12px; border-radius: 999px; background: var(--tint); color: var(--ink); font-size: 1.0625rem; font-weight: 700; font-variant-numeric: tabular-nums; }
   .white .price { background: #fff; }
   .price small { font-size: 0.875rem; font-weight: 500; color: var(--muted); }
-  .price.price--ask { padding-inline: 0; background: none; font-size: 0.9375rem; font-weight: 500; color: var(--muted); }
+  /* the pill's line box (1.0625rem x 1.6), so priced and unpriced cards start their descriptions on one line */
+  .price.price--ask { padding-inline: 0; background: none; font-size: 0.9375rem; font-weight: 500; line-height: 1.7rem; color: var(--muted); }
   .card-desc { margin-top: 12px; color: var(--muted); text-wrap: pretty; }
   .cards--compact .card { padding: 18px 18px 20px; }
   .cards--compact .h3 { font-size: 1.125rem; }
@@ -406,7 +418,11 @@
   /* gallery: every photo once, in an even grid, with its caption under it (never over the photo) */
   .shots { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 12px; }
   .shots > li { min-width: 0; }
-  .shots > li:first-child:nth-last-child(odd) { grid-column: 1 / -1; }
+  /* Phones and tablets: an odd first photo takes the whole row. Only below 1024 px: this selector outweighs the
+     desktop spans below (MDN :not() takes its argument's specificity), which would leave a hole beside the next row. */
+  @media (max-width: 1023px) {
+    .shots > li:first-child:nth-last-child(odd) { grid-column: 1 / -1; }
+  }
   .shots img { width: 100%; aspect-ratio: 4 / 3; object-fit: cover; border-radius: 4px; background: var(--line); }
   .shots figcaption { margin-top: 8px; color: var(--text); font-size: 0.875rem; line-height: 1.4; text-wrap: pretty; }
   .shots.shots--one { grid-template-columns: minmax(0, 1fr); max-width: 56rem; margin-inline: auto; }
@@ -490,7 +506,8 @@
     .board .em { padding: 18px 26px 16px; }
   }
   @media (min-width: 768px) {
-    .slim-in { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 64px; }
+    /* the row gap keeps a long place under the heading clear of it when the two wrap */
+    .slim-in { display: flex; flex-wrap: wrap; align-items: baseline; gap: 16px 64px; }
     .slim .head { margin: 0; }
   }
   @media (min-width: 900px) {
