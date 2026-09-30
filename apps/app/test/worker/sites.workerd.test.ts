@@ -302,6 +302,70 @@ describe("PATCH /api/sites/:siteId/draft", () => {
     expect(empty.status).toBe(422);
   });
 
+  // A12 §3: an edits save whose theme is null (a tab that still holds no theme) never replaces a stored one.
+  describe("the stored theme (A12 §3)", () => {
+    const GREEN = { palette: "green-amber", font: "sturdy", design: "modern" } as const;
+    const CHARCOAL = { palette: "charcoal-red", font: "friendly", design: "refined" } as const;
+
+    /** A new owner whose saved edits hold GREEN as their theme (rev 2). */
+    async function ownerWithTheme() {
+      const owner = await h.signIn();
+      const save = (body: object) => h.call("PATCH", `/api/sites/${owner.siteId}/draft`, { cookie: owner.cookie, body });
+      const read = async () => json<SiteView>(await h.call("GET", `/api/sites/${owner.siteId}`, { cookie: owner.cookie }));
+      expect((await save({ rev: 1, edits: { ...EMPTY_EDITS, theme: GREEN } })).status).toBe(200);
+      return { save, read };
+    }
+
+    it("keeps the stored theme when a save's edits have no theme, saves the rest and bumps rev", async () => {
+      const { save, read } = await ownerWithTheme();
+      const res = await save({ rev: 2, edits: { ...EMPTY_EDITS, copy: { ctaText: "Call Joe" } } });
+      expect(res.status).toBe(200);
+      expect((await json<{ rev: number }>(res)).rev).toBe(3);
+      const view = await read();
+      expect(view.edits.theme).toEqual(GREEN);
+      expect(view.edits.copy).toEqual({ ctaText: "Call Joe" });
+    });
+
+    it("replaces the stored theme with the one a save's edits name", async () => {
+      const { save, read } = await ownerWithTheme();
+      expect((await save({ rev: 2, edits: { ...EMPTY_EDITS, theme: CHARCOAL } })).status).toBe(200);
+      expect((await read()).edits.theme).toEqual(CHARCOAL);
+    });
+
+    it("keeps the stored theme when a save sends no edits", async () => {
+      const { save, read } = await ownerWithTheme();
+      expect((await save({ rev: 2, brief: VALID_BRIEF })).status).toBe(200);
+      expect((await read()).edits.theme).toEqual(GREEN);
+    });
+
+    it("changes nothing on a stale rev", async () => {
+      const { save, read } = await ownerWithTheme();
+      expect((await save({ rev: 1, edits: { ...EMPTY_EDITS, theme: CHARCOAL } })).status).toBe(409);
+      const view = await read();
+      expect(view.rev).toBe(2);
+      expect(view.edits.theme).toEqual(GREEN);
+    });
+
+    it("refuses a theme without a design with 422 at edits.theme.design", async () => {
+      const owner = await h.signIn();
+      const res = await h.call("PATCH", `/api/sites/${owner.siteId}/draft`, {
+        cookie: owner.cookie,
+        body: { rev: 1, edits: { ...EMPTY_EDITS, theme: { palette: "green-amber", font: "sturdy" } } },
+      });
+      expect(res.status).toBe(422);
+      expect((await json<ErrorJson>(res)).error.issues?.map((issue) => [issue.path.join("."), issue.code])).toEqual([["edits.theme.design", "invalid_value"]]);
+    });
+
+    it("saves edits over stored edits that are not valid JSON", async () => {
+      const owner = await h.signIn();
+      await (await h.db()).prepare("UPDATE sites SET edits_json = ? WHERE id = ?").bind('{"theme":', owner.siteId).run();
+      const edits = { ...EMPTY_EDITS, copy: { ctaText: "Call Joe" } };
+      expect((await h.call("PATCH", `/api/sites/${owner.siteId}/draft`, { cookie: owner.cookie, body: { rev: 1, edits } })).status).toBe(200);
+      const stored = await (await h.db()).prepare("SELECT edits_json FROM sites WHERE id = ?").bind(owner.siteId).first<{ edits_json: string }>();
+      expect(JSON.parse(stored?.edits_json ?? "null")).toEqual(edits);
+    });
+  });
+
   it("refuses facts over LIMITS.factsJsonMaxBytes with the per-part 413, in a body the draft limit lets through (A8c)", async () => {
     const owner = await h.signIn();
     // One byte over the facts limit once JSON-encoded, in a body far under DRAFT_JSON_MAX_BYTES, so only

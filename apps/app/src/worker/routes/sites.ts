@@ -38,12 +38,17 @@ export function siteRoutes(deps: AppDeps): Hono<AppEnv> {
     const db = c.env.DB;
     // One conditional write: the rev check makes a stale tab fail instead of overwriting newer work. What the
     // answer reports is read in the same batch (one transaction, A10), so it is this save's rev and issues even
-    // when another save lands right after it.
+    // when another save lands right after it. Edits whose theme is null never replace a stored theme (A12 §3):
+    // the look pinned before a rebuild stays, even when a tab that still holds no theme saves its edits.
     const [write, siteRead, aiRead, uploadsRead] = await db.batch([
       db
         .prepare(
           `UPDATE sites SET facts_json = COALESCE(?1, facts_json), brief_json = COALESCE(?2, brief_json),
-             edits_json = COALESCE(?3, edits_json), rev = rev + 1, updated_at = ?4
+             edits_json = CASE WHEN ?3 IS NULL THEN edits_json
+               WHEN json_extract(?3,'$.theme') IS NULL AND json_valid(edits_json) AND json_type(edits_json,'$.theme')='object'
+                 THEN json_set(?3,'$.theme', json(json_extract(edits_json,'$.theme')))
+               ELSE ?3 END,
+             rev = rev + 1, updated_at = ?4
            WHERE id = ?5 AND owner_id = ?6 AND rev = ?7 AND taken_down_at IS NULL`,
         )
         .bind(facts, brief, edits, Date.now(), siteId, owner.id, body.rev),
