@@ -94,6 +94,11 @@ const counts = (c: Record<string, number>): string => Object.entries(c).map(([k,
 /** What a cost is when a provider left the usage of some attempts out (additions B). */
 const unknownCost = (attempts: number): string => `unknown (${attempts} ${attempts === 1 ? "attempt" : "attempts"} without usage)`;
 
+/** A model a live run planned to send to: it has its key and a recorded price, and --only chose it. */
+export interface PlannedModel {
+  label: string;
+}
+
 /** What a live run spent (amendment P3-17): its budget, what the budget counted, and whether it stopped the run. */
 export interface SpendReport {
   budgetMicrousd: number;
@@ -102,11 +107,22 @@ export interface SpendReport {
   stop: BudgetStop | null;
   /** The kind of exception that ended the run before every site was sent (fix round #2); absent when none did. */
   error?: string;
+  /**
+   * The models the run planned to send to, cheapest first: one that the budget or an error cut before its first site
+   * still gets a row in the table, "not run" (fix (i)). Without it, the table lists the models that ran.
+   */
+  plan?: readonly PlannedModel[];
 }
 
 /** The gate cell: a verdict, or why there is none. */
 const gate = (s: CandidateSummary, spend: SpendReport | undefined): string =>
   s.meetsAutomaticGate === null ? `not enough runs: cut by ${spend?.error === undefined ? "the budget" : "an error"}` : s.meetsAutomaticGate ? "pass" : "fail";
+
+/** The table rows of the planned models that ran no site: what cut them, and no figures. */
+const notRunRows = (summaries: readonly CandidateSummary[], spend: SpendReport | undefined): string[] =>
+  (spend?.plan ?? [])
+    .filter(({ label }) => !summaries.some((s) => s.label === label))
+    .map(({ label }) => `| ${label} | 0 | n/a | n/a | n/a | n/a | n/a | not run (${spend?.error === undefined ? "budget" : "error"}) |`);
 
 const spent = (label: string, micro: number, missing: number): string => `- ${label}: spent ${formatUsd(micro)}${missing === 0 ? "" : `, plus ${unknownCost(missing)}`}`;
 
@@ -133,6 +149,7 @@ export function formatReport(summaries: readonly CandidateSummary[], spend?: Spe
     "| model | runs | first try | within 2 retries | p50 ms | p95 ms | cost per passing site | automatic gate |",
     "|---|---|---|---|---|---|---|---|",
     ...summaries.map((s) => `| ${s.label} | ${s.runs} | ${pct(s.firstTryPassRate)} | ${pct(s.passRate)} | ${s.latencyMsP50} | ${s.latencyMsP95} | ${s.usageMissingAttempts === 0 ? usd(s.costPerPassingSiteMicrousd) : unknownCost(s.usageMissingAttempts)} | ${gate(s, spend)} |`),
+    ...notRunRows(summaries, spend),
     "",
     ...summaries.flatMap((s) => [`## ${s.label}`, "", `- Rules broken (attempts): ${counts(s.failedRules)}`, `- Claim words caught: ${counts(s.claimWords)}`, `- Provider errors: ${counts(s.providerErrors)}`, `- Largest input per run: ${s.maxInputTokensPerRun} tokens`, ""]),
     ...(spend === undefined ? [] : spendSection(summaries, spend)),

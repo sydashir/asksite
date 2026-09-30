@@ -297,7 +297,8 @@ async function evaluate(runs: number, plan: readonly LiveRow[], budget: Budget, 
     throw thrown;
   } finally {
     deps.progress("\n");
-    writeResults(results, EVAL_PROFILES.length * runs, { budgetMicrousd: budget.capMicrousd, countedMicrousd: budget.spentMicrousd, stop: budget.stop, ...(error === undefined ? {} : { error }) }, deps);
+    const planned = plan.map(({ candidate }) => ({ label: candidate.label }));
+    writeResults(results, EVAL_PROFILES.length * runs, { budgetMicrousd: budget.capMicrousd, countedMicrousd: budget.spentMicrousd, stop: budget.stop, ...(error === undefined ? {} : { error }), plan: planned }, deps);
   }
 }
 

@@ -413,6 +413,33 @@ describe("a live evaluation (P3-17 D3, D4)", () => {
     ]);
   });
 
+  it("lists a planned model the budget cut before its first site as not run (budget); summary.json lists only models that ran (i)", async () => {
+    const h = harness();
+    // gemma's 20 sites cost 400 each; then opus's first site, at its worst case of 1,331,520, does not fit under $1.
+    expect(await main(["--live", "--max-usd", "1", "--runs", "1", "--only", `${OPUS},${GEMMA}`], h.deps)).toBe(0);
+    expect(h.requests).toEqual(Array.from({ length: 20 }, () => byLabel(GEMMA).modelId));
+    const [stamp] = readdirSync(join(h.dir, "results"));
+    const report = readFileSync(join(h.dir, "results", stamp!, "report.md"), "utf8");
+    expect(report).toContain(`| ${GEMMA} | 20 | 100% | 100% | 0 | 0 | $0.0004 | pass |\n| ${OPUS} | 0 | n/a | n/a | n/a | n/a | n/a | not run (budget) |\n`);
+    const summary = JSON.parse(readFileSync(join(h.dir, "results", stamp!, "summary.json"), "utf8")) as Array<{ label: string }>;
+    expect(summary.map((s) => s.label)).toEqual([GEMMA]);
+  });
+
+  it("lists a planned model an error cut before its first site as not run (error) (i)", async () => {
+    const h = harness();
+    const build = h.deps.makeProvider;
+    h.deps.makeProvider = (env, snapshot, fetchImpl) => {
+      if (env.MODEL_ID === byLabel(GROQ).modelId) throw new ProviderError("auth", "OPENAI_COMPAT_API_KEY is blank");
+      return build(env, snapshot, fetchImpl);
+    };
+    await expect(main(["--live", "--max-usd", "5", "--runs", "1", "--only", `${GEMMA},${GROQ},${OPUS}`], h.deps)).rejects.toThrow(ProviderError);
+    const [stamp] = readdirSync(join(h.dir, "results"));
+    const report = readFileSync(join(h.dir, "results", stamp!, "report.md"), "utf8");
+    expect(report).toContain(`| ${GEMMA} | 20 | 100% | 100% | 0 | 0 | $0.0004 | pass |\n| ${GROQ} | 0 | n/a | n/a | n/a | n/a | n/a | not run (error) |\n| ${OPUS} | 0 | n/a | n/a | n/a | n/a | n/a | not run (error) |\n`);
+    const summary = JSON.parse(readFileSync(join(h.dir, "results", stamp!, "summary.json"), "utf8")) as Array<{ label: string }>;
+    expect(summary.map((s) => s.label)).toEqual([GEMMA]);
+  });
+
   it("refuses a candidate with no recorded price and evaluates the others", async () => {
     const unpriced: Candidate = { label: "claude-unpriced", provider: "anthropic", modelId: "claude-unpriced", needs: ["ANTHROPIC_API_KEY"] };
     const h = harness({ candidates: [unpriced, byLabel(GEMMA)] });
