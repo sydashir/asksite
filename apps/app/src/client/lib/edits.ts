@@ -1,4 +1,4 @@
-import type { CurrentAi, OwnerEdits } from "@asksite/core";
+import { CopyEdits as CopyEditsSchema, type CurrentAi, type OwnerEdits } from "@asksite/core";
 
 type CopyEdits = OwnerEdits["copy"];
 
@@ -17,11 +17,20 @@ export function withCopy(ai: CurrentAi, edits: OwnerEdits, change: (copy: CopyEd
 }
 
 /**
+ * Whether OwnerEdits accepts this service name as a description key. Asked of core's own schema (never a copy of its
+ * limit, so the length measure cannot drift): the empty string is always valid text (EditText, draft.ts), so only the key decides.
+ */
+const isAllowedKey = (key: string): boolean => CopyEditsSchema.safeParse({ serviceDescriptions: { [key]: "" } }).success;
+
+/**
  * Sets the owner's description of one service. `services` are the current (trimmed) service names, the
  * keys composeDocument looks up: every write drops the keys of renamed or removed services, so stale keys
  * never count toward OwnerEdits' limit of 12 descriptions, one per service Facts allows (A8c-2).
+ * It never emits a key OwnerEdits refuses (a name too long for the key schema): such a key is dropped, and a
+ * description for such a name is not stored, because one refused key would fail every later autosave.
  */
 export function withServiceDescription(copy: CopyEdits, services: readonly string[], name: string, text: string): CopyEdits {
-  const kept = Object.entries(copy.serviceDescriptions ?? {}).filter(([key]) => key !== name && services.includes(key));
-  return { ...copy, serviceDescriptions: Object.fromEntries([...kept, [name, text]]) };
+  const kept = Object.entries(copy.serviceDescriptions ?? {}).filter(([key]) => key !== name && services.includes(key) && isAllowedKey(key));
+  const written: Array<[string, string]> = isAllowedKey(name) ? [[name, text]] : [];
+  return { ...copy, serviceDescriptions: Object.fromEntries([...kept, ...written]) };
 }

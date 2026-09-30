@@ -1,4 +1,4 @@
-import { composeDocument, EMPTY_EDITS, OwnerEdits, SECTION_IDS } from "@asksite/core";
+import { composeDocument, EMPTY_EDITS, OwnerEdits, OwnerEditsBody, SECTION_IDS } from "@asksite/core";
 import { render, type DesignStylesheets } from "@asksite/renderer";
 import { SiteDocument, type SectionId } from "@asksite/site-schema";
 import { describe, expect, it } from "vitest";
@@ -84,6 +84,38 @@ describe("edits and preview", () => {
     const next = withServiceDescription(twelve, renamed, "Renamed service", "Done well.");
     expect(Object.keys(next.serviceDescriptions ?? {})).toHaveLength(12);
     expect(OwnerEdits.safeParse({ ...EMPTY_EDITS, copy: next }).success).toBe(true);
+  });
+
+  describe("withServiceDescription never emits a key OwnerEdits refuses", () => {
+    const accepted = (copy: ReturnType<typeof withServiceDescription>) => OwnerEditsBody.safeParse({ ...EMPTY_EDITS, copy }).success;
+
+    it("does not write a service name the key schema refuses (41 characters)", () => {
+      const long = "a".repeat(41);
+      const next = withServiceDescription({ ctaText: "Call us" }, [long, "Drains"], long, "Typed text.");
+      expect(Object.keys(next.serviceDescriptions ?? {})).not.toContain(long);
+      expect(next.ctaText).toBe("Call us");
+      expect(accepted(next)).toBe(true);
+    });
+
+    it("drops a stored key the schema refuses on the next write", () => {
+      const long = "b".repeat(41);
+      const stale = { serviceDescriptions: { [long]: "Stale.", Drains: "Kept." } };
+      const next = withServiceDescription(stale, [long, "Drains", "Water heaters"], "Water heaters", "New.");
+      expect(next.serviceDescriptions).toEqual({ Drains: "Kept.", "Water heaters": "New." });
+      expect(accepted(next)).toBe(true);
+    });
+
+    it("measures the name as the schema does: zod 4.6.5 counts code points, so 40 astral characters (80 UTF-16 units) pass and 41 are refused", () => {
+      const forty = "\u{1F527}".repeat(40);
+      const fortyOne = "\u{1F527}".repeat(41);
+      expect(forty).toHaveLength(80); // UTF-16 units: a UTF-16 measure would refuse this name
+      const ok = withServiceDescription({}, [forty], forty, "Fine.");
+      expect(ok.serviceDescriptions).toEqual({ [forty]: "Fine." });
+      expect(accepted(ok)).toBe(true);
+      const refused = withServiceDescription({}, [fortyOne], fortyOne, "Fine.");
+      expect(Object.keys(refused.serviceDescriptions ?? {})).toEqual([]);
+      expect(accepted(refused)).toBe(true);
+    });
   });
 
   it("renders the draft exactly as composeDocument + render would, or returns the issues", () => {
