@@ -85,10 +85,11 @@ const foldQuotes = (text: string): string =>
 /**
  * A name as a model may fairly retype it: compatibility forms, case, curly quotes and spacing do not
  * count. Quote marks are folded before NFKC, which would split U+2033 (an inch mark) into two primes,
- * and again after it, for the primes NFKC makes (U+2034 and U+2057 become three and four).
+ * and again after it, for the primes NFKC makes (U+2034 and U+2057 become three and four). The emoji
+ * selector U+FE0F and the zero width joiner U+200D are dropped: a retyped emoji name often lacks them.
  */
 const looseName = (name: string): string =>
-  foldQuotes(foldQuotes(wellFormed(name)).normalize("NFKC").toLowerCase()).replace(/\s+/g, " ").trim();
+  foldQuotes(foldQuotes(wellFormed(name)).normalize("NFKC").toLowerCase()).replace(/[\uFE0F\u200D]/g, "").replace(/\s+/g, " ").trim();
 
 /**
  * Plan 1 requires copy.serviceDescriptions[i].service to equal facts.services[i].name exactly,
