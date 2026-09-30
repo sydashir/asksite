@@ -223,7 +223,7 @@ describe("refusals (P3-17 D2, D5 c)", () => {
   it("documents the exit codes, in the order that decides between them (iii)", async () => {
     const h = harness();
     expect(await main(["--help"], h.deps)).toBe(2);
-    expect(h.err[0]).toContain("Exit codes, the first that applies: 2 refused flags; 3 a live request cost more than its worst case, or its cost could not be counted; 1 --caps-probe could not measure every model, or an exception ended the run; 0 otherwise.");
+    expect(h.err[0]).toContain("Exit codes, the first that applies: 2 refused flags; 3 a live request cost more than its worst case, or its cost could not be counted, even if an error then ended the run (one line names the error's kind); 1 --caps-probe could not measure every model, or an exception ended the run with no overrun; 0 otherwise.");
   });
 });
 
