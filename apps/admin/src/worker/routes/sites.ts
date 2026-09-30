@@ -1,4 +1,4 @@
-import { ApiError, auditStatement, readJson, runToEnd, siteNoticeEmail, trySend } from "@asksite/app-common";
+import { ApiError, auditStatement, logLine, readJson, runToEnd, siteNoticeEmail, trySend } from "@asksite/app-common";
 import { DisableOwnerBody, IndexableBody, TakedownBody, type AuditRow, type GenerationRow, type SiteVersionRow } from "@asksite/core";
 import { Hono } from "hono";
 import { z } from "zod";
@@ -30,6 +30,16 @@ export function siteRoutes(deps: AdminDeps): Hono<AdminEnv> {
     } catch (err) {
       const mapped = err instanceof deps.publishing.PublishError ? publishApiError((err as PublishErrorLike).code, action) : null;
       throw mapped ?? err;
+    }
+  }
+
+  /** Whether the site's takedown committed. A read that fails counts as "not down", so the caller rethrows its original error. */
+  async function isTakenDown(db: D1Database, siteId: string): Promise<boolean> {
+    try {
+      const row = await db.prepare("SELECT taken_down_at FROM sites WHERE id = ?").bind(siteId).first<{ taken_down_at: number | null }>();
+      return row?.taken_down_at != null;
+    } catch {
+      return false;
     }
   }
 
@@ -76,18 +86,26 @@ export function siteRoutes(deps: AdminDeps): Hono<AdminEnv> {
     const email = siteNoticeEmail({ appOrigin: c.env.APP_ORIGIN, supportEmail: c.env.SUPPORT_EMAIL, ownerMessage });
     // Plan 2's takeDown commits a D1 batch, then deletes LIVE, then purges MEDIA: it runs to its end even if the client goes away.
     // trySend never throws (it logs the mailer's code or error class only, never the address or the content).
-    const noticeSent = await publishing(
+    const view = await publishing(
       () =>
         runToEnd(
           c.executionCtx,
-          (async () => {
-            await deps.publishing.takeDown(c.env, { siteId: site.id, reviewer: c.get("admin"), reason: body.reason, purgeMedia: body.purgeMedia, now: Date.now() });
-            return trySend(mailer, { to: site.owner_email, ...email, replyTo: c.env.SUPPORT_EMAIL, tag: "site_notice", idempotencyKey: `takedown:${site.id}:${Date.now()}` });
+          (async (): Promise<TakedownView> => {
+            const send = () => trySend(mailer, { to: site.owner_email, ...email, replyTo: c.env.SUPPORT_EMAIL, tag: "site_notice", idempotencyKey: `takedown:${site.id}:${Date.now()}` });
+            try {
+              await deps.publishing.takeDown(c.env, { siteId: site.id, reviewer: c.get("admin"), reason: body.reason, purgeMedia: body.purgeMedia, now: Date.now() });
+            } catch (err) {
+              // A PublishError means nothing was taken down. Any other error may have come after the commit (LIVE delete, media purge):
+              // if the site is down the owner must still be told, and the admin learns the cleanup did not finish.
+              if (err instanceof deps.publishing.PublishError || !(await isTakenDown(c.env.DB, site.id))) throw err;
+              logLine({ event: "takedown_cleanup_failed", siteId: site.id });
+              return { noticeSent: await send(), cleanupFailed: true };
+            }
+            return { noticeSent: await send() };
           })(),
         ),
       "change",
     );
-    const view: TakedownView = { noticeSent };
     return c.json(view);
   });
 

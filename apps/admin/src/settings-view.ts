@@ -25,4 +25,6 @@ export interface SignInEmailsView {
  */
 export interface TakedownView {
   noticeSent: boolean;
+  /** Present (true) when a step after the commit (the LIVE delete or the media purge) threw: the site is offline but its cleanup did not finish, so a second takedown finishes it. */
+  cleanupFailed?: true;
 }

@@ -121,6 +121,56 @@ describe("the takedown notice (web-maker-f4, 2026-09-30: awaited after the commi
   });
 });
 
+describe("the takedown's post-commit throw path (web-maker-f4, 2026-09-30, option b)", () => {
+  const takedown = (siteId: string) => `/api/admin/sites/${siteId}/takedown`;
+  const notices = async (email: string) => (await h.outbox(email)).filter((m) => m.tag === "site_notice");
+  const downAt = async (siteId: string) =>
+    (await (await h.db()).prepare("SELECT taken_down_at FROM sites WHERE id = ?").bind(siteId).first<{ taken_down_at: number | null }>())?.taken_down_at;
+
+  it("still tells the owner when cleanup throws after the commit: 200 noticeSent true, cleanupFailed true, one log line with the site id only", async () => {
+    const site = await h.pendingSite();
+    h.server.clearLogs();
+    const res = await h.call("POST", takedown(site.siteId), { body: { reason: "Spam report" }, headers: { "X-Test-Takedown-Fault": "live-delete" } });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ noticeSent: true, cleanupFailed: true });
+    expect(await notices(site.email)).toHaveLength(1);
+    expect(await downAt(site.siteId)).not.toBeNull();
+    expect(h.logLines().filter((l) => l["event"] === "takedown_cleanup_failed")).toEqual([{ event: "takedown_cleanup_failed", siteId: site.siteId }]);
+    expect(JSON.stringify(h.logLines())).not.toContain(site.email);
+    await h.backgroundDone(takedown(site.siteId));
+  });
+
+  it("says both when cleanup throws and the email fails: 200 noticeSent false, cleanupFailed true, the site stays down", async () => {
+    const site = await h.pendingSite();
+    await (await h.db()).prepare("UPDATE owners SET email = ? WHERE id = ?").bind("cleanup@mail-fails.example", site.ownerId).run();
+    const res = await h.call("POST", takedown(site.siteId), { body: { reason: "Spam report" }, headers: { "X-Test-Takedown-Fault": "live-delete" } });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ noticeSent: false, cleanupFailed: true });
+    expect(await downAt(site.siteId)).not.toBeNull();
+    await h.backgroundDone(takedown(site.siteId));
+  });
+
+  it("rethrows a non-PublishError when the site is NOT down: 500, no notice, site untouched", async () => {
+    const site = await h.pendingSite();
+    const res = await h.call("POST", takedown(site.siteId), { body: { reason: "Spam report" }, headers: { "X-Test-Takedown-Fault": "before-commit" } });
+    expect(res.status).toBe(500);
+    expect(await downAt(site.siteId)).toBeNull();
+    expect(await notices(site.email)).toHaveLength(0);
+    await h.backgroundDone(takedown(site.siteId));
+  });
+
+  it("rethrows the ORIGINAL error (500, no notice) when the re-read itself throws", async () => {
+    const site = await h.pendingSite();
+    h.server.clearLogs();
+    const res = await h.call("POST", takedown(site.siteId), { body: { reason: "Spam report" }, headers: { "X-Test-Takedown-Fault": "live-delete-reread" } });
+    expect(res.status).toBe(500);
+    expect(await notices(site.email)).toHaveLength(0);
+    // The line names the original error's class (a plain Error from LIVE.delete), not the re-read's.
+    expect(h.logLines().some((l) => l["error"] === "Error")).toBe(true);
+    await h.backgroundDone(takedown(site.siteId));
+  });
+});
+
 describe("settings storage (Plan 3 reads generation OFF only when the setting is exactly the string \"false\")", () => {
   it("writes exactly \"false\" and \"true\", and a limit as digits, through the settings route", async () => {
     const stored = async () =>

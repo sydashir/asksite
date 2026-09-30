@@ -146,6 +146,37 @@ function disablingBeforeTokenInsert(db: D1Database, ownerId: string): D1Database
   });
 }
 
+/** The faults a takedown request can be given (header X-Test-Takedown-Fault), each thrown as a plain Error, never a PublishError. */
+type TakedownFault = "live-delete" | "live-delete-reread" | "before-commit";
+
+/**
+ * A fault seam for the takedown's post-commit path. "live-delete" fails LIVE.delete, which real takeDown runs AFTER its
+ * D1 batch committed; "live-delete-reread" also fails the route's re-read of taken_down_at; "before-commit" fails the
+ * D1 batch itself, so the site stays up. Every other call passes through.
+ */
+function withTakedownFault(env: TestEnv, fault: TakedownFault): TestEnv {
+  const passThrough = <T extends object>(target: T, key: string | symbol): unknown => {
+    const value: unknown = Reflect.get(target, key);
+    return typeof value === "function" ? value.bind(target) : value;
+  };
+  const live = new Proxy(env.LIVE, {
+    get: (target, key) => (key === "delete" && fault !== "before-commit" ? () => Promise.reject(new Error("LIVE delete failed")) : passThrough(target, key)),
+  });
+  const db = new Proxy(env.DB, {
+    get(target, key) {
+      if (key === "batch" && fault === "before-commit") return () => Promise.reject(new Error("D1 batch failed"));
+      if (key === "prepare" && fault === "live-delete-reread") {
+        return (sql: string) => {
+          if (sql.startsWith("SELECT taken_down_at FROM sites")) throw new Error("D1 read failed");
+          return target.prepare(sql);
+        };
+      }
+      return passThrough(target, key);
+    },
+  });
+  return { ...env, DB: db, LIVE: live };
+}
+
 export default {
   fetch(request, env, ctx) {
     const path = new URL(request.url).pathname;
@@ -153,7 +184,8 @@ export default {
     const local = isLocalTest(request, env);
     // X-Test-Disable-Owner-Before-Token: <owner id> runs the race seam above for this request only.
     const raced = local ? request.headers.get("X-Test-Disable-Owner-Before-Token") : null;
-    const requestEnv = raced === null ? env : { ...env, DB: disablingBeforeTokenInsert(env.DB, raced) };
+    const fault = local ? (request.headers.get("X-Test-Takedown-Fault") as TakedownFault | null) : null;
+    const requestEnv = raced !== null ? { ...env, DB: disablingBeforeTokenInsert(env.DB, raced) } : fault !== null ? withTakedownFault(env, fault) : env;
     // X-Test-Now pins Date.now() while the Worker handles this request (./clock.ts).
     return withClock(request, local, async () => worker.fetch!(request, requestEnv, counting(ctx, path)));
   },
