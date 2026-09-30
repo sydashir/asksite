@@ -1,5 +1,5 @@
 import type { Issue } from "@asksite/core";
-import { describeStop, formatUsd, type BudgetStop } from "./budget.ts";
+import { countable, describeStop, formatUsd, notCountable, type BudgetStop } from "./budget.ts";
 import type { EvalRun } from "./run.ts";
 
 export interface CandidateSummary {
@@ -14,7 +14,9 @@ export interface CandidateSummary {
   providerErrors: Record<string, number>;
   latencyMsP50: number;
   latencyMsP95: number;
+  /** NaN (null in summary.json) when a site's input token count cannot be counted (fix (B)). */
   maxInputTokensPerRun: number;
+  /** NaN (null in summary.json) when a site's cost or usage cannot be counted (fix (B)); then so is the next field. */
   totalCostMicrousd: number;
   costPerPassingSiteMicrousd: number | null;
   /** Attempts whose provider left the usage out (usageMissing): the costs above cannot include them. */
@@ -66,7 +68,9 @@ export function summarise(runs: readonly EvalRun[], sitesPerModel?: number): Can
       }
     const passes = mine.filter((r) => r.result.ok).length;
     const firstTry = mine.filter((r) => r.result.ok && r.result.validOnAttempt === 1).length;
-    const totalCostMicrousd = mine.reduce((sum, r) => sum + r.costMicrousd, 0);
+    // One cost or input count that cannot be counted leaves the figure not countable, never a partial sum or a
+    // largest value that hides it (a negative count, say).
+    const totalCostMicrousd = mine.every((r) => countable(r.costMicrousd)) ? mine.reduce((sum, r) => sum + r.costMicrousd, 0) : Number.NaN;
     const firstTryPassRate = mine.length === 0 ? 0 : firstTry / mine.length;
     const passRate = mine.length === 0 ? 0 : passes / mine.length;
     return {
@@ -79,7 +83,7 @@ export function summarise(runs: readonly EvalRun[], sitesPerModel?: number): Can
       providerErrors,
       latencyMsP50: percentile(mine.map((r) => r.latencyMs), 0.5),
       latencyMsP95: percentile(mine.map((r) => r.latencyMs), 0.95),
-      maxInputTokensPerRun: Math.max(0, ...mine.map((r) => r.result.usage.inputTokens)),
+      maxInputTokensPerRun: mine.every((r) => countable(r.result.usage.inputTokens)) ? Math.max(0, ...mine.map((r) => r.result.usage.inputTokens)) : Number.NaN,
       totalCostMicrousd,
       costPerPassingSiteMicrousd: passes === 0 ? null : Math.round(totalCostMicrousd / passes),
       usageMissingAttempts: mine.reduce((sum, r) => sum + r.result.log.filter((attempt) => attempt.usageMissing).length, 0),
@@ -97,6 +101,8 @@ const unknownCost = (attempts: number): string => `unknown (${attempts} ${attemp
 /** A model a live run planned to send to: it has its key and a recorded price, and --only chose it. */
 export interface PlannedModel {
   label: string;
+  /** The worst case of one of its sites, which the budget counts for a site whose cost or usage it cannot count. */
+  siteWorstMicrousd: number;
 }
 
 /** What a live run spent (amendment P3-17): its budget, what the budget counted, and whether it stopped the run. */
@@ -118,22 +124,42 @@ export interface SpendReport {
 const gate = (s: CandidateSummary, spend: SpendReport | undefined): string =>
   s.meetsAutomaticGate === null ? `not enough runs: cut by ${spend?.error === undefined ? "the budget" : "an error"}` : s.meetsAutomaticGate ? "pass" : "fail";
 
+/**
+ * What stands where the cost or a count of these models' sites cannot be counted: the worst case the budget counted
+ * instead, from the live run's plan (the budget stops at the first such site, so a live run has at most one). Without
+ * a plan nothing was counted, so it is only "not countable".
+ */
+function uncounted(labels: readonly string[], spend: SpendReport | undefined): string {
+  let worstMicrousd = 0;
+  for (const label of labels) {
+    const model = spend?.plan?.find((m) => m.label === label);
+    if (model === undefined) return "not countable";
+    worstMicrousd += model.siteWorstMicrousd;
+  }
+  return notCountable(worstMicrousd);
+}
+
+/** The cost cell: per passing site, or why there is no number. */
+const costCell = (s: CandidateSummary, spend: SpendReport | undefined): string =>
+  !countable(s.totalCostMicrousd) ? uncounted([s.label], spend) : s.usageMissingAttempts === 0 ? usd(s.costPerPassingSiteMicrousd) : unknownCost(s.usageMissingAttempts);
+
 /** The table rows of the planned models that ran no site: what cut them, and no figures. */
 const notRunRows = (summaries: readonly CandidateSummary[], spend: SpendReport | undefined): string[] =>
   (spend?.plan ?? [])
     .filter(({ label }) => !summaries.some((s) => s.label === label))
     .map(({ label }) => `| ${label} | 0 | n/a | n/a | n/a | n/a | n/a | not run (${spend?.error === undefined ? "budget" : "error"}) |`);
 
-const spent = (label: string, micro: number, missing: number): string => `- ${label}: spent ${formatUsd(micro)}${missing === 0 ? "" : `, plus ${unknownCost(missing)}`}`;
+const spent = (label: string, amount: string, missing: number): string => `- ${label}: spent ${amount}${missing === 0 ? "" : `, plus ${unknownCost(missing)}`}`;
 
 function spendSection(summaries: readonly CandidateSummary[], spend: SpendReport): string[] {
-  const total = summaries.reduce((sum, s) => sum + s.totalCostMicrousd, 0);
+  const uncountable = summaries.filter((s) => !countable(s.totalCostMicrousd)).map((s) => s.label);
+  const total = uncountable.length === 0 ? formatUsd(summaries.reduce((sum, s) => sum + s.totalCostMicrousd, 0)) : uncounted(uncountable, spend);
   const missing = summaries.reduce((sum, s) => sum + s.usageMissingAttempts, 0);
   return [
     "## Spend",
     "",
     `- Budget: ${formatUsd(spend.budgetMicrousd)}. Counted against it: ${formatUsd(spend.countedMicrousd)} (a site with an attempt without usage counts at its worst case).`,
-    ...summaries.map((s) => spent(s.label, s.totalCostMicrousd, s.usageMissingAttempts)),
+    ...summaries.map((s) => spent(s.label, countable(s.totalCostMicrousd) ? formatUsd(s.totalCostMicrousd) : uncounted([s.label], spend), s.usageMissingAttempts)),
     spent("In total", total, missing),
     `- ${describeStop(spend.stop)}`,
     ...(spend.error === undefined ? [] : [`- The run ended early on an error (${spend.error}): the results are the sites that completed before it.`]),
@@ -148,10 +174,10 @@ export function formatReport(summaries: readonly CandidateSummary[], spend?: Spe
     "",
     "| model | runs | first try | within 2 retries | p50 ms | p95 ms | cost per passing site | automatic gate |",
     "|---|---|---|---|---|---|---|---|",
-    ...summaries.map((s) => `| ${s.label} | ${s.runs} | ${pct(s.firstTryPassRate)} | ${pct(s.passRate)} | ${s.latencyMsP50} | ${s.latencyMsP95} | ${s.usageMissingAttempts === 0 ? usd(s.costPerPassingSiteMicrousd) : unknownCost(s.usageMissingAttempts)} | ${gate(s, spend)} |`),
+    ...summaries.map((s) => `| ${s.label} | ${s.runs} | ${pct(s.firstTryPassRate)} | ${pct(s.passRate)} | ${s.latencyMsP50} | ${s.latencyMsP95} | ${costCell(s, spend)} | ${gate(s, spend)} |`),
     ...notRunRows(summaries, spend),
     "",
-    ...summaries.flatMap((s) => [`## ${s.label}`, "", `- Rules broken (attempts): ${counts(s.failedRules)}`, `- Claim words caught: ${counts(s.claimWords)}`, `- Provider errors: ${counts(s.providerErrors)}`, `- Largest input per run: ${s.maxInputTokensPerRun} tokens`, ""]),
+    ...summaries.flatMap((s) => [`## ${s.label}`, "", `- Rules broken (attempts): ${counts(s.failedRules)}`, `- Claim words caught: ${counts(s.claimWords)}`, `- Provider errors: ${counts(s.providerErrors)}`, `- Largest input per run: ${countable(s.maxInputTokensPerRun) ? `${s.maxInputTokensPerRun} tokens` : uncounted([s.label], spend)}`, ""]),
     ...(spend === undefined ? [] : spendSection(summaries, spend)),
     "The automatic gate is >= 95% within 2 retries and >= 80% first try. The human half (blind rating in ratings.csv: no unbacked claim found, mean score within 0.3 of Claude) is the user's step.",
   ].join("\n");

@@ -52,9 +52,22 @@ export interface BudgetStop {
 /**
  * Whether a cost is one the budget can count: a whole number of micro-US$ from 0 to Number.MAX_SAFE_INTEGER. Costs are
  * already whole (costMicrousd rounds up), so the budget rounds nothing: NaN, a negative, an infinite, a fractional or
- * a larger cost can only come from a fault, and the budget fails closed on it.
+ * a larger cost can only come from a fault, and the budget fails closed on it. A token count is countable on the same
+ * terms.
  */
-const countable = (micro: number): boolean => Number.isSafeInteger(micro) && micro >= 0;
+export const countable = (n: number): boolean => Number.isSafeInteger(n) && n >= 0;
+
+/**
+ * What `usage` cost, as the budget counts it: costMicrousd, or NaN when a token count is not countable, so the budget
+ * fails closed on it even where the price would turn the count into a countable cost (-1 input token and 1,000 output
+ * tokens cost 300 micro-US$ on gemma; fix (B)).
+ */
+export function usageCostMicrousd(provider: string, modelId: string, usage: { inputTokens: number; outputTokens: number }): number {
+  return countable(usage.inputTokens) && countable(usage.outputTokens) ? costMicrousd(provider, modelId, usage) : Number.NaN;
+}
+
+/** What stands where a cost or a count that cannot be counted would be: the worst case the budget counted instead. */
+export const notCountable = (worstMicrousd: number): string => `not countable (counted at its worst case ${formatUsd(worstMicrousd)})`;
 
 /** A request that cost more than its worst case: what was counted for it, against that worst case. */
 export interface Overrun {

@@ -223,7 +223,7 @@ describe("refusals (P3-17 D2, D5 c)", () => {
   it("documents the exit codes, in the order that decides between them (iii)", async () => {
     const h = harness();
     expect(await main(["--help"], h.deps)).toBe(2);
-    expect(h.err[0]).toContain("Exit codes, the first that applies: 2 refused flags; 3 a live request cost more than its worst case; 1 --caps-probe could not measure every model, or an exception ended the run; 0 otherwise.");
+    expect(h.err[0]).toContain("Exit codes, the first that applies: 2 refused flags; 3 a live request cost more than its worst case, or its cost could not be counted; 1 --caps-probe could not measure every model, or an exception ended the run; 0 otherwise.");
   });
 });
 
@@ -277,7 +277,7 @@ describe("the overrun exit code, 3, in every live mode (iii)", () => {
     };
     expect(await main(["--caps-probe", "--live", "--max-usd", "1", "--only", `${GEMMA},${GROQ}`], h.deps)).toBe(3);
     expect(h.requests).toEqual(modelIds([GEMMA, GROQ]));
-    expect(h.err).toEqual(["The run ended early on an error (error) after a request that cost more than its worst case."]);
+    expect(h.err).toEqual(["The run ended early on an error (error) after a request that cost more than its worst case or whose cost could not be counted."]);
     expect(h.text()).not.toContain("marker-print-failed");
     // gemma 7,078 (its overrun) and groq 51,234 x 0.15 + 256 x 0.6 = 7,838.7, so 7,839.
     expect(h.out.slice(-2)).toEqual(["Spent: $0.014917 counted against the $1.000000 budget.", "The budget did not stop the run."]);
@@ -516,12 +516,84 @@ describe("a live evaluation (P3-17 D3, D4)", () => {
 
   it("fails closed on a site whose cost cannot be counted: its worst case, then nothing more (fix round #4)", async () => {
     const h = harness({ answer: async (env, snapshot, fetchImpl) => ({ ...(await validDraft(env, snapshot, fetchImpl)), usage: { inputTokens: Number.NaN, outputTokens: 1_000 } }) });
-    expect(await main(["--live", "--max-usd", "5", "--runs", "1", "--only", `${GEMMA},${GROQ}`], h.deps)).toBe(0);
+    expect(await main(["--live", "--max-usd", "5", "--runs", "1", "--only", `${GEMMA},${GROQ}`], h.deps)).toBe(3);
     expect(h.requests).toEqual(modelIds([GEMMA]));
     const [stamp] = readdirSync(join(h.dir, "results"));
     const report = readFileSync(join(h.dir, "results", stamp!, "report.md"), "utf8");
     expect(report).toContain(`- Budget: $5.000000. Counted against it: ${formatUsd(worstCaseJobMicrousd("openai-compatible", byLabel(GEMMA).modelId)!)} (a site with an attempt without usage counts at its worst case).`);
     expect(report).toContain(`- Stopped after ${GEMMA} ${EVAL_PROFILES[0]!.id} run 1: its cost was not a whole number of micro-US$ of at least 0, so it was counted at its worst case; nothing more was sent.`);
+  });
+});
+
+describe("a cost or usage that cannot be counted (B)", () => {
+  // Token counts that are not whole numbers from 0 to Number.MAX_SAFE_INTEGER. The shipped adapters never pass one on
+  // (they clamp); a future adapter or a stand-in could.
+  const UNCOUNTABLE = [
+    ["NaN", Number.NaN],
+    ["-1", -1],
+    ["-1,000,000", -1_000_000],
+    ["Infinity", Number.POSITIVE_INFINITY],
+    ["-Infinity", Number.NEGATIVE_INFINITY],
+    ["0.5", 0.5],
+    ["2 ** 53", 2 ** 53],
+  ] as const;
+  /** A raw number standing where a cost or a count should be. */
+  const RAW = /NaN|Infinity|\$-|-\d+ (input )?tokens|9007199254740992/;
+
+  it.each(UNCOUNTABLE)("the evaluation, input tokens %s: the site counts at its worst case, stops the run, shows no raw number anywhere and exits 3", async (_name, inputTokens) => {
+    const h = harness({ answer: async (env, snapshot, fetchImpl) => ({ ...(await validDraft(env, snapshot, fetchImpl)), usage: { inputTokens, outputTokens: 1_000 } }) });
+    expect(await main(["--live", "--max-usd", "5", "--runs", "1", "--only", `${GEMMA},${GROQ}`], h.deps)).toBe(3);
+    expect(h.requests).toEqual(modelIds([GEMMA]));
+    const [stamp] = readdirSync(join(h.dir, "results"));
+    const report = readFileSync(join(h.dir, "results", stamp!, "report.md"), "utf8");
+    // gemma's site worst case: 3 x (70,000 x 0.1 + 8,192 x 0.3) = 28,372.8, so 28,373.
+    const phrase = "not countable (counted at its worst case $0.028373)";
+    expect(report).toContain(`| ${GEMMA} | 1 | 100% | 100% | 0 | 0 | ${phrase} | not enough runs: cut by the budget |`);
+    expect(report).toContain(`- Largest input per run: ${phrase}\n`);
+    expect(report).toContain(`- ${GEMMA}: spent ${phrase}\n`);
+    expect(report).toContain(`- In total: spent ${phrase}\n`);
+    expect(report).toContain("- Budget: $5.000000. Counted against it: $0.028373 (a site with an attempt without usage counts at its worst case).");
+    expect(report).toContain(`- Stopped after ${GEMMA} ${EVAL_PROFILES[0]!.id} run 1: its cost was not a whole number of micro-US$ of at least 0, so it was counted at its worst case; nothing more was sent.`);
+    expect(report).not.toMatch(RAW);
+    expect(h.text()).not.toMatch(RAW);
+  });
+
+  it("the evaluation, output tokens NaN: the costs are not countable, the input count still shows", async () => {
+    const h = harness({ answer: async (env, snapshot, fetchImpl) => ({ ...(await validDraft(env, snapshot, fetchImpl)), usage: { inputTokens: 1_000, outputTokens: Number.NaN } }) });
+    expect(await main(["--live", "--max-usd", "5", "--runs", "1", "--only", GEMMA], h.deps)).toBe(3);
+    const [stamp] = readdirSync(join(h.dir, "results"));
+    const report = readFileSync(join(h.dir, "results", stamp!, "report.md"), "utf8");
+    expect(report).toContain(`- ${GEMMA}: spent not countable (counted at its worst case $0.028373)\n`);
+    expect(report).toContain("- Largest input per run: 1000 tokens\n");
+    expect(report).not.toMatch(RAW);
+  });
+
+  it.each(UNCOUNTABLE)("--caps-probe, input tokens %s: never OK, no raw number, the request counted at its worst case, exit 3", async (_name, inputTokens) => {
+    const h = harness({ answer: async () => ({ json: undefined, model: "fake", usage: { inputTokens, outputTokens: 256 }, stop: "max_tokens" }) });
+    expect(await main(["--caps-probe", "--live", "--max-usd", "1", "--only", `${GEMMA},${GROQ}`], h.deps)).toBe(3);
+    expect(h.requests).toEqual(modelIds([GEMMA]));
+    expect(h.out).toContain(`${GEMMA}: input tokens for the caps prompt not countable (counted at its worst case $0.007077), not measured`);
+    expect(h.out).toContain(`${GROQ}: not measured: the budget stopped the run`);
+    expect(h.out).toContain("Spent: $0.007077 counted against the $1.000000 budget.");
+    expect(h.out.filter((line) => line.endsWith("OK"))).toEqual([]);
+    expect(h.text()).not.toMatch(RAW);
+  });
+
+  it.each(UNCOUNTABLE)("--record, input tokens %s: says the cost was not countable and what was counted, no raw number, exit 3", async (_name, inputTokens) => {
+    const body = { model: "m", choices: [{ message: { content: "{}" }, finish_reason: "stop" }], usage: { prompt_tokens: 5, completion_tokens: 6 } };
+    const http = fakeFetch([{ status: 200, body }]);
+    const recorded: Answer = async (env, snapshot, fetchImpl) => {
+      await fetchImpl!("https://record.example.invalid/v1/chat/completions", { method: "POST", body: "{}" });
+      return { ...(await validDraft(env, snapshot, fetchImpl)), usage: { inputTokens, outputTokens: 1_000 } };
+    };
+    const h = harness({ answer: recorded, fetch: http.fetch });
+    expect(await main(["--record", "--live", "--max-usd", "1", "--only", `${GEMMA},${GROQ}`], h.deps)).toBe(3);
+    expect(h.requests).toEqual(modelIds([GEMMA]));
+    expect(h.out).toContain(`${GEMMA}: recorded test/fixtures/workers-ai__gemma-4-26b-a4b-it.json`);
+    // gemma's --record worst case: 70,000 x 0.1 + 8,192 x 0.3 = 9,457.6, so 9,458.
+    expect(h.out).toContain(`${GEMMA}: its cost was not countable (counted at its worst case $0.009458)`);
+    expect(h.out).toContain("Spent: $0.009458 counted against the $1.000000 budget.");
+    expect(h.text()).not.toMatch(RAW);
   });
 });
 

@@ -1,6 +1,6 @@
 import type { GenerationInputSnapshot } from "@asksite/core";
 import { describe, expect, it } from "vitest";
-import { Budget, CAPS_PROBE_OUTPUT_TOKENS, describeStop, formatUsd, parseMaxUsd, requestWorstCaseMicrousd, type BudgetStop } from "../eval/budget.ts";
+import { Budget, CAPS_PROBE_OUTPUT_TOKENS, describeStop, formatUsd, parseMaxUsd, requestWorstCaseMicrousd, usageCostMicrousd, type BudgetStop } from "../eval/budget.ts";
 import { formatReport, summarise } from "../eval/metrics.ts";
 import { EVAL_PROFILES } from "../eval/profiles.ts";
 import { runEval, type EvalCandidate } from "../eval/run.ts";
@@ -76,6 +76,26 @@ describe("the worst cases of one request (P3-17 D1, D3)", () => {
     expect(requestWorstCaseMicrousd("anthropic", "claude-unpriced", CAPS_PROBE_OUTPUT_TOKENS)).toBeNull();
     expect(requestWorstCaseMicrousd("openai-compatible", "constructor", MAX_OUTPUT_TOKENS)).toBeNull();
   });
+});
+
+describe("usageCostMicrousd, what a usage cost as the budget counts it (B)", () => {
+  it("prices countable usage exactly as costMicrousd does", () => {
+    for (const usage of [
+      { inputTokens: 0, outputTokens: 0 },
+      { inputTokens: 1_000, outputTokens: 1_000 },
+      { inputTokens: 70_010, outputTokens: 256 },
+      { inputTokens: Number.MAX_SAFE_INTEGER, outputTokens: 0 },
+    ])
+      expect(usageCostMicrousd(GEMMA.provider, GEMMA.modelId, usage)).toBe(costMicrousd(GEMMA.provider, GEMMA.modelId, usage));
+  });
+
+  it.each([Number.NaN, -1, -1_000_000, 0.5, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, 2 ** 53])(
+    "is NaN, a cost the budget cannot count, when a token count is %s, even where the price would give a countable number",
+    (count) => {
+      expect(usageCostMicrousd(GEMMA.provider, GEMMA.modelId, { inputTokens: count, outputTokens: 1_000 })).toBeNaN();
+      expect(usageCostMicrousd(GEMMA.provider, GEMMA.modelId, { inputTokens: 1_000, outputTokens: count })).toBeNaN();
+    },
+  );
 });
 
 const spent = (actualMicrousd: number, usageMissing = false) => () => ({ actualMicrousd, usageMissing });

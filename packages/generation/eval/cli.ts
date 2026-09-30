@@ -13,12 +13,12 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { parseArgs } from "node:util";
 import { ATTEMPT_TIMEOUT_MS, MAX_ATTEMPTS, MAX_OUTPUT_TOKENS, REAL_DEPS, type GenerateDeps } from "../src/generate.ts";
-import { costMicrousd, MAX_INPUT_TOKENS, worstCaseJobMicrousd } from "../src/models.ts";
+import { MAX_INPUT_TOKENS, worstCaseJobMicrousd } from "../src/models.ts";
 import { buildPrompt } from "../src/prompt.ts";
 import { ProviderError, type ModelResponse } from "../src/provider.ts";
 import { createProvider, type ProviderEnv } from "../src/providers/create.ts";
 import { AI_DRAFT_JSON_SCHEMA } from "../src/wire-schema.ts";
-import { Budget, CAPS_PROBE_OUTPUT_TOKENS, describeStop, formatUsd, parseMaxUsd, requestWorstCaseMicrousd, type RequestCost } from "./budget.ts";
+import { Budget, CAPS_PROBE_OUTPUT_TOKENS, countable, describeStop, formatUsd, notCountable, parseMaxUsd, requestWorstCaseMicrousd, usageCostMicrousd, type RequestCost } from "./budget.ts";
 import { CAPS_REPAIR, CAPS_SNAPSHOT } from "./caps.ts";
 import { CANDIDATES, providerEnvFor, type Candidate } from "./candidates.ts";
 import { formatReport, summarise, type SpendReport } from "./metrics.ts";
@@ -76,7 +76,7 @@ const USAGE = [
   "Usage: pnpm --silent eval:generation [--live --max-usd <US$>] [--runs 1-10] [--only label,label] [--caps-probe | --record]",
   "Type the long --silent before eval:generation, so pnpm does not print the arguments back; never the short -s, which pnpm 11 (from 11.14.0) reads as --sequential in pnpm run.",
   "A dry run unless both --live and --max-usd are given. A live run sends each site of the evaluation, or each request of --caps-probe and --record, only while the spend so far plus its worst case fits under --max-usd; the total can exceed --max-usd by at most one request's overrun above its worst case.",
-  "Exit codes, the first that applies: 2 refused flags; 3 a live request cost more than its worst case; 1 --caps-probe could not measure every model, or an exception ended the run; 0 otherwise.",
+  "Exit codes, the first that applies: 2 refused flags; 3 a live request cost more than its worst case, or its cost could not be counted; 1 --caps-probe could not measure every model, or an exception ended the run; 0 otherwise.",
   "Keys: never put a key in arguments; keys come only from the environment (the shell's variables, or the gitignored .env at the repo root; a variable set in the shell wins over the .env).",
 ].join("\n");
 
@@ -163,10 +163,10 @@ const EXIT = { refused: 2, overrun: 3, notMeasured: 1, ok: 0 } as const;
 
 /**
  * Runs the command and returns its exit code. When more than one applies, the first in this order wins: 2 refused
- * flags; 3 a live request cost more than its worst case (in any mode); 1 --caps-probe could not measure every model,
- * or an exception ended the run; 0 otherwise. An exception that ends a live run is passed on once what completed is
- * written (main.ts then exits 1), unless a request had already cost more than its worst case: then its kind is
- * printed and the code is 3.
+ * flags; 3 a live request cost more than its worst case, or its cost could not be counted (in any mode: money stopped
+ * the run or passed a worst case); 1 --caps-probe could not measure every model, or an exception ended the run; 0
+ * otherwise. An exception that ends a live run is passed on once what completed is written (main.ts then exits 1),
+ * unless code 3 already applies: then the exception's kind is printed and the code is 3.
  */
 export async function main(argv: readonly string[], deps: CliDeps = REAL): Promise<number> {
   for (const name of SDK_VARIABLES) delete process.env[name];
@@ -243,15 +243,15 @@ async function live(flags: Flags, capMicrousd: number, rows: readonly Row[], dep
       }
     }
   } catch (error) {
-    if (!overran(budget)) throw error;
-    deps.warn(`The run ended early on an error (${kindOf(error)}) after a request that cost more than its worst case.`);
+    if (!boundFailed(budget)) throw error;
+    deps.warn(`The run ended early on an error (${kindOf(error)}) after a request that cost more than its worst case or whose cost could not be counted.`);
   }
-  if (overran(budget)) return EXIT.overrun;
+  if (boundFailed(budget)) return EXIT.overrun;
   return measured ? EXIT.ok : EXIT.notMeasured;
 }
 
-/** Whether a request of this run cost more than its worst case. */
-const overran = (budget: Budget): boolean => budget.overruns.length > 0;
+/** Whether a worst case failed to bound a request of this run: it cost more, or its cost could not be counted. */
+const boundFailed = (budget: Budget): boolean => budget.overruns.length > 0 || budget.stop?.reason === "invalid_cost";
 
 function printSpend(budget: Budget, deps: CliDeps): void {
   deps.print(`Spent: ${formatUsd(budget.spentMicrousd)} counted against the ${formatUsd(budget.capMicrousd)} budget.`);
@@ -267,10 +267,10 @@ function printOverrun(label: string, usage: ModelResponse["usage"], budget: Budg
 
 const kindOf = (error: unknown): string => (error instanceof ProviderError ? error.kind : "error");
 
-/** What one response cost, and whether its usage was missing. */
+/** What one response cost (NaN when its usage cannot be counted, so the budget fails closed), and whether its usage was missing. */
 const costOf =
   ({ provider, modelId }: Candidate) =>
-  (res: ModelResponse): RequestCost => ({ actualMicrousd: costMicrousd(provider, modelId, res.usage), usageMissing: res.usageMissing === true });
+  (res: ModelResponse): RequestCost => ({ actualMicrousd: usageCostMicrousd(provider, modelId, res.usage), usageMissing: res.usageMissing === true });
 
 /**
  * Every site through runEval under the budget, then the report (with what it spent), the results and the blind rating
@@ -297,7 +297,7 @@ async function evaluate(runs: number, plan: readonly LiveRow[], budget: Budget, 
     throw thrown;
   } finally {
     deps.progress("\n");
-    const planned = plan.map(({ candidate }) => ({ label: candidate.label }));
+    const planned = plan.map(({ candidate, worstMicrousd }) => ({ label: candidate.label, siteWorstMicrousd: worstMicrousd }));
     writeResults(results, EVAL_PROFILES.length * runs, { budgetMicrousd: budget.capMicrousd, countedMicrousd: budget.spentMicrousd, stop: budget.stop, ...(error === undefined ? {} : { error }), plan: planned }, deps);
   }
 }
@@ -348,6 +348,10 @@ async function probeCaps(plan: readonly LiveRow[], budget: Budget, deps: CliDeps
     if (res.usageMissing === true) {
       deps.print(`${candidate.label}: the answer had no usage, not measured`);
       measured = false;
+    } else if (!countable(res.usage.inputTokens)) {
+      // Never OK, never the raw count: the budget counted this request at its worst case and stopped the run.
+      deps.print(`${candidate.label}: input tokens for the caps prompt ${notCountable(worstMicrousd)}, not measured`);
+      measured = false;
     } else {
       const ok = res.usage.inputTokens <= MAX_INPUT_TOKENS;
       measured &&= ok;
@@ -388,9 +392,10 @@ async function record(plan: readonly LiveRow[], budget: Budget, deps: CliDeps): 
       writeFileSync(new URL(fixtureName(candidate.label), deps.fixturesDir), `${JSON.stringify(recorded, null, 2)}\n`);
       deps.print(`${candidate.label}: recorded test/fixtures/${fixtureName(candidate.label)}`);
     }
-    // Without usage the budget counts the larger of the partial cost and the worst case (budget.ts): the worst case,
-    // unless the partial cost alone passed it, which the overrun line then reports.
-    if (res.usageMissing === true && !budget.overruns.some((o) => o.at === candidate.label)) deps.print(`${candidate.label}: the answer had no usage, so it was counted at its worst case of ${formatUsd(worstMicrousd)}`);
+    // The budget counts at its worst case a cost or usage it cannot count (then stops the run), and a response without
+    // usage, unless the partial cost alone passed the worst case, which the overrun line then reports (budget.ts).
+    if (budget.stop?.reason === "invalid_cost" && budget.stop.at === candidate.label) deps.print(`${candidate.label}: its cost was ${notCountable(worstMicrousd)}`);
+    else if (res.usageMissing === true && !budget.overruns.some((o) => o.at === candidate.label)) deps.print(`${candidate.label}: the answer had no usage, so it was counted at its worst case of ${formatUsd(worstMicrousd)}`);
     printOverrun(candidate.label, res.usage, budget, deps);
   }
 }
