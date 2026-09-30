@@ -331,16 +331,22 @@ describe("runGenerationJob", () => {
       inputBoundRefused: false,
       costUnknown: false,
       durationMs: 0,
+      provider: "fake",
+      model: "fake-template",
     });
   });
 
   // Task 9 follow-up item 6 (task-9-additions A): the Worker's log line spreads the report, so the whole report is pinned
   // on every path the job has. usageMissing, inputBoundRefused and costUnknown are booleans on each, never undefined.
+  // Item 1: the report's provider and model are the values the job's final write stored in the row (the model capped as
+  // task-9-additions E gives), so Task 12's log lines need no extra D1 read. On lost and write_failed the job's write
+  // stored nothing: the report carries the values that write held, as it does for attempts.
   describe("reports the whole outcome on every path", () => {
     const REPORT = {
       generationId: "g1", attempts: 0, usedFallback: false, errorCode: null, fallbackReason: null, providerErrorKind: null,
-      attemptOutcomes: [], usageMissing: false, inputBoundRefused: false, costUnknown: false, durationMs: 0,
+      attemptOutcomes: [], usageMissing: false, inputBoundRefused: false, costUnknown: false, durationMs: 0, provider: null, model: null,
     };
+    const FAKE = { provider: "fake", model: "fake-template" };
     const ANTHROPIC = { MODEL_PROVIDER: "anthropic", MODEL_ID: "claude-opus-5-5" };
     const TIMEOUTS: JobReport["attemptOutcomes"] = ["timeout", "timeout", "timeout"];
     /** The test's D1 binding, whose prepare throws for the statements `failing` picks. */
@@ -373,30 +379,34 @@ describe("runGenerationJob", () => {
     };
 
     it.each<[string, Path]>([
-      ["success", { report: { outcome: "succeeded", attempts: 1, attemptOutcomes: ["valid"] } }],
-      ["success, with the provider's own model string", { env: () => ANTHROPIC, jobDeps: () => deps(scriptedProvider([answer(TEMPLATE)])), report: { outcome: "succeeded", attempts: 1, attemptOutcomes: ["valid"] } }],
-      ["success, with a model string over 200 UTF-16 units", { jobDeps: () => deps(scriptedProvider([{ ...answer(TEMPLATE), model: "m".repeat(201) }])), report: { outcome: "succeeded", attempts: 1, attemptOutcomes: ["valid"] } }],
-      ["template fallback: a first build after three timeouts (usage unknown)", { env: () => ({ FAKE_MODE: "timeout" }), report: { outcome: "fallback", attempts: 3, usedFallback: true, fallbackReason: "provider_error", providerErrorKind: "timeout", attemptOutcomes: TIMEOUTS, usageMissing: true } }],
-      ["a regeneration that failed after three timeouts (usage unknown)", { kind: "regenerate", env: () => ({ FAKE_MODE: "timeout" }), report: { outcome: "failed", attempts: 3, errorCode: "provider_timeout", providerErrorKind: "timeout", attemptOutcomes: TIMEOUTS, usageMissing: true } }],
-      ["a regeneration that failed after three invalid answers", { kind: "regenerate", env: () => ({ FAKE_MODE: "invalid-always" }), report: { outcome: "failed", attempts: 3, errorCode: "invalid_output", attemptOutcomes: ["invalid", "invalid", "invalid"] } }],
+      ["success", { report: { outcome: "succeeded", attempts: 1, attemptOutcomes: ["valid"], ...FAKE } }],
+      ["success, with the provider's own model string", { env: () => ANTHROPIC, jobDeps: () => deps(scriptedProvider([answer(TEMPLATE)])), report: { outcome: "succeeded", attempts: 1, attemptOutcomes: ["valid"], provider: "anthropic", model: "scripted-1" } }],
+      ["success, with a model string over 200 UTF-16 units", { jobDeps: () => deps(scriptedProvider([{ ...answer(TEMPLATE), model: "m".repeat(201) }])), report: { outcome: "succeeded", attempts: 1, attemptOutcomes: ["valid"], ...FAKE } }],
+      ["template fallback: a first build after three timeouts (usage unknown)", { env: () => ({ FAKE_MODE: "timeout" }), report: { outcome: "fallback", attempts: 3, usedFallback: true, fallbackReason: "provider_error", providerErrorKind: "timeout", attemptOutcomes: TIMEOUTS, usageMissing: true, ...FAKE } }],
+      ["a regeneration that failed after three timeouts (usage unknown)", { kind: "regenerate", env: () => ({ FAKE_MODE: "timeout" }), report: { outcome: "failed", attempts: 3, errorCode: "provider_timeout", providerErrorKind: "timeout", attemptOutcomes: TIMEOUTS, usageMissing: true, ...FAKE } }],
+      ["a regeneration that failed after three invalid answers", { kind: "regenerate", env: () => ({ FAKE_MODE: "invalid-always" }), report: { outcome: "failed", attempts: 3, errorCode: "invalid_output", attemptOutcomes: ["invalid", "invalid", "invalid"], ...FAKE } }],
       ["claim refusal: switched off, a first build gets the template", { env: () => ({ GENERATION_ENABLED: "false" }), report: { outcome: "fallback", usedFallback: true, fallbackReason: "disabled" } }],
       ["claim refusal: today's model calls used up, a regeneration fails", { kind: "regenerate", setting: ["generation.daily_model_limit", "0"], report: { outcome: "failed", errorCode: "budget_exhausted" } }],
-      ["provider failure: no key, a first build gets the template", { env: () => ANTHROPIC, report: { outcome: "fallback", usedFallback: true, fallbackReason: "provider_error", providerErrorKind: "auth" } }],
-      ["provider failure: no key, a regeneration fails", { kind: "regenerate", env: () => ANTHROPIC, report: { outcome: "failed", errorCode: "provider_unavailable", providerErrorKind: "auth" } }],
-      ["provider failure: the input guard refused attempt 1, a regeneration fails", { kind: "regenerate", input: JSON.stringify(OVER_BOUND), jobDeps: () => deps(scriptedProvider([])), report: { outcome: "failed", errorCode: "provider_unavailable", providerErrorKind: "bad_request", attemptOutcomes: ["bad_request"], inputBoundRefused: true } }],
+      ["provider failure: no key, a first build gets the template", { env: () => ANTHROPIC, report: { outcome: "fallback", usedFallback: true, fallbackReason: "provider_error", providerErrorKind: "auth", provider: "anthropic" } }],
+      ["provider failure: no key, a regeneration fails", { kind: "regenerate", env: () => ANTHROPIC, report: { outcome: "failed", errorCode: "provider_unavailable", providerErrorKind: "auth", provider: "anthropic" } }],
+      ["provider failure: the input guard refused attempt 1, a regeneration fails", { kind: "regenerate", input: JSON.stringify(OVER_BOUND), jobDeps: () => deps(scriptedProvider([])), report: { outcome: "failed", errorCode: "provider_unavailable", providerErrorKind: "bad_request", attemptOutcomes: ["bad_request"], inputBoundRefused: true, ...FAKE } }],
       ["catch-all: our own code threw after a call (costUnknown), a first build gets the template", { env: () => ANTHROPIC, jobDeps: () => deps(scriptedProvider([answerOurCodeCannotCheck()])), report: { outcome: "fallback", usedFallback: true, fallbackReason: "provider_error", costUnknown: true } }],
       ["catch-all: our own code threw after a call (costUnknown), a regeneration fails", { kind: "regenerate", env: () => ANTHROPIC, jobDeps: () => deps(scriptedProvider([answerOurCodeCannotCheck()])), report: { outcome: "failed", errorCode: "internal", costUnknown: true } }],
       ["catch-all: our own code threw before any call, a first build gets the template", { jobDeps: () => ({ ...deps(), createProvider: () => { throw new TypeError("bug"); } }), report: { outcome: "fallback", usedFallback: true, fallbackReason: "provider_error" } }],
       ["the stored input is not a valid snapshot", { input: '{"facts":{}}', report: { outcome: "failed", errorCode: "internal" } }],
       ["not claimed: no queued job", { notQueued: true, report: { outcome: "not_claimed" } }],
       ["read_failed: the claimed row cannot be read", { env: () => ({ DB: failingDb((sql) => sql.startsWith("SELECT kind")) }), report: { outcome: "read_failed" } }],
-      ["lost: the row was finished by someone else first", { jobDeps: () => deps(finishesFirst()), report: { outcome: "lost", attempts: 1, attemptOutcomes: ["valid"] } }],
-      ["write_failed: the final write failed", { env: () => ({ DB: failingDb((sql) => sql.includes("finished_at = ?")) }), report: { outcome: "write_failed", attempts: 1, attemptOutcomes: ["valid"] } }],
+      ["lost: the row was finished by someone else first", { jobDeps: () => deps(finishesFirst()), report: { outcome: "lost", attempts: 1, attemptOutcomes: ["valid"], provider: "fake", model: "scripted-1" } }],
+      ["write_failed: the final write failed", { env: () => ({ DB: failingDb((sql) => sql.includes("finished_at = ?")) }), report: { outcome: "write_failed", attempts: 1, attemptOutcomes: ["valid"], ...FAKE } }],
     ])("%s", async (_path, path) => {
       if (path.setting) await setSetting(db, ...path.setting);
       if (!path.notQueued) await queued("g1", path.kind, "s1", path.input);
       const report = await runGenerationJob(envWith(path.env?.()), "g1", path.jobDeps?.() ?? deps());
       expect(report).toEqual({ ...REPORT, ...path.report });
+      if (report.outcome === "succeeded" || report.outcome === "fallback" || report.outcome === "failed") {
+        const row = await getGeneration(db, "g1");
+        expect({ provider: row.provider, model: row.model }).toEqual({ provider: report.provider, model: report.model });
+      }
     });
   });
 

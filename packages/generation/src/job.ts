@@ -41,6 +41,12 @@ export interface JobReport {
   /** generateDraft rejected (our own bug), maybe after paid calls: their tokens and cost are unknown, recorded as 0. */
   costUnknown: boolean;
   durationMs: number;
+  /**
+   * The provider and model the job's final write stored (the model capped, task-9-additions E); null when it stored none.
+   * On lost and write_failed that write stored nothing: these are the values it carried, as attempts is.
+   */
+  provider: string | null;
+  model: string | null;
 }
 
 // §6.3 step 1: one statement claims the job AND, if the kill switch is on and today's count is
@@ -174,7 +180,7 @@ export async function runGenerationJob(env: JobEnv, generationId: string, deps: 
   const report = (outcome: JobReport["outcome"], extra: Partial<JobReport> = {}): JobReport => ({
     outcome, generationId, attempts: 0, usedFallback: false, errorCode: null, fallbackReason: null,
     providerErrorKind: null, attemptOutcomes: [], usageMissing: false, inputBoundRefused: false, costUnknown: false,
-    durationMs: deps.now() - startedAt, ...extra,
+    durationMs: deps.now() - startedAt, provider: null, model: null, ...extra,
   });
 
   const enabled = await isGenerationEnabled(env);
@@ -215,7 +221,7 @@ export async function runGenerationJob(env: JobEnv, generationId: string, deps: 
 
   const fallbackReason = ending.status === "succeeded" ? ending.fallbackReason : null;
   const errorCode = ending.status === "failed" ? ending.errorCode : null;
-  const calls = { attempts: spend.attempts, ...trace };
+  const calls = { attempts: spend.attempts, provider: spend.provider, model: spend.model, ...trace };
   // FINISH ?14: known to have sent no provider call (the count is not unknown, and it is 0).
   const releaseSlot = spend.attempts === 0 && !trace.costUnknown;
   try {
