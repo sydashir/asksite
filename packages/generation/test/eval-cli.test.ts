@@ -14,7 +14,7 @@ import { worstCaseJobMicrousd } from "../src/models.ts";
 import { buildPrompt } from "../src/prompt.ts";
 import { ProviderError, type ModelRequest, type ModelResponse } from "../src/provider.ts";
 import type { ProviderEnv } from "../src/providers/create.ts";
-import { templateDraft } from "../src/template.ts";
+import { templateAnswer } from "../src/template.ts";
 import { AI_DRAFT_JSON_SCHEMA } from "../src/wire-schema.ts";
 import { fakeFetch } from "./support/http.ts";
 
@@ -51,8 +51,8 @@ const HF = "hf-router/gpt-oss-120b:groq";
 const OSS = "workers-ai/gpt-oss-120b";
 
 type Answer = (env: ProviderEnv, snapshot: GenerationInputSnapshot, fetchImpl: typeof fetch | undefined) => Promise<ModelResponse>;
-/** A valid draft for the snapshot, at 1,000 tokens in and out. */
-const validDraft: Answer = async (_env, snapshot) => ({ json: templateDraft(snapshot.facts, snapshot.brief), model: "fake", usage: THOUSAND, stop: "end" });
+/** A valid answer for the snapshot, at 1,000 tokens in and out. */
+const validDraft: Answer = async (_env, snapshot) => ({ json: templateAnswer(snapshot.facts, snapshot.brief), model: "fake", usage: THOUSAND, stop: "end" });
 
 /** main()'s dependencies, all fake: providers come from a spy factory, and output, results and fixtures stay here. */
 function harness(options: { env?: Record<string, string>; candidates?: readonly Candidate[]; answer?: Answer; fetch?: typeof fetch } = {}) {

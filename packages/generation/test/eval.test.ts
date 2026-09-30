@@ -9,7 +9,7 @@ import { ratingSheet } from "../eval/ratings.ts";
 import { runEval } from "../eval/run.ts";
 import type { ModelProvider } from "../src/provider.ts";
 import { FakeProvider, type FakeMode } from "../src/providers/fake.ts";
-import { templateDraft } from "../src/template.ts";
+import { templateAnswer } from "../src/template.ts";
 import { answer, ProviderError, scriptedProvider } from "./support/scripted.ts";
 
 let clock = 0;
@@ -137,7 +137,7 @@ describe("attempts without usage (additions B)", () => {
 describe("summarise, every field (fix round #7)", () => {
   it("counts rules, claim words and provider errors from the failed attempts only, and the largest input per run", async () => {
     const trap = EVAL_PROFILES.find((p) => p.id === "trap-plumb")!;
-    const draft = templateDraft(trap.snapshot.facts, trap.snapshot.brief);
+    const draft = templateAnswer(trap.snapshot.facts, trap.snapshot.brief);
     // The real claim checker refuses these words for trap-plumb, which gives no licence, insurance or founding year.
     const claims = { ...draft, copy: { ...draft.copy, about: "Licensed and insured plumbers since long ago, fixing leaks across Tacoma." } };
     // Site 1: a provider error, then copy with unbacked claims, then a valid draft. Site 2: valid at the first try.

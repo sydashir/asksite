@@ -7,7 +7,7 @@ import { runEval, type EvalCandidate } from "../eval/run.ts";
 import { MAX_INPUT_TOKENS, MAX_OUTPUT_TOKENS } from "../src/generate.ts";
 import { costMicrousd, worstCaseJobMicrousd } from "../src/models.ts";
 import type { ModelProvider, ModelResponse } from "../src/provider.ts";
-import { templateDraft } from "../src/template.ts";
+import { templateAnswer } from "../src/template.ts";
 
 // Amendment P3-17: live eval requests are sent only under a --max-usd budget. Fakes only: no provider in this file
 // makes a request of any kind.
@@ -299,9 +299,9 @@ describe("a budget that goes on after an overrun (--caps-probe and --record; fix
   });
 });
 
-/** A provider that answers every request with the owner's template draft (valid) and the same usage. */
+/** A provider that answers every request with the template answer (valid) and the same usage. */
 const fixedAnswer = (snapshot: GenerationInputSnapshot, usage: ModelResponse["usage"], usageMissing = false): ModelResponse => ({
-  json: templateDraft(snapshot.facts, snapshot.brief),
+  json: templateAnswer(snapshot.facts, snapshot.brief),
   model: "fixed",
   usage,
   stop: "end",
