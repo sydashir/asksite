@@ -40,7 +40,7 @@ export function renderContact(ctx: RenderContext): SafeHtml {
 
   return html`<section id="${DOM_ID.contact}" class="sec dark" aria-labelledby="${DOM_ID.contact}-title">
 <div class="${rows < STACK_BELOW ? "wr contact c-stack" : "wr contact"}">
-<div>
+<div class="c-info">
 ${sectionHead(DOM_ID.contact, ctaLong(doc), copy.sectionIntros.contact)}
 <ul class="c-list">
 <li>${icon("phone", "i i-lg")}<span><a class="c-ph whitespace-nowrap" href="${telUrl(facts.phone)}">${formatPhone(facts.phone)}</a>${facts.emergency247 && html`<span class="c-note">24/7 emergency service</span>`}</span></li>

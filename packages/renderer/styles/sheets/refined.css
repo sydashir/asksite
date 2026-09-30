@@ -232,6 +232,10 @@ h1,h2,h3{font-weight:700;line-height:1.15;color:var(--aw-refined-ink);text-wrap:
 
 /* ---------- Contact band ---------- */
 .dark{background:var(--aw-refined-dark);color:var(--aw-refined-on-dark-muted)}
+/* The info column repeats the band's colour (unseen). WebKit's iPhone emulation restyles the form's ancestors when the
+   meta viewport narrows the page, and getComputedStyle then drops their inherited custom properties, so axe read
+   the band as white behind this light text; the painted band was right. The column is not the form's ancestor. */
+.c-info{background:var(--aw-refined-dark)}
 .dark .sh::before{background:var(--aw-refined-accent-on-dark)}
 .dark .st{color:var(--aw-refined-on-dark)}
 .dark .sh p{color:var(--aw-refined-on-dark-muted)}
@@ -258,7 +262,9 @@ h1,h2,h3{font-weight:700;line-height:1.15;color:var(--aw-refined-ink);text-wrap:
 .in:focus-visible{outline-offset:1px;border-color:var(--aw-refined-ink)}
 textarea.in{resize:vertical}
 .sel{position:relative;color:var(--aw-refined-ink)}
-.sel .in{appearance:none;padding-right:3rem;text-overflow:ellipsis}
+/* WebKit counts a chosen option's whole text as page width, so the select clips it (a 40-character name scrolled a
+   320 px page sideways). */
+.sel .in{appearance:none;padding-right:3rem;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
 .sel-i{position:absolute;top:50%;right:1rem;width:1.25rem;height:1.25rem;transform:translateY(-50%);pointer-events:none}
 .hp{position:absolute;left:-9999px;width:1px;height:1px;overflow:hidden}
 .fcard .bt{width:100%;margin-top:.5rem}
@@ -491,11 +497,14 @@ textarea.in{resize:vertical}
   .h-swap .lg-1{grid-template-columns:minmax(0,auto)}
   .h-swap :is(.lg-2,.lg-4){grid-template-columns:repeat(2,minmax(0,auto))}
   .tr-swap{display:none}
-  /* A card taller than the words beside it would centre them low; the words start at the top instead. */
+  /* A card taller than the words beside it would centre them low; the words start at the top instead. The seal rises
+     2.5rem (and its 4.5px ring) above the card, so a sealed card starts lower, keeping the seal inside the hero. */
   .h-card .h-copy{align-self:start}
+  .hm-sealed{margin-top:1.625rem}
 }
 @media (min-width:60rem) and (max-width:79.99rem) and (max-height:53.99rem){
   .hero{padding-top:1.25rem}
+  .hm-sealed{margin-top:2.375rem}
   .h-grid{column-gap:3rem}
   .ha .bt-lg{padding-inline:1.25rem}
   .h-swap .ledger{column-gap:1.5rem;margin-top:1rem;padding-top:.75rem}

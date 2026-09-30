@@ -103,7 +103,7 @@ export function renderHero(ctx: RenderContext): SafeHtml {
   ]);
   const media = photo
     ? html`<div class="hm"><div class="${quote ? "frame fq" : "frame"}"><img src="${safeUrl(photo.url, ["https:"])}" width="${photo.width}" height="${photo.height}" alt="${photo.alt}" loading="eager" fetchpriority="high" decoding="async">${quote}</div>${seal(facts)}</div>`
-    : html`<div class="hm hm-card">${businessCard(ctx)}${seal(facts)}</div>`;
+    : html`<div class="${facts.yearFounded !== undefined ? "hm hm-card hm-sealed" : "hm hm-card"}">${businessCard(ctx)}${seal(facts)}</div>`;
   const classes = ["hero", lift && "h-lift", liftSwap && "h-swap", !photo && "h-card"].filter(Boolean).join(" ");
 
   return html`<section id="${DOM_ID.hero}" class="${classes}" aria-labelledby="${DOM_ID.hero}-title">
