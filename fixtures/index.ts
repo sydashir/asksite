@@ -1,6 +1,11 @@
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
-import type { SiteDocumentInput } from "@asksite/site-schema";
-import { render } from "@asksite/renderer";
+import { render, type DesignStylesheets } from "@asksite/renderer";
+import { DESIGN_CSS } from "@asksite/site-css";
+import { DESIGN_IDS, type DesignId, type SiteDocumentInput } from "@asksite/site-schema";
+
+/** Every design's real compiled stylesheet (@asksite/site-css), for tests that check the real sheets. */
+export { DESIGN_CSS };
 
 /** Sample trades businesses. Each is a SiteDocument JSON file in this folder. */
 export const FIXTURES = ["plumber-austin", "hvac-phoenix", "roofing-extreme", "cleaning-minimal", "electrical-xss"] as const;
@@ -13,11 +18,18 @@ export function loadFixture(name: FixtureName): SiteDocumentInput {
   return JSON.parse(readFileSync(new URL(`./${name}.json`, import.meta.url), "utf8")) as SiteDocumentInput;
 }
 
-/** The shared stylesheet compiled by `pnpm build:css`. */
-export function loadStylesheet(): string {
-  return readFileSync(new URL("../packages/renderer/styles/site.css", import.meta.url), "utf8");
+/** A document in the given design, or as it is when no design is given. */
+export function inDesign(doc: SiteDocumentInput, design?: DesignId): SiteDocumentInput {
+  return design === undefined ? doc : { ...doc, theme: { ...doc.theme, design } };
 }
 
-export function renderFixture(name: FixtureName, stylesheet: string = loadStylesheet()): string {
-  return render(loadFixture(name), { stylesheet, formAction: FIXTURE_FORM_ACTION });
+/** Stylesheets for tests only: every design gets `css` (or css(design)), with the SHA-256 of its UTF-8 bytes. */
+export function stubStylesheets(css: string | ((design: DesignId) => string) = "/* css */"): DesignStylesheets {
+  const sheet = (text: string) => Object.freeze({ css: text, sha256: createHash("sha256").update(text, "utf8").digest("hex") });
+  return Object.freeze(Object.fromEntries(DESIGN_IDS.map((id) => [id, sheet(typeof css === "string" ? css : css(id))]))) as DesignStylesheets;
+}
+
+/** The fixture's page, in its own design or the one given, with the real stylesheets unless others are given. */
+export function renderFixture(name: FixtureName, stylesheets: DesignStylesheets = DESIGN_CSS, design?: DesignId): string {
+  return render(inDesign(loadFixture(name), design), { stylesheets, formAction: FIXTURE_FORM_ACTION }).html;
 }
