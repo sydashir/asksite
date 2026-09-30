@@ -174,6 +174,24 @@ describe("review", () => {
     expect((await h.outbox(site.email))[0]).toMatchObject({ subject: "Your website is live", tag: "review_result" });
   });
 
+  // Security review I1 (web-maker-f4, 2026-09-30): Plan 2's approveVersion commits its D1 batch and only then copies
+  // the page to LIVE, so the route hands the approval to waitUntil (runToEnd) and an admin's dropped connection
+  // cannot stop it between the two. A refused approve (nothing goes live, no email) hands over that one promise; an
+  // approval hands over two, the approval and the owner's email.
+  it("hands the approval to waitUntil as well, so a client that goes away cannot stop it halfway", async () => {
+    const site = await h.pendingSite();
+    const path = `/api/admin/versions/${site.versionId}/approve`;
+    const handedOver = async (body: { htmlSha256: string }) => {
+      const before = await h.waitUntilCount(path);
+      const { status } = await h.call("POST", path, { body });
+      return { status, waitUntil: (await h.waitUntilCount(path)) - before };
+    };
+    const refused = await handedOver({ htmlSha256: "0".repeat(64) });
+    const approved = await handedOver({ htmlSha256: site.htmlSha256 });
+    expect({ refused, approved }).toEqual({ refused: { status: 500, waitUntil: 1 }, approved: { status: 200, waitUntil: 2 } });
+    await h.backgroundDone(path);
+  });
+
   // P4-23 item 4, option (a) (web-maker-f4, 2026-09-30): the approval is done before the owner's email is built, so
   // an email that cannot be built (reviewApprovedEmail refuses a live address that is not a safe https URL) skips
   // only the email; the admin gets the usual answer. Plan 2 builds the live address from ROOT_DOMAIN and the site's

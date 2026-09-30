@@ -14,6 +14,35 @@ type TestEnv = Env & { TEST_ACCESS_JWKS?: string };
 
 const worker = createAdminWorker(fakeAdminDeps, (env) => createLocalJWKSet(JSON.parse((env as TestEnv).TEST_ACCESS_JWKS ?? '{"keys":[]}') as JSONWebKeySet));
 
+// The waitUntil count below is lane A's seam (apps/app/test/support/test-worker.ts:16-35 and its /__test/wait-until
+// route), copied as the moderator ruled for the approve route's runToEnd (web-maker-f4, 2026-09-30).
+
+/** Per path: how many promises its requests handed to ctx.waitUntil, and how many of those are still running. */
+const waitUntilSeen = new Map<string, { count: number; pending: number }>();
+
+/** The request's ExecutionContext, keeping count of its waitUntil promises by path. */
+function counting(ctx: ExecutionContext, path: string): ExecutionContext {
+  return new Proxy(ctx, {
+    get(target, key) {
+      if (key === "waitUntil") {
+        return (promise: Promise<unknown>) => {
+          const seen = waitUntilSeen.get(path) ?? { count: 0, pending: 0 };
+          waitUntilSeen.set(path, seen);
+          seen.count += 1;
+          seen.pending += 1;
+          const done = () => {
+            seen.pending -= 1;
+          };
+          promise.then(done, done);
+          target.waitUntil(promise);
+        };
+      }
+      const value: unknown = Reflect.get(target, key);
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
+}
+
 /** The test-only hooks below work only in local development, on a *.localhost host. */
 function isLocalTest(request: Request, env: TestEnv): boolean {
   const host = new URL(request.url).hostname;
@@ -74,10 +103,18 @@ async function nodeProcessEnv(bindingNames: string[]) {
 /** A13: what `typeof process` is inside this Worker ("undefined" once Node.js compatibility is off), and what node:process gives. */
 helpers.get("/__test/runtime", async (c) => c.json({ process: typeof process, nodeProcess: await nodeProcessEnv(Object.keys(c.env)) }));
 
+/**
+ * How many promises requests to a path handed to ctx.waitUntil, and how many still run. Lane A found that a client
+ * disconnect cannot be tested instead: the local runtime finishes a request's work after its client has gone, with
+ * or without waitUntil (measured 2026-09-26).
+ */
+helpers.get("/__test/wait-until", (c) => c.json(waitUntilSeen.get(c.req.query("path") ?? "") ?? { count: 0, pending: 0 }));
+
 export default {
   fetch(request, env, ctx) {
-    if (new URL(request.url).pathname.startsWith("/__test/")) return helpers.fetch(request, env, ctx);
+    const path = new URL(request.url).pathname;
+    if (path.startsWith("/__test/")) return helpers.fetch(request, env, ctx);
     // X-Test-Now pins Date.now() while the Worker handles this request (./clock.ts).
-    return withClock(request, isLocalTest(request, env), async () => worker.fetch!(request, env, ctx));
+    return withClock(request, isLocalTest(request, env), async () => worker.fetch!(request, env, counting(ctx, path)));
   },
 } satisfies ExportedHandler<TestEnv>;

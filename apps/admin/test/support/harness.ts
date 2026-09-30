@@ -110,7 +110,33 @@ export function useAdminHarness(vars: Record<string, string> = {}) {
     });
   }
 
-  return { server, call, db, r2, pendingSite, outbox, logLines };
+  // waitUntilCount and backgroundDone are lane A's (apps/app/test/support/harness.ts:136-148), read from the test
+  // Worker's /__test/wait-until.
+  async function waitUntilSeen(path: string): Promise<{ count: number; pending: number }> {
+    return (await call("GET", `/__test/wait-until?path=${encodeURIComponent(path)}`, { token: null })).json() as Promise<{ count: number; pending: number }>;
+  }
+
+  /** How many promises requests to `path` have handed to ctx.waitUntil so far. */
+  async function waitUntilCount(path: string): Promise<number> {
+    return (await waitUntilSeen(path)).count;
+  }
+
+  /** Waits until every promise requests to `path` handed to ctx.waitUntil has settled. */
+  async function backgroundDone(path: string): Promise<void> {
+    await eventually(() => waitUntilSeen(path), (seen) => seen.pending === 0, `the background work of ${path}`);
+  }
+
+  return { server, call, db, r2, pendingSite, outbox, logLines, waitUntilCount, backgroundDone };
+}
+
+/** Polls `read` every 100 ms until `done` accepts its value (at most 5 s); lane A's harness helper of the same name. */
+async function eventually<T>(read: () => T | Promise<T>, done: (value: T) => boolean, what: string): Promise<T> {
+  for (let i = 0; i < 50; i += 1) {
+    const value = await read();
+    if (done(value)) return value;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  throw new Error(`timed out waiting for ${what}`);
 }
 
 export interface D1Like {

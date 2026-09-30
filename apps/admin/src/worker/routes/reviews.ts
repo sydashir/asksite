@@ -1,4 +1,4 @@
-import { ApiError, checkEmailOrigin, readJson, reviewApprovedEmail, reviewRejectedEmail, reviewPageHeaders, trySend } from "@asksite/app-common";
+import { ApiError, checkEmailOrigin, readJson, reviewApprovedEmail, reviewRejectedEmail, reviewPageHeaders, runToEnd, trySend } from "@asksite/app-common";
 import { ApproveBody, RejectBody, type AdminVersionDetail, type GenerationRow, type SiteVersionRow } from "@asksite/core";
 import { Hono } from "hono";
 import { mailerEnv, siteWithOwner, toAdminSiteRow, toVersionSummary, versionRow, type AdminSiteColumns } from "../db.ts";
@@ -85,14 +85,18 @@ export function reviewRoutes(deps: AdminDeps): Hono<AdminEnv> {
     const { mailer, appOrigin } = ownerMail(c.env);
     let result;
     try {
-      result = await deps.publishing.approveVersion(c.env, {
-        versionId: version.id,
-        htmlSha256: body.htmlSha256,
-        reviewer: c.get("admin"),
-        note: body.note === undefined || body.note === "" ? null : body.note,
-        indexable: body.indexable,
-        now: Date.now(),
-      });
+      // Plan 2 commits the approval in D1, then copies the page to LIVE: the work runs to its end even if the client goes away.
+      result = await runToEnd(
+        c.executionCtx,
+        deps.publishing.approveVersion(c.env, {
+          versionId: version.id,
+          htmlSha256: body.htmlSha256,
+          reviewer: c.get("admin"),
+          note: body.note === undefined || body.note === "" ? null : body.note,
+          indexable: body.indexable,
+          now: Date.now(),
+        }),
+      );
     } catch (err) {
       throw publishError(err) ?? err;
     }
