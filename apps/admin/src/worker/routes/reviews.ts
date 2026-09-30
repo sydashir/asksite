@@ -1,11 +1,21 @@
 import { ApiError, readJson, reviewApprovedEmail, reviewRejectedEmail, reviewPageHeaders, trySend } from "@asksite/app-common";
 import { ApproveBody, RejectBody, type AdminVersionDetail, type GenerationRow, type SiteVersionRow } from "@asksite/core";
 import { Hono } from "hono";
-import { mailerEnv, SITE_WITH_OWNER, siteWithOwner, toAdminSiteRow, toVersionSummary, versionRow, type SiteWithOwner } from "../db.ts";
+import { mailerEnv, siteWithOwner, toAdminSiteRow, toVersionSummary, versionRow, type AdminSiteColumns } from "../db.ts";
 import type { AdminDeps, PublishErrorLike } from "../deps.ts";
 import { publishApiError } from "../publish-errors.ts";
+import { REVIEW_QUEUE } from "../queries.ts";
 import { editedPaths, reviewChecks, storedDocument } from "../review-checks.ts";
 import type { AdminEnv } from "../types.ts";
+
+type QueueRow = AdminSiteColumns & {
+  v_id: string;
+  v_number: number;
+  v_status: "pending";
+  v_requested_at: number;
+  v_reviewed_at: number | null;
+  v_review_note: string | null;
+};
 
 /** Review queue, the version under review, and approve / reject (§3.2 step 3, §4.5). */
 export function reviewRoutes(deps: AdminDeps): Hono<AdminEnv> {
@@ -14,18 +24,25 @@ export function reviewRoutes(deps: AdminDeps): Hono<AdminEnv> {
   const publishError = (err: unknown): ApiError | null =>
     err instanceof deps.publishing.PublishError ? publishApiError((err as PublishErrorLike).code, "review") : null;
 
+  /**
+   * The owner email's mailer and APP_ORIGIN, checked before approve or reject changes anything, so a configuration
+   * error (MAILER, APP_ORIGIN) is a 500 that leaves the version pending (moderator ruling, 2026-09-30). The email
+   * itself is built after the change, which gives the live address. app-common applies its origin rule only inside
+   * its email builders, so building one here (and dropping it) checks APP_ORIGIN by that exact rule.
+   */
+  const ownerMail = (env: Env) => {
+    const mailer = deps.createMailer(mailerEnv(env));
+    reviewRejectedEmail({ appOrigin: env.APP_ORIGIN, note: "" });
+    return { mailer, appOrigin: env.APP_ORIGIN };
+  };
+
   const emailOwner = async (env: Env, siteId: string, send: (to: string) => Promise<unknown>) => {
     const owner = await env.DB.prepare("SELECT o.email FROM sites s JOIN owners o ON o.id = s.owner_id WHERE s.id = ?").bind(siteId).first<{ email: string }>();
     if (owner !== null) await send(owner.email);
   };
 
   reviews.get("/reviews", async (c) => {
-    const { results } = await c.env.DB.prepare(
-      `SELECT v.id AS v_id, v.number AS v_number, v.status AS v_status, v.requested_at AS v_requested_at,
-         v.reviewed_at AS v_reviewed_at, v.review_note AS v_review_note, site.*
-       FROM site_versions v JOIN (${SITE_WITH_OWNER}) site ON site.id = v.site_id
-       WHERE v.status = 'pending' ORDER BY v.requested_at`,
-    ).all<SiteWithOwner & { v_id: string; v_number: number; v_status: "pending"; v_requested_at: number; v_reviewed_at: number | null; v_review_note: string | null }>();
+    const { results } = await c.env.DB.prepare(REVIEW_QUEUE).all<QueueRow>();
     return c.json({
       items: results.map((row) => ({
         version: toVersionSummary({ id: row.v_id, number: row.v_number, status: row.v_status, requested_at: row.v_requested_at, reviewed_at: row.v_reviewed_at, review_note: row.v_review_note }),
@@ -63,6 +80,7 @@ export function reviewRoutes(deps: AdminDeps): Hono<AdminEnv> {
   reviews.post("/versions/:versionId/approve", async (c) => {
     const body = await readJson(c, ApproveBody);
     const version: SiteVersionRow = await versionRow(c.env.DB, c.req.param("versionId"));
+    const { mailer, appOrigin } = ownerMail(c.env);
     let result;
     try {
       result = await deps.publishing.approveVersion(c.env, {
@@ -76,8 +94,7 @@ export function reviewRoutes(deps: AdminDeps): Hono<AdminEnv> {
     } catch (err) {
       throw publishError(err) ?? err;
     }
-    const mailer = deps.createMailer(mailerEnv(c.env));
-    const email = reviewApprovedEmail({ appOrigin: c.env.APP_ORIGIN, liveUrl: result.liveUrl });
+    const email = reviewApprovedEmail({ appOrigin, liveUrl: result.liveUrl });
     c.executionCtx.waitUntil(emailOwner(c.env, result.siteId, (to) => trySend(mailer, { to, ...email, tag: "review_result", idempotencyKey: `review:${version.id}` })));
     return c.json({ siteId: result.siteId, liveUrl: result.liveUrl });
   });
@@ -85,14 +102,14 @@ export function reviewRoutes(deps: AdminDeps): Hono<AdminEnv> {
   reviews.post("/versions/:versionId/reject", async (c) => {
     const { note } = await readJson(c, RejectBody);
     const version = await versionRow(c.env.DB, c.req.param("versionId"));
+    const { mailer, appOrigin } = ownerMail(c.env);
     let result;
     try {
       result = await deps.publishing.rejectVersion(c.env, { versionId: version.id, reviewer: c.get("admin"), note, now: Date.now() });
     } catch (err) {
       throw publishError(err) ?? err;
     }
-    const mailer = deps.createMailer(mailerEnv(c.env));
-    const email = reviewRejectedEmail({ appOrigin: c.env.APP_ORIGIN, note });
+    const email = reviewRejectedEmail({ appOrigin, note });
     c.executionCtx.waitUntil(emailOwner(c.env, result.siteId, (to) => trySend(mailer, { to, ...email, tag: "review_result", idempotencyKey: `review:${version.id}` })));
     return c.json({ siteId: result.siteId });
   });

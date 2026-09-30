@@ -1,6 +1,7 @@
 import { reviewPageHeaders } from "@asksite/app-common";
 import { versionKey, type AdminVersionDetail } from "@asksite/core";
 import { describe, expect, it } from "vitest";
+import { REVIEW_QUEUE } from "../../src/worker/queries.ts";
 import { json, useAdminHarness, VALID_FACTS } from "../support/harness.ts";
 
 const h = useAdminHarness();
@@ -34,6 +35,44 @@ describe("review", () => {
       usedFallbackCopy: false,
       textFlags: [{ path: "facts.testimonials.0.quote", reason: "web_address" }],
     });
+  });
+
+  // No cap on the text flags (web-maker-d3, 2026-09-30): the admin sees every one. The schema bounds the list:
+  // 118 owner strings at their largest counts, each flagged for all four reasons, is 472 flags.
+  it("shows every text flag of the most flagged page the facts allow", async () => {
+    const flagged = "Verify a.co @ 555-123-4567";
+    const photo = { url: "https://media.localhost:8789/a/b.webp", alt: flagged, width: 400, height: 300, caption: flagged };
+    const count = (n: number) => Array.from({ length: n }, (_, i) => i);
+    const facts = {
+      ...VALID_FACTS,
+      businessName: flagged,
+      location: { streetAddress: flagged, city: flagged, state: "TX" },
+      services: count(12).map(() => ({ name: flagged })),
+      serviceArea: { places: count(30).map(() => flagged), note: flagged },
+      licences: count(5).map(() => ({ label: flagged, number: flagged })),
+      testimonials: count(12).map(() => ({ quote: flagged, name: flagged, location: flagged })),
+      heroPhoto: photo,
+      photos: count(12).map(() => photo),
+    };
+    const paths = [
+      "businessName",
+      "location.streetAddress",
+      "location.city",
+      ...count(12).map((i) => `services.${i}.name`),
+      ...count(30).map((i) => `serviceArea.places.${i}`),
+      "serviceArea.note",
+      ...count(5).flatMap((i) => [`licences.${i}.label`, `licences.${i}.number`]),
+      ...count(12).flatMap((i) => [`testimonials.${i}.quote`, `testimonials.${i}.name`, `testimonials.${i}.location`]),
+      "heroPhoto.alt",
+      "heroPhoto.caption",
+      ...count(12).flatMap((i) => [`photos.${i}.alt`, `photos.${i}.caption`]),
+    ];
+    expect(paths).toHaveLength(118);
+    const site = await h.pendingSite(facts);
+    const res = await h.call("GET", `/api/admin/versions/${site.versionId}`);
+    expect(res.status).toBe(200);
+    const reasons = ["web_address", "at_sign", "other_phone", "phishing_word"] as const;
+    expect((await json<AdminVersionDetail>(res)).checks.textFlags).toEqual(paths.flatMap((path) => reasons.map((reason) => ({ path: `facts.${path}`, reason }))));
   });
 
   it("serves the stored page framable only by the admin origin", async () => {
@@ -109,5 +148,59 @@ describe("the stored page behind the Fetch Metadata gate", () => {
     const res = await h.call("GET", `/api/admin/versions/${site.versionId}/page`, fetchFrom("cross-site"));
     expect(res.status).toBe(403);
     expect(await json<ErrorJson>(res)).toEqual({ error: { code: "forbidden", message: "This request is not allowed from another site" } });
+  });
+});
+
+// The queue's own query (web-maker-d3, 2026-09-30): only the columns it shows, oldest first with the id breaking a
+// tie, at most 50. Keep this block last in the file: its last test leaves more than 50 versions waiting.
+describe("the review queue", () => {
+  const queue = async () => (await json<{ items: Array<{ version: { id: string } }> }>(await h.call("GET", "/api/admin/reviews"))).items.map((item) => item.version.id);
+
+  it("reads only the columns it shows, never brief_json, document_json or edits_json", async () => {
+    expect(REVIEW_QUEUE).not.toMatch(/brief_json|document_json|edits_json|\*/);
+    const site = await h.pendingSite();
+    const { results } = await (await h.db()).prepare(REVIEW_QUEUE).bind().all();
+    expect(Object.keys(results.find((row) => row["v_id"] === site.versionId) ?? {}).sort()).toEqual(
+      [
+        "v_id",
+        "v_number",
+        "v_status",
+        "v_requested_at",
+        "v_reviewed_at",
+        "v_review_note",
+        "id",
+        "owner_id",
+        "slug",
+        "facts_json",
+        "live_version_id",
+        "pending_version_id",
+        "indexable",
+        "taken_down_at",
+        "created_at",
+        "updated_at",
+        "owner_email",
+        "owner_disabled_at",
+      ].sort(),
+    );
+  });
+
+  it("lists versions requested in the same millisecond by id", async () => {
+    const ids: string[] = [];
+    for (let i = 0; i < 8; i += 1) ids.push((await h.pendingSite()).versionId);
+    await (await h.db())
+      .prepare(`UPDATE site_versions SET requested_at = 1 WHERE id IN (${ids.map(() => "?").join(", ")})`)
+      .bind(...ids)
+      .run();
+    expect((await queue()).slice(0, 8)).toEqual([...ids].sort());
+  });
+
+  it("lists at most 50 versions, so the newest waits its turn", async () => {
+    const db = await h.db();
+    const waiting = async () => (await db.prepare("SELECT COUNT(*) AS n FROM site_versions WHERE status = 'pending'").bind().first<{ n: number }>())?.n ?? 0;
+    while ((await waiting()) < 50) await h.pendingSite();
+    const newest = await h.pendingSite();
+    const listed = await queue();
+    expect(listed).toHaveLength(50);
+    expect(listed).not.toContain(newest.versionId);
   });
 });

@@ -1,6 +1,7 @@
 import { ApiError } from "@asksite/app-common";
 import { isId, type AdminSiteRow, type SiteVersionRow, type VersionSummary } from "@asksite/core";
 import type { MailerEnv } from "./deps.ts";
+import { ADMIN_SITE_COLUMNS } from "./queries.ts";
 
 /** A sites row joined with its owner, as the admin lists it. */
 export interface SiteWithOwner {
@@ -19,9 +20,10 @@ export interface SiteWithOwner {
   owner_disabled_at: number | null;
 }
 
-export const SITE_WITH_OWNER = `SELECT s.id, s.owner_id, s.slug, s.facts_json, s.brief_json, s.live_version_id, s.pending_version_id,
-  s.indexable, s.taken_down_at, s.created_at, s.updated_at, o.email AS owner_email, o.disabled_at AS owner_disabled_at
-  FROM sites s JOIN owners o ON o.id = s.owner_id`;
+/** What toAdminSiteRow reads (ADMIN_SITE_COLUMNS): a site with its owner, without brief_json, which no list reads. */
+export type AdminSiteColumns = Omit<SiteWithOwner, "brief_json">;
+
+export const SITE_WITH_OWNER = `SELECT ${ADMIN_SITE_COLUMNS}, s.brief_json FROM sites s JOIN owners o ON o.id = s.owner_id`;
 
 function businessName(factsJson: string): string | null {
   try {
@@ -32,7 +34,7 @@ function businessName(factsJson: string): string | null {
   }
 }
 
-export function toAdminSiteRow(site: SiteWithOwner): AdminSiteRow {
+export function toAdminSiteRow(site: AdminSiteColumns): AdminSiteRow {
   return {
     id: site.id,
     slug: site.slug,

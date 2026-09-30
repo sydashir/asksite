@@ -38,6 +38,7 @@ export function reviewChecks(input: { site: SiteWithOwner; document: SiteDocumen
     photoCount: (document.facts.heroPhoto === undefined ? 0 : 1) + document.facts.photos.length,
     usedFallbackCopy: input.usedFallback,
     slugFlags: site.slug === null ? [] : slugFlags(site.slug),
+    // Every flag, never capped (moderator ruling, 2026-09-30): the facts schema bounds it at 118 strings x 4 reasons.
     textFlags: textFlags(document.facts),
   };
 }
