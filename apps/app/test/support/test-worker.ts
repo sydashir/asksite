@@ -39,8 +39,11 @@ function counting(ctx: ExecutionContext, path: string): ExecutionContext {
   });
 }
 
-/** A step of an upload whose result the test Worker can note: the transform's .output(), or an uploads INSERT. */
-type StepName = "output" | "insert";
+/**
+ * A step of an upload whose result the test Worker can note: the transform's .output(), an uploads INSERT, the
+ * MEDIA.put of the photo, or the uploads DELETE that removes a row again when its photo cannot be stored.
+ */
+type StepName = "output" | "insert" | "put" | "delete";
 
 /**
  * Per watched path: each step as its result came back, with how many waitUntil promises the path's requests had
@@ -169,7 +172,8 @@ function aroundRun(statement: D1PreparedStatement, around: Around): D1PreparedSt
 /**
  * The Worker's env for a request to `path`, with a D1 binding that runs the armed hooks: around a route's batch(),
  * disable owners before it and store twins after it; before an uploads INSERT, take the site's last upload slot,
- * and after it, note the step if the path is watched; after a write to a site, commit another tab's save of it.
+ * and after it, and after an uploads DELETE, note the step if the path is watched; after a write to a site, commit
+ * another tab's save of it.
  */
 function withD1Hooks(env: Env, path: string): Env {
   if (disableBeforeBatch.size === 0 && twinAfterBatch.size === 0 && takeSlotBeforeUploadInsert.size === 0 && saveAfterSiteWrite.size === 0 && !stepsOf.has(path)) return env;
@@ -181,6 +185,7 @@ function withD1Hooks(env: Env, path: string): Env {
           if (sql.trimStart().startsWith("INSERT INTO uploads") && (takeSlotBeforeUploadInsert.size > 0 || stepsOf.has(path))) {
             return aroundRun(statement, { before: () => takeLastUploadSlots(target), after: async () => noteStep(path, "insert") });
           }
+          if (sql.trimStart().startsWith("DELETE FROM uploads") && stepsOf.has(path)) return aroundRun(statement, { after: async () => noteStep(path, "delete") });
           if (saveAfterSiteWrite.size > 0 && sql.trimStart().startsWith("UPDATE sites ")) return aroundRun(statement, { after: () => saveOtherTabs(target) });
           return statement;
         };
@@ -280,15 +285,19 @@ function withImagesHook(env: Env, path: string): Env {
 /** When true, the next MEDIA.put of any request fails, as an R2 outage would. */
 let nextMediaPutFails = false;
 
-/** The Worker's env, with a MEDIA binding whose next put() can be made to fail once. */
-function withMediaHook(env: Env): Env {
-  if (!nextMediaPutFails) return env;
+/**
+ * The Worker's env for a request to `path`, with a MEDIA binding whose next put() can be made to fail once, and
+ * whose put() is noted as a step, failed or not, when the path is watched.
+ */
+function withMediaHook(env: Env, path: string): Env {
+  if (!nextMediaPutFails && !stepsOf.has(path)) return env;
   const MEDIA = new Proxy(env.MEDIA, {
     get(target, key) {
       if (key === "put" && nextMediaPutFails) {
         nextMediaPutFails = false;
-        return () => Promise.reject(new Error("R2 put failed: made by the test Worker"));
+        return () => noted(path, "put", Promise.reject(new Error("R2 put failed: made by the test Worker")));
       }
+      if (key === "put") return (...args: Parameters<R2Bucket["put"]>) => noted(path, "put", target.put(...args));
       const value: unknown = Reflect.get(target, key);
       return typeof value === "function" ? value.bind(target) : value;
     },
@@ -403,7 +412,7 @@ helpers.post("/__test/media-put-fails", (c) => {
  */
 helpers.get("/__test/wait-until", (c) => c.json(waitUntilSeen.get(c.req.query("path") ?? "") ?? { count: 0, pending: 0 }));
 
-/** Arms the step notes above for one path: from now on, its requests note each .output() and uploads INSERT as its result comes back. */
+/** Arms the step notes above for one path: from now on, its requests note each .output(), uploads INSERT, MEDIA.put and uploads DELETE as its result comes back. */
 helpers.post("/__test/watch-steps", async (c) => {
   const { path } = await c.req.json<{ path: string }>();
   stepsOf.set(path, []);
@@ -466,7 +475,7 @@ helpers.post("/__test/versions/:versionId/approve", async (c) => c.json(await fa
 export default {
   fetch(request, env, ctx) {
     const path = new URL(request.url).pathname;
-    return path.startsWith("/__test/") ? helpers.fetch(request, env, ctx) : worker.fetch!(request, withMediaHook(withImagesHook(withD1Hooks(env, path), path)), counting(ctx, path));
+    return path.startsWith("/__test/") ? helpers.fetch(request, env, ctx) : worker.fetch!(request, withMediaHook(withImagesHook(withD1Hooks(env, path), path), path), counting(ctx, path));
   },
   scheduled(controller, env, ctx) {
     return worker.scheduled!(controller, env, ctx);

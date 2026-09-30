@@ -36,6 +36,15 @@ async function imagesCalls(): Promise<Array<Record<string, unknown>>> {
   return json<Array<Record<string, unknown>>>(await h.call("GET", "/__test/images-calls"));
 }
 
+/** Arms the test Worker's step notes for the path: from now on its requests note each step as its result comes back (test-worker.ts). */
+const watchSteps = (path: string) => h.call("POST", "/__test/watch-steps", { body: { path } });
+
+/** The steps noted for a watched path, oldest first, each with the waitUntil promises handed over by then and still running. */
+const notedSteps = async (path: string) => json<unknown[]>(await h.call("GET", `/__test/steps?path=${encodeURIComponent(path)}`));
+
+/** A step that came back while the request's one runToEnd promise still ran (P4-15 Minor c, follow-up 1). */
+const inOneRunToEnd = (step: string) => ({ step, waitUntil: 1, pending: 1 });
+
 type UploadRow = { id: string; width: number; height: number; bytes: number; created_at: number; deleted_at: number | null };
 
 /** Every uploads row of a site, deleted ones included (the 150 total cap counts them all), oldest first. */
@@ -453,25 +462,22 @@ describe("POST /api/sites/:siteId/uploads", () => {
     // The local runtime finishes a request's work after its client has gone (test-worker.ts), so a disconnect cannot
     // be made here. The test Worker notes instead, as each step's result comes back, how many waitUntil promises the
     // request had handed over and how many of them still ran. Inside one runToEnd, the transform's .output() (the
-    // first billed Images call: .info() is not billed) and the INSERT that counts it both come back while that one
-    // promise runs; a step outside it comes back with none running, or under a second promise.
-    const underOneRunToEnd = [
-      { step: "output", waitUntil: 1, pending: 1 },
-      { step: "insert", waitUntil: 1, pending: 1 },
-    ];
+    // first billed Images call: .info() is not billed), the INSERT that counts it and, for a photo it stores, the
+    // MEDIA.put of that photo (P4-15 Minor c) all come back while that one promise runs; a step outside it comes back
+    // with none running, or under a second promise.
+    const underOneRunToEnd = [inOneRunToEnd("output"), inOneRunToEnd("insert")];
 
     /** An owner's upload whose steps the test Worker notes: its status, the steps and the site's upload rows. */
     async function uploadNotingSteps(photo: Uint8Array) {
       const owner = await h.signIn();
       const path = `/api/sites/${owner.siteId}/uploads`;
-      await h.call("POST", "/__test/watch-steps", { body: { path } });
+      await watchSteps(path);
       const res = await h.call("POST", path, { cookie: owner.cookie, body: upload(photo) });
-      const steps = await json<unknown[]>(await h.call("GET", `/__test/steps?path=${encodeURIComponent(path)}`));
-      return { status: res.status, steps, rows: (await uploadRows(owner.siteId)).map(shape) };
+      return { status: res.status, steps: await notedSteps(path), rows: (await uploadRows(owner.siteId)).map(shape) };
     }
 
     it("for a photo it stores (201)", async () => {
-      expect(await uploadNotingSteps(await jpeg(800, 600))).toEqual({ status: 201, steps: underOneRunToEnd, rows: [{ width: 800, height: 600, bytes: expect.any(Number), deleted: false }] });
+      expect(await uploadNotingSteps(await jpeg(800, 600))).toEqual({ status: 201, steps: [...underOneRunToEnd, inOneRunToEnd("put")], rows: [{ width: 800, height: 600, bytes: expect.any(Number), deleted: false }] });
     });
 
     it("for a photo that fails in the transform (422, counted)", async () => {
@@ -486,10 +492,16 @@ describe("POST /api/sites/:siteId/uploads", () => {
 
   it("removes the row again when the photo cannot be stored (500 internal, nothing left behind)", async () => {
     const owner = await h.signIn();
+    const path = `/api/sites/${owner.siteId}/uploads`;
+    await watchSteps(path);
     await h.call("POST", "/__test/media-put-fails");
-    const res = await h.call("POST", `/api/sites/${owner.siteId}/uploads`, { cookie: owner.cookie, body: upload(await png(400, 300), "x.png") });
+    const res = await h.call("POST", path, { cookie: owner.cookie, body: upload(await png(400, 300), "x.png") });
     expect(res.status).toBe(500);
     expect((await json<ErrorJson>(res)).error.code).toBe("internal");
+    // The failed put and the DELETE that removes its row again come back inside the same one runToEnd as the
+    // transform and the INSERT (P4-15 Minor c), so a client that goes away does not stop the row being removed
+    // (within waitUntil's 30 s: see the route).
+    expect(await notedSteps(path)).toEqual(["output", "insert", "put", "delete"].map(inOneRunToEnd));
     expect(await uploadRows(owner.siteId)).toEqual([]);
     expect(await mediaKeys(owner.siteId)).toEqual([]);
   });
