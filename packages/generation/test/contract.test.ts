@@ -31,4 +31,22 @@ describe("@asksite/generation public API", () => {
   it("exports what the generator Worker runs", () => {
     expect([typeof api.runGenerationJob, typeof api.sweepStuckJobs, typeof api.templateDraft, typeof api.toModelFacts]).toEqual(["function", "function", "function", "function"]);
   });
+
+  // Task 11 additions A: export only what Task 11 lists. Provider internals (design 6.2) and test support stay
+  // unexported. Types are erased at runtime, so this checks the value exports only.
+  it("exports no other value", () => {
+    expect(Object.keys(api).sort()).toEqual([
+      "JOB_STUCK_AFTER_MS",
+      "dailyModelLimit",
+      "generationAllowance",
+      "isGenerationEnabled",
+      "requestGeneration",
+      "runGenerationJob",
+      "sweepStuckJobs",
+      "templateDraft",
+      "toGenerationView",
+      "toModelFacts",
+      "worstCaseJobMicrousd",
+    ]);
+  });
 });
