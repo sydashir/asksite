@@ -68,6 +68,12 @@ describe("production wrangler.jsonc", () => {
     expect(config.vars["DAILY_MODEL_LIMIT"]).toBe("8");
   });
 
+  it("ships the sign-in email cap the owner app ships (LOGIN_EMAILS_PER_DAY, A11), so the admin shows the cap the app enforces", () => {
+    const app = JSON.parse(readFileSync(new URL("../../../app/wrangler.jsonc", import.meta.url), "utf8")) as { vars: Record<string, string> };
+    expect(config.vars["LOGIN_EMAILS_PER_DAY"]).toBe("40");
+    expect(config.vars["LOGIN_EMAILS_PER_DAY"]).toBe(app.vars["LOGIN_EMAILS_PER_DAY"]);
+  });
+
   it("keeps secrets out of vars, and names a plain support address", () => {
     for (const name of ["RESEND_API_KEY", "IP_HASH_KEY", "ANTHROPIC_API_KEY", "OPENAI_COMPAT_API_KEY"]) expect(Object.keys(config.vars)).not.toContain(name);
     expect(config.secrets.required).toEqual(["RESEND_API_KEY"]);

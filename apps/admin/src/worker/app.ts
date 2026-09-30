@@ -4,6 +4,9 @@ import { adminEmail, type AccessKeys } from "./access.ts";
 import type { AdminDeps } from "./deps.ts";
 import { inviteRoutes } from "./routes/invites.ts";
 import { reviewRoutes } from "./routes/reviews.ts";
+import { settingsRoutes } from "./routes/settings.ts";
+import { signInRoutes } from "./routes/sign-in.ts";
+import { siteRoutes } from "./routes/sites.ts";
 import type { AdminEnv } from "./types.ts";
 
 /**
@@ -37,6 +40,9 @@ export function createAdminApp(deps: AdminDeps, keys: AccessKeys): Hono<AdminEnv
   app.get("/api/admin/me", (c) => c.json({ email: c.get("admin") }));
   app.route("/api/admin", inviteRoutes(deps));
   app.route("/api/admin", reviewRoutes(deps));
+  app.route("/api/admin", siteRoutes(deps));
+  app.route("/api/admin", signInRoutes(deps));
+  app.route("/api/admin", settingsRoutes(deps));
   app.notFound(handleNotFound);
   app.onError(handleError);
   return app;

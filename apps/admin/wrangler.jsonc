@@ -19,6 +19,7 @@
     "SUPPORT_EMAIL": "help@asksite.example",
     "GENERATION_ENABLED": "false",
     "DAILY_MODEL_LIMIT": "8",
+    "LOGIN_EMAILS_PER_DAY": "40",
     "ACCESS_TEAM_DOMAIN": "",
     "ACCESS_AUD": "",
     "ADMIN_EMAILS": "",
