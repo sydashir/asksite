@@ -1,8 +1,8 @@
 // Classic's sheet in a real browser, where the cascade decides which rule wins (the pairs test checks tokens, not
 // rule order or specificity): hover colours, the rows phones leave out, link underlines, the phone call bar, the
-// About title, and the header's stacking and its name's line. Laid out by the repo's own Playwright Chromium and
-// WebKit with the real Classic sheet. Each check has a RED proof: a style override that puts the flaw back is caught.
-// No check waits on the clock: transitions are off where a state is read.
+// About title, the header's stacking and its name's line, and the phone gallery's rows. Laid out by the repo's own
+// Playwright Chromium and WebKit with the real Classic sheet. Each check has a RED proof: a style override that puts
+// the flaw back is caught. No check waits on the clock: transitions are off where a state is read.
 import { chromium, webkit, type Browser, type Page } from "@playwright/test";
 import { FONT_IDS, PALETTE_IDS, type SiteDocumentInput } from "@asksite/site-schema";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -117,6 +117,9 @@ const INK_ROWS = `async ([base64, scale]) => {
   for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) if (Math.abs(lum((y * width + x) * 4) - paper) > far / 2) { rows.push(y); break; }
   return rows.length === 0 ? null : [rows[0] / scale, (rows[rows.length - 1] + 1) / scale];
 }`;
+
+/** The gallery prints (1-based) that span the whole row: wider than nine tenths of the list. */
+const WIDE_PRINTS = `[...document.querySelectorAll(".gal > li")].flatMap((li, i) => li.getBoundingClientRect().width > 0.9 * li.parentElement.getBoundingClientRect().width ? [i + 1] : [])`;
 
 const ENGINES = { chromium, webkit } as const;
 
@@ -275,6 +278,27 @@ describe.each(Object.keys(ENGINES) as Array<keyof typeof ENGINES>)("Classic's ca
   it("RED: catches a name set by its line box, which puts Sturdy's capitals high", async () => {
     expect((await brandOffsets(".brand{text-box:normal!important}")).join("\n")).toMatch(/^sturdy /m);
   }, 120_000);
+
+  /** For 1-6 photos on a phone, the positions (1-based) of the prints that span the whole row. */
+  async function widePrints(css = ""): Promise<Record<number, number[]>> {
+    const wide: Record<number, number[]> = {};
+    for (let count = 1; count <= plumber.facts.photos.length; count++) {
+      await open(refined({ ...plumber, facts: { ...plumber.facts, photos: plumber.facts.photos.slice(0, count) } }), 390, css);
+      wide[count] = (await page.evaluate(WIDE_PRINTS)) as number[];
+    }
+    return wide;
+  }
+
+  it("sets the phone gallery in pairs, with the first print alone only when the count is odd (the approved mockup)", async () => {
+    expect(plumber.facts.photos.length).toBe(6);
+    expect(await widePrints()).toEqual({ 1: [1], 2: [], 3: [1], 4: [], 5: [1], 6: [] });
+  }, 60_000);
+
+  // RED proof: round 2's rule (the first print always alone, and an even count's last one too) is caught.
+  it("RED: catches a phone gallery that spans prints across the row with an even count", async () => {
+    const wide = await widePrints("@media (width < 48rem){.gal>li:first-child,.gal>li:last-child:nth-child(even){grid-column:1/-1!important}}");
+    expect([wide[2], wide[4], wide[6]]).toEqual([[1, 2], [1, 4], [1, 6]]);
+  }, 60_000);
 
   it("keeps the sticky desktop header above the form's Send button (z-index 20)", async () => {
     await open(refined(plumber), 1280);

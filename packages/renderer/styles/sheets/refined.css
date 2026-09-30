@@ -322,10 +322,10 @@ summary::-webkit-details-marker{display:none}
   .cb .bt-n{font-size:.6875rem}
 }
 @media (width < 48rem){
-  /* The email leaves the card (it sits where the call bar covers the first screen); the gallery opens with one
-     full-width print, and an even count also ends with one, so no row holds a print alone. */
+  /* The email leaves the card (it sits where the call bar covers the first screen); the gallery is in pairs, and an
+     odd count opens with one full-width print, so no row holds a print alone (the approved mockup). */
   .bc-m .bc-e{display:none}
-  .gal>li:first-child,.gal>li:last-child:nth-child(even){grid-column:1/-1}
+  .gal>li:first-child:nth-last-child(odd){grid-column:1/-1}
 }
 
 /* ---------- 30rem ---------- */
