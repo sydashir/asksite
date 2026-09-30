@@ -167,6 +167,39 @@ describe("sweepStuckJobs", () => {
     expect(queries.filter((query) => query === "UPDATE")).toHaveLength(50);
     expect((await getGeneration(db, "m0")).status).toBe("queued");
   });
+
+  // Task 10 follow-up item 1: finished rows are never deleted, and D1 bills the rows each query reads (meta.rows_read).
+  // The read names the partial index's own term, status IN ('queued', 'running'), so SQLite can read only active rows.
+  it("reads through the partial index of active jobs, so the rows it reads do not grow with the finished jobs", async () => {
+    await db.batch(
+      Array.from({ length: 300 }, (_, i) =>
+        db.prepare("INSERT INTO generations (id, site_id, owner_id, kind, status, input_json, created_at, finished_at) VALUES (?1, 's1', 'o1', 'regenerate', ?2, ?3, ?4, ?4)").bind(`done${i}`, i % 2 ? "succeeded" : "failed", INPUT, OLD - i),
+      ),
+    );
+    for (const [i, site] of ["s2", "s3", "s4"].entries())
+      await insertGeneration(db, { id: `stuck${i}`, site_id: site, owner_id: "o1", status: "queued", input_json: INPUT, created_at: OLD - i });
+    const rowsRead: number[] = [];
+    const recorded = new Proxy(db, {
+      get(target, prop, receiver) {
+        if (prop !== "prepare") return Reflect.get(target, prop, receiver);
+        return (sql: string) => {
+          if (!sql.startsWith("SELECT")) return target.prepare(sql);
+          return {
+            bind: (...values: unknown[]) => ({
+              all: async () => {
+                const result = await target.prepare(sql).bind(...values).all();
+                rowsRead.push(result.meta.rows_read);
+                return result;
+              },
+            }),
+          };
+        };
+      },
+    });
+    expect(await sweepStuckJobs({ DB: recorded }, NOW)).toEqual({ fallback: 3, failed: 0 });
+    expect(rowsRead).toHaveLength(1);
+    expect(rowsRead[0]).toBeLessThanOrEqual(10);
+  });
 });
 
 // task-10-additions A: which sweeper end-states count toward the site's 5 per UTC day and the owner's 20 regenerations,
