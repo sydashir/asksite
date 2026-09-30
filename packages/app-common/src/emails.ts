@@ -19,8 +19,17 @@ export function cleanSubject(subject: string, max = 100): string {
   return subject.replace(/[\p{Cc}\p{Cf}]+/gu, " ").replace(/\s+/g, " ").trim().slice(0, max);
 }
 
+/**
+ * The one rule for the origin an email links to: a bare https origin, written exactly as the URL parser
+ * writes it (no path, no trailing slash, no default port). Exported so a route can check its origin
+ * before it changes anything, by this same rule.
+ */
+export function checkEmailOrigin(origin: string): boolean {
+  return isSafeUrl(origin, ["https:"]) && new URL(origin).origin === origin;
+}
+
 function assertOrigin(origin: string): void {
-  if (!isSafeUrl(origin, ["https:"]) || new URL(origin).origin !== origin) throw new Error("Invalid origin");
+  if (!checkEmailOrigin(origin)) throw new Error("Invalid origin");
 }
 
 function assertToken(token: string): void {

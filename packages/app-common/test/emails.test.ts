@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   adminAlertEmail,
+  checkEmailOrigin,
   cleanSubject,
   inviteEmail,
   magicLinkEmail,
@@ -8,6 +9,7 @@ import {
   reviewRejectedEmail,
   siteNoticeEmail,
 } from "../src/emails.ts";
+import * as appCommon from "../src/index.ts";
 
 const APP = "https://app.asksite.example";
 const TOKEN = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQ"; // 43 base64url characters
@@ -20,6 +22,51 @@ describe("cleanSubject", () => {
   it("removes CR, LF and other control characters and caps the length", () => {
     expect(cleanSubject("Hello\r\nBcc: victim@example.com\u0000!")).toBe("Hello Bcc: victim@example.com !");
     expect(cleanSubject("x".repeat(150))).toHaveLength(100);
+  });
+});
+
+const GOOD_ORIGINS = [APP, "https://app.localhost:8787"];
+const BAD_ORIGINS = [
+  "https://app.localhost:8787/",
+  "https://app.asksite.example:443",
+  "https://app.asksite.example/path",
+  "https://app.asksite.example?x",
+  "https://app.asksite.example#x",
+  "https://user@app.asksite.example",
+  "https://APP.asksite.example",
+  "https:app.asksite.example",
+  " https://app.asksite.example",
+  "http://app.asksite.example",
+  "javascript:alert(1)",
+  "app.asksite.example",
+  "",
+];
+
+describe("checkEmailOrigin", () => {
+  it("accepts only a bare https origin, written exactly as the URL parser writes it", () => {
+    for (const origin of GOOD_ORIGINS) expect(checkEmailOrigin(origin), origin).toBe(true);
+    for (const origin of BAD_ORIGINS) expect(checkEmailOrigin(origin), origin).toBe(false);
+  });
+
+  it("is the rule every email builder applies to its origin (one rule, not two copies)", () => {
+    const builders = [
+      (appOrigin: string) => inviteEmail({ appOrigin, token: TOKEN }),
+      (appOrigin: string) => magicLinkEmail({ appOrigin, token: TOKEN }),
+      (appOrigin: string) => reviewApprovedEmail({ appOrigin, liveUrl: "https://joes-plumbing.asksite.example/" }),
+      (appOrigin: string) => reviewRejectedEmail({ appOrigin, note: "Please fix the phone number." }),
+      (appOrigin: string) => siteNoticeEmail({ appOrigin, supportEmail: "help@asksite.example", ownerMessage: null }),
+    ];
+    for (const origin of [...GOOD_ORIGINS, ...BAD_ORIGINS]) {
+      for (const build of builders) {
+        if (checkEmailOrigin(origin)) expect(() => build(origin), origin).not.toThrow();
+        else expect(() => build(origin), origin).toThrow("Invalid origin");
+      }
+    }
+  });
+
+  it("is exported by the package", () => {
+    expect(typeof appCommon.checkEmailOrigin).toBe("function");
+    expect(appCommon.checkEmailOrigin).toBe(checkEmailOrigin);
   });
 });
 

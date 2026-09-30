@@ -28,13 +28,23 @@ function failureOf(err: unknown): string {
   return err instanceof Error ? err.name : "unknown";
 }
 
-/** Sends and reports success. A failure is logged by tag and error code or class only, never the address. */
-export async function trySend(mailer: Mailer, email: OutgoingEmail): Promise<boolean> {
+/**
+ * Sends and reports why it failed: null when the email went out, else the mailer's code, the error's
+ * class name or "unknown" (what failureOf says). A failure is logged once, by tag and that word only,
+ * never the address. A route that must answer differently by code (the admin's invites) reads it.
+ */
+export async function sendReporting(mailer: Mailer, email: OutgoingEmail): Promise<string | null> {
   try {
     await mailer.send(email);
-    return true;
+    return null;
   } catch (err) {
-    logLine({ event: "email_failed", tag: email.tag, error: failureOf(err) });
-    return false;
+    const failure = failureOf(err);
+    logLine({ event: "email_failed", tag: email.tag, error: failure });
+    return failure;
   }
+}
+
+/** Sends and reports success. A failure is logged by tag and error code or class only, never the address. */
+export async function trySend(mailer: Mailer, email: OutgoingEmail): Promise<boolean> {
+  return (await sendReporting(mailer, email)) === null;
 }
