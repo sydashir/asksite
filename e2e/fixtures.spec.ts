@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { expect, test, type Page } from "@playwright/test";
 import { render } from "@asksite/renderer";
-import { DESIGN_IDS, FONT_IDS, SiteDocument, type DesignId, type SiteDocumentInput } from "@asksite/site-schema";
+import { DESIGN_IDS, FONT_IDS, SiteDocument, type DesignId, type FontId, type SiteDocumentInput } from "@asksite/site-schema";
 import { DESIGN_CSS, FIXTURE_FORM_ACTION, FIXTURES, inDesign, loadFixture, stubStylesheets, type FixtureName } from "../fixtures/index.ts";
 import { BASELINE } from "../packages/renderer/src/baseline.ts";
 import { renderDocument } from "../packages/renderer/src/render.ts";
@@ -48,13 +48,16 @@ const open = (page: Page, name: FixtureName, design?: DesignId): Promise<void> =
 const BASELINE_CSS = readFileSync(new URL("../packages/renderer/styles/out/baseline.css", import.meta.url), "utf8");
 
 /**
- * Today's page (BASELINE) for the fixture, with the baseline sheet. It is built only from files that no
- * design build may change (A12 §9), so a design's own traits (a hero that clips, a scroll padding that
- * keeps focus clear of the call bar) can never hide what a RED proof checks (A12-0 round-2 attack, I-1).
+ * Today's page (BASELINE) for the fixture, with the baseline sheet, in the fixture's own lettering or the one
+ * given. It is built only from files that no design build may change (A12 §9), so a design's own traits (a
+ * hero that clips, a scroll padding that keeps focus clear of the call bar) can never hide what a RED proof
+ * checks (A12-0 round-2 attack, I-1).
  */
-function openToday(page: Page, name: FixtureName): Promise<void> {
+function openToday(page: Page, name: FixtureName, font?: FontId): Promise<void> {
   const options = { stylesheets: stubStylesheets(BASELINE_CSS), formAction: FIXTURE_FORM_ACTION };
-  return openHtml(page, renderDocument(SiteDocument.parse(loadFixture(name)), BASELINE, options).html);
+  const doc = loadFixture(name);
+  const input = font === undefined ? doc : { ...doc, theme: { ...doc.theme, font } };
+  return openHtml(page, renderDocument(SiteDocument.parse(input), BASELINE, options).html);
 }
 
 /**
@@ -136,6 +139,21 @@ async function phoneMenuProblems(page: Page): Promise<string[]> {
   await faq.first().click();
   return (await page.waitForURL(/#faq$/, { timeout: 5_000 }).then(() => true, () => false)) ? [] : [`the FAQ link leads to ${page.url()}`];
 }
+
+/**
+ * The font-family values that <body> and every element in it that is drawn (has a box) compute, each once,
+ * sorted. Each lettering choice must change this set (A12-0 round-5 rulings, attack4 I-1, reading B): the
+ * user's Bold decision (2026-09-27) keeps a system-ui body and draws headings, buttons and prices in its own
+ * face, so the h1 and the body alone may read the same for two choices. KNOWN LIMIT: this reads each computed
+ * family list, not the font the browser draws, so a design could pass by changing only a fallback font; the
+ * judges' screenshots of the three lettering choices are the backstop.
+ */
+const pageFonts = (page: Page): Promise<string> =>
+  page.evaluate(() =>
+    [...new Set([document.body, ...document.body.querySelectorAll("*")].filter((el) => el.getClientRects().length > 0).map((el) => getComputedStyle(el).fontFamily))]
+      .sort()
+      .join(" | "),
+  );
 
 /** The id of each element keyboard focus lands on, over `steps` presses ("" for one without an id). */
 async function focusedIds(page: Page, browserName: string, steps = 80): Promise<string[]> {
@@ -224,12 +242,12 @@ for (const design of DESIGN_IDS) {
       expect(ids).not.toContain("contact-website");
     });
 
-    test("each lettering choice gives the page a different font", async ({ page }) => {
+    test("each lettering choice changes the fonts the page uses", async ({ page }) => {
       const doc = inDesign(loadFixture("plumber-austin"), design);
       const fonts = new Set<string>();
       for (const font of FONT_IDS) {
         await openDocument(page, { ...doc, theme: { ...doc.theme, font } });
-        fonts.add(await page.evaluate(() => `${getComputedStyle(document.querySelector("h1") ?? document.body).fontFamily} | ${getComputedStyle(document.body).fontFamily}`));
+        fonts.add(await pageFonts(page));
       }
       expect(fonts.size).toBe(FONT_IDS.length);
     });
@@ -353,6 +371,30 @@ test.describe("the gates can fail (RED proof)", () => {
     await openToday(page, "plumber-austin");
     await page.addStyleTag({ content: "aside{position:sticky!important}" });
     expect(await focusHiddenByCallBar(page, browserName)).not.toEqual([]);
+  });
+
+  test("the lettering check sees a page that draws every lettering choice in one font", async ({ page }) => {
+    const fonts = new Set<string>();
+    for (const font of FONT_IDS) {
+      await openToday(page, "plumber-austin", font);
+      await page.addStyleTag({ content: "*{font-family:Georgia,serif!important}" });
+      fonts.add(await pageFonts(page));
+    }
+    expect(fonts.size).toBe(1);
+  });
+
+  // What the lettering check allows (reading B): Bold keeps one family for the h1 and the body, and the
+  // lettering choice still changes its other headings, buttons and prices.
+  test("the lettering check allows a page whose h1 and body keep one font for every choice", async ({ page }) => {
+    const fonts = new Set<string>();
+    const pairs = new Set<string>();
+    for (const font of FONT_IDS) {
+      await openToday(page, "plumber-austin", font);
+      await page.addStyleTag({ content: "h1{font-family:Georgia,serif!important}body{font-family:system-ui,sans-serif!important}" });
+      fonts.add(await pageFonts(page));
+      pairs.add(await page.evaluate(() => `${getComputedStyle(document.querySelector("h1") ?? document.body).fontFamily} | ${getComputedStyle(document.body).fontFamily}`));
+    }
+    expect({ fonts: fonts.size, pairs: pairs.size }).toEqual({ fonts: FONT_IDS.length, pairs: 1 });
   });
 
   test("the focus check sees a link hidden under a call bar that sticks while a link has focus", async ({ page, browserName }) => {
