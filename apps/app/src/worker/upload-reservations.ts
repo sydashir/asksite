@@ -85,16 +85,19 @@ export async function release(db: D1Database, id: string): Promise<void> {
   await db.prepare("DELETE FROM uploads WHERE id = ?1 AND reserved_at IS NOT NULL").bind(id).run();
 }
 
+/**
+ * The age-out, written once for both uses below: reservations older than RESERVATION_STALE_MS become counted failures
+ * (markFailed's shape; a purge's deletion time is kept). Binds ?1 now and ?2 RESERVATION_STALE_MS.
+ */
+const AGE_OUT_STALE_RESERVATIONS =
+  "UPDATE uploads SET deleted_at = COALESCE(deleted_at, ?1), reserved_at = NULL WHERE reserved_at IS NOT NULL AND reserved_at < ?1 - ?2";
+
 /** Ages out the site's stale reservations into counted failures (at its next upload's pre-check), alone or in a batch. */
 export function ageOutSiteReservations(db: D1Database, siteId: string, now: number): D1PreparedStatement {
-  return db
-    .prepare("UPDATE uploads SET deleted_at = COALESCE(deleted_at, ?2), reserved_at = NULL WHERE site_id = ?1 AND reserved_at IS NOT NULL AND reserved_at < ?2 - ?3")
-    .bind(siteId, now, RESERVATION_STALE_MS);
+  return db.prepare(`${AGE_OUT_STALE_RESERVATIONS} AND site_id = ?3`).bind(now, RESERVATION_STALE_MS, siteId);
 }
 
 /** Ages out every site's stale reservations into counted failures: the daily cleanup's backstop, alone or in a batch. */
 export function ageOutReservations(db: D1Database, now: number): D1PreparedStatement {
-  return db
-    .prepare("UPDATE uploads SET deleted_at = COALESCE(deleted_at, ?1), reserved_at = NULL WHERE reserved_at IS NOT NULL AND reserved_at < ?1 - ?2")
-    .bind(now, RESERVATION_STALE_MS);
+  return db.prepare(AGE_OUT_STALE_RESERVATIONS).bind(now, RESERVATION_STALE_MS);
 }
