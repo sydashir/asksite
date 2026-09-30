@@ -13,7 +13,7 @@ describe("loginEmailsPerDay", () => {
     expect(log).not.toHaveBeenCalled();
   });
 
-  it.each([undefined, "", "abc", "0", "-3", "1.5", " 5", "1e2", "99999999999999999999"])("gives the default 40 and logs config_invalid, never the value, for %j", (value) => {
+  it.each([undefined, "", "abc", "0", "-3", "1.5", "5.0", "5.", " 5", "1e2", "99999999999999999999"])("gives the default 40 and logs config_invalid, never the value, for %j", (value) => {
     const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
     expect(loginEmailsPerDay(value)).toBe(40);
     expect(log).toHaveBeenCalledTimes(1);
@@ -24,7 +24,7 @@ describe("loginEmailsPerDay", () => {
 // The admin keeps its own copy of the reader (moderator ruling, 2026-09-30; sharing it is on the backlog), so this pins
 // it to the owner app's definition, read from apps/app in this repo: same cap for every value, same log line.
 describe("loginEmailsPerDay equals the owner app's", () => {
-  it.each([undefined, "", "2", "40", "41", "100", "0", "-3", "1.5", " 5", "1e2", "abc", "99999999999999999999", "9007199254740991"])("gives the app's answer and the app's log for %j", (value) => {
+  it.each([undefined, "", "2", "40", "41", "100", "0", "-3", "1.5", "5.0", "5.", "100.00", " 5", "1e2", "abc", "99999999999999999999", "9007199254740991"])("gives the app's answer and the app's log for %j", (value) => {
     const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
     const app = appLoginEmailsPerDay(value);
     const appLog = log.mock.calls.map((call) => String(call[0]));
