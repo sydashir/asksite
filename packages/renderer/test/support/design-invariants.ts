@@ -88,7 +88,7 @@ export const ROUND_THE_CLOCK = { pattern: /\b24\s*\/\s*7\b/, backedBy: (facts: F
 
 // The joiners of claims.ts (hyphen, space, figure dash, en dash, em dash, minus sign), plus U+2010 and U+2011,
 // which the page shows as "-" (amendment A2).
-const JOIN = String.raw`[-‐-—− ]`;
+const JOIN = String.raw`[-\u2010-\u2014\u2212 ]`;
 
 /**
  * A star rating, in symbols or digits: "★★★★★", "5-star", "4.9 stars", "5 out of 5 stars". No owner fact backs
@@ -96,7 +96,7 @@ const JOIN = String.raw`[-‐-—− ]`;
  * site-schema's word lists leave these forms out because copy may hold no digit, but a design's own text can
  * hold them (A12-0 round-5 rulings, review4 I-1).
  */
-export const STAR_RATING = new RegExp(String.raw`[★☆⭐✪-✰]|\b\d+(?:\.\d+)?\s*(?:${JOIN}\s*)?(?:out\s+of\s+\d+\s+)?stars?\b`, "i");
+export const STAR_RATING = new RegExp(String.raw`[\u2605\u2606\u2B50\u272A-\u2730]|\b\d+(?:\.\d+)?\s*(?:${JOIN}\s*)?(?:out\s+of\s+\d+\s+)?stars?\b`, "i");
 
 /**
  * 24-hour, same-day and next-day service, in digits or words: "Open 24 hours", "24-hour service", "Same-day
@@ -126,7 +126,7 @@ export function pageClaims(page: string, facts: Facts): string[] {
   const words = texts.flatMap((text) => unbackedClaims(text, facts)).flatMap((word) => unbacked.flatMap((pattern) => pattern.exec(word)?.[0] ?? []));
   const digits = ROUND_THE_CLOCK.backedBy(facts) ? [] : texts.flatMap((text) => ROUND_THE_CLOCK.pattern.exec(text)?.[0] ?? []);
   const ratingsAndHours = texts.flatMap((text) => [STAR_RATING, SERVICE_HOURS].flatMap((pattern) => allMatches(pattern, text)));
-  const asShown = (claim: string) => claim.toLowerCase().replace(/\s+/g, " ").replace(/[‐‑]/g, "-");
+  const asShown = (claim: string) => claim.toLowerCase().replace(/\s+/g, " ").replace(/[\u2010\u2011]/g, "-");
   return [...new Set([...words, ...digits, ...ratingsAndHours].map(asShown))];
 }
 
