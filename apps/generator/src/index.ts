@@ -20,7 +20,11 @@ export default {
       }
       const { generationId } = message.body;
       try {
-        log({ event: "generation.job", ...(await runGenerationJob(env, generationId)) });
+        const report = await runGenerationJob(env, generationId);
+        log({ event: "generation.job", ...report });
+        // One more line for each flag someone must follow up (P3-4a, Task 9 C); `model` is the one the job stored.
+        if (report.usageMissing) log({ event: "usage_missing", generationId, provider: report.provider, model: report.model });
+        if (report.costUnknown) log({ event: "generation.internal", generationId, costUnknown: true });
         message.ack();
       } catch {
         // Only a failure before the claim lands here (the job never throws after it): let the
