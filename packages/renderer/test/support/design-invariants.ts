@@ -86,9 +86,8 @@ export const CREDENTIAL_CLAIMS: readonly RegExp[] = [
  */
 export const ROUND_THE_CLOCK = { pattern: /\b24\s*\/\s*7\b/, backedBy: (facts: Facts): boolean => facts.emergency247 } as const;
 
-// The joiners of claims.ts (hyphen, space, figure dash, en dash, em dash, minus sign), plus U+2010 and U+2011,
-// which the page shows as "-" (amendment A2).
-const JOIN = String.raw`[-\u2010-\u2014\u2212 ]`;
+// The joiners of claims.ts: hyphen, space, figure dash, en dash, em dash and minus sign.
+const JOIN = String.raw`[-\u2012\u2013\u2014\u2212 ]`;
 
 /**
  * A star rating, in symbols or digits: "★★★★★", "5-star", "4.9 stars", "5 out of 5 stars". No owner fact backs
@@ -105,15 +104,18 @@ export const STAR_RATING = new RegExp(String.raw`[\u2605\u2606\u2B50\u272A-\u273
  */
 export const SERVICE_HOURS = new RegExp(String.raw`\b24${JOIN}?(?:hours?|hrs?)\b|\b(?:same|next)${JOIN}day\b`, "i");
 
+/** A text as the page shows it (amendment A2): a run of whitespace as one space, and U+2010/U+2011 as "-". */
+const asShownOnPage = (text: string): string => text.replace(/\s+/g, " ").replace(/[\u2010\u2011]/g, "-");
+
 /** Every match of `pattern` in `text`, in order. */
 const allMatches = (pattern: RegExp, text: string): string[] => [...text.matchAll(new RegExp(pattern, "gi"))].map((match) => match[0]);
 
 /**
- * The credential claims `page` states that the owner's `facts` do not back, each once, lower-cased and read as
- * the page shows them (a run of whitespace as one space, U+2010/U+2011 as "-"): site-schema's unbackedClaims on
- * every text a person reads or hears, each word it finds cut down to the unbacked credential claim it holds; an
- * unbacked "24/7"; and every star rating and 24-hour, same-day or next-day service claim. So a quoted phrase or
- * a web address around a claim counts as that claim, and one around a backed claim counts as nothing.
+ * The credential claims `page` states that the owner's `facts` do not back, lower-cased, each once, in every text
+ * a person reads or hears, read as the page shows it: site-schema's unbackedClaims, each word it finds cut down
+ * to the unbacked credential claim it holds; an unbacked "24/7"; and every star rating and 24-hour, same-day or
+ * next-day service claim. So a quoted phrase or a web address around a claim counts as that claim, and one
+ * around a backed claim counts as nothing.
  * unbackedClaims gives the first word of each pattern in a text, so a text that holds two words of one of its
  * patterns shows the first. invariantProblems then drops every claim today's page for the same document states
  * too, such as an owner's pasted review or the owner's own "Open 24 hours".
@@ -121,13 +123,12 @@ const allMatches = (pattern: RegExp, text: string): string[] => [...text.matchAl
  * review and its judges see the page.
  */
 export function pageClaims(page: string, facts: Facts): string[] {
-  const texts = [...new Set(readableTexts(page))];
+  const texts = [...new Set(readableTexts(page).map(asShownOnPage))];
   const unbacked = CREDENTIAL_CLAIMS.filter((pattern) => !NEEDS_A_FACT.some((claim) => claim.pattern === pattern && claim.backedBy(facts)));
   const words = texts.flatMap((text) => unbackedClaims(text, facts)).flatMap((word) => unbacked.flatMap((pattern) => pattern.exec(word)?.[0] ?? []));
   const digits = ROUND_THE_CLOCK.backedBy(facts) ? [] : texts.flatMap((text) => ROUND_THE_CLOCK.pattern.exec(text)?.[0] ?? []);
   const ratingsAndHours = texts.flatMap((text) => [STAR_RATING, SERVICE_HOURS].flatMap((pattern) => allMatches(pattern, text)));
-  const asShown = (claim: string) => claim.toLowerCase().replace(/\s+/g, " ").replace(/[\u2010\u2011]/g, "-");
-  return [...new Set([...words, ...digits, ...ratingsAndHours].map(asShown))];
+  return [...new Set([...words, ...digits, ...ratingsAndHours].map((claim) => claim.toLowerCase()))];
 }
 
 /** Every shared invariant `page` (drawn by `design` for `doc`) breaks, compared with today's page; [] when it keeps them all. */

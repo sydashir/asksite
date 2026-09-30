@@ -198,6 +198,7 @@ describe("the invariant checks can fail (RED proof, on edited pages)", () => {
     ["24-hour service", "<p>24-hour service</p>", ["24-hour"]],
     ["same-day service", "<p>Same-day service</p>", ["same-day"]],
     ["two claims of one kind in one text", "<p>Same-day or next-day visits, 24 hrs</p>", ["same-day", "next-day", "24 hrs"]],
+    ["words joined by a no-break space or a no-break hyphen", "<p>Same&nbsp;day visits, 5&#8209;star crew</p>", ["5-star", "same day"]],
   ])("catch %s on cleaning-minimal", (_, extra, claims) => {
     const doc = SiteDocument.parse(loadFixture("cleaning-minimal"));
     const baseline = renderDocument(doc, BASELINE, OPTIONS).html;
@@ -276,11 +277,11 @@ describe("the invariant checks can fail (RED proof, on edited pages)", () => {
 
   it("read star ratings, and 24-hour, same-day and next-day service, in symbols, digits and words", () => {
     const read = (pattern: RegExp, texts: readonly string[]) => texts.map((text) => pattern.exec(text)?.[0] ?? null);
-    const stars = ["\u2605\u2605\u2605\u2605\u2606", "\u2B50 Google", "\u272A", "5-star", "5 Stars", "4.9-star", "4.9 stars", "5 out of 5 stars", "10 \u2013 star", "5\u2011star"];
-    expect(read(STAR_RATING, stars)).toEqual(["\u2605", "\u2B50", "\u272A", "5-star", "5 Stars", "4.9-star", "4.9 stars", "5 out of 5 stars", "10 \u2013 star", "5\u2011star"]);
+    const stars = ["\u2605\u2605\u2605\u2605\u2606", "\u2B50 Google", "\u272A", "5-star", "5 Stars", "4.9-star", "4.9 stars", "5 out of 5 stars", "10 \u2013 star"];
+    expect(read(STAR_RATING, stars)).toEqual(["\u2605", "\u2B50", "\u272A", "5-star", "5 Stars", "4.9-star", "4.9 stars", "5 out of 5 stars", "10 \u2013 star"]);
     expect(read(STAR_RATING, ["Star Plumbing", "the star of the show", "Superstar crew", "5 starters", "A5 star", "\u2726 New"])).toEqual([null, null, null, null, null, null]);
-    const hours = ["Open 24 hours", "24-hour service", "24 hr line", "24hrs", "24\u2011hour", "Same-day service", "same day", "Next\u2013Day visits"];
-    expect(read(SERVICE_HOURS, hours)).toEqual(["24 hours", "24-hour", "24 hr", "24hrs", "24\u2011hour", "Same-day", "same day", "Next\u2013Day"]);
+    const hours = ["Open 24 hours", "24-hour service", "24 hr line", "24hrs", "Same-day service", "same day", "Next\u2013Day visits"];
+    expect(read(SERVICE_HOURS, hours)).toEqual(["24 hours", "24-hour", "24 hr", "24hrs", "Same-day", "same day", "Next\u2013Day"]);
     expect(read(SERVICE_HOURS, ["Open 24/7", "124 hours", "Since 2024, hours vary", "some days", "same-daylight", "Monday"])).toEqual([null, null, null, null, null, null]);
   });
 
