@@ -232,17 +232,22 @@ async function live(flags: Flags, capMicrousd: number, rows: readonly Row[], dep
   const budget = new Budget(capMicrousd, { stopAfterOverrun: flags.mode === "evaluation" });
   deps.print(`Live ${flags.mode}: budget ${formatUsd(capMicrousd)}; models, cheapest worst case first: ${plan.map((row) => row.candidate.label).join(", ") || "none"}.`);
   let measured = true;
+  let notRecorded: readonly string[] = [];
   try {
     if (flags.mode === "evaluation") await evaluate(flags.runs, plan, budget, deps);
     else {
       // What was spent shows even when our own code throws outside a model's try, such as a fixture that cannot be
       // written (fix (ii)); the exception is then passed on.
       try {
-        if (flags.mode === "record") measured = (await record(plan, budget, deps)) === 0;
-        else measured = (await probeCaps(plan, budget, deps)) && unpriced === 0;
+        if (flags.mode === "record") {
+          const result = await record(plan, budget, deps);
+          measured = result.refused === 0;
+          notRecorded = result.notRecorded;
+        } else measured = (await probeCaps(plan, budget, deps)) && unpriced === 0;
       } finally {
         printSpend(budget, deps);
       }
+      if (flags.mode === "record") deps.print(notRecorded.length === 0 ? "Every model was recorded." : `Not recorded: ${notRecorded.join(", ")}.`);
     }
   } catch (error) {
     if (!boundFailed(budget)) throw error;
@@ -369,10 +374,11 @@ async function probeCaps(plan: readonly LiveRow[], budget: Budget, deps: CliDeps
  * recorded-response test (test/recorded.test.ts) replays real provider output offline. The recorder keeps each
  * response's status and body only, never the request, so never the key; findRequestSecret then refuses, before
  * anything is written, a fixture that holds the key, an auth header's value or a request header name. Returns how many
- * fixtures were refused.
+ * fixtures were refused and the label of every model that was not recorded (errored, cut by the budget, no response, refused).
  */
-async function record(plan: readonly LiveRow[], budget: Budget, deps: CliDeps): Promise<number> {
+async function record(plan: readonly LiveRow[], budget: Budget, deps: CliDeps): Promise<{ refused: number; notRecorded: string[] }> {
   let refused = 0;
+  const notRecorded: string[] = [];
   const profile = EVAL_PROFILES.find((p) => p.id === "ord-plumb")!;
   for (const { candidate, env, worstMicrousd } of plan) {
     const sink: Array<{ status: number; body: unknown }> = [];
@@ -384,20 +390,25 @@ async function record(plan: readonly LiveRow[], budget: Budget, deps: CliDeps): 
       res = await budget.send(candidate.label, worstMicrousd, request, costOf(candidate));
     } catch (error) {
       deps.print(`${candidate.label}: ${kindOf(error)}, nothing recorded`);
+      notRecorded.push(candidate.label);
       continue;
     }
     if (res === undefined) {
       deps.print(`${candidate.label}: nothing recorded: the budget stopped the run`);
+      notRecorded.push(candidate.label);
       continue;
     }
     const [response] = sink;
-    if (response === undefined) deps.print(`${candidate.label}: nothing recorded: no response came back`);
-    else {
+    if (response === undefined) {
+      deps.print(`${candidate.label}: nothing recorded: no response came back`);
+      notRecorded.push(candidate.label);
+    } else {
       const recorded: RecordedResponse = { provider: candidate.provider, modelId: candidate.modelId, ...response };
       const text = `${JSON.stringify(recorded, null, 2)}\n`;
       const found = findRequestSecret(text, seen, env.OPENAI_COMPAT_API_KEY ?? env.ANTHROPIC_API_KEY);
       if (found !== null) {
         refused += 1;
+        notRecorded.push(candidate.label);
         deps.print(`${candidate.label}: refused to record: the answer contained a request secret (rule ${found.rule}: ${found.rule === 1 ? `value of ${found.name === "API key" ? "the API key" : `the header ${found.name}`}` : `the header name ${found.name}`})`);
       } else {
         mkdirSync(deps.fixturesDir, { recursive: true });
@@ -411,5 +422,5 @@ async function record(plan: readonly LiveRow[], budget: Budget, deps: CliDeps): 
     else if (res.usageMissing === true && !budget.overruns.some((o) => o.at === candidate.label)) deps.print(`${candidate.label}: the answer had no usage, so it was counted at its worst case of ${formatUsd(worstMicrousd)}`);
     printOverrun(candidate.label, res.usage, budget, deps);
   }
-  return refused;
+  return { refused, notRecorded };
 }
