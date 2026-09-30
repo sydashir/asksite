@@ -58,6 +58,11 @@ describe("eval/main.ts, the command's entry (additions E)", () => {
     expect(pkg.scripts.eval).toBe("node --env-file-if-exists=../../.env eval/main.ts");
   });
 
+  it("is reached from the root script with the inner pnpm silenced, so it does not print the arguments again (fix round #14)", () => {
+    const root = JSON.parse(readFileSync(new URL("../../../package.json", import.meta.url), "utf8")) as { scripts: Record<string, string> };
+    expect(root.scripts["eval:generation"]).toBe("pnpm --silent --filter @asksite/generation run eval");
+  });
+
   it("makes a dry run by default: exit code 0, the dry-run header, no key present, nothing sent", async () => {
     const { code, stdout, stderr } = await run(MAIN, []);
     expect(code, stderr).toBe(0);

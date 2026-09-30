@@ -203,6 +203,13 @@ describe("refusals (P3-17 D2, D5 c)", () => {
     expect(h.err).toHaveLength(1);
     expect(h.err[0]).toContain("the total can exceed --max-usd by at most one request's overrun above its worst case");
   });
+
+  it("says in the usage text never to put a key in arguments, and which key wins (fix round #13, #14)", async () => {
+    const h = harness();
+    expect(await main(["--help"], h.deps)).toBe(2);
+    expect(h.err[0]).toContain("never put a key in arguments; keys come only from the environment");
+    expect(h.err[0]).toContain("a variable set in the shell wins over the .env");
+  });
 });
 
 describe("a live caps probe (P3-17 D3)", () => {

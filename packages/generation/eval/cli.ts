@@ -3,9 +3,10 @@
 // A dry run unless both --live and --max-usd are given (amendment P3-17): it prints each model's worst-case cost and
 // whether its key is present, builds no provider and sends nothing. A live run (the evaluation, --caps-probe or
 // --record) sends each request only while the spend so far plus its worst case still fits under --max-usd
-// (budget.ts), cheapest model first. Keys come only from the environment: the package script runs
-// `node --env-file-if-exists=../../.env`, so a .env holding keys at the repo root is what makes a live run possible.
-// Never prints a key, nor any argument as it was typed.
+// (budget.ts), cheapest model first. Keys come only from the environment: the shell's variables, or the gitignored
+// .env at the repo root, which the package script loads with `node --env-file-if-exists=../../.env`. A variable set in
+// the shell wins over the same variable in the .env (Node's --env-file rule), so a key exported in the shell is the
+// one a live run uses. Never prints a key, nor any argument as it was typed.
 import { mkdirSync, writeFileSync } from "node:fs";
 import { parseArgs } from "node:util";
 import { ATTEMPT_TIMEOUT_MS, MAX_ATTEMPTS, MAX_OUTPUT_TOKENS, REAL_DEPS, type GenerateDeps } from "../src/generate.ts";
@@ -71,6 +72,7 @@ interface Flags {
 const USAGE = [
   "Usage: pnpm eval:generation [--live --max-usd <US$>] [--runs 1-10] [--only label,label] [--caps-probe | --record]",
   "A dry run unless both --live and --max-usd are given. A live run sends each site of the evaluation, or each request of --caps-probe and --record, only while the spend so far plus its worst case fits under --max-usd; the total can exceed --max-usd by at most one request's overrun above its worst case.",
+  "Keys: never put a key in arguments; keys come only from the environment (the shell's variables, or the gitignored .env at the repo root; a variable set in the shell wins over the .env).",
 ].join("\n");
 
 const readArgs = (argv: readonly string[]) =>

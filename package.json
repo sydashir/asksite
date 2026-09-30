@@ -14,7 +14,7 @@
     "e2e:install": "playwright install --only-shell chromium webkit",
     "render": "pnpm build:css && node scripts/render-fixture.ts",
     "check": "pnpm typecheck && pnpm test && pnpm test:e2e",
-    "eval:generation": "pnpm --filter @asksite/generation run eval"
+    "eval:generation": "pnpm --silent --filter @asksite/generation run eval"
   },
   "devDependencies": {
     "@asksite/core": "workspace:*",
