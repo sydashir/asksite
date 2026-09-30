@@ -7,9 +7,10 @@ export const JOB_STUCK_AFTER_MS = 6 * 60_000;
 /** Rows read per query. */
 export const SWEEP_BATCH = 25;
 /**
- * Rows ended per cron run: 400 writes and 16 reads stay well under D1's 1,000 queries per invocation
- * on Workers Paid, which production uses (design §1.4). On Workers Free (50) a large run stops at the
- * limit with every earlier write kept, and the next run carries on.
+ * Rows read per cron run, at most: a row counts once read, even when another writer ended or claimed it
+ * first. Each row read gets one write, so 16 reads and 400 writes stay well under D1's 1,000 queries per
+ * invocation on Workers Paid, which production uses (design §1.4). On Workers Free (50) a large run stops
+ * at the limit with every earlier write kept, and the next run carries on.
  */
 export const SWEEP_MAX_PER_RUN = 400;
 
@@ -46,7 +47,9 @@ export async function sweepStuckJobs(env: { DB: D1Database }, now: number, limit
       const { meta } = await statement.run();
       if (meta.changes === 1) counts[snapshot === null ? "failed" : "fallback"] += 1;
     }
-    // Every row read is now final or was finished by someone else, so the next read moves on.
+    // `seen` counts rows read, not rows ended. After its write, a row read is normally no longer stuck at this `now`:
+    // it is final (ended here or by someone else first), or the job claimed it first, so it is running from the
+    // job's own start time. So the next read moves on; in any case the run stops after at most `limit` rows read.
     seen += results.length;
     if (results.length < batch) break;
   }
