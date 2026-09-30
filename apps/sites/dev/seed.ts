@@ -3,8 +3,10 @@
 // It binds D1 and R2 through wrangler's getPlatformProxy: the local state by default; with --remote,
 // the production resources (the deploy smoke test only, Task 19; needs `wrangler login`).
 //
-// Usage: pnpm dev:seed [--slug demo] [--fixture plumber-austin] [--persist-to .wrangler/state]
-//          [--root localhost:8789] [--owner-email <email>] [--hero-photo] [--noindex] [--remote]
+// Usage: pnpm dev:seed [--slug demo] [--fixture plumber-austin] [--design impact|refined|modern]
+//          [--persist-to .wrangler/state] [--root localhost:8789] [--owner-email <email>] [--hero-photo]
+//          [--noindex] [--remote]
+// Without --design the page is drawn in the fixture's own design (A12).
 // Prints one JSON line: {"siteId":"…","url":"https://demo.localhost:8789/","created":true}
 //
 // The demo's contact form keeps the production limits (A15): one visitor network may leave 3 leads a
@@ -18,7 +20,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { EMPTY_EDITS, mediaKey, mediaUrl, newId, siteUrl, slugIssue } from "@asksite/core";
 import { approveVersion, createPendingVersion } from "@asksite/publishing";
-import { SiteDocument, type SiteDocumentInput } from "@asksite/site-schema";
+import { DESIGN_IDS, SiteDocument, type DesignId, type SiteDocumentInput } from "@asksite/site-schema";
 
 export interface ToolsEnv {
   DB: D1Database;
@@ -37,6 +39,7 @@ const TOOLS_CONFIG = join(SITES_DIR, "wrangler.tools.jsonc"); // generated, giti
 export interface SeedOptions {
   slug: string;
   fixture: string;
+  design: DesignId | null; // null: the fixture's own design
   persistTo: string;
   root: string;
   ownerEmail: string | null; // null: "<slug>-owner@example.com"
@@ -54,8 +57,13 @@ export const localStatePath = (persistTo: string): string => resolve(REPO, persi
 
 export function parseSeedOptions(argv: readonly string[]): SeedOptions {
   const options: SeedOptions = {
-    slug: "demo", fixture: "plumber-austin", persistTo: ".wrangler/state", root: "localhost:8789",
+    slug: "demo", fixture: "plumber-austin", design: null, persistTo: ".wrangler/state", root: "localhost:8789",
     ownerEmail: null, heroPhoto: false, indexable: true, remote: false,
+  };
+  const design = (id: string): DesignId => {
+    const known = DESIGN_IDS.find((designId) => designId === id);
+    if (known === undefined) throw new Error(`Unknown design ${id}`);
+    return known;
   };
   for (let i = 0; i < argv.length; i++) {
     const name = argv[i] ?? "";
@@ -66,6 +74,7 @@ export function parseSeedOptions(argv: readonly string[]): SeedOptions {
     };
     if (name === "--slug") options.slug = value();
     else if (name === "--fixture") options.fixture = value();
+    else if (name === "--design") options.design = design(value());
     else if (name === "--persist-to") options.persistTo = value();
     else if (name === "--root") options.root = value();
     else if (name === "--owner-email") options.ownerEmail = value();
@@ -97,6 +106,13 @@ type PhotoInput = NonNullable<SiteDocumentInput["facts"]["heroPhoto"]>;
 
 /** The photo --hero-photo adds; its URL is replaced by the upload's. */
 const SAMPLE_HERO: PhotoInput = { url: "https://media.invalid/sample.webp", alt: "Sample photo of the business at work", width: 1600, height: 900 };
+
+/** The fixture as the seed publishes it: in the design asked for (else its own), with the sample hero photo if asked. */
+export function seedDocument(fixture: SiteDocumentInput, options: Pick<SeedOptions, "design" | "heroPhoto">): SiteDocumentInput {
+  const theme = options.design === null ? fixture.theme : { ...fixture.theme, design: options.design };
+  const facts = options.heroPhoto ? { ...fixture.facts, heroPhoto: SAMPLE_HERO } : fixture.facts;
+  return { ...fixture, theme, facts };
+}
 
 /** Creates the owner, site, photos and an approved version for `slug`. Does nothing if the slug exists. */
 export async function seedDemoSite(
@@ -138,7 +154,7 @@ export async function seedDemoSite(
 async function main(): Promise<void> {
   const options = parseSeedOptions(process.argv.slice(2));
   const fixture = JSON.parse(readFileSync(join(REPO, "fixtures", `${options.fixture}.json`), "utf8")) as SiteDocumentInput;
-  const document = options.heroPhoto ? { ...fixture, facts: { ...fixture.facts, heroPhoto: SAMPLE_HERO } } : fixture;
+  const document = seedDocument(fixture, options);
 
   const sites = JSON.parse(readFileSync(join(SITES_DIR, "wrangler.jsonc"), "utf8")) as Parameters<typeof toolsConfig>[0];
   writeFileSync(TOOLS_CONFIG, `${JSON.stringify(toolsConfig(sites, options.remote), null, 2)}\n`);
