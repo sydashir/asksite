@@ -96,6 +96,8 @@ export interface SpendReport {
   /** Actual costs, and the worst case of each site that has an attempt without usage. */
   countedMicrousd: number;
   stop: BudgetStop | null;
+  /** The kind of exception that ended the run before every site was sent (fix round #2); absent when none did. */
+  error?: string;
 }
 
 const spent = (label: string, micro: number, missing: number): string => `- ${label}: spent ${formatUsd(micro)}${missing === 0 ? "" : `, plus ${unknownCost(missing)}`}`;
@@ -110,6 +112,7 @@ function spendSection(summaries: readonly CandidateSummary[], spend: SpendReport
     ...summaries.map((s) => spent(s.label, s.totalCostMicrousd, s.usageMissingAttempts)),
     spent("In total", total, missing),
     `- ${describeStop(spend.stop)}`,
+    ...(spend.error === undefined ? [] : [`- The run ended early on an error (${spend.error}): the results are the sites that completed before it.`]),
     "",
   ];
 }

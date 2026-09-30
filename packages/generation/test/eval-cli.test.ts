@@ -331,6 +331,48 @@ describe("a live evaluation (P3-17 D3, D4)", () => {
     expect(report).toContain(`- Stopped after ${GEMMA} ${EVAL_PROFILES[0]!.id} run 1: it cost more than its worst case, so the budget can no longer bound the run; nothing more was sent.`);
   });
 
+  it("keeps what completed when an error ends the run: the results, the report with the spend, then the error (fix round #2)", async () => {
+    // generateDraft turns a provider's own errors into attempt outcomes; an exception from our code (here the provider
+    // factory, on the fourth site) propagates.
+    const boom = new Error("boom");
+    const h = harness();
+    const build = h.deps.makeProvider;
+    h.deps.makeProvider = (env, snapshot, fetchImpl) => {
+      if (h.built.length === 3) throw boom;
+      return build(env, snapshot, fetchImpl);
+    };
+    await expect(main(["--live", "--max-usd", "5", "--runs", "1", "--only", `${GEMMA},${GROQ}`], h.deps)).rejects.toBe(boom);
+    expect(h.requests).toEqual(modelIds([GEMMA, GEMMA, GEMMA]));
+    expect(h.progress.slice(-2)).toEqual(["\r3/40 runs", "\n"]);
+    const [stamp] = readdirSync(join(h.dir, "results"));
+    const dir = join(h.dir, "results", stamp!);
+    expect(readdirSync(dir).sort()).toEqual(["ratings-key.json", "ratings.csv", "report.md", "runs.json", "summary.json"]);
+    expect(JSON.parse(readFileSync(join(dir, "runs.json"), "utf8"))).toHaveLength(3);
+    const report = readFileSync(join(dir, "report.md"), "utf8");
+    // Three sites at 400 micro-US$ each, and the site that threw at gemma's site worst case of 28,373.
+    expect(report).toContain("- Budget: $5.000000. Counted against it: $0.029573 (a site with an attempt without usage counts at its worst case).");
+    expect(report).toContain(`- ${GEMMA}: spent $0.001200\n`);
+    expect(report).toContain("- The run ended early on an error (error): the results are the sites that completed before it.");
+    expect(h.out.join("\n")).toContain(report.trimEnd());
+  });
+
+  it("keeps what completed when a provider cannot be built mid-run (fix round #2)", async () => {
+    const h = harness();
+    const build = h.deps.makeProvider;
+    h.deps.makeProvider = (env, snapshot, fetchImpl) => {
+      if (env.MODEL_ID === byLabel(GROQ).modelId) throw new ProviderError("auth", "OPENAI_COMPAT_API_KEY is blank");
+      return build(env, snapshot, fetchImpl);
+    };
+    await expect(main(["--live", "--max-usd", "5", "--runs", "1", "--only", `${GEMMA},${GROQ}`], h.deps)).rejects.toThrow(ProviderError);
+    expect(h.requests).toHaveLength(20);
+    const [stamp] = readdirSync(join(h.dir, "results"));
+    expect(JSON.parse(readFileSync(join(h.dir, "results", stamp!, "runs.json"), "utf8"))).toHaveLength(20);
+    const report = readFileSync(join(h.dir, "results", stamp!, "report.md"), "utf8");
+    // gemma's 20 sites at 400 each, and groq's first site at its worst case of 46,246 (the build threw inside the gate).
+    expect(report).toContain("- Budget: $5.000000. Counted against it: $0.054246 (a site with an attempt without usage counts at its worst case).");
+    expect(report).toContain("- The run ended early on an error (auth): the results are the sites that completed before it.");
+  });
+
   it("fails closed on a site whose cost cannot be counted: its worst case, then nothing more (fix round #4)", async () => {
     const h = harness({ answer: async (env, snapshot, fetchImpl) => ({ ...(await validDraft(env, snapshot, fetchImpl)), usage: { inputTokens: Number.NaN, outputTokens: 1_000 } }) });
     expect(await main(["--live", "--max-usd", "5", "--runs", "1", "--only", `${GEMMA},${GROQ}`], h.deps)).toBe(0);

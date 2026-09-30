@@ -26,14 +26,15 @@ export interface EvalRun {
  * generateDraft loop, prompt and validators the production job uses. With a budget (a live run,
  * amendment P3-17), each site is sent only while its worst case (worstCaseJobMicrousd) still fits,
  * and a site with an attempt without usage counts at that worst case; once the budget stops, no
- * further site of any candidate is sent, and the runs so far are returned.
+ * further site of any candidate is sent, and the runs so far are returned. onRun gets each run as it
+ * completes, so a caller keeps what completed even when an exception ends the evaluation early.
  */
 export async function runEval(options: {
   candidates: readonly EvalCandidate[];
   profiles: readonly EvalProfile[];
   runs: number;
   deps: GenerateDeps;
-  onRun?: (done: number, total: number) => void;
+  onRun?: (done: number, total: number, run: EvalRun) => void;
   budget?: Budget;
 }): Promise<EvalRun[]> {
   const out: EvalRun[] = [];
@@ -46,15 +47,16 @@ export async function runEval(options: {
         const costOf = (sent: GenerateResult) => ({ actualMicrousd: costMicrousd(candidate.provider, candidate.modelId, sent.usage), usageMissing: sent.log.some((attempt) => attempt.usageMissing) });
         const result = options.budget === undefined ? await site() : await options.budget.send(`${candidate.label} ${profile.id} run ${run}`, worst, site, costOf);
         if (result === undefined) return out;
-        out.push({
+        const completed: EvalRun = {
           candidate: candidate.label,
           profile,
           run,
           result,
           latencyMs: result.log.reduce((sum, attempt) => sum + attempt.latencyMs, 0),
           costMicrousd: costMicrousd(candidate.provider, candidate.modelId, result.usage),
-        });
-        options.onRun?.(out.length, total);
+        };
+        out.push(completed);
+        options.onRun?.(out.length, total, completed);
       }
   }
   return out;
