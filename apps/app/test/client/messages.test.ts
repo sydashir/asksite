@@ -180,6 +180,18 @@ describe("issuesToShow on a real SiteDocument list", () => {
     const other = [issue(["facts", "phone"], "invalid_format", "m"), issue(["copy", "heroHeadline"], "too_big", "Too big: expected string to have <=80 characters")];
     expect(issuesToShow(other)).toEqual(other);
   });
+
+  it("drops only what it knows is false: not a too_small next to a too_big, not a custom issue at an opening time", () => {
+    const name = ["facts", "businessName"];
+    const opens = ["facts", "hours", 0, "opens"];
+    const other = [
+      issue(name, "too_small", "Too small: expected string to have >=2 characters"),
+      issue(name, "too_big", "Too big: expected string to have <=80 characters"),
+      issue(opens, "invalid_format", "Time must be HH:MM (24-hour)"),
+      issue(opens, "custom", "m"),
+    ];
+    expect(issuesToShow(other)).toEqual(other);
+  });
 });
 
 // DECIDED (web-maker-d3): US usage in owner text. The owner checks a box; British "tick" must not come back.
