@@ -109,6 +109,12 @@ export function siteRoutes(deps: AdminDeps): Hono<AdminEnv> {
                 logLine({ event: "takedown_cleanup_failed", siteId: site.id });
               }
             }
+            // Plan 2 audits only the call that took the site down (and a later purge that deleted something), so a re-run that
+            // only finishes the clean-up would leave no trace of this admin action: record it here.
+            if (alreadyDown) {
+              const detail = { reason: body.reason, purgeMedia: body.purgeMedia, repeat: true };
+              await auditStatement(c.env.DB, { at: Date.now(), actor: `admin:${c.get("admin")}`, action: "site.taken_down", siteId: site.id, detail }).run();
+            }
             // The owner is told once: only the call that took the site down sends the notice, so a re-run never emails twice.
             return { noticeSent: alreadyDown ? null : await send(), ...(cleanupFailed ? { cleanupFailed: true as const } : {}) };
           })(),

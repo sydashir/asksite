@@ -208,6 +208,57 @@ describe("the takedown clean-up retry and the single notice (web-maker-f4, 2026-
   });
 });
 
+describe("the takedown audit rows (web-maker-f4, 2026-09-30: a re-run is recorded by the route; the fake mirrors Plan 2)", () => {
+  const takedown = (siteId: string) => `/api/admin/sites/${siteId}/takedown`;
+  type Row = { actor: string; detail: Record<string, unknown> };
+  const rows = async (siteId: string): Promise<Row[]> =>
+    (await (await h.db()).prepare("SELECT actor, detail_json FROM audit_log WHERE action = 'site.taken_down' AND site_id = ? ORDER BY id").bind(siteId).all<{ actor: string; detail_json: string }>()).results.map(
+      (r) => ({ actor: r.actor, detail: JSON.parse(r.detail_json) as Record<string, unknown> }),
+    );
+  const reasonOnSite = async (siteId: string) =>
+    (await (await h.db()).prepare("SELECT takedown_reason FROM sites WHERE id = ?").bind(siteId).first<{ takedown_reason: string | null }>())?.takedown_reason;
+
+  it("a first takedown leaves exactly one audit row, and it is not marked as a repeat", async () => {
+    const site = await h.pendingSite();
+    expect((await h.call("POST", takedown(site.siteId), { body: { reason: "Spam report" } })).status).toBe(200);
+    expect(await rows(site.siteId)).toEqual([{ actor: expect.stringMatching(/^admin:/), detail: { reason: "Spam report", purgeMedia: false } }]);
+    await h.backgroundDone(takedown(site.siteId));
+  });
+
+  it("a re-run adds exactly one route row with repeat true (its purge deleted nothing)", async () => {
+    const site = await h.pendingSite();
+    await h.call("POST", takedown(site.siteId), { body: { reason: "Spam report" } });
+    const again = await h.call("POST", takedown(site.siteId), { body: { reason: "Second reason" } });
+    expect(again.status).toBe(200);
+    const all = await rows(site.siteId);
+    expect(all).toHaveLength(2);
+    expect(all[1]).toEqual({ actor: expect.stringMatching(/^admin:/), detail: { reason: "Second reason", purgeMedia: false, repeat: true } });
+    expect(all.filter((r) => r.detail["repeat"] === true)).toHaveLength(1);
+    await h.backgroundDone(takedown(site.siteId));
+  });
+
+  it("a re-run keeps the first takedown reason on the site row", async () => {
+    const site = await h.pendingSite();
+    await h.call("POST", takedown(site.siteId), { body: { reason: "Spam report" } });
+    await h.call("POST", takedown(site.siteId), { body: { reason: "Second reason" } });
+    expect(await reasonOnSite(site.siteId)).toBe("Spam report");
+    await h.backgroundDone(takedown(site.siteId));
+  });
+
+  it("a re-run that also purges nothing writes no Plan 2 row; one that deletes an object writes Plan 2's later-purge row too", async () => {
+    const site = await h.pendingSite();
+    await h.call("POST", takedown(site.siteId), { body: { reason: "Spam report" } });
+    await h.call("POST", takedown(site.siteId), { body: { reason: "Spam report", purgeMedia: true } });
+    expect(await rows(site.siteId)).toHaveLength(2);
+    await (await h.r2("MEDIA")).put(`${site.siteId}/late.jpg`, "x");
+    await h.call("POST", takedown(site.siteId), { body: { reason: "Spam report", purgeMedia: true } });
+    const all = await rows(site.siteId);
+    expect(all).toHaveLength(4);
+    expect(all.filter((r) => r.detail["repeat"] === true)).toHaveLength(3);
+    await h.backgroundDone(takedown(site.siteId));
+  });
+});
+
 describe("settings storage (Plan 3 reads generation OFF only when the setting is exactly the string \"false\")", () => {
   it("writes exactly \"false\" and \"true\", and a limit as digits, through the settings route", async () => {
     const stored = async () =>
