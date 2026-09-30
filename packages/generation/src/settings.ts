@@ -9,10 +9,17 @@ export const utcDayStart = (now: number): number => now - (now % DAY_MS);
 const setting = async (db: D1Database, key: string): Promise<string | undefined> =>
   (await db.prepare("SELECT value FROM settings WHERE key = ?1").bind(key).first<{ value: string }>())?.value;
 
-/** The kill switch: GENERATION_ENABLED must be exactly "true" and the setting must not be "false" (§6.3). */
+/**
+ * The kill switch fails closed (§6.3): GENERATION_ENABLED must be exactly "true", and the setting row, when there is one,
+ * must be exactly "true" or "false" (a missing row follows the variable). Any other row value is a typo at the moment
+ * someone tried to switch generation off, so it counts as off and one fixed line says so (no value echoed).
+ */
 export async function isGenerationEnabled(env: { DB: D1Database; GENERATION_ENABLED: string }): Promise<boolean> {
   if (env.GENERATION_ENABLED !== "true") return false;
-  return (await setting(env.DB, "generation.enabled")) !== "false";
+  const value = await setting(env.DB, "generation.enabled");
+  if (value === undefined || value === "true") return true;
+  if (value !== "false") console.log(JSON.stringify({ event: "generation.config_error", setting: "generation.enabled" }));
+  return false;
 }
 
 const asLimit = (value: string | undefined): number | undefined => (value !== undefined && /^\d{1,6}$/.test(value) ? Number(value) : undefined);

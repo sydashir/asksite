@@ -28,6 +28,37 @@ describe("isGenerationEnabled", () => {
   });
 });
 
+describe("isGenerationEnabled fails closed", () => {
+  const CONFIG_ERROR = JSON.stringify({ event: "generation.config_error", setting: "generation.enabled" });
+  let logged: string[] = [];
+  beforeEach(() => {
+    logged = [];
+    vi.spyOn(console, "log").mockImplementation((line: unknown) => void logged.push(String(line)));
+  });
+  afterEach(() => vi.restoreAllMocks());
+
+  it("follows the variable when the row is missing or exactly \"true\", and logs nothing", async () => {
+    expect(await isGenerationEnabled({ DB: db, GENERATION_ENABLED: "true" })).toBe(true);
+    expect(await isGenerationEnabled({ DB: db, GENERATION_ENABLED: "false" })).toBe(false);
+    await setSetting(db, "generation.enabled", "true");
+    expect(await isGenerationEnabled({ DB: db, GENERATION_ENABLED: "true" })).toBe(true);
+    expect(await isGenerationEnabled({ DB: db, GENERATION_ENABLED: "false" })).toBe(false);
+    expect(logged).toEqual([]);
+  });
+
+  it("is off for exactly \"false\" and logs nothing", async () => {
+    await setSetting(db, "generation.enabled", "false");
+    expect(await isGenerationEnabled({ DB: db, GENERATION_ENABLED: "true" })).toBe(false);
+    expect(logged).toEqual([]);
+  });
+
+  it.each(["False", "FALSE", "0", "no", "off", " false", "false ", "disabled", ""])("a row holding %j is off, with exactly one fixed line that does not echo it", async (value) => {
+    await setSetting(db, "generation.enabled", value);
+    expect(await isGenerationEnabled({ DB: db, GENERATION_ENABLED: "true" })).toBe(false);
+    expect(logged).toEqual([CONFIG_ERROR]);
+  });
+});
+
 describe("dailyModelLimit", () => {
   const CONFIG_ERROR = JSON.stringify({ event: "generation.config_error", setting: "DAILY_MODEL_LIMIT" });
   let logged: string[] = [];
