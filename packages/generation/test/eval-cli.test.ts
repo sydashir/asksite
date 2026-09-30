@@ -347,21 +347,28 @@ describe("a live caps probe (P3-17 D3)", () => {
     expect(h.out).toContain("The budget did not stop the run.");
   });
 
-  it("passes the cap by at most that one overrun: the next model's check counts it (fix round #1)", async () => {
+  it("passes the cap by at most that one overrun: the next model's check counts it (fix round #1; resized in C)", async () => {
     const h = harness({
       candidates: [byLabel(OSS), byLabel(HF), byLabel(GROQ), byLabel(GEMMA)],
-      answer: async (env) => ({ json: undefined, model: "fake", usage: { inputTokens: env.MODEL_ID === byLabel(HF).modelId ? 120_000 : 51_234, outputTokens: 256 }, stop: "max_tokens" }),
+      answer: async (env) => ({ json: undefined, model: "fake", usage: { inputTokens: env.MODEL_ID === byLabel(HF).modelId ? 300_000 : 51_234, outputTokens: 256 }, stop: "max_tokens" }),
     });
-    expect(await main(["--caps-probe", "--live", "--max-usd", "0.03"], h.deps)).toBe(3);
-    // gemma 5,201 + groq 7,839 = 13,040, and hf's worst case of 10,692 still fits under 30,000. hf then costs
-    // 120,000 x 0.15 + 256 x 0.75 = 18,192, an overrun of 7,500: the spend of 31,232 passes the cap by 1,232, less than
-    // that overrun, and workers-ai gpt-oss (worst case 24,692) is refused.
+    expect(await main(["--caps-probe", "--live", "--max-usd", "0.05"], h.deps)).toBe(3);
+    // gemma 5,201 + groq 7,839 = 13,040, and hf's worst case of 10,692 still fits under 50,000. hf then costs
+    // 300,000 x 0.15 + 256 x 0.75 = 45,192, an overrun of 34,500: the spend of 58,232 passes the cap by 8,232, less than
+    // that overrun. workers-ai gpt-oss (worst case 24,692) is refused: 58,232 + 24,692 > 50,000. A check that left the
+    // overrun out (13,040 + 10,692 = 23,732 spent) would send it: 23,732 + 24,692 = 48,424 <= 50,000.
     expect(h.requests).toEqual(modelIds([GEMMA, GROQ, HF]));
-    expect(h.out).toContain(`${HF}: it cost $0.018192, more than its worst case of $0.010692 (120000 input and 256 output tokens); nothing more goes to this model, and the other models go on.`);
+    expect(h.out).toContain(`${HF}: it cost $0.045192, more than its worst case of $0.010692 (300000 input and 256 output tokens); nothing more goes to this model, and the other models go on.`);
     expect(h.out).toContain(`${OSS}: not measured: the budget stopped the run`);
-    expect(h.out).toContain("Spent: $0.031232 counted against the $0.030000 budget.");
-    expect(31_232).toBeLessThanOrEqual(30_000 + (18_192 - 10_692));
+    expect(h.out).toContain("Spent: $0.058232 counted against the $0.050000 budget.");
     expect(h.out).toContain(`Stopped for the budget before ${OSS}: its worst case would have taken the spend over the budget, so nothing more was sent.`);
+    // The bound itself, read from the run's own lines (E): the spend passes the cap, by at most that overrun.
+    const micro = (usd: string): number => Number(usd.replace(/^\$|\./g, ""));
+    const [, spentUsd, capUsd] = /^Spent: (\$\d+\.\d{6}) counted against the (\$\d+\.\d{6}) budget\.$/.exec(h.out.find((line) => line.startsWith("Spent: "))!)!;
+    const [, countedUsd, worstUsd] = /: it cost (\$\d+\.\d{6}), more than its worst case of (\$\d+\.\d{6}) /.exec(h.out.find((line) => line.startsWith(`${HF}: it cost `))!)!;
+    const [spent, cap, counted, worst] = [spentUsd!, capUsd!, countedUsd!, worstUsd!].map(micro);
+    expect(spent).toBeGreaterThan(cap!);
+    expect(spent! - cap!).toBeLessThanOrEqual(counted! - worst!);
   });
 
   it("refuses a candidate with no recorded price and probes the others (P3-17 D3, D5 f)", async () => {
@@ -463,6 +470,17 @@ describe("a live evaluation (P3-17 D3, D4)", () => {
   it("still stops everything after a site that cost more than its worst case (fix round #1)", async () => {
     // gemma's site worst case is 3 x (70,000 x 0.1 + 8,192 x 0.3) = 28,373; this site costs 300,000 x 0.1 + 1,000 x 0.3 = 30,300.
     const h = harness({ answer: async (env, snapshot, fetchImpl) => ({ ...(await validDraft(env, snapshot, fetchImpl)), usage: { inputTokens: 300_000, outputTokens: 1_000 } }) });
+    expect(await main(["--live", "--max-usd", "5", "--runs", "1", "--only", `${GEMMA},${GROQ}`], h.deps)).toBe(3);
+    expect(h.requests).toEqual(modelIds([GEMMA]));
+    const [stamp] = readdirSync(join(h.dir, "results"));
+    const report = readFileSync(join(h.dir, "results", stamp!, "report.md"), "utf8");
+    expect(report).toContain("- Budget: $5.000000. Counted against it: $0.030300 (a site with an attempt without usage counts at its worst case).");
+    expect(report).toContain(`- Stopped after ${GEMMA} ${EVAL_PROFILES[0]!.id} run 1: it cost more than its worst case, so the budget can no longer bound the run; nothing more was sent.`);
+  });
+
+  it("counts a site without usage whose partial cost already passed its worst case at that partial cost, and stops everything (A)", async () => {
+    // gemma's site: 300,000 x 0.1 + 1,000 x 0.3 = 30,300 from the partial usage, against its worst case of 28,373.
+    const h = harness({ answer: async (env, snapshot, fetchImpl) => ({ ...(await validDraft(env, snapshot, fetchImpl)), usage: { inputTokens: 300_000, outputTokens: 1_000 }, usageMissing: true }) });
     expect(await main(["--live", "--max-usd", "5", "--runs", "1", "--only", `${GEMMA},${GROQ}`], h.deps)).toBe(3);
     expect(h.requests).toEqual(modelIds([GEMMA]));
     const [stamp] = readdirSync(join(h.dir, "results"));
@@ -733,6 +751,21 @@ describe("a live --record without usage (fix round #12)", () => {
     expect(h.out).toContain("groq/gpt-oss-120b: recorded test/fixtures/groq__gpt-oss-120b.json");
     expect(h.out).toContain("groq/gpt-oss-120b: the answer had no usage, so it was counted at its worst case of $0.015416");
     expect(h.out).toContain("Spent: $0.015416 counted against the $1.000000 budget.");
+  });
+
+  it("does not also say 'counted at its worst case' when the partial cost alone passed the worst case and the overrun line reports what was counted (D)", async () => {
+    const body = { model: "m", choices: [{ message: { content: "{}" }, finish_reason: "stop" }] };
+    const http = fakeFetch([{ status: 200, body }]);
+    const recorded: Answer = async (env, snapshot, fetchImpl) => {
+      await fetchImpl!("https://record.example.invalid/v1/chat/completions", { method: "POST", body: "{}" });
+      return { ...(await validDraft(env, snapshot, fetchImpl)), usage: { inputTokens: 70_010, outputTokens: 8_192 }, usageMissing: true };
+    };
+    const h = harness({ answer: recorded, fetch: http.fetch });
+    // gemma's partial usage: 70,010 x 0.1 + 8,192 x 0.3 = 9,458.6, so 9,459 against its --record worst case of 9,458.
+    expect(await main(["--record", "--live", "--max-usd", "1", "--only", GEMMA], h.deps)).toBe(3);
+    expect(h.out).toContain(`${GEMMA}: it cost $0.009459, more than its worst case of $0.009458 (70010 input and 8192 output tokens); nothing more goes to this model, and the other models go on.`);
+    expect(h.out.filter((line) => line.includes("counted at its worst case"))).toEqual([]);
+    expect(h.out).toContain("Spent: $0.009459 counted against the $1.000000 budget.");
   });
 });
 

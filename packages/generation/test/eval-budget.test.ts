@@ -132,6 +132,15 @@ describe("Budget", () => {
     expect(budget.spentMicrousd).toBe(3_000);
   });
 
+  it("counts a request without usage whose partial cost already passed its worst case at that partial cost, as an overrun (A)", async () => {
+    for (const stopAfterOverrun of [true, false]) {
+      const budget = new Budget(10_000, { stopAfterOverrun });
+      expect(await pay(budget, "a", 1_000, 1_500, true)).toBe("sent");
+      expect([budget.spentMicrousd, budget.overruns]).toEqual([1_500, [{ at: "a", countedMicrousd: 1_500, worstMicrousd: 1_000 }]]);
+      expect(budget.stop).toEqual(stopAfterOverrun ? { at: "a", reason: "over_worst_case" } : null);
+    }
+  });
+
   it("counts a request that throws at its worst case, and passes the error on", async () => {
     const budget = new Budget(10_000);
     const boom = new Error("boom");
