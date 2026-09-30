@@ -48,7 +48,7 @@ Read this whole file at the start of every session. These rules override default
   - Safety scope: only stop processes this project started — target them by PID or by an exact command pattern that includes this repo's path (e.g. `pkill -f "/Users/ashir/Documents/workk2/web_maker/"`). Never run a bare `killall node` or `pkill node`: this Mac also runs the user's other projects (e.g. dmchat-tg) on node, and they must not be touched.
 
 - Mac load (user instruction 2026-09-29: "don't lag my Mac"):
-  - Run every heavy suite (`pnpm test`, `pnpm test:e2e`, any Playwright or workerd suite) through `/Users/ashir/Documents/workk2/.asksite-heavy/run.sh <command>`. It allows at most 2 such runs machine-wide and runs them at nice 10.
+  - Run every heavy suite (`pnpm test`, `pnpm test:e2e`, any Playwright or workerd suite) through `/Users/ashir/Documents/workk2/.asksite-heavy/run.sh <command>`. It allows 2 such runs machine-wide, at nice 10: one slot is reserved for the critical-path build lanes (Plans 3 and 4 set `ASKSITE_HEAVY_LANE=critical`), and one is shared by everything else (design builds, moderator checks).
   - Run light commands under `nice -n 10`.
   - Playwright uses at most 2 workers; vitest at most 3.
   - The moderator's governor (PID in `.superpowers/sdd/governor.pid`) lowers the priority of this project's processes and never stops anything.

@@ -2,6 +2,49 @@
 
 Last updated: 2026-09-25 (written at the user's context-limit signal)
 
+## NOW (2026-09-30 19:2x) — moderator web-maker-f4, after /compact (read this first)
+- Tools work again in this tab after /compact. (The "~19:3x" label below was wrong; the clock said 19:15 at resume.)
+- Running (mine):
+  - Lane C moderator review: resumed wf_ba962d11-953 (task w21fk5iv0), plan4-app..plan4-client at 5f33ceb (the script already covered 5f33ceb). Then the "Merge client lane" OK.
+  - Design builds resumed at round-2 checks, with the FULL args from design-build-args-recovered.json: impact wf_5e47fc31-f33 (weqxmp5qf), refined wf_007d94b7-ef9 (w52maoujr), modern wf_859e4ae8-e76 (wcdkw5clt). Checked: build1/build2 came from the cache.
+  - Limit Monitor bgsimuigw (30 min; re-arm).
+- Sent to Plan 4: the lane A rulings (m1 catch-log-rethrow, m2 wording, m3 at the 2B sync with a note on both takeDown copies, item 41 OK). Plan 4 is running P4-21 follow-up 2 (wf_9c5fee23-a5a, base a8c6abf) and will send the new head. Then my lane A review over 8ee2fe7..<new head>, then the "Sync with main" OK.
+- Approved lane B: the Task 21 Important (approve route without runToEnd, reviews.ts:88) gets fixed with runToEnd plus a red-first wiring test. Asked lane B to check its other D1-then-second-write routes too.
+- My slip at 19:16: I first resumed Bold with only 5 of its 9 args. I stopped it within about a minute. Its one agent made no tool calls (checked its transcript), and the Bold tree is clean. Then I relaunched with the full args. Rule: always pass the full args from the recovered file.
+
+## (older) NOW (2026-09-30 ~19:1x) — moderator web-maker-f4, BEFORE /compact
+- The account claude1 hit its WEEKLY limit at 18:46 (resets Oct 5); the user logged in as meetasiff in the asksite config. Plans 3 and 4 resumed fine. This tab's auto-mode classifier kept erroring (likely this conversation's size), which blocks Bash, SendMessage, Workflow and Monitor here.
+- TO RESUME after /compact:
+  1. Check the trees: git status in the 9 worktrees.
+  2. Relaunch my moderator review of Plan 4 lane C: Workflow resume wf_ba962d11-953 (script moderator-review-plan4-lanec-wf_ba962d11-953.js). Plan 4 waits for my "Merge client lane" OK after it. Lane C minors m-1..m-4 are already triaged.
+  3. Resume the 3 design builds (all stopped at round 3 on the limit; the round-2 reviews/attacks re-run on resume): impact wf_5e47fc31-f33, refined wf_007d94b7-ef9, modern wf_859e4ae8-e76. Use scriptPath .superpowers/sdd/design-build-wf.js with the args in .superpowers/sdd/design-build-args-recovered.json.
+     - Round-1 reviews found honesty test gaps: Classic and Modern have no test with insured:false while credentials show. Add a shared uninsured variant to the claims invariant later, as a contract step.
+     - Bold needs `font-src data:` in the sites CSP (on main now) and in Plan 4's CSPs.
+  4. Re-arm the limit Monitor (asksite paths).
+- Plan 3: SYNCED main as 536f21c (ff5e152 + 1f7e86c, resolutions as approved, frozen lockfile OK). Running: synca12 plus a 3-lens review, and the follow-up 3 review; then notices 4 and "Merge eval lane".
+- Plan 4: lane A P4-21 follow-up (a8c6abf) review resumed; its checker must run the suites itself (the 18:32 results are info only). Lane B: new run at 8e87713 (Task 21 I1 test fix, then review, then Task 22). Lane C: waits for my review and OK.
+- main = 1f7e86c (Plan 2B merged). Fresh backups of all 8 branches on GitHub at ~18:20.
+- ALSO PENDING, Plan 4 lane A is READY for my moderator review: 8ee2fe7..a8c6abf (P4-21 plus its follow-up; 9 commits; 21 files +1093/-147).
+  - The independent suite gate was run by the review checker on slot-c: app 317, unit 1,894, workerd 296, 0 failed. 12 of 13 mutants killed; 1 equivalent, kept.
+  - Rulings to SEND once messaging works:
+    1. Catch the isTakenDown read on the lost path, log code "internal", rethrow (lane A slot, test-first).
+    2. Reword the comment to "no billed image work".
+    3. Test duplication goes to the 2B sync (the real takeDown/restore; withTrigger moves to harness.ts).
+    4. Task 27 item 41 is OK for the pilot (ops deletes on upload_cleanup_failed step media_delete); a backstop sweep is recorded as post-launch.
+    5. Noted.
+  - Then launch my review workflow over 8ee2fe7..a8c6abf (review + attack, read-only, critical slot, the same shape as wf_ba962d11-953). Then "Sync with main" OK for lane A with the lockfile proof.
+
+## NOW (2026-09-30 17:0x) — moderator web-maker-f4 (read this first)
+- main = 1f7e86c on GitHub: Plan 1 + Stage 0 + A8-A14 + A12-0 + Plan 2B (sites Worker, publishing, mailer, lead caps, migration 0002). gh restored to dev778d.
+- Sessions (asksite login, config ~/.claude-asksite): Plan 3 = asksite-plan3-38, Plan 4 = asksite-plan4-59. Launch tabs only via ~/Documents/workk2/asksite-claude.sh.
+- My jobs:
+  - design builds impact wf_5e47fc31-f33, refined wf_007d94b7-ef9, modern wf_859e4ae8-e76. They are resumable with the args in .superpowers/sdd/design-build-args-recovered.json. Each must sync main 1f7e86c before its merge; Bold adds the public-site CSP font-src data: (plus the Plan 4 preview CSP later).
+  - The limit Monitor is re-armed every 30 min; governor PID in governor.pid.
+- Plan 3: Tasks 1-13 done. Follow-up 3 and notices-4 are in progress, then Task 14. BLOCKED ON THE USER: allow `git merge` in the Plan 3 tab (the sync with main 1f7e86c).
+- Plan 4: Tasks 1-12, 19, 20 done; P4-21 plus its follow-up in lane A, then MY review (8ee2fe7..HEAD), then lane A syncs main. Lane B: Task 21 review, then 22. Lane C: Task 13 review, then "Merge client lane" before Task 14.
+- Open for the user: the Plan 3 git merge permission; whether to redact the local messaging token line in Plan 4's agent transcript.
+- Background commands die after 30 min: run long checks detached (nohup) with a Monitor on an "end" marker (see .superpowers/sdd/p2b-merge-verify/verify-e2e.sh).
+
 ## NOW (2026-09-30 11:5x) — moderator web-maker-d3 (read this first)
 - main = f44026e (A12-0 merged). Governor 78060 alive; limit watcher b9yr8kift (re-arm every 30 min).
 - Running (mine):

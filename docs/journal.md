@@ -408,3 +408,28 @@ Append-only. Newest at the bottom.
   - Identity: 61 commits, all sydashir, 3 words or fewer, no AI lines; the only merge is 8abd5a6 "Sync with main". Reviews: final whole-branch APPROVED (d85abea), sync review + attack APPROVED (7d62a34), flake fix APPROVED (e8e4a33).
   - main fast-forwarded f44026e -> e8e4a33, then the docs commit; pushed with plan2-hosting and plan2b-serve.
   - Carried: Bold's font-src data: in the public-site CSP is added by whichever of Bold/2B lands second (now Bold, at its sync). Minor M1: 6 midnight-dependent form tests (~1 in 10,000).
+- ~18:1x: my design builds were holding both heavy-run slots, which starved Plan 4 (the critical path).
+  - run.sh changed (atomic replace): ASKSITE_HEAVY_LANE=critical gets its own slot-c (Plans 3 and 4); everything else shares slot-1. CLAUDE.md updated; Plans 3 and 4 told.
+  - Also pushing fresh backups of all 8 working branches to GitHub (secret scan 0 hits). Unmerged work is about 35-40k lines across the lanes.
+- ~18:4x: Plan 4 flagged a permission-process issue. The classifier had denied one agent stream's relaunch of the P4-21 suites on slot-c; a sibling stream then ran the same kind of test run and was allowed. The results were app 317, unit 1,894, workerd 296 at a8c6abf, clean tree.
+  - Ruled: those results are information only. The gate is the independent runs (the review wf_ca826cb8-11b's own checks, and wrapper 84379).
+  - Rule sent: a denied call is never retried through another stream or agent; report it instead.
+  - Plan 4 lane A follow-up: 4 commits a8b54b7..a8c6abf; the equivalent mutant (reserved_at IS NOT NULL) is kept.
+- ~19:0x: Plan 4 lane C is complete through Task 13 (plan4-app..plan4-client = 28 commits; 30 files +1,953/-58; merge-tree clean). My moderator review is running: wgjs7bnei (run wf_ba962d11-953), code review + adversarial check, read-only, critical slot.
+  - Minors triaged in advance:
+    - m-1 AutoSaver catch goes to Task 15, test-first, in lane A after the merge;
+    - m-2 check:floor runs build:css first (lane A);
+    - m-3 setRev/dispose tests in Task 15, dropping setRev if unused;
+    - m-4 previewDesign kept only if Task 17 uses it.
+- 18:46: the claude1 account hit its WEEKLY limit (resets Oct 5). It killed my lane C review (both agents) and all three design builds at round 3 (review2/attack2/build3). The user logged in as meetasiff (asksite config).
+  - From ~19:10 this tab's auto-mode classifier returned "no verdict" on every Bash/SendMessage/Workflow/Monitor call, so nothing could be relaunched from here. Plans 3 and 4 worked normally, so the cause is probably this conversation's size. File edits still work.
+  - Plan 3 synced main: 536f21c (ff5e152 + 1f7e86c) with the approved resolutions; frozen lockfile OK; --cc shows only the importer, tsconfig and notices hunks. It is running synca12 and follow-up 3's review.
+  - Plan 4: lane B committed 8e87713 (Task 21 I1 test, 15/15, 8 mutants) before the limit; the old wrapper 84379 was killed (never ran), so the P4-21 follow-up suite gate is still open; lane A's review was resumed with the checker running the suites itself.
+  - Resume steps are in session.md (NOW ~19:3x).
+- 19:15-19:25 (after /compact; tools work again): the trees are all clean except Plan 3's own work in progress (a47f6e9 plus 9 edits); plan4-client moved to 5f33ceb (a test pin "Pin AI design"); the governor is alive.
+  - Resumed my lane C review wf_ba962d11-953 (it already covers 5f33ceb).
+  - Resumed the 3 design builds at their round-2 checks. Verified in the journals that build1/build2 came from the cache.
+  - MY SLIP: I first resumed Bold with 5 of its 9 args, which would have rebuilt it from a wrong prompt. I stopped it after about a minute. Its only agent made no tool calls (checked its transcript), and the tree is clean at 718c38c. Then I relaunched with the full recovered args.
+  - Sent Plan 4 the lane A rulings; it is running P4-21 follow-up 2 (wf_9c5fee23-a5a).
+  - Approved Plan 4 lane B's fix for a Task 21 Important: the approve route now awaits approveVersion under runToEnd, so an admin disconnect can't leave an approved version with no LIVE object and no email.
+  - Limit Monitor re-armed.

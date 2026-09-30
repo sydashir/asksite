@@ -1,6 +1,21 @@
 # Project context
 
-Last updated: 2026-09-23
+Last updated: 2026-09-23 (the operating facts block below: 2026-09-30)
+
+## Operating facts (2026-09-30, stable until changed)
+- Asksite sessions run on their OWN Claude config: launch only with `~/Documents/workk2/asksite-claude.sh moderator|plan3|plan4`. It sets CLAUDE_CONFIG_DIR=~/.claude-asksite (a separate keychain login from the user's other projects) and unsets ANTHROPIC_API_KEY. `/login` inside an asksite tab changes only the asksite login.
+- Accounts: claude1 hit its WEEKLY limit on 2026-09-30 (resets Oct 5); asksite is on meetasiff since then. Usage limits, not wall time, are the main schedule risk.
+- Heavy tests: `/Users/ashir/Documents/workk2/.asksite-heavy/run.sh` has 2 slots. slot-c is for ASKSITE_HEAVY_LANE=critical (Plans 3 and 4); slot-1 is for everything else. The governor (.superpowers/sdd/governor.sh, PID in governor.pid) sets nice 15 only on project processes.
+- Rules added 2026-09-29/30: never print the environment; delete only by exact path inside your own scratch folder; stop processes only by exact PID; scratch copies via git archive only; never retry a denied call through another agent; never message an agent inside a running workflow; never edit a workflow script while its run may need resuming.
+- Long checks: background Bash dies at 30 min, so run them detached (nohup) with a Monitor on an "end" marker.
+- Key decisions since 2026-09-28 (details in .superpowers/sdd/plan-decisions.md):
+  - A15: per-network lead limits (3 per site, 5 across sites a day, IPv6 /64).
+  - A12-0 merged (three designs, chosen by trade; the claims check on design markup).
+  - P4-20 amendment: one lazy design-sheets chunk, 40 KiB gzip at most.
+  - P4-21: upload reservations; migrations 0003 (uploads.reserved_at) and 0004 (site_versions covering index); takedown guard.
+  - P4-18: Fetch-Metadata gate first in the admin Worker.
+  - Task 17: no automatic reload; the owner-driven "Reload the page" flow.
+- main = 1f7e86c: Plan 1, Stage 0, A8-A14, A12-0, Plan 2B.
 
 Status labels used below:
 - **[verified]** — confirmed against the primary source or by running it.
