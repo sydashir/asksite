@@ -327,7 +327,7 @@ describe("POST /api/sites/:siteId/publish-requests", () => {
     const page = await h.call("GET", `/api/sites/${owner.siteId}/versions/${version.id}/page`, { cookie: owner.cookie });
     expect(page.status).toBe(200);
     expect(page.headers.get("Content-Security-Policy")).toBe(
-      `sandbox; default-src 'none'; style-src 'unsafe-inline'; img-src https://media.${ROOT}; form-action 'none'; frame-ancestors 'self'`,
+      `sandbox; default-src 'none'; style-src 'unsafe-inline'; font-src data:; img-src https://media.${ROOT}; form-action 'none'; frame-ancestors 'self'`,
     );
     expect(page.headers.get("X-Frame-Options")).toBe("SAMEORIGIN");
     expect(page.headers.get("Cache-Control")).toBe("no-store");

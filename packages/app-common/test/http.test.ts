@@ -511,11 +511,19 @@ describe("reviewPageHeaders", () => {
     expect(reviewPageHeaders("asksite.example")).toEqual({
       "Content-Type": "text/html; charset=utf-8",
       "Content-Security-Policy":
-        "sandbox; default-src 'none'; style-src 'unsafe-inline'; img-src https://media.asksite.example; form-action 'none'; frame-ancestors 'self'",
+        "sandbox; default-src 'none'; style-src 'unsafe-inline'; font-src data:; img-src https://media.asksite.example; form-action 'none'; frame-ancestors 'self'",
       "X-Frame-Options": "SAMEORIGIN",
       "X-Content-Type-Options": "nosniff",
       "X-Robots-Tag": "noindex",
       "Cache-Control": "no-store",
     });
+  });
+});
+
+describe("reviewPageHeaders font-src", () => {
+  it("allows only data: fonts, nothing wider", () => {
+    const csp = reviewPageHeaders("asksite.example")["Content-Security-Policy"] ?? "";
+    const fontSrc = csp.split(";").map((d) => d.trim()).filter((d) => d.startsWith("font-src"));
+    expect(fontSrc).toEqual(["font-src data:"]);
   });
 });

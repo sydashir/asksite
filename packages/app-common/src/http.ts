@@ -243,7 +243,7 @@ export function secondsUntilUtcMidnight(now: number): number {
 export function reviewPageHeaders(root: string): Record<string, string> {
   return {
     "Content-Type": "text/html; charset=utf-8",
-    "Content-Security-Policy": `sandbox; default-src 'none'; style-src 'unsafe-inline'; img-src https://media.${root}; form-action 'none'; frame-ancestors 'self'`,
+    "Content-Security-Policy": `sandbox; default-src 'none'; style-src 'unsafe-inline'; font-src data:; img-src https://media.${root}; form-action 'none'; frame-ancestors 'self'`,
     "X-Frame-Options": "SAMEORIGIN",
     "X-Content-Type-Options": "nosniff",
     "X-Robots-Tag": "noindex",
