@@ -9,6 +9,8 @@ import { ratingSheet } from "../eval/ratings.ts";
 import { runEval } from "../eval/run.ts";
 import type { ModelProvider } from "../src/provider.ts";
 import { FakeProvider, type FakeMode } from "../src/providers/fake.ts";
+import { templateDraft } from "../src/template.ts";
+import { answer, ProviderError, scriptedProvider } from "./support/scripted.ts";
 
 let clock = 0;
 const deps = { sleep: async () => {}, timeoutSignal: () => new AbortController().signal, now: () => (clock += 250) };
@@ -129,5 +131,40 @@ describe("attempts without usage (additions B)", () => {
   it("names a single attempt without usage in the singular", async () => {
     const runs = await runEval({ candidates: [noUsageCandidate("blind")], profiles: EVAL_PROFILES.slice(0, 1), runs: 1, deps });
     expect(formatReport(summarise(runs))).toContain("| blind | 1 | 100% | 100% | 250 | 250 | unknown (1 attempt without usage) | pass |");
+  });
+});
+
+describe("summarise, every field (fix round #7)", () => {
+  it("counts rules, claim words and provider errors from the failed attempts only, and the largest input per run", async () => {
+    const trap = EVAL_PROFILES.find((p) => p.id === "trap-plumb")!;
+    const draft = templateDraft(trap.snapshot.facts, trap.snapshot.brief);
+    // The real claim checker refuses these words for trap-plumb, which gives no licence, insurance or founding year.
+    const claims = { ...draft, copy: { ...draft.copy, about: "Licensed and insured plumbers since long ago, fixing leaks across Tacoma." } };
+    // Site 1: a provider error, then copy with unbacked claims, then a valid draft. Site 2: valid at the first try.
+    const scripts = [
+      [new ProviderError("unavailable", "down"), answer(claims, { inputTokens: 1_000, outputTokens: 100 }), answer(draft, { inputTokens: 2_000, outputTokens: 200 })],
+      [answer(draft, { inputTokens: 5_000, outputTokens: 300 })],
+    ];
+    const mixed = { label: "mixed", provider: "fake", modelId: "fake-template", makeProvider: (): ModelProvider => scriptedProvider(scripts.shift()!) };
+    const runs = await runEval({ candidates: [mixed], profiles: [trap], runs: 2, deps });
+    expect(summarise(runs)).toEqual([
+      {
+        label: "mixed",
+        runs: 2,
+        firstTryPassRate: 0.5,
+        passRate: 1,
+        failedRules: { unbacked_claim: 1 },
+        claimWords: { since: 1, licensed: 1, insured: 1 },
+        providerErrors: { unavailable: 1 },
+        // Each attempt takes 250 ms on this clock: 3 attempts, then 1.
+        latencyMsP50: 250,
+        latencyMsP95: 750,
+        maxInputTokensPerRun: 5_000,
+        totalCostMicrousd: 0,
+        costPerPassingSiteMicrousd: 0,
+        usageMissingAttempts: 0,
+        meetsAutomaticGate: false,
+      },
+    ]);
   });
 });

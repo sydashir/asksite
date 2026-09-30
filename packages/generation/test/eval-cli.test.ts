@@ -34,8 +34,9 @@ beforeEach(() => {
 const dirs: string[] = [];
 afterEach(() => {
   vi.unstubAllGlobals();
-  expect(globalFetchCalls).toEqual([]);
+  // Clean up first: a failing check below must not leave this test's folders behind (fix round #9).
   for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+  expect(globalFetchCalls).toEqual([]);
 });
 
 /** Stand-in keys for every candidate. They are markers: no output may ever contain one. */
@@ -325,6 +326,17 @@ describe("a live evaluation (P3-17 D3, D4)", () => {
     expect(h.out).toContain("claude-unpriced: no recorded price: cannot be run live");
     expect(new Set(h.built)).toEqual(new Set([byLabel(GEMMA).modelId]));
     expect(h.requests).toHaveLength(20);
+  });
+
+  it("reports what the budget counted, which differs from the actual spend when usage is missing (fix round #8)", async () => {
+    const h = harness({ answer: async (env, snapshot, fetchImpl) => ({ ...(await validDraft(env, snapshot, fetchImpl)), usageMissing: true }) });
+    expect(await main(["--live", "--max-usd", "1", "--runs", "1", "--only", GEMMA], h.deps)).toBe(0);
+    expect(h.requests).toHaveLength(20);
+    const [stamp] = readdirSync(join(h.dir, "results"));
+    const report = readFileSync(join(h.dir, "results", stamp!, "report.md"), "utf8");
+    // Each of the 20 sites lacks usage, so each counts at gemma's site worst case of 28,373; their actual cost is 400 each.
+    expect(report).toContain("- Budget: $1.000000. Counted against it: $0.567460 (a site with an attempt without usage counts at its worst case).");
+    expect(report).toContain(`- ${GEMMA}: spent $0.008000, plus unknown (20 attempts without usage)\n`);
   });
 
   it("still stops everything after a site that cost more than its worst case (fix round #1)", async () => {

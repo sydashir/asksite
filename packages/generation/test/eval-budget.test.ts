@@ -344,6 +344,25 @@ describe("runEval with a budget (P3-17 D3, D4)", () => {
     expect([runs.length, built]).toEqual([0, 0]);
   });
 
+  it("stops at a candidate with no recorded price by itself: no worst case, so no provider built and no site sent (fix round #6)", async () => {
+    // The CLI already leaves unpriced models out of a live run; this is runEval's own check, the second layer.
+    let built = 0;
+    const requests: string[] = [];
+    const unpriced: EvalCandidate = {
+      label: "unpriced",
+      provider: "anthropic",
+      modelId: "claude-unpriced",
+      makeProvider: (snapshot) => {
+        built += 1;
+        return { id: "fake", generate: async () => fixedAnswer(snapshot, THOUSAND) };
+      },
+    };
+    const budget = new Budget(10 * OPUS_SITE);
+    const runs = await runEval({ candidates: [unpriced, candidate("opus", OPUS, (s) => fixedAnswer(s, THOUSAND), requests)], profiles: EVAL_PROFILES.slice(0, 2), runs: 1, deps: FAST, budget });
+    expect([runs.length, built, requests, budget.spentMicrousd]).toEqual([0, 0, [], 0]);
+    expect(budget.stop).toEqual({ at: `unpriced ${EVAL_PROFILES[0]!.id} run 1`, reason: "no_price" });
+  });
+
   it("never lets the spend pass the cap over seeded random sites, and counts each site as the gate says", async () => {
     const broken: string[] = [];
     for (let seed = 1; seed <= 12; seed++) {
