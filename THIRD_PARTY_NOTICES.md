@@ -1,6 +1,6 @@
 # Third-party notices
 
-asksite includes code and assets adapted from the projects below. Each licence text is
+asksite includes code and assets adapted from, or bundled with, the projects below. Each licence text is
 copied from the project's own LICENSE file. Every rendered customer page also carries a one-line
 HTML comment in its `<head>` with the AstroWind and Tabler Icons copyright notices
 (`packages/renderer/src/render.ts`).
