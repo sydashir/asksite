@@ -1,4 +1,4 @@
-import { ApiError, readJson, reviewApprovedEmail, reviewRejectedEmail, reviewPageHeaders, trySend } from "@asksite/app-common";
+import { ApiError, checkEmailOrigin, readJson, reviewApprovedEmail, reviewRejectedEmail, reviewPageHeaders, trySend } from "@asksite/app-common";
 import { ApproveBody, RejectBody, type AdminVersionDetail, type GenerationRow, type SiteVersionRow } from "@asksite/core";
 import { Hono } from "hono";
 import { mailerEnv, siteWithOwner, toAdminSiteRow, toVersionSummary, versionRow, type AdminSiteColumns } from "../db.ts";
@@ -26,13 +26,13 @@ export function reviewRoutes(deps: AdminDeps): Hono<AdminEnv> {
 
   /**
    * The owner email's mailer and APP_ORIGIN, checked before approve or reject changes anything, so a configuration
-   * error (MAILER, APP_ORIGIN) is a 500 that leaves the version pending (moderator ruling, 2026-09-30). The email
-   * itself is built after the change, which gives the live address. app-common applies its origin rule only inside
-   * its email builders, so building one here (and dropping it) checks APP_ORIGIN by that exact rule.
+   * error (MAILER, APP_ORIGIN) is a 500 that leaves the version pending (moderator rulings, 2026-09-30). APP_ORIGIN
+   * is checked by checkEmailOrigin, the same rule every app-common email builder applies to its origin. The email
+   * itself is built after the change, which gives the live address.
    */
   const ownerMail = (env: Env) => {
     const mailer = deps.createMailer(mailerEnv(env));
-    reviewRejectedEmail({ appOrigin: env.APP_ORIGIN, note: "" });
+    if (!checkEmailOrigin(env.APP_ORIGIN)) throw new Error("APP_ORIGIN is not a bare https origin");
     return { mailer, appOrigin: env.APP_ORIGIN };
   };
 
