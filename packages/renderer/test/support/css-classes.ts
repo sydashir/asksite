@@ -1,11 +1,19 @@
 import { readFileSync } from "node:fs";
+import type { DesignId } from "@asksite/site-schema";
+import { DESIGN_CSS } from "../../../../fixtures/index.ts";
 
 // Classes that intentionally produce no CSS rule of their own: `group` is only a marker for
 // group-open:/group-hover: selectors on descendants.
 export const MARKER_CLASSES: ReadonlySet<string> = new Set(["group"]);
 
-export function loadCompiledCss(): string {
-  return readFileSync(new URL("../../styles/site.css", import.meta.url), "utf8");
+/** The baseline sheet (styles/sheets/baseline.css compiled): the one today's shared modules (src/ui.ts, src/sections) are built into. */
+export function loadBaselineCss(): string {
+  return readFileSync(new URL("../../styles/out/baseline.css", import.meta.url), "utf8");
+}
+
+/** The design's real compiled stylesheet (@asksite/site-css DESIGN_CSS, read through fixtures/index.ts). */
+export function loadCompiledCss(design: DesignId): string {
+  return DESIGN_CSS[design].css;
 }
 
 // Port of CSSOM CSS.escape() (https://drafts.csswg.org/cssom/#serialize-an-identifier),

@@ -2,6 +2,7 @@ export * from "./api.ts";
 export * from "./audit.ts";
 export * from "./brief.ts";
 export * from "./compose.ts";
+export * from "./designs.ts";
 export * from "./draft.ts";
 export * from "./errors.ts";
 export * from "./generation.ts";

@@ -75,5 +75,5 @@
     { "id": "faq", "variant": "open" },
     { "id": "contact", "variant": "card" }
   ],
-  "theme": { "palette": "blue-yellow", "font": "sturdy" }
+  "theme": { "palette": "blue-yellow", "font": "sturdy", "design": "impact" }
 }

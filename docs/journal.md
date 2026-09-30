@@ -181,3 +181,230 @@ Append-only. Newest at the bottom.
 - My review 4b of Plan 3: APPROVED (0/0), 11 minors -> P3-16, incl. the fairer lifetime rule (q2: failed regenerations never count).
 - Verified: production daily model limit = 8 (generator vars; DB setting can override; the core fallback 30 is unused in production). Plan 4's app config already ships DAILY_MODEL_LIMIT "8"; asked Plan 4 to pin it in its config test (and in the admin Worker's).
 - A9..A9g APPROVED (A9g review + attack clean under the hard-stop standard). My verification at 8e9e044: typecheck 0; 1,286 unit + 23 workerd; 208 e2e passed / 44 skipped (incl. the iPhone/Pixel projects); goldens unchanged vs acae4ab; 44 commits sydashir, 3 words or fewer, no bodies; no leftover processes. Fixed 2 wrong title counts in design §2.2. Merging to main.
+- MERGED: main = d0e1b12 (A9..A9g, A13-main, A14 + docs), pushed main + plan2-hosting as sydashir; gh restored to dev778d. Sync OK sent to Plans 3 and 4 (lockfile via pnpm install; Plan 4 http.test 60->50 known). Plan 2B syncs after its Task 18 workflow. Next for me: the A12-0 contract step (3 page designs) on plan2-hosting from main.
+- A12-0 contract step launched on plan2-hosting from main d0e1b12: workflow wf_77fd928c-b88 (task wj0j7yyuq), implement + review + attack up to 3 rounds.
+
+### 2026-09-28 — context 1% handoff
+- Merged main = d0e1b12 (A9..A9g + A13-main + A14), verified (1,286 unit / 23 workerd / 208 e2e, goldens unchanged, 44 commits clean), pushed. Sync OK to Plans 3 and 4.
+- The login expired again at 17:16 PKT: A12-0 fix1 (after committing 3d5469a "Add design ids", leaving half-done core work uncommitted), the Plan 2B A11c review1/fix2 (fix1 had completed) and the Modern r3 judges + r4 died "Not logged in". Resume per session.md after /login, checking worktrees for mutants first.
+- Review 4b of Plan 3 APPROVED (P3-16 incl. the (B) lifetime rule and the noResponse flag). Production daily model limit confirmed at 8.
+- The scratchpad dir is reported unavailable: design mockups there may be lost; binding decisions are safe in .superpowers/sdd.
+- 17:2x-17:3x: corrected the handoff (the login died at 17:16, not 17:40; A12-0 fix1 had committed 3d5469a and left half-done core work, backed up in .superpowers/sdd/backups/). Reviewed Plan 4's sync 5e6c1cb (clean) and sent the P4-15 decisions plus approval of the site-view toIssues-cap regression fix. Asked Plan 3 to check the same class at its sync. Resumed A12-0 (wxa1jid22), Plan 2B finish (w6runl15b) and designs (wfcomue3g). Backed up design mockups to .superpowers/design-backup/.
+- 17:3x: Plan 3 synced main: c8e0901 "Sync with main" (parents 9ea91b9 + d0e1b12). Reviewed by me: --cc shows only the tsconfig include union. Its checks: unit 2,094, workerd 89, e2e 208/44, typecheck 0. toIssues consumers all take <= 20, so no cap regression. P3-16 continues on the synced code, then Task 9.
+- 19:3x: P4-7 (iOS 16.4 floor checker) was running into review drip. I set a CLOSED list of code forms it must catch, each with a red/green fixture:
+  - identifiers and window/globalThis/self access; dot, ?. and string-literal member access; new, extends, instanceof and typeof;
+  - typed instance members; every destructuring form, assignments included; shorthand; aliasing through a variable or an import;
+  - subclass statics (Float16Array).
+  - Known limits go in the checker's comment and README: computed access, eval, any-typed receivers, CSS/HTML.
+  - Backstops must be stated truthfully: Playwright WebKit and the iPhone are current WebKit, not 16.4.
+  - One review against the list, then done.
+- 19:3x-19:5x DESIGN INCIDENT (my mistake): an earlier resume of the design workflow had changed its prompts, so Classic was re-run from round 3. Its round-4 designer then rebuilt classic-v2/r4 in place, overwriting the files of the Classic version the judges had scored 9.1/9/9 (Sep 27). There was no copy (my 17:22 backup was taken after the overwrite began).
+  - Blast radius: the design mockup files only. No product code, no other plan.
+  - What survives: the judges' notes and slices (judging-r4-0927), the designer's full build log (agent-aca49ad8d371c04a9.jsonl) and 31 first-screen/proof screenshots extracted from the judges' logs into .superpowers/design-backup/classic-v2/r4-scored-9.1-0927-screens/.
+  - Also found: designer agents stalled ~3 min after reading many full-size screenshots, were interrupted and restarted from scratch, 3-4 times each since 17:26.
+  - Fix: stopped the workflow; moved the old judging-r4 folders aside (-0927); added a round-4+ recovery note (continue work-in-progress, read only downscaled images, write only in the round folder, and use the saved Classic 9.1 reference); resumed as wv849fj84. The modern r3 judges re-ran (their cache key changed).
+- 20:xx: Plan 3 P3-16 built (c8e0901..2d450fe, 9 commits; unit 2,126, workerd 100). Two review lenses approved; spec had 2 items for me.
+  - My item-5 mutant ("= instead of IS" in COUNTS_TOWARD_TOTAL) was an EQUIVALENT mutant, my error. I verified it: the clause is only used un-negated inside COUNT(*) WHERE clauses. Accepted, with a comment line and no source-text test.
+  - Fix 3 (build and stringify the Anthropic body before the try) confirmed as review 4b meant.
+  - The race tests must assert that the interleaving actually happened.
+- 20:3x: found that workflow agents of every kind stall about 3 min on a model request, are cut off ("[Request interrupted by user]", not the user) and restart FROM SCRATCH. A12-0 attack1 had finished (build-log line ~3207, NOT approved: 1 Important) and was redone 3 times.
+  - Mitigation in the A12-0 script: a CHECKPOINT rule. Each reviewer/attacker writes .superpowers/sdd/a12-0-<label>-result.json the moment it has a verdict, and a restarted agent returns that file instead of redoing the work. Fixers continue from their own commits. attack1 re-verifies the recorded result instead of a full re-attack.
+  - fix1 (6 commits, 3d5469a..398cfd7) and review1 (NOT approved: 2 Important) stay cached. Relaunched as w26twfan3.
+- 21:05-21:4x: the login dropped again, and every agent failed. Results before it:
+  - Plan 2B A11c APPROVED (02ba87b). QA found a Major: one IP can close a site's form for the day in ~10 min and use up all 40 lead emails. Decided A15: per-network daily limits of 3 per site and 5 across all sites, counted in the INSERT, over 24 KiB body, plus 6 minor fixes.
+  - A12-0 round 1: 2+1 Important (shared checks that break the Bold build) plus Minors. Rulings recorded.
+  - A12-0 fix2's first attempt died mid-probe and left probe files in the real tree. Restored; the CSS rebuild matches the review hashes.
+  - Designs: Modern r3 re-judged 8.5/8/8.5; Classic r4 built, not yet judged.
+- 21:49: login back. Resumed A12-0 (wo3lk05wd, fix2 with the round-2 rulings) and designs (wj5gpr5fo, Classic r4 judges running). Launched Plan 2B A15 (wvf6t20kj, run wf_df55f584-e98): fix -> review + attack (up to 3 rounds) -> both QA lenses -> whole-branch review, with checkpoint result files. Told Plans 3 and 4 to resume.
+- 23:44: third login drop of the day (~21:5x-23:4x). No damage.
+  - A12-0 round 2 is committed: 97cece7, 19faafd, 242aeee, 7a7194d. fix3's half-done test edits are real work, kept, and backed up (backups/a12-0-fix3-halfdone.patch).
+  - Plan 2B A15 round 1 (02ba87b..066d153): review APPROVED, attack 1 Important (a test gap on own-site counting). A15 round-2 rulings recorded: the 429 pages print the business phone as a tel: link from the live object's metadata; pin site_daily_cap; per-project e2e IPs; ratify migration 0002; record the /56 residual.
+  - Designs: Classic r5 = 9.2/8.5/9 (one judge short); Modern r4 = 8.5/8.4/8. Backed up to .superpowers/design-backup (5.8 GB).
+  - Resumed: A12-0 wd5m5bj7c, Plan 2B wd38skuo9 (with the rulings), designs w3dniiify.
+- 23:5x: Plan 3 P3-16 COMPLETE (2a7ba94..31a8af3, final review APPROVED, 0 confirmed findings; unit 2,126, workerd 121). My review is combined with Task 9. Task 9 lost an agent to login: f07b12f was kept; the brief's mutant #2 (FINISH without the status guard) was found on disk, proven and restored by Plan 3 (cmp). Relaunched as task9b. Plans 3 and 4 were told to number new migrations after 0002.
+
+### 2026-09-29
+- 16:42: restart. The old process had ended at ~23:50; nothing ran overnight (~17 h lost). The moderator is now web-maker-5f; Plans 3 and 4 were told (asksite-plan3-e3, asksite-plan4-a4).
+- Checked all four worktrees before resuming:
+  - web_maker: fix3's half-done test edits are unchanged since the 23:44 backup;
+  - Plan 2B: clean at 066d153;
+  - Plan 3: clean at f07b12f;
+  - Plan 4: clean at c52c3b4.
+- Resumed A12-0, Plan 2B A15 and the designs. All agents started on the new login.
+- 16:5x: Plan 3 traced the scratch-glob delete: on 09-28 at 14:26Z the P3-16 spec reviewer's `rm -f p316b-*.sh ...` removed one foreign file, the counts reviewer's p316b-r1-run.sh, two minutes after that reviewer's last use of it. Nothing was lost; its verdict and proofs were already saved.
+  - New binding rule in Plan 3 (global-constraints.md §O): files live only in the agent's own labelled scratch folder; delete by exact path only, with no globs and no find -delete.
+  - I apply the same wording to every NEW workflow script of mine. The running ones keep their prompts, because changing them would reset their cache.
+- 17:0x 2-day push. Backups pushed: plan2-hosting 7a7194d, plan2b-serve 066d153, plan3-generation f07b12f, plan4-app c52c3b4, all to the PRIVATE repo, after a secret scan (0 hits, 0 env files). gh restored to dev778d.
+  - Mac check: 12 cores, 16 GB, load ~4, 65% memory free, no leftover processes of mine. The only extra processes are the Claude sessions' own playwright-mcp servers, untouched.
+  - Plan 3 got lane B (Task 13 eval in asksite-plan3-eval) plus P3-17: the eval is a dry run by default; live needs --live and --max-usd with a hard stop; only the moderator runs it live.
+  - Plan 4 lane B (admin Tasks 19-22 in asksite-plan4-admin) is running.
+  - Lane C approved: P4-7 polish plus Tasks 12-13 in asksite-plan4-client, one main sync after A12-0, then "Merge client lane" before Task 14.
+  - P4-7 minors ruled: ratify m1, m2; accept m6, n1; defer n6; fix m3, m4, m5, n2, n3, n4, n5.
+  - Plan 4 needs A12-0 on main before its Task 13, about 6-7 h from 17:00.
+  - The design-build workflow script is written (.superpowers/sdd/design-build-wf.js); the three builds launch in parallel after A12-0 merges.
+- 17:03-17:07 MAC OVERLOAD (reported by Plan 3): load 435, swap ~10 of 10-11 GB. The causes were my A12-0 fix3 e2e/RED-proof runs and a Modern designer's Chromium checks (both started before any load rule), plus Plan 2B/3 suites, CoreLocationAgent (macOS) and a dmchat-tg grep.
+  - Fixes:
+    - a governor (.superpowers/sdd/governor.sh, PID in governor.pid) gives nice 15 plus background QoS to every process whose ancestry is this project; it stops nothing and never touches claude processes;
+    - a machine-wide 2-slot heavy-run limiter (/Users/ashir/Documents/workk2/.asksite-heavy/run.sh, flock-based via lockf);
+    - Playwright at most 2 workers and vitest at most 3;
+    - the rule is added to CLAUDE.md and sent to Plans 3 and 4.
+  - Load fell to ~77 by 17:07. Running agents keep their old prompts; new agents use the limiter.
+- ~17:30: estimate given to the user: everything except deployment in ~2.5-3 days (Thu night Oct 1 to Fri Oct 2; best case Thu afternoon). Mac load 15.9 at 17:30.
+  - ~19:05: P4-18 ruled: a Fetch-Metadata gate first in the admin Worker, because requireOrigin alone lets cross-site GETs burn ADMIN_RL through the SameSite=None Access cookie.
+- ~19:12: Plan 4 lane C P4-7 r6 (cc8b583..262f24d): no closed-list gap; 1 Important regression (a duplicate finding for nested destructuring assignments since 3a322d0), ruled FIX (dedupe in record plus 4 fixtures), along with minors r6-1/2/3. It then gets one re-review and moves to Task 12.
+- 19:35: the claude3@trymax.ai account hit its SESSION limit (resets 22:40), and every agent stopped (mine and Plan 4's; Plan 4 paused its three lanes cleanly). The user /login'd with integrations@districtbehavioralhealth.com at ~19:40 and said proceed.
+  - Checked the dirty trees: web_maker e2e/fixtures.spec.ts (A12-0 fix3 work) and Plan 2B seed.ts/playwright config/pages.test (A15 fix2 per-project IPs) are real work, not mutants; backups are in backups/*-1940.patch.
+  - Added the MAC LOAD rule to the unfinished agents only (the cache is kept) and resumed: A12-0 wqxjsg91t, Plan 2B wutpucrld, designs w276uz3pw. Told Plans 3 and 4 to resume.
+- 19:5x: Governor v3 sets nice 15 only. Background QoS (taskpolicy -b) had throttled tests into timeouts: Plan 3's models.test went from 5-19 s to 66-76 s. v3 removed the background QoS from existing processes at start. PID in governor.pid. Memory 71% free, load ~8.
+  - Plan 3: lane B Task 13 is done (5 commits f5f1c0a..bc80a4f, 111 tests, 25/25 mutants caught, dry run by default, --live without --max-usd exits 2). Its implementer's decisions (a)-(c) were confirmed; import.meta.main was overruled in favour of a separate tiny entry module. The mutant request.ts (M-F4) left by the limit kill was restored and hash-proven; the real work was committed as 8662316.
+- 19:52-20:04: the second account (integrations@...) also hit its session limit (resets 22:10), and all agents stopped again. There was no damage: the dirty edits were unchanged since the 19:40 backups, and the Plans 3 and 4 trees were clean.
+  - The user ran /rate-limit-options at ~20:04 and said proceed. Agents ran again from 20:06.
+  - Resumed: A12-0 wkb6ee6o8, Plan 2B w6gx0veuz, designs wxfh8xchh. Plan 4 lanes from 20:08; Plan 3 told to resume.
+  - Added a Monitor (task b8y6nwxwy) that flags any of my agents hitting a limit or login error within 30 s.
+  - LESSON: full parallelism burned a session limit in ~12-15 minutes on both accounts. Capacity, not wall time, is the binding constraint now.
+- 20:3x: Plan 3 Task 9's rebuilt report found no defect (unit 2,126; workerd 164). Approved 4 follow-ups:
+  - JobReport gets provider/model (Plan 3 only; no Plan 4 users);
+  - a fresh attemptOutcomes array per report;
+  - costUnknown rows store the configured provider/model;
+  - the startLocalD1 closer fix, so a timed-out beforeAll no longer orphans workerd;
+  - plus the Task 12 non-empty MODEL_PROVIDER/MODEL_ID config test.
+  - The limit Monitor ran 30 min with no events and was re-armed (bxhoggve6).
+- ~21:0x: Plan 3 Task 13 review PASSED (0 confirmed). Fix round approved:
+  - #1 split: the main eval stops everything on an over-worst-case result; caps-probe/record stop only that model, with the bound printed;
+  - money items #2 (finally writes partials plus spend), #4 (fail closed on a bad cost), #3/#15 (build only after the gate), #14 (pnpm --silent, no keys in args);
+  - the test gaps and wording, plus the eval/main.ts entry.
+- Plan 4 lane A: the P4-15 follow-up is done (91e0961; mutants killed; app 266, unit 1,466, workerd 235). The form_unreadable parity log was approved; lane A was relaunched as chain8c, doing parity first and then one re-review.
+- 20:47: swap near full (11.66 of 12.29 GB, per Plan 3). I PAUSED my design loop (wxfh8xchh stopped; its next resume continues the Modern r5 judges), and Plan 3 holds lane B until its step 1 ends.
+  - At 20:48: swap 10.7/12.3 GB used, memory 67% free, load ~50 (all project work at nice 15-20).
+  - Resident memory: claude processes 3.8 GB (all projects), Chrome 2.3 GB, tests ~1.1 GB, other 3.9 GB.
+  - Resume the design loop when Plan 3's step 1 or my A12-0 review ends.
+- ~21:1x: Plan 4 rulings:
+  - lane A's config pins become relative to ROOT_DOMAIN (Task 14 slot);
+  - Task 14 Turnstile: the server checks action === "login" and the hostname (when present), not enforced for Cloudflare's documented test secrets (verify in the docs);
+  - the Vite build.target is the floor targets plus Vite's non-Safari defaults (doc-cited list before merge).
+  - Lane B Task 19 fix is done (f26fe27), with the Fetch-Metadata gate and 15 mutants killed; its re-review is running. Lane C's P4-7 fix is done (8ed23e0); the README note is next, then one review, then Task 12.
+- ~21:1x: A12-0 round 3: fix3 is done (c131678; unit 1,670, e2e 590/110, goldens equal). review3 and attack3 are both NOT approved, on the SAME Important: no shared check claim-checks a design's own markup (a design could add "bonded"/"guaranteed"). Measured fix: the credential-type unbackedClaims diff against BASELINE, with 0 false alarms on 120 pages and 11 mockups.
+  - Minor: sourceProblems is case-sensitive on case-insensitive APFS, and case-variant @source paths could pass.
+  - Round-4 rulings recorded in plan-decisions.md; the script is extended to 4 rounds; resumed as w33nf072n.
+  - Tooling note for sync reviews: git grep -E ignores \b and \s on this Mac; use -P.
+- 21:14: a THIRD session limit (this account resets 1am). My Monitor caught it within 30 s. All seven trees were clean.
+  - Plans 3 and 4 had committed progress before it: plan3 7aa4d10 "Pin sweeper edges" (Task 10); plan4 d35be4b "Log unreadable forms"; plan4-client f4b198d "Document class parens".
+  - The user said proceed ~21:19; agents ran again at 21:20.
+  - Resumed: A12-0 round 4 wt3d8hj51, Plan 2B w3d1cws5a, designs w37tscrh9. Told Plans 3 and 4 to resume; Plan 3's lane B hold is lifted (load ~3).
+- ~23:3x: the asksite sessions moved to their own Claude config (~/.claude-asksite, own login, launcher ~/Documents/workk2/asksite-claude.sh, API key unset). The moderator is now web-maker-42. Resumed A12-0 round 4 (wnbvupoat), Plan 2B (wkakr8l0g) and designs (wxm143kez) from the copied journals. Plans 3 and 4 wait for the user to open their tabs. The cloud design-briefs branch was created and then deleted at the user's request.
+
+### 2026-09-30
+- 00:04: session limit (resets 02:10) hit all asksite sessions. At 02:10 the workflows retried their interrupted agents by themselves (mine, Plan 3's and Plan 4's).
+  - At 02:11 all trees were clean except web_maker's 4 A12-0 fix4 test files (the claims-check work in progress, not a mutant; backed up).
+  - Plan 2B attack2 APPROVED. Classic reached a 9 from one judge in r5 and is on its last round, r6.
+  - Plan 3 follow-up items 5-8 approved; lane B stays held for memory (swap 9.5/10.2 GB, pressure from other projects).
+
+### 2026-09-30
+- ~03:30: moved to its own login: CLAUDE_CONFIG_DIR=~/.claude-asksite via ~/Documents/workk2/asksite-claude.sh, verified as a separate keychain entry. Moderator is web-maker-d3; Plan 3 = asksite-plan3-2b, Plan 4 = asksite-plan4-53. The earlier moderator copy (web-maker-42) had committed A12-0 round 4 (f97a2df..b1be3c3) and reached Plan 2B QA before the tabs were closed.
+- Usage limits hit again ~03:40 and reset ~04:50.
+- A12-0 round 4 NOT approved: review4 I-1 (star-rating/"24 hours" claims in digits/symbols unchecked); attack4 I-1 (the lettering check vs the Bold user decision); attack4 I-2 (select-size exact equality fails Classic/Modern by 1/64 px). Round-5 rulings recorded, with a stop rule.
+- Plan 2B QA at 030ee2e: the A15 Major is FIXED. Real-user QA found a PRE-EXISTING renderer MAJOR: the sticky call bar steals the "Send request" tap when Send is near the bottom, so no lead is sent. It is added to A12-0 round 5 with a new shared e2e invariant.
+- Plan 2B QA-2 rulings: phone Unicode, cleaning replaces instead of deleting, per-minute page wording plus tel:, the 120 s duplicate-lead skip, business name on the thank-you page, the live-site 404 link home. Launched wcgifrutl (fix, review/attack, QA re-check, final review).
+- Resumed: A12-0 round 5 wndbxt3qu; designs still running (ween1185l, Modern r6 judges). Plans 3 and 4 were told to resume and to handle their leftover dirty files.
+- ~06:2x: design references fixed (Classic r6 9/8.6/9; Modern r6 8.5/8.6/8.2). The mockup loop ended at its round limit, and the must-fixes carry into the builds (plan-decisions "DESIGN REFERENCES").
+  - Plan 3 Task 13 fix round done (bc80a4f..d4ca1c1; unit 2,275, workerd 140). #14 = document `pnpm --silent eval:generation`. Items 1-4 accepted. Follow-up (i) not-run rows, (ii) the spend line in finally, (iii) a non-zero exit on any caps-probe overrun.
+  - Plan 4: P4-7 complete (lane C), Task 19 complete (lane B), P4-15 complete (lane A). My reviews are batched at the merge/sync points. P4-18b chose the srcdoc review frame.
+- ~06:4x: moderator review of Plan 3 P3-16 + Task 9 (2a7ba94..82fa010, Task 10 excluded) launched (wz2k3xofu). Identity is clean: 74 commits, 0 AI lines; the only merge is c8e0901.
+  - Rule tightened: scratch copies ONLY via git archive, never cp -R of a worktree, because a copied .git file shares the real worktree's index.
+  - Plan 4 Task 20 I1 approved (mailer errors logged with their code, config errors 500). Task 12 decisions: a single price message, "check" not "tick". Task 9 readings confirmed.
+- ~06:45: A12-0 APPROVED (round 5: review5 + attack5 0/0) and MERGED. My verification at 50979fc: typecheck 0, unit 1,712, workerd 34, e2e 644 passed / 148 skipped / 0 failed; the 15 goldens equal the old main's after stripping data-design; 32 commits clean. Rounds 3-5 report appended to a12-0-report.md.
+  - main fast-forwarded to f44026e (with the docs commit) and pushed with plan2-hosting.
+  - Announced to Plans 3 and 4: Plan 3 sync OK at its task boundary (tsconfig union in the merge is OK); Plan 4 lane C sync OK before Task 13; lane A waits for my review; lane B merges later.
+  - Three design builds launched in parallel worktrees from f44026e: impact/Bold wklreg6xw, refined/Classic wytsoh03r, modern/Modern wjskdat4t.
+  - Moderator review of Plan 3 P3-16 + Task 9: APPROVED (0/0). P3-18 (the input-guard refusal after an invalid attempt counts as invalid_output) was added to the Task 10 follow-up.
+  - Plan 4: m2 (the versions list selects 6 columns) and /api/me (json_extract) are fixed in lane A's follow-up; m7 goes into Task 22.
+- ~07:5x:
+  - Plan 2B QA-2: fix and review approved, the QA re-check passed; the final whole-branch review is running.
+  - Design builds are committing (impact 5, refined 2, modern 4 commits).
+  - Moderator reviews running: Plan 4 lane A (wal4906ld; one check approved so far) and Plan 3 eval lane (w8j0rrj5e; money-safety, no live calls).
+  - Plan 3 eval: exit 3 wins after an overrun even when an exception ends the run.
+  - Plan 4 Task 20: rate_limited wording (a) that is true for every 429; revoke audit-first; the X-Test-Now test seam ratified with a no-production proof.
+  - LATER: Plan 2's mailer returns distinct 429 codes.
+  - Noticed: an Xcode iOS Simulator (not asksite's, running since ~22:30 Sep 29) was using CPU; left untouched and told the user.
+- ~09:5x after the limit reset:
+  - Plan 2B QA-2 is DONE. Final whole-branch review APPROVED 0/0 at d85abea, after round 1 caught the named-404 D1 path (fixed in round 2).
+  - Plan 2B sync workflow launched (w2980s3vp): merge main f44026e, the A12-0 adaptations, full checks, review + attack.
+  - Moderator reviews:
+    - Plan 3 eval lane APPROVED (both 0/0; prices verified against the official pages); a884a0b is text-only and checked by me.
+    - Plan 4 lane A: review approved; attack 1 IMPORTANT. The upload cap pre-check runs before the client-paced body read, so held uploads get billed transforms beyond the caps. That is P4-21: reserve a counted 'processing' row before the transform, with a design note first because it needs a migration after 0002. Lane A sync OK and launched.
+  - Plan 3's session guard blocked `git merge main`; the user must allow it in the Plan 3 tab (not done by me: no permission laundering).
+  - Plan 3 follow-up 2 folds a)-f) approved; the npm registry read-only fetch approved for the partial-json-parser LICENSE.
+  - Task 15 note: check the Anthropic workspace inference-geo default (US-only means 1.1x) before any live eval.
+
+## 2026-09-30 11:4x (moderator web-maker-d3)
+- Plan 2B sync with main: review and attack both APPROVED (merge 8abd5a6, head 7d62a34). Verified by its reviewer: unit 1,902, workerd 257, page-builder e2e 644 passed, sites e2e 195 passed.
+- Decided: the merge message's git conflict comment is a recorded exception (not rewritten). The two carried flaky-test items are being fixed test-only before the merge into main (workflow wb25s9ujk).
+- Recorded: Bold's embedded font needs `font-src` in the public-site CSP; whichever of Bold or 2B merges second adds it, with a test.
+- Limit watcher re-armed (b9yr8kift). Governor 78060 alive.
+- 12:3x Plan 4 Task 14 pre-flight (read-only) found that the brief, built as written, would undo approved fixes and break sign-in (whole-file replaces; no Turnstile widget or token in the client). I ruled M1-M6 as P4-22 after reading the Cloudflare Turnstile and Vite docs: dummy-secret-only test acceptance, a stubbed widget script in e2e, a deploy-time (not build-time) sitekey guard, compact widget under 300 px, bundle baseline now and budgets at Task 17, and an e2e email cap of 40 only with fresh state.
+- ~13:0x: the Mac restarted (~12:55) and killed every session. The moderator is now web-maker-f4 (asksite login, claude1@trymax.ai); Plan 3 = asksite-plan3-38, Plan 4 = asksite-plan4-59, both visible.
+  - Dirty trees were backed up in backups/restart-0930-1300/:
+    - Plan 2B: my flake fix in progress (test-only timing helpers), verified as real work;
+    - Plan 3: sweep.ts and its test;
+    - Plan 4: P4-21 upload reservations, with a new migration 0003 and a probe test;
+    - Plan 4 admin: reviews and emails.
+    Plans 3 and 4 must prove their edits by replay before relaunching. Migration 0003 waits for my review.
+  - The governor was restarted (PID in governor.pid). The limit Monitor b0erm9o7v watches the asksite paths.
+  - Resumed: Plan 2B flake fix (wf_f4e25c67-219, head 7d62a34), and the design builds impact wf_5e47fc31-f33, refined wf_007d94b7-ef9 and modern wf_859e4ae8-e76. Their args were recovered from the agents' first prompts (design-build-args-recovered.json).
+  - Still open for the user: allow `git merge` in the Plan 3 tab.
+- ~13:1x: Plan 4 migration reviewed and APPROVED with a split:
+  - 0003_upload_reservations.sql: uploads.reserved_at INTEGER, nullable, on the STRICT table; P4-21 option B, N = 10 min.
+  - 0004_site_versions_requested.sql: the covering index for the review alert's daily count.
+  - Tests: STRICT kept, nullable, and the EXPLAIN plan uses the covering index. PRAGMA optimize only if the D1 docs support it in a migration.
+  - Plan 4's lane A and B diffs equal my backups; forensic replay agents are checking them for mutants and the probe.
+- ~13:2x: Plan 4 lane B forensics: intended work, nothing to revert. Item 4 ruled (a): a failed email build after approve/reject is logged (owner_email_skipped) and still answers 200; the admin screen shows liveUrl only through isSafeUrl.
+  - Plan 3: its dirty files were Task 10 follow-up 2 item 7 (proven by replay), committed as 947304f. The restart wiped /private/tmp (scratchpads); Plan 3 moved its scripts into .superpowers.
+  - Plan 3's `git merge main` is STILL blocked by its tab's permission guard; the user must allow it there.
+- 13:25: Plan 4 relaunched all three lanes.
+  - The /tmp wipe took its stage scripts; it rebuilt them from its transcript (the agent rules match the last prompts exactly), with a backup copy in .superpowers.
+  - Lane A: 18 dirty files intended, 31 mutants all restored, the temporary probe deleted. One intended change was lost with the scratch folder (the /api/me facts-limit clamp); it is being redone under DECIDED item 8.
+  - Lane B: intended work. Lane C: clean.
+  - Runs: A wf_7c75bfa7-139, B wf_473ee304-1b6, C wf_3db72b0d-9c2.
+  - My own scripts are safe (asksite config dir and .superpowers).
+- 13:40: Mac load ~938. The cause is NOT asksite: an iOS 26.5 Simulator (524 iOS processes, started ~13:20) plus dmchat-tg's jest/eslint runs and its scratch node. asksite's processes are few and at nice 20; memory is 61% free.
+  - Fixed a governor flaw: it had reniced the asksite launcher shell, so the moderator and Plan 4 Claude processes run at nice 15. Harmless, and it can't be undone without root. The governor now skips asksite-claude.sh; PID 43619.
+  - Design builds: impact and modern are on build2; refined round 1 is not approved (its attack is re-running); the Plan 2B flake fix is running.
+- ~14:0x: Plan 3 Task 10 follow-up 2 review accepted (0 confirmed; 15/15 mutants red; settings.workerd timed out under load, passes alone, and is being re-confirmed via run.sh).
+  - Notices: "partial-json-parser (MIT), closest published 1.2.1/1.2.2, vendored and modified in the SDK", with the MIT LICENSE text verbatim.
+  - Follow-up 3:
+    - the sweep limit note cites both Cloudflare pages (816 queries per run, within Workers Paid); design §1.4 is to be matched in my docs commit;
+    - errors count distinct row ids;
+    - a batch with no successful write stops the run (outage), with tests.
+- ~14:3x: Plan 3 Task 10 follow-up 2 APPROVED: settings.workerd passed alone through run.sh (7/7), and every other workerd file passed alone. Follow-up 3 is building. Notices-4 is approved: 1-3 plus a one-pass sweep of all vendored code in the generator bundle.
+- ~15:2x: Plan 4 lane C synced with plan4-app (step 4a verified RED -> GREEN). Counts: app 395, root unit 2,007, workerd 265, e2e 628 + 24 load timeouts. The 24 passed in their own slot under heavier load; the combined 644/148/0 equals main. I accepted it; the full e2e repeats at "Merge client lane".
+  - Lane A: P4-21 committed in 5 commits (25778a3 has the 0003/0004 split as ruled); its final run and review are next.
+  - Machine memory was very tight (44-335 MB free RAM, 5-7 GB swap), mostly from the iOS Simulator and dmchat-tg.
+- ~15:4x: Plan 4 lane A P4-21 is built and green at a8b54b7 (unit 1,894, workerd 286, app 307; 7 new mutants killed).
+  - Migrations are split as ruled, with an applied-on-top test and the EXPLAIN covering-index test. PRAGMA optimize goes on the Task 27 checklist.
+  - Ratified: the Worker-side 60-code-point cut in /api/me.
+  - Merge caution: at the lane merges, keep other lanes' intentional hunks in uploads.ts and site-view.ts; no blanket take-A.
+- ~15:5x: Plan 4 lane B Task 21 fix round 2 is done (23fc3d1 origin check before approve/reject; ab8b9da ownerEmailOrSkip). Rulings:
+  - the reject catch is unit-covered only (unreachable path, M4/M5 recorded);
+  - the Task 23 wording is honest: "We'll email the owner";
+  - P4-18b must pass 3 times in a quiet slot before the admin-lane merge.
+- ~16:0x: Plan 2B flake fix APPROVED (e8e4a33, test-only; 0/0/3 minor; 5/5 mutants killed). Minor carried: 6 pre-existing tests depend on the UTC day, with a ~1-in-10,000 midnight flake.
+  - Merge pre-checks: main f44026e is an ancestor of plan2b-serve (fast-forward OK); 61 commits, all sydashir, none over 3 words, no AI lines; the only merge is 8abd5a6 "Sync with main". Scratch p2b-qa2-scratch/fix removed.
+  - My full verification is running (background b6nk4wcfy, logs in .superpowers/sdd/p2b-merge-verify/): typecheck, unit, workerd, page e2e and sites e2e via run.sh.
+- ~16:1x: Plan 4 lane C sync complete. Task 13 stopped on the P4-20 conflict (render() needs every sheet; one module means one chunk). Ruled option (A): one lazy sheets chunk, 40 KiB gzip at most (recorded in plan-decisions). Plan 2B verification: typecheck passed; the tests are running.
+- ~16:3x: P4-21 is complete (8ee2fe7..a8b54b7; review 0/0; 30 of 31 mutants killed, 1 argued equivalent). My triage:
+  - FIX NOW: the takedown-during-held-upload guard on reservation and finishPhoto (decision 39); log clean-up failures (upload id, site id, code); the age-out SQL in one constant; the docs citations.
+  - Recorded: deploy order (Task 27 item 39), Images billing (item 40), the uploads SCAN at pilot scale, the load-only timing tests.
+  - My moderator review of 8ee2fe7..HEAD runs after the follow-up.
+- ~16:2x: Plan 2B verification at e8e4a33: typecheck 0; unit 53 files / 1,902; workerd 17 / 257, all passed. The page e2e reached ~610 tests (all passing) when the background command hit the 30-min tool limit and was killed, with no leftover processes. The browser part was restarted detached (nohup, PID 64115, verify-e2e.sh), and a Monitor waits for its "end" line.
+  - Design builds: impact 718c38c, refined be9c6df, modern still building round 2.
+- ~16:5x SECURITY (local): a Plan 4 lane C agent ran `env` by accident through a stray zsh `$=E`. That printed CLAUDE_CODE_MESSAGING_TOKEN (the local cross-session messaging token) into its own transcript (Plan 4 session, wf_c846b881-db7, agent-a71d91bbe2611af2f.jsonl line 171).
+  - No ANTHROPIC/OPENAI/Cloudflare/GitHub secret was printed; nothing is in any repo, commit or log.
+  - Rule added to CLAUDE.md Security: never print the environment. The user is asked about redaction.
+  - Task 17 ruling: after a failed retry or vite:preloadError, offer "Reload the page"; flush the autosave first; at most one automatic reload per tab session.
+  - Plan 4 Task 13 is built (437950b; 22 tests; 8/8 mutants); its review is next.
+- 16:47: Plan 2B MERGED. My verification at e8e4a33, all green, tree clean after:
+  - typecheck exit 0; unit 53 files / 1,902; workerd 17 / 257;
+  - page e2e 644 passed / 148 skipped / 0 failed; sites e2e 195 passed.
+  - Identity: 61 commits, all sydashir, 3 words or fewer, no AI lines; the only merge is 8abd5a6 "Sync with main". Reviews: final whole-branch APPROVED (d85abea), sync review + attack APPROVED (7d62a34), flake fix APPROVED (e8e4a33).
+  - main fast-forwarded f44026e -> e8e4a33, then the docs commit; pushed with plan2-hosting and plan2b-serve.
+  - Carried: Bold's font-src data: in the public-site CSP is added by whichever of Bold/2B lands second (now Bold, at its sync). Minor M1: 6 midnight-dependent form tests (~1 in 10,000).

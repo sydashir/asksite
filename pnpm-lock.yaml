@@ -14,6 +14,9 @@ importers:
       '@asksite/renderer':
         specifier: workspace:*
         version: link:packages/renderer
+      '@asksite/site-css':
+        specifier: workspace:*
+        version: link:packages/site-css
       '@asksite/site-schema':
         specifier: workspace:*
         version: link:packages/site-schema
@@ -58,6 +61,31 @@ importers:
         specifier: 4.138.0
         version: 4.138.0(@cloudflare/workers-types@5.20260924.1)(@types/node@24.13.6)
 
+  apps/sites:
+    dependencies:
+      '@asksite/core':
+        specifier: workspace:*
+        version: link:../../packages/core
+      '@asksite/mailer':
+        specifier: workspace:*
+        version: link:../../packages/mailer
+      '@asksite/renderer':
+        specifier: workspace:*
+        version: link:../../packages/renderer
+      zod:
+        specifier: 4.6.5
+        version: 4.6.5
+    devDependencies:
+      '@asksite/publishing':
+        specifier: workspace:*
+        version: link:../../packages/publishing
+      '@asksite/site-schema':
+        specifier: workspace:*
+        version: link:../../packages/site-schema
+      wrangler:
+        specifier: 4.138.0
+        version: 4.138.0(@cloudflare/workers-types@5.20260924.1)(@types/node@24.13.6)
+
   packages/core:
     dependencies:
       '@asksite/site-schema':
@@ -96,6 +124,31 @@ importers:
         specifier: 4.138.0
         version: 4.138.0(@cloudflare/workers-types@5.20260924.1)(@types/node@24.13.6)
 
+  packages/mailer:
+    devDependencies:
+      wrangler:
+        specifier: 4.138.0
+        version: 4.138.0(@cloudflare/workers-types@5.20260924.1)(@types/node@24.13.6)
+
+  packages/publishing:
+    dependencies:
+      '@asksite/core':
+        specifier: workspace:*
+        version: link:../core
+      '@asksite/renderer':
+        specifier: workspace:*
+        version: link:../renderer
+      '@asksite/site-css':
+        specifier: workspace:*
+        version: link:../site-css
+      '@asksite/site-schema':
+        specifier: workspace:*
+        version: link:../site-schema
+    devDependencies:
+      wrangler:
+        specifier: 4.138.0
+        version: 4.138.0(@cloudflare/workers-types@5.20260924.1)(@types/node@24.13.6)
+
   packages/renderer:
     dependencies:
       '@asksite/site-schema':
@@ -113,6 +166,10 @@ importers:
         version: 4.3.3
 
   packages/site-css:
+    dependencies:
+      '@asksite/site-schema':
+        specifier: workspace:*
+        version: link:../site-schema
     devDependencies:
       '@asksite/core':
         specifier: workspace:*

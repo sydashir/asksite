@@ -1,0 +1,53 @@
+/* Shared by every page stylesheet (styles/sheets/*.css, A12): the theme tokens, the focus-outside variant
+   and the button utilities. Every sheet imports this file, so each design keeps them. */
+
+/* Design tokens point at the 12 per-site custom properties that each page sets in its own
+   inline <style> (src/theme.ts). `inline` keeps the var() reference inside every utility. */
+@theme inline {
+  --color-primary: var(--aw-color-primary);
+  --color-secondary: var(--aw-color-secondary);
+  --color-accent: var(--aw-color-accent);
+  --color-heading: var(--aw-color-text-heading);
+  --color-default: var(--aw-color-text-default);
+  --color-muted: var(--aw-color-text-muted);
+  --color-link: var(--aw-color-link);
+  --color-page: var(--aw-color-bg-page);
+  --color-dark: var(--aw-color-bg-page-dark);
+  --font-sans: var(--aw-font-sans);
+  --font-serif: var(--aw-font-serif);
+  --font-heading: var(--aw-font-heading);
+}
+
+/* WebKit ignores scroll-padding when it scrolls a focused element into view, so a focused field
+   could end up under the sticky phone call bar (WCAG 2.4.11 Focus Not Obscured). While keyboard
+   focus is on anything outside the bar (the page's only <aside>), the bar stops sticking. */
+@custom-variant focus-outside (html:has(:focus-visible:not(aside *)) &);
+
+/* That rule has a catch on phones: pressing Send moves focus off the text field, so the bar sticks again
+   under the finger, the release lands on the bar, and the click never reaches Send, so nothing is sent
+   (Plan 2B QA; A12-0 round-5 rulings). So a form's submit button stacks above the call bar (z-10), and the
+   press and the release land on it. This holds only while no ancestor of the button forms its own stacking
+   context (a z-index, transform, opacity, filter or clip-path, for example) and the bar stays below 20; the
+   per-design e2e Send check proves it for every design. In the components layer, so a design's utilities
+   can restack it. */
+@layer components {
+  form button[type="submit"] {
+    position: relative;
+    z-index: 20;
+  }
+}
+
+/* Buttons ported from AstroWind's tailwind.css (MIT, see THIRD_PARTY_NOTICES.md). Changes:
+   dark-mode and ring variants dropped, 48px minimum height for thumbs, brand-coloured focus
+   outline, and a secondary style that meets WCAG AA on every palette. */
+@utility btn {
+  @apply inline-flex min-h-12 cursor-pointer items-center justify-center gap-2 rounded-full border-2 px-6 py-3 text-center text-base leading-snug font-semibold transition duration-200 ease-in focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary md:px-8;
+}
+
+@utility btn-primary {
+  @apply btn border-primary bg-primary text-white hover:border-secondary hover:bg-secondary;
+}
+
+@utility btn-secondary {
+  @apply btn border-primary bg-page text-primary hover:bg-primary hover:text-white;
+}
