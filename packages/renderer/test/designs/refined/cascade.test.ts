@@ -1,8 +1,8 @@
 // Classic's sheet in a real browser, where the cascade decides which rule wins (the pairs test checks tokens, not
 // rule order or specificity): hover colours, the rows phones leave out, link underlines, the phone call bar, the
-// About title and the header's stacking. Laid out by the repo's own Playwright Chromium and WebKit with the real
-// Classic sheet. Each check has a RED proof: a style override that puts the flaw back is caught. No check waits on
-// the clock: transitions are off where a state is read.
+// About title, and the header's stacking and its name's line. Laid out by the repo's own Playwright Chromium and
+// WebKit with the real Classic sheet. Each check has a RED proof: a style override that puts the flaw back is caught.
+// No check waits on the clock: transitions are off where a state is read.
 import { chromium, webkit, type Browser, type Page } from "@playwright/test";
 import { FONT_IDS, PALETTE_IDS, type SiteDocumentInput } from "@asksite/site-schema";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -74,6 +74,49 @@ const CALL_BAR = `(() => {
   const label = call.querySelector(".bt-t > span") || call;
   return { height: Math.round(bar.getBoundingClientRect().height), wrapped: [lines(label) > 1 && "call", lines(quote) > 1 && "quote"].filter(Boolean) };
 })()`;
+
+/** A short name that opens with a flat-topped, flat-footed capital, so its first letter's ink is the cap height. */
+const hollis: SiteDocumentInput = { ...plumber, facts: { ...plumber.facts, businessName: "Hollis Heating" } };
+
+/**
+ * The header name's first letter, left half (its stem, clear of the next letter), over the name's own box, whole CSS
+ * px; and the centre line of the button the row centres beside it: the menu's on phones, Call's from 48rem.
+ */
+const BRAND_BOX = `(() => {
+  const brand = document.querySelector(".brand");
+  const range = document.createRange();
+  range.setStart(brand.firstChild, 0);
+  range.setEnd(brand.firstChild, 1);
+  const letter = range.getBoundingClientRect();
+  const box = brand.getBoundingClientRect();
+  const button = [...document.querySelectorAll(".menu summary, .hd-c")].map((el) => el.getBoundingClientRect()).find((r) => r.width > 0);
+  const y = Math.floor(box.top);
+  return { x: Math.floor(letter.left), y, width: Math.max(1, Math.floor(letter.width / 2)), height: Math.ceil(box.bottom) - y, centre: (button.top + button.bottom) / 2 };
+})()`;
+
+/**
+ * The first and last rows (CSS px from the image top) that hold ink in a PNG of text on a flat background, decoded
+ * in the page: a pixel is ink when its luminance is more than halfway from the background's (the top-left pixel) to
+ * the darkest or lightest pixel, so an anti-aliased edge counts at half cover.
+ */
+const INK_ROWS = `async ([base64, scale]) => {
+  const image = new Image();
+  image.src = "data:image/png;base64," + base64;
+  await image.decode();
+  const canvas = document.createElement("canvas");
+  canvas.width = image.naturalWidth;
+  canvas.height = image.naturalHeight;
+  const context = canvas.getContext("2d");
+  context.drawImage(image, 0, 0);
+  const { data, width, height } = context.getImageData(0, 0, canvas.width, canvas.height);
+  const lum = (i) => 0.2126 * data[i] + 0.7152 * data[i + 1] + 0.0722 * data[i + 2];
+  const paper = lum(0);
+  let far = 0;
+  for (let i = 0; i < data.length; i += 4) far = Math.max(far, Math.abs(lum(i) - paper));
+  const rows = [];
+  for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) if (Math.abs(lum((y * width + x) * 4) - paper) > far / 2) { rows.push(y); break; }
+  return rows.length === 0 ? null : [rows[0] / scale, (rows[rows.length - 1] + 1) / scale];
+}`;
 
 const ENGINES = { chromium, webkit } as const;
 
@@ -191,6 +234,47 @@ describe.each(Object.keys(ENGINES) as Array<keyof typeof ENGINES>)("Classic's ca
     expect(letter).toBe(28);
     expect(section).toBeGreaterThan(28);
   }, 60_000);
+
+  /**
+   * How far the header name's capitals sit from the header row's centre line, per lettering and window, where it is
+   * more than 1 px: the ink of its first letter (an H: flat top, flat foot) against the menu button's centre on
+   * phones and the Call button's from 48rem, which the row centres. Read from a 2x screenshot, since a font's line
+   * box alone does not say where its capitals are drawn (the build judges measured Sturdy's name 3.7-5 px high).
+   */
+  async function brandOffsets(css = ""): Promise<string[]> {
+    const sharp = await browser.newPage({ deviceScaleFactor: 2 });
+    try {
+      await sharp.route(/^https?:\/\//, (route) => route.abort());
+      const found: string[] = [];
+      for (const font of FONT_IDS) {
+        for (const [width, height] of [[390, 844], [1024, 768], [1280, 800]] as const) {
+          await sharp.setViewportSize({ width, height });
+          await sharp.setContent(render(refined(hollis, { font }), { stylesheets: DESIGN_CSS, formAction: FIXTURE_FORM_ACTION }).html, { waitUntil: "load" });
+          if (css) await sharp.addStyleTag({ content: css });
+          const box = (await sharp.evaluate(BRAND_BOX)) as { x: number; y: number; width: number; height: number; centre: number };
+          const png = await sharp.screenshot({ clip: { x: box.x, y: box.y, width: box.width, height: box.height } });
+          const ink = (await sharp.evaluate(`(${INK_ROWS})(${JSON.stringify([png.toString("base64"), 2])})`)) as [number, number] | null;
+          if (ink === null || ink[1] - ink[0] < 8) {
+            found.push(`${font} ${width}: no capital found`);
+            continue;
+          }
+          const offset = box.y + (ink[0] + ink[1]) / 2 - box.centre;
+          if (Math.abs(offset) > 1) found.push(`${font} ${width}: ${offset.toFixed(1)} px`);
+        }
+      }
+      return found;
+    } finally {
+      await sharp.close();
+    }
+  }
+
+  it("centres the header name's capitals on the header row in every lettering, on phones and desktops", async () => {
+    expect(await brandOffsets()).toEqual([]);
+  }, 120_000);
+
+  it("RED: catches a name set by its line box, which puts Sturdy's capitals high", async () => {
+    expect((await brandOffsets(".brand{text-box:normal!important}")).join("\n")).toMatch(/^sturdy /m);
+  }, 120_000);
 
   it("keeps the sticky desktop header above the form's Send button (z-index 20)", async () => {
     await open(refined(plumber), 1280);

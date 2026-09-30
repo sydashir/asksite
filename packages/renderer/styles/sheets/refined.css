@@ -48,7 +48,9 @@ h1,h2,h3{font-weight:700;line-height:1.15;color:var(--aw-refined-ink);text-wrap:
 /* ---------- Header: phones get the name and a <details> menu that scrolls away with the header ---------- */
 .hd{position:relative;z-index:30;border-bottom:1px solid var(--aw-refined-line);background:var(--aw-refined-paper)}
 .hd-row{display:flex;align-items:center;column-gap:.75rem;min-height:4rem;padding-block:.5rem}
-.brand{min-width:0;margin-right:auto;padding-block:.625rem;font-size:1.1875rem;font-weight:700;line-height:1.2;color:var(--aw-refined-ink);text-wrap:balance}
+/* The name's box is trimmed to its capitals and baseline (text-box, "trim-both" when left out), so the row centres the
+   letters themselves, in every lettering (Sturdy's tall line box set them 4-5 px high), as the approved mockup does. */
+.brand{min-width:0;margin-right:auto;padding-block:.625rem;font-size:1.1875rem;font-weight:700;line-height:1.2;color:var(--aw-refined-ink);text-wrap:balance;text-box:cap alphabetic}
 .hd-long .brand{font-size:1.0625rem}
 .nav{order:3}
 .nav-l,.hd-q,.hd-c,.i-close,.menu[open] .i-open{display:none}
