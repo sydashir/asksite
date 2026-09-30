@@ -188,10 +188,30 @@ describe("a one-town owner's Service area", () => {
     expect(squashedText(section(html, "contact"))).not.toContain("Serving");
   });
 
-  it("names the owner's base too when it is not the town served", () => {
+  it("keeps the shared invariants in each one-line form (the town is the base, another town, a street address, card hours)", () => {
+    const forms: Array<Partial<SiteDocumentInput["facts"]>> = [
+      {},
+      { serviceArea: { places: ["Meridian"] } },
+      { serviceArea: { places: ["Meridian"] }, location: { streetAddress: "210 W Main St", city: "Boise", state: "ID", postalCode: "83702" } },
+      { hours: [{ days: ["Monday"], opens: "08:00", closes: "17:00" }], emergency247: true },
+    ];
+    for (const facts of forms) {
+      const doc = SiteDocument.parse(inDesign({ ...cleaning, facts: { ...cleaning.facts, ...facts } }, "refined"));
+      const shown = render(doc, OPTIONS).html;
+      expect(section(shown, "service-area"), JSON.stringify(facts)).not.toContain('class="area"');
+      expect(invariantProblems(shown, renderDocument(doc, BASELINE, OPTIONS).html, doc, DESIGNS.refined), JSON.stringify(facts)).toEqual([]);
+    }
+  });
+
+  it("names the owner's base too when it is not the town served, and a street address without repeating the town", () => {
     const area = squashedText(section(page({ ...cleaning, facts: { ...cleaning.facts, serviceArea: { places: ["Meridian"] } } }), "service-area"));
     expect(area).toContain(squashedText("Serving Meridian"));
     expect(area).toContain(squashedText("Based in Boise, ID"));
+    const location = { streetAddress: "210 W Main St", city: "Boise", state: "ID", postalCode: "83702" };
+    const home = squashedText(section(page({ ...cleaning, facts: { ...cleaning.facts, location } }), "service-area"));
+    expect(home).toContain(squashedText("Serving Boise, ID"));
+    expect(home).toContain(squashedText("210 W Main St"));
+    expect(home.match(/Boise/g)).toHaveLength(1);
   });
 
   it("keeps the full section for two towns, an area note, or hours the hero does not show", () => {

@@ -38,14 +38,10 @@ function areaLine(ctx: RenderContext): SafeHtml {
   const place = serviceArea.places[0] ?? location.city;
   const home = place.trim().toLowerCase() === location.city.trim().toLowerCase();
   const cityLine = `${location.city}, ${location.state}`;
-  const items = [
-    { text: `Serving ${home ? cityLine : place}` },
-    ...(location.streetAddress
-      ? [{ text: `${location.streetAddress}, ${cityLine}${location.postalCode ? ` ${location.postalCode}` : ""}` }]
-      : home
-        ? []
-        : [{ text: `Based in ${cityLine}` }]),
-  ];
+  // The town is said once: a street address in the town served gives only the street (the contact band has it in full).
+  const street = location.streetAddress;
+  const base = street ? (home ? street : `${street}, ${cityLine}${location.postalCode ? ` ${location.postalCode}` : ""}`) : home ? undefined : `Based in ${cityLine}`;
+  const items = [{ text: `Serving ${home ? cityLine : place}` }, ...(base === undefined ? [] : [{ text: base }])];
   return html`<section id="${DOM_ID.serviceArea}" class="${plan(ctx).band.serviceArea === "white" ? "af bw" : "af bp"}" aria-labelledby="${DOM_ID.serviceArea}-title">
 <div class="wr">
 <h2 id="${DOM_ID.serviceArea}-title" class="h3r">${icon("map-pin")}Service area</h2>
