@@ -367,7 +367,23 @@ describe("POST /api/sites/:siteId/publish-requests", () => {
     expect(await sentAlerts("still-quiet-plumbing")).toEqual([{ subject: "Website waiting for review: still-quiet-plumbing (version 1)" }]);
   });
 
-  // Last in this file: it fills the day's alert allowance for every test after it.
+  it("sends no alert for a site's request 60 minutes minus 1 second after its request that alerted: the quiet time is the whole hour (decision 32)", async () => {
+    await startAlertDayAfresh();
+    const owner = await withSlug(await builtOwner(h, VALID_FACTS, VALID_BRIEF), "last-second-plumbing");
+    const first = await publishAndSettle(owner);
+    expect(await sentAlerts("last-second-plumbing")).toEqual([{ subject: "Website waiting for review: last-second-plumbing (version 1)" }]);
+    // As if that request, which alerted, was asked 60 minutes minus 1 second before the next one.
+    const moved = await (await h.db()).prepare("UPDATE site_versions SET requested_at = ? WHERE id = ?").bind(Date.now() - HOUR_MS + 1_000, first.id).run();
+    expect(moved.meta.changes).toBe(1);
+    expect((await publishAndSettle(owner)).number).toBe(2);
+    // The second request was asked within that second: a run slower than 1 s fails here, never passes by accident.
+    const asked = (await (await h.db()).prepare("SELECT requested_at FROM site_versions WHERE site_id = ? ORDER BY number").bind(owner.siteId).all<{ requested_at: number }>()).results;
+    expect(asked).toHaveLength(2);
+    expect(asked[1]!.requested_at - asked[0]!.requested_at).toBeLessThan(HOUR_MS);
+    expect(await sentAlerts("last-second-plumbing")).toEqual([{ subject: "Website waiting for review: last-second-plumbing (version 1)" }]);
+  });
+
+  // Last of the alert tests: it fills the day's alert allowance for every test after it.
   it("sends the 10th review alert of a UTC day but not the 11th, however many sites ask, counting each request that alerted though a later-committed one of its site was asked earlier (decision 32)", async () => {
     // The day's allowance to this test alone, so the overtaken requests below alert.
     await startAlertDayAfresh();
@@ -398,5 +414,34 @@ describe("POST /api/sites/:siteId/publish-requests", () => {
     const eleventh = await withSlug(await builtOwner(h, VALID_FACTS, VALID_BRIEF), "eleventh-plumbing");
     await publishAndSettle(eleventh);
     expect(await sentAlerts("eleventh-plumbing")).toEqual([]);
+  });
+});
+
+// Last in this file: its ANALYZE leaves statistics behind, so no other test runs with them. It needs no alert to go
+// out (the one above fills the day's allowance): the alert check reads the day's count whether or not it alerts.
+describe("the review alert's daily count uses the covering index (P4-21 item 1)", () => {
+  /** The query plan of the alert check a publish request ran, one detail line per step. */
+  async function alertCheckPlan(sql: string, site: { siteId: string }): Promise<string[]> {
+    const now = Date.now();
+    const plan = await (await h.db()).prepare(`EXPLAIN QUERY PLAN ${sql}`).bind(site.siteId, now, HOUR_MS, utcDayStart(now), 1).all<{ detail: string }>();
+    return plan.results.map((step) => step.detail);
+  }
+
+  it("searches site_versions by requested_at through the index, never scanning the table, with and without ANALYZE statistics", async () => {
+    const owner = await withSlug(await builtOwner(h, VALID_FACTS, VALID_BRIEF), "index-check-plumbing");
+    const path = `/api/sites/${owner.siteId}/publish-requests`;
+    await h.recordSql(path);
+    await publishAndSettle(owner);
+    const checks = (await h.recordedSql(path)).filter((sql) => /\bAS alerts\b/.test(sql));
+    expect(checks).toHaveLength(1);
+    const covered = "SEARCH v USING COVERING INDEX site_versions_requested (requested_at>?)";
+    const withoutStatistics = await alertCheckPlan(checks[0]!, owner);
+    expect(withoutStatistics, withoutStatistics.join(" | ")).toContain(covered);
+    expect(withoutStatistics.filter((step) => /^SCAN v\b/.test(step))).toEqual([]);
+    // D1 advises PRAGMA optimize after creating an index, which runs ANALYZE; the planner must keep the index then too.
+    await (await h.db()).prepare("ANALYZE").bind().run();
+    const withStatistics = await alertCheckPlan(checks[0]!, owner);
+    expect(withStatistics, withStatistics.join(" | ")).toContain(covered);
+    expect(withStatistics.filter((step) => /^SCAN v\b/.test(step))).toEqual([]);
   });
 });
