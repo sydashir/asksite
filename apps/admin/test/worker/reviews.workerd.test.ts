@@ -1,5 +1,5 @@
 import { reviewPageHeaders } from "@asksite/app-common";
-import { versionKey, type AdminVersionDetail } from "@asksite/core";
+import { newId, versionKey, type AdminVersionDetail } from "@asksite/core";
 import { describe, expect, it } from "vitest";
 import { REVIEW_QUEUE } from "../../src/worker/queries.ts";
 import { json, useAdminHarness, VALID_FACTS } from "../support/harness.ts";
@@ -35,6 +35,67 @@ describe("review", () => {
       usedFallbackCopy: false,
       textFlags: [{ path: "facts.testimonials.0.quote", reason: "web_address" }],
     });
+  });
+
+  // The checks the test above sees only at their defaults, here set away from them (task review I1, 2026-09-30); the
+  // next test does firstPublish and the live document. The slug's flags are the reviewer's only brand and profanity
+  // signal for a web address (decision 4), so a check that went quiet must fail a test.
+  it("shows the slug flags, social link hosts, photo count and fallback copy in the checks", async () => {
+    const photo = (name: string) => ({ url: `https://media.localhost:8789/a/${name}.webp`, alt: "A new water heater", width: 400, height: 300 });
+    const facts = {
+      ...VALID_FACTS,
+      heroPhoto: photo("hero"),
+      photos: [photo("one"), photo("two")],
+      socialLinks: [
+        { network: "facebook", url: "https://www.facebook.com/joesplumbing" },
+        { network: "google", url: "https://maps.app.goo.gl/joes" },
+      ],
+    };
+    const site = await h.pendingSite(facts);
+    const db = await h.db();
+    await db.prepare("UPDATE sites SET slug = 'paypal-refund-help' WHERE id = ?").bind(site.siteId).run();
+    await db.prepare("UPDATE generations SET used_fallback = 1 WHERE id = (SELECT generation_id FROM site_versions WHERE id = ?)").bind(site.versionId).run();
+    const detail = await json<AdminVersionDetail>(await h.call("GET", `/api/admin/versions/${site.versionId}`));
+    expect(detail.checks).toEqual({
+      firstPublish: true,
+      testimonials: 0,
+      reviewsAttested: false,
+      hiddenSections: ["faq"],
+      socialHosts: ["www.facebook.com", "maps.app.goo.gl"],
+      photoCount: 3,
+      usedFallbackCopy: true,
+      slugFlags: ["brand:paypal", "word:refund"],
+      textFlags: [],
+    });
+  });
+
+  // A new version of a live site: not a first publish, and the live document comes with it for the text diff. The
+  // new version is added straight to the table as a copy of the live row with new wording (the detail reads only
+  // its document, never its page).
+  it("shows a live site's new version next to the live document", async () => {
+    const site = await h.pendingSite();
+    expect((await h.call("POST", `/api/admin/versions/${site.versionId}/approve`, { body: { htmlSha256: site.htmlSha256 } })).status).toBe(200);
+    const db = await h.db();
+    const live = await db.prepare("SELECT document_json FROM site_versions WHERE id = ?").bind(site.versionId).first<{ document_json: string }>();
+    const document = JSON.parse(live?.document_json ?? "{}") as { copy: Record<string, unknown> };
+    document.copy["ctaText"] = "Book Joe now";
+    const next = newId();
+    await db
+      .prepare(
+        `INSERT INTO site_versions (id, site_id, number, status, document_json, document_sha256, edits_json, generation_id,
+           html_key, html_sha256, stylesheet_sha256, requested_by, requested_at)
+         SELECT ?, site_id, 2, 'pending', ?, document_sha256, edits_json, generation_id,
+           html_key, html_sha256, stylesheet_sha256, requested_by, requested_at + 1
+         FROM site_versions WHERE id = ?`,
+      )
+      .bind(next, JSON.stringify(document), site.versionId)
+      .run();
+    await db.prepare("UPDATE sites SET pending_version_id = ? WHERE id = ?").bind(next, site.siteId).run();
+    const detail = await json<AdminVersionDetail>(await h.call("GET", `/api/admin/versions/${next}`));
+    expect(detail.version).toMatchObject({ id: next, number: 2, status: "pending" });
+    expect(detail.checks.firstPublish).toBe(false);
+    expect(detail.document).toMatchObject({ copy: { ctaText: "Book Joe now" } });
+    expect(detail.liveDocument).toMatchObject({ copy: { ctaText: "Call Joe today" } });
   });
 
   // No cap on the text flags (web-maker-d3, 2026-09-30): the admin sees every one. The schema bounds the list:
