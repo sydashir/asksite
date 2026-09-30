@@ -104,6 +104,9 @@ describe("starting price messages", () => {
     // DECIDED (web-maker-d3, review I-2): past 2^53 z.int() adds its own safe-integer limit; only $100,000 shows, once.
     [2 ** 53, "Please enter a price of $100,000 or less."],
     [1e20, "Please enter a price of $100,000 or less."],
+    // DECIDED (web-maker-d3, ~07:05): below -2^53 z.int() adds its own safe-integer minimum; only $1 shows, once.
+    [-(2 ** 53), "Please enter a price of at least $1."],
+    [-1e20, "Please enter a price of at least $1."],
   ])("%j", (startingPrice, text) => {
     expect(priceTexts(startingPrice)).toEqual([text]);
   });
@@ -138,6 +141,9 @@ describe("number limit messages", () => {
     [{ heroPhoto: photo({ width: 10_001 }) }, "facts.heroPhoto.width", "Please enter a number of 10,000 or less."],
     [{ photos: [photo({ height: 1e20 })] }, "facts.photos.0.height", "Please enter a number of 10,000 or less."],
     [{ heroPhoto: photo({ width: 0 }) }, "facts.heroPhoto.width", "Please enter a number of 1 or more."],
+    // Below -2^53 z.int()'s own minimum joins the field's; only the tightest too_small shows (DECIDED ~07:05).
+    [{ yearFounded: -1e20 }, "facts.yearFounded", "Please enter a year of 1850 or later."],
+    [{ heroPhoto: photo({ width: -1e20 }) }, "facts.heroPhoto.width", "Please enter a number of 1 or more."],
   ])("%j", (facts, path, text) => {
     expect(factsTexts(facts)).toEqual([[path, text]]);
   });
@@ -196,6 +202,25 @@ describe("issuesToShow on a real SiteDocument list", () => {
     expect(issuesToShow(issues).map((i) => [i.path.join("."), ownerMessage(i).text])).toEqual([
       ["facts.services.0.startingPrice", "Please enter a price of $100,000 or less."],
     ]);
+  });
+
+  it("gives exactly one issue, the $1 one, for a price below the safe-integer range (DECIDED ~07:05)", () => {
+    const [first, ...rest] = fixture.facts.services;
+    const issues = documentIssues({ services: [{ ...first, startingPrice: -1e20 }, ...rest] });
+    const price = ["facts", "services", 0, "startingPrice"];
+    expect(issuesAt(issues, price).map((i) => i.code)).toEqual(["too_small", "too_small"]);
+    expect(issuesToShow(issues).map((i) => [i.path.join("."), ownerMessage(i).text])).toEqual([
+      ["facts.services.0.startingPrice", "Please enter a price of at least $1."],
+    ]);
+  });
+
+  it("keeps the tightest limit of each kind at a field, and every limit it cannot read", () => {
+    const at = ["facts", "services", 0, "startingPrice"];
+    const least5 = issue(at, "too_small", "Too small: expected number to be >=5");
+    const above0 = issue(at, "too_small", "Too small: expected number to be >0");
+    const most80 = issue(at, "too_big", "Too big: expected number to be <=80");
+    const list = [issue(at, "too_small", "Too small: expected number to be >=-3"), least5, above0, most80, issue(at, "too_big", "Too big: expected number to be <=90")];
+    expect(issuesToShow(list)).toEqual([least5, above0, most80]);
   });
 
   it("keeps the order check for two valid times in the wrong order", () => {

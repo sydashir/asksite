@@ -109,8 +109,11 @@ const BY_CODE: Record<string, OwnerMessage> = {
   photo_ref: { text: "Choose this photo again from your uploads.", fix: { step: "photos", field: ["facts", "photos"], label: "Go to your photos" } },
 };
 
-/** The limit in zod's size message ("Too big: expected number to be <=100000"), which zod writes from the issue's maximum or minimum. */
-const limitOf = (issue: Issue): string | undefined => /(<=|>=)\s*(\d+)/.exec(issue.message)?.[2];
+/**
+ * The limit in zod's size message ("Too big: expected number to be <=100000"), which zod writes from the issue's
+ * maximum or minimum; with its sign, since z.int()'s own minimum is -9007199254740991.
+ */
+const limitOf = (issue: Issue): string | undefined => /(<=|>=)\s*(-?\d+)/.exec(issue.message)?.[2];
 
 const grouped = (n: string): string => Number(n).toLocaleString("en-US");
 
@@ -205,39 +208,55 @@ export function ownerMessage(issue: Issue): OwnerMessage {
   return { text: "Please check this answer." };
 }
 
-/** A too_big issue's limit, or undefined for any other issue. */
-function maximumOf(issue: Issue): number | undefined {
-  const n = issue.code === "too_big" ? limitOf(issue) : undefined;
-  return n === undefined ? undefined : Number(n);
+/**
+ * The opening-hours order check also runs on an empty or malformed time ("08:00" < "" is false) and then gives the
+ * wrong reason. It is kept only for two valid times: an entry with another issue at either time loses it, so each
+ * time field shows exactly one message (approved amendment, task-12-extra.md; review I-1).
+ */
+function withoutFalseOrder(issues: readonly Issue[]): Issue[] {
+  const badTimes = new Set<number>();
+  for (const issue of issues) {
+    const entry = timeEntry(issue);
+    if (entry !== undefined && !isOrderCheck(issue)) badTimes.add(entry);
+  }
+  return issues.filter((issue) => {
+    const entry = timeEntry(issue);
+    return entry === undefined || !isOrderCheck(issue) || !badTimes.has(entry);
+  });
+}
+
+/** How tight a too_big or too_small limit is, bigger meaning tighter (a smaller maximum, a larger minimum). */
+function tightness(issue: Issue): number | undefined {
+  const n = limitOf(issue);
+  if (n === undefined) return undefined;
+  if (issue.code === "too_big") return -Number(n);
+  return issue.code === "too_small" ? Number(n) : undefined;
+}
+
+/**
+ * Past 2^53 either way, z.int() adds its own safe-integer limit (<=9007199254740991 or >=-9007199254740991) next to
+ * the field's own. Of several too_big, or several too_small, issues at one field only the tightest is kept, so a
+ * price of 1e20 shows only "$100,000 or less" and one of -1e20 only "at least $1" (review I-2; DECIDED ~07:05).
+ */
+function tightestLimits(issues: readonly Issue[]): Issue[] {
+  const at = (issue: Issue): string => `${issue.code} ${JSON.stringify(issue.path)}`;
+  const tightest = new Map<string, number>();
+  for (const issue of issues) {
+    const t = tightness(issue);
+    if (t !== undefined) tightest.set(at(issue), Math.max(t, tightest.get(at(issue)) ?? t));
+  }
+  return issues.filter((issue) => {
+    const t = tightness(issue);
+    return t === undefined || t === tightest.get(at(issue));
+  });
 }
 
 /**
  * The issues to show the owner and to count. Pass every issue list that is shown or counted through it
  * (answerIssues does; so must the lists the server returns and the editor's preview list).
- *
- * - The opening-hours order check also runs on an empty or malformed time ("08:00" < "" is false) and then gives
- *   the wrong reason. It is kept only for two valid times: an entry with another issue at either time loses it,
- *   so each time field shows exactly one message (approved amendment, task-12-extra.md; review I-1).
- * - From 2^53 up, z.int() adds its own safe-integer limit (<=9007199254740991) next to the field's own maximum.
- *   Of several too_big issues at one field only the tightest is kept, so a very long price shows only the
- *   "$100,000 or less" message, once (review I-2).
  */
 export function issuesToShow(issues: readonly Issue[]): Issue[] {
-  const badTimes = new Set<number>();
-  const tightest = new Map<string, number>();
-  for (const issue of issues) {
-    const entry = timeEntry(issue);
-    if (entry !== undefined && !isOrderCheck(issue)) badTimes.add(entry);
-    const max = maximumOf(issue);
-    const at = JSON.stringify(issue.path);
-    if (max !== undefined) tightest.set(at, Math.min(max, tightest.get(at) ?? max));
-  }
-  return issues.filter((issue) => {
-    const entry = timeEntry(issue);
-    if (entry !== undefined && isOrderCheck(issue)) return !badTimes.has(entry);
-    const max = maximumOf(issue);
-    return max === undefined || max === tightest.get(JSON.stringify(issue.path));
-  });
+  return tightestLimits(withoutFalseOrder(issues));
 }
 
 /** Issues at `path` exactly (one field). */

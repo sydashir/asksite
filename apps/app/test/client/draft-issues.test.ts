@@ -84,4 +84,13 @@ describe("answerIssues on a very long price", () => {
       ["facts.services.0.startingPrice", "Please enter a price of $100,000 or less."],
     ]);
   });
+
+  // DECIDED (web-maker-d3, ~07:05): the same for the tightest too_small (a stored price; the form keeps "-5" as text).
+  it("gives one message, the $1 one, for a price below the safe-integer range", () => {
+    const services = [{ name: "Drains", startingPrice: -1e20 }];
+    const issues = answerIssues({ facts: { ...VALID_FACTS, services }, brief: VALID_BRIEF }, { slug: "joes" }, []);
+    expect(issues.map((i) => [i.path.join("."), ownerMessage(i).text])).toEqual([
+      ["facts.services.0.startingPrice", "Please enter a price of at least $1."],
+    ]);
+  });
 });
