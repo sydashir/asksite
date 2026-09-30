@@ -43,10 +43,18 @@ export interface BudgetStop {
   at: string;
   /**
    * "budget": its worst case did not fit. "no_price": it has no worst case to check. "over_worst_case": it cost more
-   * than its worst case (sent, then the stop), so worst cases no longer bound the run.
+   * than its worst case (sent, then the stop), so worst cases no longer bound the run. "invalid_cost": its cost was not
+   * a whole number of micro-US$ of at least 0 (sent, counted at its worst case, then the stop).
    */
-  reason: "budget" | "no_price" | "over_worst_case";
+  reason: "budget" | "no_price" | "over_worst_case" | "invalid_cost";
 }
+
+/**
+ * Whether a cost is one the budget can count: a whole number of micro-US$ from 0 to Number.MAX_SAFE_INTEGER. Costs are
+ * already whole (costMicrousd rounds up), so the budget rounds nothing: NaN, a negative, an infinite, a fractional or
+ * a larger cost can only come from a fault, and the budget fails closed on it.
+ */
+const countable = (micro: number): boolean => Number.isSafeInteger(micro) && micro >= 0;
 
 /** A request that cost more than its worst case: what was counted for it, against that worst case. */
 export interface Overrun {
@@ -64,7 +72,9 @@ export interface Overrun {
  * case, the spend never passes the cap. A request that costs more (an overrun) is recorded; by default it also stops
  * the budget (the evaluation). With `stopAfterOverrun: false` (--caps-probe and --record, one request per model) the
  * run goes on, and the next request's check counts the overrun already spent. Either way the spend passes the cap
- * by at most the overrun of the last request sent.
+ * by at most the overrun of the last request sent. The budget fails closed: a cost it cannot count (see countable)
+ * counts at the request's worst case and stops the run, and a worst case it cannot count is refused with a
+ * RangeError before anything is sent.
  */
 export class Budget {
   readonly capMicrousd: number;
@@ -97,6 +107,7 @@ export class Budget {
   /** Sends `request` if its worst case fits (see the class comment); undefined, with nothing sent, when it does not. */
   async send<T>(at: string, worstMicrousd: number | null, request: () => Promise<T>, costOf: (result: T) => RequestCost): Promise<T | undefined> {
     if (this.#stop !== null) return undefined;
+    if (worstMicrousd !== null && !countable(worstMicrousd)) throw new RangeError("A worst case is a whole number of micro-US$ of at least 0");
     if (worstMicrousd === null || this.#spentMicrousd + worstMicrousd > this.capMicrousd) {
       this.#stop = { at, reason: worstMicrousd === null ? "no_price" : "budget" };
       return undefined;
@@ -107,6 +118,10 @@ export class Budget {
     try {
       const result = await request();
       const { actualMicrousd, usageMissing } = costOf(result);
+      if (!countable(actualMicrousd)) {
+        this.#stop ??= { at, reason: "invalid_cost" };
+        return result;
+      }
       counted = usageMissing ? Math.max(actualMicrousd, worstMicrousd) : actualMicrousd;
       if (counted > worstMicrousd) {
         this.#overruns.push({ at, countedMicrousd: counted, worstMicrousd });
@@ -124,5 +139,6 @@ export function describeStop(stop: BudgetStop | null): string {
   if (stop === null) return "The budget did not stop the run.";
   if (stop.reason === "budget") return `Stopped for the budget before ${stop.at}: its worst case would have taken the spend over the budget, so nothing more was sent.`;
   if (stop.reason === "no_price") return `Stopped at ${stop.at}: it has no recorded price, so its cost cannot be bounded; nothing more was sent.`;
+  if (stop.reason === "invalid_cost") return `Stopped after ${stop.at}: its cost was not a whole number of micro-US$ of at least 0, so it was counted at its worst case; nothing more was sent.`;
   return `Stopped after ${stop.at}: it cost more than its worst case, so the budget can no longer bound the run; nothing more was sent.`;
 }

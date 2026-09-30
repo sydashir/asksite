@@ -330,6 +330,16 @@ describe("a live evaluation (P3-17 D3, D4)", () => {
     expect(report).toContain("- Budget: $5.000000. Counted against it: $0.030300 (a site with an attempt without usage counts at its worst case).");
     expect(report).toContain(`- Stopped after ${GEMMA} ${EVAL_PROFILES[0]!.id} run 1: it cost more than its worst case, so the budget can no longer bound the run; nothing more was sent.`);
   });
+
+  it("fails closed on a site whose cost cannot be counted: its worst case, then nothing more (fix round #4)", async () => {
+    const h = harness({ answer: async (env, snapshot, fetchImpl) => ({ ...(await validDraft(env, snapshot, fetchImpl)), usage: { inputTokens: Number.NaN, outputTokens: 1_000 } }) });
+    expect(await main(["--live", "--max-usd", "5", "--runs", "1", "--only", `${GEMMA},${GROQ}`], h.deps)).toBe(0);
+    expect(h.requests).toEqual(modelIds([GEMMA]));
+    const [stamp] = readdirSync(join(h.dir, "results"));
+    const report = readFileSync(join(h.dir, "results", stamp!, "report.md"), "utf8");
+    expect(report).toContain(`- Budget: $5.000000. Counted against it: ${formatUsd(worstCaseJobMicrousd("openai-compatible", byLabel(GEMMA).modelId)!)} (a site with an attempt without usage counts at its worst case).`);
+    expect(report).toContain(`- Stopped after ${GEMMA} ${EVAL_PROFILES[0]!.id} run 1: its cost was not a whole number of micro-US$ of at least 0, so it was counted at its worst case; nothing more was sent.`);
+  });
 });
 
 describe("a live --record (P3-17 D3)", () => {

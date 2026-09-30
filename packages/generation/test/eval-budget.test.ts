@@ -1,6 +1,6 @@
 import type { GenerationInputSnapshot } from "@asksite/core";
 import { describe, expect, it } from "vitest";
-import { Budget, CAPS_PROBE_OUTPUT_TOKENS, formatUsd, parseMaxUsd, requestWorstCaseMicrousd, type BudgetStop } from "../eval/budget.ts";
+import { Budget, CAPS_PROBE_OUTPUT_TOKENS, describeStop, formatUsd, parseMaxUsd, requestWorstCaseMicrousd, type BudgetStop } from "../eval/budget.ts";
 import { formatReport, summarise } from "../eval/metrics.ts";
 import { EVAL_PROFILES } from "../eval/profiles.ts";
 import { runEval, type EvalCandidate } from "../eval/run.ts";
@@ -142,6 +142,40 @@ describe("Budget", () => {
     expect(await pay(over, "a", 1_000, 1_001)).toBe("sent");
     expect([over.spentMicrousd, over.stop]).toEqual([1_001, { at: "a", reason: "over_worst_case" }]);
     expect(await pay(over, "b", 1, 0)).toBeUndefined();
+  });
+
+  // Fail closed (fix round #4): costs are whole micro-US$ (costMicrousd rounds up), so the budget rounds nothing itself.
+  // A cost that is not a safe integer of at least 0 counts at the request's worst case and stops the run, whether an
+  // overrun would stop it or not.
+  it.each([
+    ["NaN", Number.NaN],
+    ["a negative cost", -1_000_000],
+    ["Infinity", Number.POSITIVE_INFINITY],
+    ["minus Infinity", Number.NEGATIVE_INFINITY],
+    ["a fraction", 0.5],
+    ["a cost above Number.MAX_SAFE_INTEGER", 2 ** 53],
+  ])("fails closed on %s: counts the request at its worst case and stops the run", async (_name, actual) => {
+    for (const stopAfterOverrun of [true, false])
+      for (const usageMissing of [false, true]) {
+        const budget = new Budget(1_000, { stopAfterOverrun });
+        expect(await pay(budget, "a", 600, actual, usageMissing)).toBe("sent");
+        expect([budget.spentMicrousd, budget.stop, budget.overruns]).toEqual([600, { at: "a", reason: "invalid_cost" }, []]);
+        expect(await pay(budget, "b", 1, 0)).toBeUndefined();
+        expect(budget.spentMicrousd).toBe(600);
+      }
+  });
+
+  it.each([Number.NaN, -1, 0.5, Number.POSITIVE_INFINITY])("refuses a worst case of %s before sending anything", async (worst) => {
+    const budget = new Budget(1_000);
+    let calls = 0;
+    await expect(budget.send("a", worst, async () => (calls += 1), spent(0))).rejects.toThrow(RangeError);
+    expect([calls, budget.spentMicrousd, budget.stop]).toEqual([0, 0, null]);
+  });
+
+  it("names the stop for a cost it could not count", () => {
+    expect(describeStop({ at: "gemma ord-plumb run 1", reason: "invalid_cost" })).toBe(
+      "Stopped after gemma ord-plumb run 1: its cost was not a whole number of micro-US$ of at least 0, so it was counted at its worst case; nothing more was sent.",
+    );
   });
 
   it("holds a request's worst case while it is in flight, so requests sent at once cannot pass the cap together", async () => {
