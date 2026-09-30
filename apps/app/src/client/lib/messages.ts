@@ -21,7 +21,7 @@ const CLAIM_PREFIX = "Copy states something the owner's facts do not back: ";
 
 const CLAIM_HINTS: ReadonlyArray<{ test: RegExp; hint: (word: string) => string; fix?: Fix }> = [
   { test: /^licen/i, hint: () => "To say “licensed”, add your license.", fix: { step: "trust", field: ["facts", "licences"], label: "Add a license" } },
-  { test: /^insur/i, hint: () => "To say “insured”, tick “We are insured”.", fix: { step: "trust", field: ["facts", "insured"], label: "Say you are insured" } },
+  { test: /^insur/i, hint: () => "To say “insured”, check “We are insured”.", fix: { step: "trust", field: ["facts", "insured"], label: "Say you are insured" } },
   {
     test: /emergenc|clock|night|any.?time/i,
     hint: () => "To mention emergencies or round-the-clock service, turn on 24/7 emergency service.",
@@ -100,7 +100,7 @@ const BY_PATH: Record<string, string> = {
 
 const BY_CODE: Record<string, OwnerMessage> = {
   attestation_required: {
-    text: "Tick the box to confirm these reviews are from real customers.",
+    text: "Check the box to confirm these reviews are from real customers.",
     fix: { step: "trust", field: ["brief", "reviewsAreReal"], label: "Confirm your reviews" },
   },
   slug_missing: { text: "Choose a web address for your website.", fix: { step: "address", field: ["slug"], label: "Choose a web address" } },

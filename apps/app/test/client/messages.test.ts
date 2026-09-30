@@ -1,3 +1,4 @@
+import { readdirSync, readFileSync } from "node:fs";
 import { SiteDocument, Facts } from "@asksite/site-schema";
 import { EMPTY_EDITS, OwnerEdits, toIssues, type Issue } from "@asksite/core";
 import { describe, expect, it } from "vitest";
@@ -22,7 +23,7 @@ describe("ownerMessage", () => {
 
   it("combines several claims in one field", () => {
     const m = ownerMessage(issue(["copy", "about"], "custom", 'Copy states something the owner\'s facts do not back: "guaranteed", "insured"'));
-    expect(m.text).toBe("Please remove “guaranteed”: we cannot show guarantees we cannot check. To say “insured”, tick “We are insured”.");
+    expect(m.text).toBe("Please remove “guaranteed”: we cannot show guarantees we cannot check. To say “insured”, check “We are insured”.");
     expect(m.fix?.field).toEqual(["facts", "insured"]);
   });
 
@@ -178,6 +179,28 @@ describe("issuesToShow on a real SiteDocument list", () => {
     expect(SiteDocument.safeParse(fixture).success).toBe(true);
     const other = [issue(["facts", "phone"], "invalid_format", "m"), issue(["copy", "heroHeadline"], "too_big", "Too big: expected string to have <=80 characters")];
     expect(issuesToShow(other)).toEqual(other);
+  });
+});
+
+// DECIDED (web-maker-d3): US usage in owner text. The owner checks a box; British "tick" must not come back.
+describe("US wording", () => {
+  const TICK = /\b(un)?tick(ed|ing|s)?\b/i;
+
+  it("asks the owner to check a box, not to tick it", () => {
+    expect(ownerMessage(issue(["brief", "reviewsAreReal"], "attestation_required", "x")).text).toBe("Check the box to confirm these reviews are from real customers.");
+    expect(ownerMessage(issue(["copy", "about"], "custom", 'Copy states something the owner\'s facts do not back: "insured"')).text).toBe("To say “insured”, check “We are insured”.");
+  });
+
+  it("no client lib file says “tick”, so a new one fails here", () => {
+    const dir = new URL("../../src/client/lib/", import.meta.url);
+    const files = readdirSync(dir).filter((name) => name.endsWith(".ts"));
+    expect(files).toContain("messages.ts");
+    expect(files.filter((name) => TICK.test(readFileSync(new URL(name, dir), "utf8")))).toEqual([]);
+  });
+
+  it("the check itself catches the word and nothing else", () => {
+    for (const text of ["Tick the box", "tick “We are insured”", "Leave it unticked", "ticked"]) expect(TICK.test(text)).toBe(true);
+    for (const text of ["ticket", "sticker", "Check the box"]) expect(TICK.test(text)).toBe(false);
   });
 });
 
