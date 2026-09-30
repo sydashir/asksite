@@ -39,6 +39,30 @@ const AUTH_NAMES: ReadonlySet<string> = new Set(["authorization", "x-api-key", "
 const isAuthBearing = (name: string): boolean => AUTH_NAMES.has(name) || /key|token|secret|auth/.test(name);
 const escapeRegExp = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
+/**
+ * Every key and string value of the JSON text, decoded and joined by newlines, so a header name that follows a line
+ * break, CR or tab is seen after a real separator (the serialized text holds it as a backslash and a letter).
+ */
+function decodedStrings(text: string): string {
+  const out: string[] = [];
+  const walk = (node: unknown): void => {
+    if (typeof node === "string") out.push(node);
+    else if (Array.isArray(node)) node.forEach(walk);
+    else if (node !== null && typeof node === "object") {
+      for (const [key, value] of Object.entries(node)) {
+        out.push(key);
+        walk(value);
+      }
+    }
+  };
+  try {
+    walk(JSON.parse(text));
+  } catch {
+    // Not JSON: the raw text is checked alone.
+  }
+  return out.join("\n");
+}
+
 /** What findRequestSecret found: the rule (1 a secret value, 2 a header name) and a NAME, never the matched value. */
 export interface SecretFinding {
   rule: 1 | 2;
@@ -49,7 +73,7 @@ export interface SecretFinding {
  * Looks for a request secret in the text a fixture would hold. Rule 1: the provider's API key value, or the value
  * (a Bearer token without its prefix too) of an auth-bearing request header: authorization, x-api-key,
  * proxy-authorization, cookie, or a name holding key, token, secret or auth. Rule 2: a request header name other
- * than accept, content-type and user-agent, as a whole token, in any letter case, so "authorization" does not match
+ * than accept, content-type and user-agent, as a whole token, in any letter case, in the raw text and in its decoded strings, so "authorization" does not match
  * "authorized". Returns null for a clean fixture. The result names a rule and a header; the value never leaves here.
  */
 export function findRequestSecret(text: string, headers: readonly RequestHeader[], apiKey?: string): SecretFinding | null {
@@ -60,7 +84,7 @@ export function findRequestSecret(text: string, headers: readonly RequestHeader[
     const bare = value.replace(/^Bearer\s+/i, "");
     if ((value !== "" && text.includes(value)) || (bare !== "" && text.includes(bare))) return { rule: 1, name };
   }
-  const lower = text.toLowerCase();
+  const lower = `${text}\n${decodedStrings(text)}`.toLowerCase();
   const names = new Set<string>([...ALWAYS_NAMES, ...headers.map(([name]) => name.toLowerCase())]);
   for (const name of names) {
     if (GENERIC_NAMES.has(name)) continue;

@@ -88,6 +88,23 @@ describe("findRequestSecret (rule 1: a key or auth value; rule 2: a header name)
     expect(findRequestSecret(fixtureText({ echo: "value-abc-123" }), [["x-other", "value-abc-123"]], undefined)).toBeNull();
   });
 
+  it.each([
+    ["LF", "Bad request\nx-api-key: [masked]\nanthropic-version: 2023-06-01", "x-api-key"],
+    ["CRLF", "headers:\r\nAuthorization: Bearer [masked]\r\n", "authorization"],
+    ["tab", "headers:\tx-stainless-retry-count=0", "x-stainless-retry-count"],
+    ["control character", "a\u0001anthropic-version", "anthropic-version"],
+  ])("refuses a header name after a %s in a body string", (_name, echo, name) => {
+    expect(findRequestSecret(fixtureText({ echo }), HEADERS, KEY)).toMatchObject({ rule: 2, name });
+  });
+
+  it("refuses a header name after a newline in an object key", () => {
+    expect(findRequestSecret(fixtureText({ "line\nauthorization": 1 }), HEADERS, KEY)).toEqual({ rule: 2, name: "authorization" });
+  });
+
+  it("still accepts authorized after a newline", () => {
+    expect(findRequestSecret(fixtureText({ t: "we are\nauthorized\tplumbers" }), HEADERS, KEY)).toBeNull();
+  });
+
   it("allows the generic accept, content-type and user-agent names", () => {
     expect(findRequestSecret(fixtureText({ t: "accept content-type user-agent" }), HEADERS, KEY)).toBeNull();
   });
