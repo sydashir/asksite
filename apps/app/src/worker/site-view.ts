@@ -20,6 +20,7 @@ import {
   type VersionSummary,
 } from "@asksite/core";
 import { Facts, SiteDocument } from "@asksite/site-schema";
+import { z } from "zod";
 import { parseStored } from "./db.ts";
 import type { AppDeps } from "./deps.ts";
 
@@ -109,6 +110,15 @@ export async function liveUploads(db: D1Database, siteId: string): Promise<Uploa
 const firstIssues = (issues: Issue[]): Issue[] => issues.slice(0, MAX_ISSUES);
 
 /**
+ * The composed document's own issues: those under "facts" are left out, because they are already listed under
+ * `facts`. They are left out before core's toIssues keeps the first 50 (A9), so facts issues listed first can
+ * never crowd out the page's.
+ */
+function pageIssues(error: z.ZodError): Issue[] {
+  return toIssues(new z.ZodError(error.issues.filter((issue) => issue.path[0] !== "facts")));
+}
+
+/**
  * Everything wrong with the draft right now, at most the first MAX_ISSUES issues in each list.
  * Document issues leave out paths under "facts", because those are already listed under `facts`.
  */
@@ -118,7 +128,7 @@ export function draftIssues(draft: Draft, ai: CurrentAi | null, siteId: string, 
   let document: Issue[] = [];
   if (ai !== null) {
     const parsed = SiteDocument.safeParse(composeDocument(draft.facts, ai, draft.edits));
-    if (!parsed.success) document = toIssues(parsed.error).filter((issue) => issue.path[0] !== "facts");
+    if (!parsed.success) document = pageIssues(parsed.error);
   }
   return {
     facts: facts.success ? [] : firstIssues(under("facts", toIssues(facts.error))),

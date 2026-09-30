@@ -2,6 +2,7 @@ import { DRAFT_JSON_MAX_BYTES, MAX_ISSUES } from "@asksite/app-common";
 import { Brief, composeDocument, EMPTY_EDITS, LIMITS, photoRefIssues, toIssues, type AiDraft, type SiteVersionRow, type SiteView } from "@asksite/core";
 import { Facts, SiteDocument } from "@asksite/site-schema";
 import { describe, expect, it } from "vitest";
+import { z } from "zod";
 import { VALID_BRIEF, VALID_FACTS } from "../support/facts.ts";
 import { json, readyOwner, ROOT, useAppHarness } from "../support/harness.ts";
 
@@ -81,6 +82,24 @@ describe("GET /api/sites/:siteId", () => {
     // toMatchObject, not toEqual (A12 heads-up): a later OwnerEdits field must not break this test.
     expect(view.edits).toMatchObject({ ...edits, hidden: [] });
     expect([...new Set(view.issues.document.map((i) => i.path.join(".")))]).toEqual(["copy.heroHeadline"]);
+  });
+
+  it("still lists the page's own issues when more than MAX_ISSUES facts issues come before them (A9 caps after the filter)", async () => {
+    const { generationId, edits, ...owner } = await staleStoredDraft();
+    // Sixty service-area places that are not text: the composed document's facts issues come first, all sixty.
+    const facts = { ...VALID_FACTS, serviceArea: { places: Array.from({ length: 60 }, (_, i) => i) } };
+    const saved = await h.call("PATCH", `/api/sites/${owner.siteId}/draft`, { cookie: owner.cookie, body: { rev: owner.rev, facts } });
+    expect(saved.status).toBe(200);
+    const afterSave = (await json<{ issues: SiteView["issues"] }>(saved)).issues;
+    const view = await json<SiteView>(await h.call("GET", `/api/sites/${owner.siteId}`, { cookie: owner.cookie }));
+    const stored = await (await h.db()).prepare("SELECT output_json FROM generations WHERE id = ?").bind(generationId).first<{ output_json: string }>();
+    const ai = { generationId, draft: JSON.parse(stored?.output_json ?? "{}") as AiDraft };
+    const zodIssues = SiteDocument.safeParse(composeDocument(facts, ai, { ...edits, hidden: [] })).error!.issues;
+    expect(zodIssues.slice(0, MAX_ISSUES).every((issue) => issue.path[0] === "facts")).toBe(true);
+
+    const pageIssues = (issues: SiteView["issues"]) => [...new Set(issues.document.map((i) => i.path.join(".")))];
+    expect(pageIssues(afterSave)).toEqual(["copy.heroHeadline"]);
+    expect(pageIssues(view.issues)).toEqual(["copy.heroHeadline"]);
   });
 
   it("shows the newest succeeded build as the AI draft: not an older one, nor a newer failed or queued one (§2.1)", async () => {
@@ -322,7 +341,8 @@ describe("PATCH /api/sites/:siteId/draft", () => {
       facts: toIssues(Facts.safeParse(facts).error!).map((issue) => ({ ...issue, path: ["facts", ...issue.path] })),
       brief: toIssues(Brief.safeParse(brief).error!).map((issue) => ({ ...issue, path: ["brief", ...issue.path] })),
       photos: photoRefIssues(facts, owner.siteId, ROOT, []),
-      document: toIssues(SiteDocument.safeParse(composeDocument(facts, ai, EMPTY_EDITS)).error!).filter((issue) => issue.path[0] !== "facts"),
+      // Filtered before toIssues keeps its first 50 (A9), as the route does.
+      document: toIssues(new z.ZodError(SiteDocument.safeParse(composeDocument(facts, ai, EMPTY_EDITS)).error!.issues.filter((issue) => issue.path[0] !== "facts"))),
     };
     // Every list has more than MAX_ISSUES issues before any cap. Count zod's own issues: core's toIssues keeps
     // the first 50 itself (A9), so the lists above are already capped.
