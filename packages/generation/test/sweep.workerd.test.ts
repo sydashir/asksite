@@ -294,6 +294,47 @@ describe("sweepStuckJobs", () => {
       const { results } = await db.prepare("SELECT id FROM generations WHERE status = 'queued' ORDER BY created_at").all<{ id: string }>();
       expect(results.map((row) => row.id)).toEqual(Array.from({ length: 10 }, (_, i) => `j${30 + i}`));
     });
+
+    describe("when writes throw, with more stuck jobs than one read returns (Task 10 follow-up 3)", () => {
+      /**
+       * The local D1, logging every query the sweeper sends: "read", or "<id> template" / "<id> failed" for an UPDATE.
+       * `write` runs before each UPDATE: it throws for a D1 outage (the UPDATE is then not sent), or is another writer's step.
+       */
+      const logged = (log: string[], write: (id: string, kind: "template" | "failed") => Promise<void>): D1Database =>
+        new Proxy(db, {
+          get(target, prop, receiver) {
+            if (prop !== "prepare") return Reflect.get(target, prop, receiver);
+            return (sql: string) => {
+              if (!sql.startsWith("UPDATE")) {
+                log.push("read");
+                return target.prepare(sql);
+              }
+              return {
+                bind: (...values: unknown[]) => ({
+                  run: async () => {
+                    const kind = sql.includes("status = 'succeeded'") ? "template" : "failed";
+                    log.push(`${String(values[0])} ${kind}`);
+                    await write(String(values[0]), kind);
+                    return target.prepare(sql).bind(...values).run();
+                  },
+                }),
+              };
+            };
+          },
+        });
+      const stillQueued = async (): Promise<string[]> =>
+        (await db.prepare("SELECT id FROM generations WHERE status = 'queued' ORDER BY created_at").all<{ id: string }>()).results.map((row) => row.id);
+
+      it("counts each row once in errors, however often the run reads it: a D1 write outage (every UPDATE throws) with 30 stuck jobs", async () => {
+        await seedQueued(30);
+        const log: string[] = [];
+        const outage = logged(log, async () => {
+          throw new Error("D1 down");
+        });
+        expect(await sweepStuckJobs({ DB: outage }, NOW)).toEqual({ fallback: 0, failed: 0, errors: 25 });
+        expect(await stillQueued()).toEqual(Array.from({ length: 30 }, (_, i) => `j${i}`));
+      });
+    });
   });
 
   describe("one row whose ending throws never stops the others (Task 10 follow-up item 2)", () => {
