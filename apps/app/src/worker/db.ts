@@ -21,8 +21,13 @@ export async function ownedSite(db: D1Database, siteId: string, ownerId: string)
   return foundSite(await ownedSiteQuery(db, siteId, ownerId).first<SiteRow>());
 }
 
+/** The answer for a site the admin took down (423): it is frozen until restored. */
+export function siteTakenDown(): ApiError {
+  return new ApiError("site_taken_down", "This website has been taken offline. Contact us to restore it.");
+}
+
 export function assertNotTakenDown(site: SiteRow): void {
-  if (site.taken_down_at !== null) throw new ApiError("site_taken_down", "This website has been taken offline. Contact us to restore it.");
+  if (site.taken_down_at !== null) throw siteTakenDown();
 }
 
 /** JSON column text to a value; a corrupt column reads as an empty object (drafts may be anything). */

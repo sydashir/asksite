@@ -128,22 +128,39 @@ async function takeLastUploadSlots(db: D1Database): Promise<void> {
 }
 
 /**
- * Sites whose upload reservation is lost just before a request's next write of its own uploads row (the UPDATE that
- * finishes it or marks it failed, or the DELETE that releases it), as it would be while the request outlived the 10
- * minutes: "aged_out" is the age-out that turns it into a counted failure, "purged" is a takedown's media purge
- * (Plan 2 takeDown's own statement, which leaves it reserved).
+ * How a site's upload reservation is lost (or, for "taken_down", its site is frozen) just before a request's next
+ * write of its own uploads row (the UPDATE that finishes it or marks it failed, or the DELETE that releases it), as it
+ * would be while the request outlived the 10 minutes or while the admin acted: "aged_out" is the age-out that turns it
+ * into a counted failure, "purged" is a takedown's media purge (Plan 2 takeDown's own statement, which leaves it
+ * reserved), and "taken_down" is Plan 2 takeDown's own statement for the site (no purge: the site is taken down while
+ * the reservation stays as it is).
  */
-const loseReservationBeforeRowWrite = new Map<string, "aged_out" | "purged">();
+type LoseReservation = "aged_out" | "purged" | "taken_down";
+
+/** Sites whose upload reservation is lost, as LoseReservation says, just before a request's next write of its own uploads row. */
+const loseReservationBeforeRowWrite = new Map<string, LoseReservation>();
+
+/** The reason the "taken_down" arm stores, as the admin's Take down would. */
+const TEST_TAKEDOWN_REASON = "Taken down by the test Worker";
 
 async function loseReservations(db: D1Database): Promise<void> {
   const sites = [...loseReservationBeforeRowWrite];
   loseReservationBeforeRowWrite.clear();
   for (const [siteId, how] of sites) {
+    const now = Date.now();
+    if (how === "taken_down") {
+      // Copied verbatim from Plan 2B takeDown (plan2b-serve e8e4a33 packages/publishing/src/site-state.ts:25).
+      await db
+        .prepare("UPDATE sites SET taken_down_at = ?, takedown_reason = ?, pending_version_id = NULL, updated_at = ? WHERE id = ? AND taken_down_at IS NULL")
+        .bind(now, TEST_TAKEDOWN_REASON, now, siteId)
+        .run();
+      continue;
+    }
     const sql =
       how === "aged_out"
         ? "UPDATE uploads SET deleted_at = ?, reserved_at = NULL WHERE site_id = ? AND reserved_at IS NOT NULL"
         : "UPDATE uploads SET deleted_at = ? WHERE site_id = ? AND deleted_at IS NULL";
-    await db.prepare(sql).bind(Date.now(), siteId).run();
+    await db.prepare(sql).bind(now, siteId).run();
   }
 }
 
@@ -169,6 +186,12 @@ async function saveOtherTabs(db: D1Database): Promise<void> {
 
 /** Per recorded path: the SQL text of every statement its requests prepared, oldest first. */
 const sqlOf = new Map<string, string[]>();
+
+/** Per recorded path: how many upload pre-checks (the statement that counts a site's uploads, in its batch) have come back. */
+const preChecksDoneOf = new Map<string, number>();
+
+/** Whether the SQL is the upload route's pre-check count (routes/uploads.ts underCaps), not the INSERT that reserves. */
+const isUploadPreCheck = (sql: string): boolean => /^SELECT COUNT\(\*\)[\s\S]*\bFROM uploads\b/.test(sql.trimStart());
 
 /** Work done just before or just after a statement runs. */
 interface Around {
@@ -205,7 +228,7 @@ function aroundRun(statement: D1PreparedStatement, around: Around): D1PreparedSt
  * disable owners before it and store twins after it; before an uploads INSERT, take the site's last upload slot,
  * and before an UPDATE of an upload's own row or an uploads DELETE, lose the site's reservation; after any of them,
  * note the step if the path is watched; after a write to a site, commit another tab's save of it; and record each
- * statement's SQL text if the path is recorded.
+ * statement's SQL text, and count each upload pre-check once it has come back, if the path is recorded.
  */
 function withD1Hooks(env: Env, path: string): Env {
   if (
@@ -235,6 +258,12 @@ function withD1Hooks(env: Env, path: string): Env {
             return aroundRun(statement, { before: () => loseReservations(target), after: async () => noteStep(path, "delete") });
           }
           if (saveAfterSiteWrite.size > 0 && sql.trimStart().startsWith("UPDATE sites ")) return aroundRun(statement, { after: () => saveOtherTabs(target) });
+          if (sqlOf.has(path) && isUploadPreCheck(sql)) {
+            const countDone = async () => {
+              preChecksDoneOf.set(path, (preChecksDoneOf.get(path) ?? 0) + 1);
+            };
+            return aroundRun(statement, { after: countDone });
+          }
           return statement;
         };
       }
@@ -399,9 +428,12 @@ helpers.post("/__test/take-last-upload-slot", async (c) => {
   return c.json({ ok: true });
 });
 
-/** Arms the hook above for one site: just before the next write of an upload's own row of any request, the site's reservation is lost. */
+/**
+ * Arms the hook above for one site: just before the next write of an upload's own row of any request, the site's
+ * reservation is lost (aged out or purged), or the site is taken down.
+ */
 helpers.post("/__test/lose-upload-reservation", async (c) => {
-  const { siteId, how } = await c.req.json<{ siteId: string; how: "aged_out" | "purged" }>();
+  const { siteId, how } = await c.req.json<{ siteId: string; how: LoseReservation }>();
   loseReservationBeforeRowWrite.set(siteId, how);
   return c.json({ ok: true });
 });
@@ -487,11 +519,15 @@ helpers.get("/__test/steps", (c) => c.json(stepsOf.get(c.req.query("path") ?? ""
 helpers.post("/__test/record-sql", async (c) => {
   const { path } = await c.req.json<{ path: string }>();
   sqlOf.set(path, []);
+  preChecksDoneOf.set(path, 0);
   return c.json({ ok: true });
 });
 
 /** The SQL text recorded for a path, oldest first (see sqlOf). */
 helpers.get("/__test/sql", (c) => c.json(sqlOf.get(c.req.query("path") ?? "") ?? []));
+
+/** How many upload pre-checks of a recorded path have come back since its recording started (see preChecksDoneOf). */
+helpers.get("/__test/pre-checks-done", (c) => c.json(preChecksDoneOf.get(c.req.query("path") ?? "") ?? 0));
 
 // The Worker's types have no `process` (Node.js compatibility is off), so the probe below declares it
 // for this file only; the bundler erases the declaration and the name is looked up in the runtime.

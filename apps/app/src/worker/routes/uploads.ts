@@ -1,12 +1,12 @@
 import { ApiError, noteLog, rateLimit, readBytes, runToEnd } from "@asksite/app-common";
 import { LIMITS, mediaKey, mediaUrl, newId, type UploadView } from "@asksite/core";
 import { type Context, Hono } from "hono";
-import { assertNotTakenDown, ownedSite } from "../db.ts";
+import { assertNotTakenDown, ownedSite, siteTakenDown } from "../db.ts";
 import { imageInfo, sizeProblem, sniffImage, toStillWebp } from "../images.ts";
 import { multipartBoundary, multipartShapeProblem } from "../multipart.ts";
 import { requireOwner } from "../session.ts";
 import type { AppEnv } from "../types.ts";
-import { ageOutSiteReservations, finishPhoto, markFailed, release, reserve } from "../upload-reservations.ts";
+import { ageOutSiteReservations, finishPhoto, isTakenDown, markFailed, release, reserve } from "../upload-reservations.ts";
 
 // The multipart wrapper (boundaries and part headers) around one 10 MB file.
 const MULTIPART_OVERHEAD_BYTES = 16 * 1024;
@@ -89,13 +89,16 @@ async function cleanUp(write: Promise<unknown>): Promise<void> {
  * the billed transform (toStillWebp: its .output(), the read of its image and the free .info() of the result). Then
  * the photo's object is stored and its row finished; or, when the transform gave no WebP to store, the reservation is
  * marked as a counted failure; or, after a failure that is ours, it is released. Gives the stored photo; throws
- * upload_limit_reached when the caps refuse the reservation (no billed call ran), and image_rejected once a failure
- * is counted.
+ * site_taken_down when the site was taken down and upload_limit_reached when the caps refuse the reservation (no
+ * billed call ran in either case), and image_rejected once a failure is counted.
  */
 async function reserveTransformAndStore(env: Env, siteId: string, bytes: Uint8Array): Promise<StoredPhoto> {
   const id = newId();
   const reservedAt = Date.now();
-  if (!(await reserve(env.DB, id, siteId, reservedAt))) throw limitReached();
+  const reservation = await reserve(env.DB, id, siteId, reservedAt);
+  // Decision 39: the route checked the site before reading the body, whose pace the owner sets; it may be down now.
+  if (reservation === "taken_down") throw siteTakenDown();
+  if (reservation === "full") throw limitReached();
   let still: Awaited<ReturnType<typeof toStillWebp>>;
   try {
     still = await toStillWebp(env.IMAGES, bytes);
@@ -121,9 +124,12 @@ async function reserveTransformAndStore(env: Env, siteId: string, bytes: Uint8Ar
     throw err;
   }
   if (!(await finishPhoto(env.DB, id, photo))) {
-    // The reservation was lost meanwhile (aged out, or marked by a takedown's purge): its row is already a counted
-    // failure, so its object goes and the upload fails loud (DECIDED P4-21).
+    // The reservation was lost meanwhile: aged out, marked deleted by a takedown's purge, or its site taken down. Its
+    // object goes, and its row becomes a counted failure at once (a no-op once aged out; a purge's deletion time is
+    // kept). The upload fails loud (DECIDED P4-21): as a takedown answers when the site is down, else as our failure.
     await cleanUp(env.MEDIA.delete(key));
+    await cleanUp(markFailed(env.DB, id, Date.now()));
+    if (await isTakenDown(env.DB, siteId)) throw siteTakenDown();
     throw new Error("upload reservation lost before the photo was stored");
   }
   return photo;
@@ -140,7 +146,8 @@ export function uploadRoutes(): Hono<AppEnv> {
     if (!/^multipart\/form-data\s*;/i.test(contentType)) throw new ApiError("forbidden", "Expected a file upload");
     const db = c.env.DB;
     const site = await ownedSite(db, c.req.param("siteId"), owner.id);
-    // A taken-down site is frozen: no image work and no storage for it (decision 39).
+    // A taken-down site is frozen: no image work and no storage for it (decision 39). The reservation and the finish
+    // check again, since the body below arrives at the owner's pace.
     assertNotTakenDown(site);
     // Pre-check, before the body is read, so an upload the caps refuse costs no body read and no image work. It does
     // not keep the caps exact: uploads whose bodies arrive late all pass it together (the attack P4-21 fixes). The

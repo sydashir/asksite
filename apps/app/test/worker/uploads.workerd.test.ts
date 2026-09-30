@@ -1,4 +1,4 @@
-import { LIMITS, mediaUrl, type SiteView, type UploadView } from "@asksite/core";
+import { LIMITS, mediaKey, mediaUrl, type SiteView, type UploadView } from "@asksite/core";
 import { describe, expect, it } from "vitest";
 import { MAX_PART_HEADER_BYTES, MAX_PARTS } from "../../src/worker/multipart.ts";
 import { BROWSER_BOUNDARIES, blinkBoundary, browserContentType, browserMultipart, encode, geckoBoundary, joined, type BrowserPart } from "../support/browsers.ts";
@@ -573,6 +573,28 @@ describe("upload reservations: a counted row is reserved before the billed trans
     return { total: rows.length, kept: rows.filter((row) => row.deleted_at === null).length };
   };
 
+  /** The admin's Take down of the site, without the media purge: Plan 2B takeDown's own statement for the site. */
+  async function takeDown(siteId: string): Promise<void> {
+    const now = Date.now();
+    // Copied verbatim from Plan 2B takeDown (plan2b-serve e8e4a33 packages/publishing/src/site-state.ts:25).
+    const taken = await (await h.db())
+      .prepare("UPDATE sites SET taken_down_at = ?, takedown_reason = ?, pending_version_id = NULL, updated_at = ? WHERE id = ? AND taken_down_at IS NULL")
+      .bind(now, "Taken down by the test", now, siteId)
+      .run();
+    expect(taken.meta.changes).toBe(1);
+  }
+
+  /** The admin's Restore of the site: Plan 2B restore's own statement for the site. */
+  async function restore(siteId: string): Promise<void> {
+    // Copied from Plan 2B restore; replace with the real restore() after the Plan 2B sync
+    // (plan2b-serve e8e4a33 packages/publishing/src/site-state.ts:94).
+    const restored = await (await h.db())
+      .prepare("UPDATE sites SET taken_down_at = NULL, takedown_reason = NULL, updated_at = ? WHERE id = ? AND taken_down_at IS NOT NULL")
+      .bind(Date.now(), siteId)
+      .run();
+    expect(restored.meta.changes).toBe(1);
+  }
+
   describe("uploads whose bodies are held back past the pre-check (the moderator's attack)", () => {
     /** Starts an upload whose body sends its first 64 bytes now and the rest once `release` resolves. */
     function heldUpload(owner: { siteId: string; cookie: string }, photo: Uint8Array, release: Promise<void>): Promise<Response> {
@@ -642,6 +664,41 @@ describe("upload reservations: a counted row is reserved before the billed trans
       expect(await reservationsLeft(owner.siteId)).toBe(0);
       expect((await mediaKeys(owner.siteId)).sort()).toEqual(stored.map((photo) => `${owner.siteId}/${photo.id}.webp`).sort());
     }, 60_000);
+
+    /** Waits (at most 20 s) until `count` upload pre-checks of `path`, a recorded path, have come back (the test Worker counts them). */
+    async function preChecksDone(path: string, count: number): Promise<void> {
+      for (let i = 0; i < 200; i += 1) {
+        if ((await json<number>(await h.call("GET", `/__test/pre-checks-done?path=${encodeURIComponent(path)}`))) >= count) return;
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      throw new Error(`timed out waiting for ${count} pre-checks of ${path}`);
+    }
+
+    // Decision 39 (a taken-down site gets no image work and no storage): the route's own check runs before the body is
+    // read, and the owner decides when the body arrives, so only the INSERT that reserves the row can refuse it then.
+    it("refuses an upload whose site was taken down while its body was held, after the pre-check, at the reservation: 423, no billed call, no row, no object", async () => {
+      const owner = await h.signIn();
+      const path = `/api/sites/${owner.siteId}/uploads`;
+      await h.recordSql(path);
+      const before = (await imagesCalls()).length;
+      let release!: () => void;
+      const released = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const pending = heldUpload(owner, await png(400, 300), released);
+      // The site was up for the route's own check and its pre-check: the pre-check's batch has come back.
+      await preChecksDone(path, 1);
+      await takeDown(owner.siteId);
+      release();
+      const res = await pending;
+      expect(res.status).toBe(423);
+      expect((await json<ErrorJson>(res)).error.code).toBe("site_taken_down");
+      // It got past the route's own check and read its whole body: it reached the INSERT that reserves a row.
+      expect((await h.recordedSql(path)).filter((sql) => sql.trimStart().startsWith("INSERT INTO uploads"))).toHaveLength(1);
+      expect((await imagesCalls()).slice(before)).toEqual([]);
+      expect(await uploadRows(owner.siteId)).toEqual([]);
+      expect(await mediaKeys(owner.siteId)).toEqual([]);
+    }, 60_000);
   });
 
   describe("a reservation a request left behind (it died, or outlived waitUntil's 30 s after a disconnect)", () => {
@@ -707,6 +764,53 @@ describe("upload reservations: a counted row is reserved before the billed trans
       expect((await json<ErrorJson>(res)).error.code).toBe("internal");
       expect((await uploadRows(owner.siteId)).map(shape)).toEqual([COUNTED_FAILURE]);
       expect(await mediaKeys(owner.siteId)).toEqual([]);
+    });
+  });
+
+  // Decision 39: a taken-down site gets no image work and no storage. The takedown can land while an upload that holds
+  // its reservation runs, so the finish refuses it too, and a restore later brings back no photo.
+  describe("a site taken down while an upload that holds its reservation runs (decision 39)", () => {
+    /** An owner's upload of a 400 x 300 photo, with the site's reservation lost (or its site taken down) as `how` says just before its row is written. */
+    async function uploadLosing(how: "purged" | "taken_down") {
+      const owner = await h.signIn();
+      await h.call("POST", "/__test/lose-upload-reservation", { body: { siteId: owner.siteId, how } });
+      const res = await h.call("POST", `/api/sites/${owner.siteId}/uploads`, { cookie: owner.cookie, body: upload(await png(400, 300), "x.png") });
+      return { owner, res };
+    }
+
+    it("answers 423 site_taken_down when the site was taken down before the photo's row was finished: no object, and the row a counted failure", async () => {
+      const { owner, res } = await uploadLosing("taken_down");
+      expect(res.status).toBe(423);
+      expect((await json<ErrorJson>(res)).error.code).toBe("site_taken_down");
+      expect(await mediaKeys(owner.siteId)).toEqual([]);
+      const rows = await uploadRows(owner.siteId);
+      expect(rows.map(shape)).toEqual([COUNTED_FAILURE]);
+      expect(rows[0]?.reserved_at).toBeNull();
+      expect(await counts(owner.siteId)).toEqual({ total: 1, kept: 0 });
+    });
+
+    it.each([
+      ["the site taken down before the photo's row was finished", "taken_down", 423],
+      ["the reservation purged, then the site taken down", "purged", 500],
+    ] as const)("serves no ghost photo after a restore (%s)", async (_, how, status) => {
+      const { owner, res } = await uploadLosing(how);
+      expect(res.status).toBe(status);
+      if (how === "purged") await takeDown(owner.siteId);
+      await restore(owner.siteId);
+
+      const view = await json<SiteView>(await h.call("GET", `/api/sites/${owner.siteId}`, { cookie: owner.cookie }));
+      expect(view.uploads).toEqual([]);
+      const rows = await uploadRows(owner.siteId);
+      expect(rows.map(shape)).toEqual([COUNTED_FAILURE]);
+      expect(rows[0]?.reserved_at).toBeNull();
+      const ghostId = rows[0]!.id;
+      // No object: the sites Worker's serveMedia reads MEDIA first (Plan 2), so the photo's address answers 404.
+      expect(await media(mediaKey(owner.siteId, ghostId))).toBeNull();
+      // The photo's own address and the size it would have had: only its row being no photo makes it "not one of your uploads".
+      const ghost = { url: mediaUrl(ROOT, owner.siteId, ghostId), alt: "New water heater in a garage", width: 400, height: 300 };
+      const saved = await h.call("PATCH", `/api/sites/${owner.siteId}/draft`, { cookie: owner.cookie, body: { rev: 1, facts: { ...VALID_FACTS, heroPhoto: ghost } } });
+      const issues = (await json<{ issues: SiteView["issues"] }>(saved)).issues.photos;
+      expect(issues.map((issue) => [issue.path.join("."), issue.code, issue.message])).toEqual([["facts.heroPhoto.url", "photo_ref", "Choose a photo you uploaded for this site"]]);
     });
   });
 });
