@@ -48,15 +48,90 @@ describe("readLead", () => {
   });
 
   // A15 minor 5: U+2028 LINE SEPARATOR and U+2029 PARAGRAPH SEPARATOR (Zl, Zp) are neither Cc nor Cf, and
-  // some mail clients break a subject line at them.
-  it("removes line and paragraph separators (U+2028, U+2029) from every field, as it removes control characters", () => {
-    const result = readLead(fields({ name: "Ana\u2028Bell", phone: "512\u20295550199", email: "a\u2028@b.co", service: "Drain\u2029 cleaning", message: "One\u2028two\u2029three\r\nfour" }));
-    expect(result).toEqual({ ok: true, lead: { name: "AnaBell", phone: "5125550199", email: "a@b.co", service: "Drain cleaning", message: "Onetwothree\nfour" } });
+  // some mail clients break a subject line at them. QA-2 QS(2): they are line breaks, so they become one
+  // (a space in a one-line field) instead of gluing the words on each side together.
+  it("turns line and paragraph separators (U+2028, U+2029) into line breaks: a newline in the message, a space elsewhere", () => {
+    const result = readLead(fields({ name: "Ana\u2028Bell", phone: "512\u20295550199", service: "Drain\u2029cleaning", message: "One\u2028two\u2029three\r\nfour" }));
+    expect(result).toEqual({ ok: true, lead: { name: "Ana Bell", phone: "512 5550199", email: null, service: "Drain cleaning", message: "One\ntwo\nthree\nfour" } });
   });
 
-  it("keeps a single-line field on one line", () => {
+  // An address split by a line break is not silently joined into another address: the visitor is asked to check it.
+  it("asks the visitor to check an email address that a line break or tab splits", () => {
+    for (const email of ["a\u2028@b.co", "a\t@b.co", "a\r\n@b.co"]) expect(readLead(fields({ name: "Al", phone: "5125550199", email }))).toEqual({ ok: false, problems: ["email"] });
+  });
+
+  // Header safety: the name goes into the lead email's subject, so no line break of any kind stays in a one-line field.
+  it("keeps a single-line field on one line, with a space where the line broke", () => {
     const result = readLead(fields({ name: "Al\r\nBcc: x@y.example", phone: "5125550199" }));
-    expect(result.ok && result.lead.name).toBe("AlBcc: x@y.example");
+    expect(result.ok && result.lead.name).toBe("Al Bcc: x@y.example");
+    const breaks = readLead(fields({ name: "A\nB\rC\u000BD\fE\u2028F\u2029G\tH", phone: "512\n555\u000B0199", service: "S\r\nT" }));
+    expect(breaks).toEqual({ ok: true, lead: { name: "A B C D E F G H", phone: "512 555 0199", email: null, service: "S T", message: null } });
+  });
+
+  // QA-2 QS(2): a tab, vertical tab or form feed arrives by paste (spreadsheets, emails, some editors);
+  // the words on each side stay apart.
+  it("turns a tab into a space, and a vertical tab or form feed into a newline in the message", () => {
+    const result = readLead(fields({ name: "Pat\tSmith", phone: "5125550123", message: "Kitchen\tsink\tleaking\u000BUpstairs\u2029bath\fAttic" }));
+    expect(result).toEqual({ ok: true, lead: { name: "Pat Smith", phone: "5125550123", email: null, service: null, message: "Kitchen sink leaking\nUpstairs\nbath\nAttic" } });
+  });
+
+  it("counts a vertical tab, form feed or line separator in the message as one character, like a newline", () => {
+    for (const lineBreak of ["\u000B", "\f", "\u2028", "\u2029"]) {
+      const result = readLead(fields({ name: "Al", phone: "5125550199", message: `${"m".repeat(999)}${lineBreak}${"m".repeat(1000)}` }));
+      expect(result.ok && result.lead.message).toBe(`${"m".repeat(999)}\n${"m".repeat(1000)}`);
+    }
+  });
+});
+
+// QA-2 QS(1): a number copied from a web page or a contact card often holds typographic spaces and
+// dashes (a no-break space, a non-breaking hyphen, an en dash). To the eye it is digits, spaces and
+// dashes, which the message says are allowed, so each becomes an ASCII space or "-" before the phone
+// rule is checked, and the lead stores that. The rule itself is unchanged.
+describe("readLead phone: typographic spaces and dashes", () => {
+  // Every Unicode space separator (General_Category Zs), and the dashes the ruling names.
+  const SPACES = [0x0020, 0x00a0, 0x1680, ...Array.from({ length: 11 }, (_, i) => 0x2000 + i), 0x202f, 0x205f, 0x3000];
+  const DASHES = [0x2010, 0x2011, 0x2012, 0x2013, 0x2014, 0x2015, 0x2212, 0xfe58, 0xfe63, 0xff0d];
+  const hex = (code: number) => `U+${code.toString(16).toUpperCase().padStart(4, "0")}`;
+
+  it("lists every space separator the runtime knows (Zs)", () => {
+    const zs = /\p{Zs}/u;
+    const found: number[] = [];
+    for (let code = 0; code < 0x110000; code++) if ((code < 0xd800 || code > 0xdfff) && zs.test(String.fromCodePoint(code))) found.push(code);
+    expect(found.map(hex)).toEqual(SPACES.map(hex));
+  });
+
+  it.each(SPACES.map((code) => [hex(code), code]))("accepts %s between the digits and stores an ASCII space", (_, code) => {
+    const space = String.fromCodePoint(code);
+    expect(readLead(fields({ name: "Al", phone: `(512)${space}555${space}0123` }))).toEqual({
+      ok: true, lead: { name: "Al", phone: "(512) 555 0123", email: null, service: null, message: null },
+    });
+  });
+
+  it.each(DASHES.map((code) => [hex(code), code]))("accepts %s between the digits and stores a hyphen", (_, code) => {
+    const dash = String.fromCodePoint(code);
+    expect(readLead(fields({ name: "Al", phone: `512${dash}555${dash}0123` }))).toEqual({
+      ok: true, lead: { name: "Al", phone: "512-555-0123", email: null, service: null, message: null },
+    });
+  });
+
+  it.each([
+    ["a no-break space and a non-breaking hyphen", "(512)\u00a0555\u20110123", "(512) 555-0123"],
+    ["en dashes", "512\u2013555\u20130123", "512-555-0123"],
+    ["narrow no-break spaces", "+1\u202f512\u202f555\u202f0123", "+1 512 555 0123"],
+    ["a no-break space at each end", "\u00a0512-555-0123\u00a0", "512-555-0123"],
+  ])("accepts the QA's number with %s", (_, phone, stored) => {
+    expect(readLead(fields({ name: "Al", phone }))).toEqual({ ok: true, lead: { name: "Al", phone: stored, email: null, service: null, message: null } });
+  });
+
+  it("still counts only ASCII digits and still refuses other characters", () => {
+    for (const phone of ["\uff15\uff11\uff12\uff15\uff15\uff15\uff10\uff11\uff12\uff13", "512\u2016555\u20160123", "512\u2043555\u20430123", "\u2013\u2013\u2013\u2013\u2013\u2013\u2013"]) {
+      expect(readLead(fields({ name: "Al", phone }))).toEqual({ ok: false, problems: ["phone"] });
+    }
+  });
+
+  it("leaves typographic spaces and dashes in the other fields as they were typed", () => {
+    const result = readLead(fields({ name: "Jean\u2011Luc\u00a0Picard", phone: "5125550123", message: "Leak \u2013 upstairs" }));
+    expect(result).toEqual({ ok: true, lead: { name: "Jean\u2011Luc\u00a0Picard", phone: "5125550123", email: null, service: null, message: "Leak \u2013 upstairs" } });
   });
 });
 

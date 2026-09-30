@@ -21,23 +21,35 @@ export const PROBLEM_TEXT: Record<LeadProblem, string> = {
   message: "Please shorten your message to 2,000 characters or fewer.",
 };
 
-// Control characters, invisible formatting characters (e.g. U+202E, which can make a name read
-// backwards in the owner's inbox), and the line and paragraph separators U+2028 and U+2029 (Zl, Zp),
-// which some mail clients break a subject line at (A15). U+200D stays so emoji in names survive.
-const HIDDEN = /\p{Cc}|(?!\u200D)\p{Cf}|\p{Zl}|\p{Zp}/gu;
-const HIDDEN_EXCEPT_NEWLINE = /(?!\n)\p{Cc}|(?!\u200D)\p{Cf}|\p{Zl}|\p{Zp}/gu;
+// Every form of line break: CRLF and a lone CR (browsers send CRLF), vertical tab, form feed, and the line
+// and paragraph separators U+2028 and U+2029 (Zl, Zp), which some mail clients break a subject line at (A15).
+const LINE_BREAK = /\r\n?|[\v\f\u2028\u2029]/g;
+// Control characters other than "\n", and invisible formatting characters (e.g. U+202E, which can make a
+// name read backwards in the owner's inbox). U+200D stays so emoji in names survive.
+const HIDDEN = /(?!\n)\p{Cc}|(?!\u200D)\p{Cf}/gu;
 const PHONE = /^[0-9+().\- ]{7,30}$/;
 const Email = z.email().max(254);
 
-/** Removes hidden characters and trims. Messages keep line breaks (CRLF from the browser becomes LF). */
+/**
+ * Trims, and removes hidden characters without gluing words together (QA-2 QS(2)): a tab becomes a
+ * space, and a line break a newline in the message or a space in a one-line field, so no line break
+ * ever reaches a one-line field (the name goes into the lead email's subject).
+ */
 function clean(value: string | null, keepNewlines: boolean): string {
-  const text = (value ?? "").replace(/\r\n?/g, "\n");
-  return text.replace(keepNewlines ? HIDDEN_EXCEPT_NEWLINE : HIDDEN, "").trim();
+  const text = (value ?? "").replace(LINE_BREAK, "\n").replaceAll("\t", " ");
+  return (keepNewlines ? text : text.replaceAll("\n", " ")).replace(HIDDEN, "").trim();
 }
+
+// A number pasted from a web page or a contact card often holds typographic spaces and dashes (QA-2
+// QS(1)): every Unicode space separator (Zs, e.g. U+00A0, U+202F), and the hyphens and dashes U+2010-U+2015,
+// U+2212 (minus), U+FE58, U+FE63 and U+FF0D. They become an ASCII space or "-" before the phone rule.
+const TYPOGRAPHIC_SPACE = /\p{Zs}/gu;
+const TYPOGRAPHIC_DASH = /[\u2010-\u2015\u2212\uFE58\uFE63\uFF0D]/g;
+const plainPhone = (phone: string): string => phone.replace(TYPOGRAPHIC_SPACE, " ").replace(TYPOGRAPHIC_DASH, "-");
 
 export function readLead(fields: URLSearchParams): { ok: true; lead: Lead } | { ok: false; problems: LeadProblem[] } {
   const name = clean(fields.get("name"), false);
-  const phone = clean(fields.get("phone"), false);
+  const phone = plainPhone(clean(fields.get("phone"), false));
   const email = clean(fields.get("email"), false);
   const service = clean(fields.get("service"), false);
   const message = clean(fields.get("message"), true);
