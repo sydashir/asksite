@@ -1,5 +1,8 @@
+import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import { parseSeedOptions, toolsConfig } from "../dev/seed.ts";
+import { localStatePath, parseSeedOptions, toolsConfig } from "../dev/seed.ts";
+
+const REPO = resolve(import.meta.dirname, "../../..");
 
 describe("pnpm dev:seed options", () => {
   it("defaults to the local demo site", () => {
@@ -21,6 +24,20 @@ describe("pnpm dev:seed options", () => {
     expect(() => parseSeedOptions(["--fast"])).toThrow("Unknown option --fast");
     expect(() => parseSeedOptions(["--slug"])).toThrow("--slug needs a value");
     expect(() => parseSeedOptions(["--fixture", "../etc"])).toThrow("Unknown fixture ../etc");
+  });
+});
+
+// QA-2 QS(4): `pnpm dev --persist-to <dir>` hands the folder to wrangler unchanged, so the seed must reach
+// the same state for a relative folder (from the repo) and for an absolute one (as given).
+describe("the local state the seed writes", () => {
+  it("is <persist-to>/v3, a relative folder read from the repo", () => {
+    expect(localStatePath(".wrangler/state")).toBe(resolve(REPO, ".wrangler/state/v3"));
+    expect(localStatePath(".wrangler/e2e-state")).toBe(resolve(REPO, ".wrangler/e2e-state/v3"));
+  });
+
+  it("is <persist-to>/v3 for an absolute folder, never a folder inside the repo", () => {
+    expect(localStatePath("/private/tmp/asksite-state")).toBe("/private/tmp/asksite-state/v3");
+    expect(localStatePath("/private/tmp/asksite-state/").startsWith(REPO)).toBe(false);
   });
 });
 

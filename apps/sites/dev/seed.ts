@@ -45,6 +45,13 @@ export interface SeedOptions {
   remote: boolean; // the production D1 and R2 instead of the local state
 }
 
+/**
+ * The folder under --persist-to that holds wrangler's local D1 and R2 state: a relative --persist-to is read
+ * from the repo (the migration step runs wrangler there), an absolute one is used as given, as `pnpm dev
+ * --persist-to` does (QA-2 QS(4)).
+ */
+export const localStatePath = (persistTo: string): string => resolve(REPO, persistTo, "v3");
+
 export function parseSeedOptions(argv: readonly string[]): SeedOptions {
   const options: SeedOptions = {
     slug: "demo", fixture: "plumber-austin", persistTo: ".wrangler/state", root: "localhost:8789",
@@ -148,7 +155,7 @@ async function main(): Promise<void> {
   const { getPlatformProxy } = await import("wrangler");
   const proxy = await getPlatformProxy<ToolsEnv>({
     configPath: TOOLS_CONFIG,
-    ...(options.remote ? {} : { persist: { path: join(REPO, options.persistTo, "v3") } }),
+    ...(options.remote ? {} : { persist: { path: localStatePath(options.persistTo) } }),
   });
   try {
     const ownerEmail = options.ownerEmail ?? `${options.slug}-owner@example.com`;
