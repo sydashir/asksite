@@ -9,6 +9,8 @@ const remote = useAppHarness({ vars: { ENVIRONMENT: "development", APP_ORIGIN: R
 const localhost = useAppHarness({ vars: { ENVIRONMENT: "development", APP_ORIGIN: "https://localhost:8787" } });
 const loopback4 = useAppHarness({ vars: { ENVIRONMENT: "development", APP_ORIGIN: "https://127.0.0.1:8787" } });
 const loopback6 = useAppHarness({ vars: { ENVIRONMENT: "development", APP_ORIGIN: "https://[::1]:8787" } });
+const evilSuffix = useAppHarness({ vars: { ENVIRONMENT: "development", APP_ORIGIN: "https://evillocalhost" } });
+const evilInfix = useAppHarness({ vars: { ENVIRONMENT: "development", APP_ORIGIN: "https://app.localhost.evil.com" } });
 
 function login(harness: typeof remote, origin: string, requestBase: string): Promise<Response> {
   return harness.server.fetch(`${requestBase}/api/auth/login`, {
@@ -34,5 +36,16 @@ describe("Turnstile dummy secret in development", () => {
   ])("passes when the configured host is %s", async (_name, harness, origin) => {
     const res = await login(harness, origin, origin);
     expect(res.status).toBe(202);
+  });
+
+  it.each([
+    ["evillocalhost", evilSuffix, "https://evillocalhost"],
+    ["app.localhost.evil.com", evilInfix, "https://app.localhost.evil.com"],
+  ])("is refused when the configured host only contains localhost: %s", async (_name, harness, origin) => {
+    harness.server.clearLogs();
+    const res = await login(harness, origin, origin);
+    expect(res.status).toBe(403);
+    const lines = harness.logLines().filter((line) => line["route"] === "POST /api/auth/login").map((line) => line["turnstile"]);
+    expect(lines).toEqual(["testing_key"]);
   });
 });
