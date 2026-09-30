@@ -219,6 +219,67 @@ describe("refusals (P3-17 D2, D5 c)", () => {
     expect(usage).toContain("never the short -s, which pnpm 11 (from 11.14.0) reads as --sequential in pnpm run");
     expect(usage).not.toMatch(/pnpm eval:generation|pnpm -s /);
   });
+
+  it("documents the exit codes, in the order that decides between them (iii)", async () => {
+    const h = harness();
+    expect(await main(["--help"], h.deps)).toBe(2);
+    expect(h.err[0]).toContain("Exit codes, the first that applies: 2 refused flags; 3 a live request cost more than its worst case; 1 --caps-probe could not measure every model, or an exception ended the run; 0 otherwise.");
+  });
+});
+
+describe("the overrun exit code, 3, in every live mode (iii)", () => {
+  /** A caps-probe answer, cut short as the probe asks, with the usage `usageOf` gives for the model. */
+  const capsAnswer =
+    (usageOf: (modelId: string) => ModelResponse["usage"]): Answer =>
+    async (env) => ({ json: undefined, model: "fake", usage: usageOf(env.MODEL_ID), stop: "max_tokens" });
+
+  it("--caps-probe: exits 3 after an overrun from input tokens over the bound", async () => {
+    const h = harness({ answer: capsAnswer(() => ({ inputTokens: 70_010, outputTokens: 256 })) });
+    expect(await main(["--caps-probe", "--live", "--max-usd", "1", "--only", GEMMA], h.deps)).toBe(3);
+    expect(h.out).toContain(`${GEMMA}: 70010 input tokens for the caps prompt (bound 70000) OVER THE BOUND`);
+    expect(h.out).toContain(`${GEMMA}: it cost $0.007078, more than its worst case of $0.007077 (70010 input and 256 output tokens); nothing more goes to this model, and the other models go on.`);
+  });
+
+  it("--caps-probe: exits 3 after an overrun from output tokens alone, the input within the bound", async () => {
+    // 51,234 x 0.1 + 10,000 x 0.3 = 8,123.4, so 8,124 against gemma's caps worst case of 7,077.
+    const h = harness({ answer: capsAnswer(() => ({ inputTokens: 51_234, outputTokens: 10_000 })) });
+    expect(await main(["--caps-probe", "--live", "--max-usd", "1", "--only", GEMMA], h.deps)).toBe(3);
+    expect(h.out).toContain(`${GEMMA}: 51234 input tokens for the caps prompt (bound 70000) OK`);
+    expect(h.out).toContain(`${GEMMA}: it cost $0.008124, more than its worst case of $0.007077 (51234 input and 10000 output tokens); nothing more goes to this model, and the other models go on.`);
+  });
+
+  it("--caps-probe: exits 0 without an overrun", async () => {
+    const h = harness({ answer: capsAnswer(() => ({ inputTokens: 51_234, outputTokens: 256 })) });
+    expect(await main(["--caps-probe", "--live", "--max-usd", "1", "--only", `${GEMMA},${GROQ}`], h.deps)).toBe(0);
+    expect(h.out.filter((line) => line.endsWith("(bound 70000) OK"))).toHaveLength(2);
+    expect(h.out.join("\n")).not.toContain("more than its worst case");
+  });
+
+  it("--caps-probe: exits 3, not 1, when one model overruns and another could not be measured (money first)", async () => {
+    // groq: 51,234 x 0.15 + 10,000 x 0.6 = 13,685.1, so 13,686 against its caps worst case of 10,654.
+    const h = harness({
+      answer: async (env) => {
+        if (env.MODEL_ID === byLabel(GEMMA).modelId) throw new ProviderError("unavailable", "down");
+        return capsAnswer(() => ({ inputTokens: 51_234, outputTokens: 10_000 }))(env, CAPS_SNAPSHOT, undefined);
+      },
+    });
+    expect(await main(["--caps-probe", "--live", "--max-usd", "1", "--only", `${GEMMA},${GROQ}`], h.deps)).toBe(3);
+    expect(h.out).toContain(`${GEMMA}: unavailable, not measured`);
+    expect(h.out).toContain(`${GROQ}: it cost $0.013686, more than its worst case of $0.010654 (51234 input and 10000 output tokens); nothing more goes to this model, and the other models go on.`);
+  });
+
+  it("exits 3 when an exception ends a run after an overrun (money first), and names the error's kind only", async () => {
+    const h = harness({ answer: capsAnswer((modelId) => ({ inputTokens: modelId === byLabel(GEMMA).modelId ? 70_010 : 51_234, outputTokens: 256 })) });
+    const print = h.deps.print;
+    h.deps.print = (line) => {
+      if (line.startsWith(`${GROQ}: 51234 input tokens`)) throw new Error("marker-print-failed");
+      print(line);
+    };
+    expect(await main(["--caps-probe", "--live", "--max-usd", "1", "--only", `${GEMMA},${GROQ}`], h.deps)).toBe(3);
+    expect(h.requests).toEqual(modelIds([GEMMA, GROQ]));
+    expect(h.err).toEqual(["The run ended early on an error (error) after a request that cost more than its worst case."]);
+    expect(h.text()).not.toContain("marker-print-failed");
+  });
 });
 
 describe("a live caps probe (P3-17 D3)", () => {
@@ -256,7 +317,7 @@ describe("a live caps probe (P3-17 D3)", () => {
         return { json: undefined, model: "fake", usage: { inputTokens: 70_001, outputTokens: 256 }, stop: "max_tokens" };
       },
     });
-    expect(await main(["--caps-probe", "--live", "--max-usd", "1"], h.deps)).toBe(1);
+    expect(await main(["--caps-probe", "--live", "--max-usd", "1"], h.deps)).toBe(3);
     expect(h.out).toContain(`${GEMMA}: unavailable, not measured`);
     expect(h.out).toContain(`${GROQ}: the answer had no usage, not measured`);
     expect(h.out).toContain(`${OPUS}: 70001 input tokens for the caps prompt (bound 70000) OVER THE BOUND`);
@@ -272,7 +333,7 @@ describe("a live caps probe (P3-17 D3)", () => {
       candidates: [byLabel(GEMMA), byLabel(GROQ), byLabel(OPUS)],
       answer: async (env) => ({ json: undefined, model: "fake", usage: { inputTokens: env.MODEL_ID === byLabel(GEMMA).modelId ? 70_010 : 51_234, outputTokens: 256 }, stop: "max_tokens" }),
     });
-    expect(await main(["--caps-probe", "--live", "--max-usd", "5"], h.deps)).toBe(1);
+    expect(await main(["--caps-probe", "--live", "--max-usd", "5"], h.deps)).toBe(3);
     expect(h.requests).toEqual(modelIds([GEMMA, GROQ, OPUS]));
     // gemma: 70,010 x 0.1 + 256 x 0.3 = 7,077.8, so 7,078 against its worst case of 7,077 (70,000 input tokens).
     expect(h.out).toContain(`${GEMMA}: 70010 input tokens for the caps prompt (bound 70000) OVER THE BOUND`);
@@ -289,7 +350,7 @@ describe("a live caps probe (P3-17 D3)", () => {
       candidates: [byLabel(OSS), byLabel(HF), byLabel(GROQ), byLabel(GEMMA)],
       answer: async (env) => ({ json: undefined, model: "fake", usage: { inputTokens: env.MODEL_ID === byLabel(HF).modelId ? 120_000 : 51_234, outputTokens: 256 }, stop: "max_tokens" }),
     });
-    expect(await main(["--caps-probe", "--live", "--max-usd", "0.03"], h.deps)).toBe(1);
+    expect(await main(["--caps-probe", "--live", "--max-usd", "0.03"], h.deps)).toBe(3);
     // gemma 5,201 + groq 7,839 = 13,040, and hf's worst case of 10,692 still fits under 30,000. hf then costs
     // 120,000 x 0.15 + 256 x 0.75 = 18,192, an overrun of 7,500: the spend of 31,232 passes the cap by 1,232, less than
     // that overrun, and workers-ai gpt-oss (worst case 24,692) is refused.
@@ -373,7 +434,7 @@ describe("a live evaluation (P3-17 D3, D4)", () => {
   it("still stops everything after a site that cost more than its worst case (fix round #1)", async () => {
     // gemma's site worst case is 3 x (70,000 x 0.1 + 8,192 x 0.3) = 28,373; this site costs 300,000 x 0.1 + 1,000 x 0.3 = 30,300.
     const h = harness({ answer: async (env, snapshot, fetchImpl) => ({ ...(await validDraft(env, snapshot, fetchImpl)), usage: { inputTokens: 300_000, outputTokens: 1_000 } }) });
-    expect(await main(["--live", "--max-usd", "5", "--runs", "1", "--only", `${GEMMA},${GROQ}`], h.deps)).toBe(0);
+    expect(await main(["--live", "--max-usd", "5", "--runs", "1", "--only", `${GEMMA},${GROQ}`], h.deps)).toBe(3);
     expect(h.requests).toEqual(modelIds([GEMMA]));
     const [stamp] = readdirSync(join(h.dir, "results"));
     const report = readFileSync(join(h.dir, "results", stamp!, "report.md"), "utf8");
@@ -473,7 +534,7 @@ describe("a live --record (P3-17 D3)", () => {
       return { ...(await validDraft(env, snapshot, fetchImpl)), usage };
     };
     const h = harness({ answer: recorded, fetch: http.fetch });
-    expect(await main(["--record", "--live", "--max-usd", "1", "--only", `${GROQ},${GEMMA}`], h.deps)).toBe(0);
+    expect(await main(["--record", "--live", "--max-usd", "1", "--only", `${GROQ},${GEMMA}`], h.deps)).toBe(3);
     expect(h.requests).toEqual(modelIds([GEMMA, GROQ]));
     expect(readdirSync(join(h.dir, "fixtures")).sort()).toEqual(["groq__gpt-oss-120b.json", "workers-ai__gemma-4-26b-a4b-it.json"]);
     expect(h.out).toContain(`${GEMMA}: it cost $0.009459, more than its worst case of $0.009458 (70010 input and 8192 output tokens); nothing more goes to this model, and the other models go on.`);

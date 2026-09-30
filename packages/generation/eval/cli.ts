@@ -76,6 +76,7 @@ const USAGE = [
   "Usage: pnpm --silent eval:generation [--live --max-usd <US$>] [--runs 1-10] [--only label,label] [--caps-probe | --record]",
   "Type the long --silent before eval:generation, so pnpm does not print the arguments back; never the short -s, which pnpm 11 (from 11.14.0) reads as --sequential in pnpm run.",
   "A dry run unless both --live and --max-usd are given. A live run sends each site of the evaluation, or each request of --caps-probe and --record, only while the spend so far plus its worst case fits under --max-usd; the total can exceed --max-usd by at most one request's overrun above its worst case.",
+  "Exit codes, the first that applies: 2 refused flags; 3 a live request cost more than its worst case; 1 --caps-probe could not measure every model, or an exception ended the run; 0 otherwise.",
   "Keys: never put a key in arguments; keys come only from the environment (the shell's variables, or the gitignored .env at the repo root; a variable set in the shell wins over the .env).",
 ].join("\n");
 
@@ -155,15 +156,24 @@ const NO_PRICE = "no recorded price: cannot be run live";
 const SDK_VARIABLES = ["ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_LOG", "ANTHROPIC_CUSTOM_HEADERS"] as const;
 
 /**
- * Runs the command; returns its exit code: 0, 1 when --caps-probe could not measure every model, 2 for refused flags.
- * An exception that ends a live evaluation early is passed on once what completed is written (main.ts then exits 1).
+ * The exit codes (USAGE, main()). When more than one applies, the first in this order wins: money first, so an overrun
+ * never looks like a gap in the measurement, nor like success (moderator decision on (iii)).
+ */
+const EXIT = { refused: 2, overrun: 3, notMeasured: 1, ok: 0 } as const;
+
+/**
+ * Runs the command and returns its exit code. When more than one applies, the first in this order wins: 2 refused
+ * flags; 3 a live request cost more than its worst case (in any mode); 1 --caps-probe could not measure every model,
+ * or an exception ended the run; 0 otherwise. An exception that ends a live run is passed on once what completed is
+ * written (main.ts then exits 1), unless a request had already cost more than its worst case: then its kind is
+ * printed and the code is 3.
  */
 export async function main(argv: readonly string[], deps: CliDeps = REAL): Promise<number> {
   for (const name of SDK_VARIABLES) delete process.env[name];
   const flags = parseFlags(argv, deps.candidates.map((candidate) => candidate.label));
   if (typeof flags === "string") {
     deps.warn(flags);
-    return 2;
+    return EXIT.refused;
   }
   const { only } = flags;
   const rows: Row[] = deps.candidates
@@ -171,7 +181,7 @@ export async function main(argv: readonly string[], deps: CliDeps = REAL): Promi
     .map((candidate) => ({ candidate, env: providerEnvFor(candidate, deps.env), worstMicrousd: worstCaseOf(flags.mode, candidate) }));
   if (!flags.live || flags.maxUsdMicrousd === null) {
     dryRun(flags, rows, deps);
-    return 0;
+    return EXIT.ok;
   }
   return live(flags, flags.maxUsdMicrousd, rows, deps);
 }
@@ -201,7 +211,7 @@ function dryRun(flags: Flags, rows: readonly Row[], deps: CliDeps): void {
 async function live(flags: Flags, capMicrousd: number, rows: readonly Row[], deps: CliDeps): Promise<number> {
   if (rows.every((row) => row.env === null)) {
     deps.print(NO_KEYS);
-    return 0;
+    return EXIT.ok;
   }
   const plan: LiveRow[] = [];
   let unpriced = 0;
@@ -219,19 +229,26 @@ async function live(flags: Flags, capMicrousd: number, rows: readonly Row[], dep
   // request per model, report the overrun and go on with the other models (moderator decision, fix round #1).
   const budget = new Budget(capMicrousd, { stopAfterOverrun: flags.mode === "evaluation" });
   deps.print(`Live ${flags.mode}: budget ${formatUsd(capMicrousd)}; models, cheapest worst case first: ${plan.map((row) => row.candidate.label).join(", ") || "none"}.`);
-  if (flags.mode === "evaluation") {
-    await evaluate(flags.runs, plan, budget, deps);
-    return 0;
+  let measured = true;
+  try {
+    if (flags.mode === "evaluation") await evaluate(flags.runs, plan, budget, deps);
+    else if (flags.mode === "record") {
+      await record(plan, budget, deps);
+      printSpend(budget, deps);
+    } else {
+      measured = (await probeCaps(plan, budget, deps)) && unpriced === 0;
+      printSpend(budget, deps);
+    }
+  } catch (error) {
+    if (!overran(budget)) throw error;
+    deps.warn(`The run ended early on an error (${kindOf(error)}) after a request that cost more than its worst case.`);
   }
-  if (flags.mode === "record") {
-    await record(plan, budget, deps);
-    printSpend(budget, deps);
-    return 0;
-  }
-  const measured = await probeCaps(plan, budget, deps);
-  printSpend(budget, deps);
-  return measured && unpriced === 0 ? 0 : 1;
+  if (overran(budget)) return EXIT.overrun;
+  return measured ? EXIT.ok : EXIT.notMeasured;
 }
+
+/** Whether a request of this run cost more than its worst case. */
+const overran = (budget: Budget): boolean => budget.overruns.length > 0;
 
 function printSpend(budget: Budget, deps: CliDeps): void {
   deps.print(`Spent: ${formatUsd(budget.spentMicrousd)} counted against the ${formatUsd(budget.capMicrousd)} budget.`);
