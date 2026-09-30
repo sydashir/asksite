@@ -12,6 +12,7 @@ type Config = {
   triggers?: { crons?: string[] };
   compatibility_date?: string;
   compatibility_flags?: string[];
+  env?: Record<string, { vars?: Record<string, string> }>;
 };
 
 const APPS = new URL("../../", import.meta.url);
@@ -66,6 +67,14 @@ describe("apps/generator/wrangler.jsonc (production)", () => {
     expect(["true", "false"]).toContain(config.vars?.GENERATION_ENABLED);
   });
 
+  it("names a model provider and a model id in the vars of every environment", () => {
+    // Without MODEL_PROVIDER the job would write undefined into `provider`, which D1 refuses, and leave the row to the
+    // sweeper (Task 9). Wrangler does not inherit vars into a named environment, so each one needs its own.
+    const environments = [["top level", config.vars] as const, ...Object.entries(config.env ?? {}).map(([name, env]) => [name, env.vars] as const)];
+    for (const [name, vars] of environments)
+      for (const key of ["MODEL_PROVIDER", "MODEL_ID"]) expect([name, key, typeof vars?.[key] === "string" && vars[key] !== ""]).toEqual([name, key, true]);
+  });
+
   it("consumes the generation queue one message at a time, retries twice, then dead-letters", () => {
     expect(config.queues).toEqual({ consumers: [{ queue: "asksite-generation", max_batch_size: 1, max_retries: 2, dead_letter_queue: "asksite-generation-dlq" }] });
     expect(config.triggers).toEqual({ crons: ["*/5 * * * *"] });
@@ -111,6 +120,7 @@ describe("apps/generator/.dev.vars.example", () => {
 
   it("runs the fake model locally", () => {
     expect(example).toMatch(/^MODEL_PROVIDER=fake$/m);
+    expect(example).toMatch(/^MODEL_ID=.+$/m);
     expect(example).toMatch(/^ENVIRONMENT=development$/m);
   });
 });
