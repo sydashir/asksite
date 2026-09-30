@@ -340,13 +340,15 @@
     width: 1.5rem;
     height: 1.5rem;
   }
+  /* It reaches the bottom of the screen whatever the header's height (a long name wraps it to more lines): the
+     header is its containing block, so 100% is the header's own height. */
   .menu-panel {
     position: absolute;
     left: 0;
     right: 0;
     top: 100%;
-    height: calc(100vh - 3.8125rem);
-    height: calc(100svh - 3.8125rem);
+    height: calc(100vh - 100%);
+    height: calc(100svh - 100%);
     overflow-y: auto;
     overscroll-behavior: contain;
     flex-direction: column;
@@ -379,7 +381,7 @@
   }
   .menu-acts {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(min-content, 34%);
+    grid-template-columns: minmax(min-content, 1fr) minmax(0, max-content);
     gap: 0.5rem;
     margin-top: auto;
     padding-top: 1.5rem;
@@ -434,7 +436,7 @@
       max-width: 40rem;
     }
     .menu-acts {
-      grid-template-columns: minmax(0, 1fr) minmax(min-content, 12rem);
+      grid-template-columns: minmax(min-content, 1fr) minmax(0, 12rem);
     }
   }
   .header-cta {
@@ -448,10 +450,6 @@
     .header-row {
       min-height: 4.5rem;
       gap: 1.25rem;
-    }
-    .menu-panel {
-      height: calc(100vh - 4.5625rem);
-      height: calc(100svh - 4.5625rem);
     }
     .brand--long {
       max-width: 17rem;
@@ -540,8 +538,11 @@
     align-items: flex-start;
     padding: 1.25rem 1rem 1.75rem;
   }
-  /* Capped at the column, so a long unbroken word in the headline breaks inside it instead of running out. */
-  .hero-copy > .h1 {
+  /* Capped at the column, so a long unbroken word (a town, the headline, a licence number) breaks inside it
+     instead of running out: a flex item is otherwise as wide as its longest word. */
+  .hero-copy > .hero-kicker,
+  .hero-copy > .h1,
+  .hero-copy > .proof {
     max-width: 100%;
   }
   .hero-kicker {
@@ -620,6 +621,12 @@
     gap: 0.4375rem;
     min-width: 0;
   }
+  /* The first licence and the count of the others take a line each, so the line under them always reads
+     "Insured  Since 1998" whole: a credential never sits alone on the last line at any width. */
+  .proof-lic,
+  .proof-more-li {
+    flex-basis: 100%;
+  }
   .proof .ic {
     width: 1.125rem;
     height: 1.125rem;
@@ -647,11 +654,9 @@
     text-decoration: underline;
     text-decoration-color: var(--fg-m);
   }
-  .proof-more-li:has(details[open]) {
-    flex-basis: 100%;
-  }
   .proof-more ul {
     display: grid;
+    grid-template-columns: minmax(0, 1fr);
     gap: 0.25rem;
     margin-top: 0.375rem;
     font-weight: 500;
@@ -745,7 +750,7 @@
     }
     .hero--photo .proof-list {
       display: grid;
-      grid-template-columns: auto auto;
+      grid-template-columns: minmax(0, max-content) minmax(0, max-content);
       justify-content: start;
       gap: 0.875rem 1.5rem;
     }
@@ -897,6 +902,7 @@
   .biz {
     container-type: inline-size;
     display: grid;
+    grid-template-columns: minmax(0, 1fr);
     padding: 0.25rem 1.375rem;
     border-radius: 0.75rem;
     box-shadow: 0 1rem 2rem -1.25rem rgba(0, 0, 0, 0.6);
@@ -930,7 +936,7 @@
   }
   .biz-hours {
     display: grid;
-    grid-template-columns: auto 1fr;
+    grid-template-columns: minmax(0, max-content) minmax(0, 1fr);
     gap: 0.375rem 1.25rem;
     margin-top: 0.75rem;
     font-size: 1.0625rem;
@@ -1280,7 +1286,7 @@
   }
   @media (min-width: 40rem) {
     .svc {
-      grid-template-columns: minmax(0, 1fr) auto;
+      grid-template-columns: minmax(0, 1fr) minmax(0, max-content);
       grid-template-areas: "name price" "desc price";
       column-gap: 2rem;
     }
@@ -1308,6 +1314,7 @@
   }
   .cta-actions {
     display: grid;
+    grid-template-columns: minmax(0, 1fr);
     gap: 0.625rem;
     margin-top: 1.5rem;
   }
@@ -1400,6 +1407,7 @@
   }
   .rev-grid {
     display: grid;
+    grid-template-columns: minmax(0, 1fr);
     gap: 1.75rem;
     margin-top: 2.75rem;
   }
@@ -1571,6 +1579,7 @@
      left by its measured side bearing in the display face, so its ink starts on the heading edge. */
   .about {
     display: grid;
+    grid-template-columns: minmax(0, 1fr);
     gap: 2rem;
   }
   .about .sec-head {
@@ -1637,6 +1646,7 @@
   /* Service area and hours: one white panel. In a narrow column each day sits above its time. */
   .area {
     display: grid;
+    grid-template-columns: minmax(0, 1fr);
     border: 1px solid var(--fg-l);
     border-radius: 0.75rem;
   }
@@ -1937,6 +1947,7 @@
   }
   .fields {
     display: grid;
+    grid-template-columns: minmax(0, 1fr);
     gap: 1.25rem;
   }
   .field label {
@@ -2036,6 +2047,7 @@
   }
   .foot-grid {
     display: grid;
+    grid-template-columns: minmax(0, 1fr);
     gap: 2rem;
     padding-block: 3rem;
   }
@@ -2081,7 +2093,7 @@
   }
   @media (min-width: 48rem) {
     .foot-grid {
-      grid-template-columns: 1.4fr 1fr 1fr;
+      grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 1fr);
       gap: 2.5rem;
       padding-block: 4rem;
     }
@@ -2089,12 +2101,14 @@
 
   /* The phone call bar (below 64rem): Call in the action colour, then the call to action. It sticks (the
      sticky utility) with a hairline and a tight shadow, and stops sticking while keyboard focus is elsewhere
-     (focus-outside:static). It stacks below the form's Send button (styles/shared.css). */
+     (focus-outside:static). It stacks below the form's Send button (styles/shared.css). Call keeps the width of
+     its number; the short label takes its one-line width from the rest (rules.ts shortCta picks a label that
+     fits beside the widest number at 320 px), so neither ever wraps. */
   .callbar {
     bottom: 0;
     z-index: 10;
     display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(min-content, 34%);
+    grid-template-columns: minmax(min-content, 1fr) minmax(0, max-content);
     gap: 0.5rem;
     padding: 0.625rem 1rem calc(0.625rem + env(safe-area-inset-bottom));
     background: var(--aw-impact-ink);
@@ -2132,7 +2146,7 @@
   }
   @media (min-width: 48rem) {
     .callbar {
-      grid-template-columns: minmax(0, 21rem) minmax(min-content, 12rem);
+      grid-template-columns: minmax(0, 21rem) minmax(0, 12rem);
       justify-content: center;
       padding-inline: 1.5rem;
     }

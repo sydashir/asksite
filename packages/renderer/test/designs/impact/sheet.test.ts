@@ -34,6 +34,8 @@ describe("the impact sheet's one embedded font (sheet-rules.ts)", () => {
     ["a second @font-face", good + face(WOFF2) + face(WOFF2), ["url(", "@font-face"]],
     ["a font fetched over https", good + face('url(https://fonts.example.com/a.woff2)format("woff2")'), ["url(", "@font-face"]],
     ["a data: font of another type", good + face('url(data:font/ttf;base64,AAAA)format("truetype")'), ["url(", "@font-face"]],
+    ["a data: font of another type labelled woff2", good + face('url(data:font/ttf;base64,AAAA)format("woff2")'), ["url(", "@font-face"]],
+    ["a data: URI that is not a font", good + face('url(data:text/css;base64,AAAA)format("woff2")'), ["url(", "@font-face"]],
     ["a data: woff2 with a second source", good + face(`${WOFF2},url(https://x.example/a.woff2)`), ["url(", "@font-face"]],
     ["another font family", good + face(WOFF2, "Anton"), ["url(", "@font-face"]],
     ["any other url()", good + face(WOFF2) + ".a{background:url(x.png)}", ["url("]],

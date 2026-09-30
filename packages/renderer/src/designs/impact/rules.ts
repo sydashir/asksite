@@ -64,10 +64,21 @@ const SHORT_CTA: ReadonlyArray<readonly [string, string]> = [
   ["visit", "Book"],
 ];
 
-/** The call bar's second label: the owner's own words when they fit (8 characters or fewer), else a short verb found in them. */
+// The call bar's (and the phone menu's) second button at its narrowest, 320 px (impact.css, below 22.5rem): the
+// bar is 296 px inside, the gap 8 px, and Call keeps the width of the widest number the formatter makes,
+// "(000) 000-0000": icon 18 + gap 6 + padding 16 + border 4 + the number, 127 px by capsWidth at 17 px. That
+// leaves 96 px inside the label's own padding and border (20 px), at 17 px. Every wider window leaves more.
+const CALLBAR_LABEL = { width: 96, size: 17 } as const;
+
+const fitsCallBar = (label: string) => capsWidth(label, CALLBAR_LABEL.size) * FIT_MARGIN <= CALLBAR_LABEL.width;
+
+/**
+ * The call bar's second label, always on one line beside Call: the owner's own words when they are short (8
+ * characters or fewer) and fit in capitals, else a short verb found in them ("Get quote", "Estimate", ...).
+ */
 export function shortCta(cta: string): string {
   const label = cta.trim();
-  if (length(label) <= 8) return label;
+  if (length(label) <= 8 && fitsCallBar(label)) return label;
   const lower = label.toLowerCase();
   return SHORT_CTA.find(([word]) => lower.includes(word))?.[1] ?? "Request";
 }

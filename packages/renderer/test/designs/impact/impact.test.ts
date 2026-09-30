@@ -61,6 +61,22 @@ describe("Bold page rules", () => {
     expect(contactHeading("Hello")).toBe("Send us a request");
   });
 
+  // At 320 px the call bar's label has 96 px inside its padding at 17 px, beside Call with the widest number
+  // "(000) 000-0000" (rules.ts CALLBAR_LABEL): every label the bar can show must fit there on one line.
+  it("gives the call bar a label that fits one line beside Call at 320 px, the owner's own when it fits", () => {
+    const fits = (label: string) => capsWidth(label, 17) * 1.03 <= 96;
+    for (const label of ["Get quote", "Estimate", "Schedule", "Book", "Request", "Book now", "Call now"]) {
+      expect(shortCta(label)).toBe(label);
+      expect(fits(label)).toBe(true);
+    }
+    // Eight characters too wide in capitals: a verb found in the words, else "Request".
+    expect(fits("WWWWWWWW")).toBe(false);
+    expect(shortCta("WWWWWWWW")).toBe("Request");
+    expect(shortCta("QuoteWWW")).toBe("Get quote");
+    const every = ["Get a free quote", "Schedule a free estimate", "Book a visit", "Book an appointment", "Call us today", "WWWWWWWW", "MMMMMMM"];
+    for (const cta of every) expect(fits(shortCta(cta)), cta).toBe(true);
+  });
+
   it("groups the week's hours, with no break inside a time or a day range", () => {
     expect(groupedHours(plumber.facts.hours ?? [])).toEqual([
       { label: `Monday${NBSP}–${NBSP}Friday`, value: `7:30${NBSP}AM${NBSP}– 6:00${NBSP}PM` },
@@ -181,6 +197,17 @@ describe("the Bold page", () => {
     expect([...order].sort((a, b) => a - b)).toEqual(order);
   });
 
+  it("shows 24/7 service as the hero's credential only when the owner offers it and gave no other credential", () => {
+    // cleaning-minimal: no licence, not insured, no founding year; the credentials follow the hero.
+    const minimal = fixture("cleaning-minimal");
+    const hero = (page: string) => page.slice(page.indexOf('<section id="top"'), page.indexOf('<section id="services"'));
+    const with247 = hero(bold({ ...minimal, facts: { ...minimal.facts, emergency247: true } }));
+    expect(with247).toMatch(/<section id="credentials" class="proof" aria-label="Credentials"><ul class="proof-list"><li><svg[^]*?<\/svg><span>24\/7 emergency service<\/span><\/li><\/ul><\/section>/);
+    expect(with247).not.toContain('class="chip"');
+    const without = hero(bold(minimal));
+    expect(without).not.toContain("proof");
+    expect(without).not.toContain("24/7");
+  });
 });
 
 describe("the Bold sheet carries the round-4 must-fixes", () => {
@@ -215,5 +242,24 @@ describe("the Bold sheet carries the round-4 must-fixes", () => {
 
   it("frames the photo at laptop widths, so a wide photo keeps its subject", () => {
     expect(rule(".hero--photo .hero-media", "@media (min-width:64rem) and (max-width:79.99rem)")).toContain("aspect-ratio:4/3");
+  });
+
+  // Round 1 of the build (review, attack and judges).
+  it("keeps long owner words inside the hero's text column", () => {
+    expect(css).toContain(".hero-copy>.hero-kicker,.hero-copy>.h1,.hero-copy>.proof{max-width:100%}");
+  });
+
+  it("gives the first licence (and the count of the others) a line each, so Insured and Since stay together", () => {
+    expect(css).toContain(".proof-lic,.proof-more-li{flex-basis:100%}");
+  });
+
+  it("keeps Call at its number's width and gives the short label its one-line width in the call bar and menu", () => {
+    expect(rule(".callbar")).toContain("grid-template-columns:minmax(min-content,1fr) minmax(0,max-content)");
+    expect(rule(".menu-acts")).toContain("grid-template-columns:minmax(min-content,1fr) minmax(0,max-content)");
+  });
+
+  it("sizes the phone menu from the header's own height, so it always reaches the bottom of the screen", () => {
+    expect(rule(".menu-panel")).toContain("height:calc(100svh - 100%)");
+    expect(css).not.toContain("3.8125rem");
   });
 });
