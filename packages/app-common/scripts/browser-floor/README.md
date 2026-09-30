@@ -37,8 +37,8 @@ export name):
 | Bare identifier: call, reference | baseline.ts `idle`; forms.ts `idleReference` |
 | `window.X`, `globalThis.X`, `self.X` | forms.ts `viaWindow`, `viaGlobalThis`, `viaSelf`, `viaSelfStatic`, `newViaGlobalThis`; aliases.ts `viaWindow`, `viaGlobalThis` |
 | Member by dot, `?.`, string-literal bracket (also `?.[...]` on a receiver that may be null or undefined) | baseline.ts; aliases.ts `viaOptionalCall`, `viaBracket`, `viaConstKey`; forms.ts `viaOptionalBracket`, `viaInstanceBracket`, `viaNullableBracket`, `viaRefBracket`, `viaNullableUnionBracket`, `viaNullableConstraintBracket` |
-| `new X()`, also `new (X)()` (the constructor's own MDN entry too) | statics.ts `interfaceAndConstructor`, `newerConstructor`, `parenthesizedConstructor`, `parenthesizedWindowConstructor` |
-| `extends X`, instantiation expression | aliases.ts `ViaExtends`, `viaClassExpression`, `viaInstantiation`; statics.ts `ViaIteratorSubclass`, `ViaParenthesizedBase` |
+| `new X()`, also `new (X)()` and `new window["X"]()` (the constructor's own MDN entry too) | statics.ts `interfaceAndConstructor`, `newerConstructor`, `parenthesizedConstructor`, `parenthesizedWindowConstructor`, `bracketWindowConstructor`, `bracketGlobalThisConstructor` |
+| `extends X`, instantiation expression | aliases.ts `ViaExtends`, `viaClassExpression`, `viaInstantiation`; statics.ts `ViaIteratorSubclass`, `ViaParenthesizedBase`, `ViaBracketBase` |
 | `instanceof X` | forms.ts `isHighlight` |
 | `typeof X.y` and `typeof X["y"]` reach X (their `y`, and a bare `typeof X`, are feature tests) | statics.ts `typeofReaches`, `typeofBracketReaches` (control `typeofBare`); aliases.ts `detected`, `detectedByBracket` |
 | Instance members through the type: unions and intersections (also with our own type that declares the same member), generics, mixins, optional chaining | a-receivers.ts (`ownFirstIntersection`, `ownFirstUnion`), b-generics.ts, c-mixins.ts |
