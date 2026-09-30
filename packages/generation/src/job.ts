@@ -62,8 +62,8 @@ WHERE id = ?1 AND status = 'queued'`;
 // sweeper. ?14 = 1 gives the model slot back; the job sets it only when it knows that no provider
 // call was sent, so a broken configuration cannot use up the day's model calls: the provider could
 // not be built (e.g. no key), or the input guard or a passed deadline stopped every attempt before
-// its call (attempts counts calls sent). After generateDraft rejected, calls may have been sent, so
-// the slot stays taken (task-9-additions B and C).
+// its call (attempts counts calls sent). After our own code threw once a call could have been sent
+// (DraftRejected), calls may have been sent, so the slot stays taken (task-9-additions B and C).
 const FINISH = `UPDATE generations
 SET status = ?2, output_json = ?3, used_fallback = ?4, fallback_reason = ?5, error_code = ?6, provider = ?7, model = ?8,
     attempts = ?9, input_tokens = ?10, output_tokens = ?11, cost_microusd = ?12, finished_at = ?13,
@@ -103,9 +103,10 @@ interface Trace {
 const noTrace = (): Trace => ({ providerErrorKind: null, attemptOutcomes: [], usageMissing: false, inputBoundRefused: false, costUnknown: false });
 
 /**
- * generateDraft rejected: our own code threw (a bug; it rejects for nothing else), maybe after paid calls were sent.
- * How many were sent, and their tokens and cost, are unknown (task-9-additions C). `spend` is what the job stores for
- * them: the configured provider and the requested model, with attempts, tokens and cost 0 (Task 9 follow-up item 3).
+ * Our own code threw once a call could have been sent: generateDraft rejected (a bug; it rejects for nothing else), or
+ * reading its result threw. Paid calls may have been sent: how many, and their tokens and cost, are unknown
+ * (task-9-additions C). `spend` is what the job stores for them: the configured provider and the requested model, with
+ * attempts, tokens and cost 0 (Task 9 follow-up item 3).
  */
 class DraftRejected extends Error {
   readonly spend: Spend;
@@ -126,26 +127,33 @@ type ModelOutcome =
 /** §6.3 steps 2 and 3: no model call without a slot; otherwise up to MAX_ATTEMPTS validated attempts. */
 async function callModel(env: JobEnv, snapshot: GenerationInputSnapshot, hasSlot: boolean, enabled: boolean, deps: JobDeps): Promise<ModelOutcome> {
   if (!hasSlot) return { ok: false, reason: enabled ? "budget" : "disabled", timedOut: false, spend: NO_SPEND, trace: noTrace() };
+  // Read once, before any call: a read that throws is then a throw before any call, which may give the slot back.
+  const providerName = env.MODEL_PROVIDER;
+  const requestedModel = env.MODEL_ID;
   let provider: ModelProvider;
   try {
     provider = deps.createProvider(env, snapshot);
   } catch (error) {
     if (!(error instanceof ProviderError)) throw error;
-    return { ok: false, reason: "provider_error", timedOut: false, spend: { ...NO_SPEND, provider: env.MODEL_PROVIDER }, trace: { ...noTrace(), providerErrorKind: error.kind } };
+    return { ok: false, reason: "provider_error", timedOut: false, spend: { ...NO_SPEND, provider: providerName }, trace: { ...noTrace(), providerErrorKind: error.kind } };
   }
-  let result: GenerateResult;
+  // From the first call on, every throw becomes DraftRejected, which keeps the model slot (Task 9 follow-up item 8).
   try {
-    result = await generateDraft(provider, snapshot, deps.generate);
+    return modelOutcome(await generateDraft(provider, snapshot, deps.generate), providerName, requestedModel);
   } catch (error) {
-    throw new DraftRejected({ ...NO_SPEND, provider: env.MODEL_PROVIDER, model: env.MODEL_ID }, { cause: error });
+    throw new DraftRejected({ ...NO_SPEND, provider: providerName, model: requestedModel }, { cause: error });
   }
+}
+
+/** The spend and trace of generateDraft's result, from its own values and the configuration read before any call. */
+function modelOutcome(result: GenerateResult, providerName: string, requestedModel: string): ModelOutcome {
   const spend: Spend = {
-    provider: env.MODEL_PROVIDER,
-    model: storedModel(result.model, env.MODEL_ID),
+    provider: providerName,
+    model: storedModel(result.model, requestedModel),
     attempts: result.attempts,
     inputTokens: result.usage.inputTokens,
     outputTokens: result.usage.outputTokens,
-    cost: costMicrousd(env.MODEL_PROVIDER, env.MODEL_ID, result.usage),
+    cost: costMicrousd(providerName, requestedModel, result.usage),
   };
   const trace: Trace = {
     providerErrorKind: result.ok ? null : result.providerErrorKind,
@@ -218,9 +226,11 @@ export async function runGenerationJob(env: JobEnv, generationId: string, deps: 
       else if (kind === "first") ending = templateEnding(snapshot, model.reason);
       else ending = { status: "failed", errorCode: model.timedOut ? "provider_timeout" : REGENERATE_CODE[model.reason] };
     } catch (error) {
-      // Something unexpected (a bug, not a provider answer): a first build still gets its draft (Decision 24). When
-      // generateDraft itself rejected, calls may have been sent: their cost is unknown (task-9-additions C). Anything
-      // else threw before any call.
+      // Something unexpected (a bug, not a provider answer): a first build still gets its draft (Decision 24). A
+      // DraftRejected came once a call could have been sent: the slot stays taken and the cost is unknown
+      // (task-9-additions C). Anything else threw before any call (in callModel's configuration reads or createProvider),
+      // so spend is still NO_SPEND and FINISH gives the slot back. Once callModel has returned, spend holds the calls it
+      // counted, and the lines choosing the ending cannot throw (templateEnding catches; REGENERATE_CODE has every reason).
       if (error instanceof DraftRejected) spend = error.spend;
       trace = { ...noTrace(), costUnknown: error instanceof DraftRejected };
       ending = kind === "first" ? templateEnding(snapshot, "provider_error") : { status: "failed", errorCode: "internal" };

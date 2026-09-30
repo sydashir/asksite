@@ -503,6 +503,32 @@ describe("runGenerationJob", () => {
     expect(await getGeneration(db, "r")).toMatchObject({ status: "failed", error_code: "internal", output_json: null, ...kept });
   });
 
+  // Task 9 follow-up item 8 (task-9-additions B and C): the job gives the model slot back only when it knows that no call
+  // was sent. A configuration value whose read throws proves that rule wherever the throw lands; it is not a production
+  // path (the runtime's env holds plain values). The regeneration gets three invalid answers, so every attempt sends a call.
+  it.each([
+    ["MODEL_PROVIDER", 1],
+    ["MODEL_PROVIDER", 2],
+    ["MODEL_ID", 1],
+    ["MODEL_ID", 2],
+  ] as const)("gives the model slot back only when no call was sent, even when reading %s throws on read %i", async (key, failingRead) => {
+    await queued("r", "regenerate");
+    const provider = scriptedProvider([answer({}), answer({}), answer({})]);
+    const env = envWith();
+    const value = env[key];
+    let reads = 0;
+    Object.defineProperty(env, key, {
+      get: () => {
+        reads += 1;
+        if (reads === failingRead) throw new TypeError(`reading ${key}`);
+        return value;
+      },
+    });
+    await runGenerationJob(env, "r", deps(provider));
+    const sent = provider.requests.length;
+    expect((await getGeneration(db, "r")).model_slot, `${sent} calls sent`).toBe(sent > 0 ? 1 : 0);
+  });
+
   it("gives the model slot back when our own code throws before any call: nothing was sent, so the cost is known", async () => {
     await queued("f");
     await queued("r", "regenerate", "s2");
