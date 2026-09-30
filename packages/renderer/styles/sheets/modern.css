@@ -182,7 +182,6 @@
   /* the livery seam where the text meets the photo */
   .hero--photo .hero-body { border-top: 4px solid var(--act); box-shadow: inset 0 4px 0 var(--brand); }
   .hero--plain .hero-body { padding-top: 26px; }
-  .hero--plain .panel { max-width: 48rem; }
   .hero-sub { margin-top: 10px; max-width: 36rem; color: var(--muted); text-wrap: pretty; }
   .hero-actions { display: none; }
   /* Phones: the credentials come straight after the headline and the subheadline follows them, so the license,
@@ -226,12 +225,22 @@
     .proof-list small { font-size: 0.875rem; }
   }
 
-  /* no-photo hero: the opening hours card */
+  /* When the trust section comes later: the licenses and insurance in one short line under the buttons (on phones
+     under the headline) */
+  .proof-line { display: flex; flex-wrap: wrap; gap: 8px 22px; margin-top: 14px; color: var(--ink); font-size: 0.9375rem; font-weight: 700; line-height: 1.3; }
+  .proof-line li { display: flex; align-items: center; gap: 8px; }
+  .proof-line .i { width: 18px; height: 18px; color: var(--brand); }
+
+  /* no-photo hero: the card with the opening hours, or where the business works and its email */
   .door {
     margin-top: 28px; padding: 22px 18px 18px; border: 1px solid var(--line); border-top: 4px solid var(--brand);
     border-radius: var(--r); background: #fff; box-shadow: var(--lift);
   }
-  .door-label { margin-bottom: 8px; color: var(--ink); font-size: 0.9375rem; font-weight: 700; }
+  .door-label, .reach dt { margin-bottom: 8px; color: var(--ink); font-size: 0.9375rem; font-weight: 700; }
+  .reach dd { display: flex; gap: 10px; color: var(--ink); font-weight: 600; overflow-wrap: anywhere; }
+  .reach dd + dt { margin-top: 18px; padding-top: 18px; border-top: 1px solid var(--line); }
+  .reach .i { color: var(--brand); }
+  .reach a { text-decoration: underline; text-underline-offset: 0.2em; }
 
   @media (min-width: 768px) {
     .band--photo { height: clamp(300px, max(36vh, 35vw), 420px); }
@@ -241,7 +250,10 @@
     .hero-body { padding-block: 32px 56px; }
     .hero--plain .hero-body { padding-top: 40px; }
     .hero-sub { margin-top: 16px; font-size: 1.1875rem; line-height: 1.55; }
-    .hero-actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 26px; }
+    /* fit-content: side by side at their own widths; stacked, both take the column's width (one width) */
+    .hero-actions { display: flex; flex-wrap: wrap; gap: 12px; width: fit-content; margin-top: 26px; }
+    .hero-actions .button { flex: 1 1 auto; }
+    .proof-line { margin-top: 22px; font-size: 1rem; }
     .proof { margin-top: 28px; padding-top: 22px; }
     .proof-list { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 28px; }
     .door { margin-top: 32px; padding: 26px 30px 24px; }
@@ -251,9 +263,9 @@
     .proof .wide { grid-column: auto; }
     .proof .more { grid-column: 1 / -1; }
     .hero--plain .hero-body { padding-block: 48px 64px; }
-    .hero--card .hero-body { display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); grid-template-rows: auto 1fr; column-gap: 56px; }
-    .hero--card .proof { grid-column: 1; }
-    .hero--card .door { grid-column: 2; grid-row: 1 / 3; align-self: start; margin: 0; padding: 26px 28px 24px; }
+    .hero--plain .hero-body { display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); grid-template-rows: auto 1fr; column-gap: 56px; }
+    .hero--plain .proof { grid-column: 1; }
+    .hero--plain .door { grid-column: 2; grid-row: 1 / 3; align-self: start; margin: 0; padding: 26px 28px 24px; }
   }
   /* The split hero, on every desktop window and on landscape phones: the text column (the brand strip with the hero
      line, the headline, the buttons, then the credentials) beside the photo, which spans both rows, so the headline
@@ -297,43 +309,52 @@
     .sec { padding-block: 96px; }
   }
 
-  /* the trust section as a band of its own (when the layout does not put it straight after the hero) */
-  .trust { padding-block: 32px; }
-  .trust-h { margin-bottom: 14px; color: var(--ink); font-size: 0.9375rem; font-weight: 700; }
-  .creds { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; }
-  @media (min-width: 640px) {
-    .creds { display: flex; flex-wrap: wrap; gap: 16px 40px; }
+  /* the trust section as a band of its own on the brand colour (when the layout does not put it straight after the
+     hero): the livery rule over it, a heading and the credentials in even columns across the width */
+  .trust { padding-block: 48px; border-top: 4px solid var(--act); }
+  .trust .head { margin-bottom: 28px; }
+  .trust .h2 { font-size: clamp(1.5rem, 1.3rem + 0.8vw, 2rem); }
+  .creds { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 13rem), 1fr)); gap: 20px 32px; }
+  .trust .cred { color: #fff; font-size: 1.0625rem; }
+  .trust .cred .i { color: var(--band-accent); }
+  .trust .cred small { color: var(--on-brand-muted); }
+  @media (min-width: 768px) {
+    .trust { padding-block: 64px; }
   }
 
-  /* services: priced cards under a full-width heading; the owner's call to action sits level with the heading */
+  /* services: priced cards, each price on its own line under the name; the owner's call to action closes the grid as a
+     brand card that fills the last row (it spans the places the last row leaves) */
   .cards { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
-  .card { display: flex; flex-direction: column; padding: 22px 22px 24px; border: 1px solid var(--line); border-radius: var(--r); background: #fff; }
+  .card { padding: 22px 22px 24px; border: 1px solid var(--line); border-radius: var(--r); background: #fff; }
   .white .card { border-color: transparent; background: var(--tint); }
-  .card-top { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 10px 16px; }
-  .card-top .h3 { flex: 1 1 11rem; min-width: 0; font-size: 1.25rem; }
-  .price { flex: none; padding: 3px 12px; border-radius: 999px; background: var(--tint); color: var(--ink); font-size: 1.0625rem; font-weight: 700; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .card .h3 { font-size: 1.25rem; }
+  .price { width: fit-content; margin-top: 10px; padding: 3px 12px; border-radius: 999px; background: var(--tint); color: var(--ink); font-size: 1.0625rem; font-weight: 700; font-variant-numeric: tabular-nums; }
   .white .price { background: #fff; }
   .price small { font-size: 0.875rem; font-weight: 500; color: var(--muted); }
   .price.price--ask { padding-inline: 0; background: none; font-size: 0.9375rem; font-weight: 500; color: var(--muted); }
   .card-desc { margin-top: 12px; color: var(--muted); text-wrap: pretty; }
   .cards--compact .card { padding: 18px 18px 20px; }
   .cards--compact .h3 { font-size: 1.125rem; }
-  .cards--c1 { max-width: 40rem; }
-  .svc-cta { display: grid; grid-template-columns: minmax(0, 1fr); justify-items: start; gap: 12px; margin-top: 28px; }
-  .svc-cta p { color: var(--text); font-weight: 600; text-wrap: pretty; }
+  /* the text grows (999:1), so the button keeps its width beside it and takes the whole line when it wraps */
+  .cards > .ask { display: flex; flex-wrap: wrap; align-items: center; align-content: center; gap: 18px 32px; border-color: transparent; background: var(--brand); }
+  .ask > div { flex: 999 1 15rem; }
+  .ask .button { flex: 1 1 auto; }
+  .ask-q { font: 700 1.3125rem/1.25 var(--display); letter-spacing: calc(var(--trk) * -0.01em); color: #fff; text-wrap: balance; }
+  .ask p + p { margin-top: 6px; color: var(--on-brand-muted); }
   @media (max-width: 599px) {
-    .svc-cta .button, .faq-more .button { width: 100%; }
+    .faq-more .button { width: 100%; }
   }
   @media (min-width: 640px) {
     .cards--c2, .cards--c3, .cards--c4 { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
+    .ask:nth-child(odd) { grid-column: 1 / -1; }
   }
   @media (min-width: 1024px) {
-    .svc { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 48px; }
-    .svc > .head, .svc > .svc-cta { grid-row: 1; }
-    .svc > .svc-cta { grid-column: 2; align-self: end; justify-items: end; margin: 0 0 44px; max-width: 22rem; text-align: right; }
-    .svc > .cards { grid-column: 1 / -1; }
     .cards--c3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
     .cards.cards--c4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    .cards--c3 > .ask, .cards--c4 > .ask { grid-column: auto; }
+    .cards--c3 > .ask:nth-child(3n + 1), .cards--c4 > .ask:nth-child(4n + 1) { grid-column: 1 / -1; }
+    .cards--c3 > .ask:nth-child(3n + 2), .cards--c4 > .ask:nth-child(4n + 3) { grid-column: span 2; }
+    .cards--c4 > .ask:nth-child(4n + 2) { grid-column: span 3; }
     .card { padding: 28px 28px 30px; }
   }
 
@@ -341,7 +362,7 @@
   .lead-q { display: grid; grid-template-columns: minmax(0, 1fr); gap: 18px; padding-bottom: 28px; }
   .lead-q blockquote::before, .q blockquote::before { content: "\201C"; display: block; color: var(--brand); font: 800 4.5rem/1 Georgia, "Times New Roman", serif; }
   .lead-q blockquote::before { height: 36px; }
-  .lead-q blockquote p { max-width: 46rem; font: 700 clamp(1.375rem, 1.1rem + 1.1vw, 2rem)/1.3 var(--display); letter-spacing: calc(var(--trk) * -0.015em); color: var(--ink); text-wrap: pretty; }
+  .lead-q blockquote p { min-width: 0; max-width: 46rem; font: 700 clamp(1.375rem, 1.1rem + 1.1vw, 2rem)/1.3 var(--display); letter-spacing: calc(var(--trk) * -0.015em); color: var(--ink); text-wrap: pretty; }
   .lead-q--long blockquote p { font-size: clamp(1.1875rem, 1.05rem + 0.6vw, 1.5rem); line-height: 1.4; }
   .who { display: flex; flex-wrap: wrap; column-gap: 10px; line-height: 1.3; }
   .who > * { min-width: 0; overflow-wrap: anywhere; }
@@ -423,35 +444,39 @@
   /* service area: boards with a brand header, each as tall as its own content (never stretched) */
   .area { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
   .area > * { min-width: 0; }
-  .board { overflow: hidden; border: 1px solid var(--line); border-radius: var(--r); background: #fff; }
+  /* No overflow clipping (WCAG 1.4.12: spaced-out text must stay whole): the header and the 24/7 well round their own corners. */
+  .board { border: 1px solid var(--line); border-radius: var(--r); background: #fff; }
   .tint .board { border-color: transparent; }
-  .board-h { display: flex; align-items: center; gap: 10px; padding: 14px 20px; background: var(--brand); color: #fff; font: 700 1.0625rem/1.3 var(--body); }
+  .board-h { display: flex; align-items: center; gap: 10px; padding: 14px 20px; border-radius: 5px 5px 0 0; background: var(--brand); color: #fff; font: 700 1.0625rem/1.3 var(--body); }
   .board-h .i { color: var(--band-accent); }
   .board-body { padding: 4px 20px 20px; }
   .places { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 8.5rem), 1fr)); column-gap: 20px; }
   .place { min-width: 0; padding-block: 9px; border-bottom: 1px solid var(--line); color: var(--ink); font-weight: 600; }
   .place.span { grid-column: 1 / -1; }
-  .addr { display: block; padding-top: 16px; color: var(--text); font-style: normal; }
+  .addr { display: flex; gap: 12px; padding-top: 16px; color: var(--text); }
+  .addr .i { color: var(--brand); }
+  address { font-style: normal; }
   .few { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; align-content: start; }
   .few-line { display: flex; gap: 12px; color: var(--ink); font-size: 1.1875rem; line-height: 1.4; }
   .few-line .i { margin-top: 3px; color: var(--brand); }
   .few-line span { min-width: 0; }
-  .few .addr { padding: 0 0 0 32px; }
+  .few .addr { padding: 0; }
+  /* one or two places without hours: a slim band, the sentence beside the heading from 768 px */
+  .sec.slim { padding-block: 44px; }
   /* the hours table, in the hero card and on the hours board */
   .hours { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
   .hours th, .hours td { padding: 9px 0; border-top: 1px solid var(--line); text-align: left; vertical-align: baseline; }
   .hours tr:first-child > * { border-top: 0; }
   .hours th { padding-right: 12px; font-weight: 500; color: var(--text); }
-  .hours .time { color: var(--ink); font-weight: 700; text-align: right; white-space: nowrap; }
+  .hours .time { color: var(--ink); font-weight: 700; text-align: right; }
   .hours .closed { color: var(--muted); font-weight: 500; }
   .board .hours th, .board .hours td { padding: 14px 20px; }
   .board .hours td { padding-left: 0; }
   .em { margin-top: 10px; padding: 12px 14px 6px; border-radius: 4px; background: var(--aw-modern-well); color: var(--ink); line-height: 1.4; }
-  .board .em { margin: 0; padding: 16px 20px 14px; border-radius: 0; }
+  .board .em { margin: 0; padding: 16px 20px 14px; border-radius: 0 0 5px 5px; }
   .em-call { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; font-weight: 700; font-variant-numeric: tabular-nums; text-decoration: underline; text-underline-offset: 0.2em; }
   .em-call .i { color: var(--brand); }
   @media (max-width: 359px) {
-    .hours th { white-space: normal; }
     .board .hours th, .board .hours td { padding-inline: 14px; }
     .board .hours td { padding-left: 0; }
   }
@@ -461,6 +486,10 @@
     .board .hours th, .board .hours td { padding: 15px 26px; }
     .board .hours td { padding-left: 0; }
     .board .em { padding: 18px 26px 16px; }
+  }
+  @media (min-width: 768px) {
+    .slim-in { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 64px; }
+    .slim .head { margin: 0; }
   }
   @media (min-width: 900px) {
     .area { grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); gap: 20px; align-items: start; }
@@ -481,6 +510,10 @@
   .qa[open] .tog::after { rotate: none; }
   @media (hover: hover) {
     .qa summary:hover .tog { border-color: var(--ink); }
+  }
+  /* Forced colours (Windows high contrast) drop backgrounds: draw the plus and minus in the text colour */
+  @media (forced-colors: active) {
+    .tog::before, .tog::after { background: CanvasText; }
   }
   .qa-body { max-width: 44rem; margin-bottom: 22px; padding: 2px 0 2px 18px; border-left: 3px solid var(--brand); }
   .qo { padding-block: 22px; border-bottom: 1px solid var(--line); }
@@ -532,13 +565,16 @@
     .form-card { padding: 38px 36px 34px; }
   }
   /* The call card is a size container: the big number takes the card's width less the icon and gap (38 px) divided
-     by the number's width in em for the lettering (--aw-modern-phone-em), so it never passes the padding. */
+     by the number's width in em for the lettering (--aw-modern-phone-em), so it fits on one line; spaced-out text
+     (WCAG 1.4.12) wraps it at its space instead of pushing it past the card. */
   .call-card { container-type: inline-size; padding: 26px 22px; border-radius: var(--r); background: var(--brand); color: #fff; }
   .lbl { display: block; color: var(--on-brand-muted); font-size: 0.875rem; font-weight: 700; }
   .big { display: inline-flex; align-items: center; gap: 12px; min-height: 48px; margin-top: 4px; color: #fff; font: 700 1.625rem/1.15 var(--display); letter-spacing: calc(var(--trk) * -0.01em); font-variant-numeric: tabular-nums; }
   @supports (width: 1cqi) {
     .big { font-size: clamp(1.25rem, (100cqi - 38px) / var(--aw-modern-phone-em), 2rem); }
   }
+  /* The link is nowrap (html-validate's tel-non-breaking); its number may still wrap between its two nowrap parts. */
+  .big > span { white-space: normal; }
   .big .i { width: 26px; height: 26px; color: var(--band-accent); }
   .call-card ul { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; margin-top: 18px; padding-top: 18px; border-top: 1px solid var(--brand-line); }
   .call-card li { min-width: 0; line-height: 1.4; text-wrap: balance; }
@@ -561,12 +597,15 @@
   .foot-list li, .foot-trade { padding-block: 4px; font-size: 0.9375rem; line-height: 24px; }
   .foot-social { display: flex; flex-wrap: wrap; gap: 4px 20px; margin-top: 12px; }
   .foot a { color: #fff; text-decoration: underline 2px var(--brand-line); text-underline-offset: 0.2em; }
-  .foot-social a { display: inline-block; padding-block: 4px; font-size: 0.9375rem; font-weight: 600; line-height: 24px; }
+  .foot-social a, .foot-end a { display: inline-block; padding-block: 4px; font-size: 0.9375rem; font-weight: 600; line-height: 24px; }
+  .foot-end { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 24px; margin-top: 40px; padding-top: 20px; border-top: 1px solid var(--brand-line); }
+  .foot-end p { color: #fff; font-size: 0.9375rem; font-weight: 600; }
   @media (hover: hover) {
     .foot a:hover { text-decoration-color: currentColor; }
   }
   @media (min-width: 768px) {
-    .foot { padding-block: 72px; }
+    .foot { padding-block: 72px 40px; }
+    .foot-end { margin-top: 56px; }
     .foot-grid { grid-template-columns: minmax(0, 5fr) minmax(0, 4fr) minmax(0, 4fr); gap: 48px; }
   }
 

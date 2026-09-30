@@ -6,44 +6,41 @@ import { html, trusted, type SafeHtml } from "../../html.ts";
 import { icon } from "../../icons.ts";
 import { DOM_ID } from "../../sections/ids.ts";
 import { showsHoursInHero } from "./hero.ts";
-import { callButton, emergencyNote, FORM_ID, head, hoursTable } from "./parts.ts";
+import { BUILDING } from "./icons.ts";
+import { callButton, emailText, emergencyNote, FORM_ID, head, hoursTable, keepParts } from "./parts.ts";
 import { cityLine, contactHeading, fewPlaces } from "./text.ts";
 
-/** An email address with a break chance before the @ and each dot, so a long one wraps only there. */
-export function emailText(email: string): SafeHtml {
-  return html`${email.split(/(?=[@.])/).map((part, i) => html`${i > 0 && html`<wbr>`}${part}`)}`;
-}
-
-/** The street address, or "Based in …" when the list of places does not already name the home town. */
+/** The street address with the building icon, or "Based in …" when the list of places does not already name the home town. */
 function address(facts: Facts): SafeHtml | false {
   const { location, serviceArea } = facts;
-  if (location.streetAddress !== undefined) return html`<address class="addr">${location.streetAddress}<br>${cityLine(facts)}</address>`;
+  if (location.streetAddress !== undefined) return html`<div class="addr">${BUILDING}<address>${location.streetAddress}<br>${cityLine(facts)}</address></div>`;
   const home = location.city.trim().toLowerCase();
-  return !serviceArea.places.some((place) => place.trim().toLowerCase() === home) && html`<p class="addr">Based in ${cityLine(facts)}</p>`;
+  return !serviceArea.places.some((place) => place.trim().toLowerCase() === home) && html`<p class="addr">${BUILDING}<span>Based in ${cityLine(facts)}</span></p>`;
 }
 
 /**
  * The places as a ruled list on a board with a brand header, and the hours as a timetable board beside it.
- * Each board is as tall as its own content. One or two places read as a sentence instead of a board.
+ * Each board is as tall as its own content. One or two places without hours read as one sentence in a slim band
+ * beside the heading, not a full section.
  */
 export function renderServiceArea(ctx: RenderContext, _variant: VariantOf<"serviceArea">, tone: string): SafeHtml {
   const { facts } = ctx.doc;
   const { places, note } = facts.serviceArea;
   const hours = facts.hours.length > 0 && !showsHoursInHero(ctx);
+  const few = places.length <= 2;
   const hoursBoard =
     hours &&
     html`<div class="board"><h3 class="board-h">${icon("clock", "i")}${facts.emergency247 ? "Office hours" : "Hours"}</h3>${hoursTable(facts)}${emergencyNote(facts)}</div>`;
-  const areas =
-    places.length <= 2
-      ? html`<div class="few"><p class="few-line">${icon("map-pin", "i")}<span>Serving <strong>${fewPlaces(facts)}</strong></span></p>${address(facts)}</div>`
-      : // A place with one word of 16 or more letters takes a whole row, so it wraps only when wider than the list.
-        html`<div class="board"><h3 class="board-h">${icon("map-pin", "i")}Areas we serve</h3><div class="board-body">
+  const areas = few
+    ? html`<div class="few"><p class="few-line">${icon("map-pin", "i")}<span>Serving <strong>${fewPlaces(facts)}</strong></span></p>${address(facts)}</div>`
+    : // A place with one word of 16 or more letters takes a whole row, so it wraps only when wider than the list.
+      html`<div class="board"><h3 class="board-h">${icon("map-pin", "i")}Areas we serve</h3><div class="board-body">
 <ul class="places">${places.map((place) => html`<li class="place${place.split(/\s+/).some((word) => word.length >= 16) ? " span" : ""}">${place}</li>`)}</ul>
 ${address(facts)}
 </div></div>`;
 
-  return html`<section id="${DOM_ID.serviceArea}" class="sec ${tone}" aria-labelledby="${DOM_ID.serviceArea}-title">
-<div class="wrap">
+  return html`<section id="${DOM_ID.serviceArea}" class="sec${few && !hours ? " slim" : ""} ${tone}" aria-labelledby="${DOM_ID.serviceArea}-title">
+<div class="wrap${few && !hours ? " slim-in" : ""}">
 ${head("serviceArea", hours ? "Service area & hours" : "Service area", note)}
 <div class="area${hours ? "" : " area--solo"}">${areas}${hoursBoard}</div>
 </div>
@@ -98,7 +95,7 @@ ${facts.services.map((s) => html`<option>${s.name}</option>`)}
 </div>
 <div class="call-card">
 <p class="lbl">Prefer to talk?</p>
-<a class="big whitespace-nowrap" href="${telUrl(facts.phone)}">${icon("phone", "i")}<span><span class="sr-only">Call </span>${phone}</span></a>
+<a class="big whitespace-nowrap" href="${telUrl(facts.phone)}">${icon("phone", "i")}<span><span class="sr-only">Call </span>${keepParts(phone.split(" "))}</span></a>
 <ul>
 <li><span class="lbl">Email</span><a href="${mailtoUrl(facts.email)}">${emailText(facts.email)}</a></li>
 ${facts.emergency247 && html`<li><span class="lbl">Emergencies</span>Available 24/7</li>`}

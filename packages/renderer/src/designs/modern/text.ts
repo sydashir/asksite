@@ -77,6 +77,18 @@ export function fewPlaces(facts: Facts): string {
     .join(" and ");
 }
 
+/**
+ * The service area in a few words, for the no-photo hero's card: one or two places as the section says them
+ * ("Boise, ID"), three by name ("Kyle, Austin and Buda"), more as the first two and a count ("Austin, Round Rock
+ * and 5 more"; the section lists them all).
+ */
+export function areaSummary(facts: Facts): string {
+  const { places } = facts.serviceArea;
+  if (places.length <= 2) return fewPlaces(facts);
+  if (places.length === 3) return `${places[0]}, ${places[1]} and ${places[2]}`;
+  return `${places[0]}, ${places[1]} and ${places.length - 2} more`;
+}
+
 /** The home town line: "Austin, TX 78745". */
 export function cityLine(facts: Facts): string {
   const { city, state, postalCode } = facts.location;

@@ -1,6 +1,7 @@
 // Modern (modern): a clean, contemporary page for a local trade. The owner's photo and the headline share the
-// first screen, the credentials sit under the headline, and the design's livery (the action colour over the brand
-// colour) marks the header, the hero seam, each section heading and the footer. System fonts only (zero font
+// first screen, the credentials sit under the headline (or in a brand band where the owner places them), and the
+// design's livery (the action colour over the brand colour) marks the header, the hero seam, each section heading
+// and the footer. System fonts only (zero font
 // bytes), zero JavaScript. Its stylesheet is styles/sheets/modern.css; its notices are in NOTICES.md.
 import type { LayoutSection, SectionId } from "@asksite/site-schema";
 import type { RenderContext } from "../../context.ts";
@@ -18,11 +19,11 @@ const ATTRIBUTION =
   "<!-- Modern design. Portions adapted from AstroWind, Copyright (c) 2023 onWidget, and Tabler Icons, Copyright (c) 2020-2026 Paweł Kuna. MIT License. -->";
 
 /**
- * The background of each section below the hero, in the order the page shows them: About is the brand band,
- * the others alternate tint and white. A trust section the hero holds takes none.
+ * The background of each section below the hero, in the order the page shows them: About and the trust band are on
+ * the brand colour, the others alternate tint and white.
  */
 function tone(ctx: RenderContext, id: SectionId): string {
-  const banded = ctx.sections.filter((s) => s.id !== "hero" && s.id !== "about" && !(s.id === "trust" && trustInHero(ctx)));
+  const banded = ctx.sections.filter((s) => s.id !== "hero" && s.id !== "about" && s.id !== "trust");
   return banded.findIndex((s) => s.id === id) % 2 === 0 ? "tint" : "white";
 }
 
@@ -32,7 +33,7 @@ function renderSection(ctx: RenderContext, section: LayoutSection): SafeHtml {
       return renderHero(ctx, section.variant);
     case "trust":
       // Straight after the hero, the hero draws it under the headline.
-      return trustInHero(ctx) ? html`` : renderTrustBand(ctx.doc.facts, tone(ctx, "trust"));
+      return trustInHero(ctx) ? html`` : renderTrustBand(ctx.doc.facts);
     case "services":
       return renderServices(ctx, section.variant, tone(ctx, "services"));
     case "testimonials":

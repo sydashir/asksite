@@ -2,17 +2,21 @@
 // - With a photo: the photo as a band across the top on phones and tablets; from 1024 px (and on landscape
 //   phones) the split hero, the text column beside the photo, so the headline and both buttons sit in the
 //   upper part of the first screen on every desktop window.
-// - Without one: the brand band with the 24/7 line, then the headline beside a card with the opening hours.
+// - Without one: the brand band with the 24/7 line, then the headline beside a card: the opening hours, or,
+//   for an owner without them, where the business works and its email.
 // - The credentials (the trust section) sit inside the hero, under the headline, when the trust section comes
 //   straight after it; on phones they come before the subheadline, so they share the first screen with the
-//   call bar. Anywhere else in the layout they are a band of their own.
+//   call bar. Anywhere else in the layout they are a band of their own on the brand colour, and the hero keeps
+//   one short line with the licenses and insurance.
 import type { Facts, VariantOf } from "@asksite/site-schema";
 import { isVisible, type RenderContext } from "../../context.ts";
+import { mailtoUrl } from "../../format.ts";
 import { fragment, html, safeUrl, type SafeHtml } from "../../html.ts";
 import { icon } from "../../icons.ts";
 import { DOM_ID } from "../../sections/ids.ts";
-import { callButton, credential, emergencyNote, hoursTable, licenseItem, otherCredentials, quoteButton } from "./parts.ts";
-import { tradeAndCity } from "./text.ts";
+import { ARROW_DOWN } from "./icons.ts";
+import { callButton, credential, emailText, head, emergencyItem, emergencyNote, hoursTable, insuredItem, licenseItem, licenseText, otherCredentials, quoteButton } from "./parts.ts";
+import { areaSummary, tradeAndCity } from "./text.ts";
 
 /** Where the full list of licenses is: the footer's credentials (every license, exactly as entered). */
 export const LICENSES_ID = "licenses";
@@ -40,31 +44,43 @@ const isDense = (facts: Facts): boolean =>
 /** A credential longer than this takes a whole row on phones. */
 const LONG_CREDENTIAL = 16;
 
-/** The credentials inside the hero: at most two licenses, then insured, founded and free estimates. */
+/** The credentials inside the hero: at most two licenses, then insured, founded and free estimates (24/7 when that is all). */
 function heroCredentials(facts: Facts): SafeHtml {
   const shown = facts.licences.slice(0, HERO_LICENSES);
-  const more = facts.licences.length - shown.length;
-  // Two licenses, a long one, or a "more" link take whole rows, so the licenses always sit together, first.
-  const wideLicense = (text: string) => shown.length > 1 || more > 0 || text.length > LONG_CREDENTIAL;
+  const more = facts.licences.length > shown.length;
+  // Two licenses, a long one, or a "see all" link take whole rows, so the licenses always sit together, first.
+  const wideLicense = (text: string) => shown.length > 1 || more || text.length > LONG_CREDENTIAL;
   const items = [...shown.map((licence) => licenseItem(licence, wideLicense(`License ${licence.number}`))), ...otherCredentials(facts)];
+  // The 24/7 line above the headline says it too, but a trust section never shows an empty list.
+  if (items.length === 0) items.push(emergencyItem());
   return html`<section id="${DOM_ID.trust}" class="proof" aria-label="Credentials">
-<ul class="proof-list">${items.map((item) => credential({ ...item, wide: item.wide === true || item.text.length > LONG_CREDENTIAL }))}${more > 0 && html`<li class="more"><a href="${fragment(LICENSES_ID)}">${more} more license${more > 1 ? "s" : ""}${icon("chevron-down", "i")}</a></li>`}</ul>
+<ul class="proof-list">${items.map((item) => credential({ ...item, wide: item.wide === true || item.text.length > LONG_CREDENTIAL }))}${more && html`<li class="more"><a href="${fragment(LICENSES_ID)}">See all ${facts.licences.length} licenses${ARROW_DOWN}</a></li>`}</ul>
 </section>`;
 }
 
-/** The trust section as a band of its own, when the layout puts it anywhere but straight after the hero. */
-export function renderTrustBand(facts: Facts, tone: string): SafeHtml {
-  const items = [
-    ...facts.licences.map((licence) => licenseItem(licence, false)),
-    ...otherCredentials(facts),
-    ...(facts.emergency247 ? [{ icon: "clock" as const, text: "24/7 emergency service" }] : []),
-  ];
-  return html`<section id="${DOM_ID.trust}" class="trust ${tone}" aria-labelledby="${DOM_ID.trust}-title">
+/** The trust section as a band of its own on the brand colour, when the layout puts it anywhere but straight after the hero. */
+export function renderTrustBand(facts: Facts): SafeHtml {
+  const items = [...facts.licences.map((licence) => licenseItem(licence, false)), ...otherCredentials(facts), ...(facts.emergency247 ? [emergencyItem()] : [])];
+  return html`<section id="${DOM_ID.trust}" class="trust on-brand" aria-labelledby="${DOM_ID.trust}-title">
 <div class="wrap">
-<h2 id="${DOM_ID.trust}-title" class="trust-h">Credentials</h2>
+${head("trust", "Credentials")}
 <ul class="creds">${items.map(credential)}</ul>
 </div>
 </section>`;
+}
+
+/**
+ * When the trust section comes later in the layout, the hero still names the licenses (two at most) and insurance
+ * in one short line, so the first screen carries them; the band lists everything. Nothing when the owner hid the
+ * trust section or has neither fact.
+ */
+function proofLine(ctx: RenderContext): SafeHtml | false {
+  const { facts } = ctx.doc;
+  const items = [
+    ...facts.licences.slice(0, HERO_LICENSES).map((licence) => html`<li>${icon("certificate", "i")}<span>${licenseText(licence.number)}</span></li>`),
+    ...(facts.insured ? [html`<li>${insuredItem().mark}<span>Insured</span></li>`] : []),
+  ];
+  return isVisible(ctx, "trust") && !trustInHero(ctx) && items.length > 0 && html`<ul class="proof-line">${items}</ul>`;
 }
 
 /** The headline, subheadline and the Call and quote buttons (the buttons show from 768 px; phones have the call bar). */
@@ -75,20 +91,25 @@ ${line}
 <h1 id="${DOM_ID.hero}-title" class="display h1${copy.heroHeadline.length > 60 ? " h1--long" : ""}">${copy.heroHeadline}</h1>
 <p class="hero-sub">${copy.heroSubheadline}</p>
 <div class="hero-actions">${callButton(facts, "button-lg")}${quoteButton(ctx, "button-lg")}</div>
+${proofLine(ctx)}
 </div>`;
 }
 
-/** The no-photo hero's card: the opening hours (and the 24/7 note), when the service area section would show them. */
-function hoursCard(ctx: RenderContext): SafeHtml | false {
+/**
+ * The no-photo hero's card. With opening hours (and the service area section on the page): the hours and the 24/7
+ * note, so the first screen says when the business is open. Without them: where the business works (unless the
+ * owner hid the service area) and its email, so the fewest-facts page still has a composed first screen.
+ */
+function heroCard(ctx: RenderContext): SafeHtml {
   const { facts } = ctx.doc;
-  return (
-    showsHoursInHero(ctx) &&
-    html`<div class="door">
+  if (showsHoursInHero(ctx)) {
+    return html`<div class="door">
 <p class="door-label">${facts.emergency247 ? "Office hours" : "Hours"}</p>
 ${hoursTable(facts)}
 ${emergencyNote(facts)}
-</div>`
-  );
+</div>`;
+  }
+  return html`<div class="door"><dl class="reach">${isVisible(ctx, "serviceArea") && html`<dt>Service area</dt><dd>${icon("map-pin", "i")}${areaSummary(facts)}</dd>`}<dt>Email</dt><dd><a href="${mailtoUrl(facts.email)}">${emailText(facts.email)}</a></dd></dl></div>`;
 }
 
 /**
@@ -106,19 +127,18 @@ export function renderHero(ctx: RenderContext, variant: VariantOf<"hero">): Safe
 
   if (photo === undefined) {
     const line = heroLine(ctx, "band-line");
-    const card = hoursCard(ctx);
-    return html`<section id="${DOM_ID.hero}" class="hero hero--plain${card === false ? "" : " hero--card"}" aria-labelledby="${DOM_ID.hero}-title">
+    return html`<section id="${DOM_ID.hero}" class="hero hero--plain" aria-labelledby="${DOM_ID.hero}-title">
 <div class="band band--brand">${line && html`<div class="wrap band-in">${line}</div>`}</div>
 <div class="wrap hero-body">
 ${panel(ctx, false)}
 ${credentials}
-${card}
+${heroCard(ctx)}
 </div>
 </section>`;
   }
 
   // A square or portrait photo is cropped closer to its top, where a face sits. Dense credentials (two licenses, a
-  // long license number or a "more" link) take a shorter photo strip on short phones, so they clear the call bar.
+  // long license number or a "see all" link) take a shorter photo strip on short phones, so they clear the call bar.
   const tall = photo.width / photo.height < 1.2 ? " hero--tall" : "";
   const dense = credentials !== false && isDense(facts) ? " hero--dense" : "";
   return html`<section id="${DOM_ID.hero}" class="hero hero--photo${tall}${dense}" aria-labelledby="${DOM_ID.hero}-title">

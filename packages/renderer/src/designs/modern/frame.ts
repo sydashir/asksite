@@ -5,9 +5,8 @@ import { formatPhone, mailtoUrl, telUrl, TRADE_LABEL } from "../../format.ts";
 import { fragment, html, safeUrl, type SafeHtml } from "../../html.ts";
 import { icon } from "../../icons.ts";
 import { DOM_ID, NAV_LABEL } from "../../sections/ids.ts";
-import { emailText } from "./contact.ts";
 import { LICENSES_ID } from "./hero.ts";
-import { FORM_ID } from "./parts.ts";
+import { emailText, FORM_ID, licenseText } from "./parts.ts";
 import { ctaLabels } from "./text.ts";
 
 /** A business name longer than this takes the smaller brand size, so it keeps room beside the menu. */
@@ -46,7 +45,10 @@ const SOCIAL_LABEL: Record<SocialLink["network"], string> = {
   linkedin: "LinkedIn",
 };
 
-/** The footer on the brand band: the business, how to reach it and every license (several states require them in all advertising). */
+/**
+ * The footer on the brand band: the business, how to reach it and every license (several states require them in all
+ * advertising), then a closing row under a rule: the business name and a way back to the top.
+ */
 export function renderFooter(ctx: RenderContext): SafeHtml {
   const { facts } = ctx.doc;
   const { location } = facts;
@@ -69,11 +71,12 @@ ${location.streetAddress && html`<li>${location.streetAddress}, ${location.city}
 ${credentials && html`<div id="${LICENSES_ID}">
 <h2 class="foot-h">Credentials</h2>
 <ul class="foot-list">
-${facts.licences.map((l) => html`<li>${l.label} · License ${l.number}</li>`)}
+${facts.licences.map((l) => html`<li>${l.label} · ${licenseText(l.number)}</li>`)}
 ${facts.insured && html`<li>Insured</li>`}
 </ul>
 </div>`}
 </div>
+<div class="wrap"><div class="foot-end"><p>${facts.businessName}</p><a href="${fragment(DOM_ID.hero)}">Back to top</a></div></div>
 </footer>`;
 }
 
