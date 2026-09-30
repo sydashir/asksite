@@ -1,5 +1,6 @@
 // Runs both real adapters inside workerd with a stand-in fetch (no network), so a test can prove
 // the Anthropic SDK and our fetch code work in the Workers runtime without nodejs_compat.
+// GET /process answers whether Node.js's `process` exists here (A13: it must not).
 import { AnthropicProvider } from "../../../../packages/generation/src/providers/anthropic.ts";
 import { OpenAICompatibleProvider } from "../../../../packages/generation/src/providers/openai-compatible.ts";
 import { AI_DRAFT_JSON_SCHEMA } from "../../../../packages/generation/src/wire-schema.ts";
@@ -7,7 +8,8 @@ import { AI_DRAFT_JSON_SCHEMA } from "../../../../packages/generation/src/wire-s
 const reply = (body: unknown): Response => new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
 
 export default {
-  async fetch(): Promise<Response> {
+  async fetch(request: Request): Promise<Response> {
+    if (new URL(request.url).pathname === "/process") return new Response(typeof process);
     const seen: string[] = [];
     const stub = (async (input: string | URL | Request, init?: RequestInit) => {
       const request = new Request(input, init);

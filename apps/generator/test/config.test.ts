@@ -44,7 +44,10 @@ describe("apps/generator/wrangler.jsonc (production)", () => {
     expect(config.preview_urls).toBe(false);
     expect(config.observability).toEqual({ enabled: true, logs: { invocation_logs: false } });
     expect(config.compatibility_date).toBe("2026-09-21");
-    expect(config.compatibility_flags ?? []).not.toContain("nodejs_compat");
+    // A13: from compatibility date 2026-08-04 Node.js compatibility is on unless both opt-outs are set, and
+    // nodejs_compat_populate_process_env fills process.env with secrets even with them: no flag may start with "nodejs".
+    expect(config.compatibility_flags).toEqual(expect.arrayContaining(["no_nodejs_compat", "no_nodejs_compat_v2"]));
+    expect((config.compatibility_flags ?? []).filter((flag) => flag.startsWith("nodejs"))).toEqual([]);
   });
 
   it("keeps secrets and development-only switches out of vars", () => {

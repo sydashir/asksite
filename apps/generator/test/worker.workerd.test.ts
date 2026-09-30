@@ -8,8 +8,29 @@ import { FULL_SNAPSHOT } from "../../../packages/generation/test/support/samples
 
 const ROOT = fileURLToPath(new URL("../../../", import.meta.url));
 // Local D1 is shared by database id, so the producer uses the generator's own id (placeholder or real).
-const GENERATOR = JSON.parse(readFileSync(new URL("../wrangler.jsonc", import.meta.url), "utf8")) as { d1_databases: Array<{ database_id: string }> };
+const GENERATOR = JSON.parse(readFileSync(new URL("../wrangler.jsonc", import.meta.url), "utf8")) as {
+  d1_databases: Array<{ database_id: string }>;
+  compatibility_date: string;
+  compatibility_flags: string[];
+};
 const DATABASE = { binding: "DB", database_name: "asksite", database_id: GENERATOR.d1_databases[0]!.database_id, migrations_dir: "./packages/core/migrations" };
+const PRODUCER = {
+  name: "test-producer",
+  main: "./packages/generation/test/support/noop-worker.ts",
+  compatibility_date: "2026-09-21",
+  compatibility_flags: ["no_nodejs_compat", "no_nodejs_compat_v2"], // A13
+  d1_databases: [DATABASE],
+  queues: { producers: [{ binding: "GEN_QUEUE", queue: "asksite-generation" }] },
+};
+// The generator's own module plus one route that answers `typeof process`, under the compatibility date and flags
+// of the generator's wrangler.jsonc, read from that file (A13). The harness runs a config file's own `main`, so the
+// route lives in this test-only entry point, which imports the real src/index.ts and with it the whole module graph.
+const PROBE = {
+  name: "generator-probe",
+  main: "./apps/generator/test/support/generator-probe-worker.ts",
+  compatibility_date: GENERATOR.compatibility_date,
+  compatibility_flags: GENERATOR.compatibility_flags,
+};
 
 // The real apps/generator/wrangler.jsonc, with local test variables, plus a small producer Worker
 // that shares its D1 database and sends to its queue, as asksite-app does in production.
@@ -21,15 +42,8 @@ const server = createTestHarness({
       vars: { ENVIRONMENT: "development", GENERATION_ENABLED: "true", DAILY_MODEL_LIMIT: "30", MODEL_PROVIDER: "fake", MODEL_ID: "fake-template", FAKE_MODE: "ok" },
       secrets: { ANTHROPIC_API_KEY: "", OPENAI_COMPAT_API_KEY: "" },
     },
-    {
-      config: {
-        name: "test-producer",
-        main: "./packages/generation/test/support/noop-worker.ts",
-        compatibility_date: "2026-09-21",
-        d1_databases: [DATABASE],
-        queues: { producers: [{ binding: "GEN_QUEUE", queue: "asksite-generation" }] },
-      },
-    },
+    { config: PRODUCER },
+    { config: PROBE },
   ],
 });
 
@@ -96,4 +110,15 @@ describe("asksite-generator", () => {
     expect(logs).toContain(id);
     for (const secretish of ["Reliable Rooter", "Drain cleaning", "older homes", "Austin"]) expect(logs).not.toContain(secretish);
   }, 30_000);
+});
+
+describe("Node.js compatibility (A13)", () => {
+  it("is off in the test producer: both opt-outs, and no flag starting with nodejs", () => {
+    expect(PRODUCER.compatibility_flags).toEqual(expect.arrayContaining(["no_nodejs_compat", "no_nodejs_compat_v2"]));
+    expect(PRODUCER.compatibility_flags.filter((flag) => flag.startsWith("nodejs"))).toEqual([]);
+  });
+
+  it("is off where the generator's code runs: no Node.js process under its wrangler.jsonc settings", async () => {
+    expect(await (await server.getWorker("generator-probe").fetch("http://probe.localhost/process")).text()).toBe("undefined");
+  });
 });
