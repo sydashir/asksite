@@ -279,18 +279,20 @@ describe.each(Object.keys(ENGINES) as Array<keyof typeof ENGINES>)("Classic's ca
     expect((await brandOffsets(".brand{text-box:normal!important}")).join("\n")).toMatch(/^sturdy /m);
   }, 120_000);
 
+  const photos = plumber.facts.photos ?? [];
+
   /** For 1-6 photos on a phone, the positions (1-based) of the prints that span the whole row. */
   async function widePrints(css = ""): Promise<Record<number, number[]>> {
     const wide: Record<number, number[]> = {};
-    for (let count = 1; count <= plumber.facts.photos.length; count++) {
-      await open(refined({ ...plumber, facts: { ...plumber.facts, photos: plumber.facts.photos.slice(0, count) } }), 390, css);
+    for (let count = 1; count <= photos.length; count++) {
+      await open(refined({ ...plumber, facts: { ...plumber.facts, photos: photos.slice(0, count) } }), 390, css);
       wide[count] = (await page.evaluate(WIDE_PRINTS)) as number[];
     }
     return wide;
   }
 
   it("sets the phone gallery in pairs, with the first print alone only when the count is odd (the approved mockup)", async () => {
-    expect(plumber.facts.photos.length).toBe(6);
+    expect(photos.length).toBe(6);
     expect(await widePrints()).toEqual({ 1: [1], 2: [], 3: [1], 4: [], 5: [1], 6: [] });
   }, 60_000);
 
