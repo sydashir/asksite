@@ -540,12 +540,15 @@ describe("runGenerationJob", () => {
   // Task 9 follow-up item 8 (task-9-additions B and C): the job gives the model slot back only when it knows that no call
   // was sent. A configuration value whose read throws proves that rule wherever the throw lands; it is not a production
   // path (the runtime's env holds plain values). The regeneration gets three invalid answers, so every attempt sends a call.
+  // Task 10 follow-up 2 item 1: the job reads each key once, before any call (job.ts callModel). A read-1 row shows that
+  // its read threw (no call, the slot goes back). A read-2 row shows that the read never comes: the key is read exactly
+  // once and the three calls keep the slot, so a read after the calls fails it even where the slot would be kept anyway.
   it.each([
-    ["MODEL_PROVIDER", 1],
-    ["MODEL_PROVIDER", 2],
-    ["MODEL_ID", 1],
-    ["MODEL_ID", 2],
-  ] as const)("gives the model slot back only when no call was sent, even when reading %s throws on read %i", async (key, failingRead) => {
+    ["MODEL_PROVIDER", 1, 0, "the read throws before any call"],
+    ["MODEL_PROVIDER", 2, 3, "read once, before any call, so that read never comes"],
+    ["MODEL_ID", 1, 0, "the read throws before any call"],
+    ["MODEL_ID", 2, 3, "read once, before any call, so that read never comes"],
+  ] as const)("gives the model slot back only when no call was sent, with reading %s set to throw on read %i (%i calls: %s)", async (key, failingRead, calls, _why) => {
     await queued("r", "regenerate");
     const provider = scriptedProvider([answer({}), answer({}), answer({})]);
     const env = envWith();
@@ -560,7 +563,10 @@ describe("runGenerationJob", () => {
     });
     await runGenerationJob(env, "r", deps(provider));
     const sent = provider.requests.length;
+    expect(sent, "calls sent").toBe(calls);
     expect((await getGeneration(db, "r")).model_slot, `${sent} calls sent`).toBe(sent > 0 ? 1 : 0);
+    if (failingRead === 1) expect(reads, `reads of ${key}`).toBeGreaterThanOrEqual(failingRead);
+    else expect(reads, `reads of ${key}`).toBe(1);
   });
 
   it("gives the model slot back when our own code throws before any call: nothing was sent, so the cost is known", async () => {
