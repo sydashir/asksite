@@ -1,5 +1,6 @@
 import type { Mailer } from "@asksite/app-common";
 import {
+  designForTrade,
   formActionUrl,
   newId,
   sha256Hex,
@@ -16,7 +17,7 @@ import {
   siteUrl,
 } from "@asksite/core";
 import { render } from "@asksite/renderer";
-import { SITE_CSS } from "@asksite/site-css";
+import { DESIGN_CSS } from "@asksite/site-css";
 import { factSections, SECTION_VARIANTS, type Facts, type LayoutSection, type SectionId } from "@asksite/site-schema";
 import type { AppDeps, GenerationDeps, MailerEnv, PublishErrorCode, PublishingDeps, RequestGenerationResult } from "../../src/worker/deps.ts";
 import { FAKE_PUBLISH_CAP } from "./limits.ts";
@@ -35,7 +36,10 @@ const TRADE_WORD: Record<Facts["trade"], string> = {
   landscaping: "Landscaping",
 };
 
-/** A draft that passes SiteDocument for any valid facts: no claims, no numbers, every fact section listed. */
+/**
+ * A draft that passes SiteDocument for any valid facts: no claims, no numbers, every fact section listed. Like
+ * every stored draft, it starts on its trade's design (A12, user decision 2026-09-26).
+ */
 export function fakeAiDraft(facts: Facts): AiDraft {
   const sections: SectionId[] = ["hero", ...factSections(facts).filter((id) => id !== "contact"), "about", "faq", "contact"];
   const layout = sections.map((id) => ({ id, variant: SECTION_VARIANTS[id][0] }) as LayoutSection);
@@ -50,7 +54,7 @@ export function fakeAiDraft(facts: Facts): AiDraft {
       faq: [{ question: "Do you clean up after the job?", answer: "Yes. We leave your home as tidy as we found it." }],
     },
     layout,
-    theme: { palette: "navy-orange", font: "clean" },
+    theme: { palette: "navy-orange", font: "clean", design: designForTrade(facts.trade) },
   };
 }
 
@@ -166,10 +170,10 @@ export const fakePublishing: PublishingDeps = {
     const dayStart = input.now - (input.now % 86_400_000);
     const today = await env.DB.prepare("SELECT COUNT(*) AS n FROM site_versions WHERE site_id = ? AND requested_at >= ?").bind(input.siteId, dayStart).first<{ n: number }>();
     if ((today?.n ?? 0) >= FAKE_PUBLISH_CAP) throw new FakePublishError("publish_cap_reached", { retryAfter: Math.ceil((dayStart + 86_400_000 - input.now) / 1000) });
-    const html = render(input.document, { stylesheet: SITE_CSS, formAction: formActionUrl(env.ROOT_DOMAIN, input.slug, input.siteId) });
+    const page = render(input.document, { stylesheets: DESIGN_CSS, formAction: formActionUrl(env.ROOT_DOMAIN, input.slug, input.siteId) });
     const id = newId();
-    const htmlSha256 = await sha256Hex(html);
-    await env.WORK.put(versionKey(input.siteId, id), html, {
+    const htmlSha256 = await sha256Hex(page.html);
+    await env.WORK.put(versionKey(input.siteId, id), page.html, {
       httpMetadata: { contentType: "text/html; charset=utf-8" },
       customMetadata: { siteId: input.siteId, versionId: id, sha256: htmlSha256 },
     });
@@ -183,7 +187,7 @@ export const fakePublishing: PublishingDeps = {
            html_key, html_sha256, stylesheet_sha256, requested_by, requested_at)
          VALUES (?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).bind(id, input.siteId, number, documentJson, await sha256Hex(documentJson), JSON.stringify(input.edits), input.generationId,
-        versionKey(input.siteId, id), htmlSha256, await sha256Hex(SITE_CSS), input.ownerId, input.now),
+        versionKey(input.siteId, id), htmlSha256, page.stylesheetSha256, input.ownerId, input.now),
       env.DB.prepare("UPDATE sites SET pending_version_id = ?, updated_at = ? WHERE id = ?").bind(id, input.now, input.siteId),
       audit(env.DB, input.now, `owner:${input.ownerId}`, "version.requested", input.siteId, { versionId: id }),
     ]);
