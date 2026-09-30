@@ -86,6 +86,30 @@ describe("Send sign-in link (A11b item 2)", () => {
     expect((await auditRows("admin.login_link_sent")).filter((a) => a.detail_json.includes(site.ownerId))).toEqual([]);
   });
 
+  // The two checks overlap on purpose, so each has its own test that the other cannot pass for it.
+  it("refuses a disabled owner before anything is started: no waitUntil, however the token insert would answer (the read check alone)", async () => {
+    const site = await h.pendingSite();
+    await h.call("POST", `/api/admin/owners/${site.ownerId}/disable`, { body: { reason: "Abuse" } });
+    const path = `/api/admin/owners/${site.ownerId}/sign-in-link`;
+    const before = await h.waitUntilCount(path);
+    expect((await h.call("POST", path, { body: {} })).status).toBe(403);
+    expect(await h.waitUntilCount(path)).toBe(before);
+  });
+
+  it("refuses an owner who is disabled after the route read them, at the token insert: no token, no email, no audit row (the insert condition alone)", async () => {
+    const site = await h.pendingSite();
+    const path = `/api/admin/owners/${site.ownerId}/sign-in-link`;
+    const res = await h.call("POST", path, { body: {}, headers: { "X-Test-Disable-Owner-Before-Token": site.ownerId } });
+    expect(res.status).toBe(403);
+    expect(((await res.json()) as { error: { code: string } }).error.code).toBe("owner_disabled");
+    await h.backgroundDone(path);
+    // The owner really was disabled in between (the seam ran), and still nothing was made for them.
+    expect((await (await h.db()).prepare("SELECT disabled_at FROM owners WHERE id = ?").bind(site.ownerId).first<{ disabled_at: number | null }>())?.disabled_at).not.toBeNull();
+    expect(await tokenCount(site.ownerId)).toBe(0);
+    expect((await (await h.db()).prepare("SELECT COUNT(*) AS n FROM dev_outbox WHERE to_addr = ?").bind(site.email).first<{ n: number }>())?.n).toBe(0);
+    expect((await auditRows("admin.login_link_sent")).filter((a) => a.detail_json.includes(site.ownerId))).toEqual([]);
+  });
+
   it("answers 404 for an unknown owner and writes nothing", async () => {
     const unknown = newId();
     expect((await h.call("POST", `/api/admin/owners/${unknown}/sign-in-link`, { body: {} })).status).toBe(404);

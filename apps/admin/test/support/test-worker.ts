@@ -110,11 +110,51 @@ helpers.get("/__test/runtime", async (c) => c.json({ process: typeof process, no
  */
 helpers.get("/__test/wait-until", (c) => c.json(waitUntilSeen.get(c.req.query("path") ?? "") ?? { count: 0, pending: 0 }));
 
+/**
+ * A race seam for the sign-in link: the owner is disabled by a second admin at the moment the token is about to be
+ * written, after the route has read the owner. The wrapped D1 runs that disable first, in the same place the race
+ * would, so only the INSERT's own "not disabled" condition can refuse the link. Every other call passes through.
+ */
+function disablingBeforeTokenInsert(db: D1Database, ownerId: string): D1Database {
+  const wrapBound = (bound: D1PreparedStatement): D1PreparedStatement =>
+    new Proxy(bound, {
+      get(target, key) {
+        if (key === "run") {
+          return async () => {
+            await db.prepare("UPDATE owners SET disabled_at = ?, disabled_reason = 'raced' WHERE id = ?").bind(Date.now(), ownerId).run();
+            return target.run();
+          };
+        }
+        const value: unknown = Reflect.get(target, key);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+  const wrapStatement = (statement: D1PreparedStatement): D1PreparedStatement =>
+    new Proxy(statement, {
+      get(target, key) {
+        if (key === "bind") return (...values: unknown[]) => wrapBound(target.bind(...values));
+        const value: unknown = Reflect.get(target, key);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+  return new Proxy(db, {
+    get(target, key) {
+      if (key === "prepare") return (sql: string) => (sql.startsWith("INSERT INTO login_tokens") ? wrapStatement(target.prepare(sql)) : target.prepare(sql));
+      const value: unknown = Reflect.get(target, key);
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
+}
+
 export default {
   fetch(request, env, ctx) {
     const path = new URL(request.url).pathname;
     if (path.startsWith("/__test/")) return helpers.fetch(request, env, ctx);
+    const local = isLocalTest(request, env);
+    // X-Test-Disable-Owner-Before-Token: <owner id> runs the race seam above for this request only.
+    const raced = local ? request.headers.get("X-Test-Disable-Owner-Before-Token") : null;
+    const requestEnv = raced === null ? env : { ...env, DB: disablingBeforeTokenInsert(env.DB, raced) };
     // X-Test-Now pins Date.now() while the Worker handles this request (./clock.ts).
-    return withClock(request, isLocalTest(request, env), async () => worker.fetch!(request, env, counting(ctx, path)));
+    return withClock(request, local, async () => worker.fetch!(request, requestEnv, counting(ctx, path)));
   },
 } satisfies ExportedHandler<TestEnv>;
