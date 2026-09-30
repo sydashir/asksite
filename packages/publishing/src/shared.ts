@@ -7,14 +7,17 @@ export type AuditAction = (typeof AUDIT_ACTIONS)[number];
 export const HTML_TYPE = "text/html; charset=utf-8";
 
 /**
- * The business phone that goes into the LIVE object's customMetadata with siteId, versionId and sha256
- * (A15): the sites Worker prints it on its "Please call instead" page from the LIVE.head it already makes.
- * Taken from the approved document's facts, so it is already public on the page: the text the page shows
- * and the E.164 number its tel: links call.
+ * What the sites Worker's fixed pages say about the business, stored in the LIVE object's customMetadata
+ * with siteId, versionId and sha256: the phone for its "Please call instead" pages (A15), the name for its
+ * thank-you and 404 pages (QA-2 RU(2), RU(3)). The Worker reads them from the LIVE.head it makes, and
+ * escapes them. Taken from the approved document's facts, so all are already public on the page: the name
+ * as written, and the phone as the text the page shows and the E.164 number its tel: links call.
+ * With the ids and the hash the metadata stays under 400 bytes (a name is at most 60 UTF-16 units, so at
+ * most 180 UTF-8 bytes), far under R2's 8,192 bytes for all custom metadata.
  */
-export function livePhoneMetadata(documentJson: string): { phoneText: string; phoneTel: string } {
+export function liveMetadata(documentJson: string): { businessName: string; phoneText: string; phoneTel: string } {
   const { facts } = JSON.parse(documentJson) as SiteDocument;
-  return { phoneText: formatPhone(facts.phone), phoneTel: facts.phone };
+  return { businessName: facts.businessName, phoneText: formatPhone(facts.phone), phoneTel: facts.phone };
 }
 
 /**

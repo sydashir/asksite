@@ -1,6 +1,6 @@
 import { canonicalJson, liveKey, siteUrl } from "@asksite/core";
 import { PublishError } from "./errors.ts";
-import { type AuditAction, auditIfChanged, HTML_TYPE, livePhoneMetadata, verifiedVersionBytes } from "./shared.ts";
+import { type AuditAction, auditIfChanged, HTML_TYPE, liveMetadata, verifiedVersionBytes } from "./shared.ts";
 
 /**
  * The admin's Take down. The D1 batch alone stops the page and its photos being served (the sites
@@ -88,7 +88,7 @@ export async function restore(
 
   const bytes = await verifiedVersionBytes(env.WORK, key, sha256);
   if (bytes === null) throw new PublishError("integrity", { reason: "stored_bytes_mismatch" });
-  await env.LIVE.put(liveKey(slug), bytes, { httpMetadata: { contentType: HTML_TYPE }, customMetadata: { siteId, versionId, sha256, ...livePhoneMetadata(documentJson) } });
+  await env.LIVE.put(liveKey(slug), bytes, { httpMetadata: { contentType: HTML_TYPE }, customMetadata: { siteId, versionId, sha256, ...liveMetadata(documentJson) } });
 
   await db.batch([
     db.prepare("UPDATE sites SET taken_down_at = NULL, takedown_reason = NULL, updated_at = ? WHERE id = ? AND taken_down_at IS NOT NULL").bind(now, siteId),

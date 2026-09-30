@@ -226,6 +226,7 @@ describe("what takedown, restore and the search switch change and record (design
     expect(live?.httpMetadata?.contentType).toBe("text/html; charset=utf-8");
     expect(live?.customMetadata).toEqual({
       siteId: s.siteId, versionId: s.liveVersionId, sha256: (await versionRow(env.DB, s.liveVersionId))?.html_sha256,
+      businessName: "Reliable Rooter Plumbing", // QA-2 RU(2): the live document's business name (plumber-austin)
       phoneText: "(512) 555-0142", phoneTel: "+15125550142", // A15: the live document's business phone (plumber-austin)
     });
   });

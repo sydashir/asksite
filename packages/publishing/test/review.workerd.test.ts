@@ -36,8 +36,9 @@ describe("approveVersion", () => {
     expect(live?.httpMetadata?.contentType).toBe("text/html; charset=utf-8");
     // A15: the business phone of the approved document (plumber-austin: +15125550142), for the sites
     // Worker's "Please call instead" page: the text the page shows and the number its tel: links call.
+    // QA-2 RU(2): and its business name, for the thank-you and 404 pages.
     expect(live?.customMetadata).toEqual({
-      siteId: p.siteId, versionId: p.versionId, sha256: p.htmlSha256, phoneText: "(512) 555-0142", phoneTel: "+15125550142",
+      siteId: p.siteId, versionId: p.versionId, sha256: p.htmlSha256, businessName: "Reliable Rooter Plumbing", phoneText: "(512) 555-0142", phoneTel: "+15125550142",
     });
     expect(await sha256Hex(String(work))).toBe(p.htmlSha256);
 
@@ -97,9 +98,26 @@ describe("approveVersion", () => {
     const secondSha = String((await versionRow(env.DB, second.id))?.html_sha256);
     await approve(second.id, secondSha, { now: 41 });
     expect((await failure(approve(p.versionId, p.htmlSha256, { now: 42 }))).code).toBe("version_not_pending");
-    // The phone follows the live document too (hvac-phoenix: +16025550118).
-    expect((await env.LIVE.get(liveKey(p.slug)))?.customMetadata).toMatchObject({ versionId: second.id, phoneText: "(602) 555-0118", phoneTel: "+16025550118" });
+    // The name and phone follow the live document too (hvac-phoenix: +16025550118).
+    expect((await env.LIVE.get(liveKey(p.slug)))?.customMetadata).toMatchObject({
+      versionId: second.id, businessName: "Desert Air Heating & Cooling", phoneText: "(602) 555-0118", phoneTel: "+16025550118",
+    });
     expect((await versionRow(env.DB, p.versionId))?.status).toBe("approved");
+  });
+});
+
+// QA-2 RU(2): the name goes into the metadata exactly as the page shows it; the sites Worker escapes it.
+// The R2 Workers API takes Unicode metadata values as they are (developers.cloudflare.com/r2/api/s3/extensions/).
+describe("approveVersion: the business name in the LIVE metadata", () => {
+  it.each([
+    ["accents, an emoji and markup characters", `Café Niño 🔧 <b>"Sons"</b> & Co.`],
+    ["the XSS fixture's name", "<img src=x onerror=alert(1)>"],
+  ])("stores a name with %s unchanged", async (_, businessName) => {
+    const document = doc();
+    document.facts.businessName = businessName;
+    const p = await pending(document);
+    await approve(p.versionId, p.htmlSha256);
+    expect((await env.LIVE.head(liveKey(p.slug)))?.customMetadata?.["businessName"]).toBe(businessName);
   });
 });
 
