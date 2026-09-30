@@ -74,4 +74,18 @@ describe("AutoSaver", () => {
     expect(sent.at(-1)).toEqual({ rev: 1, patch: { facts: { a: 1 }, brief: { b: 2 } } });
     expect(states.at(-1)).toMatchObject({ status: "saved", rev: 2 });
   });
+
+  it("after a failed save, what was typed meanwhile wins over the failed value for the same key", async () => {
+    let release!: (r: SaveResult) => void;
+    let calls = 0;
+    const { saver, sent } = setup((rev) => (++calls === 1 ? new Promise<SaveResult>((r) => (release = r)) : { ok: true, rev: rev + 1, issues: NO_ISSUES }));
+    saver.change({ facts: { businessName: "Old name" } });
+    await vi.advanceTimersByTimeAsync(800);
+    expect(sent).toHaveLength(1);
+    saver.change({ facts: { businessName: "Newer name" } });
+    release({ ok: false, conflict: false, message: "offline" });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(await saver.flush()).toBe(true);
+    expect(sent.at(-1)).toEqual({ rev: 1, patch: { facts: { businessName: "Newer name" } } });
+  });
 });
