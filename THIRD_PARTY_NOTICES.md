@@ -131,6 +131,13 @@ authorization of the copyright holder.
   (`resources/beta/webhooks.mjs`).
 - Licence: its package.json says "MIT"; the npm tarball has no LICENSE file; the repository's root LICENSE is
   Apache-2.0; `libraries/javascript` has no LICENSE, and its package.json says MIT.
+- Copyright, from `libraries/LICENSE` (MIT) at commit a7d19b4574ae62221042e76240648d0688a8c420, where
+  `libraries/javascript/package.json` is version 1.1.1
+  (https://raw.githubusercontent.com/standard-webhooks/standard-webhooks/a7d19b4574ae62221042e76240648d0688a8c420/libraries/LICENSE):
+
+```
+Copyright (c) 2023 Svix (https://www.svix.com)
+```
 
 ## Bundled into the generator Worker
 
