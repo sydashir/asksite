@@ -51,16 +51,41 @@ export const fakeAdminPublishing: AdminPublishingDeps = {
   async takeDown(env, input) {
     const site = await env.DB.prepare("SELECT slug, pending_version_id FROM sites WHERE id = ?").bind(input.siteId).first<{ slug: string | null; pending_version_id: string | null }>();
     if (site === null) throw new FakePublishError("site_not_found");
-    await env.DB.batch([
+    // As Plan 2 (main 1f7e86c, site-state.ts): the UPDATE only takes the site down while it is up, so the first reason is kept,
+    // and the audit row is written only when that UPDATE changed a row (auditIfChanged, WHERE changes() = 1).
+    const [, takenDown] = await env.DB.batch([
       env.DB.prepare("UPDATE site_versions SET status = 'rejected', review_note = 'Site taken down' WHERE site_id = ? AND status = 'pending'").bind(input.siteId),
-      env.DB.prepare("UPDATE sites SET taken_down_at = COALESCE(taken_down_at, ?), takedown_reason = ?, pending_version_id = NULL WHERE id = ?").bind(input.now, input.reason, input.siteId),
-      audit(env.DB, input.now, input.reviewer, "site.taken_down", input.siteId, { reason: input.reason, purgeMedia: input.purgeMedia }),
+      env.DB.prepare("UPDATE sites SET taken_down_at = ?, takedown_reason = ?, pending_version_id = NULL WHERE id = ? AND taken_down_at IS NULL").bind(input.now, input.reason, input.siteId),
+      env.DB.prepare("INSERT INTO audit_log (at, actor, action, site_id, detail_json) SELECT ?, ?, ?, ?, ? WHERE changes() = 1").bind(
+        input.now,
+        `admin:${input.reviewer}`,
+        "site.taken_down",
+        input.siteId,
+        JSON.stringify({ reason: input.reason, purgeMedia: input.purgeMedia }),
+      ),
     ]);
     if (site?.slug) await env.LIVE.delete(liveKey(site.slug));
     if (input.purgeMedia) {
       const listed = await env.MEDIA.list({ prefix: `${input.siteId}/` });
       await Promise.all(listed.objects.map((o) => env.MEDIA.delete(o.key)));
-      await env.DB.prepare("UPDATE uploads SET deleted_at = COALESCE(deleted_at, ?) WHERE site_id = ?").bind(input.now, input.siteId).run();
+      const markDeleted = env.DB.prepare("UPDATE uploads SET deleted_at = ? WHERE site_id = ? AND deleted_at IS NULL").bind(input.now, input.siteId);
+      // A later call's purge gets its own row, only when it marked an upload or deleted an object (Plan 2's auditLaterPurge).
+      const firstCall = takenDown?.meta.changes === 1;
+      await env.DB.batch(
+        firstCall
+          ? [markDeleted]
+          : [
+              markDeleted,
+              env.DB.prepare("INSERT INTO audit_log (at, actor, action, site_id, detail_json) SELECT ?, ?, ?, ?, ? WHERE changes() > 0 OR ? > 0").bind(
+                input.now,
+                `admin:${input.reviewer}`,
+                "site.taken_down",
+                input.siteId,
+                JSON.stringify({ reason: input.reason, purgeMedia: true, repeat: true }),
+                listed.objects.length,
+              ),
+            ],
+      );
     }
   },
   async restore(env, input) {
