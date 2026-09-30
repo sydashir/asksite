@@ -40,10 +40,11 @@ function counting(ctx: ExecutionContext, path: string): ExecutionContext {
 }
 
 /**
- * A step of an upload whose result the test Worker can note: the transform's .output(), an uploads INSERT, the
- * MEDIA.put of the photo, or the uploads DELETE that removes a row again when its photo cannot be stored.
+ * A step of an upload whose result the test Worker can note: the transform's .output(), an uploads INSERT (the
+ * reservation), the MEDIA.put of the photo, the UPDATE of the upload's own row (the photo finished, or the
+ * transform counted as failed), or the uploads DELETE that releases the row after a failure that is ours (P4-21).
  */
-type StepName = "output" | "insert" | "put" | "delete";
+type StepName = "output" | "insert" | "put" | "update" | "delete";
 
 /**
  * Per watched path: each step as its result came back, with how many waitUntil promises the path's requests had
@@ -127,6 +128,29 @@ async function takeLastUploadSlots(db: D1Database): Promise<void> {
 }
 
 /**
+ * Sites whose upload reservation is lost just before a request's next write of its own uploads row (the UPDATE that
+ * finishes it or marks it failed, or the DELETE that releases it), as it would be while the request outlived the 10
+ * minutes: "aged_out" is the age-out that turns it into a counted failure, "purged" is a takedown's media purge
+ * (Plan 2 takeDown's own statement, which leaves it reserved).
+ */
+const loseReservationBeforeRowWrite = new Map<string, "aged_out" | "purged">();
+
+async function loseReservations(db: D1Database): Promise<void> {
+  const sites = [...loseReservationBeforeRowWrite];
+  loseReservationBeforeRowWrite.clear();
+  for (const [siteId, how] of sites) {
+    const sql =
+      how === "aged_out"
+        ? "UPDATE uploads SET deleted_at = ?, reserved_at = NULL WHERE site_id = ? AND reserved_at IS NOT NULL"
+        : "UPDATE uploads SET deleted_at = ? WHERE site_id = ? AND deleted_at IS NULL";
+    await db.prepare(sql).bind(Date.now(), siteId).run();
+  }
+}
+
+/** Whether the SQL is an UPDATE of one upload's own row (`WHERE id = ?1`), not of a site's uploads. */
+const isOwnUploadUpdate = (sql: string): boolean => /^UPDATE uploads SET\b[\s\S]*\bWHERE id = \?1\b/.test(sql.trimStart());
+
+/**
  * Sites where another tab's save lands right after a request's next write to the site commits (a run() of an
  * UPDATE of sites, or a batch that holds one): the given facts and slug, and rev one higher, as that save would.
  */
@@ -179,11 +203,22 @@ function aroundRun(statement: D1PreparedStatement, around: Around): D1PreparedSt
 /**
  * The Worker's env for a request to `path`, with a D1 binding that runs the armed hooks: around a route's batch(),
  * disable owners before it and store twins after it; before an uploads INSERT, take the site's last upload slot,
- * and after it, and after an uploads DELETE, note the step if the path is watched; after a write to a site, commit
- * another tab's save of it; and record each statement's SQL text if the path is recorded.
+ * and before an UPDATE of an upload's own row or an uploads DELETE, lose the site's reservation; after any of them,
+ * note the step if the path is watched; after a write to a site, commit another tab's save of it; and record each
+ * statement's SQL text if the path is recorded.
  */
 function withD1Hooks(env: Env, path: string): Env {
-  if (disableBeforeBatch.size === 0 && twinAfterBatch.size === 0 && takeSlotBeforeUploadInsert.size === 0 && saveAfterSiteWrite.size === 0 && !stepsOf.has(path) && !sqlOf.has(path)) return env;
+  if (
+    disableBeforeBatch.size === 0 &&
+    twinAfterBatch.size === 0 &&
+    takeSlotBeforeUploadInsert.size === 0 &&
+    loseReservationBeforeRowWrite.size === 0 &&
+    saveAfterSiteWrite.size === 0 &&
+    !stepsOf.has(path) &&
+    !sqlOf.has(path)
+  ) {
+    return env;
+  }
   const DB = new Proxy(env.DB, {
     get(target, key) {
       if (key === "prepare") {
@@ -193,7 +228,12 @@ function withD1Hooks(env: Env, path: string): Env {
           if (sql.trimStart().startsWith("INSERT INTO uploads") && (takeSlotBeforeUploadInsert.size > 0 || stepsOf.has(path))) {
             return aroundRun(statement, { before: () => takeLastUploadSlots(target), after: async () => noteStep(path, "insert") });
           }
-          if (sql.trimStart().startsWith("DELETE FROM uploads") && stepsOf.has(path)) return aroundRun(statement, { after: async () => noteStep(path, "delete") });
+          if (isOwnUploadUpdate(sql) && (loseReservationBeforeRowWrite.size > 0 || stepsOf.has(path))) {
+            return aroundRun(statement, { before: () => loseReservations(target), after: async () => noteStep(path, "update") });
+          }
+          if (sql.trimStart().startsWith("DELETE FROM uploads") && (loseReservationBeforeRowWrite.size > 0 || stepsOf.has(path))) {
+            return aroundRun(statement, { before: () => loseReservations(target), after: async () => noteStep(path, "delete") });
+          }
           if (saveAfterSiteWrite.size > 0 && sql.trimStart().startsWith("UPDATE sites ")) return aroundRun(statement, { after: () => saveOtherTabs(target) });
           return statement;
         };
@@ -233,14 +273,17 @@ const imagesCalls: ImagesCall[] = [];
 type ImagesStep = "info" | "output";
 
 /**
- * When set, the next call of that step fails instead of doing its work: with an ImagesError of this code (the
- * shape workerd's binding throws: an Error with a numeric `code`), or with a TypeError when the code is null.
+ * When set, the nth next call of that step fails instead of doing its work (the calls before it do theirs): with an
+ * ImagesError of this code (the shape workerd's binding throws: an Error with a numeric `code`), or with a TypeError
+ * when the code is null. An upload's first .info() measures the photo; its second measures the transform's WebP.
  */
-let nextImagesFailure: { step: ImagesStep; code: number | null } | undefined;
+let nextImagesFailure: { step: ImagesStep; code: number | null; callsLeft: number } | undefined;
 
-/** The armed failure for this step, if any, disarming it. */
+/** The armed failure for this step, if this call is the one it names, disarming it. */
 function takeImagesFailure(step: ImagesStep): Error | undefined {
   if (nextImagesFailure?.step !== step) return undefined;
+  nextImagesFailure.callsLeft -= 1;
+  if (nextImagesFailure.callsLeft > 0) return undefined;
   const { code } = nextImagesFailure;
   nextImagesFailure = undefined;
   return code === null ? new TypeError("Network connection lost.") : Object.assign(new Error(`IMAGES_${step}_ERROR ${code}: made by the test Worker`), { code });
@@ -356,6 +399,13 @@ helpers.post("/__test/take-last-upload-slot", async (c) => {
   return c.json({ ok: true });
 });
 
+/** Arms the hook above for one site: just before the next write of an upload's own row of any request, the site's reservation is lost. */
+helpers.post("/__test/lose-upload-reservation", async (c) => {
+  const { siteId, how } = await c.req.json<{ siteId: string; how: "aged_out" | "purged" }>();
+  loseReservationBeforeRowWrite.set(siteId, how);
+  return c.json({ ok: true });
+});
+
 /** Arms the hook above for one site: right after the next write to it of any request, another tab's save of it is committed. */
 helpers.post("/__test/save-after-site-write", async (c) => {
   const { siteId, facts, slug } = await c.req.json<{ siteId: string; facts?: unknown; slug?: string }>();
@@ -396,10 +446,10 @@ helpers.get("/__test/siteverify", (c) => c.json(siteverifyCallsSoFar()));
 /** What the Worker has asked of IMAGES so far, oldest first (see imagesCalls). */
 helpers.get("/__test/images-calls", (c) => c.json(imagesCalls));
 
-/** Arms the hook above: the next IMAGES .info() or .output() of any request fails with this code (null: a TypeError). */
+/** Arms the hook above: the nth (default: the first) next IMAGES .info() or .output() of any request fails with this code (null: a TypeError). */
 helpers.post("/__test/images-fails", async (c) => {
-  const { step, code } = await c.req.json<{ step: ImagesStep; code: number | null }>();
-  nextImagesFailure = { step, code };
+  const { step, code, nth } = await c.req.json<{ step: ImagesStep; code: number | null; nth?: number }>();
+  nextImagesFailure = { step, code, callsLeft: nth ?? 1 };
   return c.json({ ok: true });
 });
 
@@ -423,7 +473,7 @@ helpers.post("/__test/media-put-fails", (c) => {
  */
 helpers.get("/__test/wait-until", (c) => c.json(waitUntilSeen.get(c.req.query("path") ?? "") ?? { count: 0, pending: 0 }));
 
-/** Arms the step notes above for one path: from now on, its requests note each .output(), uploads INSERT, MEDIA.put and uploads DELETE as its result comes back. */
+/** Arms the step notes above for one path: from now on, its requests note each .output(), uploads INSERT, MEDIA.put, UPDATE of an upload's own row and uploads DELETE as its result comes back. */
 helpers.post("/__test/watch-steps", async (c) => {
   const { path } = await c.req.json<{ path: string }>();
   stepsOf.set(path, []);

@@ -6,6 +6,7 @@ import { imageInfo, sizeProblem, sniffImage, toStillWebp } from "../images.ts";
 import { multipartBoundary, multipartShapeProblem } from "../multipart.ts";
 import { requireOwner } from "../session.ts";
 import type { AppEnv } from "../types.ts";
+import { ageOutSiteReservations, finishPhoto, markFailed, release, reserve } from "../upload-reservations.ts";
 
 // The multipart wrapper (boundaries and part headers) around one 10 MB file.
 const MULTIPART_OVERHEAD_BYTES = 16 * 1024;
@@ -47,78 +48,85 @@ async function readForm(c: Context<AppEnv>, contentType: string, body: Uint8Arra
   }
 }
 
-async function underCaps(db: D1Database, siteId: string): Promise<boolean> {
-  const counts = await db
-    .prepare("SELECT COUNT(*) AS total, COUNT(*) FILTER (WHERE deleted_at IS NULL) AS kept FROM uploads WHERE site_id = ?")
-    .bind(siteId)
-    .first<{ total: number; kept: number }>();
-  return counts !== null && counts.kept < LIMITS.uploadsPerSite && counts.total < LIMITS.uploadsPerSiteTotal;
+/**
+ * The pre-check: whether both caps have room. Its batch (one transaction) first ages out the site's stale
+ * reservations (P4-21), so one a request that died left behind holds a slot for at most 10 minutes; a live
+ * reservation counts as kept, as it does in the INSERT that reserves.
+ */
+async function underCaps(db: D1Database, siteId: string, now: number): Promise<boolean> {
+  const [, read] = await db.batch([
+    ageOutSiteReservations(db, siteId, now),
+    db.prepare("SELECT COUNT(*) AS total, COUNT(*) FILTER (WHERE deleted_at IS NULL) AS kept FROM uploads WHERE site_id = ?").bind(siteId),
+  ]);
+  const counts = read?.results[0] as { total: number; kept: number } | undefined;
+  return counts !== undefined && counts.kept < LIMITS.uploadsPerSite && counts.total < LIMITS.uploadsPerSiteTotal;
 }
 
-/** One uploads row to create: a stored photo (deletedAt null) or a counted transform failure (deleted at once). */
-interface UploadRowValues {
+/** A stored photo's row, as the answer shows it. */
+interface StoredPhoto {
   id: string;
-  siteId: string;
   width: number;
   height: number;
   bytes: number;
   createdAt: number;
-  deletedAt: number | null;
-}
-
-/** The exact caps: the row is created only while both counts are under their limits. False when it was not. */
-async function insertUnderCaps(db: D1Database, row: UploadRowValues): Promise<boolean> {
-  const inserted = await db
-    .prepare(
-      `INSERT INTO uploads (id, site_id, width, height, bytes, created_at, deleted_at)
-       SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7
-       WHERE (SELECT COUNT(*) FROM uploads WHERE site_id = ?2 AND deleted_at IS NULL) < ?8
-         AND (SELECT COUNT(*) FROM uploads WHERE site_id = ?2) < ?9`,
-    )
-    .bind(row.id, row.siteId, row.width, row.height, row.bytes, row.createdAt, row.deletedAt, LIMITS.uploadsPerSite, LIMITS.uploadsPerSiteTotal)
-    .run();
-  return inserted.meta.changes === 1;
 }
 
 /**
- * Stores a re-encoded photo: its row under the exact caps, then its object in MEDIA; when the object cannot be
- * stored, the row is removed again. False when the caps refused the row, and then nothing is stored.
+ * Runs a clean-up write after a failure without letting its own failure replace that one. A reservation it could not
+ * change stays reserved, counted by both caps, until it is aged out into a counted failure: the fail-safe direction.
  */
-async function storeUpload(env: Env, row: UploadRowValues, webp: Uint8Array): Promise<boolean> {
-  if (!(await insertUnderCaps(env.DB, row))) return false;
+async function cleanUp(write: Promise<unknown>): Promise<void> {
   try {
-    await env.MEDIA.put(mediaKey(row.siteId, row.id), webp, {
-      httpMetadata: { contentType: "image/webp" },
-      customMetadata: { siteId: row.siteId, uploadId: row.id },
-    });
+    await write;
+  } catch {
+    // Nothing more to do: see above.
+  }
+}
+
+/**
+ * From the reservation to the row's final state (P4-21), which the route runs as one runToEnd (P4-15 follow-up 1).
+ * The INSERT that reserves the upload's row under both caps comes first, so only a request that got a reservation runs
+ * the billed transform (toStillWebp: its .output(), the read of its image and the free .info() of the result). Then
+ * the photo's object is stored and its row finished; or, when the transform gave no WebP to store, the reservation is
+ * marked as a counted failure; or, after a failure that is ours, it is released. Gives the stored photo; throws
+ * upload_limit_reached when the caps refuse the reservation (no billed call ran), and image_rejected once a failure
+ * is counted.
+ */
+async function reserveTransformAndStore(env: Env, siteId: string, bytes: Uint8Array): Promise<StoredPhoto> {
+  const id = newId();
+  const reservedAt = Date.now();
+  if (!(await reserve(env.DB, id, siteId, reservedAt))) throw limitReached();
+  let still: Awaited<ReturnType<typeof toStillWebp>>;
+  try {
+    still = await toStillWebp(env.IMAGES, bytes);
   } catch (err) {
-    await env.DB.prepare("DELETE FROM uploads WHERE id = ?").bind(row.id).run();
+    // A failure that does not blame the file (images.ts) is ours: the row is released, as P4-14 rules.
+    await cleanUp(release(env.DB, id));
     throw err;
   }
-  return true;
-}
-
-/**
- * From the first billed Images call to the row that counts it (P4-15 follow-up 1): the transform (toStillWebp: its
- * .output(), the read of its image and the free .info() of the result), then either the photo's row and object
- * (storeUpload) or, when the transform gave no WebP to store, the counted failure row. The route runs all of it as
- * one runToEnd. Gives the stored photo's row; throws image_rejected once a failure row is counted, and
- * upload_limit_reached when the caps refuse the row.
- */
-async function transformAndCount(env: Env, siteId: string, bytes: Uint8Array): Promise<UploadRowValues> {
-  const still = await toStillWebp(env.IMAGES, bytes);
-  const now = Date.now();
   if (still === null) {
-    // The transform ran and gave no WebP to store: the file made it fail, or it answered another format (P4-15 b).
-    // It is counted like an upload deleted at once (P4-14), in the runToEnd that ran the transform, so the 150 total
-    // cap bounds these too, within waitUntil's 30 s after a client disconnects (see the route's pre-check); the row
-    // has no object and is never shown.
-    const counted = await insertUnderCaps(env.DB, { id: newId(), siteId, width: 0, height: 0, bytes: 0, createdAt: now, deletedAt: now });
-    throw counted ? unreadablePhoto() : limitReached();
+    // The transform ran and gave no WebP to store: the file made it fail, it answered another format (P4-15 b), or
+    // its WebP could not be measured (P4-21 item 2). Counted like an upload deleted at once (P4-14): the 150 total cap
+    // bounds these too; the row has no object and is never shown.
+    await cleanUp(markFailed(env.DB, id, Date.now()));
+    throw unreadablePhoto();
   }
-  const row: UploadRowValues = { id: newId(), siteId, width: still.width, height: still.height, bytes: still.webp.byteLength, createdAt: now, deletedAt: null };
-  if (!(await storeUpload(env, row, still.webp))) throw limitReached();
-  return row;
+  const photo: StoredPhoto = { id, width: still.width, height: still.height, bytes: still.webp.byteLength, createdAt: reservedAt };
+  const key = mediaKey(siteId, id);
+  try {
+    // Before the row is finished, so a finished photo row never lacks its object.
+    await env.MEDIA.put(key, still.webp, { httpMetadata: { contentType: "image/webp" }, customMetadata: { siteId, uploadId: id } });
+  } catch (err) {
+    await cleanUp(release(env.DB, id));
+    throw err;
+  }
+  if (!(await finishPhoto(env.DB, id, photo))) {
+    // The reservation was lost meanwhile (aged out, or marked by a takedown's purge): its row is already a counted
+    // failure, so its object goes and the upload fails loud (DECIDED P4-21).
+    await cleanUp(env.MEDIA.delete(key));
+    throw new Error("upload reservation lost before the photo was stored");
+  }
+  return photo;
 }
 
 /** POST and DELETE /api/sites/:siteId/uploads (§4.4, §8). */
@@ -134,20 +142,10 @@ export function uploadRoutes(): Hono<AppEnv> {
     const site = await ownedSite(db, c.req.param("siteId"), owner.id);
     // A taken-down site is frozen: no image work and no storage for it (decision 39).
     assertNotTakenDown(site);
-    // Pre-check so a refused upload costs no image transformation. Past it, transformAndCount runs the transform and
-    // counts it in one runToEnd: a photo as its upload, and a transform that gives no WebP to store (the file made it
-    // fail, or the service answered another format) as an upload deleted at once (P4-14, P4-15 b); a transform whose
-    // failure does not blame the file (images.ts) leaves no row, nor does one whose photo MEDIA cannot store
-    // (storeUpload deletes its row again; should that DELETE fail too, the row stays and counts). So the 150 total cap
-    // bounds those counted transforms, within two accepted known limits:
-    // - after a client disconnects, waitUntil keeps the work going for at most 30 s ("waitUntil() can extend
-    //   execution for up to 30 seconds after the response is sent or the client disconnects",
-    //   developers.cloudflare.com/workers/platform/limits/), so a transform not yet counted by then may go
-    //   uncounted (Task 27 measures it);
-    // - uploads racing at a cap boundary (P4-13, security review I2) each pass this pre-check and each run a
-    //   transform, while the exact INSERT creates rows only up to the caps; past the boundary the pre-check refuses
-    //   before any transform.
-    if (!(await underCaps(db, site.id))) throw limitReached();
+    // Pre-check, before the body is read, so an upload the caps refuse costs no body read and no image work. It does
+    // not keep the caps exact: uploads whose bodies arrive late all pass it together (the attack P4-21 fixes). The
+    // INSERT that reserves the upload's row does, before any billed call (reserveTransformAndStore).
+    if (!(await underCaps(db, site.id, Date.now()))) throw limitReached();
 
     const body = await readBytes(c.req.raw, LIMITS.uploadMaxBytes + MULTIPART_OVERHEAD_BYTES);
     // Before the parse, which walks every part and every header byte (P4-15 d): a Content-Type other than the
@@ -174,17 +172,19 @@ export function uploadRoutes(): Hono<AppEnv> {
     if (problem === "too_many_pixels") throw new ApiError("image_rejected", "That photo is too large. Please choose a smaller one.");
 
     // The .info() above is not billed (developers.cloudflare.com/images/pricing/), so the transform is the first
-    // billed call. From it to the row that counts it, the work runs as one runToEnd (P4-8): should the client go
-    // away, waitUntil keeps it going for up to 30 s more (see the pre-check), so the client cannot stop it between a
-    // billed transform and its count, or between a row and its photo, unless the work outlasts those 30 s.
-    const row = await runToEnd(c.executionCtx, transformAndCount(c.env, site.id, bytes));
+    // billed call. From the reservation that counts it to the row's final state, the work runs as one runToEnd (P4-8,
+    // P4-21): should the client go away, waitUntil keeps it going for up to 30 s more ("waitUntil() can extend
+    // execution for up to 30 seconds after the response is sent or the client disconnects",
+    // developers.cloudflare.com/workers/platform/limits/). Work that outlasts them leaves its reservation counted
+    // until it is aged out into a counted failure (Task 27 measures it).
+    const photo = await runToEnd(c.executionCtx, reserveTransformAndStore(c.env, site.id, bytes));
     const view: UploadView = {
-      id: row.id,
-      url: mediaUrl(c.env.ROOT_DOMAIN, site.id, row.id),
-      width: row.width,
-      height: row.height,
-      bytes: row.bytes,
-      createdAt: row.createdAt,
+      id: photo.id,
+      url: mediaUrl(c.env.ROOT_DOMAIN, site.id, photo.id),
+      width: photo.width,
+      height: photo.height,
+      bytes: photo.bytes,
+      createdAt: photo.createdAt,
     };
     return c.json(view, 201);
   });

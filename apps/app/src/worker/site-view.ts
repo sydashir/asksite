@@ -98,12 +98,15 @@ export async function currentAi(db: D1Database, siteId: string, note: NoteStored
   return toCurrentAi(await currentAiQuery(db, siteId).first<CurrentAiRow>(), note);
 }
 
-/** The read of the site's non-deleted uploads, oldest first, alone or in a batch. */
+/**
+ * The read of the site's photos, oldest first, alone or in a batch: its non-deleted uploads, less the reservations of
+ * uploads still in progress or left behind (P4-21), which are no photo.
+ */
 export function liveUploadsQuery(db: D1Database, siteId: string): D1PreparedStatement {
-  return db.prepare("SELECT * FROM uploads WHERE site_id = ? AND deleted_at IS NULL ORDER BY created_at").bind(siteId);
+  return db.prepare("SELECT * FROM uploads WHERE site_id = ? AND deleted_at IS NULL AND reserved_at IS NULL ORDER BY created_at").bind(siteId);
 }
 
-/** Non-deleted uploads, the only photos a draft may use (§8 step 6). */
+/** The site's photos (liveUploadsQuery), the only photos a draft may use (§8 step 6). */
 export async function liveUploads(db: D1Database, siteId: string): Promise<UploadRow[]> {
   return (await liveUploadsQuery(db, siteId).all<UploadRow>()).results;
 }

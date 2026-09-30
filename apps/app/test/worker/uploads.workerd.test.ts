@@ -1,9 +1,9 @@
 import { LIMITS, mediaUrl, type SiteView, type UploadView } from "@asksite/core";
 import { describe, expect, it } from "vitest";
 import { MAX_PART_HEADER_BYTES, MAX_PARTS } from "../../src/worker/multipart.ts";
-import { BROWSER_BOUNDARIES, browserContentType, browserMultipart, encode, geckoBoundary, joined, type BrowserPart } from "../support/browsers.ts";
+import { BROWSER_BOUNDARIES, blinkBoundary, browserContentType, browserMultipart, encode, geckoBoundary, joined, type BrowserPart } from "../support/browsers.ts";
 import { VALID_FACTS } from "../support/facts.ts";
-import { APP_ORIGIN, awayFromMinuteBoundary, json, ROOT, useAppHarness } from "../support/harness.ts";
+import { APP_ORIGIN, awayFromMinuteBoundary, eventually, json, ROOT, useAppHarness } from "../support/harness.ts";
 import { animatedWebp, jpeg, jpegWithGps, latin1, png, truncatedJpeg, upload } from "../support/images.ts";
 
 const h = useAppHarness();
@@ -45,14 +45,20 @@ const notedSteps = async (path: string) => json<unknown[]>(await h.call("GET", `
 /** A step that came back while the request's one runToEnd promise still ran (P4-15 Minor c, follow-up 1). */
 const inOneRunToEnd = (step: string) => ({ step, waitUntil: 1, pending: 1 });
 
-type UploadRow = { id: string; width: number; height: number; bytes: number; created_at: number; deleted_at: number | null };
+type UploadRow = { id: string; width: number; height: number; bytes: number; created_at: number; deleted_at: number | null; reserved_at: number | null };
 
 /** Every uploads row of a site, deleted ones included (the 150 total cap counts them all), oldest first. */
 async function uploadRows(siteId: string): Promise<UploadRow[]> {
   const db = await h.db();
-  const { results } = await db.prepare("SELECT id, width, height, bytes, created_at, deleted_at FROM uploads WHERE site_id = ? ORDER BY created_at").bind(siteId).all<UploadRow>();
+  const { results } = await db
+    .prepare("SELECT id, width, height, bytes, created_at, deleted_at, reserved_at FROM uploads WHERE site_id = ? ORDER BY created_at")
+    .bind(siteId)
+    .all<UploadRow>();
   return results;
 }
+
+/** How many of a site's uploads rows are still reservations (P4-21): none, once every upload has finished. */
+const reservationsLeft = async (siteId: string): Promise<number> => (await uploadRows(siteId)).filter((row) => row.reserved_at !== null).length;
 
 const shape = (row: UploadRow) => ({ width: row.width, height: row.height, bytes: row.bytes, deleted: row.deleted_at !== null });
 
@@ -401,22 +407,22 @@ describe("POST /api/sites/:siteId/uploads", () => {
       return { total: rows.length, kept: rows.filter((row) => row.deleted_at === null).length };
     };
 
-    it.each(["kept", "total"] as const)("at the %s cap: 429 upload_limit_reached after the transform, and nothing stored", async (cap) => {
+    it.each(["kept", "total"] as const)("at the %s cap: 429 upload_limit_reached before any transform, and nothing stored (P4-21)", async (cap) => {
       const owner = await oneShortOf(cap);
       const before = (await imagesCalls()).length;
       const res = await h.call("POST", `/api/sites/${owner.siteId}/uploads`, { cookie: owner.cookie, body: upload(await png(400, 300), "x.png") });
       expect(res.status).toBe(429);
       expect((await json<ErrorJson>(res)).error.code).toBe("upload_limit_reached");
       expect(res.headers.get("Retry-After")).toBe("86400");
-      // The pre-check passed, so the photo was transformed: only the INSERT refused it.
-      expect((await imagesCalls()).slice(before).map((call) => Object.keys(call))).toEqual([["transform"], ["output"]]);
+      // The pre-check passed, and the INSERT that reserves the upload's row refused it before the billed transform (P4-21).
+      expect((await imagesCalls()).slice(before)).toEqual([]);
       // Only the upload that took the slot is new; no object was stored for the refused one.
       expect(await counts(owner.siteId)).toEqual(cap === "kept" ? { total: LIMITS.uploadsPerSite, kept: LIMITS.uploadsPerSite } : { total: LIMITS.uploadsPerSiteTotal, kept: 0 });
       expect(await mediaKeys(owner.siteId)).toEqual([]);
     });
 
-    // The failure row goes through the same conditional INSERT, so either cap refuses it (P4-14; the refused arm at
-    // routes/uploads.ts is otherwise reached only in this race).
+    // A photo that would fail in the transform meets the same INSERT that reserves its row, which either cap refuses
+    // before the transform runs, so nothing is counted for it (P4-14, P4-21).
     it.each(["kept", "total"] as const)("at the %s cap, a photo that fails in the transform is refused as over the limit, not counted (P4-14)", async (cap) => {
       const owner = await oneShortOf(cap);
       const res = await h.call("POST", `/api/sites/${owner.siteId}/uploads`, { cookie: owner.cookie, body: upload(await truncatedJpeg(800, 600)) });
@@ -458,39 +464,52 @@ describe("POST /api/sites/:siteId/uploads", () => {
     await h.backgroundDone(path);
   });
 
-  describe("keeps the work from the transform to the row that counts it running, should the client go away (P4-15 follow-up 1)", () => {
+  describe("keeps the work from the reservation through the transform to the row's final state running, should the client go away (P4-15 follow-up 1, P4-21)", () => {
     // The local runtime finishes a request's work after its client has gone (test-worker.ts), so a disconnect cannot
     // be made here. The test Worker notes instead, as each step's result comes back, how many waitUntil promises the
-    // request had handed over and how many of them still ran. Inside one runToEnd, the transform's .output() (the
-    // first billed Images call: .info() is not billed), the INSERT that counts it and, for a photo it stores, the
-    // MEDIA.put of that photo (P4-15 Minor c) all come back while that one promise runs; a step outside it comes back
-    // with none running, or under a second promise.
-    const underOneRunToEnd = [inOneRunToEnd("output"), inOneRunToEnd("insert")];
+    // request had handed over and how many of them still ran. Inside one runToEnd, the INSERT that reserves the
+    // upload's counted row (P4-21), the transform's .output() (the first billed Images call: .info() is not billed),
+    // for a photo it stores the MEDIA.put of that photo (P4-15 Minor c), and the UPDATE that finishes the row or
+    // marks it failed all come back while that one promise runs; a step outside it comes back with none running,
+    // or under a second promise.
+    const underOneRunToEnd = [inOneRunToEnd("insert"), inOneRunToEnd("output")];
 
-    /** An owner's upload whose steps the test Worker notes: its status, the steps and the site's upload rows. */
+    /** An owner's upload whose steps the test Worker notes: its status, the steps, the site's upload rows and how many are still reservations. */
     async function uploadNotingSteps(photo: Uint8Array) {
       const owner = await h.signIn();
       const path = `/api/sites/${owner.siteId}/uploads`;
       await watchSteps(path);
       const res = await h.call("POST", path, { cookie: owner.cookie, body: upload(photo) });
-      return { status: res.status, steps: await notedSteps(path), rows: (await uploadRows(owner.siteId)).map(shape) };
+      return { status: res.status, steps: await notedSteps(path), rows: (await uploadRows(owner.siteId)).map(shape), reservations: await reservationsLeft(owner.siteId) };
     }
 
     it("for a photo it stores (201)", async () => {
-      expect(await uploadNotingSteps(await jpeg(800, 600))).toEqual({ status: 201, steps: [...underOneRunToEnd, inOneRunToEnd("put")], rows: [{ width: 800, height: 600, bytes: expect.any(Number), deleted: false }] });
+      expect(await uploadNotingSteps(await jpeg(800, 600))).toEqual({
+        status: 201,
+        steps: [...underOneRunToEnd, inOneRunToEnd("put"), inOneRunToEnd("update")],
+        rows: [{ width: 800, height: 600, bytes: expect.any(Number), deleted: false }],
+        reservations: 0,
+      });
     });
 
     it("for a photo that fails in the transform (422, counted)", async () => {
-      expect(await uploadNotingSteps(await truncatedJpeg(800, 600))).toEqual({ status: 422, steps: underOneRunToEnd, rows: [COUNTED_FAILURE] });
+      expect(await uploadNotingSteps(await truncatedJpeg(800, 600))).toEqual({ status: 422, steps: [...underOneRunToEnd, inOneRunToEnd("update")], rows: [COUNTED_FAILURE], reservations: 0 });
     });
 
     it("for a transform that answers another format than WebP (422, counted)", async () => {
       await h.call("POST", "/__test/images-output-format", { body: { format: "image/jpeg" } });
-      expect(await uploadNotingSteps(await jpeg(800, 600))).toEqual({ status: 422, steps: underOneRunToEnd, rows: [COUNTED_FAILURE] });
+      expect(await uploadNotingSteps(await jpeg(800, 600))).toEqual({ status: 422, steps: [...underOneRunToEnd, inOneRunToEnd("update")], rows: [COUNTED_FAILURE], reservations: 0 });
+    });
+
+    // P4-21 item 2: the .info() that measures the transform's WebP, the upload's second .info(), gives null (9523 blames the image).
+    it("for a transform whose WebP the image service cannot measure (422 image_rejected, counted: never a plain 500 with no row)", async () => {
+      await h.call("POST", "/__test/images-fails", { body: { step: "info", code: 9523, nth: 2 } });
+      expect(await uploadNotingSteps(await jpeg(800, 600))).toEqual({ status: 422, steps: [...underOneRunToEnd, inOneRunToEnd("update")], rows: [COUNTED_FAILURE], reservations: 0 });
+      expect(lastUploadLine()).toMatchObject({ status: 422, code: "image_rejected" });
     });
   });
 
-  it("removes the row again when the photo cannot be stored (500 internal, nothing left behind)", async () => {
+  it("releases the reserved row when the photo cannot be stored (500 internal, nothing left behind)", async () => {
     const owner = await h.signIn();
     const path = `/api/sites/${owner.siteId}/uploads`;
     await watchSteps(path);
@@ -498,10 +517,10 @@ describe("POST /api/sites/:siteId/uploads", () => {
     const res = await h.call("POST", path, { cookie: owner.cookie, body: upload(await png(400, 300), "x.png") });
     expect(res.status).toBe(500);
     expect((await json<ErrorJson>(res)).error.code).toBe("internal");
-    // The failed put and the DELETE that removes its row again come back inside the same one runToEnd as the
-    // transform and the INSERT (P4-15 Minor c), so a client that goes away does not stop the row being removed
-    // (within waitUntil's 30 s: see the route).
-    expect(await notedSteps(path)).toEqual(["output", "insert", "put", "delete"].map(inOneRunToEnd));
+    // The failed put and the DELETE that releases its reserved row come back inside the same one runToEnd as the
+    // reservation and the transform (P4-15 Minor c, P4-21), so a client that goes away does not stop the row being
+    // released (within waitUntil's 30 s: see the route).
+    expect(await notedSteps(path)).toEqual(["insert", "output", "put", "delete"].map(inOneRunToEnd));
     expect(await uploadRows(owner.siteId)).toEqual([]);
     expect(await mediaKeys(owner.siteId)).toEqual([]);
   });
@@ -522,6 +541,173 @@ describe("POST /api/sites/:siteId/uploads", () => {
     expect(res.status).toBe(423);
     expect((await json<ErrorJson>(res)).error.code).toBe("site_taken_down");
     expect((await db.prepare("SELECT COUNT(*) AS n FROM uploads WHERE site_id = ?").bind(owner.siteId).first<{ n: number }>())?.n).toBe(0);
+  });
+});
+
+// P4-21: the INSERT that reserves an upload's row, counted by both caps, runs before the billed transform, so only a
+// request that got a reservation is transformed.
+describe("upload reservations: a counted row is reserved before the billed transform (P4-21)", () => {
+  /** DECIDED P4-21: a reservation older than 10 minutes is aged out into a counted failure. */
+  const STALE_MS = 10 * 60_000;
+
+  /** Seeds `count` photo rows of the site: kept ones, or ones the owner deleted (they count toward the 150 total only). */
+  async function seedPhotos(siteId: string, count: number, deleted: boolean): Promise<void> {
+    const db = await h.db();
+    for (let i = 0; i < count; i += 1) {
+      await db.prepare("INSERT INTO uploads (id, site_id, width, height, bytes, created_at, deleted_at) VALUES (?, ?, 400, 300, 1, 1, ?)").bind(crypto.randomUUID(), siteId, deleted ? 2 : null).run();
+    }
+  }
+
+  /** Seeds a reservation of the site as a request that died would leave it: no size, reserved at `reservedAt`. */
+  async function seedReservation(siteId: string, reservedAt: number, deletedAt: number | null): Promise<string> {
+    const id = crypto.randomUUID();
+    await (await h.db())
+      .prepare("INSERT INTO uploads (id, site_id, width, height, bytes, created_at, deleted_at, reserved_at) VALUES (?, ?, 0, 0, 0, ?, ?, ?)")
+      .bind(id, siteId, reservedAt, deletedAt, reservedAt)
+      .run();
+    return id;
+  }
+
+  const counts = async (siteId: string) => {
+    const rows = await uploadRows(siteId);
+    return { total: rows.length, kept: rows.filter((row) => row.deleted_at === null).length };
+  };
+
+  describe("uploads whose bodies are held back past the pre-check (the moderator's attack)", () => {
+    /** Starts an upload whose body sends its first 64 bytes now and the rest once `release` resolves. */
+    function heldUpload(owner: { siteId: string; cookie: string }, photo: Uint8Array, release: Promise<void>): Promise<Response> {
+      const boundary = blinkBoundary();
+      const body = browserMultipart(boundary, [{ name: "file", filename: "photo.png", type: "image/png", content: photo }]);
+      const stream = new ReadableStream<Uint8Array>({
+        async start(controller) {
+          controller.enqueue(body.slice(0, 64));
+          await release;
+          controller.enqueue(body.slice(64));
+          controller.close();
+        },
+      });
+      // The harness's own RequestInit (undici's, which has `duplex`), not Node's global one.
+      const init: Parameters<typeof h.server.fetch>[1] = {
+        method: "POST",
+        headers: { Origin: APP_ORIGIN, Cookie: owner.cookie, "Content-Type": browserContentType(boundary) },
+        body: stream,
+        duplex: "half",
+      };
+      return h.server.fetch(`${APP_ORIGIN}/api/sites/${owner.siteId}/uploads`, init);
+    }
+
+    /** Waits (at most 20 s) until requests to `path` have prepared `count` statements matching `pattern`. */
+    async function preparedStatements(path: string, pattern: RegExp, count: number): Promise<void> {
+      for (let i = 0; i < 200; i += 1) {
+        if ((await h.recordedSql(path)).filter((sql) => pattern.test(sql)).length >= count) return;
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      throw new Error(`timed out waiting for ${count} statements matching ${pattern}`);
+    }
+
+    // Deterministic: every request passes the pre-check (it runs before the body is read) before any body is sent.
+    it.each(["kept", "total"] as const)("3 short of the %s cap, 10 held uploads give exactly 3 billed transforms and 3 photos; the other 7 are refused before any billed call", async (cap) => {
+      const owner = await h.signIn();
+      await seedPhotos(owner.siteId, cap === "kept" ? LIMITS.uploadsPerSite - 3 : LIMITS.uploadsPerSiteTotal - 3, cap === "total");
+      const path = `/api/sites/${owner.siteId}/uploads`;
+      const photos = await Promise.all(Array.from({ length: 10 }, (_, i) => png(400 + i, 300)));
+      await h.recordSql(path);
+      const before = (await imagesCalls()).length;
+      let release!: () => void;
+      const released = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const pending = photos.map((photo) => heldUpload(owner, photo, released));
+      await preparedStatements(path, /COUNT\(\*\) FILTER/, 10);
+      // The pre-check's statements were prepared; give their batch time to answer before any body is sent.
+      await new Promise((resolve) => setTimeout(resolve, 1_000));
+      release();
+      const answers = await Promise.all(
+        pending.map(async (response) => {
+          const res = await response;
+          return { status: res.status, retryAfter: res.headers.get("Retry-After"), body: (await res.json()) as unknown };
+        }),
+      );
+      // All ten passed the pre-check: each reached the INSERT that reserves a row, which a pre-check refusal never does.
+      expect((await h.recordedSql(path)).filter((sql) => sql.trimStart().startsWith("INSERT INTO uploads"))).toHaveLength(10);
+      const stored = answers.filter((answer) => answer.status === 201).map((answer) => answer.body as UploadView);
+      expect(stored).toHaveLength(3);
+      const refused = { status: 429, retryAfter: "86400", body: { error: expect.objectContaining({ code: "upload_limit_reached" }) } };
+      expect(answers.filter((answer) => answer.status !== 201)).toEqual(Array.from({ length: 7 }, () => refused));
+      // One billed transform per stored photo, and none for a refused upload.
+      const calls = (await imagesCalls()).slice(before).map((call) => Object.keys(call).join());
+      expect([calls.filter((call) => call === "transform").length, calls.filter((call) => call === "output").length]).toEqual([3, 3]);
+      // Exactly the cap: no over-count and no under-count.
+      expect(await counts(owner.siteId)).toEqual(cap === "kept" ? { total: LIMITS.uploadsPerSite, kept: LIMITS.uploadsPerSite } : { total: LIMITS.uploadsPerSiteTotal, kept: 3 });
+      expect(await reservationsLeft(owner.siteId)).toBe(0);
+      expect((await mediaKeys(owner.siteId)).sort()).toEqual(stored.map((photo) => `${owner.siteId}/${photo.id}.webp`).sort());
+    }, 60_000);
+  });
+
+  describe("a reservation a request left behind (it died, or outlived waitUntil's 30 s after a disconnect)", () => {
+    it("still counts toward the caps while 10 minutes old or younger, and is never shown or usable as a photo", async () => {
+      const owner = await h.signIn();
+      await seedPhotos(owner.siteId, LIMITS.uploadsPerSite - 1, false);
+      // Just under the 10 minutes, with 30 s for the request below to arrive.
+      const reservation = await seedReservation(owner.siteId, Date.now() - STALE_MS + 30_000, null);
+      const before = (await imagesCalls()).length;
+      const res = await h.call("POST", `/api/sites/${owner.siteId}/uploads`, { cookie: owner.cookie, body: upload(await png(400, 300), "x.png") });
+      expect(res.status).toBe(429);
+      expect((await json<ErrorJson>(res)).error.code).toBe("upload_limit_reached");
+      expect((await imagesCalls()).slice(before)).toEqual([]);
+      expect((await uploadRows(owner.siteId)).find((row) => row.id === reservation)).toMatchObject({ deleted_at: null, reserved_at: expect.any(Number) });
+
+      const view = await json<SiteView>(await h.call("GET", `/api/sites/${owner.siteId}`, { cookie: owner.cookie }));
+      expect(view.uploads).toHaveLength(LIMITS.uploadsPerSite - 1);
+      expect(view.uploads.map((photo) => photo.id)).not.toContain(reservation);
+      // A photo with the reservation's own address and sizes: only the reservation being left out makes it "not one of your uploads".
+      const ghost = { url: mediaUrl(ROOT, owner.siteId, reservation), alt: "New water heater in a garage", width: 0, height: 0 };
+      const saved = await h.call("PATCH", `/api/sites/${owner.siteId}/draft`, { cookie: owner.cookie, body: { rev: 1, facts: { ...VALID_FACTS, heroPhoto: ghost } } });
+      const issues = (await json<{ issues: SiteView["issues"] }>(saved)).issues.photos;
+      expect(issues.map((issue) => [issue.path.join("."), issue.code])).toEqual([["facts.heroPhoto.url", "photo_ref"]]);
+    });
+
+    it.each([
+      ["a reservation", null],
+      ["a reservation a takedown's purge marked deleted", 5],
+    ] as const)("turns %s older than 10 minutes into a counted failure at the site's next upload, which then goes ahead", async (_, deletedAt) => {
+      const owner = await h.signIn();
+      await seedPhotos(owner.siteId, LIMITS.uploadsPerSite - 1, false);
+      const reservation = await seedReservation(owner.siteId, Date.now() - STALE_MS - 1_000, deletedAt);
+      const res = await h.call("POST", `/api/sites/${owner.siteId}/uploads`, { cookie: owner.cookie, body: upload(await png(400, 300), "x.png") });
+      expect(res.status).toBe(201);
+      // Still counted toward the 150 total, as a failed upload, and no longer toward the 40 kept.
+      expect((await uploadRows(owner.siteId)).find((row) => row.id === reservation)).toMatchObject({
+        width: 0,
+        height: 0,
+        bytes: 0,
+        deleted_at: deletedAt ?? expect.any(Number),
+        reserved_at: null,
+      });
+      expect(await counts(owner.siteId)).toEqual({ total: LIMITS.uploadsPerSite + 1, kept: LIMITS.uploadsPerSite });
+      expect(await reservationsLeft(owner.siteId)).toBe(0);
+    });
+
+    it.each(["aged_out", "purged"] as const)("answers 500 when the reservation is lost (%s) before the photo's row is finished, leaving no object and the row counted", async (how) => {
+      const owner = await h.signIn();
+      await h.call("POST", "/__test/lose-upload-reservation", { body: { siteId: owner.siteId, how } });
+      const res = await h.call("POST", `/api/sites/${owner.siteId}/uploads`, { cookie: owner.cookie, body: upload(await png(400, 300), "x.png") });
+      expect(res.status).toBe(500);
+      expect((await json<ErrorJson>(res)).error.code).toBe("internal");
+      expect(await mediaKeys(owner.siteId)).toEqual([]);
+      expect((await uploadRows(owner.siteId)).map(shape)).toEqual([COUNTED_FAILURE]);
+    });
+
+    it("keeps it a counted failure when it was aged out before a failure of ours would release it: the release deletes only a reservation", async () => {
+      const owner = await h.signIn();
+      await h.call("POST", "/__test/lose-upload-reservation", { body: { siteId: owner.siteId, how: "aged_out" } });
+      await h.call("POST", "/__test/media-put-fails");
+      const res = await h.call("POST", `/api/sites/${owner.siteId}/uploads`, { cookie: owner.cookie, body: upload(await png(400, 300), "x.png") });
+      expect(res.status).toBe(500);
+      expect((await json<ErrorJson>(res)).error.code).toBe("internal");
+      expect((await uploadRows(owner.siteId)).map(shape)).toEqual([COUNTED_FAILURE]);
+      expect(await mediaKeys(owner.siteId)).toEqual([]);
+    });
   });
 });
 
