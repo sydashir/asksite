@@ -25,7 +25,7 @@ describe("answerIssues", () => {
   });
 
   it("sends a problem in a step's own comment box to that step, not to the last one", () => {
-    const brief = { ...VALID_BRIEF, comments: { business: "Call me​back", words: "x".repeat(501) } };
+    const brief = { ...VALID_BRIEF, comments: { business: "Call me\u200Bback", words: "x".repeat(501) } };
     const issues = answerIssues({ facts: VALID_FACTS, brief }, { slug: "joes" }, []);
     expect(issues.map((i) => [i.path.join("."), stepOf(i)])).toEqual([
       ["brief.comments.business", "business"],
