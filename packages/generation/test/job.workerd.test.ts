@@ -3,7 +3,7 @@ import { SiteDocument } from "@asksite/site-schema";
 import type { D1Database, Queue } from "@cloudflare/workers-types";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { capsSnapshot } from "../eval/caps.ts";
-import { runGenerationJob, type JobDeps, type JobEnv } from "../src/job.ts";
+import { runGenerationJob, type JobDeps, type JobEnv, type JobReport } from "../src/job.ts";
 import { createProvider } from "../src/providers/create.ts";
 import type { ModelProvider } from "../src/provider.ts";
 import { generationAllowance, requestGeneration } from "../src/request.ts";
@@ -331,6 +331,72 @@ describe("runGenerationJob", () => {
       inputBoundRefused: false,
       costUnknown: false,
       durationMs: 0,
+    });
+  });
+
+  // Task 9 follow-up item 6 (task-9-additions A): the Worker's log line spreads the report, so the whole report is pinned
+  // on every path the job has. usageMissing, inputBoundRefused and costUnknown are booleans on each, never undefined.
+  describe("reports the whole outcome on every path", () => {
+    const REPORT = {
+      generationId: "g1", attempts: 0, usedFallback: false, errorCode: null, fallbackReason: null, providerErrorKind: null,
+      attemptOutcomes: [], usageMissing: false, inputBoundRefused: false, costUnknown: false, durationMs: 0,
+    };
+    const ANTHROPIC = { MODEL_PROVIDER: "anthropic", MODEL_ID: "claude-opus-5-5" };
+    const TIMEOUTS: JobReport["attemptOutcomes"] = ["timeout", "timeout", "timeout"];
+    /** The test's D1 binding, whose prepare throws for the statements `failing` picks. */
+    const failingDb = (failing: (sql: string) => boolean) =>
+      new Proxy(db, {
+        get(target, prop, receiver) {
+          if (prop !== "prepare") return Reflect.get(target, prop, receiver);
+          return (sql: string) => {
+            if (failing(sql)) throw new Error("D1 down");
+            return target.prepare(sql);
+          };
+        },
+      });
+    /** A provider that ends the row itself (as the sweeper would) before it answers. */
+    const finishesFirst = (): ModelProvider => ({
+      id: "fake",
+      async generate() {
+        await db.prepare("UPDATE generations SET status = 'succeeded', used_fallback = 1, fallback_reason = 'provider_error' WHERE id = 'g1'").run();
+        return answer(TEMPLATE);
+      },
+    });
+    type Path = {
+      kind?: "first" | "regenerate";
+      input?: string;
+      notQueued?: true;
+      env?: () => Partial<JobEnv>;
+      setting?: [string, string];
+      jobDeps?: () => JobDeps;
+      report: Partial<JobReport> & Pick<JobReport, "outcome">;
+    };
+
+    it.each<[string, Path]>([
+      ["success", { report: { outcome: "succeeded", attempts: 1, attemptOutcomes: ["valid"] } }],
+      ["success, with the provider's own model string", { env: () => ANTHROPIC, jobDeps: () => deps(scriptedProvider([answer(TEMPLATE)])), report: { outcome: "succeeded", attempts: 1, attemptOutcomes: ["valid"] } }],
+      ["success, with a model string over 200 UTF-16 units", { jobDeps: () => deps(scriptedProvider([{ ...answer(TEMPLATE), model: "m".repeat(201) }])), report: { outcome: "succeeded", attempts: 1, attemptOutcomes: ["valid"] } }],
+      ["template fallback: a first build after three timeouts (usage unknown)", { env: () => ({ FAKE_MODE: "timeout" }), report: { outcome: "fallback", attempts: 3, usedFallback: true, fallbackReason: "provider_error", providerErrorKind: "timeout", attemptOutcomes: TIMEOUTS, usageMissing: true } }],
+      ["a regeneration that failed after three timeouts (usage unknown)", { kind: "regenerate", env: () => ({ FAKE_MODE: "timeout" }), report: { outcome: "failed", attempts: 3, errorCode: "provider_timeout", providerErrorKind: "timeout", attemptOutcomes: TIMEOUTS, usageMissing: true } }],
+      ["a regeneration that failed after three invalid answers", { kind: "regenerate", env: () => ({ FAKE_MODE: "invalid-always" }), report: { outcome: "failed", attempts: 3, errorCode: "invalid_output", attemptOutcomes: ["invalid", "invalid", "invalid"] } }],
+      ["claim refusal: switched off, a first build gets the template", { env: () => ({ GENERATION_ENABLED: "false" }), report: { outcome: "fallback", usedFallback: true, fallbackReason: "disabled" } }],
+      ["claim refusal: today's model calls used up, a regeneration fails", { kind: "regenerate", setting: ["generation.daily_model_limit", "0"], report: { outcome: "failed", errorCode: "budget_exhausted" } }],
+      ["provider failure: no key, a first build gets the template", { env: () => ANTHROPIC, report: { outcome: "fallback", usedFallback: true, fallbackReason: "provider_error", providerErrorKind: "auth" } }],
+      ["provider failure: no key, a regeneration fails", { kind: "regenerate", env: () => ANTHROPIC, report: { outcome: "failed", errorCode: "provider_unavailable", providerErrorKind: "auth" } }],
+      ["provider failure: the input guard refused attempt 1, a regeneration fails", { kind: "regenerate", input: JSON.stringify(OVER_BOUND), jobDeps: () => deps(scriptedProvider([])), report: { outcome: "failed", errorCode: "provider_unavailable", providerErrorKind: "bad_request", attemptOutcomes: ["bad_request"], inputBoundRefused: true } }],
+      ["catch-all: our own code threw after a call (costUnknown), a first build gets the template", { env: () => ANTHROPIC, jobDeps: () => deps(scriptedProvider([answerOurCodeCannotCheck()])), report: { outcome: "fallback", usedFallback: true, fallbackReason: "provider_error", costUnknown: true } }],
+      ["catch-all: our own code threw after a call (costUnknown), a regeneration fails", { kind: "regenerate", env: () => ANTHROPIC, jobDeps: () => deps(scriptedProvider([answerOurCodeCannotCheck()])), report: { outcome: "failed", errorCode: "internal", costUnknown: true } }],
+      ["catch-all: our own code threw before any call, a first build gets the template", { jobDeps: () => ({ ...deps(), createProvider: () => { throw new TypeError("bug"); } }), report: { outcome: "fallback", usedFallback: true, fallbackReason: "provider_error" } }],
+      ["the stored input is not a valid snapshot", { input: '{"facts":{}}', report: { outcome: "failed", errorCode: "internal" } }],
+      ["not claimed: no queued job", { notQueued: true, report: { outcome: "not_claimed" } }],
+      ["read_failed: the claimed row cannot be read", { env: () => ({ DB: failingDb((sql) => sql.startsWith("SELECT kind")) }), report: { outcome: "read_failed" } }],
+      ["lost: the row was finished by someone else first", { jobDeps: () => deps(finishesFirst()), report: { outcome: "lost", attempts: 1, attemptOutcomes: ["valid"] } }],
+      ["write_failed: the final write failed", { env: () => ({ DB: failingDb((sql) => sql.includes("finished_at = ?")) }), report: { outcome: "write_failed", attempts: 1, attemptOutcomes: ["valid"] } }],
+    ])("%s", async (_path, path) => {
+      if (path.setting) await setSetting(db, ...path.setting);
+      if (!path.notQueued) await queued("g1", path.kind, "s1", path.input);
+      const report = await runGenerationJob(envWith(path.env?.()), "g1", path.jobDeps?.() ?? deps());
+      expect(report).toEqual({ ...REPORT, ...path.report });
     });
   });
 
