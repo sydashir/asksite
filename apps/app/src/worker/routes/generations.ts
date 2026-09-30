@@ -39,15 +39,16 @@ async function isRegeneration(db: D1Database, siteId: string): Promise<boolean> 
 /**
  * Pins the look the page shows now before a rebuild is asked for (A12 §3). An owner who never chose a theme sees
  * the AI draft's, which a new draft could change, so that theme is written into the stored edits first. Only a
- * null theme is set: an owner's choice and stored edits that are not valid JSON are left alone. Only $.theme
- * changes and rev is not bumped, so no open tab gets a conflict; PATCH /draft never replaces the pinned theme
- * with a null one.
+ * null theme is set: an owner's choice and stored edits that are not valid JSON are left alone (read only once
+ * json_valid passed them, inside a CASE: sqlite.org/lang_expr.html documents CASE as lazy, but not the order AND
+ * evaluates its operands in; P4-21 item 6). Only $.theme changes and rev is not bumped, so no open tab gets a
+ * conflict; PATCH /draft never replaces the pinned theme with a null one.
  */
 async function pinTheme(db: D1Database, siteId: string, ownerId: string, theme: Theme, now: number): Promise<void> {
   await db
     .prepare(
       `UPDATE sites SET edits_json = json_set(edits_json, '$.theme', json(?1)), updated_at = ?2
-       WHERE id = ?3 AND owner_id = ?4 AND json_valid(edits_json) AND json_extract(edits_json, '$.theme') IS NULL`,
+       WHERE id = ?3 AND owner_id = ?4 AND CASE WHEN json_valid(edits_json) THEN json_extract(edits_json, '$.theme') IS NULL ELSE 0 END`,
     )
     .bind(JSON.stringify(theme), now, siteId, ownerId)
     .run();

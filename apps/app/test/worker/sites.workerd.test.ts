@@ -356,6 +356,18 @@ describe("PATCH /api/sites/:siteId/draft", () => {
       expect((await json<ErrorJson>(res)).error.issues?.map((issue) => [issue.path.join("."), issue.code])).toEqual([["edits.theme.design", "invalid_value"]]);
     });
 
+    // P4-21 item 6: sqlite.org/lang_expr.html documents CASE as lazy, but not the order AND evaluates its operands in.
+    it("reads the stored theme only inside the documented-lazy CASE WHEN json_valid(edits_json) THEN ... ELSE 0 END", async () => {
+      const owner = await h.signIn();
+      const path = `/api/sites/${owner.siteId}/draft`;
+      await h.recordSql(path);
+      expect((await h.call("PATCH", path, { cookie: owner.cookie, body: { rev: 1, edits: EMPTY_EDITS } })).status).toBe(200);
+      const writes = (await h.recordedSql(path)).filter((sql) => /^\s*UPDATE sites\b/.test(sql)).map((sql) => sql.replace(/\s+/g, " "));
+      expect(writes).toHaveLength(1);
+      expect(writes[0]?.match(/json_valid\(/g)).toHaveLength(1);
+      expect(writes[0]).toContain("CASE WHEN json_valid(edits_json) THEN json_type(edits_json,'$.theme')='object' ELSE 0 END");
+    });
+
     it("saves edits over stored edits that are not valid JSON", async () => {
       const owner = await h.signIn();
       await (await h.db()).prepare("UPDATE sites SET edits_json = ? WHERE id = ?").bind('{"theme":', owner.siteId).run();

@@ -284,6 +284,56 @@ describe("POST /api/sites/:siteId/generations pins the current look (A12 §3)", 
     expect(await siteRow(owner.siteId)).toEqual(before);
   });
 
+  // P4-21 item 6: sqlite.org/lang_expr.html documents CASE as lazy, but not the order AND evaluates its operands in.
+  it("reads the stored theme only inside the documented-lazy CASE WHEN json_valid(edits_json) THEN ... ELSE 0 END", async () => {
+    const owner = await builtOwner(h, ROOFING, VALID_BRIEF);
+    const path = `/api/sites/${owner.siteId}/generations`;
+    await h.recordSql(path);
+    expect((await rebuild(owner)).status).toBe(202);
+    const pins = (await h.recordedSql(path)).filter((sql) => /^\s*UPDATE sites\b/.test(sql)).map((sql) => sql.replace(/\s+/g, " "));
+    expect(pins).toHaveLength(1);
+    expect(pins[0]?.match(/json_valid\(/g)).toHaveLength(1);
+    expect(pins[0]).toContain("CASE WHEN json_valid(edits_json) THEN json_extract(edits_json, '$.theme') IS NULL ELSE 0 END");
+  });
+
+  // P4-21 item 7, A12 §3's purpose: a rebuild that succeeds with another design never changes the look the owner saw.
+  it("keeps the pinned look after a rebuild that succeeds with a different design, when the tab that asked for it saves edits whose theme is null", async () => {
+    const owner = await builtOwner(h, ROOFING, VALID_BRIEF);
+    const before = await view(owner);
+    expect(before.edits.theme).toBeNull();
+    expect(before.ai?.draft.theme.design).toBe("refined");
+    // The owner's trade changes, so the next draft starts on another design (cleaning's "modern").
+    const traded = await h.call("PATCH", `/api/sites/${owner.siteId}/draft`, { cookie: owner.cookie, body: { rev: owner.rev, facts: { ...ROOFING, trade: "cleaning" } } });
+    expect(traded.status).toBe(200);
+    const rev = (await json<{ rev: number }>(traded)).rev;
+    const asked = await rebuild(owner);
+    expect(asked.status).toBe(202);
+    const { generation } = await json<{ generation: GenerationView }>(asked);
+    expect((await h.call("POST", `/__test/generations/${generation.id}/finish`, { body: { status: "succeeded" } })).status).toBe(200);
+    const rebuilt = await view(owner);
+    expect(rebuilt.ai?.generationId).toBe(generation.id);
+    expect(rebuilt.ai?.draft.theme.design).toBe("modern");
+    // The tab that asked for the rebuild still holds its edits with no theme, and autosaves them.
+    const saved = await h.call("PATCH", `/api/sites/${owner.siteId}/draft`, { cookie: owner.cookie, body: { rev, edits: { ...before.edits, copy: { ctaText: "Call Joe" } } } });
+    expect(saved.status).toBe(200);
+    const after = await view(owner);
+    expect(after.edits.theme).toEqual(before.ai?.draft.theme);
+    expect(after.edits.copy).toEqual({ ctaText: "Call Joe" });
+    // The page shows the look it showed before the rebuild, not the new draft's.
+    const page = (site: SiteView) => (site.ai === null ? null : SiteDocument.parse(composeDocument(site.facts, site.ai, site.edits)));
+    expect(page(after)?.theme).toEqual(page(before)?.theme);
+  });
+
+  // P4-21 item 8: POST /generations reads the stored AI draft (to pin its theme) leniently, like every other route.
+  it("notes a stored AI draft that is not valid JSON on the request's one log line, which names the route (P4-15 g)", async () => {
+    const owner = await builtOwner(h, ROOFING, VALID_BRIEF);
+    await (await h.db()).prepare("UPDATE generations SET output_json = ? WHERE id = ?").bind('{"copy":', owner.generationId).run();
+    h.server.clearLogs();
+    expect((await rebuild(owner)).status).toBe(202);
+    const lines = h.logLines().filter((line) => line["route"] === "POST /api/sites/:siteId/generations");
+    expect(lines).toEqual([expect.objectContaining({ status: 202, event: "stored_json_invalid", part: "ai_draft" })]);
+  });
+
   it("a rebuild refused after the pin leaves the page as it was: the pinned theme is the one it showed", async () => {
     const owner = await builtOwner(h, ROOFING, VALID_BRIEF);
     const before = await view(owner);

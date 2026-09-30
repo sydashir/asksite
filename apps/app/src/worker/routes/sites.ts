@@ -39,13 +39,16 @@ export function siteRoutes(deps: AppDeps): Hono<AppEnv> {
     // One conditional write: the rev check makes a stale tab fail instead of overwriting newer work. What the
     // answer reports is read in the same batch (one transaction, A10), so it is this save's rev and issues even
     // when another save lands right after it. Edits whose theme is null never replace a stored theme (A12 §3):
-    // the look pinned before a rebuild stays, even when a tab that still holds no theme saves its edits.
+    // the look pinned before a rebuild stays, even when a tab that still holds no theme saves its edits. The stored
+    // edits are read only once json_valid passed them, inside a CASE: sqlite.org/lang_expr.html documents CASE as
+    // lazy, but not the order AND evaluates its operands in (P4-21 item 6).
     const [write, siteRead, aiRead, uploadsRead] = await db.batch([
       db
         .prepare(
           `UPDATE sites SET facts_json = COALESCE(?1, facts_json), brief_json = COALESCE(?2, brief_json),
              edits_json = CASE WHEN ?3 IS NULL THEN edits_json
-               WHEN json_extract(?3,'$.theme') IS NULL AND json_valid(edits_json) AND json_type(edits_json,'$.theme')='object'
+               WHEN json_extract(?3,'$.theme') IS NULL
+                 AND CASE WHEN json_valid(edits_json) THEN json_type(edits_json,'$.theme')='object' ELSE 0 END
                  THEN json_set(?3,'$.theme', json(json_extract(edits_json,'$.theme')))
                ELSE ?3 END,
              rev = rev + 1, updated_at = ?4
