@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { LIMITS, sha256Hex } from "@asksite/core";
+import { Facts } from "@asksite/site-schema";
 import { afterEach, describe, expect, it } from "vitest";
 import { APP_ORIGIN, awayFromMinuteBoundary, json, nextIp, useAppHarness } from "../support/harness.ts";
 import { TURNSTILE_DUMMY_TOKEN, TURNSTILE_TEST_HOSTNAME } from "../support/turnstile.ts";
@@ -106,13 +107,47 @@ describe("signed-in routes", () => {
     );
   });
 
-  it("read only what /api/me shows from each site's row: never its brief or edits", async () => {
+  it("read only what /api/me shows from each site's row: never its brief or edits, and of its facts only the business name, at most 60 characters", async () => {
     const owner = await h.signIn();
     await h.recordSql("/api/me");
     expect((await h.call("GET", "/api/me", { cookie: owner.cookie })).status).toBe(200);
     const reads = (await h.recordedSql("/api/me")).filter((sql) => /\bFROM sites\b/.test(sql));
     expect(reads).toHaveLength(1);
     expect(reads[0]).not.toMatch(/\*|brief_json|edits_json/);
+    // The whole select list (P4-21 item 3). Its CASE holds commas, so it is pinned whole, whitespace collapsed.
+    const selected = /^\s*SELECT\s+([\s\S]+?)\s+FROM sites\b/.exec(reads[0] ?? "")?.[1]?.replace(/\s+/g, " ");
+    expect(selected).toBe(
+      "id, slug, live_version_id, pending_version_id, taken_down_at, CASE WHEN NOT json_valid(facts_json) THEN NULL " +
+        "WHEN json_type(facts_json, '$.businessName') = 'text' THEN substr(json_extract(facts_json, '$.businessName'), 1, 60) END AS business_name",
+    );
+  });
+
+  // P4-21 item 4 and DECIDED 8: the name is clamped inside D1 to Facts' own limit, and again in the Worker, where a
+  // lone surrogate D1 counted once arrives as three U+FFFD; both count as Facts counts (code points).
+  it("show at most Facts' 60 characters of a draft's business name, clamped before it leaves D1: a 250,000-character name, an emoji name, a name of lone surrogates", async () => {
+    const owner = await h.signIn();
+    const db = await h.db();
+    const huge = owner.siteId;
+    const emoji = await acceptInvite(owner.email);
+    const lone = await acceptInvite(owner.email);
+    const saveFacts = (siteId: string, factsJson: string) => db.prepare("UPDATE sites SET facts_json = ? WHERE id = ?").bind(factsJson, siteId).run();
+    await saveFacts(huge, JSON.stringify({ businessName: "x".repeat(250_000) }));
+    await saveFacts(emoji, JSON.stringify({ businessName: "\u{1F527}".repeat(70) }));
+    // Only a hand-made request can store these: JSON escapes of lone surrogates.
+    await saveFacts(lone, `{"businessName":"${"\\ud800".repeat(70)}"}`);
+    const res = await h.call("GET", "/api/me", { cookie: owner.cookie });
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    // The answer is small. The select list pinned in the test above cuts the name inside D1, so it never reaches the Worker whole.
+    expect(new TextEncoder().encode(text).byteLength).toBeLessThan(2_048);
+    const names = new Map((JSON.parse(text) as { sites: Array<{ id: string; businessName: string | null }> }).sites.map((site) => [site.id, site.businessName]));
+    expect(names.get(huge)).toBe("x".repeat(60));
+    expect(names.get(emoji)).toBe("\u{1F527}".repeat(60));
+    for (const siteId of [huge, emoji, lone]) {
+      // Never over Facts' own limit, by Facts' own count.
+      const name = names.get(siteId) ?? "";
+      expect(Facts.shape.businessName.safeParse(name).success, `${siteId}: ${Array.from(name).length} code points`).toBe(true);
+    }
   });
 
   it("show each site's business name on /api/me as saved (quotes, accents, JSON escapes), and none for a name that is not text", async () => {
