@@ -8,9 +8,8 @@ export const JOB_STUCK_AFTER_MS = 6 * 60_000;
 export const SWEEP_BATCH = 25;
 /**
  * Rows read per cron run, at most: a row counts once read, even when another writer ended or claimed it
- * first. Each row read gets one write, or two when the first throws, so 16 reads and at most 800 writes stay
- * under D1's 1,000 queries per invocation on Workers Paid, which production uses (design §1.4). On Workers
- * Free (50) a large run stops at the limit with every earlier write kept, and the next run carries on.
+ * first. Each row read gets one write, or two when the first throws.
+ * Workers Paid bound (design §1.4): 16 reads + at most 800 writes < 1,000 D1 queries per invocation; Free allows 50.
  */
 export const SWEEP_MAX_PER_RUN = 400;
 
