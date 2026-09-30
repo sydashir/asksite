@@ -53,6 +53,10 @@ Read this whole file at the start of every session. These rules override default
   - Playwright uses at most 2 workers; vitest at most 3.
   - The moderator's governor (PID in `.superpowers/sdd/governor.pid`) lowers the priority of this project's processes and never stops anything.
 
+- Models (user rule 2026-09-30): never use Fable. Every agent in every workflow, and every Agent-tool subagent, names its model explicitly: opus for reviews, adversarial checks, judges, pre-flights and design work; sonnet for implementers and fixers working from a complete spec. An unset model copies the tab's model, so it is never left unset. In a running script, change only steps that have not finished, so finished steps replay from the cache.
+
+- Testing depth (user rule 2026-10-01; it replaces over-testing): full strict testing, including deliberate break-the-code checks (mutants, adversarial probes), ONLY for security, money and cost caps, customer data and leads, and the honesty/claims rules. Everything else gets one normal test per behaviour plus the real user-journey tests (sign up, build, edit, publish, a lead arrives): no deliberate code-breaking, no exotic edge cases, no re-proving at several layers. Internal tools (the floor checker, the eval script) are done; no more tests or review rounds on them.
+
 ## Security
 
 - API keys never go into git, logs, chat output, screenshots or client-side code.
