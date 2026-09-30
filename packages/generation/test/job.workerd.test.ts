@@ -280,10 +280,19 @@ describe("runGenerationJob", () => {
     expect(await getGeneration(db, "g1")).toMatchObject({ status: "running", started_at: NOW });
   });
 
-  it("fails a job whose stored input is not a valid snapshot", async () => {
-    await insertGeneration(db, { id: "g1", site_id: "s1", owner_id: "o1", status: "queued", input_json: '{"facts":{}}', created_at: NOW });
-    expect(await runGenerationJob(envWith(), "g1", deps())).toMatchObject({ outcome: "failed", errorCode: "internal" });
-    expect(await getGeneration(db, "g1")).toMatchObject({ status: "failed", error_code: "internal" });
+  // parseSnapshot's guards (snapshot.ts), Task 9 follow-up item 5: input that is not JSON, not a valid snapshot, or a
+  // snapshot with a key it does not know never reaches the model. The job fails it before any call, without throwing,
+  // and gives the model slot back. A first build fails too: without a valid snapshot it has no facts for the template.
+  it.each([
+    ["not JSON", "{not json"],
+    ["not a valid snapshot", '{"facts":{}}'],
+    ["a valid snapshot with an unknown key", JSON.stringify({ ...FULL_SNAPSHOT, extra: 1 })],
+  ])("fails a job whose stored input is %s, before any call", async (_input, inputJson) => {
+    await insertGeneration(db, { id: "g1", site_id: "s1", owner_id: "o1", status: "queued", input_json: inputJson, created_at: NOW });
+    const neverCalled = scriptedProvider([]);
+    await expect(runGenerationJob(envWith(), "g1", deps(neverCalled))).resolves.toMatchObject({ outcome: "failed", errorCode: "internal", attempts: 0, costUnknown: false });
+    expect(neverCalled.requests).toHaveLength(0);
+    expect(await getGeneration(db, "g1")).toMatchObject({ status: "failed", error_code: "internal", model_slot: 0, attempts: 0, output_json: null });
   });
 
   it("never overwrites a row the sweeper finished first", async () => {
