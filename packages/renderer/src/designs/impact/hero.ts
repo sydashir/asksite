@@ -1,7 +1,7 @@
 // The Bold hero. Text never sits on a photo: it is on a solid ink panel. On phones the owner's photo is a
-// band above the text; from 64rem it fills the right side behind a slanted seam, and the credentials card
-// sits on it. Without a photo the right side holds a card of the facts a caller checks first (hours and the
-// towns served); with nothing new for a card the hero is type only.
+// band above the text; from 64rem it sits at the right behind a slanted seam (a framed 4:3 window up to 80rem,
+// full height beyond), with the credentials card on it. Without a photo the right side holds a card of the
+// facts a caller checks first (hours and the towns served); with nothing new for a card the hero is type only.
 import type { VariantOf } from "@asksite/site-schema";
 import { isVisible, type RenderContext } from "../../context.ts";
 import { TRADE_LABEL } from "../../format.ts";
@@ -65,8 +65,8 @@ function cardBlocks(ctx: RenderContext): SafeHtml[] {
   const blocks: SafeHtml[] = [];
   if (!isVisible(ctx, "serviceArea")) return blocks;
   if (facts.hours.length > 0 || facts.emergency247) {
-    const rows = groupedHours(facts.hours, true);
-    blocks.push(html`<div class="biz-block"><p class="kicker biz-k">${icon("clock")}Hours</p><dl class="biz-hours">${facts.emergency247 && html`<div class="biz-247"><dt>Emergencies</dt><dd>24/7</dd></div>`}${facts.hours.length > 0 && rows.map((r) => html`<div><dt>${r.label}</dt><dd>${r.value}</dd></div>`)}</dl></div>`);
+    const rows = facts.hours.length > 0 ? groupedHours(facts.hours, true) : [];
+    blocks.push(html`<div class="biz-block"><p class="kicker biz-k">${icon("clock")}Hours</p><dl class="biz-hours">${facts.emergency247 && html`<div class="biz-247"><dt>Emergencies</dt><dd>24/7</dd></div>`}${rows.map((r) => html`<div><dt>${r.label}</dt><dd>${r.value}</dd></div>`)}</dl></div>`);
   }
   const places = facts.serviceArea.places.map((p) => p.trim().toLowerCase());
   if (places.length !== 1 || places[0] !== facts.location.city.trim().toLowerCase()) {
