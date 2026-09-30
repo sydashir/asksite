@@ -1,14 +1,18 @@
-// The price-list leader in a real browser (design judges, Classic r6 must-fix): the dots must run from the end
-// of a service name's LAST line to its price, never a short stub floating in a gap. Laid out by the repo's own
-// Playwright Chromium and WebKit with the real Classic sheet, every lettering choice, 320-1440 px, and a
-// service name of 40 characters (the schema's longest; the judge asked for 45), which wraps at most widths.
+// The price-list leader in a real browser (design judges, Classic r6 must-fix): from 36rem the dots must run from
+// the end of a service name's LAST line to its price, never a short stub floating in a gap. On phones the price sits
+// under the name, which keeps the whole width, as in the approved mockup (build judges r1: a leader beside a phone's
+// price broke short names). Laid out by the repo's own Playwright Chromium and WebKit with the real Classic sheet,
+// every lettering choice, 320-1440 px, and a service name of 40 characters (the schema's longest; the judge asked for
+// 45), which wraps at most widths.
 import { chromium, webkit, type Browser, type Page } from "@playwright/test";
 import { FONT_IDS, type FontId, type SiteDocumentInput } from "@asksite/site-schema";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { DESIGN_CSS, FIXTURE_FORM_ACTION, loadFixture } from "../../../../../fixtures/index.ts";
 import { render } from "../../../src/render.ts";
 
-const WIDTHS = [320, 390, 768, 900, 1024, 1280, 1440];
+const WIDTHS = [576, 640, 768, 900, 1024, 1280, 1440];
+/** Phones, below 36rem (576 px). */
+const PHONES = [320, 360, 375, 390, 430, 575];
 const LONG_NAME = "Tankless water heater repair and install"; // 40 characters, the longest a name may be
 /** The shortest leader the sheet allows: 3rem after the words plus the .5rem gap; a sub-pixel of rounding is tolerated. */
 const MIN_LEADER = 55.5;
@@ -49,6 +53,21 @@ const MEASURE = `(min) => {
 
 const leaderProblems = (page: Page): Promise<string[]> => page.evaluate(`(${MEASURE})(${MIN_LEADER})`);
 
+/** Every price line that is not stacked: the price not under its name, or the name narrower than the row. */
+const STACK = `(() => {
+  const problems = [];
+  for (const line of document.querySelectorAll(".svc-l")) {
+    const name = line.querySelector(".svc-n");
+    const price = line.querySelector(".pr");
+    const label = (name.textContent || "").slice(0, 24);
+    const n = name.getBoundingClientRect(), p = price.getBoundingClientRect(), row = line.getBoundingClientRect();
+    if (p.top < n.bottom - 1) problems.push(label + ": the price is beside the name");
+    if (n.width < row.width - 1) problems.push(label + ": the name is " + (row.width - n.width).toFixed(0) + " px narrower than the row");
+    if (getComputedStyle(price, "::before").content !== "none") problems.push(label + ": a leader shows");
+  }
+  return problems;
+})()`;
+
 /** How many service names wrap onto more than one line. */
 const wrappedNames = (page: Page): Promise<number> =>
   page.evaluate(`[...document.querySelectorAll(".svc-n span")].filter((s) => s.getClientRects().length > 1).length`);
@@ -73,7 +92,22 @@ describe.each(Object.keys(ENGINES) as Array<keyof typeof ENGINES>)("the Classic 
     if (css) await page.addStyleTag({ content: css });
   }
 
-  it.each(FONT_IDS)("runs from the end of every name's last line to its price with %s lettering, 320-1440 px", async (font) => {
+  it.each(FONT_IDS)("puts every price under its name, which keeps the whole row, on phones with %s lettering", async (font) => {
+    const found: Record<string, string[]> = {};
+    for (const width of PHONES) {
+      await open(font, width);
+      const problems = (await page.evaluate(STACK)) as string[];
+      if (problems.length > 0) found[width] = problems;
+    }
+    expect(found).toEqual({});
+  }, 60_000);
+
+  it("RED: catches a phone price beside its name", async () => {
+    await open("sturdy", 390, ".svc-l{display:flex!important}");
+    expect(((await page.evaluate(STACK)) as string[]).join("\n")).toMatch(/beside the name/);
+  }, 60_000);
+
+  it.each(FONT_IDS)("runs from the end of every name's last line to its price with %s lettering, 576-1440 px", async (font) => {
     const found: Record<string, string[]> = {};
     let wrapped = 0;
     for (const width of WIDTHS) {
@@ -92,9 +126,9 @@ describe.each(Object.keys(ENGINES) as Array<keyof typeof ENGINES>)("the Classic 
     expect((await leaderProblems(page)).join("\n")).toMatch(/gap before the price/);
   }, 60_000);
 
-  it("catches a leader shorter than 3.5rem somewhere between 320 and 1440 px", async () => {
+  it("catches a leader shorter than 3.5rem somewhere between 576 and 1440 px", async () => {
     const problems: string[] = [];
-    for (let width = 320; width <= 1440 && problems.length === 0; width += 16) {
+    for (let width = 576; width <= 1440 && problems.length === 0; width += 16) {
       await open("clean", width, ".svc-n span{margin-right:0!important}");
       problems.push(...(await leaderProblems(page)).filter((problem) => /leader \d/.test(problem)));
     }

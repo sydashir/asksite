@@ -7,6 +7,8 @@
 @import "../shared.css";
 @source "../../src/render.ts";
 @source "../../src/designs/refined";
+/* The tokens file holds CSS values, not class names ("uppercase", "italic" would add unused utilities). */
+@source not "../../src/designs/refined/tokens.ts";
 
 /* The shared skip link's focus:shadow-lg, as one plain rule: Tailwind's own shadow utilities register 14 custom
    properties and a fallback block (about 1.9 KB) that nothing else on a Classic page uses. The theme's shadow
@@ -15,7 +17,7 @@
 @utility shadow-lg { box-shadow: 0 10px 15px -3px #0000001a, 0 4px 6px -4px #0000001a; }
 
 /* ---------- Tokens and base ---------- */
-:root{--sh:0 1px 2px #0000000f,0 22px 44px -24px #00000061;--sh2:0 1px 2px #0000000d,0 16px 32px -24px #0000004d}
+:root{--sh:0 1px 2px #0000000f,0 22px 44px -24px #00000061}
 .classic{background:var(--aw-refined-surface);color:var(--aw-refined-text);font-family:var(--aw-refined-body);font-size-adjust:var(--aw-refined-body-adjust);line-height:1.6;-webkit-font-smoothing:antialiased;overflow-wrap:anywhere}
 h1,h2,h3,.brand,.seal,.hq p,.hq::before,.bc-ph,.pr,.qm,.lq p,.qc p,.cta-or,.print figcaption,.letter-b,.letter-s,.svc-mt,.c-ph,.ft-name{font-family:var(--aw-refined-head);font-size-adjust:var(--aw-refined-head-adjust)}
 h1,h2,h3{font-weight:700;line-height:1.15;color:var(--aw-refined-ink);text-wrap:balance}
@@ -33,7 +35,7 @@ h1,h2,h3{font-weight:700;line-height:1.15;color:var(--aw-refined-ink);text-wrap:
 .dots-r>span::before{content:"\b7";content:"\b7"/"";flex:none;width:var(--dot);font-style:normal;letter-spacing:0;text-align:center}
 
 /* ---------- Buttons: one action colour for Call and Send, never the colour of the band behind ---------- */
-.bt{display:inline-flex;align-items:center;justify-content:center;gap:.5rem;min-height:3rem;padding:.6875rem 1.25rem;border:2px solid #0000;border-radius:var(--aw-refined-radius);font-size:1rem;font-weight:650;line-height:1.25;text-align:center;text-decoration:none;white-space:nowrap;cursor:pointer;transition:.15s}
+.bt{display:inline-flex;align-items:center;justify-content:center;gap:.5rem;min-height:3rem;padding:.6875rem 1.25rem;border:2px solid #0000;border-radius:var(--aw-refined-radius);font-size:1rem;font-weight:650;line-height:1.25;text-align:center;white-space:nowrap;cursor:pointer;transition:.15s}
 .bt-act{border-color:var(--aw-refined-action);background:var(--aw-refined-action);color:var(--aw-refined-on-action);box-shadow:0 1px 2px #00000024}
 .bt-out{border-color:var(--aw-refined-brand);color:var(--aw-refined-brand)}
 .bt-lg{min-height:3.5rem;padding-inline:1.625rem;font-size:1.0625rem}
@@ -46,23 +48,23 @@ h1,h2,h3{font-weight:700;line-height:1.15;color:var(--aw-refined-ink);text-wrap:
 /* ---------- Header: phones get the name and a <details> menu that scrolls away with the header ---------- */
 .hd{position:relative;z-index:30;border-bottom:1px solid var(--aw-refined-line);background:var(--aw-refined-paper)}
 .hd-row{display:flex;align-items:center;column-gap:.75rem;min-height:4rem;padding-block:.5rem}
-.brand{min-width:0;margin-right:auto;padding-block:.625rem;font-size:1.1875rem;font-weight:700;line-height:1.2;color:var(--aw-refined-ink);text-decoration:none;text-wrap:balance}
+.brand{min-width:0;margin-right:auto;padding-block:.625rem;font-size:1.1875rem;font-weight:700;line-height:1.2;color:var(--aw-refined-ink);text-wrap:balance}
 .hd-long .brand{font-size:1.0625rem}
 .nav{order:3}
 .nav-l,.hd-q,.hd-c,.i-close,.menu[open] .i-open{display:none}
-.nav-l a{display:inline-flex;align-items:center;min-height:2.75rem;padding-inline:.5rem;border-radius:.25rem;font-size:.9375rem;font-weight:500;text-decoration:none;white-space:nowrap}
+.nav-l a{display:inline-flex;align-items:center;min-height:2.75rem;padding-inline:.5rem;border-radius:.25rem;font-size:.9375rem;font-weight:500;white-space:nowrap}
 .menu summary{display:flex;align-items:center;justify-content:center;width:2.75rem;height:2.75rem;border-radius:.375rem;color:var(--aw-refined-ink);cursor:pointer;list-style:none}
 .menu summary::-webkit-details-marker{display:none}
 .menu summary .i{width:1.5rem;height:1.5rem;color:inherit}
 .menu[open] .i-close{display:block}
 .menu ul{position:absolute;top:calc(100% - .25rem);right:1rem;width:min(16rem,calc(100vw - 2rem));padding:.5rem;border:1px solid var(--aw-refined-line);border-radius:var(--aw-refined-radius-card);background:var(--aw-refined-surface);box-shadow:0 18px 40px -18px #0006}
-.menu a{display:flex;align-items:center;min-height:2.75rem;padding-inline:.75rem;border-radius:.25rem;font-weight:500;text-decoration:none}
+.menu a{display:flex;align-items:center;min-height:2.75rem;padding-inline:.75rem;border-radius:.25rem;font-weight:500}
 
 /* ---------- Hero ---------- */
 .hero{overflow-x:clip;background:var(--aw-refined-paper);padding-block:1.5rem 2.75rem}
 .eb{display:flex;align-items:flex-start;gap:.75rem;font:var(--aw-refined-eyebrow);letter-spacing:var(--aw-refined-eyebrow-track);text-transform:var(--aw-refined-eyebrow-case);color:var(--aw-refined-accent-text)}
 .eb::before{content:"";flex:none;width:1.75rem;height:var(--aw-refined-rule-h);margin-top:calc(.7em - var(--aw-refined-rule-h)/2);background:var(--aw-refined-accent)}
-.eb .dots,.proof .dots,.c-list .dots{flex:1 1 auto}
+.eb .dots,.proof .dots,.c-list .dots,.af-l .dots{flex:1 1 auto}
 /* One size curve: a long headline (--kl) and a short desktop window (--ks) scale it down. */
 .ht{margin-top:var(--aw-refined-hero-gap);font-size:calc(clamp(2.125rem,1.45rem + 2.9vw,3.75rem)*var(--aw-refined-hero-scale)*var(--kl,1)*var(--ks,1));line-height:1.07;letter-spacing:var(--aw-refined-hero-track)}
 .ht-long{--kl:.82}
@@ -104,7 +106,7 @@ h1,h2,h3{font-weight:700;line-height:1.15;color:var(--aw-refined-ink);text-wrap:
 .bc{position:relative;container-type:inline-size;padding:1.5rem 1.375rem 1.375rem;border:1px solid var(--aw-refined-line);border-radius:var(--aw-refined-radius-paper);background:var(--aw-refined-surface);box-shadow:var(--sh)}
 .bc::after,.letter::after,.hcard::after{content:"";position:absolute;inset:.4375rem;border:1px solid var(--aw-refined-line);border-radius:calc(var(--aw-refined-radius-paper)*.6);pointer-events:none}
 .bc-l{color:var(--aw-refined-accent-text)}
-.bc-ph{display:inline-flex;align-items:center;gap:.3em;margin-top:.3125rem;font-size:clamp(1.25rem,calc((100cqi - 2.5rem - var(--seal-clear,0px))/8),2.5rem);font-weight:700;line-height:1.15;color:var(--aw-refined-ink);text-decoration:none}
+.bc-ph{display:inline-flex;align-items:center;gap:.3em;margin-top:.3125rem;font-size:clamp(1.25rem,calc((100cqi - 2.5rem - var(--seal-clear,0px))/8),2.5rem);font-weight:700;line-height:1.15;color:var(--aw-refined-ink)}
 .bc-ph .i{width:.62em;height:.62em}
 .bc-l,.bc-s,.c-ht,.ft-h{font-size:.75rem;font-weight:650;letter-spacing:.13em;text-transform:uppercase}
 .bc-s,.c-ht{margin-bottom:.25rem;color:var(--aw-refined-muted)}
@@ -134,19 +136,16 @@ h1,h2,h3{font-weight:700;line-height:1.15;color:var(--aw-refined-ink);text-wrap:
 .ti .i{width:1.375rem;height:1.375rem}
 .tr-lift{display:none}
 
-/* ---------- Services: a price list. The name fills the width beside the price. The dots are an empty inline-block at
-   the start of the price, so their bottom edge sits on the baseline the price shares with the name's last line
-   (last-baseline alignment), in every font; they reach left under the name, whose words (on the band's colour) cover
-   them, so they run from the end of the words to the price, at least 3rem. The row clips them sideways only: its
-   padding and negative margin leave room for tall glyphs. ---------- */
+/* ---------- Services: a price list. Phones: the price under the name. From 36rem the name fills the width beside the
+   price, and the dots are an empty inline-block at the start of the price, so their bottom edge sits on the baseline the
+   price shares with the name's last line (last-baseline alignment), in every font; they reach left under the name,
+   whose words (on the band's colour) cover them, so they run from the end of the words to the price, at least 3rem.
+   The row clips them sideways only: its padding and negative margin leave room for tall glyphs. ---------- */
 .svc-list{display:grid;grid-template-columns:minmax(0,1fr);column-gap:4.5rem}
 .svc{padding-block:1.25rem 1.375rem;border-bottom:1px solid var(--aw-refined-line)}
 .svc:first-child{border-top:1px solid var(--aw-refined-line)}
-.svc-l{display:flex;align-items:flex-end;align-items:last baseline;gap:.5rem;overflow:hidden;padding-block:.4em;margin-block:-.4em}
-.svc-n{position:relative;flex:1 1 auto;min-width:0;font-size:1.25rem;line-height:1.25;text-wrap:pretty}
-.svc-n span{margin-right:3rem;padding-right:.5rem;background:var(--band)}
-.pr{flex:none;font-size:1.0625rem;font-weight:700;line-height:1.3;color:var(--aw-refined-accent-text);white-space:nowrap}
-.pr:before{content:"";display:inline-block;width:100vw;height:2px;margin:0 .5rem 0 -100vw;background:linear-gradient(90deg,var(--aw-refined-rule) 50%,#0000 0) 100% 0/4px 2px repeat-x}
+.svc-n{font-size:1.25rem;line-height:1.25;text-wrap:pretty}
+.pr{margin-top:.25rem;font-size:1.0625rem;font-weight:700;line-height:1.3;color:var(--aw-refined-accent-text);white-space:nowrap}
 .pr-ask{font-family:var(--aw-refined-body);font-size-adjust:var(--aw-refined-body-adjust);font-size:.9375rem;font-weight:500;color:var(--aw-refined-muted)}
 .svc-d{max-width:34em;margin-top:.5rem;color:var(--aw-refined-muted);text-wrap:pretty}
 .svc-more{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:1rem 1.5rem;margin-top:1.75rem;padding:1.5rem;border-radius:var(--aw-refined-radius-paper);background:var(--aw-refined-dark);color:var(--aw-refined-on-dark-muted)}
@@ -177,12 +176,13 @@ h1,h2,h3{font-weight:700;line-height:1.15;color:var(--aw-refined-ink);text-wrap:
 .gal{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));column-gap:.75rem}
 .gal>li{margin-bottom:1rem}
 .g-1{grid-template-columns:minmax(0,1fr)}
-.print img{padding:.375rem;border:1px solid var(--aw-refined-line);border-radius:var(--aw-refined-radius-paper);background:var(--aw-refined-surface);box-shadow:var(--sh2)}
+.print img{padding:.375rem;border:1px solid var(--aw-refined-line);border-radius:var(--aw-refined-radius-paper);background:var(--aw-refined-surface);box-shadow:0 1px 2px #0000000d,0 16px 32px -24px #0000004d}
 .print figcaption{padding:.5rem .125rem 0;font-size:1rem;font-style:italic;line-height:1.35;color:var(--aw-refined-ink)}
 
 /* ---------- About: a letter from the business ---------- */
 .letter{position:relative;max-width:48rem;margin-inline:auto;padding:2.75rem 1.5rem 2.25rem;border:1px solid var(--aw-refined-line);border-radius:var(--aw-refined-radius-paper);background:var(--card);box-shadow:var(--sh);text-align:center}
 .letter::after{inset:.5rem}
+.letter .st{font-size:calc(clamp(1.75rem,1.35rem + 1.5vw,2.5rem)*var(--aw-refined-title-scale))}
 .rule{width:7rem;height:.75rem;margin:1.25rem auto 1.5rem;color:var(--aw-refined-accent)}
 .letter-b{max-width:33em;margin-inline:auto;font-size:clamp(1.1875rem,1.05rem + .5vw,1.375rem);line-height:1.65;text-align:left;text-wrap:pretty}
 .letter-s{margin-top:1.75rem;font-size:1.125rem;font-style:italic;line-height:1.4;color:var(--aw-refined-ink)}
@@ -209,8 +209,10 @@ h1,h2,h3{font-weight:700;line-height:1.15;color:var(--aw-refined-ink);text-wrap:
 .h247 strong,.h247 a{font-weight:650}
 .h247 strong{text-wrap:balance}
 .h247 .i{position:absolute;top:1.0625rem;left:1.125rem;color:var(--aw-refined-accent-on-dark)}
-.h247 a{text-underline-offset:.2em}
 .base{margin-top:.875rem;padding-left:2.125rem;font-style:normal;font-size:1.0625rem;line-height:1.55;color:var(--aw-refined-ink)}
+/* One town and nothing else to show: a small heading and one line. */
+.af{padding-block:2.25rem}
+.af-l{display:flex;margin:.375rem 0 0 2.125rem;font-size:1.0625rem;color:var(--aw-refined-ink)}
 
 /* ---------- FAQ: the "Still have a question?" box follows the questions on phones, sits under the heading when wide ---------- */
 .faq{display:grid;grid-template-columns:minmax(0,1fr)}
@@ -243,12 +245,17 @@ h1,h2,h3{font-weight:700;line-height:1.15;color:var(--aw-refined-ink);text-wrap:
 .c-list{display:grid;gap:1.25rem}
 .c-list li{display:flex;gap:.875rem;min-width:0}
 .c-list .i{margin-top:.25rem;color:var(--aw-refined-accent-on-dark)}
-.c-list a{font-weight:600;color:var(--aw-refined-on-dark);text-decoration:underline var(--aw-refined-accent-on-dark);text-underline-offset:.25em}
+.c-list a{font-weight:600;color:var(--aw-refined-on-dark)}
+/* Links in running text keep an underline (preflight's a{text-decoration:inherit} drops the browser's): the accent on
+   light, its dark-band tint on dark. */
+.bc-m a,.fcall a{text-decoration:underline var(--aw-refined-accent);text-underline-offset:.25em}
+.c-list a,.h247 a{text-decoration:underline var(--aw-refined-accent-on-dark);text-underline-offset:.25em}
 .c-ph{font-size:1.75rem;font-weight:700;line-height:1.2}
 .c-list .i-lg{width:1.5rem;height:1.5rem;margin-top:.5rem}
 .c-note{display:block;margin-top:.25rem;font-size:.9375rem}
-.c-more{display:none}
-.c-hours{--rule:#ffffff2e;margin-top:2rem;padding-top:1.5rem;border-top:1px solid #ffffff29}
+/* Rows that show only from 60rem (.c-info .c-more outranks .c-list li). */
+.c-info .c-more{display:none}
+.c-hours{--aw-refined-rule:#ffffff2e;margin-top:2rem;padding-top:1.5rem;border-top:1px solid #ffffff29}
 .c-ht{margin-bottom:.5rem}
 .c-hours div{max-width:26rem;padding-block:.375rem 0}
 .c-hours div::after{margin-top:calc(.375rem - 1px)}
@@ -270,7 +277,7 @@ textarea.in{resize:vertical}
 .fcard .bt{width:100%;margin-top:.5rem}
 /* A call link right under Send: the call bar stops sticking while a field has focus. */
 .fcall{display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:0 .5rem;margin-top:1rem;padding-top:.5rem;border-top:1px solid var(--aw-refined-line);font-size:.9375rem;line-height:1.4;color:var(--aw-refined-muted);text-align:center}
-.fcall a{display:inline-flex;align-items:center;gap:.375rem;min-height:2.75rem;font-weight:650;color:var(--aw-refined-brand);text-decoration:underline 1.5px var(--aw-refined-accent);text-underline-offset:.25em}
+.fcall a{display:inline-flex;align-items:center;gap:.375rem;min-height:2.75rem;font-weight:650;color:var(--aw-refined-brand);text-decoration-thickness:1.5px}
 .fcall .i{width:1.0625rem;height:1.0625rem}
 .fcall-n{flex-basis:100%;margin-top:-.25rem;font-size:.875rem}
 
@@ -282,7 +289,7 @@ textarea.in{resize:vertical}
 .c-ht,.ft-h{font-size:.8125rem;color:var(--aw-refined-on-dark)}
 .ft-h{margin-bottom:.625rem}
 .ft li{margin-bottom:.375rem}
-.ft a{color:var(--aw-refined-on-dark-muted);text-decoration:underline #0000;text-underline-offset:.2em}
+.ft a{color:var(--aw-refined-on-dark-muted);text-underline-offset:.2em}
 .ft-links{display:flex;flex-wrap:wrap;gap:.25rem 1.5rem;padding-block:1.25rem 1.75rem;border-top:1px solid #ffffff24}
 .ft-links a{display:inline-flex;align-items:center;min-height:2.75rem;gap:.375rem}
 .ft-links .i{width:1rem;height:1rem;color:inherit}
@@ -296,17 +303,18 @@ textarea.in{resize:vertical}
 /* ---------- Hover (pointers that can hover only, so a tapped button never stays looking pressed) ---------- */
 @media (hover:hover){
   .bt-act:hover{border-color:var(--aw-refined-action-hover);background:var(--aw-refined-action-hover)}
-  .bt-out:hover{background:var(--aw-refined-brand);color:var(--aw-refined-surface)}
+  .bt.bt-out:hover{background:var(--aw-refined-brand);color:var(--aw-refined-surface)}
   .nav-l a:hover,.faq-i summary:hover .faq-q{color:var(--aw-refined-brand)}
   .menu summary:hover{background:var(--aw-refined-line)}
   .menu a:hover{background:var(--aw-refined-paper)}
-  .c-list a:hover,.fcall a:hover{text-decoration-thickness:2px}
-  .ft a:hover{color:var(--aw-refined-on-dark);text-decoration-color:currentColor}
+  .c-list a:hover,.fcall a:hover,.bc-m a:hover,.h247 a:hover{text-decoration-thickness:2px}
+  .ft a:hover{color:var(--aw-refined-on-dark);text-decoration:underline}
 }
 
 /* ---------- Phones only ---------- */
-@media (width < 22.5rem){
-  /* "Call" is visually hidden but still read, so the name stays "Call (number)"; the icon's room goes to the 24/7 line. */
+@media (width < 24rem){
+  /* "Call" is visually hidden but still read, so the name stays "Call (number)"; the icon's room goes to the 24/7 line.
+     So both buttons keep one line and the bar one height on 320-383 px phones (the Android 360 and iPhone 375 widths). */
   .cw{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
   .cb .bt{padding-inline:.625rem}
   .cb .bt-act>.i{display:none}
@@ -315,7 +323,7 @@ textarea.in{resize:vertical}
 @media (width < 48rem){
   /* The email leaves the card (it sits where the call bar covers the first screen); the gallery opens with one
      full-width print, and an even count also ends with one, so no row holds a print alone. */
-  .bc-e{display:none}
+  .bc-m .bc-e{display:none}
   .gal>li:first-child,.gal>li:last-child:nth-child(even){grid-column:1/-1}
 }
 
@@ -326,6 +334,15 @@ textarea.in{resize:vertical}
   .places{columns:3}
   .pw-2{columns:2}
   .pw-1{columns:1}
+}
+
+/* ---------- 36rem: the price joins the name's last line, after a dotted leader ---------- */
+@media (min-width:36rem){
+  .svc-l{display:flex;align-items:flex-end;align-items:last baseline;gap:.5rem;overflow:hidden;padding-block:.4em;margin-block:-.4em}
+  .svc-n{position:relative;flex:1 1 auto;min-width:0}
+  .svc-n span{margin-right:3rem;padding-right:.5rem;background:var(--band)}
+  .pr{flex:none;margin:0}
+  .pr:before{content:"";display:inline-block;width:100vw;height:2px;margin:0 .5rem 0 -100vw;background:linear-gradient(90deg,var(--aw-refined-rule) 50%,#0000 0) 100% 0/4px 2px repeat-x}
 }
 
 /* ---------- 40rem ---------- */
