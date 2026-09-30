@@ -16,9 +16,13 @@ const toInviteView = (row: InviteRow): InviteView => ({
   siteId: row.site_id,
 });
 
-/** What the admin reads when the invite email fails. Resend's shared daily limit (§7.6) gets its own words: retrying will not help today. */
+/**
+ * What the admin reads when the invite email fails. rate_limited gets its own words, true for every Resend 429
+ * the mailer maps to it (§7.6): the per-second limit (a minute later works) and the daily or monthly quota (it does not).
+ */
 const SEND_FAILED = "Email could not be sent, try again";
-const DAILY_LIMIT_REACHED = "Invite emails are paused for today because the daily email limit was reached. Try again after 00:00 UTC.";
+const EMAIL_SERVICE_LIMITED =
+  "The email service is limiting how many emails we can send right now. Try again in a minute. If it still fails, today's email limit may be used up: try again after 00:00 UTC.";
 
 /**
  * auditStatement's row (§2.6), but written only when the invite's revoked_at is this request's own `at`:
@@ -53,7 +57,7 @@ export function inviteRoutes(deps: AdminDeps): Hono<AdminEnv> {
       // No email, no invite: nothing is left for anyone to use or revoke. The request's line says why, never to whom.
       noteLog(c, { error: failure });
       await db.prepare("DELETE FROM invites WHERE id = ?").bind(id).run();
-      throw new ApiError("email_failed", failure === "rate_limited" ? DAILY_LIMIT_REACHED : SEND_FAILED);
+      throw new ApiError("email_failed", failure === "rate_limited" ? EMAIL_SERVICE_LIMITED : SEND_FAILED);
     }
     await auditStatement(db, { at: now, actor: `admin:${admin}`, action: "invite.created", siteId: null, detail: { inviteId: id } }).run();
     const row = await db.prepare("SELECT * FROM invites WHERE id = ?").bind(id).first<InviteRow>();

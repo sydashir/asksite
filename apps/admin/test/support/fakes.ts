@@ -108,8 +108,8 @@ export const fakeAdminGeneration: AdminGenerationDeps = {
 
 /**
  * The app's fake mailer (an address at @mail-fails.example fails as Plan 2's MailerError "rejected"), plus
- * the admin's own case: an address at @mail-rate-limited.example fails as "rate_limited", the shared daily
- * Resend limit (§7.6), which the invite route explains to the admin in its own words.
+ * the admin's own case: an address at @mail-rate-limited.example fails as "rate_limited", the code for every
+ * Resend 429 (§7.6), which the invite route explains to the admin in its own words.
  */
 export function fakeAdminCreateMailer(env: MailerEnv): Mailer {
   const mailer = fakeCreateMailer(env);

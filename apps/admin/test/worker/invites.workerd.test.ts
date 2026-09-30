@@ -10,7 +10,9 @@ type Db = Awaited<ReturnType<typeof h.db>>;
 const INVITE_VIEW_KEYS = ["createdAt", "createdBy", "email", "expiresAt", "id", "revokedAt", "siteId", "usedAt"];
 
 const SEND_FAILED = "Email could not be sent, try again";
-const DAILY_LIMIT_REACHED = "Invite emails are paused for today because the daily email limit was reached. Try again after 00:00 UTC.";
+/** For every Resend 429 (the per-second limit, the daily quota or the monthly quota), all of which the mailer calls rate_limited. */
+const EMAIL_SERVICE_LIMITED =
+  "The email service is limiting how many emails we can send right now. Try again in a minute. If it still fails, today's email limit may be used up: try again after 00:00 UTC.";
 
 /** Emails an invite and reads its token back from the outbox, as the owner's link would carry it. */
 async function invited(email: string): Promise<{ id: string; tokenHash: string }> {
@@ -96,9 +98,9 @@ describe("invites", () => {
     await refusedSend("someone@mail-fails.example", "rejected", SEND_FAILED);
   });
 
-  it("tells the admin when the shared daily email limit is reached (rate_limited), and keeps no invite", async () => {
+  it("tells the admin when the email service is limiting sends (rate_limited), and keeps no invite", async () => {
     // The admin's fake mailer fails this address as "rate_limited" (test/support/fakes.ts).
-    await refusedSend("someone@mail-rate-limited.example", "rate_limited", DAILY_LIMIT_REACHED);
+    await refusedSend("someone@mail-rate-limited.example", "rate_limited", EMAIL_SERVICE_LIMITED);
   });
 
   describe("revoke", () => {
