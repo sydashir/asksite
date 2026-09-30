@@ -518,6 +518,24 @@ test.describe("the gates can fail (RED proof)", () => {
     await openToday(page, "plumber-austin");
     // The bar stays static while a form field has focus, so only a hidden link can be found.
     await page.addStyleTag({ content: "html:has(a:focus-visible) aside{position:sticky!important}" });
+    // Where a key press scrolls is each engine's choice: Linux WebKit centres the focused Send button, so no later link
+    // happens to land under the bar there (CI, 2026-10-01). So the proof places one: the page's last link outside the
+    // bar sits in the band the stuck bar covers, and focus starts on the stop before it. The next key press then
+    // reaches that link without scrolling, because it is already in view.
+    await page.evaluate(() => {
+      const bar = document.querySelector('aside[aria-label="Call us"]');
+      if (!bar) throw new Error("no call bar");
+      const stops = [...document.querySelectorAll<HTMLElement>("a[href], button, input, select, textarea, summary")].filter(
+        (el) => !bar.contains(el) && el.tabIndex >= 0 && el.getClientRects().length > 0,
+      );
+      const link = stops.findLast((el) => el.tagName === "A");
+      const before = link ? stops[stops.indexOf(link) - 1] : undefined;
+      if (!link || !before) throw new Error("no link with a stop before it");
+      const band = bar.getBoundingClientRect().height;
+      const box = link.getBoundingClientRect();
+      window.scrollTo(0, box.top + window.scrollY - (window.innerHeight - band / 2 - box.height / 2));
+      before.focus({ preventScroll: true });
+    });
     expect((await focusHiddenByCallBar(page, browserName)).filter((stop) => stop.startsWith("A "))).not.toEqual([]);
   });
 });
