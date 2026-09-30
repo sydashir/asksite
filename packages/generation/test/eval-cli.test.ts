@@ -220,10 +220,11 @@ describe("refusals (P3-17 D2, D5 c)", () => {
     expect(usage).not.toMatch(/pnpm eval:generation|pnpm -s /);
   });
 
-  it("documents the exit codes, in the order that decides between them (iii)", async () => {
+  it("documents the exit codes, in the order that decides between them (iii), then what Ctrl-C does to a live run (follow-up 3 D)", async () => {
     const h = harness();
     expect(await main(["--help"], h.deps)).toBe(2);
     expect(h.err[0]).toContain("Exit codes, the first that applies: 2 refused flags; 3 a live request cost more than its worst case, or its cost could not be counted, even if an error then ended the run (one line names the error's kind); 1 --caps-probe could not measure every model, or an exception ended the run with no overrun; 0 otherwise.");
+    expect(h.err[0]).toContain("0 otherwise.\nCtrl-C ends a live run at once without its report; the spend stays within --max-usd.");
   });
 });
 

@@ -77,6 +77,7 @@ const USAGE = [
   "Type the long --silent before eval:generation, so pnpm does not print the arguments back; never the short -s, which pnpm 11 (from 11.14.0) reads as --sequential in pnpm run.",
   "A dry run unless both --live and --max-usd are given. A live run sends each site of the evaluation, or each request of --caps-probe and --record, only while the spend so far plus its worst case fits under --max-usd; the total can exceed --max-usd by at most one request's overrun above its worst case.",
   "Exit codes, the first that applies: 2 refused flags; 3 a live request cost more than its worst case, or its cost could not be counted, even if an error then ended the run (one line names the error's kind); 1 --caps-probe could not measure every model, or an exception ended the run with no overrun; 0 otherwise.",
+  "Ctrl-C ends a live run at once without its report; the spend stays within --max-usd.",
   "Keys: never put a key in arguments; keys come only from the environment (the shell's variables, or the gitignored .env at the repo root; a variable set in the shell wins over the .env).",
 ].join("\n");
 
