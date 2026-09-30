@@ -82,8 +82,7 @@ async function startAlertDayAfresh(): Promise<void> {
  * A request A of a new site that an earlier-timed request B of the same site overtakes, near the hour mark of the
  * site's alerted request x (security review r3, I1): x was asked just over an hour before A; B was asked just before
  * x's hour ended, so before A, yet commits after A. B commits after A's alert check (ordering O1), or before it (O2;
- * O3 only adds B's own check before A's, a read that finds x and sends nothing either way). By version number A is
- * the site's first request in an hour: it alerts.
+ * O3 is covered by O2, see the cap test). By version number A is the site's first request in an hour: it alerts.
  */
 async function overtakenRequest(slug: string, bCommits: "after A's alert check" | "before A's alert check"): Promise<void> {
   const owner = await withSlug(await builtOwner(h, VALID_FACTS, VALID_BRIEF), slug);
@@ -341,12 +340,27 @@ describe("POST /api/sites/:siteId/publish-requests", () => {
     expect(await sentAlerts("quiet-hour-plumbing")).toEqual([{ subject: "Website waiting for review: quiet-hour-plumbing (version 2)" }]);
   });
 
+  it("sends no alert for a site's request 59 minutes after its request that alerted: the quiet time is a full hour (decision 32)", async () => {
+    await startAlertDayAfresh();
+    const owner = await withSlug(await builtOwner(h, VALID_FACTS, VALID_BRIEF), "still-quiet-plumbing");
+    const first = await publishAndSettle(owner);
+    expect(await sentAlerts("still-quiet-plumbing")).toEqual([{ subject: "Website waiting for review: still-quiet-plumbing (version 1)" }]);
+    // As if that request, which alerted, was asked 59 minutes before the next one.
+    await (await h.db()).prepare("UPDATE site_versions SET requested_at = ? WHERE id = ?").bind(Date.now() - 59 * 60_000, first.id).run();
+    expect((await publishAndSettle(owner)).number).toBe(2);
+    expect(await sentAlerts("still-quiet-plumbing")).toEqual([{ subject: "Website waiting for review: still-quiet-plumbing (version 1)" }]);
+  });
+
   // Last in this file: it fills the day's alert allowance for every test after it.
   it("sends the 10th review alert of a UTC day but not the 11th, however many sites ask, counting each request that alerted though a later-committed one of its site was asked earlier (decision 32)", async () => {
     // The day's allowance to this test alone, so the overtaken requests below alert.
     await startAlertDayAfresh();
-    await overtakenRequest("overtaken-late-plumbing", "after A's alert check");
-    await overtakenRequest("overtaken-early-plumbing", "before A's alert check");
+    // O1 and O2 of security review r3 (task-10-review-sec-r3.md). O3 needs no case of its own (moderator decision,
+    // 2026-09-30): it is O2 plus B's own alert check running before A's. B's check is a read-only SELECT, so it leaves
+    // exactly O2's rows behind, and it sends nothing (it finds x within B's hour, by version number and by time alike).
+    // A's check then reads O2's state, which the O2 case below tests.
+    await overtakenRequest("overtaken-late-plumbing", "after A's alert check"); // O1
+    await overtakenRequest("overtaken-early-plumbing", "before A's alert check"); // O2
     await awayFromUtcHourEnd();
     const db = await h.db();
     // Today's alert-worthy requests so far, by the route's rule: a site's first request in an hour, by version number.
