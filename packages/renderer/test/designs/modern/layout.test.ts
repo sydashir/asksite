@@ -97,7 +97,7 @@ function lostText(): string[] {
   return [...new Set(out)];
 }
 
-describe.each(ENGINES)("Modern in %s", (engineName, engine) => {
+describe.each(ENGINES)("Modern in %s", (_engine, engine) => {
   let browser: Browser;
   let tab: Page;
   beforeAll(async () => {
@@ -433,39 +433,29 @@ describe.each(ENGINES)("Modern in %s", (engineName, engine) => {
   }, 60_000);
 
   // Round 3: hiding the no-hours card moved the fewest-facts page up, and on the Pixel 7 the services card's button
-  // then stuck out 0.4 px above the call bar, which failed the phone e2e's axe check. axe-core 4.13's target-size rule
-  // (node_modules/axe-core/axe.js: targetSizeEvaluate, targetOffsetEvaluate) passes a target the bar's box wholly
-  // contains; one that sticks out past the bar's top edge, or past the screen's bottom edge, passes only when the part
-  // that sticks out is at least 2 x (12 px - the gap between that edge and the bar's buttons): 2 px above, 4 px below.
-  // At the e2e phone windows every tap target keeps 3 px clear of those bands, so a sub-pixel change in a font or an
-  // engine cannot flip the check.
-  it("leaves no tap target half under the call bar on the e2e phone windows (axe target-size, round 3)", async () => {
+  // then stuck out 0.4 px above the call bar, which failed the phone e2e's axe check (target-size). axe-core 4.13
+  // (node_modules/axe-core/axe.js: targetSizeEvaluate, targetOffsetEvaluate, getOffset) passes a target the bar's box
+  // wholly contains. A target that sticks out past the bar's top edge, or past the screen's bottom edge, is measured
+  // on the part that sticks out, which passes when its centre is at least 12 px from the bar's buttons: so it can fail
+  // only while the buttons sit less than 12 px from that edge (the bar had 11 px above them and 10 px below; today's
+  // page has 13 and 12). With 12 px or more on both sides, no button the bar half-covers can fail, wherever the page
+  // puts it, at any phone size.
+  it("keeps the call bar's buttons 12 px from its top edge and from the screen's bottom edge (axe target-size, round 3)", async () => {
     const found: string[] = [];
-    // The phone e2e projects: chromium-390 and Pixel 7; webkit-390 and iPhone 13 (playwright.config.ts).
-    const windows = engineName === "chromium" ? [[390, 900], [412, 839]] : [[390, 844], [390, 664]];
-    const halfUnder = () => {
+    const gaps = () => {
       const bar = document.querySelector("aside").getBoundingClientRect();
-      const buttons = document.querySelector("aside a").getBoundingClientRect();
-      const above = 2 * (12 - (buttons.top - bar.top)) + 3;
-      const below = 2 * (12 - (bar.bottom - buttons.bottom)) + 3;
-      const out: string[] = [];
-      for (const target of document.querySelectorAll("a, button, summary, input, select, textarea")) {
-        const box = target.getBoundingClientRect();
-        if (target.closest("aside") !== null || box.height === 0) continue;
-        // How far the target sticks out above the bar, and past the screen's bottom (negative: it stays inside).
-        const up = bar.top - box.top;
-        const down = box.bottom - bar.bottom;
-        if ((up > -3 && up < above && box.bottom > bar.top) || (down > -3 && down < below && box.top < bar.bottom)) {
-          out.push(`"${target.textContent.trim().slice(0, 20)}" sticks out ${up.toFixed(1)} px above the bar, ${down.toFixed(1)} px below the screen`);
-        }
-      }
-      return out;
+      return [...document.querySelectorAll("aside a")].map((link) => {
+        const box = link.getBoundingClientRect();
+        return { text: link.textContent.trim().slice(0, 20), top: box.top - bar.top, bottom: bar.bottom - box.bottom };
+      });
     };
     for (const name of FIXTURES) {
       await open(page(name), 390);
-      for (const [width, height] of windows) {
+      for (const [width, height] of [[320, 568], [360, 740], [390, 664], [390, 844], [412, 839], [767, 1024]]) {
         await tab.setViewportSize({ width: width!, height: height! });
-        for (const problem of await tab.evaluate(halfUnder)) found.push(`${name} ${width}x${height}: ${problem}`);
+        for (const gap of await tab.evaluate(gaps)) {
+          if (gap.top < 12 || gap.bottom < 12) found.push(`${name} ${width}x${height}: "${gap.text}" ${gap.top.toFixed(1)} px under the bar's top, ${gap.bottom.toFixed(1)} px over the screen's bottom`);
+        }
       }
     }
     expect(found).toEqual([]);

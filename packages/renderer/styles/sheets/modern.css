@@ -181,8 +181,7 @@
   .hero-body { padding-block: 16px 36px; }
   /* the livery seam where the text meets the photo */
   .hero--photo .hero-body { border-top: 4px solid var(--act); box-shadow: inset 0 4px 0 var(--brand); }
-  /* the no-photo hero: its headline 40 px under the brand band on phones as on tablets (on phones this also keeps the
-     fixtures' first-screen tap targets clear of the call bar's edges, which axe's target-size check measures) */
+  /* the no-photo hero: its headline 40 px under the brand band on phones as on tablets */
   .hero--plain .hero-body { padding-top: 40px; }
   .hero-sub { margin-top: 10px; max-width: 36rem; color: var(--muted); text-wrap: pretty; }
   .hero-actions { display: none; }
@@ -632,7 +631,9 @@
   }
 
   /* ---------- the phone call bar: Call and the owner's call to action, under the thumb ---------- */
-  .callbar { bottom: 0; z-index: 10; display: flex; gap: 8px; padding: 10px var(--gut) calc(10px + env(safe-area-inset-bottom)); border-top: 1px solid var(--line); background: #fff; }
+  /* 12 px or more between the buttons and the bar's top edge and the screen's bottom edge, as on today's page: axe's
+     target-size check then passes any button the bar half-covers, wherever the page puts it (layout.test.ts) */
+  .callbar { bottom: 0; z-index: 10; display: flex; gap: 8px; padding: 12px var(--gut) calc(12px + env(safe-area-inset-bottom)); border-top: 1px solid var(--line); background: #fff; }
   .callbar .button { min-height: 54px; padding: 0 12px; gap: 8px; font-size: 1rem; }
   .callbar .button-act { flex: 1 1 auto; font-variant-numeric: tabular-nums; }
   /* the call to action may wrap rather than push the bar wider than the screen */
