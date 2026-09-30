@@ -1,12 +1,12 @@
 import { adminAlertEmail, ApiError, logLine, MAX_ISSUES, readJson, reviewPageHeaders, slugProblem, trySend } from "@asksite/app-common";
-import { Brief, composeDocument, photoRefIssues, PublishBody, toIssues, type Issue, type SiteVersionRow } from "@asksite/core";
+import { Brief, composeDocument, photoRefIssues, PublishBody, toIssues, type Issue } from "@asksite/core";
 import { SiteDocument } from "@asksite/site-schema";
 import { Hono } from "hono";
 import { assertNotTakenDown, mailerEnv, ownedSite } from "../db.ts";
 import type { AppDeps } from "../deps.ts";
 import { publishRefusal } from "../publish-refusal.ts";
 import { requireOwner } from "../session.ts";
-import { currentAi, draftOf, liveUploads, toVersionSummary } from "../site-view.ts";
+import { currentAi, draftOf, liveUploads, toVersionSummary, type VersionSummaryRow } from "../site-view.ts";
 import type { AppEnv } from "../types.ts";
 import { storedJsonNote } from "./stored-json-note.ts";
 
@@ -125,10 +125,13 @@ export function publishRoutes(deps: AppDeps): Hono<AppEnv> {
 
   publish.get("/sites/:siteId/versions", requireOwner, async (c) => {
     const site = await ownedSite(c.env.DB, c.req.param("siteId"), c.get("owner").id);
-    // The newest 50 only (moderator decision (1)).
-    const { results } = await c.env.DB.prepare("SELECT * FROM site_versions WHERE site_id = ? ORDER BY number DESC LIMIT 50")
+    // The newest 50 only (moderator decision (1)), and only the columns a summary shows: never a version's stored
+    // document or edits, which can be hundreds of KB each (m2).
+    const { results } = await c.env.DB.prepare(
+      "SELECT id, number, status, requested_at, reviewed_at, review_note FROM site_versions WHERE site_id = ? ORDER BY number DESC LIMIT 50",
+    )
       .bind(site.id)
-      .all<SiteVersionRow>();
+      .all<VersionSummaryRow>();
     return c.json({ versions: results.map(toVersionSummary) });
   });
 

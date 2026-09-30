@@ -138,12 +138,15 @@ export function draftIssues(draft: Draft, ai: CurrentAi | null, siteId: string, 
   };
 }
 
+/** The columns of a version that toVersionSummary reads: a list of summaries selects only these (m2). */
+export type VersionSummaryRow = Pick<SiteVersionRow, "id" | "number" | "status" | "requested_at" | "reviewed_at" | "review_note">;
+
 /**
  * A version as the owner sees it. The reviewer's note reaches the owner only on a rejected version, where it
  * is the reason they are given; on every other status it is for the record only (moderator decision (a)).
  * An allowlist, so a note on any other status, today's or a later one, stays hidden (P4-12).
  */
-export function toVersionSummary(row: Pick<SiteVersionRow, "id" | "number" | "status" | "requested_at" | "reviewed_at" | "review_note">): VersionSummary {
+export function toVersionSummary(row: VersionSummaryRow): VersionSummary {
   return {
     id: row.id,
     number: row.number,

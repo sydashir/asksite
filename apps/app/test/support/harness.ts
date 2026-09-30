@@ -147,6 +147,17 @@ export function useAppHarness(options: { vars?: Record<string, string> } = {}) {
     await eventually(() => waitUntilSeen(path), (seen) => seen.pending === 0, `the background work of ${path}`);
   }
 
+  /** From now on, the test Worker records the SQL text of every statement that requests to `path` prepare. */
+  async function recordSql(path: string): Promise<void> {
+    const res = await call("POST", "/__test/record-sql", { body: { path } });
+    if (res.status !== 200) throw new Error(`record-sql failed: ${res.status}`);
+  }
+
+  /** The SQL text of each statement requests to `path` prepared since recordSql(path), oldest first. */
+  async function recordedSql(path: string): Promise<string[]> {
+    return (await call("GET", `/__test/sql?path=${encodeURIComponent(path)}`)).json() as Promise<string[]>;
+  }
+
   /** The Worker's JSON log lines since the harness started or server.clearLogs(). */
   function logLines(): Array<Record<string, unknown>> {
     return jsonLines(server.getLogs());
@@ -178,7 +189,7 @@ export function useAppHarness(options: { vars?: Record<string, string> } = {}) {
     await (await db()).prepare("DELETE FROM login_tokens").bind().run();
   }
 
-  return { server, call, db, invite, signIn, login, siteverifyCalls, waitUntilCount, backgroundDone, clearLoginTokens, logLines };
+  return { server, call, db, invite, signIn, login, siteverifyCalls, waitUntilCount, backgroundDone, clearLoginTokens, logLines, recordSql, recordedSql };
 }
 
 /** Polls `read` every 100 ms until `done` accepts its value (at most 5 s). */

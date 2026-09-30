@@ -133,6 +133,22 @@ describe("GET /api/sites/:siteId/versions", () => {
     expect(text.match(/Reviewer note/g)).toHaveLength(1);
   });
 
+  it("reads only the columns a version summary shows, never a version's stored document or edits (m2)", async () => {
+    const owner = await h.signIn();
+    await seedVersion(owner, 1, 1);
+    const path = `/api/sites/${owner.siteId}/versions`;
+    await h.recordSql(path);
+    const res = await h.call("GET", path, { cookie: owner.cookie });
+    expect(res.status).toBe(200);
+    expect((await json<{ versions: VersionSummary[] }>(res)).versions.map((v) => v.number)).toEqual([1]);
+    const reads = (await h.recordedSql(path)).filter((sql) => /\bFROM site_versions\b/.test(sql));
+    expect(reads).toHaveLength(1);
+    expect(reads[0]).not.toMatch(/document_json|edits_json/);
+    const columns = /^\s*SELECT\s+([\s\S]+?)\s+FROM site_versions\b/.exec(reads[0] ?? "")?.[1]?.split(",").map((column) => column.trim());
+    // Exactly what toVersionSummary reads, in any order.
+    expect(columns?.sort()).toEqual(["id", "number", "status", "requested_at", "reviewed_at", "review_note"].sort());
+  });
+
   it("lists only the newest 50 versions (moderator decision (1))", async () => {
     const owner = await h.signIn();
     for (let number = 1; number <= 51; number += 1) await seedVersion(owner, number, number);

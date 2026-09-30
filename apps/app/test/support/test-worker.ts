@@ -143,6 +143,9 @@ async function saveOtherTabs(db: D1Database): Promise<void> {
   }
 }
 
+/** Per recorded path: the SQL text of every statement its requests prepared, oldest first. */
+const sqlOf = new Map<string, string[]>();
+
 /** Work done just before or just after a statement runs. */
 interface Around {
   before?: () => Promise<void>;
@@ -177,14 +180,15 @@ function aroundRun(statement: D1PreparedStatement, around: Around): D1PreparedSt
  * The Worker's env for a request to `path`, with a D1 binding that runs the armed hooks: around a route's batch(),
  * disable owners before it and store twins after it; before an uploads INSERT, take the site's last upload slot,
  * and after it, and after an uploads DELETE, note the step if the path is watched; after a write to a site, commit
- * another tab's save of it.
+ * another tab's save of it; and record each statement's SQL text if the path is recorded.
  */
 function withD1Hooks(env: Env, path: string): Env {
-  if (disableBeforeBatch.size === 0 && twinAfterBatch.size === 0 && takeSlotBeforeUploadInsert.size === 0 && saveAfterSiteWrite.size === 0 && !stepsOf.has(path)) return env;
+  if (disableBeforeBatch.size === 0 && twinAfterBatch.size === 0 && takeSlotBeforeUploadInsert.size === 0 && saveAfterSiteWrite.size === 0 && !stepsOf.has(path) && !sqlOf.has(path)) return env;
   const DB = new Proxy(env.DB, {
     get(target, key) {
       if (key === "prepare") {
         return (sql: string) => {
+          sqlOf.get(path)?.push(sql);
           const statement = target.prepare(sql);
           if (sql.trimStart().startsWith("INSERT INTO uploads") && (takeSlotBeforeUploadInsert.size > 0 || stepsOf.has(path))) {
             return aroundRun(statement, { before: () => takeLastUploadSlots(target), after: async () => noteStep(path, "insert") });
@@ -428,6 +432,16 @@ helpers.post("/__test/watch-steps", async (c) => {
 
 /** The steps noted for a watched path, oldest first (see stepsOf). */
 helpers.get("/__test/steps", (c) => c.json(stepsOf.get(c.req.query("path") ?? "") ?? []));
+
+/** Starts recording for one path, afresh: from now on, the SQL text of each statement its requests prepare (see sqlOf). */
+helpers.post("/__test/record-sql", async (c) => {
+  const { path } = await c.req.json<{ path: string }>();
+  sqlOf.set(path, []);
+  return c.json({ ok: true });
+});
+
+/** The SQL text recorded for a path, oldest first (see sqlOf). */
+helpers.get("/__test/sql", (c) => c.json(sqlOf.get(c.req.query("path") ?? "") ?? []));
 
 // The Worker's types have no `process` (Node.js compatibility is off), so the probe below declares it
 // for this file only; the bundler erases the declaration and the name is looked up in the runtime.
