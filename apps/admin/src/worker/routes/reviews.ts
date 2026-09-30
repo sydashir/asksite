@@ -3,6 +3,7 @@ import { ApproveBody, RejectBody, type AdminVersionDetail, type GenerationRow, t
 import { Hono } from "hono";
 import { mailerEnv, siteWithOwner, toAdminSiteRow, toVersionSummary, versionRow, type AdminSiteColumns } from "../db.ts";
 import type { AdminDeps, PublishErrorLike } from "../deps.ts";
+import { ownerEmailOrSkip } from "../owner-email.ts";
 import { publishApiError } from "../publish-errors.ts";
 import { REVIEW_QUEUE } from "../queries.ts";
 import { editedPaths, reviewChecks, storedDocument } from "../review-checks.ts";
@@ -28,7 +29,8 @@ export function reviewRoutes(deps: AdminDeps): Hono<AdminEnv> {
    * The owner email's mailer and APP_ORIGIN, checked before approve or reject changes anything, so a configuration
    * error (MAILER, APP_ORIGIN) is a 500 that leaves the version pending (moderator rulings, 2026-09-30). APP_ORIGIN
    * is checked by checkEmailOrigin, the same rule every app-common email builder applies to its origin. The email
-   * itself is built after the change, which gives the live address.
+   * itself is built after the change, which gives the live address; a build error there skips only the email
+   * (ownerEmailOrSkip).
    */
   const ownerMail = (env: Env) => {
     const mailer = deps.createMailer(mailerEnv(env));
@@ -94,9 +96,10 @@ export function reviewRoutes(deps: AdminDeps): Hono<AdminEnv> {
     } catch (err) {
       throw publishError(err) ?? err;
     }
-    const email = reviewApprovedEmail({ appOrigin, liveUrl: result.liveUrl });
-    c.executionCtx.waitUntil(emailOwner(c.env, result.siteId, (to) => trySend(mailer, { to, ...email, tag: "review_result", idempotencyKey: `review:${version.id}` })));
-    return c.json({ siteId: result.siteId, liveUrl: result.liveUrl });
+    const { siteId, liveUrl } = result;
+    const email = ownerEmailOrSkip(() => reviewApprovedEmail({ appOrigin, liveUrl }), { reason: "invalid_live_url", versionId: version.id, siteId });
+    if (email !== null) c.executionCtx.waitUntil(emailOwner(c.env, siteId, (to) => trySend(mailer, { to, ...email, tag: "review_result", idempotencyKey: `review:${version.id}` })));
+    return c.json({ siteId, liveUrl });
   });
 
   reviews.post("/versions/:versionId/reject", async (c) => {
@@ -109,9 +112,10 @@ export function reviewRoutes(deps: AdminDeps): Hono<AdminEnv> {
     } catch (err) {
       throw publishError(err) ?? err;
     }
-    const email = reviewRejectedEmail({ appOrigin, note });
-    c.executionCtx.waitUntil(emailOwner(c.env, result.siteId, (to) => trySend(mailer, { to, ...email, tag: "review_result", idempotencyKey: `review:${version.id}` })));
-    return c.json({ siteId: result.siteId });
+    const { siteId } = result;
+    const email = ownerEmailOrSkip(() => reviewRejectedEmail({ appOrigin, note }), { reason: "email_build_failed", versionId: version.id, siteId });
+    if (email !== null) c.executionCtx.waitUntil(emailOwner(c.env, siteId, (to) => trySend(mailer, { to, ...email, tag: "review_result", idempotencyKey: `review:${version.id}` })));
+    return c.json({ siteId });
   });
 
   return reviews;

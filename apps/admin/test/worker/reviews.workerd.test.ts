@@ -113,6 +113,40 @@ describe("review", () => {
     expect((await h.outbox(site.email))[0]).toMatchObject({ subject: "Your website is live", tag: "review_result" });
   });
 
+  // P4-23 item 4, option (a) (web-maker-f4, 2026-09-30): the approval is done before the owner's email is built, so
+  // an email that cannot be built (reviewApprovedEmail refuses a live address that is not a safe https URL) skips
+  // only the email; the admin gets the usual answer. Plan 2 builds the live address from ROOT_DOMAIN and the site's
+  // stored slug, and a stored slug with a space in it gives an address the email refuses.
+  it("keeps the approval and answers as usual when the owner email cannot be built", async () => {
+    const site = await h.pendingSite();
+    const slug = `${site.slug} x`;
+    const db = await h.db();
+    await db.prepare("UPDATE sites SET slug = ? WHERE id = ?").bind(slug, site.siteId).run();
+    h.server.clearLogs();
+    const res = await h.call("POST", `/api/admin/versions/${site.versionId}/approve`, { body: { htmlSha256: site.htmlSha256 } });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ siteId: site.siteId, liveUrl: `https://${slug}.localhost:8789/` });
+    expect(await db.prepare("SELECT status FROM site_versions WHERE id = ?").bind(site.versionId).first()).toEqual({ status: "approved" });
+    expect(await db.prepare("SELECT live_version_id, pending_version_id FROM sites WHERE id = ?").bind(site.siteId).first()).toEqual({
+      live_version_id: site.versionId,
+      pending_version_id: null,
+    });
+    expect(await (await (await h.r2("LIVE")).get(`${slug}.html`))?.text()).toContain("Call Joe today");
+    expect((await db.prepare("SELECT action FROM audit_log WHERE site_id = ? ORDER BY id").bind(site.siteId).all()).results).toEqual([
+      { action: "version.requested" },
+      { action: "version.approved" },
+    ]);
+    // One line says the email was skipped, with ids and a reason code only; the request's own line follows.
+    expect(h.logLines()).toEqual([
+      { event: "owner_email_skipped", reason: "invalid_live_url", versionId: site.versionId, siteId: site.siteId },
+      { route: "POST /api/admin/versions/:versionId/approve", status: 200, ms: expect.any(Number) },
+    ]);
+    const raw = h.server.getLogs().map((entry) => entry.message).join("\n");
+    expect(raw).not.toContain(site.slug);
+    expect(raw).not.toContain(site.email);
+    expect(await h.outbox(site.email)).toEqual([]);
+  });
+
   it("rejects with a note that is emailed to the owner", async () => {
     const site = await h.pendingSite();
     expect((await h.call("POST", `/api/admin/versions/${site.versionId}/reject`, { body: { note: "" } })).status).toBe(422);
