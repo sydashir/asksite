@@ -52,6 +52,15 @@ describe("answerIssues on opening hours", () => {
     expect(issues.map((i) => [i.path.join("."), ownerMessage(i).text])).toEqual(expected);
   });
 
+  it("keeps the order check when only the entry's days are wrong", () => {
+    const hours = [{ days: [], opens: "18:00", closes: "08:00" }];
+    const issues = answerIssues({ facts: { ...VALID_FACTS, hours }, brief: VALID_BRIEF }, { slug: "joes" }, []);
+    expect(issues.map((i) => [i.path.join("."), i.code])).toEqual([
+      ["facts.hours.0.days", "too_small"],
+      ["facts.hours.0.closes", "custom"],
+    ]);
+  });
+
   it("keeps the order check of another entry whose times are valid", () => {
     const hours = [
       { days: ["Monday"], opens: "08:00", closes: "" },
