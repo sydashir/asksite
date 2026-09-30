@@ -5129,7 +5129,7 @@ Expected: `ENV_IGNORED`. Never `cat` the file.
 
 - [ ] **Step 2: Check the input-token bound on each provider**
 
-Run: `pnpm eval:generation --caps-probe`
+Run: `pnpm --silent eval:generation --live --max-usd <US$> --caps-probe`
 Expected: one line per model with keys, each ending `OK`, and exit code 0, for example `claude-opus-5-5: 51234 input tokens for the caps prompt (bound 70000) OK`. Cost: one request per model with the largest possible prompt (about $0.30 on Opus 5.5, less elsewhere). If any line says `OVER THE BOUND`, stop: report it to the moderator (the fix is a larger `MAX_INPUT_TOKENS` and a re-run of Task 5's test, which changes the cost ceiling). A line `<label>: <kind>, not measured` (exit code 1) means that provider refused or failed the request, for example Workers AI rejecting `response_format` (Decision 17); the other models are still measured. Report it with the kind; do not change the adapter without the moderator.
 
 - [ ] **Step 3: Write the recorded-response test (it fails until something is recorded)**
@@ -5176,7 +5176,7 @@ Expected: FAIL: `has at least one` fails with `expected 0 to be greater than 0`.
 
 - [ ] **Step 4: Record one live answer per model**
 
-Run: `pnpm eval:generation --record`
+Run: `pnpm --silent eval:generation --live --max-usd <US$> --record`
 Expected: one line per model, `<label>: recorded test/fixtures/<label>.json` (or `<label>: <kind>, nothing recorded` if that provider failed, which is itself a finding to report). Then run:
 
 ```bash
@@ -5199,7 +5199,7 @@ Then `git status --short packages/generation/test/fixtures` prints nothing (no f
 
 - [ ] **Step 6: Run the evaluation**
 
-Run: `pnpm eval:generation` (default 3 runs of all 20 profiles per model with keys)
+Run: `pnpm --silent eval:generation --live --max-usd <US$>` (default 3 runs of all 20 profiles per model with keys)
 Expected: a progress counter, then the report table (`| model | runs | first try | within 2 retries | p50 ms | p95 ms | cost per passing site | automatic gate |`) with 60 runs per model, per-model details (rules broken, claim words caught, provider errors, largest input), and `Wrote …/packages/generation/eval/results/<time>/`. Rough cost: about $2–8 per Claude model (60 runs of a few cents each, more with retries) and cents for the open models [inferred]. Sequential runs take roughly 20–60 minutes per model [inferred].
 
 - [ ] **Step 7 (user): Blind human rating**

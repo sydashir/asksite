@@ -210,6 +210,15 @@ describe("refusals (P3-17 D2, D5 c)", () => {
     expect(h.err[0]).toContain("never put a key in arguments; keys come only from the environment");
     expect(h.err[0]).toContain("a variable set in the shell wins over the .env");
   });
+
+  it("names the command with the long --silent, which keeps pnpm from printing the arguments back, and says never -s (#14 a)", async () => {
+    const h = harness();
+    expect(await main(["--help"], h.deps)).toBe(2);
+    const usage = h.err[0]!;
+    expect(usage).toContain("Usage: pnpm --silent eval:generation [--live --max-usd <US$>] [--runs 1-10] [--only label,label] [--caps-probe | --record]");
+    expect(usage).toContain("never the short -s, which pnpm 11 (from 11.14.0) reads as --sequential in pnpm run");
+    expect(usage).not.toMatch(/pnpm eval:generation|pnpm -s /);
+  });
 });
 
 describe("a live caps probe (P3-17 D3)", () => {

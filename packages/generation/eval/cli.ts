@@ -1,4 +1,7 @@
-// pnpm eval:generation [--live --max-usd <US$>] [--runs 1-10] [--only label,label] [--caps-probe | --record]
+// pnpm --silent eval:generation [--live --max-usd <US$>] [--runs 1-10] [--only label,label] [--caps-probe | --record]
+//
+// The long --silent before the script name keeps pnpm from printing the arguments back (a key pasted by mistake
+// included); never the short -s (see USAGE).
 //
 // A dry run unless both --live and --max-usd are given (amendment P3-17): it prints each model's worst-case cost and
 // whether its key is present, builds no provider and sends nothing. A live run (the evaluation, --caps-probe or
@@ -70,7 +73,8 @@ interface Flags {
 }
 
 const USAGE = [
-  "Usage: pnpm eval:generation [--live --max-usd <US$>] [--runs 1-10] [--only label,label] [--caps-probe | --record]",
+  "Usage: pnpm --silent eval:generation [--live --max-usd <US$>] [--runs 1-10] [--only label,label] [--caps-probe | --record]",
+  "Type the long --silent before eval:generation, so pnpm does not print the arguments back; never the short -s, which pnpm 11 (from 11.14.0) reads as --sequential in pnpm run.",
   "A dry run unless both --live and --max-usd are given. A live run sends each site of the evaluation, or each request of --caps-probe and --record, only while the spend so far plus its worst case fits under --max-usd; the total can exceed --max-usd by at most one request's overrun above its worst case.",
   "Keys: never put a key in arguments; keys come only from the environment (the shell's variables, or the gitignored .env at the repo root; a variable set in the shell wins over the .env).",
 ].join("\n");
