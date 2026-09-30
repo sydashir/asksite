@@ -187,6 +187,16 @@ describe("naming rules (A12 §1)", () => {
     expect(["color", "font", "color-text"].map((id) => overrides(id).length > 0)).toEqual([true, true, true]); // the check can fail
   });
 
+  // site-css's build names each sheet's const after its design id in upper case, and a design without its
+  // own styles/sheets/<id>.css uses baseline.css (A12 §6). So a hyphen or a digit in an id would write a
+  // broken or clashing name into generated.ts, and an id "baseline" would silently share today's sheet
+  // (A12-0 round-5 rulings, attack4 M1).
+  it("a design id is one lower-case word, a-z only, and never baseline", () => {
+    const usable = (id: string) => /^[a-z]+$/.test(id) && id !== "baseline";
+    expect(DESIGN_IDS.filter((id) => !usable(id))).toEqual([]);
+    expect(["baseline", "bold-v2", "bold2", "Bold", "bold_2", ""].filter(usable)).toEqual([]); // the check can fail
+  });
+
   it("owner-facing names collide with nothing, except the documented overlap with two LOOKS ids", () => {
     const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
     const collisions = names.flatMap(([kind, name, ownId], i) => [
