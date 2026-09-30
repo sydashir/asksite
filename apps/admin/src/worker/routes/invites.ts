@@ -25,13 +25,13 @@ const EMAIL_SERVICE_LIMITED =
   "The email service is limiting how many emails we can send right now. Try again in a minute. If it still fails, today's email limit may be used up: try again after 00:00 UTC.";
 
 /**
- * auditStatement's row (§2.6), but written only when the invite's revoked_at is this request's own `at`:
- * a revoke that changed nothing leaves no row. Runs inside the revoke's batch, after its UPDATE.
+ * auditStatement's row (§2.6), but written only when the revoke's UPDATE is about to change the invite: it runs
+ * first in the revoke's batch, under the UPDATE's own predicate, so a revoke that changes nothing leaves no row.
  */
 const revokeAuditStatement = (db: D1Database, entry: { at: number; actor: string; action: AuditAction; inviteId: string }): D1PreparedStatement =>
   db
-    .prepare("INSERT INTO audit_log (at, actor, action, site_id, detail_json) SELECT ?, ?, ?, NULL, ? WHERE EXISTS (SELECT 1 FROM invites WHERE id = ? AND revoked_at = ?)")
-    .bind(entry.at, entry.actor, entry.action, JSON.stringify({ inviteId: entry.inviteId }), entry.inviteId, entry.at);
+    .prepare("INSERT INTO audit_log (at, actor, action, site_id, detail_json) SELECT ?, ?, ?, NULL, ? FROM invites WHERE id = ? AND revoked_at IS NULL AND site_id IS NULL")
+    .bind(entry.at, entry.actor, entry.action, JSON.stringify({ inviteId: entry.inviteId }), entry.inviteId);
 
 /** Invites are always emailed and never shown to the admin (§3.2 step 2, §5.2). */
 export function inviteRoutes(deps: AdminDeps): Hono<AdminEnv> {
@@ -74,14 +74,16 @@ export function inviteRoutes(deps: AdminDeps): Hono<AdminEnv> {
     const inviteId = c.req.param("inviteId");
     const now = Date.now();
     const db = c.env.DB;
-    // One transaction (A10: no RETURNING). Only an invite that is still open is revoked: a repeat, or a
-    // revoke after the owner's accept finished (site_id set), changes nothing and is not audited. An
-    // accept that has claimed the token but not finished (used_at set, site_id NULL) is still revoked,
+    // One transaction (A10: no RETURNING). Only an invite that is still open is revoked: a repeat (even
+    // one in the same millisecond), or a revoke after the owner's accept finished (site_id set), changes
+    // nothing and is not audited, because the audit INSERT runs first, under the UPDATE's own predicate.
+    // An accept that has claimed the token but not finished (used_at set, site_id NULL) is still revoked,
     // so its rollback cannot reopen the invite. The last statement tells an unknown id (404) from one
     // that needed nothing (204).
     const results = await db.batch([
-      db.prepare("UPDATE invites SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL AND site_id IS NULL").bind(now, inviteId),
+      // Keep the action below a literal: plan Task 26's mutation test finds it in this file by its text.
       revokeAuditStatement(db, { at: now, actor: `admin:${c.get("admin")}`, action: "invite.revoked", inviteId }),
+      db.prepare("UPDATE invites SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL AND site_id IS NULL").bind(now, inviteId),
       db.prepare("SELECT id FROM invites WHERE id = ?").bind(inviteId),
     ]);
     if (results[2]?.results.length !== 1) throw new ApiError("not_found", "Not found");

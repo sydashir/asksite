@@ -13,10 +13,15 @@ type TestEnv = Env & { TEST_ACCESS_JWKS?: string };
 
 const worker = createAdminWorker(fakeAdminDeps, (env) => createLocalJWKSet(JSON.parse((env as TestEnv).TEST_ACCESS_JWKS ?? '{"keys":[]}') as JSONWebKeySet));
 
+/** The test-only hooks below work only in local development, on a *.localhost host. */
+function isLocalTest(request: Request, env: TestEnv): boolean {
+  const host = new URL(request.url).hostname;
+  return env.ENVIRONMENT === "development" && (host === "localhost" || host.endsWith(".localhost"));
+}
+
 const helpers = new Hono<{ Bindings: TestEnv }>();
 helpers.use("*", async (c, next) => {
-  const host = new URL(c.req.url).hostname;
-  if (c.env.ENVIRONMENT !== "development" || !(host === "localhost" || host.endsWith(".localhost"))) return c.notFound();
+  if (!isLocalTest(c.req.raw, c.env)) return c.notFound();
   await next();
 });
 
@@ -68,8 +73,28 @@ async function nodeProcessEnv(bindingNames: string[]) {
 /** A13: what `typeof process` is inside this Worker ("undefined" once Node.js compatibility is off), and what node:process gives. */
 helpers.get("/__test/runtime", async (c) => c.json({ process: typeof process, nodeProcess: await nodeProcessEnv(Object.keys(c.env)) }));
 
+/**
+ * An injected clock for Date.now() only (new Date() keeps the real time): while the Worker handles a request
+ * that carries `X-Test-Now: <ms>`, Date.now() answers that value, so a test can send two requests in the same
+ * millisecond. The tests send such requests one at a time, so no other request runs under the pinned clock.
+ */
+async function withClock(request: Request, env: TestEnv, handle: () => Promise<Response>): Promise<Response> {
+  const pinned = request.headers.get("X-Test-Now");
+  if (pinned === null || !isLocalTest(request, env)) return handle();
+  const at = Number(pinned);
+  if (!Number.isSafeInteger(at)) return new Response("X-Test-Now must be a whole number of milliseconds", { status: 400 });
+  const realNow = Date.now;
+  Date.now = () => at;
+  try {
+    return await handle();
+  } finally {
+    Date.now = realNow;
+  }
+}
+
 export default {
   fetch(request, env, ctx) {
-    return new URL(request.url).pathname.startsWith("/__test/") ? helpers.fetch(request, env, ctx) : worker.fetch!(request, env, ctx);
+    if (new URL(request.url).pathname.startsWith("/__test/")) return helpers.fetch(request, env, ctx);
+    return withClock(request, env, async () => worker.fetch!(request, env, ctx));
   },
 } satisfies ExportedHandler<TestEnv>;

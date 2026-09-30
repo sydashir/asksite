@@ -115,6 +115,18 @@ describe("invites", () => {
       expect(await revokeAuditRows(db, id)).toBe(1);
     });
 
+    it("writes one audit row when two revokes read the same clock value, as a double-click can", async () => {
+      const { id } = await invited("same-ms@example.com");
+      const db = await h.db();
+      const at = Date.now();
+      // test/support/test-worker.ts pins the Worker's Date.now() to this value for each request.
+      const sameMs = { headers: { "X-Test-Now": String(at) } };
+      expect((await h.call("DELETE", `/api/admin/invites/${id}`, sameMs)).status).toBe(204);
+      expect((await h.call("DELETE", `/api/admin/invites/${id}`, sameMs)).status).toBe(204);
+      expect(await revokedAt(db, id)).toBe(at);
+      expect(await revokeAuditRows(db, id)).toBe(1);
+    });
+
     it("changes nothing for an invite the owner has accepted (site_id set): 204, no revoked_at and no audit row", async () => {
       const { id } = await invited("accepted@example.com");
       const db = await h.db();
