@@ -24,7 +24,7 @@ import { CANDIDATES, providerEnvFor, type Candidate } from "./candidates.ts";
 import { formatReport, summarise, type SpendReport } from "./metrics.ts";
 import { EVAL_PROFILES } from "./profiles.ts";
 import { ratingSheet } from "./ratings.ts";
-import { fixtureName, recordingFetch, type RecordedResponse } from "./record.ts";
+import { findRequestSecret, fixtureName, recordingFetch, type RecordedResponse, type RequestHeader } from "./record.ts";
 import { runEval, type EvalRun } from "./run.ts";
 
 /** What main() reads and writes outside itself: the command uses REAL, the tests pass fakes. */
@@ -76,7 +76,7 @@ const USAGE = [
   "Usage: pnpm --silent eval:generation [--live --max-usd <US$>] [--runs 1-10] [--only label,label] [--caps-probe | --record]",
   "Type the long --silent before eval:generation, so pnpm does not print the arguments back; never the short -s, which pnpm 11 (from 11.14.0) reads as --sequential in pnpm run.",
   "A dry run unless both --live and --max-usd are given. A live run sends each site of the evaluation, or each request of --caps-probe and --record, only while the spend so far plus its worst case fits under --max-usd; the total can exceed --max-usd by at most one request's overrun above its worst case.",
-  "Exit codes, the first that applies: 2 refused flags; 3 a live request cost more than its worst case, or its cost could not be counted, even if an error then ended the run (one line names the error's kind); 1 --caps-probe could not measure every model, or an exception ended the run with no overrun; 0 otherwise.",
+  "Exit codes, the first that applies: 2 refused flags; 3 a live request cost more than its worst case, or its cost could not be counted, even if an error then ended the run (one line names the error's kind); 1 --caps-probe could not measure every model, --record refused a fixture that held a request secret, or an exception ended the run with no overrun; 0 otherwise.",
   "Ctrl-C ends a live run at once without its report; the spend stays within --max-usd.",
   "Keys: never put a key in arguments; keys come only from the environment (the shell's variables, or the gitignored .env at the repo root; a variable set in the shell wins over the .env).",
 ].join("\n");
@@ -166,7 +166,7 @@ const EXIT = { refused: 2, overrun: 3, notMeasured: 1, ok: 0 } as const;
  * Runs the command and returns its exit code. When more than one applies, the first in this order wins: 2 refused
  * flags; 3 a live request cost more than its worst case, or its cost could not be counted (in any mode: money stopped
  * the run or passed a worst case), even if an error then ended the run (one line names the error's kind);
- * 1 --caps-probe could not measure every model, or an exception ended the run with no overrun; 0 otherwise. An
+ * 1 --caps-probe could not measure every model, --record refused a fixture that held a request secret, or an exception ended the run with no overrun; 0 otherwise. An
  * exception that ends a live run is passed on once what completed is written (main.ts then exits 1), unless code 3
  * already applies: then it is not passed on, one standard-error line names its kind (no stack), and the code is 3.
  */
@@ -238,7 +238,7 @@ async function live(flags: Flags, capMicrousd: number, rows: readonly Row[], dep
       // What was spent shows even when our own code throws outside a model's try, such as a fixture that cannot be
       // written (fix (ii)); the exception is then passed on.
       try {
-        if (flags.mode === "record") await record(plan, budget, deps);
+        if (flags.mode === "record") measured = (await record(plan, budget, deps)) === 0;
         else measured = (await probeCaps(plan, budget, deps)) && unpriced === 0;
       } finally {
         printSpend(budget, deps);
@@ -367,16 +367,20 @@ async function probeCaps(plan: readonly LiveRow[], budget: Budget, deps: CliDeps
 /**
  * One live answer per model for an ordinary profile, saved as test/fixtures/<label>.json so the adapters'
  * recorded-response test (test/recorded.test.ts) replays real provider output offline. The recorder keeps each
- * response's status and body only, never the request, so never the key.
+ * response's status and body only, never the request, so never the key; findRequestSecret then refuses, before
+ * anything is written, a fixture that holds the key, an auth header's value or a request header name. Returns how many
+ * fixtures were refused.
  */
-async function record(plan: readonly LiveRow[], budget: Budget, deps: CliDeps): Promise<void> {
+async function record(plan: readonly LiveRow[], budget: Budget, deps: CliDeps): Promise<number> {
+  let refused = 0;
   const profile = EVAL_PROFILES.find((p) => p.id === "ord-plumb")!;
   for (const { candidate, env, worstMicrousd } of plan) {
     const sink: Array<{ status: number; body: unknown }> = [];
+    const seen: RequestHeader[] = [];
     let res: ModelResponse | undefined;
     try {
       // The provider is built only once the budget lets the request go.
-      const request = () => deps.makeProvider(env, profile.snapshot, recordingFetch(deps.fetch, sink)).generate({ ...buildPrompt(profile.snapshot), jsonSchema: AI_DRAFT_JSON_SCHEMA, maxOutputTokens: MAX_OUTPUT_TOKENS, signal: deps.generateDeps.timeoutSignal(ATTEMPT_TIMEOUT_MS) });
+      const request = () => deps.makeProvider(env, profile.snapshot, recordingFetch(deps.fetch, sink, seen)).generate({ ...buildPrompt(profile.snapshot), jsonSchema: AI_DRAFT_JSON_SCHEMA, maxOutputTokens: MAX_OUTPUT_TOKENS, signal: deps.generateDeps.timeoutSignal(ATTEMPT_TIMEOUT_MS) });
       res = await budget.send(candidate.label, worstMicrousd, request, costOf(candidate));
     } catch (error) {
       deps.print(`${candidate.label}: ${kindOf(error)}, nothing recorded`);
@@ -389,10 +393,17 @@ async function record(plan: readonly LiveRow[], budget: Budget, deps: CliDeps): 
     const [response] = sink;
     if (response === undefined) deps.print(`${candidate.label}: nothing recorded: no response came back`);
     else {
-      mkdirSync(deps.fixturesDir, { recursive: true });
       const recorded: RecordedResponse = { provider: candidate.provider, modelId: candidate.modelId, ...response };
-      writeFileSync(new URL(fixtureName(candidate.label), deps.fixturesDir), `${JSON.stringify(recorded, null, 2)}\n`);
-      deps.print(`${candidate.label}: recorded test/fixtures/${fixtureName(candidate.label)}`);
+      const text = `${JSON.stringify(recorded, null, 2)}\n`;
+      const found = findRequestSecret(text, seen, env.OPENAI_COMPAT_API_KEY ?? env.ANTHROPIC_API_KEY);
+      if (found !== null) {
+        refused += 1;
+        deps.print(`${candidate.label}: refused to record: the answer contained a request secret (rule ${found.rule}: ${found.rule === 1 ? `value of ${found.name === "API key" ? "the API key" : `the header ${found.name}`}` : `the header name ${found.name}`})`);
+      } else {
+        mkdirSync(deps.fixturesDir, { recursive: true });
+        writeFileSync(new URL(fixtureName(candidate.label), deps.fixturesDir), text);
+        deps.print(`${candidate.label}: recorded test/fixtures/${fixtureName(candidate.label)}`);
+      }
     }
     // The budget counts at its worst case a cost or usage it cannot count (then stops the run), and a response without
     // usage, unless the partial cost alone passed the worst case, which the overrun line then reports (budget.ts).
@@ -400,4 +411,5 @@ async function record(plan: readonly LiveRow[], budget: Budget, deps: CliDeps): 
     else if (res.usageMissing === true && !budget.overruns.some((o) => o.at === candidate.label)) deps.print(`${candidate.label}: the answer had no usage, so it was counted at its worst case of ${formatUsd(worstMicrousd)}`);
     printOverrun(candidate.label, res.usage, budget, deps);
   }
+  return refused;
 }

@@ -223,7 +223,7 @@ describe("refusals (P3-17 D2, D5 c)", () => {
   it("documents the exit codes, in the order that decides between them (iii), then what Ctrl-C does to a live run (follow-up 3 D)", async () => {
     const h = harness();
     expect(await main(["--help"], h.deps)).toBe(2);
-    expect(h.err[0]).toContain("Exit codes, the first that applies: 2 refused flags; 3 a live request cost more than its worst case, or its cost could not be counted, even if an error then ended the run (one line names the error's kind); 1 --caps-probe could not measure every model, or an exception ended the run with no overrun; 0 otherwise.");
+    expect(h.err[0]).toContain("Exit codes, the first that applies: 2 refused flags; 3 a live request cost more than its worst case, or its cost could not be counted, even if an error then ended the run (one line names the error's kind); 1 --caps-probe could not measure every model, --record refused a fixture that held a request secret, or an exception ended the run with no overrun; 0 otherwise.");
     expect(h.err[0]).toContain("0 otherwise.\nCtrl-C ends a live run at once without its report; the spend stays within --max-usd.");
   });
 });
@@ -829,5 +829,69 @@ describe("the Anthropic SDK's environment (additions A)", () => {
         expect(present()).toEqual([]);
       });
     }
+  });
+});
+
+describe("the --record secret guard (Round 2)", () => {
+  const CF_KEY = "marker-cf-token";
+  const BEARER = "marker-bearer-token-4242";
+  const okBody = (content: string, usage = { prompt_tokens: 5, completion_tokens: 6 }) => ({ model: "m", choices: [{ message: { content }, finish_reason: "stop" }], usage });
+  /** An answer whose request carries these headers through the recorder; the response is the fake fetch's. */
+  const withHeaders =
+    (headers: Record<string, string>, usage = THOUSAND): Answer =>
+    async (env, snapshot, fetchImpl) => {
+      await fetchImpl!("https://record.example.invalid/v1/chat/completions", { method: "POST", headers, body: "{}" });
+      return { ...(await validDraft(env, snapshot, fetchImpl)), usage };
+    };
+  const REQUEST_HEADERS = { authorization: `Bearer ${BEARER}`, "content-type": "application/json", "x-stainless-retry-count": "0", "x-stainless-timeout": "90" };
+  const fixtures = (h: ReturnType<typeof harness>): string[] => {
+    try {
+      return readdirSync(join(h.dir, "fixtures"));
+    } catch {
+      return [];
+    }
+  };
+
+  it.each([
+    ["the key value", `text ${CF_KEY} text`, "rule 1", `value of the API key`],
+    ["a Bearer token", `Bearer ${BEARER}`, "rule 1", `value of the header authorization`],
+    ["the token alone", `t ${BEARER}`, "rule 1", `value of the header authorization`],
+    ["an x-api-key header name", "X-Api-Key: x", "rule 2", "the header name x-api-key"],
+    ["anthropic-version", "anthropic-version: 2023-06-01", "rule 2", "the header name anthropic-version"],
+  ])("refuses a response that echoes %s: exit 1, no fixture, the rule and the header name, never the value, the spend line", async (_name, echo, rule, what) => {
+    const http = fakeFetch([{ status: 200, body: okBody(echo) }]);
+    const h = harness({ answer: withHeaders({ ...REQUEST_HEADERS, "x-api-key": "x-not-used-marker-77" }), fetch: http.fetch });
+    expect(await main(["--record", "--live", "--max-usd", "1", "--only", GEMMA], h.deps)).toBe(1);
+    expect(fixtures(h)).toEqual([]);
+    const refusal = h.out.find((line) => line.includes("refused to record"))!;
+    expect(refusal).toBe(`${GEMMA}: refused to record: the answer contained a request secret (${rule}: ${what})`);
+    expect(h.out.some((line) => line.startsWith("Spent: "))).toBe(true);
+    expect(h.out.some((line) => line.includes("recorded test/fixtures"))).toBe(false);
+    for (const secret of [CF_KEY, BEARER, "marker-cf-tok", "marker-bearer-token", "x-not-used-marker-77", "marker-"]) expect(h.text()).not.toContain(secret);
+  });
+
+  it("saves a clean fixture with status 200 and token counts of 90 and 0 exactly as before, exit 0", async () => {
+    const body = okBody("{}", { prompt_tokens: 90, completion_tokens: 0 });
+    const http = fakeFetch([{ status: 200, body }]);
+    const h = harness({ answer: withHeaders(REQUEST_HEADERS), fetch: http.fetch });
+    expect(await main(["--record", "--live", "--max-usd", "1", "--only", GEMMA], h.deps)).toBe(0);
+    const text = readFileSync(join(h.dir, "fixtures", "workers-ai__gemma-4-26b-a4b-it.json"), "utf8");
+    expect(JSON.parse(text)).toEqual({ provider: "openai-compatible", modelId: "@cf/google/gemma-4-26b-a4b-it", status: 200, body });
+    expect(h.err).toEqual([]);
+  });
+
+  it("a refusal never stops the other models from being recorded", async () => {
+    const http = fakeFetch([{ status: 200, body: okBody(CF_KEY) }, { status: 200, body: okBody("{}") }]);
+    const h = harness({ answer: withHeaders(REQUEST_HEADERS), fetch: http.fetch });
+    expect(await main(["--record", "--live", "--max-usd", "1", "--only", `${GEMMA},${GROQ}`], h.deps)).toBe(1);
+    expect(fixtures(h)).toEqual(["groq__gpt-oss-120b.json"]);
+  });
+
+  it("the overrun exit code 3 still wins over a refused fixture", async () => {
+    const http = fakeFetch([{ status: 200, body: okBody(CF_KEY) }]);
+    // gemma's --record worst case is $0.009458; 70,010 input tokens cost more.
+    const h = harness({ answer: withHeaders(REQUEST_HEADERS, { inputTokens: 70_010, outputTokens: 8_192 }), fetch: http.fetch });
+    expect(await main(["--record", "--live", "--max-usd", "1", "--only", GEMMA], h.deps)).toBe(3);
+    expect(fixtures(h)).toEqual([]);
   });
 });

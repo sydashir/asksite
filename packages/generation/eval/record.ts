@@ -6,12 +6,18 @@ export interface RecordedResponse {
   body: unknown;
 }
 
+/** One request header as [name, value]. Kept in memory only, to check a fixture; never written anywhere. */
+export type RequestHeader = readonly [name: string, value: string];
+
 /**
- * Wraps fetch and keeps each response's status and body. The request (and so the API key in its
- * headers) is never kept.
+ * Wraps fetch and keeps each response's status and body. The request is never kept in the sink (so never in a
+ * fixture); its headers go to `seen`, in memory, for findRequestSecret.
  */
-export function recordingFetch(inner: typeof fetch, sink: Array<{ status: number; body: unknown }>): typeof fetch {
+export function recordingFetch(inner: typeof fetch, sink: Array<{ status: number; body: unknown }>, seen: RequestHeader[] = []): typeof fetch {
   return async (input, init) => {
+    const headers = new Headers(input instanceof Request ? input.headers : undefined);
+    new Headers(init?.headers).forEach((value, name) => headers.set(name, value));
+    headers.forEach((value, name) => seen.push([name, value]));
     const response = await inner(input, init);
     const text = await response.clone().text();
     let body: unknown;
@@ -23,6 +29,44 @@ export function recordingFetch(inner: typeof fetch, sink: Array<{ status: number
     sink.push({ status: response.status, body });
     return response;
   };
+}
+
+/** Header names that say nothing about a request's secrets; every other name must not appear in a fixture. */
+const GENERIC_NAMES: ReadonlySet<string> = new Set(["accept", "content-type", "user-agent"]);
+/** Names checked even when this run never saw them: the auth headers and the Anthropic version header. */
+const ALWAYS_NAMES = ["authorization", "x-api-key", "proxy-authorization", "anthropic-version"] as const;
+const AUTH_NAMES: ReadonlySet<string> = new Set(["authorization", "x-api-key", "proxy-authorization", "cookie"]);
+const isAuthBearing = (name: string): boolean => AUTH_NAMES.has(name) || /key|token|secret|auth/.test(name);
+const escapeRegExp = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/** What findRequestSecret found: the rule (1 a secret value, 2 a header name) and a NAME, never the matched value. */
+export interface SecretFinding {
+  rule: 1 | 2;
+  name: string;
+}
+
+/**
+ * Looks for a request secret in the text a fixture would hold. Rule 1: the provider's API key value, or the value
+ * (a Bearer token without its prefix too) of an auth-bearing request header: authorization, x-api-key,
+ * proxy-authorization, cookie, or a name holding key, token, secret or auth. Rule 2: a request header name other
+ * than accept, content-type and user-agent, as a whole token, in any letter case, so "authorization" does not match
+ * "authorized". Returns null for a clean fixture. The result names a rule and a header; the value never leaves here.
+ */
+export function findRequestSecret(text: string, headers: readonly RequestHeader[], apiKey?: string): SecretFinding | null {
+  if (apiKey !== undefined && apiKey !== "" && text.includes(apiKey)) return { rule: 1, name: "API key" };
+  for (const [rawName, value] of headers) {
+    const name = rawName.toLowerCase();
+    if (!isAuthBearing(name)) continue;
+    const bare = value.replace(/^Bearer\s+/i, "");
+    if ((value !== "" && text.includes(value)) || (bare !== "" && text.includes(bare))) return { rule: 1, name };
+  }
+  const lower = text.toLowerCase();
+  const names = new Set<string>([...ALWAYS_NAMES, ...headers.map(([name]) => name.toLowerCase())]);
+  for (const name of names) {
+    if (GENERIC_NAMES.has(name)) continue;
+    if (new RegExp(`(?<![a-z0-9_-])${escapeRegExp(name)}(?![a-z0-9_-])`).test(lower)) return { rule: 2, name };
+  }
+  return null;
 }
 
 /** A safe file name for a candidate label, e.g. "workers-ai/gpt-oss-120b" -> "workers-ai__gpt-oss-120b.json". */
