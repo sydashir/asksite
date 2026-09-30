@@ -129,6 +129,12 @@ describe("Bold surfaces", () => {
     expect(count).toBe(84_158);
   });
 
+  it("turns the reviews ink when both neighbours are light, before About", () => {
+    const flow: SectionId[] = ["hero", "services", "testimonials", "about", "faq", "contact"];
+    const surface = surfaces(flow);
+    expect(flow.map((id) => surface.get(id))).toEqual(["ink", "paper", "ink", "tint", "paper", "ink"]);
+  });
+
   it("draws each seam from the light side: up over an ink band above (not the hero), down over an ink band below", () => {
     const flow: SectionId[] = ["hero", "services", "testimonials", "gallery", "faq", "contact"];
     const surface = surfaces(flow);
