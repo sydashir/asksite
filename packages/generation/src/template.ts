@@ -1,4 +1,4 @@
-import { AiDraft, type Brief } from "@asksite/core";
+import { AiAnswer, draftFromAnswer, type AiDraft, type Brief } from "@asksite/core";
 import type { Facts, Theme, Trade } from "@asksite/site-schema";
 
 // The labelled fallback draft (design §6.3): deterministic, trade-aware wording that is valid for
@@ -12,7 +12,8 @@ interface TradeWords {
   about: string;
   // Fit any service of the trade; they repeat in order when an owner lists more than three services (known limit).
   descriptions: readonly [string, string, string];
-  theme: Theme;
+  // The trade's palette and font. The page design is not the template's to choose: draftFromAnswer adds the trade's.
+  theme: Pick<Theme, "palette" | "font">;
 }
 
 const WORDS: Record<Trade, TradeWords> = {
@@ -90,10 +91,10 @@ function ctaText(goal: Brief["goal"], freeEstimates: boolean): string {
   return freeEstimates ? "Get a free quote" : "Request a quote";
 }
 
-/** A valid AI draft for any valid facts, in parsed form. Every section is listed; empty ones hide. */
-export function templateDraft(facts: Facts, brief: Brief): AiDraft {
+/** The template's answer, shaped as the model's (no design), valid for any valid facts, in parsed form. Every section is listed; empty ones hide. */
+export function templateAnswer(facts: Facts, brief: Brief): AiAnswer {
   const words = WORDS[facts.trade];
-  return AiDraft.parse({
+  return AiAnswer.parse({
     copy: {
       heroHeadline: words.headline,
       heroSubheadline: words.subheadline,
@@ -123,4 +124,9 @@ export function templateDraft(facts: Facts, brief: Brief): AiDraft {
     ],
     theme: words.theme,
   });
+}
+
+/** The labelled fallback draft to store: the template's answer on the trade's design, like a model's answer. */
+export function templateDraft(facts: Facts, brief: Brief): AiDraft {
+  return draftFromAnswer(templateAnswer(facts, brief), facts.trade);
 }

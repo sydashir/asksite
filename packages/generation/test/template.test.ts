@@ -1,10 +1,10 @@
-import { AiDraft, Brief, GOALS, TONES } from "@asksite/core";
-import { Facts, SiteDocument, TRADES, unbackedClaims, proseIn } from "@asksite/site-schema";
+import { AiAnswer, AiDraft, Brief, draftFromAnswer, GOALS, TONES } from "@asksite/core";
+import { DESIGN_IDS, Facts, SiteDocument, TRADES, unbackedClaims, proseIn } from "@asksite/site-schema";
 import { describe, expect, it } from "vitest";
 import { render } from "@asksite/renderer";
 import { HtmlValidate, StaticConfigLoader } from "html-validate";
-import { FIXTURE_FORM_ACTION, FIXTURES, loadFixture } from "../../../fixtures/index.ts";
-import { templateDraft } from "../src/template.ts";
+import { FIXTURE_FORM_ACTION, FIXTURES, inDesign, loadFixture, stubStylesheets } from "../../../fixtures/index.ts";
+import { templateAnswer, templateDraft } from "../src/template.ts";
 import { MINIMAL_FACTS } from "./support/samples.ts";
 
 const issuesOf = (facts: Facts, brief: Brief) => {
@@ -81,11 +81,14 @@ describe("templateDraft", () => {
     for (const goal of GOALS) expect(issuesOf(facts, Brief.parse({ tone: "friendly", goal }))).toEqual([]);
   });
 
-  it.each(FIXTURES)("renders valid HTML with the facts of fixture %s (Plan 1 renderer, html-validate)", async (name) => {
+  it.each(FIXTURES)("renders valid HTML in every design with the facts of fixture %s (Plan 1 renderer, html-validate)", async (name) => {
     const facts = Facts.parse(loadFixture(name).facts);
-    const html = render({ facts, ...templateDraft(facts, Brief.parse({ tone: "friendly", goal: "quote" })), hidden: [] }, { stylesheet: "/* css */", formAction: FIXTURE_FORM_ACTION });
+    const document = { facts, ...templateDraft(facts, Brief.parse({ tone: "friendly", goal: "quote" })), hidden: [] };
     const validator = new HtmlValidate(new StaticConfigLoader({ extends: ["html-validate:recommended"], rules: { "tel-non-breaking": ["error", { ignoreClasses: ["whitespace-nowrap"] }] } }));
-    expect((await validator.validateString(html)).valid).toBe(true);
+    for (const design of DESIGN_IDS) {
+      const page = render(inDesign(document, design), { stylesheets: stubStylesheets(), formAction: FIXTURE_FORM_ACTION });
+      expect({ design: page.design, valid: (await validator.validateString(page.html)).valid }).toEqual({ design, valid: true });
+    }
   });
 
   it("makes a valid document for every trade, claim flag, goal, tone and 1 to 12 services (864 cases)", () => {
@@ -141,6 +144,32 @@ describe("templateDraft", () => {
     const draft = templateDraft(MINIMAL_FACTS, brief);
     expect(templateDraft(MINIMAL_FACTS, brief)).toEqual(draft);
     expect(AiDraft.parse(draft)).toEqual(draft);
+  });
+
+  it("answers as the model does (templateAnswer): palette and font, no design, already in parsed form", () => {
+    const brief = Brief.parse({ tone: "friendly", goal: "quote" });
+    for (const trade of TRADES) {
+      const answer = templateAnswer({ ...MINIMAL_FACTS, trade }, brief);
+      expect({ trade, theme: Object.keys(answer.theme) }).toEqual({ trade, theme: ["palette", "font"] });
+      expect(AiAnswer.parse(answer)).toEqual(answer);
+    }
+  });
+
+  it("stores the answer on the trade's design, with the trade's palette and font: roofing and landscaping refined, cleaning modern, the rest impact (A12)", () => {
+    const brief = Brief.parse({ tone: "friendly", goal: "quote" });
+    const themes = Object.fromEntries(TRADES.map((trade) => [trade, templateDraft({ ...MINIMAL_FACTS, trade }, brief).theme]));
+    expect(themes).toEqual({
+      plumbing: { palette: "navy-orange", font: "clean", design: "impact" },
+      hvac: { palette: "blue-yellow", font: "clean", design: "impact" },
+      electrical: { palette: "charcoal-red", font: "sturdy", design: "impact" },
+      roofing: { palette: "charcoal-red", font: "sturdy", design: "refined" },
+      cleaning: { palette: "blue-yellow", font: "friendly", design: "modern" },
+      landscaping: { palette: "green-amber", font: "friendly", design: "refined" },
+    });
+    for (const trade of TRADES) {
+      const facts = { ...MINIMAL_FACTS, trade };
+      expect(templateDraft(facts, brief)).toEqual(draftFromAnswer(templateAnswer(facts, brief), trade));
+    }
   });
 
   it("gives each trade three service descriptions of its own", () => {
