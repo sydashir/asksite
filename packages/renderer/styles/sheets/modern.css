@@ -468,7 +468,7 @@
   .hours th, .hours td { padding: 9px 0; border-top: 1px solid var(--line); text-align: left; vertical-align: baseline; }
   .hours tr:first-child > * { border-top: 0; }
   .hours th { padding-right: 12px; font-weight: 500; color: var(--text); }
-  .hours .time { color: var(--ink); font-weight: 700; text-align: right; }
+  .hours .time { color: var(--ink); font-weight: 700; text-align: right; white-space: nowrap; }
   .hours .closed { color: var(--muted); font-weight: 500; }
   .board .hours th, .board .hours td { padding: 14px 20px; }
   .board .hours td { padding-left: 0; }
@@ -476,7 +476,9 @@
   .board .em { margin: 0; padding: 16px 20px 14px; border-radius: 0 0 5px 5px; }
   .em-call { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; font-weight: 700; font-variant-numeric: tabular-nums; text-decoration: underline; text-underline-offset: 0.2em; }
   .em-call .i { color: var(--brand); }
+  /* Below 360 px a time may wrap after its dash (keepParts), so spaced-out text (WCAG 1.4.12) stays on the board */
   @media (max-width: 359px) {
+    .hours .time { white-space: normal; }
     .board .hours th, .board .hours td { padding-inline: 14px; }
     .board .hours td { padding-left: 0; }
   }
@@ -511,9 +513,10 @@
   @media (hover: hover) {
     .qa summary:hover .tog { border-color: var(--ink); }
   }
-  /* Forced colours (Windows high contrast) drop backgrounds: draw the plus and minus in the text colour */
+  /* Forced colours (Windows high contrast) replace author backgrounds: draw the plus and the minus in the text colour,
+     open or closed (a system colour is kept; MDN forced-colors). !important beats the open state's white bars. */
   @media (forced-colors: active) {
-    .tog::before, .tog::after { background: CanvasText; }
+    .tog::before, .tog::after { background: CanvasText !important; }
   }
   .qa-body { max-width: 44rem; margin-bottom: 22px; padding: 2px 0 2px 18px; border-left: 3px solid var(--brand); }
   .qo { padding-block: 22px; border-bottom: 1px solid var(--line); }

@@ -122,9 +122,10 @@ export const MODERN_COLORS: Readonly<Record<PaletteId, ModernColors>> = {
  * The display lettering (headings, the business name, the big phone number) for each lettering choice. Body
  * text keeps one system stack (styles/sheets/modern.css). Stacks from Modern Font Stacks (CC0) and the
  * platforms' own faces: no web font, no download. `tracking` scales the headings' negative letter-spacing
- * (a condensed face needs less); `phoneEm` is the width of "(512) 555-0142" in em in that face's widest
- * platform font, plus 4 % (measured in WebKit and Chromium on macOS: 7.73, 6.22 and 7.64), so the call card can
- * size the number to its width (container units).
+ * (a condensed face needs less); `phoneEm` is the width of "(512) 555-0142" in em in that face, with slack
+ * (measured in WebKit and Chromium on macOS, 2026-09-30: clean 7.73, sturdy 6.22, friendly 7.64; plus 4 %, and
+ * clean 6.4 % for Segoe UI Variable Display on Windows, which this Mac cannot measure), so the call card can size
+ * the number to its width (container units).
  */
 export const MODERN_FONTS: Readonly<Record<FontId, { readonly display: string; readonly tracking: string; readonly phoneEm: string }>> = {
   clean: {

@@ -133,6 +133,10 @@ describe("Modern: the credentials", () => {
     expect(band).toMatch(/^<section id="credentials" class="trust on-brand" aria-labelledby="credentials-title">/);
     expect(band).toContain('<h2 id="credentials-title" class="display h2">Credentials</h2>');
     expect(page.indexOf('<section id="credentials"')).toBeGreaterThan(page.indexOf('<section id="services"'));
+    // The band is not one of the tint and white sections, which keep alternating around it.
+    expect([...page.matchAll(/<section id="([a-z-]+)" class="sec ([a-z]+)"/g)].map((m) => `${m[1]} ${m[2]}`)).toEqual([
+      "services tint", "reviews white", "our-work tint", "service-area white", "faq tint", "contact white",
+    ]);
     const text = band.replace(/<[^>]*>/g, "");
     for (const fact of ["License ROC 999001", "License ROC 999002", "Insured", "Since 2011", "24/7 emergency service"]) expect(text).toContain(fact);
   });
