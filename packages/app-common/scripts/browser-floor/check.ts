@@ -7,6 +7,7 @@ import {
   type Diagnostic,
   type Program,
   type Project,
+  type Snapshot,
   type Symbol as TsSymbol,
   type Type,
 } from "typescript/unstable/sync";
@@ -15,24 +16,38 @@ import * as is from "typescript/unstable/ast/is";
 import { BROWSER_FLOOR } from "../../src/browser-floor.ts";
 import { compatAt, gapsAt, type Floor, type Gap } from "./bcd.ts";
 import { indexLib, type LibIndex } from "./lib-index.ts";
-import { apiName, describe, isPlainObjectMember, keysFor } from "./mapping.ts";
+import { apiName, describe, isPlainObjectMember, isSupportedConstant, keysFor } from "./mapping.ts";
 
-// The browser floor check (P4-7): every runtime use of an API that a TypeScript default lib file
-// declares is mapped to its MDN browser-compat-data entry and checked at the floor. Types only and
-// feature tests (`typeof X`; the `.y` of `typeof X.y`, whose X is still read) are not uses. A use
-// with no MDN key fails as unmapped. README.md maps each form it judges to its fixture.
+// The browser floor check (P4-7): a runtime use of an API that a TypeScript default lib file
+// declares, in the forms README.md lists (each with its fixture), is mapped to its MDN
+// browser-compat-data entry and checked at the floor. Types only and feature tests (`typeof X`; the
+// `y` of `typeof X.y` or `typeof X["y"]`, whose X is still read) are not uses. A use with no MDN key
+// fails as unmapped.
 //
-// Known limits (README.md "Known limits"; our own client code, not an attacker boundary):
+// Known limits (each in full in README.md "Known limits"; our own client code, not an attacker
+// boundary):
 // - computed access (`globalThis[name]`, `Reflect.get`): judged only when the key's type is a string
 //   literal; nothing else covers it;
 // - `eval`, `Function`, string code in timers: not read; the owner app's planned CSP (Task 14,
 //   `script-src 'self'`, no 'unsafe-eval') stops such code from running at all;
 // - `any`-typed receivers: nothing covers them;
+// - APIs typed by our own declarations (a structural annotation, `declare global`): only lib
+//   declarations are judged; nothing covers them;
+// - sub-features under a member: options and parameters (`focus({ focusVisible: true })`, iOS 18.4)
+//   and behaviors such as symbols as WeakMap keys (16.4): only the member's own entry is read; nothing
+//   covers them for DOM APIs, and the lib gate stops only an ES option its es2023 files do not declare;
+// - iteration protocols: `for await` over a ReadableStream (MDN 27) is not judged; nothing covers it;
+// - regular expressions: only literals, for the d and v flags, lookbehind and modifiers; the lib gate
+//   stops only the v flag; nothing covers the rest (duplicate named groups, patterns in strings);
+// - code in node_modules: read by neither this check nor the lib gate; nothing covers it;
+// - members of plain-object types (mapping.ts isPlainObjectMember) pass; nothing else covers them;
+// - a constructor reached through an alias is judged on its interface only; the lib gate stops the
+//   Iterator one, nothing covers the eight DOM ones;
 // - CSS and HTML features (and event names in strings or React props): not checked; Tailwind v4
 //   targets Safari 16.4 and Vite lowers some CSS syntax for build.cssTarget, nothing checks the rest.
 // Backstops: Playwright's WebKit and the user's iPhone run CURRENT WebKit, not iOS 16.4, so the
 // browser tests (Task 16) and the iPhone check (Task 27) miss a too-new DOM API. Only the TypeScript
-// lib gate (es2023, for ES built-ins) and this checker catch one.
+// lib gate (es2023, for ES built-ins) and this checker catch one, and neither reads dependency code.
 //
 // TypeScript 7.0 ships no stable compiler API ("we won't have a stable programmatic API available
 // until at least several months from now with TypeScript 7.1", 7.0 RC notes); `typescript/unstable/*`
@@ -63,8 +78,13 @@ export interface FloorReport {
 }
 
 const NOTHING = TypeFlags.Null | TypeFlags.Undefined | TypeFlags.Void;
-const MARKER = /\/\/\s*floor-ok\b(.*)$/;
-const ONLY_COMMENTS = /^\s*(\/\*.*?\*\/\s*)*$/;
+// `// floor-ok: <reason>` to the end of a line, or `{/* floor-ok: <reason> */}` between JSX children
+// (where a `//` line is text that the page shows).
+const MARKER = /\/\/\s*floor-ok\b(.*)$|\{\s*\/\*\s*floor-ok\b(.*?)\*\/\s*\}/;
+// Nothing but whitespace and comments: `/* ... */`, or `{/* ... */}` in JSX. A comment ends at its
+// first `*/`: one that could run past it would take code between two comments for a comment, and would
+// backtrack exponentially over a line of many comments.
+const ONLY_COMMENTS = /^\s*((\{\s*\/\*(?:[^*]|\*(?!\/))*\*\/\s*\}|\/\*(?:[^*]|\*(?!\/))*\*\/)\s*)*$/;
 
 /**
  * TypeScript parses every heritage clause element and an instantiation expression (`Map<string, number>`)
@@ -91,10 +111,15 @@ function isFeatureTest(node: Node): boolean {
   return p !== undefined && is.isTypeOfExpression(p);
 }
 
-/** Whether the global named here is constructed: `new X()`, `new ns.X()`, or `class extends X` (`super()` runs X). */
+/** Whether the global named here is constructed: `new X()`, `new ns.X()`, `new ns["X"]()`, `new (X)()`, or `class extends X` (`super()` runs X). */
 function constructs(node: Node): boolean {
   let n: Node = node;
-  while (is.isPropertyAccessExpression(n.parent) && n.parent.name === n) n = n.parent;
+  while (
+    (is.isPropertyAccessExpression(n.parent) && n.parent.name === n) ||
+    (is.isElementAccessExpression(n.parent) && n.parent.argumentExpression === n) ||
+    is.isParenthesizedExpression(n.parent)
+  )
+    n = n.parent;
   const p = n.parent;
   if (is.isNewExpression(p)) return p.expression === n;
   return is.isExpressionWithTypeArguments(p) && p.expression === n && is.isHeritageClause(p.parent) && runsAtRuntime(p);
@@ -126,13 +151,15 @@ interface Context {
 
 function checkFile(ctx: Context, sf: SourceFile): void {
   const { project, checker, lib, floor, report } = ctx;
-  // `// floor-ok: <reason>` markers by line. One without a reason accepts nothing and is itself a failure.
+  // `floor-ok` markers by line; one alone on its line (only comments around it) also covers the next
+  // line. One without a reason accepts nothing and is itself a failure.
   const markers = new Map<number, { reason: string | undefined; alone: boolean }>();
   sf.text.split("\n").forEach((text, index) => {
     const marker = MARKER.exec(text);
     if (!marker) return;
-    const reason = /^:(.*)$/.exec(marker[1] ?? "")?.[1]?.trim() || undefined;
-    markers.set(index + 1, { reason, alone: ONLY_COMMENTS.test(text.slice(0, marker.index)) });
+    const reason = /^:(.*)$/.exec(marker[1] ?? marker[2] ?? "")?.[1]?.trim() || undefined;
+    const around = [text.slice(0, marker.index), text.slice(marker.index + marker[0].length)];
+    markers.set(index + 1, { reason, alone: around.every((part) => ONLY_COMMENTS.test(part)) });
     if (!reason) {
       const finding: Finding = { file: sf.fileName, line: index + 1, column: marker.index + 1, api: "floor-ok", key: "floor-ok", kind: "bad-suppression", gaps: [] };
       report.findings.push(finding);
@@ -148,7 +175,7 @@ function checkFile(ctx: Context, sf: SourceFile): void {
     if (is.isPropertyAccessExpression(n) && is.isIdentifier(n.name)) {
       if (!isFeatureTest(n)) lookups.push({ node: n.name, receiver: n.expression, how: "property" });
     } else if (is.isElementAccessExpression(n)) {
-      elements.push(n);
+      if (!isFeatureTest(n)) elements.push(n);
     } else if (is.isBindingElement(n) && is.isObjectBindingPattern(n.parent) && !n.dotDotDotToken) {
       bindings.push(n);
     } else if (is.isShorthandPropertyAssignment(n)) {
@@ -171,6 +198,9 @@ function checkFile(ctx: Context, sf: SourceFile): void {
   function record(node: Node, kind: FindingKind, api: string, key: string, gaps: Gap[]): void {
     const { line, character } = sf.getLineAndCharacterOfPosition(node.getStart(sf));
     const finding: Finding = { file: sf.fileName, line: line + 1, column: character + 1, api, key, kind, gaps };
+    // One finding per place and key: a member reached through two sources (a generic and its
+    // constraint, a union and one of its members) is reported once.
+    if (report.findings.some((f) => f.file === finding.file && f.line === finding.line && f.column === finding.column && f.kind === kind && f.key === key)) return;
     const reason = suppression(line + 1);
     if (reason !== undefined) finding.suppressed = reason;
     report.findings.push(finding);
@@ -251,7 +281,11 @@ function checkFile(ctx: Context, sf: SourceFile): void {
     return index === undefined ? [...args] : args.slice(index, index + 1);
   }
 
-  /** Each type once, by its id: a source met twice (a tuple's elements, a default and what it covers) gives one finding. */
+  /**
+   * Each type once, by its id: a tuple's elements, or a default and the property it covers, are then
+   * one source. Two types that hold the same member (a generic and its constraint, a union and one of
+   * its members) stay two sources; `record` keeps their finding once.
+   */
   function distinct(types: Type[]): Type[] {
     return [...new Map(types.map((t) => [t.id, t])).values()];
   }
@@ -283,18 +317,21 @@ function checkFile(ctx: Context, sf: SourceFile): void {
   }
 
   function evaluate(node: Node, how: string, symbol: TsSymbol | undefined, receiverType: () => Type | undefined): void {
-    const handle = symbol?.valueDeclaration ?? symbol?.declarations[0];
-    if (!symbol || !handle || !lib.isLibFile(handle.path)) return;
+    // The first lib declaration: a member of a union or intersection whose parts declare it in
+    // different places has no valueDeclaration, and our own part's declaration can come first.
+    const handle = symbol && [symbol.valueDeclaration, ...symbol.declarations].find((h) => h !== undefined && lib.isLibFile(h.path));
+    if (!symbol || !handle) return;
     const decl = handle.resolve(project);
     const d = decl && describe(decl);
     if (d?.kind === "member" && !symbol.valueDeclaration && how === "identifier") return; // e.g. object-literal keys
     report.sites++;
-    if (!d) return record(node, "unmapped", symbol.name, symbol.name, []); // a lib declaration of an unknown shape
+    if (!decl || !d) return record(node, "unmapped", symbol.name, symbol.name, []); // a lib declaration of an unknown shape
     // Each receiver type maps on its own: `Request | Response` checks both, `EventTarget & HTMLDivElement`
     // finds the member on HTMLDivElement.
     const chains = d.kind === "member" && !d.isStatic ? receiverTypes(receiverType()).map(typeChain) : [];
     const keys = keysFor(d, chains, lib);
-    if (keys.length === 0 && !isPlainObjectMember(d, lib)) record(node, "unmapped", apiName(d), apiName(d), []);
+    const passesUnmapped = isPlainObjectMember(d, lib) || isSupportedConstant(d, decl, floor);
+    if (keys.length === 0 && !passesUnmapped) record(node, "unmapped", apiName(d), apiName(d), []);
     for (const key of keys) {
       // MDN files a constructor under its interface, and it can be newer (Iterator 10, its constructor
       // 18.4): a global that passes on its own entry is then judged on the constructor it runs.
@@ -306,7 +343,8 @@ function checkFile(ctx: Context, sf: SourceFile): void {
     if (!is.isRegularExpressionLiteral(node)) return;
     const src = node.text;
     const flags = src.slice(src.lastIndexOf("/") + 1);
-    const body = src.slice(1, src.lastIndexOf("/"));
+    // Each escape (`\(`, `\\`) read as one plain character, so an escaped `(` never opens a group.
+    const body = src.slice(1, src.lastIndexOf("/")).replace(/\\./g, "_");
     const features: string[] = [];
     if (flags.includes("v")) features.push("javascript.builtins.RegExp.unicodeSets");
     if (flags.includes("d")) features.push("javascript.builtins.RegExp.hasIndices");
@@ -341,7 +379,9 @@ function checkFile(ctx: Context, sf: SourceFile): void {
   // ({ canParse } = URL), ({ canParse: c } = URL), nested or with a default: TypeScript types this
   // literal from its targets, so each property is read from the source on the right-hand side. A
   // source is read without null and undefined (a default covers them), so an outer property or a
-  // tuple element `X | undefined` and its default `X` are one source, not two.
+  // tuple element `X | undefined` and its default `X` are one source, not two. Different sources that
+  // hold the same member (a generic and its constraint, a union and one of its members) still give
+  // one finding: `record` keeps one per place and key.
   for (const pattern of patterns) {
     if (!is.isObjectLiteralExpression(pattern)) continue;
     const sources = distinct(patternSources(pattern).flatMap((t) => checker.getNonNullableType(t) ?? []));
@@ -377,14 +417,23 @@ function assertTypeChecks(tsconfig: string, program: Program): void {
   throw new Error(`${tsconfig} does not type-check, so the floor check cannot judge it:\n${list}`);
 }
 
+/**
+ * The project of one tsconfig in a snapshot, selected by the config file's path: the API lists a
+ * snapshot's projects in its own order (by path), not in the order they were opened.
+ */
+export function projectFor(snapshot: Snapshot, tsconfig: string): Project {
+  const project = snapshot.getProject(resolve(tsconfig));
+  if (!project) throw new Error(`No TypeScript project for ${tsconfig}`);
+  return project;
+}
+
 /** Checks the program of one tsconfig at the floor (default: the owner client's, src/browser-floor.ts). */
 export function checkFloor(tsconfig: string, floor: Floor = BROWSER_FLOOR): FloorReport {
   const api = new API({ cwd: process.cwd() });
   try {
     const snapshot = api.updateSnapshot({ openProjects: [resolve(tsconfig)] });
     try {
-      const project = snapshot.getProjects()[0];
-      if (!project) throw new Error(`No TypeScript project for ${tsconfig}`);
+      const project = projectFor(snapshot, tsconfig);
       const { program, checker } = project;
       assertTypeChecks(tsconfig, program);
       const files = program.getSourceFileNames().filter((f) => !f.endsWith(".d.ts") && !f.includes("/node_modules/"));

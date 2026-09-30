@@ -1,6 +1,6 @@
-import { SyntaxKind, type Node } from "typescript/unstable/ast";
+import { ModifierFlags, SyntaxKind, type Node } from "typescript/unstable/ast";
 import * as is from "typescript/unstable/ast/is";
-import { compatAt, hasEntry } from "./bcd.ts";
+import { compatAt, gapsAt, hasEntry, type Floor } from "./bcd.ts";
 import type { LibIndex } from "./lib-index.ts";
 
 // From a TypeScript lib declaration to the MDN browser-compat-data keys a use of it maps to.
@@ -149,4 +149,19 @@ export function isPlainObjectMember(d: Described, lib: LibIndex): boolean {
     !hasEntry(`api.${owner}`) &&
     !hasEntry(ns ? `javascript.builtins.${ns}.${owner}` : `javascript.builtins.${jsOwner(owner)}`)
   );
+}
+
+/**
+ * A WebIDL constant read from its interface object, such as `Node.ELEMENT_NODE`: a static `readonly`
+ * member typed as a number literal. MDN keeps no data for constants ("not known to be a source of any
+ * compatibility issues", docs/data-guidelines/api.md), so one passes when its interface is fully
+ * supported at the floor; on any other interface it stays unmapped.
+ */
+export function isSupportedConstant(d: Described, decl: Node, floor: Floor): boolean {
+  if (d.kind !== "member" || !d.isStatic || d.ns || !is.isPropertySignatureDeclaration(decl)) return false;
+  const literal = decl.type && is.isLiteralTypeNode(decl.type) ? decl.type.literal : undefined;
+  const number = literal && is.isPrefixUnaryExpression(literal) ? literal.operand : literal; // -1
+  if (!(decl.modifierFlags & ModifierFlags.Readonly) || !number || !is.isNumericLiteral(number)) return false;
+  const compat = compatAt(`api.${d.owner}`);
+  return compat !== undefined && gapsAt(compat, floor).length === 0;
 }

@@ -4,6 +4,9 @@
 // check reads each property from the right-hand side itself.
 declare const x: string;
 declare const div: HTMLDivElement;
+declare const req: Request;
+declare const either: Request | Response;
+declare const maybeEither: Request | Response | undefined;
 // Sources that may be undefined (a default covers them) and our own stand-in, which is not a platform API.
 declare const maybeURL: typeof URL | undefined;
 declare const maybeTuple: [typeof URL] | undefined;
@@ -38,6 +41,7 @@ let canParse: typeof URL.canParse;
 let renamed: typeof URL.canParse;
 let anySignal: typeof AbortSignal.any;
 let popover: typeof div.showPopover;
+let sink: unknown;
 ({ canParse } = URL); // expect: unsupported api.URL.canParse_static
 ({ canParse: renamed } = URL); // expect: unsupported api.URL.canParse_static
 ({ any: anySignal } = AbortSignal); // expect: unsupported api.AbortSignal.any_static
@@ -49,12 +53,21 @@ let popover: typeof div.showPopover;
 ({ "canParse": renamed } = URL); // expect: unsupported api.URL.canParse_static
 ({ ["canParse"]: renamed } = URL); // expect: unsupported api.URL.canParse_static
 // A nested pattern with a default reads the outer property or the default: both are judged, and a
-// source met twice counts once, also when one meeting may be undefined (an outer property or a tuple
-// element that the default covers).
+// finding met twice counts once: also when one meeting may be undefined (an outer property or a tuple
+// element that the default covers), and when the two meetings are different types that hold the same
+// member (a union and one of its members, a generic and its constraint).
 ({ a: { canParse } = { canParse: URL.canParse } } = { a: URL }); // expect: unsupported api.URL.canParse_static; unsupported api.URL.canParse_static
 ({ a: { canParse } = URL } = { a: URL }); // expect: unsupported api.URL.canParse_static
 ({ a: { canParse } = URL } = { a: maybeURL }); // expect: unsupported api.URL.canParse_static
 [{ canParse } = URL] = maybeElement; // expect: unsupported api.URL.canParse_static
+({ a: { bytes: sink } = req } = { a: either }); // expect: unsupported api.Request.bytes; unsupported api.Response.bytes
+({ a: { bytes: sink } = req } = { a: maybeEither }); // expect: unsupported api.Request.bytes; unsupported api.Response.bytes
+export function viaGenericOuter<T extends HTMLDivElement>(o: { a: T | undefined }) {
+  ({ a: { showPopover: sink } = div } = o); // expect: unsupported api.HTMLElement.showPopover
+}
+export function viaGenericSource<T extends typeof URL>(o: { a: T }) {
+  ({ a: { canParse: sink } = URL } = o); // expect: unsupported api.URL.canParse_static
+}
 // An outer property that may be undefined (the default covers it) is judged without undefined: at any
 // depth, in an array pattern, and through a generic's constraint. `own` is not a platform API.
 ({ a: { canParse } = own } = { a: maybeURL }); // expect: unsupported api.URL.canParse_static
@@ -63,7 +76,7 @@ let popover: typeof div.showPopover;
 export function viaNullableConstraint<T extends typeof URL | undefined>(t: T) {
   ({ a: { canParse } = own } = { a: t }); // expect: unsupported api.URL.canParse_static
 }
-export const assigned = [canParse, renamed, anySignal, popover];
+export const assigned = [canParse, renamed, anySignal, popover, sink];
 
 // An assignment pattern in a for-of head reads each element: judged over an array or a tuple, and
 // reported (never skipped) over any other iterable, whose element type the check does not derive.

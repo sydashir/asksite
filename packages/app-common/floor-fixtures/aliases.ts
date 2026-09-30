@@ -20,7 +20,9 @@ export const viaGeneric = pick(URL).canParse(x); // expect: unsupported api.URL.
 
 // A feature test is not a use; the guarded call still is (it needs a `floor-ok` reason).
 export const detected = typeof URL.canParse === "function";
+export const detectedByBracket = typeof URL["canParse"] === "function";
 export const guardedByTypeof = typeof URL.canParse === "function" ? URL.canParse(x) : false; // expect: unsupported api.URL.canParse_static
+export const guardedByBracketTypeof = typeof URL["canParse"] === "function" ? URL["canParse"](x) : false; // expect: unsupported api.URL.canParse_static
 export const guardedByIn = "canParse" in URL && URL.canParse(x); // expect: unsupported api.URL.canParse_static
 
 // A class's `extends` clause and an instantiation expression read the global at runtime (TypeScript
@@ -46,6 +48,10 @@ export function ownShorthand(requestIdleCallback: () => void) {
 // Known misses by design (ios16-floor-proposal.md section 3): an `any` cast and reflection.
 export const viaAny = (URL as any).canParse(x);
 export const viaReflect = Reflect.get(URL, "canParse");
+// A constructor reached through an alias is judged on its interface only (README.md "Known limits"):
+// VideoColorSpace passes (15.4), its constructor (17) is not judged.
+const ColorSpace = VideoColorSpace;
+export const viaConstructorAlias = new ColorSpace();
 
 // Same names that are not the platform API must pass.
 class OwnSet {

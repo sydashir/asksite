@@ -6,6 +6,7 @@ export const ofFloat16 = Float16Array.of(1); // expect: unsupported javascript.b
 export const bytesFloat16 = Float16Array.BYTES_PER_ELEMENT; // expect: unsupported javascript.builtins.Float16Array
 export const protoFloat16 = Float16Array.prototype.at.call(new Uint8Array(1), 0); // expect: unsupported javascript.builtins.Float16Array
 export const typeofReaches = typeof Float16Array.from === "function"; // expect: unsupported javascript.builtins.Float16Array
+export const typeofBracketReaches = typeof Float16Array["from"] === "function"; // expect: unsupported javascript.builtins.Float16Array
 export const typeofBare = typeof Float16Array === "undefined";
 export const fromUint8 = Uint8Array.from([1]);
 export const bytesUint8 = Uint8Array.BYTES_PER_ELEMENT;
@@ -18,9 +19,16 @@ export const sharedAt = new Uint8Array(1).at(0);
 
 // MDN files a constructor under its interface (data-guidelines/api.md), and it can be newer than the
 // interface (VideoColorSpace 15.4, its constructor 17; Iterator 10, its constructor 18.4): `new X()`
-// and `extends X` read the constructor too. The legacy element factories are filed under their
-// element (api.HTMLImageElement.Image).
+// and `extends X` read the constructor too, also in parentheses or through a string-literal bracket
+// on the global object. The legacy element factories are filed under their element
+// (api.HTMLImageElement.Image).
 export const newerConstructor = new VideoColorSpace(); // expect: unsupported api.VideoColorSpace.VideoColorSpace
+export const parenthesizedConstructor = new (VideoColorSpace)(); // expect: unsupported api.VideoColorSpace.VideoColorSpace
+export const parenthesizedWindowConstructor = new (window.VideoColorSpace)(); // expect: unsupported api.VideoColorSpace.VideoColorSpace
+export const bracketWindowConstructor = new window["VideoColorSpace"](); // expect: unsupported api.VideoColorSpace.VideoColorSpace
+export const bracketGlobalThisConstructor = new (globalThis["VideoColorSpace"])(); // expect: unsupported api.VideoColorSpace.VideoColorSpace
+export class ViaBracketBase extends window["VideoColorSpace"] {} // expect: unsupported api.VideoColorSpace.VideoColorSpace
+export class ViaParenthesizedBase extends (VideoColorSpace) {} // expect: unsupported api.VideoColorSpace.VideoColorSpace
 export class ViaIteratorSubclass extends Iterator<number> { // expect: unsupported javascript.builtins.Iterator.Iterator
   next() {
     return { done: true as const, value: undefined };
@@ -51,3 +59,16 @@ export const viaOwnSubclass = OwnURL.canParse(""); // expect: unsupported api.UR
 class OwnBytes extends Uint8Array {}
 export const viaOwnTypedSubclass = OwnBytes.fromBase64(""); // expect: unsupported javascript.builtins.Uint8Array.fromBase64
 export const viaOwnTypedShared = OwnBytes.from([1]);
+
+// WebIDL constants: MDN keeps no data for them (data-guidelines/api.md: "not known to be a source of
+// any compatibility issues"). One read from its interface object passes when that interface is fully
+// supported at the floor and stays unmapped on any other. In MDN 8.1.3 no interface with constants is
+// too new; the one without full support has no MDN entry at all (NodeFilter). A constant read from an
+// instance is not carved out.
+declare const node: Node;
+export const elementNode = Node.ELEMENT_NODE;
+export const atTarget = Event.AT_TARGET;
+export const keyLeft = KeyboardEvent.DOM_KEY_LOCATION_LEFT;
+export const timeoutIgnored = WebGL2RenderingContext.TIMEOUT_IGNORED; // typed -1
+export const showElement = NodeFilter.SHOW_ELEMENT; // expect: unmapped NodeFilter; unmapped NodeFilter.SHOW_ELEMENT
+export const instanceConstant = node.ELEMENT_NODE; // expect: unmapped Node.ELEMENT_NODE

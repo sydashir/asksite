@@ -10,7 +10,9 @@
     "moduleResolution": "bundler",
     "strict": true,
     "noEmit": true,
-    "skipLibCheck": true
+    "skipLibCheck": true,
+    // JSX without React (e-suppressions-jsx.tsx declares the JSX namespace it needs).
+    "jsx": "preserve"
   },
-  "include": ["*.ts"]
+  "include": ["*.ts", "*.tsx"]
 }
