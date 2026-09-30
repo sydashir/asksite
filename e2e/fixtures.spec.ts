@@ -155,6 +155,30 @@ const pageFonts = (page: Page): Promise<string> =>
       .join(" | "),
   );
 
+/** How a contact form field is drawn: its box, and the corner radius and padding a native select would differ in. */
+type FieldShape = { width: number; height: number; radius: string; paddingTop: string; paddingLeft: string };
+
+const fieldShape = (page: Page, selector: string): Promise<FieldShape> =>
+  page.locator(selector).evaluate((el) => {
+    const style = getComputedStyle(el);
+    const box = el.getBoundingClientRect();
+    return { width: box.width, height: box.height, radius: style.borderTopLeftRadius, paddingTop: style.paddingTop, paddingLeft: style.paddingLeft };
+  });
+
+/**
+ * The service select must look like the text fields: the same corner radius and padding, and the same width
+ * and height to within 0.05 px (toBeCloseTo with 1 digit). Boxes are fractional (MDN, getBoundingClientRect),
+ * and two grid columns can differ by one layout unit, 1/64 px, as in the approved Classic and Modern two-column
+ * forms (A12-0 round-5 rulings, attack4 I-2). A native select is 2 px or more off.
+ */
+function expectSameShape(select: FieldShape, field: FieldShape): void {
+  const { width, height, ...style } = select;
+  const { width: fieldWidth, height: fieldHeight, ...fieldStyle } = field;
+  expect(style).toEqual(fieldStyle);
+  expect(width).toBeCloseTo(fieldWidth, 1);
+  expect(height).toBeCloseTo(fieldHeight, 1);
+}
+
 /** The id of each element keyboard focus lands on, over `steps` presses ("" for one without an id). */
 async function focusedIds(page: Page, browserName: string, steps = 80): Promise<string[]> {
   const ids: string[] = [];
@@ -289,13 +313,7 @@ for (const design of DESIGN_IDS) {
 
     test("the service select has the same size and shape as the text fields", async ({ page }) => {
       await open(page, "plumber-austin", design);
-      const shape = (selector: string) =>
-        page.locator(selector).evaluate((el) => {
-          const style = getComputedStyle(el);
-          const box = el.getBoundingClientRect();
-          return { width: box.width, height: box.height, radius: style.borderTopLeftRadius, paddingTop: style.paddingTop, paddingLeft: style.paddingLeft };
-        });
-      expect(await shape("#contact-service")).toEqual(await shape("#contact-name"));
+      expectSameShape(await fieldShape(page, "#contact-service"), await fieldShape(page, "#contact-name"));
     });
   });
 }
@@ -395,6 +413,28 @@ test.describe("the gates can fail (RED proof)", () => {
       pairs.add(await page.evaluate(() => `${getComputedStyle(document.querySelector("h1") ?? document.body).fontFamily} | ${getComputedStyle(document.body).fontFamily}`));
     }
     expect({ fonts: fonts.size, pairs: pairs.size }).toEqual({ fonts: FONT_IDS.length, pairs: 1 });
+  });
+
+  test("the select check sees a native select", async ({ page }) => {
+    await openToday(page, "plumber-austin");
+    await page.addStyleTag({ content: "#contact-service{appearance:auto!important}" });
+    const select = await fieldShape(page, "#contact-service");
+    const name = await fieldShape(page, "#contact-name");
+    expect(Math.abs(select.height - name.height)).toBeGreaterThan(1);
+    expect(() => expectSameShape(select, name)).toThrow();
+  });
+
+  test("the select check sees a select half a pixel narrower, and allows one layout unit (1/64 px)", async ({ page }) => {
+    await openToday(page, "plumber-austin");
+    const name = await fieldShape(page, "#contact-name");
+    await page.addStyleTag({ content: "#contact-service{width:calc(100% - 0.5px)!important}" });
+    const half = await fieldShape(page, "#contact-service");
+    expect(name.width - half.width).toBe(0.5);
+    expect(() => expectSameShape(half, name)).toThrow(/toBeCloseTo/);
+    await page.addStyleTag({ content: "#contact-service{width:calc(100% - 0.015625px)!important}" });
+    const unit = await fieldShape(page, "#contact-service");
+    expect(name.width - unit.width).toBe(0.015625);
+    expectSameShape(unit, name);
   });
 
   test("the focus check sees a link hidden under a call bar that sticks while a link has focus", async ({ page, browserName }) => {
