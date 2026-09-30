@@ -1,6 +1,7 @@
 import { hashIp, LIMITS, newId } from "@asksite/core";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { insertLead } from "../src/form.ts";
+import type { Lead } from "../src/lead.ts";
 import { holdBatch, metered, writesReturnNoRows } from "./support/d1.ts";
 import { at, linesWith, seedSite, settledLeads, sitesHarness, sitesLines, TEST_SECRETS, type ToolsEnv } from "./support/harness.ts";
 
@@ -62,10 +63,11 @@ async function fill(siteId: string, count: number, row: { createdAt: number; ipH
   );
 }
 
-/** insertLead's input. The day's email cap (A11c, tested in lead-cap.workerd.test.ts) is set out of reach here. */
-const input = (site: { siteId: string }, ipHash: string, extra: { now?: number; spam?: boolean } = {}) => ({
+/** insertLead's input. The day's email cap (A11c, tested in lead-cap.workerd.test.ts) is set out of reach here.
+ *  Each call is its own request (a new name) unless `lead` is given: the same request twice is one lead (QA-2 RU(1)). */
+const input = (site: { siteId: string }, ipHash: string, extra: { now?: number; spam?: boolean; lead?: Lead } = {}) => ({
   leadId: newId(), siteId: site.siteId, now: extra.now ?? Date.now(), spam: extra.spam ?? false, ipHash, emailsPerDay: 1_000_000,
-  lead: { name: "Dana Price", phone: "5125550199", email: null, service: null, message: null },
+  lead: extra.lead ?? { name: `Dana ${newId().slice(0, 8)}`, phone: "5125550199", email: null, service: null, message: null },
 });
 
 describe("A15 per-network daily limits", () => {
@@ -108,7 +110,7 @@ describe("A15 per-network daily limits", () => {
   it(`stores ${ALL_SITES} leads a UTC day from one network across all sites; the next, on a site it never used, is refused`, async () => {
     const [a, b, c, d] = [await seedSite(tools), await seedSite(tools), await seedSite(tools), await seedSite(tools)];
     const statuses: number[] = [];
-    for (const site of [a, a, b, b, c]) statuses.push((await post(site, "192.0.2.20")).status);
+    for (const [i, site] of [a, a, b, b, c].entries()) statuses.push((await post(site, "192.0.2.20", { name: `Visitor ${i}` })).status);
     expect(statuses).toEqual([303, 303, 303, 303, 303]);
     expect((await post(d, "192.0.2.20")).status).toBe(429);
     expect(await leadsOf(d.siteId)).toEqual([]);
@@ -120,7 +122,7 @@ describe("A15 per-network daily limits", () => {
   it(`counts the network's leads on the site it posts to toward its ${ALL_SITES} across all sites`, async () => {
     const [a, b] = [await seedSite(tools), await seedSite(tools)];
     const statuses: number[] = [];
-    for (const site of [a, a, a, b, b]) statuses.push((await post(site, "192.0.2.25")).status);
+    for (const [i, site] of [a, a, a, b, b].entries()) statuses.push((await post(site, "192.0.2.25", { name: `Visitor ${i}` })).status);
     expect(statuses).toEqual([303, 303, 303, 303, 303]);
     // B holds 2 of this network's leads, under its 3 per site, but 3 on A + 2 on B use up its 5 for all sites.
     expect((await post(b, "192.0.2.25")).status).toBe(429);
@@ -130,13 +132,13 @@ describe("A15 per-network daily limits", () => {
 
   it("counts spam: the network's spam uses up its leads on a site and across sites, and its next post, spam or not, is refused and not stored", async () => {
     const [site, second, third] = [await seedSite(tools), await seedSite(tools), await seedSite(tools)];
-    for (let i = 0; i < PER_SITE; i++) expect((await post(site, "192.0.2.30", SPAM)).status).toBe(303);
+    for (let i = 0; i < PER_SITE; i++) expect((await post(site, "192.0.2.30", { ...SPAM, name: `Spammer ${i}` })).status).toBe(303);
     expect((await post(site, "192.0.2.30")).status).toBe(429);
     expect((await post(site, "192.0.2.30", SPAM)).status).toBe(429);
     expect((await leadsOf(site.siteId)).map((lead) => `${lead["spam"]}/${lead["email_status"]}`)).toEqual(["1/skipped", "1/skipped", "1/skipped"]);
     expect(await leadEmailsTo(site.ownerEmail)).toEqual([]);
     // 3 + 2 spam leads use up the network's 5 for all sites.
-    for (let i = 0; i < ALL_SITES - PER_SITE; i++) expect((await post(second, "192.0.2.30", SPAM)).status).toBe(303);
+    for (let i = 0; i < ALL_SITES - PER_SITE; i++) expect((await post(second, "192.0.2.30", { ...SPAM, name: `Spammer ${i}` })).status).toBe(303);
     expect((await post(third, "192.0.2.30")).status).toBe(429);
     expect(await leadsOf(third.siteId)).toEqual([]);
   });
@@ -144,7 +146,7 @@ describe("A15 per-network daily limits", () => {
   it("keys an IPv6 visitor on its /64: other addresses in that /64 share the limit, another /64 does not, and ip_hash is the /64's", async () => {
     const site = await seedSite(tools);
     const statuses: number[] = [];
-    for (const ip of ["2001:db8:a:1::1", "2001:db8:a:1::2", "2001:db8:a:1:ffff:ffff:ffff:fffe", "2001:DB8:A:1::9"]) statuses.push((await post(site, ip)).status);
+    for (const [i, ip] of ["2001:db8:a:1::1", "2001:db8:a:1::2", "2001:db8:a:1:ffff:ffff:ffff:fffe", "2001:DB8:A:1::9"].entries()) statuses.push((await post(site, ip, { name: `Visitor ${i}` })).status);
     expect(statuses).toEqual([303, 303, 303, 429]);
     expect((await post(site, "2001:db8:a:2::1")).status).toBe(303);
     const hashes = (await leadsOf(site.siteId)).map((lead) => lead["ip_hash"]);
@@ -162,7 +164,7 @@ describe("A15 per-network daily limits", () => {
     await fill(other.siteId, 10, { createdAt: today - 1, ipHash });
     await fill(site.siteId, PER_SITE - 1, { createdAt: today, ipHash });
     expect((await post(site, "192.0.2.40")).status).toBe(303);
-    expect((await post(site, "192.0.2.40")).status).toBe(429);
+    expect((await post(site, "192.0.2.40", { name: "Another request" })).status).toBe(429);
   });
 
   // Worker-level posts cannot be made to interleave (local requests run one at a time), so a version that
@@ -266,12 +268,18 @@ describe("A15 per-network daily limits", () => {
     await fill(open.siteId, PER_SITE, { createdAt: today, ipHash: y });
     for (let i = 0; i < ALL_SITES; i++) await fill((await seedSite(tools)).siteId, 1, { createdAt: today, ipHash: x });
 
-    const counted = async (site: { siteId: string }, ipHash: string, spam: boolean) => {
+    // QA-2 RU(1): network z's request is stored once; its repeat is found through the same bounded reads.
+    const repeated: Lead = { name: "Dana Price", phone: "5125550199", email: null, service: null, message: "Leak" };
+    const z = `net-${newId()}`;
+    expect(await insertLead(tools.DB, input(open, z, { now, lead: repeated }))).toBe("pending");
+
+    const counted = async (site: { siteId: string }, ipHash: string, spam: boolean, lead?: Lead) => {
       const meter = metered(tools.DB);
-      const status = await insertLead(meter.db, input(site, ipHash, { now, spam }));
+      const status = await insertLead(meter.db, input(site, ipHash, { now, spam, ...(lead === undefined ? {} : { lead }) }));
       return { status, rows: meter.rowsRead() };
     };
     const posts = {
+      repeat: await counted(open, z, false, repeated),
       allSitesLimit: await counted(open, x, false),
       allSitesLimitSpam: await counted(open, x, true),
       siteLimit: await counted(open, y, false),
@@ -279,6 +287,7 @@ describe("A15 per-network daily limits", () => {
       freshNetworkOnFullSite: await counted(fullSite, newId(), false),
     };
     expect(Object.fromEntries(Object.entries(posts).map(([kind, post]) => [kind, post.status]))).toEqual({
+      repeat: "duplicate",
       allSitesLimit: "network_daily_limit",
       allSitesLimitSpam: "network_daily_limit",
       siteLimit: "network_daily_limit",
@@ -289,5 +298,119 @@ describe("A15 per-network daily limits", () => {
     const bound = LIMITS.leadsPerSitePerDay + 4 * ALL_SITES + 10;
     const tooMany = Object.entries(posts).filter(([, post]) => post.rows > bound);
     expect(tooMany.map(([kind, post]) => `${kind} read ${post.rows} rows`)).toEqual([]);
+  });
+});
+
+// QA-2 RU(1): a second tap on Send while the first post is on its way sends the same request again. The
+// same site, network, name, phone and message within 120 s is that repeat: nothing more is stored,
+// counted or emailed, and the visitor gets the usual thank-you page. It is decided in the lead's own
+// INSERT, so two repeats landing together still store one lead.
+describe("a repeated post (a double tap on Send)", () => {
+  const WINDOW_MS = 120_000;
+  const REQUEST: Lead = { name: "Dana Price", phone: "(512) 555-0199", email: null, service: null, message: "Kitchen sink is blocked." };
+
+  it("stores and emails the request once, thanks the visitor both times, and does not count the repeat", async () => {
+    const site = await seedSite(tools);
+    const first = await post(site, "192.0.2.50");
+    const again = await post(site, "192.0.2.50");
+    expect([first.status, again.status]).toEqual([303, 303]);
+    expect(again.headers.get("location")).toBe(`/_f/${site.siteId}/sent`);
+    expect(await settledLeads(tools, site.siteId)).toHaveLength(1);
+    expect(await leadEmailsTo(site.ownerEmail)).toHaveLength(1);
+    expect(await linesWith(h, "code", "duplicate", 1)).toEqual([
+      { worker: "asksite-sites", route: "form", status: 303, ms: expect.any(Number), siteId: site.siteId, code: "duplicate" },
+    ]);
+    // The repeat used none of the network's 3 on this site: two more requests go through, the next does not.
+    for (const name of ["Second request", "Third request"]) expect((await post(site, "192.0.2.50", { name })).status).toBe(303);
+    expect((await post(site, "192.0.2.50", { name: "Fourth request" })).status).toBe(429);
+    expect(await settledLeads(tools, site.siteId)).toHaveLength(PER_SITE);
+    expect(await leadEmailsTo(site.ownerEmail)).toHaveLength(PER_SITE);
+  });
+
+  it.each([
+    ["from another network", "192.0.2.52", {}],
+    ["with another name", "192.0.2.51", { name: "Dana P." }],
+    ["with another phone", "192.0.2.51", { phone: "(512) 555-0198" }],
+    ["with another message", "192.0.2.51", { message: "Kitchen sink is still blocked." }],
+    ["with no message", "192.0.2.51", { message: "" }],
+  ])("stores a post %s as a new request", async (_, ip, fields) => {
+    const site = await seedSite(tools);
+    expect((await post(site, "192.0.2.51")).status).toBe(303);
+    expect((await post(site, ip, fields)).status).toBe(303);
+    expect(await leadsOf(site.siteId)).toHaveLength(2);
+  });
+
+  it("stores the same request on another site as a new request", async () => {
+    const [a, b] = [await seedSite(tools), await seedSite(tools)];
+    expect((await post(a, "192.0.2.54")).status).toBe(303);
+    expect((await post(b, "192.0.2.54")).status).toBe(303);
+    expect([...(await leadsOf(a.siteId)), ...(await leadsOf(b.siteId))]).toHaveLength(2);
+  });
+
+  it("compares what is stored: the same request typed with other spaces or line breaks, another email or service, or no message twice is a repeat", async () => {
+    const site = await seedSite(tools);
+    expect((await post(site, "192.0.2.55", { message: "Kitchen sink\r\nis blocked." })).status).toBe(303);
+    expect((await post(site, "192.0.2.55", { name: " Dana Price ", message: "Kitchen sink\nis blocked.", email: "other@example.com", service: "Water heaters" })).status).toBe(303);
+    expect(await leadsOf(site.siteId)).toHaveLength(1);
+    const quiet = await seedSite(tools);
+    for (let i = 0; i < 2; i++) expect((await post(quiet, "192.0.2.56", { message: "" })).status).toBe(303);
+    expect(await leadsOf(quiet.siteId)).toHaveLength(1);
+  });
+
+  it("finds a repeat from another address in the same IPv6 /64 (the network), not from another /64", async () => {
+    const site = await seedSite(tools);
+    for (const ip of ["2001:db8:b:1::1", "2001:db8:b:1::2"]) expect((await post(site, ip)).status).toBe(303);
+    expect(await leadsOf(site.siteId)).toHaveLength(1);
+    expect((await post(site, "2001:db8:b:2::1")).status).toBe(303);
+    expect(await leadsOf(site.siteId)).toHaveLength(2);
+  });
+
+  it("thanks a repeat of the network's last allowed lead on the site instead of asking it to call", async () => {
+    const site = await seedSite(tools);
+    for (const name of ["One", "Two", "Three"]) expect((await post(site, "192.0.2.57", { name })).status).toBe(303);
+    const repeat = await post(site, "192.0.2.57", { name: "Three" });
+    expect(repeat.status).toBe(303);
+    expect((await post(site, "192.0.2.57", { name: "Four" })).status).toBe(429);
+    expect(await leadsOf(site.siteId)).toHaveLength(PER_SITE);
+  });
+
+  it("thanks a repeat of the site's last lead of the day instead of asking it to call", async () => {
+    const site = await seedSite(tools);
+    await fill(site.siteId, LIMITS.leadsPerSitePerDay - 1, { createdAt: Date.now(), ipHash: `other-${newId()}` });
+    expect((await post(site, "192.0.2.58")).status).toBe(303);
+    expect((await post(site, "192.0.2.58")).status).toBe(303);
+    expect((await post(site, "192.0.2.59")).status).toBe(429);
+    expect(await leadsOf(site.siteId)).toHaveLength(LIMITS.leadsPerSitePerDay);
+  });
+
+  it("stores a repeated spam post once", async () => {
+    const site = await seedSite(tools);
+    for (let i = 0; i < 2; i++) expect((await post(site, "192.0.2.60", SPAM)).status).toBe(303);
+    expect((await leadsOf(site.siteId)).map((lead) => `${lead["spam"]}/${lead["email_status"]}`)).toEqual(["1/skipped"]);
+  });
+
+  it(`is a repeat for ${WINDOW_MS / 1000} s, to the millisecond, and the read-back SELECT says so (production D1 returns no rows for the INSERT)`, async () => {
+    const production = writesReturnNoRows(tools.DB);
+    const site = await seedSite(tools);
+    const ipHash = `window-${newId()}`;
+    const t0 = dayStart(Date.now()) + 1_000; // early today, so every post below falls in the same UTC day
+    expect(await insertLead(production, input(site, ipHash, { now: t0, lead: REQUEST }))).toBe("pending");
+    expect(await insertLead(production, input(site, ipHash, { now: t0 + WINDOW_MS, lead: REQUEST }))).toBe("duplicate");
+    expect(await insertLead(production, input(site, ipHash, { now: t0 + WINDOW_MS + 1, lead: REQUEST }))).toBe("pending");
+    expect(await leadsOf(site.siteId)).toHaveLength(2);
+  });
+
+  it("decides in the same statement: a repeat written right after the first post is not stored", async () => {
+    const production = writesReturnNoRows(tools.DB);
+    const site = await seedSite(tools);
+    const ipHash = `race-${newId()}`;
+    const now = Date.now();
+    const held = holdBatch(production);
+    const late = insertLead(held.db, input(site, ipHash, { now, lead: REQUEST }));
+    await Promise.race([held.reached, late]);
+    expect(await insertLead(production, input(site, ipHash, { now, lead: REQUEST }))).toBe("pending");
+    held.release();
+    expect(await late).toBe("duplicate");
+    expect(await leadsOf(site.siteId)).toHaveLength(1);
   });
 });

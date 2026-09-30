@@ -137,10 +137,11 @@ describe("POST /_f/<siteId>", () => {
 
   // A15: the 4th and 5th posts from one network on one site are refused by its daily limit ("Please call
   // instead"); they still count toward the rate limit, which refuses the 6th ("Please wait a minute").
+  // Each post is its own request: the same one twice is one lead (QA-2 RU(1)).
   it("rate-limits one visitor to 5 posts a minute per site", async () => {
     const busy = await seedSite(tools);
     const pages: string[] = [];
-    for (let i = 0; i < 6; i++) pages.push(await pageOf(await post(busy, GOOD, { ip: "192.0.2.44" })));
+    for (let i = 0; i < 6; i++) pages.push(await pageOf(await post(busy, { ...GOOD, name: `Dana ${i}` }, { ip: "192.0.2.44" })));
     expect(pages).toEqual(["303", "303", "303", "429 Please call instead", "429 Please call instead", "429 Please wait a minute"]);
     const limited = await post(busy, GOOD, { ip: "192.0.2.44" });
     expect(limited.headers.get("retry-after")).toBe("60");
@@ -151,7 +152,7 @@ describe("POST /_f/<siteId>", () => {
   it("rate-limits an IPv6 visitor by the /64 network, not the full address", async () => {
     const busy = await seedSite(tools);
     const pages: string[] = [];
-    for (let i = 1; i <= 6; i++) pages.push(await pageOf(await post(busy, GOOD, { ip: `2001:db8:4:7::${i}` })));
+    for (let i = 1; i <= 6; i++) pages.push(await pageOf(await post(busy, { ...GOOD, name: `Dana ${i}` }, { ip: `2001:db8:4:7::${i}` })));
     expect(pages).toEqual(["303", "303", "303", "429 Please call instead", "429 Please call instead", "429 Please wait a minute"]);
     expect((await post(busy, GOOD, { ip: "2001:db8:4:8::1" })).status).toBe(303);
   });
@@ -286,7 +287,7 @@ describe("form edges", () => {
     const other = await seedSite(tools);
     await earlyInAMinute();
     const pages: string[] = [];
-    for (let i = 0; i < 6; i++) pages.push(await pageOf(await post(busy, GOOD, { ip: "192.0.2.60" })));
+    for (let i = 0; i < 6; i++) pages.push(await pageOf(await post(busy, { ...GOOD, name: `Dana ${i}` }, { ip: "192.0.2.60" })));
     expect(pages).toEqual(["303", "303", "303", "429 Please call instead", "429 Please call instead", "429 Please wait a minute"]);
     expect((await post(other, GOOD, { ip: "192.0.2.60" })).status).toBe(303);
   });
@@ -393,7 +394,7 @@ describe("the 'Please call instead' page and the business phone", () => {
 
   it("prints it as a tel: link when the visitor's network has used up its daily limit", async () => {
     const site = await seedSite(tools, { metadata: PHONE_METADATA });
-    for (let i = 0; i < LIMITS.leadsPerNetworkPerSitePerDay; i++) expect((await post(site, GOOD, { ip: "192.0.2.70" })).status).toBe(303);
+    for (let i = 0; i < LIMITS.leadsPerNetworkPerSitePerDay; i++) expect((await post(site, { ...GOOD, name: `Dana ${i}` }, { ip: "192.0.2.70" })).status).toBe(303);
     const response = await post(site, GOOD, { ip: "192.0.2.70" });
     expect(response.status).toBe(429);
     expect(await response.text()).toContain(CALL);

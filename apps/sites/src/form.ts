@@ -108,6 +108,8 @@ export async function handleForm(
   const status = await insertLead(env.DB, { leadId, siteId, now, lead: read.lead, spam, ipHash, emailsPerDay });
   // Nothing was stored, so nothing is emailed or counted; the page gives the visitor the phone number.
   if (status === "site_daily_cap" || status === "network_daily_limit") return { response: siteBusy(root, now, businessPhone(page.customMetadata)), code: status };
+  // The same request again (a second tap on Send): stored and emailed once already, so only thanked.
+  if (status === "duplicate") return { response: seeOther(sent), code: "duplicate" };
   if (status === "skipped") return { response: seeOther(sent), code: "spam" };
   // A11c: today's lead emails for all sites are used up. The lead is saved (the owner sees it in the app)
   // and the visitor is thanked as usual, but it is never emailed.
@@ -121,30 +123,39 @@ export async function handleForm(
 export type StoredStatus = "pending" | "failed" | "skipped";
 /** Why a lead was not stored: the site's day cap, or its network's daily limit on this site or on all sites (A15). */
 export type Refusal = "site_daily_cap" | "network_daily_limit";
+/** Not stored because the same request is already there (QA-2 RU(1)). */
+export type Duplicate = "duplicate";
+
+/** A second tap on Send while the first post is on its way arrives within this time (QA-2 RU(1)). */
+const REPEAT_WINDOW_MS = 120_000;
 
 /**
- * Inserts the lead unless its network already left LIMITS.leadsPerNetworkPerSitePerDay leads on this site
- * today or LIMITS.leadsPerNetworkPerDay on all sites (spam included; A15), or the site already has
- * LIMITS.leadsPerSitePerDay. The same statement decides its email (A11c): spam is 'skipped'; any other
- * lead is 'pending' while fewer than `emailsPerDay` of today's leads across all sites had their email
- * tried (not spam, and not capped here), else 'failed' with email_error 'daily_cap'. One statement, so
- * every limit stays exact when visitors post at the same time.
- * D1 bills every row scanned. The network counts read only the network's rows for today (leads_network,
- * migration 0002) and the site count only the site's (leads_site), so a refused post reads a bounded
- * number of rows. The email count scans leads (A11c adds no index; the retention cron keeps the table
- * small), so only a stored lead that is not spam runs it: `tried` has a row only while every limit has
- * room (measured locally: this SQLite checks that WHERE before it runs the columns), and CASE is lazy,
- * so spam skips it.
+ * Inserts the lead unless the same request is already stored (QA-2 RU(1): the same site, network, name,
+ * phone and message in the last REPEAT_WINDOW_MS, e.g. a second tap on Send), or its network already left
+ * LIMITS.leadsPerNetworkPerSitePerDay leads on this site today or LIMITS.leadsPerNetworkPerDay on all sites
+ * (spam included; A15), or the site already has LIMITS.leadsPerSitePerDay. A repeat is reported before any
+ * limit, so a repeat of the last allowed lead is thanked, not refused.
+ * The same statement decides its email (A11c): spam is 'skipped'; any other lead is 'pending' while fewer
+ * than `emailsPerDay` of today's leads across all sites had their email tried (not spam, and not capped
+ * here), else 'failed' with email_error 'daily_cap'. One statement, so every rule stays exact when
+ * visitors post at the same time.
+ * D1 bills every row scanned. The repeat check reads only the network's (or the site's) rows of the last
+ * REPEAT_WINDOW_MS, the network counts only the network's rows for today (leads_network, migration 0002)
+ * and the site count only the site's (leads_site), so a refused post reads a bounded number of rows. The
+ * email count scans leads (A11c adds no index; the retention cron keeps the table small), so only a stored
+ * lead that is not spam runs it: `tried` has a row only while every rule allows the insert (measured
+ * locally: this SQLite checks that WHERE before it runs the columns), and CASE is lazy, so spam skips it.
  * Production SQL has no RETURNING (A10), so a SELECT in the same batch (a transaction) reads back the
- * stored status or, when nothing was stored, which limit refused it.
+ * stored status or, when nothing was stored, whether it was a repeat or which limit refused it.
  */
 export async function insertLead(
   db: D1Database,
   input: { leadId: string; siteId: string; now: number; lead: Lead; spam: boolean; ipHash: string; emailsPerDay: number },
-): Promise<StoredStatus | Refusal> {
+): Promise<StoredStatus | Refusal | Duplicate> {
   const { leadId, siteId, now, lead, spam, ipHash, emailsPerDay } = input;
   const dayStart = utcDayStart(now);
-  const [, outcome] = await db.batch<{ outcome: StoredStatus | Refusal }>([
+  const repeatSince = now - REPEAT_WINDOW_MS;
+  const [, outcome] = await db.batch<{ outcome: StoredStatus | Refusal | Duplicate }>([
     db
       .prepare(
         `INSERT INTO leads (id, site_id, created_at, name, phone, email, service, message, spam, email_status, email_error, ip_hash)
@@ -154,21 +165,25 @@ export async function insertLead(
                 ?10
          FROM (SELECT CASE WHEN ?9 = 1 THEN 0
                            ELSE (SELECT COUNT(*) FROM leads WHERE created_at >= ?12 AND spam = 0 AND email_error IS NOT 'daily_cap') END AS n
-               WHERE (SELECT COUNT(*) FROM leads WHERE ip_hash = ?10 AND site_id = ?2 AND created_at >= ?12) < ?14
+               WHERE NOT EXISTS (SELECT 1 FROM leads WHERE ip_hash = ?10 AND site_id = ?2 AND created_at >= ?16
+                                   AND name = ?4 AND phone = ?5 AND message IS ?8)
+                 AND (SELECT COUNT(*) FROM leads WHERE ip_hash = ?10 AND site_id = ?2 AND created_at >= ?12) < ?14
                  AND (SELECT COUNT(*) FROM leads WHERE ip_hash = ?10 AND created_at >= ?12) < ?15
                  AND (SELECT COUNT(*) FROM leads WHERE site_id = ?2 AND created_at >= ?12) < ?13) AS tried`,
       )
       .bind(leadId, siteId, now, lead.name, lead.phone, lead.email, lead.service, lead.message, spam ? 1 : 0, ipHash,
-        emailsPerDay, dayStart, LIMITS.leadsPerSitePerDay, LIMITS.leadsPerNetworkPerSitePerDay, LIMITS.leadsPerNetworkPerDay),
+        emailsPerDay, dayStart, LIMITS.leadsPerSitePerDay, LIMITS.leadsPerNetworkPerSitePerDay, LIMITS.leadsPerNetworkPerDay, repeatSince),
     db
       .prepare(
         `SELECT CASE WHEN stored.email_status IS NOT NULL THEN stored.email_status
+                     WHEN EXISTS (SELECT 1 FROM leads WHERE ip_hash = ?2 AND site_id = ?3 AND created_at >= ?7
+                                    AND name = ?8 AND phone = ?9 AND message IS ?10) THEN 'duplicate'
                      WHEN (SELECT COUNT(*) FROM leads WHERE ip_hash = ?2 AND site_id = ?3 AND created_at >= ?4) >= ?5
                        OR (SELECT COUNT(*) FROM leads WHERE ip_hash = ?2 AND created_at >= ?4) >= ?6 THEN 'network_daily_limit'
                      ELSE 'site_daily_cap' END AS outcome
          FROM (SELECT (SELECT email_status FROM leads WHERE id = ?1) AS email_status) AS stored`,
       )
-      .bind(leadId, ipHash, siteId, dayStart, LIMITS.leadsPerNetworkPerSitePerDay, LIMITS.leadsPerNetworkPerDay),
+      .bind(leadId, ipHash, siteId, dayStart, LIMITS.leadsPerNetworkPerSitePerDay, LIMITS.leadsPerNetworkPerDay, repeatSince, lead.name, lead.phone, lead.message),
   ]);
   const result = outcome?.results[0]?.outcome;
   if (result === undefined) throw new Error("insertLead: the read-back SELECT returned no row");
