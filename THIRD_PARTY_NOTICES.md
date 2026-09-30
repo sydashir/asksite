@@ -123,3 +123,11 @@ not be used in advertising or otherwise to promote the sale, use or other
 dealings in these Data Files or Software without prior written
 authorization of the copyright holder.
 ```
+
+## standardwebhooks
+
+- Source: https://github.com/standard-webhooks/standard-webhooks (npm `standardwebhooks` 1.1.1)
+- Used in: the generator Worker bundle (`apps/generator`), as a dependency of `@anthropic-ai/sdk`
+  (`resources/beta/webhooks.mjs`).
+- Licence: its package.json says "MIT"; the npm tarball has no LICENSE file; the repository's root LICENSE is
+  Apache-2.0; `libraries/javascript` has no LICENSE, and its package.json says MIT.
