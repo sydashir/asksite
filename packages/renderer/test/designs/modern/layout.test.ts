@@ -78,9 +78,10 @@ describe.each(ENGINES)("Modern in %s", (_engine, engine) => {
     tab = await browser.newPage();
     await tab.route(/^https?:\/\//, (route) => (route.request().resourceType() === "image" ? route.fulfill({ body: GRAY, contentType: "image/png" }) : route.abort()));
   }, 60_000);
+  // Closing a browser, like launching one, can take over Vitest's 10 s hook default on a loaded machine.
   afterAll(async () => {
     await browser?.close();
-  });
+  }, 60_000);
 
   async function open(html: string, width: number, css?: string): Promise<void> {
     await tab.setViewportSize({ width, height: 800 });
