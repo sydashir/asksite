@@ -2,7 +2,7 @@
 ENVIRONMENT=development
 GENERATION_ENABLED=true
 # Local only: the fake model costs nothing. Production ships 8 (wrangler.jsonc, Decision 4).
-DAILY_MODEL_LIMIT=30
+DAILY_MODEL_LIMIT=8
 MODEL_PROVIDER=fake
 MODEL_ID=fake-template
 FAKE_MODE=ok

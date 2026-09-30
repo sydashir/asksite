@@ -17,9 +17,15 @@ export async function isGenerationEnabled(env: { DB: D1Database; GENERATION_ENAB
 
 const asLimit = (value: string | undefined): number | undefined => (value !== undefined && /^\d{1,6}$/.test(value) ? Number(value) : undefined);
 
-/** Daily limit in force: the setting, else DAILY_MODEL_LIMIT, else LIMITS.defaultDailyModelLimit. */
+/**
+ * Daily limit in force: the setting, else DAILY_MODEL_LIMIT, else LIMITS.defaultDailyModelLimit. When neither is a valid
+ * count the fallback applies and one fixed line says so (no value echoed, so nothing owner- or operator-typed is logged).
+ */
 export async function dailyModelLimit(env: { DB: D1Database; DAILY_MODEL_LIMIT: string }): Promise<number> {
-  return asLimit(await setting(env.DB, "generation.daily_model_limit")) ?? asLimit(env.DAILY_MODEL_LIMIT) ?? LIMITS.defaultDailyModelLimit;
+  const limit = asLimit(await setting(env.DB, "generation.daily_model_limit")) ?? asLimit(env.DAILY_MODEL_LIMIT);
+  if (limit !== undefined) return limit;
+  console.log(JSON.stringify({ event: "generation.config_error", setting: "DAILY_MODEL_LIMIT" }));
+  return LIMITS.defaultDailyModelLimit;
 }
 
 /** Jobs that took one of today's model calls (the model_slot claimed in §6.3 step 1). */

@@ -1,8 +1,8 @@
 import { execFileSync } from "node:child_process";
 import { basename } from "node:path";
-import type { GenerationRow } from "@asksite/core";
+import { LIMITS, type GenerationRow } from "@asksite/core";
 import type { D1Database } from "@cloudflare/workers-types";
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { dailyModelLimit, isGenerationEnabled, modelCallsToday, utcDayStart } from "../src/settings.ts";
 import { toGenerationView } from "../src/view.ts";
 import { clearTables, insertGeneration, LOCAL_D1_WORKER, seedOwnerSite, setSetting, startLocalD1, type LocalD1 } from "./support/d1.ts";
@@ -29,13 +29,52 @@ describe("isGenerationEnabled", () => {
 });
 
 describe("dailyModelLimit", () => {
-  it("uses the setting, else the variable, else the default of 30; malformed values are skipped", async () => {
+  const CONFIG_ERROR = JSON.stringify({ event: "generation.config_error", setting: "DAILY_MODEL_LIMIT" });
+  let logged: string[] = [];
+  beforeEach(() => {
+    logged = [];
+    vi.spyOn(console, "log").mockImplementation((line: unknown) => void logged.push(String(line)));
+  });
+  afterEach(() => vi.restoreAllMocks());
+
+  it("uses the setting, else the variable; malformed values are skipped and a valid one logs nothing", async () => {
     expect(await dailyModelLimit({ DB: db, DAILY_MODEL_LIMIT: "12" })).toBe(12);
-    expect(await dailyModelLimit({ DB: db, DAILY_MODEL_LIMIT: "twelve" })).toBe(30);
+    expect(await dailyModelLimit({ DB: db, DAILY_MODEL_LIMIT: "5" })).toBe(5);
+    expect(await dailyModelLimit({ DB: db, DAILY_MODEL_LIMIT: "0" })).toBe(0);
+    expect(await dailyModelLimit({ DB: db, DAILY_MODEL_LIMIT: "8" })).toBe(8);
     await setSetting(db, "generation.daily_model_limit", "0");
     expect(await dailyModelLimit({ DB: db, DAILY_MODEL_LIMIT: "12" })).toBe(0);
     await setSetting(db, "generation.daily_model_limit", "-1");
     expect(await dailyModelLimit({ DB: db, DAILY_MODEL_LIMIT: "12" })).toBe(12);
+    expect(logged).toEqual([]);
+  });
+
+  it("the setting row wins over the variable, even over a malformed variable, with no log line", async () => {
+    await setSetting(db, "generation.daily_model_limit", "3");
+    expect(await dailyModelLimit({ DB: db, DAILY_MODEL_LIMIT: "12" })).toBe(3);
+    expect(await dailyModelLimit({ DB: db, DAILY_MODEL_LIMIT: "eight" })).toBe(3);
+    expect(logged).toEqual([]);
+  });
+
+  it.each([
+    ["unset", undefined],
+    ["empty", ""],
+    ["padded left", " 8"],
+    ["padded right", "8 "],
+    ["negative", "-8"],
+    ["decimal", "8.0"],
+    ["text", "eight"],
+  ])("a %s variable with no setting gives LIMITS.defaultDailyModelLimit (8) and exactly one fixed config_error line", async (_name, value) => {
+    expect(LIMITS.defaultDailyModelLimit).toBe(8);
+    expect(await dailyModelLimit({ DB: db, DAILY_MODEL_LIMIT: value as string })).toBe(8);
+    expect(logged).toEqual([CONFIG_ERROR]);
+  });
+
+  it("a malformed setting row and a malformed variable also give 8 with one line, never echoing either value", async () => {
+    await setSetting(db, "generation.daily_model_limit", "secret-setting-marker");
+    expect(await dailyModelLimit({ DB: db, DAILY_MODEL_LIMIT: "secret-var-marker" })).toBe(8);
+    expect(logged).toEqual([CONFIG_ERROR]);
+    expect(logged.join("")).not.toMatch(/marker/);
   });
 });
 

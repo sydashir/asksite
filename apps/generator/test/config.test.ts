@@ -1,5 +1,6 @@
 import { readdirSync, readFileSync, existsSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { LIMITS } from "@asksite/core";
 import { worstCaseJobMicrousd } from "@asksite/generation";
 
 type Config = {
@@ -62,6 +63,13 @@ describe("apps/generator/wrangler.jsonc (production)", () => {
     expect(Number(config.vars!.DAILY_MODEL_LIMIT) * perJob!).toBeLessThanOrEqual(PROMISED_DAILY_WORST_CASE_MICROUSD);
   });
 
+  it("ships the same daily limit as the fallback, and the fallback also keeps the design's promise", () => {
+    // A missing or malformed variable falls back to LIMITS.defaultDailyModelLimit: it must not be a cheaper-to-forget number.
+    expect(LIMITS.defaultDailyModelLimit).toBe(Number(config.vars!.DAILY_MODEL_LIMIT));
+    const perJob = worstCaseJobMicrousd(config.vars!.MODEL_PROVIDER!, config.vars!.MODEL_ID!);
+    expect(LIMITS.defaultDailyModelLimit * perJob!).toBeLessThanOrEqual(PROMISED_DAILY_WORST_CASE_MICROUSD);
+  });
+
   it("has the daily limit variable as a whole number", () => {
     expect(config.vars?.DAILY_MODEL_LIMIT).toMatch(/^\d{1,6}$/);
     expect(["true", "false"]).toContain(config.vars?.GENERATION_ENABLED);
@@ -116,6 +124,10 @@ describe("apps/generator/.dev.vars.example", () => {
 
   it("lists secret names with empty values only", () => {
     for (const secret of SECRETS) expect(example).toMatch(new RegExp(`^${secret}=$`, "m"));
+  });
+
+  it("ships the daily limit of 8", () => {
+    expect(example).toMatch(/^DAILY_MODEL_LIMIT=8$/m);
   });
 
   it("runs the fake model locally", () => {
