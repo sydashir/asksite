@@ -68,7 +68,10 @@ interface Flags {
   only: readonly string[] | null;
 }
 
-const USAGE = "Usage: pnpm eval:generation [--live --max-usd <US$>] [--runs 1-10] [--only label,label] [--caps-probe | --record]";
+const USAGE = [
+  "Usage: pnpm eval:generation [--live --max-usd <US$>] [--runs 1-10] [--only label,label] [--caps-probe | --record]",
+  "A dry run unless both --live and --max-usd are given. A live run sends each site of the evaluation, or each request of --caps-probe and --record, only while the spend so far plus its worst case fits under --max-usd; the total can exceed --max-usd by at most one request's overrun above its worst case.",
+].join("\n");
 
 const readArgs = (argv: readonly string[]) =>
   parseArgs({
@@ -203,7 +206,9 @@ async function live(flags: Flags, capMicrousd: number, rows: readonly Row[], dep
   }
   // Cheapest worst case first, so a budget stop cuts the dearest models (a stable sort: ties keep the list's order).
   plan.sort((a, b) => a.worstMicrousd - b.worstMicrousd);
-  const budget = new Budget(capMicrousd);
+  // A request that costs more than its worst case stops the whole evaluation; --caps-probe and --record send one
+  // request per model, report the overrun and go on with the other models (moderator decision, fix round #1).
+  const budget = new Budget(capMicrousd, { stopAfterOverrun: flags.mode === "evaluation" });
   deps.print(`Live ${flags.mode}: budget ${formatUsd(capMicrousd)}; models, cheapest worst case first: ${plan.map((row) => row.candidate.label).join(", ") || "none"}.`);
   if (flags.mode === "evaluation") {
     await evaluate(flags.runs, plan, budget, deps);
@@ -222,6 +227,13 @@ async function live(flags: Flags, capMicrousd: number, rows: readonly Row[], dep
 function printSpend(budget: Budget, deps: CliDeps): void {
   deps.print(`Spent: ${formatUsd(budget.spentMicrousd)} counted against the ${formatUsd(budget.capMicrousd)} budget.`);
   deps.print(describeStop(budget.stop));
+}
+
+/** The line for a --caps-probe or --record request that cost more than its worst case, if this one did. */
+function printOverrun(label: string, usage: ModelResponse["usage"], budget: Budget, deps: CliDeps): void {
+  const overrun = budget.overruns.find((o) => o.at === label);
+  if (overrun === undefined) return;
+  deps.print(`${label}: it cost ${formatUsd(overrun.countedMicrousd)}, more than its worst case of ${formatUsd(overrun.worstMicrousd)} (${usage.inputTokens} input and ${usage.outputTokens} output tokens); nothing more goes to this model, and the other models go on.`);
 }
 
 const kindOf = (error: unknown): string => (error instanceof ProviderError ? error.kind : "error");
@@ -275,14 +287,20 @@ async function probeCaps(plan: readonly LiveRow[], budget: Budget, deps: CliDeps
       measured = false;
       continue;
     }
-    if (res === undefined || res.usageMissing === true) {
-      deps.print(`${candidate.label}: ${res === undefined ? "not measured: the budget stopped the run" : "the answer had no usage, not measured"}`);
+    if (res === undefined) {
+      deps.print(`${candidate.label}: not measured: the budget stopped the run`);
       measured = false;
       continue;
     }
-    const ok = res.usage.inputTokens <= MAX_INPUT_TOKENS;
-    measured &&= ok;
-    deps.print(`${candidate.label}: ${res.usage.inputTokens} input tokens for the caps prompt (bound ${MAX_INPUT_TOKENS}) ${ok ? "OK" : "OVER THE BOUND"}`);
+    if (res.usageMissing === true) {
+      deps.print(`${candidate.label}: the answer had no usage, not measured`);
+      measured = false;
+    } else {
+      const ok = res.usage.inputTokens <= MAX_INPUT_TOKENS;
+      measured &&= ok;
+      deps.print(`${candidate.label}: ${res.usage.inputTokens} input tokens for the caps prompt (bound ${MAX_INPUT_TOKENS}) ${ok ? "OK" : "OVER THE BOUND"}`);
+    }
+    printOverrun(candidate.label, res.usage, budget, deps);
   }
   return measured;
 }
@@ -305,14 +323,18 @@ async function record(plan: readonly LiveRow[], budget: Budget, deps: CliDeps): 
       deps.print(`${candidate.label}: ${kindOf(error)}, nothing recorded`);
       continue;
     }
-    const [response] = sink;
-    if (res === undefined || response === undefined) {
-      deps.print(`${candidate.label}: nothing recorded: ${res === undefined ? "the budget stopped the run" : "no response came back"}`);
+    if (res === undefined) {
+      deps.print(`${candidate.label}: nothing recorded: the budget stopped the run`);
       continue;
     }
-    mkdirSync(deps.fixturesDir, { recursive: true });
-    const recorded: RecordedResponse = { provider: candidate.provider, modelId: candidate.modelId, ...response };
-    writeFileSync(new URL(fixtureName(candidate.label), deps.fixturesDir), `${JSON.stringify(recorded, null, 2)}\n`);
-    deps.print(`${candidate.label}: recorded test/fixtures/${fixtureName(candidate.label)}`);
+    const [response] = sink;
+    if (response === undefined) deps.print(`${candidate.label}: nothing recorded: no response came back`);
+    else {
+      mkdirSync(deps.fixturesDir, { recursive: true });
+      const recorded: RecordedResponse = { provider: candidate.provider, modelId: candidate.modelId, ...response };
+      writeFileSync(new URL(fixtureName(candidate.label), deps.fixturesDir), `${JSON.stringify(recorded, null, 2)}\n`);
+      deps.print(`${candidate.label}: recorded test/fixtures/${fixtureName(candidate.label)}`);
+    }
+    printOverrun(candidate.label, res.usage, budget, deps);
   }
 }

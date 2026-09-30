@@ -134,6 +134,16 @@ describe("Budget", () => {
     expect(await pay(budget, "b", 1, 0)).toBeUndefined();
   });
 
+  it("stops after a request that cost exactly 1 micro-US$ more than its worst case, not after one that cost exactly its worst case", async () => {
+    const exact = new Budget(10_000);
+    expect(await pay(exact, "a", 1_000, 1_000)).toBe("sent");
+    expect([exact.spentMicrousd, exact.stop]).toEqual([1_000, null]);
+    const over = new Budget(10_000);
+    expect(await pay(over, "a", 1_000, 1_001)).toBe("sent");
+    expect([over.spentMicrousd, over.stop]).toEqual([1_001, { at: "a", reason: "over_worst_case" }]);
+    expect(await pay(over, "b", 1, 0)).toBeUndefined();
+  });
+
   it("holds a request's worst case while it is in flight, so requests sent at once cannot pass the cap together", async () => {
     const budget = new Budget(1_000);
     let release = (): void => {};
@@ -178,6 +188,49 @@ describe("Budget", () => {
         if (sent === undefined && budget.spentMicrousd !== before) broken.push(`seed ${seed}: r${i} refused but counted`);
         if (budget.spentMicrousd > cap) broken.push(`seed ${seed}: spent ${budget.spentMicrousd} > cap ${cap}`);
       }
+    }
+    expect(broken).toEqual([]);
+  });
+});
+
+describe("a budget that goes on after an overrun (--caps-probe and --record; fix round #1)", () => {
+  it("records a request that cost more than its worst case instead of stopping, and counts it in the next request's check", async () => {
+    const budget = new Budget(10_000, { stopAfterOverrun: false });
+    expect(await pay(budget, "a", 1_000, 1_500)).toBe("sent");
+    expect([budget.spentMicrousd, budget.stop, budget.overruns]).toEqual([1_500, null, [{ at: "a", countedMicrousd: 1_500, worstMicrousd: 1_000 }]]);
+    expect(await pay(budget, "b", 8_500, 8_000)).toBe("sent");
+    // 9,500 + 501 > 10,000; had a's overrun been left out (a counted at 1,000), c would fit: 9,000 + 501.
+    expect(await pay(budget, "c", 501, 0)).toBeUndefined();
+    expect([budget.spentMicrousd, budget.stop, budget.overruns.length]).toEqual([9_500, { at: "c", reason: "budget" }, 1]);
+  });
+
+  it("never lets the spend pass the cap by more than the overrun of the last request sent: 1,000 seeded runs", async () => {
+    const broken: string[] = [];
+    for (let seed = 1; seed <= 1_000; seed++) {
+      const next = random(seed);
+      const cap = 1 + Math.floor(next() * 200_000);
+      const budget = new Budget(cap, { stopAfterOverrun: false });
+      const overran: string[] = [];
+      let refused = false;
+      for (let i = 0; i < 20; i++) {
+        const worst = 1 + Math.floor(next() * 50_000);
+        // One request in four costs more than its worst case, by up to its worst case again.
+        const actual = next() < 0.25 ? worst + 1 + Math.floor(next() * worst) : Math.floor(next() * (worst + 1));
+        const before = budget.spentMicrousd;
+        const sent = await pay(budget, `r${i}`, worst, actual);
+        if (sent === undefined) {
+          if (!refused && before + worst <= cap) broken.push(`seed ${seed}: r${i} refused although it fit`);
+          if (budget.spentMicrousd !== before) broken.push(`seed ${seed}: r${i} refused but counted`);
+          refused = true;
+          continue;
+        }
+        if (refused || before + worst > cap) broken.push(`seed ${seed}: r${i} sent although it did not fit`);
+        if (budget.spentMicrousd !== before + actual) broken.push(`seed ${seed}: r${i} counted ${budget.spentMicrousd - before}, not ${actual}`);
+        if (actual > worst) overran.push(`r${i}`);
+        if (budget.spentMicrousd > cap + Math.max(0, actual - worst)) broken.push(`seed ${seed}: spent ${budget.spentMicrousd} > cap ${cap} + the overrun of r${i}`);
+      }
+      if (budget.stop !== null && budget.stop.reason !== "budget") broken.push(`seed ${seed}: stop ${JSON.stringify(budget.stop)}`);
+      if (JSON.stringify(budget.overruns.map((o) => o.at)) !== JSON.stringify(overran)) broken.push(`seed ${seed}: overruns ${JSON.stringify(budget.overruns)}`);
     }
     expect(broken).toEqual([]);
   });

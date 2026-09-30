@@ -48,22 +48,35 @@ export interface BudgetStop {
   reason: "budget" | "no_price" | "over_worst_case";
 }
 
+/** A request that cost more than its worst case: what was counted for it, against that worst case. */
+export interface Overrun {
+  at: string;
+  countedMicrousd: number;
+  worstMicrousd: number;
+}
+
 /**
  * The spending cap of one live run (--max-usd). Every request, whether one site of the evaluation or the one
  * --caps-probe or --record request per model, goes through send(), which sends it only when the spend so far plus its
  * worst case is at most the cap. The first request that does not fit stops the budget for good: nothing more is sent,
  * for any model. After a request, what it cost is counted: its actual cost, or its worst case when any of its usage
  * is missing or it threw (the provider may have billed it all the same). While every request costs at most its worst
- * case, the spend never passes the cap; one that costs more stops the budget too.
+ * case, the spend never passes the cap. A request that costs more (an overrun) is recorded; by default it also stops
+ * the budget (the evaluation). With `stopAfterOverrun: false` (--caps-probe and --record, one request per model) the
+ * run goes on, and the next request's check counts the overrun already spent. Either way the spend passes the cap
+ * by at most the overrun of the last request sent.
  */
 export class Budget {
   readonly capMicrousd: number;
+  readonly #stopAfterOverrun: boolean;
   #spentMicrousd = 0;
   #stop: BudgetStop | null = null;
+  readonly #overruns: Overrun[] = [];
 
-  constructor(capMicrousd: number) {
+  constructor(capMicrousd: number, { stopAfterOverrun = true }: { stopAfterOverrun?: boolean } = {}) {
     if (!Number.isSafeInteger(capMicrousd) || capMicrousd <= 0) throw new RangeError("A budget is a whole number of micro-US$ above zero");
     this.capMicrousd = capMicrousd;
+    this.#stopAfterOverrun = stopAfterOverrun;
   }
 
   /** Counted so far, including the worst case of a request still in flight. */
@@ -74,6 +87,11 @@ export class Budget {
   /** Where and why the budget stopped the run, or null while it has not. */
   get stop(): BudgetStop | null {
     return this.#stop;
+  }
+
+  /** Every request that cost more than its worst case, in the order they were sent. */
+  get overruns(): readonly Overrun[] {
+    return [...this.#overruns];
   }
 
   /** Sends `request` if its worst case fits (see the class comment); undefined, with nothing sent, when it does not. */
@@ -90,7 +108,10 @@ export class Budget {
       const result = await request();
       const { actualMicrousd, usageMissing } = costOf(result);
       counted = usageMissing ? Math.max(actualMicrousd, worstMicrousd) : actualMicrousd;
-      if (counted > worstMicrousd) this.#stop ??= { at, reason: "over_worst_case" };
+      if (counted > worstMicrousd) {
+        this.#overruns.push({ at, countedMicrousd: counted, worstMicrousd });
+        if (this.#stopAfterOverrun) this.#stop ??= { at, reason: "over_worst_case" };
+      }
       return result;
     } finally {
       this.#spentMicrousd += counted - worstMicrousd;
