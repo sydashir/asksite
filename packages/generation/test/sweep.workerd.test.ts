@@ -298,7 +298,8 @@ describe("sweepStuckJobs", () => {
     describe("when writes throw, with more stuck jobs than one read returns (Task 10 follow-up 3)", () => {
       /**
        * The local D1, logging every query the sweeper sends: "read", or "<id> template" / "<id> failed" for an UPDATE.
-       * `write` runs before each UPDATE: it throws for a D1 outage (the UPDATE is then not sent), or is another writer's step.
+       * `write` runs before each UPDATE: it throws for a D1 outage (the UPDATE is then not sent), or is another
+       * writer's step.
        */
       const logged = (log: string[], write: (id: string, kind: "template" | "failed") => Promise<void>): D1Database =>
         new Proxy(db, {
@@ -325,14 +326,50 @@ describe("sweepStuckJobs", () => {
       const stillQueued = async (): Promise<string[]> =>
         (await db.prepare("SELECT id FROM generations WHERE status = 'queued' ORDER BY created_at").all<{ id: string }>()).results.map((row) => row.id);
 
-      it("counts each row once in errors, however often the run reads it: a D1 write outage (every UPDATE throws) with 30 stuck jobs", async () => {
+      // Item 3: before it, this outage read the same 25 oldest rows 16 times and sent 800 failing writes in one run.
+      it("stops the run after a batch that ended no job while its endings threw (a D1 write outage: every UPDATE throws, 30 stuck jobs): one read, 25 first writes and 25 rescue writes, and each row once in errors", async () => {
         await seedQueued(30);
         const log: string[] = [];
         const outage = logged(log, async () => {
           throw new Error("D1 down");
         });
         expect(await sweepStuckJobs({ DB: outage }, NOW)).toEqual({ fallback: 0, failed: 0, errors: 25 });
+        expect(log.filter((query) => query === "read")).toHaveLength(1);
+        expect(log.filter((query) => query !== "read")).toHaveLength(50);
+        expect(log).toEqual(["read", ...Array.from({ length: 25 }, (_, i) => [`j${i} template`, `j${i} failed`]).flat()]);
+        // The rows stay stuck for the next cron run.
         expect(await stillQueued()).toEqual(Array.from({ length: 30 }, (_, i) => `j${i}`));
+      });
+
+      // j0 is the oldest, so the second read gets it again, with the 5 jobs the first read left: it counts once in
+      // errors. In the second row, the first batch ends jobs only through rescue writes, and these count as writes
+      // that ended a job.
+      it.each<[string, (id: string, kind: "template" | "failed") => boolean, { fallback: number; failed: number; errors: number }]>([
+        ["the oldest job's writes throw, every other write works", (id) => id === "j0", { fallback: 29, failed: 0, errors: 1 }],
+        ["every template write throws, and so does the oldest job's rescue write: only rescue writes end jobs", (id, kind) => kind === "template" || id === "j0", { fallback: 0, failed: 29, errors: 30 }],
+      ])("goes on to the next read after a batch that ended a job, although another job's ending threw (a partial outage): %s", async (_case, throws, counts) => {
+        await seedQueued(30);
+        const log: string[] = [];
+        const partial = logged(log, async (id, kind) => {
+          if (throws(id, kind)) throw new Error("D1 down");
+        });
+        expect(await sweepStuckJobs({ DB: partial }, NOW)).toEqual(counts);
+        expect(log.filter((query) => query === "read")).toHaveLength(2);
+        expect(await stillQueued()).toEqual(["j0"]);
+      });
+
+      it("goes on to the next read after a batch whose every write changed nothing because the job came first (nothing threw)", async () => {
+        await seedQueued(30);
+        const log: string[] = [];
+        // Before each of the sweeper's writes, the job claims the row (job.ts CLAIM): the conditional write changes
+        // 0 rows.
+        const jobFirst = logged(log, async (id) => {
+          await db.prepare("UPDATE generations SET status = 'running', started_at = ?2 WHERE id = ?1").bind(id, NOW).run();
+        });
+        expect(await sweepStuckJobs({ DB: jobFirst }, NOW)).toEqual({ fallback: 0, failed: 0, errors: 0 });
+        expect(log.filter((query) => query === "read")).toHaveLength(2);
+        expect(log.filter((query) => query !== "read")).toHaveLength(30);
+        expect(await stillQueued()).toEqual([]);
       });
     });
   });

@@ -55,7 +55,8 @@ async function endStuckRow(db: D1Database, row: StuckRow, now: number): Promise<
  * 'internal'. Each write is conditional on the status that was read. If anything for one row throws
  * (the template, its JSON or the write), one more write, conditional the same way, tries to fail it with
  * 'internal', as job.ts's templateEnding ends a first build whose template cannot be made; if that write
- * throws too, the run gives up on the row for now. Either way the run goes on to the next row.
+ * throws too, the run gives up on the row for now. Either way the run goes on to the next row. After
+ * a batch that ended no row while one of its rows' endings threw, the run stops (see the loop).
  */
 export async function sweepStuckJobs(env: { DB: D1Database }, now: number, limit = SWEEP_MAX_PER_RUN): Promise<SweepCounts> {
   const counts = { fallback: 0, failed: 0 };
@@ -64,15 +65,18 @@ export async function sweepStuckJobs(env: { DB: D1Database }, now: number, limit
   while (seen < limit) {
     const batch = Math.min(SWEEP_BATCH, limit - seen);
     const { results } = await env.DB.prepare(STUCK).bind(now - JOB_STUCK_AFTER_MS, batch).all<StuckRow>();
+    const endedBefore = counts.fallback + counts.failed;
+    let threw = false;
     for (const row of results) {
       try {
         const ended = await endStuckRow(env.DB, row, now);
         if (ended !== null) counts[ended] += 1;
       } catch {
         // One row must never stop the others (the oldest would be read first in every run): it counts once in `errors`
-        // (a Set of ids, so a row read again in this run is not counted again), and one more write tries to fail it with
-        // 'internal'.
+        // (a Set of ids, so a row read again in this run is not counted again), and one more write tries to fail it
+        // with 'internal'.
         errored.add(row.id);
+        threw = true;
         try {
           const { meta } = await env.DB.prepare(FAIL).bind(row.id, row.status, now).run();
           if (meta.changes === 1) counts.failed += 1;
@@ -84,9 +88,14 @@ export async function sweepStuckJobs(env: { DB: D1Database }, now: number, limit
     // `seen` counts rows read, not rows ended. After its writes, a row read is normally no longer stuck at this `now`:
     // it is final (ended here or by someone else first), or the job claimed it first, so it is running from the
     // job's own start time. A row whose every write threw (one write when its template or JSON threw, else two) may
-    // stay stuck and be read again. So the next read moves on; in any case the run stops after at most `limit` rows
-    // read.
+    // stay stuck and be read again, by this run's next read or by a later run. So the next read moves on; in any case
+    // the run stops after at most `limit` rows read.
     seen += results.length;
+    // Stop after a batch that ended no row while at least one of its rows' endings threw: that looks like a D1 outage,
+    // and its rows stay stuck for the next cron run. Going on would read the rows still stuck again and again, up to 16
+    // reads and 800 writes in one run, against a D1 whose writes are failing. A batch that ended a row goes on, and so
+    // does a batch whose writes all changed nothing because another writer came first (nothing threw).
+    if (threw && counts.fallback + counts.failed === endedBefore) break;
     if (results.length < batch) break;
   }
   return { ...counts, errors: errored.size };
