@@ -1,0 +1,2186 @@
+/* The Bold page design (A12, design id "impact"), compiled by scripts/build-css.ts to styles/out/impact.css.
+   It scans only render.ts and its own folder, so no other design's classes reach it, and this sheet reaches
+   no other design. Ported from the approved mockup (bold-v2 round 4, _work/bold.css) with its judges'
+   must-fix list. */
+@import "tailwindcss" source(none);
+@import "../shared.css";
+@source "../../src/render.ts";
+@source "../../src/designs/impact";
+@source not "../../src/designs/impact/NOTICES.md";
+
+/*! Archivo Condensed ExtraBold (Archivo, wdth 75, wght 800), Copyright 2020 The Archivo Project Authors
+   (https://github.com/Omnibus-Type/Archivo). Licensed under the SIL Open Font License, Version 1.1
+   (https://openfontlicense.org); the full text is in src/designs/impact/NOTICES.md. Latin-1 subset. */
+@font-face {
+  font-family: "Archivo Condensed";
+  src: url(data:font/woff2;base64,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) format("woff2");
+  font-weight: 800;
+  font-style: normal;
+  font-stretch: 75%;
+  font-display: swap;
+}
+
+@layer base {
+  html {
+    scroll-padding-bottom: calc(5.25rem + env(safe-area-inset-bottom));
+  }
+  @media (min-width: 64rem) {
+    html {
+      scroll-padding-bottom: 0;
+      scroll-padding-top: calc(4.5rem + 1px);
+    }
+  }
+  :root {
+    --display: "Archivo Condensed", Bahnschrift, sans-serif-condensed, "Nimbus Sans Narrow", system-ui, sans-serif;
+    --slant: clamp(1.25rem, 2.6vw, 2.5rem);
+  }
+  .bold {
+    background: var(--aw-color-bg-page);
+    color: var(--fg-t);
+    font: 400 1.0625rem/1.6 var(--aw-font-sans);
+    font-variant-numeric: proportional-nums;
+    overflow-wrap: break-word;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  @media (min-width: 64rem) {
+    .bold {
+      font-size: 1.125rem;
+    }
+  }
+  a {
+    text-decoration: underline;
+    text-underline-offset: 0.22em;
+    text-decoration-thickness: 1px;
+  }
+  summary {
+    cursor: pointer;
+    list-style: none;
+  }
+  summary::-webkit-details-marker {
+    display: none;
+  }
+  :focus-visible {
+    outline: 3px solid var(--focus);
+    outline-offset: 3px;
+  }
+}
+
+@layer components {
+  .ic {
+    width: 1.25rem;
+    height: 1.25rem;
+    flex: none;
+  }
+  .tnum {
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Surfaces. Components read --fg-h/--fg-t/--fg-m/--fg-l (heading, text, muted, line), --surf and --keyline,
+     never the palette's text tokens directly: .paper/.tint/.card set the light values, .ink the dark ones. */
+  .bold,
+  .paper,
+  .tint,
+  .card {
+    --fg-h: var(--aw-color-text-heading);
+    --fg-t: var(--aw-color-text-default);
+    --fg-m: var(--aw-color-text-muted);
+    --fg-l: var(--aw-impact-line);
+    --keyline: var(--aw-impact-keyline);
+    --focus: var(--aw-impact-ink);
+    --surf: var(--aw-color-bg-page);
+  }
+  .paper,
+  .tint,
+  .card {
+    color: var(--fg-t);
+    background: var(--surf);
+  }
+  .tint {
+    --surf: var(--aw-impact-tint);
+  }
+  .card {
+    --surf: #ffffff;
+  }
+  .ink,
+  .site-header,
+  .site-footer,
+  .callbar {
+    --fg-h: #ffffff;
+    --fg-t: var(--aw-impact-on-ink-soft);
+    --fg-m: var(--aw-impact-on-ink-muted);
+    --fg-l: var(--aw-impact-ink-line);
+    --keyline: transparent;
+    --focus: #ffffff;
+    --surf: var(--aw-impact-ink);
+  }
+  .ink {
+    color: var(--fg-t);
+    background: var(--surf);
+  }
+
+  .wrap {
+    width: 100%;
+    max-width: 76rem;
+    margin-inline: auto;
+    padding-inline: 1rem;
+  }
+  @media (min-width: 40rem) {
+    .wrap {
+      padding-inline: 1.5rem;
+    }
+  }
+  @media (min-width: 64rem) {
+    .wrap {
+      padding-inline: 2rem;
+    }
+  }
+
+  /* Type. The display face is condensed and used only at 28px and up, and on buttons. Display sizes are capped
+     by the window's height as well as its width, so the hero's buttons stay in the first screen on short
+     laptop windows. Every h1 size is at least 1.3 times the h2 at 320, 390, 1024 and 1280 px. */
+  .display {
+    font-family: var(--display);
+    font-weight: 800;
+    font-stretch: condensed;
+    word-spacing: 0.06em;
+  }
+  .h1 {
+    font-size: clamp(2.5rem, min(1.2rem + 5.2vw, 11svh), 4.75rem);
+    line-height: 0.95;
+    letter-spacing: 0.012em;
+    text-transform: uppercase;
+    color: var(--fg-h);
+    text-wrap: balance;
+  }
+  .h1--long {
+    font-size: clamp(2.375rem, min(1rem + 3.9vw, 8.8svh), 4rem);
+    line-height: 1.02;
+    letter-spacing: -0.008em;
+    text-transform: none;
+  }
+  .h1--xlong {
+    font-size: clamp(2.3125rem, min(1rem + 3.6vw, 8svh), 4rem);
+    line-height: 1.04;
+    letter-spacing: -0.008em;
+    text-transform: none;
+  }
+  .h2 {
+    font-size: clamp(1.75rem, 1.25rem + 1.9vw, 3rem);
+    line-height: 0.95;
+    letter-spacing: 0.012em;
+    text-transform: uppercase;
+    color: var(--fg-h);
+    text-wrap: balance;
+  }
+  .h3 {
+    font-family: var(--aw-font-heading);
+    font-weight: 700;
+    font-size: 1.1875rem;
+    line-height: 1.3;
+    letter-spacing: -0.005em;
+    color: var(--fg-h);
+  }
+  @media (min-width: 64rem) {
+    .h3 {
+      font-size: 1.25rem;
+    }
+  }
+  .kicker {
+    font-family: var(--aw-font-sans);
+    font-size: 0.8125rem;
+    font-weight: 700;
+    line-height: 1.3;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+
+  /* Buttons: condensed capital labels, 52px tall (56px large). One case per page: when the owner's label would
+     wrap in capitals, every button on the page is in sentence case (.bt-sc, rules.ts buttonCase). */
+  .bt {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.625rem;
+    min-height: 3.25rem;
+    padding: 0.625rem 1.375rem;
+    border: 2px solid transparent;
+    border-radius: 0.375rem;
+    font-family: var(--display);
+    font-weight: 800;
+    font-stretch: condensed;
+    font-size: 1.25rem;
+    line-height: 1;
+    letter-spacing: 0.025em;
+    word-spacing: 0.06em;
+    text-transform: uppercase;
+    text-decoration: none;
+    text-align: center;
+    cursor: pointer;
+  }
+  .bt-sc {
+    letter-spacing: 0.005em;
+    text-transform: none;
+  }
+  .bt-lg {
+    min-height: 3.5rem;
+    padding-inline: 1.625rem;
+    font-size: 1.375rem;
+  }
+  /* The keyline is the ink edge a yellow button needs on light surfaces; elsewhere it is transparent. */
+  .bt-action {
+    background: var(--aw-impact-accent);
+    border-color: var(--keyline);
+    color: var(--aw-impact-on-accent);
+  }
+  .bt-ghost {
+    background: transparent;
+    border-color: var(--fg-h);
+    color: var(--fg-h);
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .bt {
+      transition:
+        background-color 0.15s,
+        color 0.15s,
+        border-color 0.15s;
+    }
+  }
+  /* "Call" drops out (it stays in the accessible name) where a normal-width fallback face would not fit. */
+  @media (max-width: 23.99rem) {
+    .cb-word {
+      display: none;
+    }
+  }
+
+  /* Header: static below 64rem (the call bar carries Call and the call to action there); from 64rem it sticks,
+     with the number and the owner's call-to-action button. Inline links from 75rem. */
+  .site-header {
+    position: relative;
+    z-index: 30;
+    background: var(--aw-impact-ink);
+    color: #ffffff;
+    border-bottom: 1px solid var(--aw-impact-ink-line);
+  }
+  .header-row {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    min-height: 3.75rem;
+    padding-block: 0.5rem;
+  }
+  .brand {
+    margin-right: auto;
+    min-width: 0;
+    font-family: var(--aw-font-heading);
+    font-weight: 800;
+    font-size: 1.1875rem;
+    line-height: 1.15;
+    letter-spacing: -0.01em;
+    color: #ffffff;
+    text-decoration: none;
+  }
+  .brand--long {
+    font-size: 1rem;
+    line-height: 1.2;
+  }
+  .header-call {
+    display: none;
+    order: 1;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 0.125rem;
+    padding-block: 0.25rem;
+    color: #ffffff;
+    text-decoration: none;
+    line-height: 1.1;
+  }
+  .header-call .kicker {
+    font-size: 0.6875rem;
+    color: var(--aw-impact-on-ink-muted);
+  }
+  .header-num {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-family: var(--aw-font-heading);
+    font-weight: 800;
+    font-size: 1.1875rem;
+    letter-spacing: -0.005em;
+  }
+  .header-num .ic {
+    width: 1.125rem;
+    height: 1.125rem;
+    color: var(--aw-impact-on-ink-muted);
+  }
+  .nav {
+    order: 2;
+  }
+  .nav-desktop {
+    display: none;
+  }
+
+  /* The phone and tablet menu: a full-screen ink sheet under the header while the header is the :target. It
+     covers the hero and the call bar, carries both calls to action, and the page behind it is hidden, so
+     keyboard focus and screen readers stay in the sheet. */
+  .menu-btn,
+  .menu-panel {
+    display: none;
+  }
+  .menu-btn {
+    align-items: center;
+    justify-content: center;
+    width: 2.75rem;
+    height: 2.75rem;
+    border: 1px solid var(--aw-impact-ink-line);
+    border-radius: 0.375rem;
+    color: #ffffff;
+  }
+  .menu-btn .ic {
+    width: 1.5rem;
+    height: 1.5rem;
+  }
+  .menu-panel {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 100%;
+    height: calc(100vh - 3.8125rem);
+    height: calc(100svh - 3.8125rem);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    flex-direction: column;
+    padding: 0.5rem 1rem calc(1.25rem + env(safe-area-inset-bottom));
+    background: var(--aw-impact-ink);
+    border-top: 1px solid var(--aw-impact-ink-line);
+  }
+  .menu-list a {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    min-height: 3.5rem;
+    border-bottom: 1px solid var(--aw-impact-ink-line);
+    font-family: var(--display);
+    font-weight: 800;
+    font-stretch: condensed;
+    word-spacing: 0.06em;
+    font-size: 1.75rem;
+    line-height: 1.05;
+    letter-spacing: 0.012em;
+    text-transform: uppercase;
+    color: #ffffff;
+    text-decoration: none;
+  }
+  .menu-list .ic {
+    width: 1.5rem;
+    height: 1.5rem;
+    color: var(--aw-impact-on-ink-muted);
+  }
+  .menu-acts {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(min-content, 34%);
+    gap: 0.5rem;
+    margin-top: auto;
+    padding-top: 1.5rem;
+  }
+  .menu-acts .bt {
+    padding-inline: 0.625rem;
+    gap: 0.5rem;
+    font-size: 1.125rem;
+    letter-spacing: 0.02em;
+  }
+  @media (max-width: 25.99rem) {
+    .menu-acts .cb-word {
+      display: none;
+    }
+  }
+  @media (max-width: 74.99rem) {
+    .menu-open {
+      display: flex;
+    }
+    .site-header:target .menu-open {
+      display: none;
+    }
+    .site-header:target .menu-close {
+      display: flex;
+    }
+    .site-header:target .menu-panel {
+      display: flex;
+    }
+    html:has(.site-header:target) {
+      overflow: hidden;
+    }
+    html:has(body > .site-header:target) body > :is(main, .site-footer, .callbar) {
+      visibility: hidden;
+    }
+  }
+  @media (min-width: 40rem) {
+    .header-call {
+      display: flex;
+    }
+    .brand {
+      font-size: 1.3125rem;
+    }
+    .brand--long {
+      font-size: 1.0625rem;
+    }
+    .menu-panel {
+      padding-inline: 1.5rem;
+    }
+    .menu-list,
+    .menu-acts {
+      width: 100%;
+      max-width: 40rem;
+    }
+    .menu-acts {
+      grid-template-columns: minmax(0, 1fr) minmax(min-content, 12rem);
+    }
+  }
+  .header-cta {
+    display: none;
+  }
+  @media (min-width: 64rem) {
+    .site-header {
+      position: sticky;
+      top: 0;
+    }
+    .header-row {
+      min-height: 4.5rem;
+      gap: 1.25rem;
+    }
+    .menu-panel {
+      height: calc(100vh - 4.5625rem);
+      height: calc(100svh - 4.5625rem);
+    }
+    .brand--long {
+      max-width: 17rem;
+    }
+    /* The owner's call to action as a real button (outline: the action colour stays on Call). */
+    .header-cta {
+      display: inline-flex;
+      order: 1;
+      flex: none;
+      min-height: 2.75rem;
+      padding: 0.5rem 1rem;
+      font-size: 1.0625rem;
+      letter-spacing: 0.03em;
+      white-space: nowrap;
+    }
+  }
+  @media (min-width: 75rem) {
+    .header-row {
+      gap: 1.5rem;
+    }
+    .brand {
+      font-size: 1.375rem;
+    }
+    .brand--long {
+      font-size: 1.125rem;
+    }
+    .nav {
+      order: 0;
+    }
+    .nav-desktop {
+      display: flex;
+      gap: 0.125rem;
+    }
+    .nav-desktop a {
+      display: inline-flex;
+      align-items: center;
+      min-height: 2.75rem;
+      padding-inline: 0.625rem;
+      font-size: 0.9375rem;
+      font-weight: 600;
+      color: var(--aw-impact-on-ink-soft);
+      text-decoration: none;
+      white-space: nowrap;
+    }
+  }
+  /* 75-90rem: the row is short of room for the number, the button and every link, so About goes first. */
+  @media (min-width: 75rem) and (max-width: 89.99rem) {
+    .nav-opt {
+      display: none;
+    }
+  }
+  .brand--long + .nav .nav-opt {
+    display: none;
+  }
+  @media (min-width: 75rem) and (max-width: 79.99rem) {
+    .brand--long {
+      font-size: 1.0625rem;
+    }
+  }
+
+  /* Hero. Phones: a clean photo band over a solid ink panel. Desktop: the photo cut by a slanted seam, and the
+     credentials card rising from the hero's bottom edge. The hero's height comes from its content. */
+  .hero {
+    position: relative;
+    isolation: isolate;
+    overflow: clip;
+  }
+  .hero-grid {
+    position: relative;
+  }
+  .hero-media {
+    position: relative;
+    height: clamp(10rem, 45vw, 13rem);
+    overflow: hidden;
+    background: var(--aw-impact-ink-raised);
+    clip-path: polygon(0 0, 100% 0, 100% calc(100% - 1.125rem), 0 100%);
+  }
+  .hero-img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+  .hero-copy {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    padding: 1.25rem 1rem 1.75rem;
+  }
+  /* Capped at the column, so a long unbroken word in the headline breaks inside it instead of running out. */
+  .hero-copy > .h1 {
+    max-width: 100%;
+  }
+  .hero-kicker {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem 0.875rem;
+    margin-bottom: 0.875rem;
+  }
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4375rem;
+    min-height: 1.875rem;
+    padding: 0.25rem 0.75rem 0.25rem 0.5625rem;
+    border: 1px solid var(--aw-impact-ink-line);
+    border-radius: 999px;
+    background: var(--aw-impact-ink-raised);
+    color: #ffffff;
+    font-size: 0.875rem;
+    font-weight: 700;
+    line-height: 1.2;
+  }
+  .chip .ic {
+    width: 1rem;
+    height: 1rem;
+  }
+  .hero-where {
+    font-size: 0.9375rem;
+    font-weight: 600;
+    color: var(--fg-t);
+  }
+  .hero-sub {
+    margin-top: 0.875rem;
+    max-width: min(34rem, 100%);
+    font-size: 1.0625rem;
+    line-height: 1.55;
+    color: var(--fg-t);
+    text-wrap: pretty;
+  }
+  /* Below 64rem the call bar carries Call and the call to action, so the hero shows no buttons. */
+  .hero-actions {
+    display: none;
+  }
+  /* Phones: the photo hero reaches the call bar exactly (header 3.75rem + 1px, call bar 3.25rem + 2 x .625rem
+     + 1px), so the first screen never ends on a thin strip of the next section. */
+  @media (max-width: 47.99rem) {
+    .hero--photo .hero-grid {
+      display: flex;
+      flex-direction: column;
+      min-height: calc(100vh - 8.375rem - env(safe-area-inset-bottom));
+      min-height: calc(100svh - 8.375rem - env(safe-area-inset-bottom));
+    }
+    .hero--photo .hero-media {
+      flex: 1 0 auto;
+      max-height: 24rem;
+    }
+  }
+
+  /* Credentials under the headline: a strip in the text column; on desktop photo heroes a card on the photo. */
+  .proof {
+    margin-top: 0.875rem;
+    font-size: 0.9375rem;
+    font-weight: 600;
+    line-height: 1.35;
+    color: var(--fg-h);
+  }
+  .proof-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.375rem 1.125rem;
+  }
+  .proof-list > li {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4375rem;
+    min-width: 0;
+  }
+  .proof .ic {
+    width: 1.125rem;
+    height: 1.125rem;
+    color: var(--fg-m);
+  }
+  .proof-label {
+    font-weight: 500;
+    color: var(--fg-t);
+  }
+  .proof-lic > span {
+    min-width: 0;
+  }
+  /* A licence number moves to the next line whole; it breaks inside only when it alone is wider than the line. */
+  .proof-num {
+    display: inline-block;
+    max-width: 100%;
+  }
+  .proof-more-link,
+  .proof-more summary {
+    display: inline-flex;
+    align-items: center;
+    min-height: 1.5rem;
+    color: var(--fg-h);
+    font-weight: 600;
+    text-decoration: underline;
+    text-decoration-color: var(--fg-m);
+  }
+  .proof-more-li:has(details[open]) {
+    flex-basis: 100%;
+  }
+  .proof-more ul {
+    display: grid;
+    gap: 0.25rem;
+    margin-top: 0.375rem;
+    font-weight: 500;
+    color: var(--fg-t);
+  }
+  .lic-num {
+    font-weight: 600;
+  }
+  @media (min-width: 40rem) {
+    .hero-copy {
+      padding-inline: 1.5rem;
+    }
+  }
+  @media (min-width: 48rem) {
+    .hero-media {
+      height: clamp(15rem, 40vw, 22rem);
+      clip-path: polygon(0 0, 100% 0, 100% calc(100% - 2rem), 0 100%);
+    }
+    .hero-copy {
+      padding-block: 2.25rem 3rem;
+    }
+    .hero-sub {
+      font-size: 1.1875rem;
+    }
+    .proof {
+      margin-top: 1.125rem;
+    }
+  }
+  @media (min-width: 64rem) {
+    .hero-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 55fr) minmax(0, 45fr);
+      min-height: 30rem;
+    }
+    .hero-media {
+      grid-column: 2;
+      grid-row: 1;
+      height: auto;
+      clip-path: polygon(4.5rem 0, 100% 0, 100% 100%, 0 100%);
+    }
+    .hero-img {
+      position: absolute;
+      inset: 0;
+    }
+    .hero-copy {
+      grid-column: 1;
+      grid-row: 1;
+      align-self: center;
+      padding: 3rem 2.5rem 3.5rem max(2rem, calc(50vw - 36rem));
+    }
+    .hero-kicker {
+      margin-bottom: 1.25rem;
+    }
+    .hero-sub {
+      margin-top: 1.25rem;
+      font-size: 1.25rem;
+    }
+    .hero-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+      margin-top: 2rem;
+    }
+    /* The credentials card on the photo: a solid light card, so it reads on any photo. */
+    .hero--photo .proof {
+      --fg-h: var(--aw-color-text-heading);
+      --fg-t: var(--aw-color-text-default);
+      --fg-m: var(--aw-color-text-muted);
+      --fg-l: var(--aw-impact-line);
+      --focus: var(--aw-impact-ink);
+      position: absolute;
+      z-index: 2;
+      left: calc(55% + 1.25rem);
+      bottom: 2.5rem;
+      width: max-content;
+      max-width: calc(45% - 2.75rem);
+      margin: 0;
+      padding: 1.25rem 1.5rem 1.25rem 1.375rem;
+      border-radius: 0.625rem;
+      background: #ffffff;
+      font-size: 1rem;
+      box-shadow: 0 0.5rem 1.25rem -0.75rem rgba(0, 0, 0, 0.5);
+    }
+    /* When the next band is the page colour, the card is its tab: flush with the hero's bottom edge. */
+    .hero--photo.hero--tab .proof {
+      bottom: 0;
+      padding-bottom: 1.5rem;
+      border-radius: 0.75rem 0.75rem 0 0;
+      background: var(--aw-color-bg-page);
+      box-shadow: none;
+    }
+    .hero--photo .proof-list {
+      display: grid;
+      grid-template-columns: auto auto;
+      justify-content: start;
+      gap: 0.875rem 1.5rem;
+    }
+    .hero--photo .proof .ic {
+      color: var(--fg-h);
+    }
+    .hero--photo .proof-lic {
+      grid-column: 1/-1;
+      align-items: flex-start;
+      padding-bottom: 0.875rem;
+      border-bottom: 1px solid var(--fg-l);
+    }
+    .hero--photo .proof-lic .ic {
+      width: 1.5rem;
+      height: 1.5rem;
+      margin-top: 0.125rem;
+    }
+    .hero--photo .proof-lic > span {
+      display: flex;
+      flex-direction: column;
+      gap: 0.125rem;
+    }
+    .hero--photo .proof-label {
+      font-size: 0.875rem;
+      font-weight: 600;
+      color: var(--fg-m);
+    }
+    .hero--photo .proof-num {
+      font-family: var(--aw-font-heading);
+      font-size: 1.25rem;
+      font-weight: 800;
+      letter-spacing: -0.005em;
+    }
+    .hero--photo .proof-more-li {
+      grid-column: 1/-1;
+      margin-top: -0.375rem;
+      padding-bottom: 0.875rem;
+      border-bottom: 1px solid var(--fg-l);
+    }
+    .hero--photo .proof-more-link,
+    .hero--photo .proof-more summary {
+      font-size: 0.9375rem;
+    }
+    .hero--photo .proof-lic:has(+ .proof-more-li) {
+      padding-bottom: 0;
+      border-bottom: 0;
+    }
+  }
+  /* Laptops 64-80rem: a full-height photo column is nearly square there and cut the subject out of a wide photo
+     (judges, round 4). The photo becomes a framed 4:3 window, centred beside the text, so a 16:9 photo keeps
+     three quarters of its width; the credentials card sits on its lower edge. */
+  @media (min-width: 64rem) and (max-width: 79.99rem) {
+    .hero-copy {
+      padding-right: 2rem;
+    }
+    .hero-actions {
+      margin-top: 1.75rem;
+    }
+    .hero-actions .bt-lg {
+      min-height: 3.25rem;
+      padding-inline: 1.25rem;
+      font-size: 1.25rem;
+    }
+    .hero--photo .hero-grid {
+      align-items: center;
+    }
+    .hero--photo .hero-media {
+      align-self: center;
+      aspect-ratio: 4/3;
+      margin: 2.5rem 2rem 4.5rem 0;
+      border-radius: 0 0.75rem 0.75rem 0;
+      clip-path: polygon(2.75rem 0, 100% 0, 100% 100%, 0 100%);
+    }
+    .hero--photo .proof,
+    .hero--photo.hero--tab .proof {
+      left: calc(55% - 1.5rem);
+      bottom: 2rem;
+      max-width: calc(45% - 2rem);
+      padding-block: 1rem;
+      border-radius: 0.625rem;
+      background: #ffffff;
+      box-shadow: 0 0.5rem 1.25rem -0.75rem rgba(0, 0, 0, 0.5);
+    }
+  }
+  @media (min-width: 75rem) {
+    .hero-copy {
+      padding-right: 4rem;
+    }
+  }
+  @media (min-width: 80rem) {
+    /* From 80rem the card straddles the seam. */
+    .hero--photo .proof {
+      left: calc(55% - 2.5rem);
+      max-width: min(30rem, calc(45% - 1rem));
+    }
+  }
+  /* Short laptop windows: the same hero, tighter, so the buttons end inside the first screen. */
+  @media (min-width: 64rem) and (max-height: 46rem) {
+    .hero-grid {
+      min-height: 0;
+    }
+    .hero-copy {
+      padding-block: 1.75rem 2.25rem;
+    }
+    .hero-kicker {
+      margin-bottom: 0.75rem;
+    }
+    .h1--long {
+      font-size: clamp(2.375rem, min(1rem + 3.9vw, 8.2svh), 4rem);
+    }
+    .h1--xlong {
+      font-size: clamp(2.3125rem, min(1rem + 3.6vw, 7.4svh), 4rem);
+    }
+    /* The section headings step down with the headline, so it still leads by 1.3 times or more. */
+    .h2 {
+      font-size: clamp(1.75rem, min(1.25rem + 1.9vw, 5.6svh), 3rem);
+    }
+    .hero-sub {
+      margin-top: 0.875rem;
+      font-size: 1.125rem;
+    }
+    .hero-actions {
+      margin-top: 1.125rem;
+    }
+  }
+  /* Short screens below the split (small phones, phones held sideways): a thinner photo band. */
+  @media (max-width: 63.99rem) and (max-height: 37.5rem) {
+    .hero-media {
+      height: clamp(6.5rem, 24svh, 9rem);
+    }
+    .hero--photo:has(.h1--xlong) .hero-media {
+      height: 6.5rem;
+    }
+  }
+
+  /* Hero without a photo: the photo slot becomes a textured panel with a card of the facts a caller checks first.
+     The card is centred on the text beside it, never pinned to the hero's edge. */
+  .hero--card .hero-copy {
+    padding-top: 2.25rem;
+  }
+  .biz-slot {
+    padding: 1.75rem 1rem 2.25rem;
+    background-color: var(--aw-impact-ink-raised);
+    background-image:
+      repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.055) 0 1px, transparent 1px 2.5rem),
+      repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.055) 0 1px, transparent 1px 2.5rem);
+    clip-path: polygon(0 1.125rem, 100% 0, 100% 100%, 0 100%);
+  }
+  .biz {
+    container-type: inline-size;
+    display: grid;
+    padding: 0.25rem 1.375rem;
+    border-radius: 0.75rem;
+    box-shadow: 0 1rem 2rem -1.25rem rgba(0, 0, 0, 0.6);
+  }
+  .biz-block {
+    padding-block: 1.25rem 1.375rem;
+  }
+  .biz-block + .biz-block {
+    border-top: 1px solid var(--fg-l);
+  }
+  .biz-k {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    color: var(--fg-m);
+  }
+  .biz-k .ic {
+    width: 1.125rem;
+    height: 1.125rem;
+    color: var(--fg-h);
+  }
+  .biz-v {
+    margin-top: 0.625rem;
+    font-size: 1.125rem;
+    font-weight: 600;
+    color: var(--fg-h);
+    line-height: 1.45;
+  }
+  .biz-v a {
+    text-decoration-color: var(--fg-m);
+  }
+  .biz-hours {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 0.375rem 1.25rem;
+    margin-top: 0.75rem;
+    font-size: 1.0625rem;
+    line-height: 1.4;
+    font-variant-numeric: tabular-nums;
+  }
+  .biz-hours > div {
+    display: contents;
+  }
+  .biz-hours dt {
+    font-weight: 500;
+    color: var(--fg-t);
+  }
+  .biz-hours dd {
+    font-weight: 700;
+    color: var(--fg-h);
+  }
+  /* The 24/7 row leads the hours, so the card never ends on "Closed" beside a 24/7 promise. */
+  .biz-hours .biz-247 dt,
+  .biz-hours .biz-247 dd {
+    font-weight: 800;
+    color: var(--fg-h);
+  }
+  @container (max-width: 16rem) {
+    .biz-hours {
+      grid-template-columns: minmax(0, 1fr);
+      row-gap: 0;
+    }
+    .biz-hours dd {
+      margin-bottom: 0.5rem;
+    }
+  }
+  @media (min-width: 40rem) {
+    .biz-slot {
+      padding-inline: 1.5rem;
+    }
+  }
+  @media (min-width: 48rem) {
+    .biz {
+      max-width: 30rem;
+    }
+    .biz-slot {
+      clip-path: polygon(0 2rem, 100% 0, 100% 100%, 0 100%);
+    }
+  }
+  @media (min-width: 64rem) {
+    .hero--card .hero-grid {
+      min-height: 0;
+    }
+    .hero--card .hero-copy {
+      padding-block: 3.25rem;
+    }
+    .biz-slot {
+      grid-column: 2;
+      grid-row: 1;
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      padding: 3rem max(2rem, calc(50vw - 36rem)) 3rem 4.75rem;
+      clip-path: polygon(4.5rem 0, 100% 0, 100% 100%, 0 100%);
+    }
+    .biz {
+      width: 100%;
+      max-width: 25rem;
+      padding: 0.5rem 1.875rem;
+    }
+    .biz-block {
+      padding-block: 1.5rem 1.625rem;
+    }
+    .biz--one {
+      max-width: 22rem;
+    }
+  }
+  @media (min-width: 64rem) and (max-width: 79.99rem) {
+    .biz-slot {
+      padding-left: 3.5rem;
+    }
+  }
+
+  /* Type-only hero (no photo and nothing new for a card): big type across most of the width, the faint grid
+     texture only at the far right, fading out before the text; its height comes from its content. */
+  .hero-tex {
+    display: none;
+  }
+  .hero--type .hero-copy {
+    padding-block: 2.5rem 3rem;
+  }
+  .hero--type .h1 {
+    font-size: clamp(3rem, 1.25rem + 8vw, 4.5rem);
+  }
+  @media (min-width: 48rem) {
+    .hero--type .hero-copy {
+      padding-block: 3.5rem 4rem;
+    }
+  }
+  @media (min-width: 64rem) {
+    .hero--type .hero-grid {
+      display: block;
+      min-height: 0;
+    }
+    .hero--type .hero-copy {
+      padding-block: 4.5rem 5rem;
+      padding-right: calc(30% + 2rem);
+    }
+    .hero--type .h1 {
+      font-size: clamp(3.5rem, min(1rem + 6.4vw, 16svh), 6.75rem);
+    }
+    .hero--type .h1--long {
+      font-size: clamp(2.5rem, min(1rem + 4vw, 10svh), 4.5rem);
+    }
+    .hero--type .h1--xlong {
+      font-size: clamp(2.3125rem, min(1rem + 3.6vw, 8svh), 4rem);
+    }
+    .hero-tex {
+      display: block;
+      position: absolute;
+      z-index: -1;
+      top: 0;
+      bottom: 0;
+      right: 0;
+      left: 62%;
+      background-image:
+        repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.07) 0 1px, transparent 1px 2.5rem),
+        repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.07) 0 1px, transparent 1px 2.5rem);
+      -webkit-mask-image: linear-gradient(90deg, transparent, #000 70%);
+      mask-image: linear-gradient(90deg, transparent, #000 70%);
+    }
+  }
+
+  /* Section shell */
+  .sec {
+    padding-block: 4.25rem;
+  }
+  @media (min-width: 64rem) {
+    .sec {
+      padding-block: 6.75rem;
+    }
+  }
+  .sec-head {
+    max-width: 46rem;
+    margin-bottom: 2.25rem;
+  }
+  /* The house heading device: a slanted bar (the hero seam's angle), then the section's menu label. */
+  .eyebrow {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+    color: var(--fg-m);
+    letter-spacing: 0.12em;
+  }
+  .eyebrow::before {
+    content: "";
+    flex: none;
+    width: 2rem;
+    height: 0.4375rem;
+    background: var(--fg-h);
+    clip-path: polygon(0.4375rem 0, 100% 0, calc(100% - 0.4375rem) 100%, 0 100%);
+  }
+  .sec-intro {
+    margin-top: 1rem;
+    max-width: 40rem;
+    font-size: 1.125rem;
+    line-height: 1.55;
+    color: var(--fg-m);
+    text-wrap: pretty;
+  }
+  @media (min-width: 64rem) {
+    .sec-head {
+      margin-bottom: 3rem;
+    }
+    .eyebrow {
+      margin-bottom: 1.125rem;
+    }
+    .sec-intro {
+      font-size: 1.1875rem;
+    }
+  }
+
+  /* The signature past the hero: where an ink band meets a light section the edge is slanted, rising left to
+     right like the hero seam. The LIGHT section draws it: it reaches over the ink band's edge (negative
+     margin) and clip-path cuts the slant, so no ink band (the contact band holds the form) is ever clipped. */
+  .sec.seam-up {
+    margin-top: calc(-1 * var(--slant));
+    padding-top: calc(4.25rem + var(--slant));
+    clip-path: polygon(0 var(--slant), 100% 0, 100% 100%, 0 100%);
+  }
+  .sec.seam-down {
+    margin-bottom: calc(-1 * var(--slant));
+    padding-bottom: calc(4.25rem + var(--slant));
+    clip-path: polygon(0 0, 100% 0, 100% calc(100% - var(--slant)), 0 100%);
+  }
+  .sec.seam-up.seam-down {
+    clip-path: polygon(0 var(--slant), 100% 0, 100% calc(100% - var(--slant)), 0 100%);
+  }
+  @media (min-width: 64rem) {
+    .sec.seam-up {
+      padding-top: calc(6.75rem + var(--slant));
+    }
+    .sec.seam-down {
+      padding-bottom: calc(6.75rem + var(--slant));
+    }
+  }
+
+  /* Credentials band (only when it is not straight under the hero; there it is the hero's card). */
+  .sec--rail {
+    padding-block: 2.5rem;
+  }
+  .sec--rail.seam-up {
+    padding-top: calc(2.5rem + var(--slant));
+  }
+  .sec--rail.seam-down {
+    padding-bottom: calc(2.5rem + var(--slant));
+  }
+  .sec--rail.ink {
+    padding-block: 4.25rem;
+  }
+  .specs {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1.5rem 1.25rem;
+  }
+  .spec {
+    min-width: 0;
+  }
+  .spec dt {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    color: var(--fg-m);
+  }
+  .spec .ic {
+    color: var(--fg-h);
+  }
+  .spec dd {
+    margin-top: 0.375rem;
+    font-family: var(--aw-font-heading);
+    font-weight: 700;
+    font-size: 1.0625rem;
+    line-height: 1.35;
+    color: var(--fg-h);
+  }
+  .spec .lic-label {
+    font-weight: 500;
+  }
+  .spec .lic-num {
+    font-weight: 800;
+  }
+  .spec-lic {
+    grid-column: 1/-1;
+  }
+  @media (min-width: 48rem) {
+    .specs {
+      grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+    }
+    .spec-lic {
+      grid-column: auto;
+    }
+  }
+  @media (min-width: 64rem) {
+    .sec--rail {
+      padding-block: 3rem;
+    }
+    .sec--rail.seam-up {
+      padding-top: calc(3rem + var(--slant));
+    }
+    .sec--rail.seam-down {
+      padding-bottom: calc(3rem + var(--slant));
+    }
+    .sec--rail.ink {
+      padding-block: 6.75rem;
+    }
+    .specs {
+      display: flex;
+      justify-content: space-between;
+      gap: 2rem;
+    }
+    .spec {
+      flex: 0 1 auto;
+    }
+    .spec + .spec {
+      padding-left: 2rem;
+      border-left: 1px solid var(--fg-l);
+    }
+  }
+
+  /* Services: a menu board. Rows share grid tracks, so the dividers line up. */
+  .svc-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .board {
+    align-self: start;
+    border-bottom: 1px solid var(--fg-l);
+  }
+  .svc {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "name" "price" "desc";
+    gap: 0.3125rem;
+    padding-block: 1.375rem;
+    border-top: 1px solid var(--fg-l);
+  }
+  .svc-name {
+    grid-area: name;
+  }
+  .svc-desc {
+    grid-area: desc;
+    max-width: 60ch;
+    margin-top: 0.25rem;
+    color: var(--fg-m);
+    text-wrap: pretty;
+  }
+  .svc-price {
+    grid-area: price;
+    display: flex;
+    align-items: baseline;
+    gap: 0.4375rem;
+    min-height: 2rem;
+    color: var(--fg-m);
+    font-family: var(--aw-font-heading);
+    font-size: 0.9375rem;
+    font-weight: 600;
+  }
+  .svc-amt {
+    font-size: 1.875rem;
+    line-height: 1;
+    letter-spacing: 0.005em;
+    color: var(--fg-h);
+  }
+  .svc-ask {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    min-height: 2.75rem;
+    margin-block: -0.375rem;
+    font-size: 1rem;
+    font-weight: 700;
+    line-height: 1.2;
+    color: var(--fg-h);
+    text-decoration-thickness: 2px;
+    text-underline-offset: 0.25em;
+  }
+  .svc-ask .ic {
+    width: 1.125rem;
+    height: 1.125rem;
+  }
+  @media (min-width: 40rem) {
+    .svc {
+      grid-template-columns: minmax(0, 1fr) auto;
+      grid-template-areas: "name price" "desc price";
+      column-gap: 2rem;
+    }
+    .svc-price {
+      justify-content: flex-end;
+      align-self: start;
+    }
+  }
+  /* The call-to-action card shows from 64rem only (below it the call bar carries the same pair). */
+  .cta-card {
+    display: none;
+    margin-top: 2.25rem;
+    padding: 1.5rem 1.25rem;
+    border-radius: 0.75rem;
+  }
+  .sec.ink .cta-card {
+    --surf: var(--aw-impact-ink-raised);
+    border: 1px solid var(--aw-impact-ink-line);
+  }
+  .cta-card .h3 {
+    font-size: 1.375rem;
+  }
+  .cta-card p {
+    margin-top: 0.5rem;
+  }
+  .cta-actions {
+    display: grid;
+    gap: 0.625rem;
+    margin-top: 1.5rem;
+  }
+  .cta-actions .bt {
+    padding-inline: 0.75rem;
+  }
+  @media (min-width: 64rem) {
+    .svc-layout {
+      grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+      grid-template-rows: auto 1fr;
+      column-gap: 5rem;
+    }
+    .svc-layout .sec-head {
+      grid-column: 1;
+      grid-row: 1;
+      margin-bottom: 2.5rem;
+    }
+    .board {
+      grid-column: 2;
+      grid-row: 1 / span 2;
+    }
+    .svc:first-child {
+      padding-top: 0;
+      border-top: 0;
+    }
+    .cta-card {
+      display: block;
+      grid-column: 1;
+      grid-row: 2;
+      align-self: start;
+      position: sticky;
+      top: 6.5rem;
+      margin-top: 0;
+      padding: 2rem;
+    }
+  }
+
+  /* Reviews: the heading, the featured quote at display scale, the other quotes in a row beneath, then the
+     links to more reviews, so the section ends on proof, not on a way off the page. */
+  .rev-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .rev-layout .sec-head {
+    margin-bottom: 1.75rem;
+  }
+  .rev-lead {
+    max-width: 64rem;
+  }
+  /* Tabler's quote glyph is a closing mark; turned half a turn it becomes the opening mark. */
+  .q-mark {
+    display: block;
+    width: 2.5rem;
+    height: 2.5rem;
+    margin: 0 0 0.875rem -0.25rem;
+    color: var(--fg-m);
+    transform: rotate(180deg);
+  }
+  .rev-lead blockquote p {
+    font-family: var(--aw-font-heading);
+    font-weight: 500;
+    font-size: clamp(1.5rem, 1rem + 1.9vw, 2.625rem);
+    line-height: 1.3;
+    letter-spacing: -0.018em;
+    color: var(--fg-h);
+    text-wrap: pretty;
+  }
+  .rev-by {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.125rem 0.625rem;
+    margin-top: 1.25rem;
+  }
+  /* Flex items may shrink below their longest word, so a long unbroken name breaks instead of running out. */
+  .rev-by > span,
+  .hero-kicker > span {
+    min-width: 0;
+  }
+  .r-name {
+    font-weight: 700;
+    color: var(--fg-h);
+  }
+  .r-loc {
+    font-size: 0.9375rem;
+    color: var(--fg-m);
+  }
+  .rev-lead .rev-by {
+    font-size: 1.0625rem;
+  }
+  .rev-grid {
+    display: grid;
+    gap: 1.75rem;
+    margin-top: 2.75rem;
+  }
+  .rev-grid figure {
+    padding-top: 1.5rem;
+    border-top: 1px solid var(--fg-l);
+  }
+  .rev-grid blockquote p {
+    color: var(--fg-t);
+    text-wrap: pretty;
+  }
+  .rev-grid .rev-by {
+    margin-top: 1rem;
+  }
+  .rev-more {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem 1.75rem;
+    margin-top: 2.5rem;
+  }
+  .rev-more a {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    min-height: 2.75rem;
+    color: var(--fg-h);
+    font-weight: 600;
+    text-decoration-color: var(--fg-m);
+  }
+  .rev-more .ic {
+    width: 1.125rem;
+    height: 1.125rem;
+  }
+  @media (min-width: 48rem) {
+    .rev-grid--2,
+    .rev-grid--3 {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 2.25rem 2.5rem;
+    }
+  }
+  @media (min-width: 64rem) {
+    .rev-layout .sec-head {
+      margin-bottom: 3rem;
+    }
+    .q-mark {
+      width: 3.25rem;
+      height: 3.25rem;
+      margin-bottom: 1.25rem;
+    }
+    .rev-lead .rev-by {
+      margin-top: 1.75rem;
+      font-size: 1.125rem;
+    }
+    .rev-grid {
+      margin-top: 4.5rem;
+      column-gap: 3rem;
+    }
+    .rev-grid--1 {
+      grid-template-columns: minmax(0, 1fr);
+      max-width: 44rem;
+    }
+    .rev-grid--3 {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+    .rev-more {
+      margin-top: 3rem;
+    }
+  }
+
+  /* Gallery: picked by photo count (rules.ts galleryClass). Phones: 2 columns, the first photo (and a last odd
+     one) full width. Desktop: 6 tracks, a tile spans 2. Tiles are 4:3 on phones, 3:2 on desktop. */
+  .gal {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1.25rem 0.75rem;
+    align-items: start;
+  }
+  @media (max-width: 63.99rem) {
+    .gal > li:first-child,
+    .gal > li:last-child:nth-child(even) {
+      grid-column: 1/-1;
+    }
+  }
+  .gal figure {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+  }
+  .gal-img {
+    position: relative;
+    aspect-ratio: 4/3;
+    overflow: hidden;
+    border-radius: 0.375rem;
+    background: var(--fg-l);
+  }
+  .gal img {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+  .gal figcaption {
+    margin-top: 0.625rem;
+    font-size: 0.875rem;
+    font-weight: 600;
+    line-height: 1.4;
+    color: var(--fg-m);
+  }
+  .gal .nocap figure::after {
+    content: "";
+    display: block;
+    height: 1.85rem;
+  }
+  @media (min-width: 40rem) {
+    .gal {
+      gap: 1.75rem 1.25rem;
+    }
+    .gal figcaption {
+      font-size: 0.9375rem;
+    }
+    .gal .nocap figure::after {
+      height: 1.9375rem;
+    }
+  }
+  @media (min-width: 64rem) {
+    .gal {
+      grid-template-columns: repeat(6, minmax(0, 1fr));
+      gap: 2rem 1.5rem;
+    }
+    .gal > li {
+      grid-column: span 2;
+    }
+    .gal-img {
+      aspect-ratio: 3/2;
+    }
+    .gal--f1 > li:nth-child(-n + 2) {
+      grid-column: span 3;
+    }
+    .gal--f2 > li:first-child {
+      grid-column: span 4;
+      grid-row: span 2;
+      align-self: stretch;
+    }
+    .gal--f2 > li:first-child .gal-img {
+      flex: 1 1 auto;
+      aspect-ratio: auto;
+      min-height: 14rem;
+    }
+    .gal--f3 > li:first-child {
+      grid-column: 1/-1;
+    }
+    .gal--f3 > li:first-child .gal-img {
+      aspect-ratio: 16/9;
+    }
+    .gal--solo {
+      grid-template-columns: minmax(0, 1fr);
+      max-width: 56rem;
+    }
+    .gal--solo > li:first-child {
+      grid-column: 1/-1;
+    }
+    .gal--solo > li:first-child .gal-img {
+      aspect-ratio: 16/9;
+    }
+  }
+
+  /* About: the founding-year numeral is the anchor, real text at full contrast. A leading 1 or 2 is pulled
+     left by its measured side bearing in the display face, so its ink starts on the heading edge. */
+  .about {
+    display: grid;
+    gap: 2rem;
+  }
+  .about .sec-head {
+    margin-bottom: 0;
+  }
+  .year {
+    display: flex;
+    flex-direction: column;
+    gap: 0.625rem;
+    margin-top: 2rem;
+    color: var(--fg-m);
+  }
+  .year-n {
+    display: block;
+    font-size: clamp(5.5rem, 3rem + 9vw, 9.5rem);
+    line-height: 0.8;
+    letter-spacing: 0.01em;
+    color: var(--fg-h);
+  }
+  .year-n--1 {
+    margin-left: -0.046em;
+  }
+  .year-n--2 {
+    margin-left: -0.033em;
+  }
+  .about-text {
+    max-width: 36em;
+    font-size: clamp(1.1875rem, 1rem + 0.75vw, 1.5rem);
+    line-height: 1.55;
+    color: var(--fg-h);
+    text-wrap: pretty;
+  }
+  .sign {
+    display: flex;
+    flex-direction: column;
+    gap: 0.125rem;
+    margin-top: 1.75rem;
+    padding-top: 1.25rem;
+    border-top: 1px solid var(--fg-l);
+  }
+  .sign-name {
+    font-family: var(--aw-font-heading);
+    font-weight: 800;
+    color: var(--fg-h);
+  }
+  .sign-meta {
+    font-size: 0.9375rem;
+    color: var(--fg-m);
+  }
+  @media (min-width: 64rem) {
+    .about {
+      grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+      gap: 5rem;
+      align-items: start;
+    }
+    .year {
+      margin-top: 2.75rem;
+    }
+    .about-body {
+      padding-top: 2.25rem;
+    }
+  }
+
+  /* Service area and hours: one white panel. In a narrow column each day sits above its time. */
+  .area {
+    display: grid;
+    border: 1px solid var(--fg-l);
+    border-radius: 0.75rem;
+  }
+  .ink .area {
+    border-color: transparent;
+  }
+  .area-col {
+    padding: 1.5rem;
+  }
+  .area-col + .area-col {
+    border-top: 1px solid var(--fg-l);
+  }
+  .area .h3 {
+    display: flex;
+    align-items: center;
+    gap: 0.625rem;
+  }
+  .area .h3 .ic {
+    width: 1.5rem;
+    height: 1.5rem;
+  }
+  .chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-top: 1.25rem;
+  }
+  .chips li {
+    max-width: 100%;
+    padding: 0.3125rem 0.875rem;
+    border: 1px solid var(--fg-l);
+    border-radius: 999px;
+    background: var(--aw-impact-tint);
+    color: var(--fg-h);
+    font-size: 0.9375rem;
+    font-weight: 600;
+    overflow-wrap: anywhere;
+  }
+  .addr {
+    margin-top: 1.5rem;
+    padding-top: 1.25rem;
+    border-top: 1px solid var(--fg-l);
+    font-style: normal;
+    color: var(--fg-t);
+  }
+  .hours-col {
+    container-type: inline-size;
+  }
+  .hours {
+    margin-top: 1rem;
+  }
+  .hrow {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    column-gap: 1.25rem;
+    padding-block: 0.75rem;
+    border-bottom: 1px solid var(--fg-l);
+    font-variant-numeric: tabular-nums;
+  }
+  .hrow dt {
+    font-weight: 700;
+    color: var(--fg-h);
+  }
+  .hrow dd {
+    margin-left: auto;
+    text-align: right;
+    color: var(--fg-t);
+  }
+  .hrow.closed dd {
+    color: var(--fg-m);
+  }
+  @container (max-width: 22rem) {
+    .hrow {
+      flex-direction: column;
+      align-items: flex-start;
+      row-gap: 0.125rem;
+    }
+    .hrow dd {
+      margin-left: 0;
+      text-align: left;
+    }
+  }
+  .em {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.25rem 0.625rem;
+    margin-top: 1.25rem;
+    font-weight: 700;
+    color: var(--fg-h);
+  }
+  .em a {
+    min-height: 2.75rem;
+    display: inline-flex;
+    align-items: center;
+  }
+  @media (min-width: 48rem) {
+    .area {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+    .area--one {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .area-col + .area-col {
+      border-top: 0;
+      border-left: 1px solid var(--fg-l);
+    }
+  }
+  @media (min-width: 64rem) {
+    .area-col {
+      padding: 2.25rem 2.5rem;
+    }
+    .area-wrap--one {
+      display: grid;
+      grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+      gap: 5rem;
+      align-items: start;
+    }
+    .area-wrap--one .sec-head {
+      margin-bottom: 0;
+    }
+  }
+
+  /* FAQ: phones read the heading, the questions, then the call prompt; from 64rem the heading and the call
+     prompt sit at the left edge like every other section, the questions beside them. */
+  .faq-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "head" "list" "call";
+  }
+  .faq-layout .sec-head {
+    grid-area: head;
+  }
+  .faq-list {
+    grid-area: list;
+    border-bottom: 1px solid var(--fg-l);
+  }
+  .faq-call {
+    grid-area: call;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.75rem;
+    margin-top: 2.25rem;
+    color: var(--fg-m);
+  }
+  .faq-call > span {
+    font-size: 1.125rem;
+    font-weight: 600;
+    color: var(--fg-h);
+  }
+  .faq {
+    border-top: 1px solid var(--fg-l);
+  }
+  .faq summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1.25rem;
+    padding-block: 1.25rem;
+  }
+  .faq .h3 {
+    min-width: 0;
+    font-size: 1.125rem;
+  }
+  .faq--open .h3 {
+    padding-block: 1.25rem 0.625rem;
+  }
+  .faq-ic {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+    width: 2.25rem;
+    height: 2.25rem;
+    border: 2px solid var(--fg-h);
+    border-radius: 50%;
+    color: var(--fg-h);
+  }
+  .faq-ic .ic {
+    width: 1.125rem;
+    height: 1.125rem;
+  }
+  .faq .ic-minus,
+  .faq[open] .ic-plus {
+    display: none;
+  }
+  .faq[open] .ic-minus {
+    display: block;
+  }
+  .faq[open] .faq-ic {
+    background: var(--fg-h);
+    color: var(--surf);
+  }
+  .faq-a {
+    max-width: 62ch;
+    padding: 0 3.5rem 1.5rem 0;
+    color: var(--fg-t);
+  }
+  @media (min-width: 40rem) {
+    .faq-call {
+      flex-direction: row;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1.5rem;
+    }
+  }
+  @media (min-width: 64rem) {
+    .faq-layout {
+      grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+      grid-template-rows: auto 1fr;
+      grid-template-areas: "head list" "call list";
+      column-gap: 5rem;
+      align-items: start;
+    }
+    .faq-layout .sec-head {
+      margin-bottom: 0;
+    }
+    .faq-call {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 0.875rem;
+      margin-top: 2.5rem;
+    }
+    .faq-list > :first-child {
+      border-top: 0;
+    }
+    .faq-list > :first-child summary,
+    .faq-list > .faq--open:first-child .h3 {
+      padding-top: 0;
+    }
+    .faq summary {
+      padding-block: 1.5rem;
+    }
+    .faq .h3 {
+      font-size: 1.25rem;
+    }
+    .faq-a {
+      font-size: 1.125rem;
+    }
+  }
+
+  /* Contact: phones read the heading (the #quote target), the form, then "Prefer to talk?"; from 64rem the form
+     sits beside them. Nothing here clips or restacks, so Send stays above the call bar (styles/shared.css). */
+  .contact {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "head" "form" "talk";
+  }
+  .contact-head {
+    grid-area: head;
+    margin-bottom: 2rem;
+    scroll-margin-top: 1.5rem;
+  }
+  .talk {
+    grid-area: talk;
+    container-type: inline-size;
+    margin-top: 2.5rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid var(--fg-l);
+  }
+  .talk .kicker {
+    color: var(--fg-m);
+  }
+  /* Sized by its column too: 9.2em holds the number in every fallback face measured. */
+  .big-phone {
+    display: inline-block;
+    margin-top: 0.625rem;
+    font-size: min(clamp(2.25rem, 1.6rem + 2.4vw, 3.25rem), 100cqi / 9.2);
+    line-height: 1;
+    letter-spacing: 0.005em;
+    color: var(--fg-h);
+    text-decoration: none;
+  }
+  .talk .chip {
+    margin-top: 1rem;
+  }
+  .mail {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.625rem;
+    min-height: 2.75rem;
+    margin-top: 1rem;
+    color: var(--fg-h);
+    font-weight: 600;
+    text-decoration-color: var(--fg-m);
+    overflow-wrap: anywhere;
+  }
+  .mail .ic {
+    color: var(--fg-m);
+  }
+  .form-card {
+    grid-area: form;
+    position: relative;
+    padding: 1.5rem;
+    border-radius: 0.75rem;
+  }
+  .fields {
+    display: grid;
+    gap: 1.25rem;
+  }
+  .field label {
+    display: block;
+    margin-bottom: 0.375rem;
+    font-size: 0.9375rem;
+    font-weight: 700;
+    color: var(--fg-h);
+  }
+  .input {
+    display: block;
+    width: 100%;
+    min-height: 3.25rem;
+    padding: 0.75rem 1rem;
+    border: 1.5px solid var(--aw-impact-field);
+    border-radius: 0.375rem;
+    background: #ffffff;
+    color: var(--fg-t);
+  }
+  .input:focus-visible {
+    outline-offset: 1px;
+    border-color: var(--fg-h);
+  }
+  textarea.input {
+    min-height: 8rem;
+    resize: vertical;
+  }
+  .select-wrap {
+    position: relative;
+  }
+  .select-wrap .input {
+    appearance: none;
+    padding-right: 3rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .select-wrap .ic {
+    position: absolute;
+    right: 1rem;
+    top: 50%;
+    transform: translateY(-50%);
+    pointer-events: none;
+    color: var(--fg-t);
+  }
+  /* The honeypot: wholly off-screen and out of the tab order (tabindex -1). */
+  .hp {
+    position: absolute;
+    left: -9999px;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+  }
+  .send {
+    width: 100%;
+    margin-top: 0.5rem;
+    padding-inline: 0.875rem;
+  }
+  @media (max-width: 22.49rem) {
+    .form-card {
+      padding: 1.25rem;
+    }
+  }
+  @media (min-width: 40rem) {
+    .form-card {
+      padding: 2.25rem;
+    }
+    .fields {
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    }
+    .field--full {
+      grid-column: 1/-1;
+    }
+  }
+  @media (min-width: 64rem) {
+    .contact {
+      grid-template-columns: minmax(0, 5fr) minmax(0, 6fr);
+      grid-template-rows: auto 1fr;
+      grid-template-areas: "head form" "talk form";
+      column-gap: 4.5rem;
+      align-items: start;
+    }
+    .contact-head {
+      margin-bottom: 0;
+    }
+    .talk {
+      margin-top: 2rem;
+    }
+  }
+
+  /* Footer: one tone deeper, with a straight edge and the ink hairline where it meets the band above. */
+  .site-footer {
+    background: var(--aw-impact-ink-deep);
+    color: var(--aw-impact-on-ink-muted);
+    font-size: 0.9375rem;
+    border-top: 1px solid var(--aw-impact-ink-line);
+  }
+  .foot-grid {
+    display: grid;
+    gap: 2rem;
+    padding-block: 3rem;
+  }
+  .foot-brand {
+    font-family: var(--aw-font-heading);
+    font-weight: 800;
+    font-size: 1.375rem;
+    line-height: 1.2;
+    letter-spacing: -0.01em;
+    color: #ffffff;
+  }
+  .foot-sub {
+    margin-top: 0.5rem;
+  }
+  .site-footer h2 {
+    margin-bottom: 0.625rem;
+    color: #ffffff;
+  }
+  .site-footer li + li {
+    margin-top: 0.375rem;
+  }
+  .site-footer a {
+    display: inline-block;
+    padding-block: 0.25rem;
+    color: var(--aw-impact-on-ink-soft);
+    text-decoration: none;
+  }
+  .site-footer .lic-num {
+    color: var(--aw-impact-on-ink-soft);
+  }
+  .foot-email {
+    overflow-wrap: anywhere;
+  }
+  .foot-social {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem 1.75rem;
+    padding-block: 1.25rem 1.5rem;
+    border-top: 1px solid var(--aw-impact-ink-line);
+  }
+  .site-footer .foot-social li {
+    margin-top: 0;
+  }
+  @media (min-width: 48rem) {
+    .foot-grid {
+      grid-template-columns: 1.4fr 1fr 1fr;
+      gap: 2.5rem;
+      padding-block: 4rem;
+    }
+  }
+
+  /* The phone call bar (below 64rem): Call in the action colour, then the call to action. It sticks (the
+     sticky utility) with a hairline and a tight shadow, and stops sticking while keyboard focus is elsewhere
+     (focus-outside:static). It stacks below the form's Send button (styles/shared.css). */
+  .callbar {
+    bottom: 0;
+    z-index: 10;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(min-content, 34%);
+    gap: 0.5rem;
+    padding: 0.625rem 1rem calc(0.625rem + env(safe-area-inset-bottom));
+    background: var(--aw-impact-ink);
+    border-top: 1px solid var(--aw-impact-ink-line);
+    box-shadow: 0 -6px 12px -8px rgb(0 0 0 / 0.25);
+  }
+  .callbar .bt {
+    min-height: 3.25rem;
+    padding-inline: 0.625rem;
+    gap: 0.5rem;
+    font-size: 1.125rem;
+    letter-spacing: 0.02em;
+  }
+  @media (max-width: 25.99rem) {
+    .callbar .cb-word {
+      display: none;
+    }
+  }
+  @media (max-width: 22.49rem) {
+    .callbar,
+    .menu-panel {
+      padding-inline: 0.75rem;
+    }
+    .callbar .bt,
+    .menu-acts .bt {
+      padding-inline: 0.5rem;
+      gap: 0.375rem;
+      font-size: 1.0625rem;
+    }
+    .callbar .bt .ic,
+    .menu-acts .bt .ic {
+      width: 1.125rem;
+      height: 1.125rem;
+    }
+  }
+  @media (min-width: 48rem) {
+    .callbar {
+      grid-template-columns: minmax(0, 21rem) minmax(min-content, 12rem);
+      justify-content: center;
+      padding-inline: 1.5rem;
+    }
+  }
+  @media (min-width: 64rem) {
+    .callbar {
+      display: none;
+    }
+  }
+
+  /* Hover only for real pointers, so a tapped button never stays "hovered" on a touch screen. */
+  @media (hover: hover) {
+    .bt-action:hover {
+      background: var(--aw-impact-accent-hover);
+    }
+    .bt-ghost:hover {
+      background: var(--fg-h);
+      color: var(--surf);
+    }
+    .header-call:hover .header-num span {
+      text-decoration: underline;
+      text-decoration-thickness: 2px;
+    }
+    .menu-list a:hover {
+      color: var(--aw-impact-on-ink-soft);
+    }
+    .nav-desktop a:hover {
+      color: #ffffff;
+      text-decoration: underline;
+      text-decoration-thickness: 2px;
+      text-underline-offset: 0.45em;
+    }
+    .svc-ask:hover {
+      text-decoration-thickness: 3px;
+    }
+    .rev-more a:hover {
+      text-decoration-color: var(--fg-h);
+    }
+    .big-phone:hover {
+      text-decoration: underline;
+      text-decoration-thickness: 3px;
+    }
+    .input:hover {
+      border-color: var(--fg-h);
+    }
+    .site-footer a:hover {
+      color: #ffffff;
+      text-decoration: underline;
+    }
+  }
+}
