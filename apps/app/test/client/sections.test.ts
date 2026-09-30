@@ -111,11 +111,14 @@ describe("edits and preview", () => {
   it("picks the owner's design, else the AI draft's, and inlines that design's sheet (P4-20 amendment)", () => {
     const sheets = stubStylesheets((design) => `/* sheet of ${design} */`);
     const draft = (edits: OwnerEdits) => ({ facts: fixture.facts, brief: {}, edits });
+    // plumber-austin's AI design, impact, is also DEFAULT_DESIGN; an AI draft in refined tells "the AI draft's design" from "the default".
+    const refinedAi = { ...ai, draft: { ...ai.draft, theme: { ...ai.draft.theme, design: "refined" as const } } };
     expect(ai.draft.theme.design).toBe("impact");
     expect(previewDesign(ai, EMPTY_EDITS)).toBe("impact");
+    expect(previewDesign(refinedAi, EMPTY_EDITS)).toBe("refined");
     expect(previewDesign(ai, modern)).toBe("modern");
-    for (const [edits, design, other] of [[EMPTY_EDITS, "impact", "modern"], [modern, "modern", "impact"]] as const) {
-      const preview = buildPreview(ai, draft(edits), site, "localhost:8789", sheets);
+    for (const [aiDraft, edits, design, other] of [[ai, EMPTY_EDITS, "impact", "modern"], [refinedAi, EMPTY_EDITS, "refined", "impact"], [ai, modern, "modern", "impact"]] as const) {
+      const preview = buildPreview(aiDraft, draft(edits), site, "localhost:8789", sheets);
       expect(preview.ok).toBe(true);
       if (preview.ok) {
         expect(preview.doc.theme.design).toBe(design);
