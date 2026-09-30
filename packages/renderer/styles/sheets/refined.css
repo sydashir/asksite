@@ -52,9 +52,8 @@ h1,h2,h3{font-weight:700;line-height:1.15;color:var(--aw-refined-ink);text-wrap:
 .hd-long .brand{font-size:1.0625rem}
 .nav{order:3}
 .nav-l,.hd-q,.hd-c,.i-close,.menu[open] .i-open{display:none}
-.nav-l a{display:inline-flex;align-items:center;min-height:2.75rem;padding-inline:.5rem;border-radius:.25rem;font-size:.9375rem;font-weight:500;white-space:nowrap}
+.nav-l a{display:inline-flex;align-items:center;padding-inline:.5rem;border-radius:.25rem;font-size:.9375rem;font-weight:500;white-space:nowrap}
 .menu summary{display:flex;align-items:center;justify-content:center;width:2.75rem;height:2.75rem;border-radius:.375rem;color:var(--aw-refined-ink);cursor:pointer;list-style:none}
-.menu summary::-webkit-details-marker{display:none}
 .menu summary .i{width:1.5rem;height:1.5rem;color:inherit}
 .menu[open] .i-close{display:block}
 .menu ul{position:absolute;top:calc(100% - .25rem);right:1rem;width:min(16rem,calc(100vw - 2rem));padding:.5rem;border:1px solid var(--aw-refined-line);border-radius:var(--aw-refined-radius-card);background:var(--aw-refined-surface);box-shadow:0 18px 40px -18px #0006}
@@ -177,7 +176,7 @@ h1,h2,h3{font-weight:700;line-height:1.15;color:var(--aw-refined-ink);text-wrap:
 .gal>li{margin-bottom:1rem}
 .g-1{grid-template-columns:minmax(0,1fr)}
 .print img{padding:.375rem;border:1px solid var(--aw-refined-line);border-radius:var(--aw-refined-radius-paper);background:var(--aw-refined-surface);box-shadow:0 1px 2px #0000000d,0 16px 32px -24px #0000004d}
-.print figcaption{padding:.5rem .125rem 0;font-size:1rem;font-style:italic;line-height:1.35;color:var(--aw-refined-ink)}
+.print figcaption{padding:.5rem .125rem 0;font-style:italic;line-height:1.35;color:var(--aw-refined-ink)}
 
 /* ---------- About: a letter from the business ---------- */
 .letter{position:relative;max-width:48rem;margin-inline:auto;padding:2.75rem 1.5rem 2.25rem;border:1px solid var(--aw-refined-line);border-radius:var(--aw-refined-radius-paper);background:var(--card);box-shadow:var(--sh);text-align:center}
@@ -222,10 +221,11 @@ h1,h2,h3{font-weight:700;line-height:1.15;color:var(--aw-refined-ink);text-wrap:
 .faq-l{display:grid;gap:.75rem}
 .faq-i{border:1px solid var(--aw-refined-line);border-radius:var(--aw-refined-radius-card);background:var(--card)}
 .faq-i summary{display:flex;align-items:center;justify-content:space-between;gap:1rem;padding:1.125rem 1.125rem 1.125rem 1.375rem;border-radius:var(--aw-refined-radius-card);cursor:pointer;list-style:none}
-.faq-i summary::-webkit-details-marker{display:none}
+/* WebKit's marker on the page's two <summary>s, the menu's and the questions'. */
+summary::-webkit-details-marker{display:none}
 .faq-q{min-width:0;font-size:1.125rem;line-height:1.35;text-wrap:pretty}
 .faq-t{display:grid;flex:none;place-items:center;width:2rem;height:2rem;border:1px solid var(--aw-refined-rule);border-radius:50%;color:var(--aw-refined-accent-text)}
-.faq-t .i{width:1rem;height:1rem;color:inherit}
+.faq-t .i{width:1rem;height:1rem}
 .faq-i[open] .faq-t{transform:rotate(45deg)}
 .faq-a{padding:0 3.25rem 1.375rem 1.375rem;color:var(--aw-refined-muted)}
 .faq-o li{padding-block:1.375rem;border-top:1px solid var(--aw-refined-line)}
@@ -250,7 +250,7 @@ h1,h2,h3{font-weight:700;line-height:1.15;color:var(--aw-refined-ink);text-wrap:
    light, its dark-band tint on dark. */
 .bc-m a,.fcall a{text-decoration:underline var(--aw-refined-accent);text-underline-offset:.25em}
 .c-list a,.h247 a{text-decoration:underline var(--aw-refined-accent-on-dark);text-underline-offset:.25em}
-.c-ph{font-size:1.75rem;font-weight:700;line-height:1.2}
+.c-ph{font-size:1.75rem;line-height:1.2}
 .c-list .i-lg{width:1.5rem;height:1.5rem;margin-top:.5rem}
 .c-note{display:block;margin-top:.25rem;font-size:.9375rem}
 /* Rows that show only from 60rem (.c-info .c-more outranks .c-list li). */
@@ -267,7 +267,6 @@ h1,h2,h3{font-weight:700;line-height:1.15;color:var(--aw-refined-ink);text-wrap:
 .f label{display:block;margin-bottom:.375rem;font-size:.9375rem;font-weight:650;color:var(--aw-refined-ink)}
 .in{display:block;width:100%;min-height:3rem;padding:.75rem 1rem;border:1px solid var(--aw-refined-field);border-radius:min(var(--aw-refined-radius-card),.5rem);background:var(--aw-refined-surface);font-size:1rem}
 .in:focus-visible{outline-offset:1px;border-color:var(--aw-refined-ink)}
-textarea.in{resize:vertical}
 .sel{position:relative;color:var(--aw-refined-ink)}
 /* WebKit counts a chosen option's whole text as page width, so the select clips it (a 40-character name scrolled a
    320 px page sideways). */
@@ -289,7 +288,7 @@ textarea.in{resize:vertical}
 .c-ht,.ft-h{font-size:.8125rem;color:var(--aw-refined-on-dark)}
 .ft-h{margin-bottom:.625rem}
 .ft li{margin-bottom:.375rem}
-.ft a{color:var(--aw-refined-on-dark-muted);text-underline-offset:.2em}
+.ft a{text-underline-offset:.2em}
 .ft-links{display:flex;flex-wrap:wrap;gap:.25rem 1.5rem;padding-block:1.25rem 1.75rem;border-top:1px solid #ffffff24}
 .ft-links a{display:inline-flex;align-items:center;min-height:2.75rem;gap:.375rem}
 .ft-links .i{width:1rem;height:1rem;color:inherit}
@@ -357,24 +356,23 @@ textarea.in{resize:vertical}
   .classic{font-size:1.0625rem}
   .wr{padding-inline:2rem}
   .hd-row{flex-wrap:wrap;min-height:0;padding-block:.5rem 0}
-  .hd-q,.hd-c{display:inline-flex;min-height:2.75rem;padding:.4375rem 1rem;font-size:.9375rem}
-  .hd-c.bt-2l{padding-block:.3125rem}
+  .hd-q,.hd-c{display:inline-flex;min-height:2.75rem;padding:.3125rem 1rem;font-size:.9375rem}
   .hd-q{background:var(--aw-refined-surface)}
   .menu,.dots-r>.eb-y{display:none}
   .brand{flex:1 1 0}
   .nav{flex:1 0 100%;margin-top:.5rem;border-top:1px solid var(--aw-refined-line)}
   .nav-l{display:flex;flex-wrap:wrap;column-gap:.5rem;margin-inline:-.5rem}
   .nav-l a{min-height:2.5rem}
-  .hero{padding-block:3rem 4rem}
+  .hero{padding-block:2rem 4rem}
   .hs{margin-top:1.125rem;font-size:1.1875rem}
-  .ha{display:flex;flex-wrap:wrap;gap:.75rem;margin-top:1.75rem}
+  .ha{display:flex;flex-wrap:wrap;gap:.75rem;margin-top:1.5rem}
   .proof{margin-top:1.375rem}
-  .ledger{grid-template-columns:repeat(3,minmax(0,1fr));margin-top:1.75rem;padding-top:1.375rem}
+  .ledger{grid-template-columns:repeat(3,minmax(0,1fr));margin-top:1.5rem;padding-top:1.125rem}
   .lg-1{grid-template-columns:minmax(0,1fr)}
   .lg-2{grid-template-columns:repeat(2,minmax(0,1fr))}
   .lg-4{grid-template-columns:repeat(4,minmax(0,1fr))}
   .ledger .ti-w{grid-column:auto}
-  .hm{margin-top:2.5rem}
+  .hm{margin-top:1.5rem}
   .hq{max-width:36rem;margin-top:1.75rem}
   .plate{max-width:none;margin:0;padding:1rem 1rem .5rem 7.3125rem}
   .fq img{aspect-ratio:16/10}
@@ -427,12 +425,8 @@ textarea.in{resize:vertical}
   .hd{position:sticky;top:0;box-shadow:0 12px 24px -24px #0000008c}
   .cb{display:none}
 }
-/* Tablets held upright: a wider crop and less air, so the review plate and the seal reach the first screen. */
+/* Tablets held upright: a wider crop, so the review plate and the seal reach the first screen. */
 @media (48rem <= width < 60rem){
-  .hero{padding-top:2rem}
-  .ha{margin-top:1.5rem}
-  .ledger{margin-top:1.5rem;padding-top:1.125rem}
-  .hm{margin-top:1.5rem}
   .fq img{aspect-ratio:12/5}
 }
 @media (48rem <= width < 64rem){
@@ -466,7 +460,6 @@ textarea.in{resize:vertical}
   .seal-y{font-size:2.125rem}
   /* The credentials card straddles the hero's lower edge, so the license and Insured stay on the first screen. */
   .h-lift{padding-bottom:7rem}
-  .ha{margin-top:1.5rem}
   .h-copy .hq{margin-top:1.25rem;padding-top:.875rem}
   .h-copy .hq::before{top:.625rem}
   .h-copy .hq p{font-size:1.0625rem;line-height:1.42}

@@ -31,7 +31,7 @@ function placesClass(n: number): string {
 
 /**
  * The one town, and the owner's base when it is another town or a street address, as one line under a small
- * heading, so the section does not repeat the hero's card in a two-column block (the approved mockup's fold).
+ * heading, so the section does not repeat the hero's card in two columns (the approved mockup's fold).
  */
 function areaLine(ctx: RenderContext): SafeHtml {
   const { location, serviceArea } = ctx.doc.facts;
