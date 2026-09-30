@@ -759,6 +759,17 @@ describe("upload reservations: a counted row is reserved before the billed trans
       expect(await reservationsLeft(owner.siteId)).toBe(0);
     });
 
+    it("ages out only its own site's stale reservations: another site's stays a reservation until its own next upload or the daily cleanup", async () => {
+      const owner = await h.signIn();
+      const other = await h.signIn();
+      const reservedAt = Date.now() - STALE_MS - 1_000;
+      const reservation = await seedReservation(other.siteId, reservedAt, null);
+      const res = await h.call("POST", `/api/sites/${owner.siteId}/uploads`, { cookie: owner.cookie, body: upload(await png(400, 300), "x.png") });
+      expect(res.status).toBe(201);
+      expect((await uploadRows(other.siteId)).find((row) => row.id === reservation)).toMatchObject({ deleted_at: null, reserved_at: reservedAt });
+      expect(await reservationsLeft(other.siteId)).toBe(1);
+    });
+
     it.each(["aged_out", "purged"] as const)("answers 500 when the reservation is lost (%s) before the photo's row is finished, leaving no object and the row counted", async (how) => {
       const owner = await h.signIn();
       await h.call("POST", "/__test/lose-upload-reservation", { body: { siteId: owner.siteId, how } });
@@ -854,6 +865,17 @@ describe("upload reservations: a counted row is reserved before the billed trans
       expect(eventLines("upload_cleanup_failed", owner.siteId)).toEqual([await cleanupLine(owner.siteId, "release")]);
     });
 
+    it("step release: the release after a failed MEDIA.put fails, so the reservation stays counted until it is aged out", async () => {
+      const owner = await h.signIn();
+      await withTrigger("fail_release", `CREATE TRIGGER fail_release BEFORE DELETE ON uploads WHEN OLD.site_id = '${owner.siteId}' BEGIN SELECT RAISE(ABORT, 'test failure'); END`, async () => {
+        await h.call("POST", "/__test/media-put-fails");
+        const res = await post(owner, await png(400, 300));
+        expect([res.status, (await json<ErrorJson>(res)).error.code]).toEqual([500, "internal"]);
+      });
+      expect(await reservationsLeft(owner.siteId)).toBe(1);
+      expect(eventLines("upload_cleanup_failed", owner.siteId)).toEqual([await cleanupLine(owner.siteId, "release")]);
+    });
+
     it("step mark_failed: marking a transform that gave no WebP as failed fails, so the reservation stays counted until it is aged out", async () => {
       const owner = await h.signIn();
       await withTrigger("fail_mark", `CREATE TRIGGER fail_mark BEFORE UPDATE ON uploads WHEN OLD.site_id = '${owner.siteId}' BEGIN SELECT RAISE(ABORT, 'test failure'); END`, async () => {
@@ -861,6 +883,19 @@ describe("upload reservations: a counted row is reserved before the billed trans
         expect([res.status, (await json<ErrorJson>(res)).error.code]).toEqual([422, "image_rejected"]);
       });
       expect(await reservationsLeft(owner.siteId)).toBe(1);
+      expect(eventLines("upload_cleanup_failed", owner.siteId)).toEqual([await cleanupLine(owner.siteId, "mark_failed")]);
+    });
+
+    it("step mark_failed: marking a reservation lost to a takedown as failed fails, so it stays counted until it is aged out; the answer is still 423", async () => {
+      const owner = await h.signIn();
+      // The finish matches no row once the site is down, so only the mark can meet the trigger.
+      await withTrigger("fail_mark", `CREATE TRIGGER fail_mark BEFORE UPDATE ON uploads WHEN OLD.site_id = '${owner.siteId}' BEGIN SELECT RAISE(ABORT, 'test failure'); END`, async () => {
+        await h.call("POST", "/__test/lose-upload-reservation", { body: { siteId: owner.siteId, how: "taken_down" } });
+        const res = await post(owner, await png(400, 300));
+        expect([res.status, (await json<ErrorJson>(res)).error.code]).toEqual([423, "site_taken_down"]);
+      });
+      expect(await reservationsLeft(owner.siteId)).toBe(1);
+      expect(await mediaKeys(owner.siteId)).toEqual([]);
       expect(eventLines("upload_cleanup_failed", owner.siteId)).toEqual([await cleanupLine(owner.siteId, "mark_failed")]);
     });
 
