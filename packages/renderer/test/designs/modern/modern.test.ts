@@ -122,6 +122,18 @@ describe("Modern: the credentials", () => {
     expect(top).not.toContain("License");
   });
 
+  it("on phones, two licenses or a long one take whole rows, so the licenses sit together, first", () => {
+    const rows = (page: string) => [...hero(page).matchAll(/<li class="cred( wide)?">/g)].map((m) => m[1] === undefined ? "half" : "whole");
+    expect(rows(fixture("plumber-austin"))).toEqual(["half", "half", "half", "half"]);
+    const plumber = loadFixture("plumber-austin");
+    const two = withFacts(plumber, { licences: [...(plumber.facts.licences ?? []), { label: "Texas backflow tester", number: "BPAT-0081122" }] });
+    expect(rows(modern(two))).toEqual(["whole", "whole", "half", "half", "half"]);
+    const long = withFacts(plumber, { licences: [{ label: "Texas master plumber", number: "M-40123-2026-AUSTIN" }] });
+    expect(rows(modern(long))).toEqual(["whole", "half", "half", "half"]);
+    // ...and those heroes take the shorter photo strip on short phones (styles/sheets/modern.css)
+    expect([fixture("plumber-austin"), modern(two), modern(long)].map((page) => hero(page).includes("hero--dense"))).toEqual([false, true, true]);
+  });
+
   it("show two licenses in the hero and link the rest to the footer, which lists them all", () => {
     const page = fixture("roofing-extreme");
     const top = hero(page);
