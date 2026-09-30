@@ -441,17 +441,21 @@ describe("runGenerationJob", () => {
 
   // Task 9 follow-up item 2: the Worker hands each report to its log line, and a caller may edit it. Each path below
   // records no attempt, so its report's attemptOutcomes is empty: it must be a new array every time. `path` checks that
-  // the job took that path (Task 10 follow-up item 9 added the last three).
-  it.each<[string, { env?: Partial<JobEnv>; jobDeps?: () => JobDeps; input?: string; path: Partial<JobReport> }]>([
+  // the job took that path (Task 10 follow-up item 9 added three more; follow-up 2 item 8 the last, which gets report()'s
+  // own default, as read_failed does).
+  it.each<[string, { env?: Partial<JobEnv>; jobDeps?: () => JobDeps; input?: string; notQueued?: true; path: Partial<JobReport> }]>([
     ["no model slot (switched off)", { env: { GENERATION_ENABLED: "false" }, path: { outcome: "fallback", fallbackReason: "disabled" } }],
     ["a provider it cannot build (no key)", { env: { MODEL_PROVIDER: "anthropic", MODEL_ID: "claude-opus-5-5" }, path: { outcome: "fallback", providerErrorKind: "auth" } }],
     ["our own code threw before any call", { jobDeps: () => ({ ...deps(), createProvider: () => { throw new TypeError("bug"); } }), path: { outcome: "fallback", costUnknown: false } }],
     ["our own code threw after a call was sent (costUnknown)", { jobDeps: () => deps(scriptedProvider([answerOurCodeCannotCheck()])), path: { outcome: "fallback", costUnknown: true } }],
     ["the stored input is not a valid snapshot", { input: '{"facts":{}}', path: { outcome: "failed", errorCode: "internal" } }],
     ["the stored input is not JSON", { input: "not json", path: { outcome: "failed", errorCode: "internal" } }],
-  ])("gives each report its own attemptOutcomes, so editing one never changes a later job's report: %s", async (_path, { env, jobDeps, input, path }) => {
-    await queued("a", "first", "s1", input);
-    await queued("b", "first", "s2", input);
+    ["no queued job (not_claimed)", { notQueued: true, path: { outcome: "not_claimed" } }],
+  ])("gives each report its own attemptOutcomes, so editing one never changes a later job's report: %s", async (_path, { env, jobDeps, input, notQueued, path }) => {
+    if (!notQueued) {
+      await queued("a", "first", "s1", input);
+      await queued("b", "first", "s2", input);
+    }
     const first = await runGenerationJob(envWith(env), "a", jobDeps?.() ?? deps());
     expect(first).toMatchObject({ ...path, attemptOutcomes: [] });
     first.attemptOutcomes.push("valid");
