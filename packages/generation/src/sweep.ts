@@ -9,7 +9,9 @@ export const SWEEP_BATCH = 25;
 /**
  * Rows read per cron run, at most: a row counts once read, even when another writer ended or claimed it
  * first. Each row read gets one write, or two when the first throws.
- * Workers Paid bound (design §1.4): 16 reads + at most 800 writes < 1,000 D1 queries per invocation; Free allows 50.
+ * At most 816 D1 queries per run (16 reads + 800 writes). That is within Workers Paid on both Cloudflare pages: the D1
+ * limits page (1,000 queries per invocation) and the Workers limits page (subrequests to internal services, default
+ * 10,000).
  */
 export const SWEEP_MAX_PER_RUN = 400;
 
