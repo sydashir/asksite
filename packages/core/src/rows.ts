@@ -63,6 +63,8 @@ export interface UploadRow {
   bytes: number;
   created_at: number;
   deleted_at: number | null;
+  /** When the row was reserved, before its upload's billed transform; null on every other row (P4-21, migration 0003). */
+  reserved_at: number | null;
 }
 
 export interface GenerationRow {
