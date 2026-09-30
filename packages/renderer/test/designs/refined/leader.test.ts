@@ -84,7 +84,7 @@ describe.each(Object.keys(ENGINES) as Array<keyof typeof ENGINES>)("the Classic 
   }, 60_000);
   afterAll(async () => {
     await browser?.close();
-  });
+  }, 60_000);
 
   async function open(font: FontId, width: number, css = ""): Promise<void> {
     await page.setViewportSize({ width, height: 900 });

@@ -1,7 +1,8 @@
 // Classic's sheet in a real browser, where the cascade decides which rule wins (the pairs test checks tokens, not
 // rule order or specificity): hover colours, the rows phones leave out, link underlines, the phone call bar, the
 // About title and the header's stacking. Laid out by the repo's own Playwright Chromium and WebKit with the real
-// Classic sheet. Each check has a RED proof: a style override that puts the flaw back is caught.
+// Classic sheet. Each check has a RED proof: a style override that puts the flaw back is caught. No check waits on
+// the clock: transitions are off where a state is read.
 import { chromium, webkit, type Browser, type Page } from "@playwright/test";
 import { FONT_IDS, PALETTE_IDS, type SiteDocumentInput } from "@asksite/site-schema";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -18,20 +19,44 @@ const cleaning = loadFixture("cleaning-minimal");
 
 /**
  * Run in the page, so written as script text (the renderer's TypeScript program has no DOM types). The contrast of
- * each element's computed text colour on its computed background, as "selector: ratio" for the ones under `min`.
+ * each element's computed text colour on the colour painted behind it, as "selector: ratio" for the ones under `min`.
+ * A transparent or see-through background shows what is under it, so the element's background is laid over its
+ * ancestors' up to the first opaque one (the white canvas if none is). A colour this cannot read, or a background
+ * image on the way, is reported rather than guessed.
  */
 const LOW_CONTRAST = `([selectors, min]) => {
-  const rgb = (c) => (c.match(/[\\d.]+/g) || []).slice(0, 3).map(Number);
+  const parse = (c) => { const m = /^rgba?\\(([^)]*)\\)$/.exec(c); if (!m) return null; const [r, g, b, a = 1] = m[1].split(/[\\s,\\/]+/).map(Number); return [r, g, b, a].some(Number.isNaN) ? null : [r, g, b, a]; };
+  const over = ([r, g, b, a], [R, G, B]) => [r * a + R * (1 - a), g * a + G * (1 - a), b * a + B * (1 - a)];
   const lum = ([r, g, b]) => { const f = (v) => { v /= 255; return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }; return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b); };
-  const ratio = (a, b) => { const [x, y] = [lum(rgb(a)), lum(rgb(b))].sort((p, q) => q - p); return (x + 0.05) / (y + 0.05); };
+  const ratio = (a, b) => { const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p); return (x + 0.05) / (y + 0.05); };
+  const behind = (el) => {
+    const layers = [];
+    for (let e = el; e; e = e.parentElement) {
+      const style = getComputedStyle(e);
+      const c = parse(style.backgroundColor);
+      if (!c) return "an unreadable background " + style.backgroundColor;
+      if (style.backgroundImage !== "none") return "a background image behind";
+      if (c[3] > 0) layers.push(c);
+      if (c[3] >= 1) break;
+    }
+    return layers.reverse().reduce((under, layer) => over(layer, under), [255, 255, 255]);
+  };
   return selectors.flatMap((selector) => {
     const el = document.querySelector(selector);
     if (!el) return [selector + ": missing"];
-    const style = getComputedStyle(el);
-    const r = ratio(style.color, style.backgroundColor);
-    return r < min ? [selector + ": " + r.toFixed(2) + " (" + style.color + " on " + style.backgroundColor + ")"] : [];
+    const back = behind(el);
+    if (typeof back === "string") return [selector + ": " + back];
+    const text = parse(getComputedStyle(el).color);
+    if (!text) return [selector + ": an unreadable colour " + getComputedStyle(el).color];
+    const r = ratio(over(text, back), back);
+    return r < min ? [selector + ": " + r.toFixed(2) + " (" + getComputedStyle(el).color + " on rgb(" + back.map(Math.round).join(", ") + "))"] : [];
   });
 }`;
+
+/** Whether the element a selector names is under the pointer: the hover state is read only once it applies. */
+const HOVERED = (selector: string) => `document.querySelector(${JSON.stringify(selector)}).matches(":hover")`;
+/** Transitions off, so a computed colour is the state's own, never a frame on the way to it. */
+const NO_TRANSITIONS = "*,::before,::after{transition:none!important}";
 
 /** The computed display of every element each selector matches, as "selector=display" pairs in page order. */
 const DISPLAYS = `(selectors) => selectors.flatMap((s) => [...document.querySelectorAll(s)].map((el) => s + "=" + getComputedStyle(el).display))`;
@@ -62,7 +87,7 @@ describe.each(Object.keys(ENGINES) as Array<keyof typeof ENGINES>)("Classic's ca
   }, 60_000);
   afterAll(async () => {
     await browser?.close();
-  });
+  }, 60_000);
 
   async function open(doc: SiteDocumentInput, width: number, css = ""): Promise<void> {
     await page.setViewportSize({ width, height: 900 });
@@ -74,10 +99,10 @@ describe.each(Object.keys(ENGINES) as Array<keyof typeof ENGINES>)("Classic's ca
   async function hoverProblems(css = ""): Promise<string[]> {
     const found: string[] = [];
     for (const palette of PALETTE_IDS) {
-      await open(refined(plumber, { palette }), 1280, css);
+      await open(refined(plumber, { palette }), 1280, NO_TRANSITIONS + css);
       for (const selector of [".hd-q", ".ha .bt-out", ".cta-row .bt-out"]) {
         await page.hover(selector);
-        await page.waitForTimeout(250); // the .15s colour transition
+        await page.waitForFunction(HOVERED(selector));
         found.push(...((await page.evaluate(`(${LOW_CONTRAST})(${JSON.stringify([[selector], 4.5])})`)) as string[]).map((p) => `${palette} ${p}`));
         await page.mouse.move(0, 0);
       }
@@ -91,6 +116,12 @@ describe.each(Object.keys(ENGINES) as Array<keyof typeof ENGINES>)("Classic's ca
 
   it("RED: catches a later rule that keeps the mid-page button white on hover", async () => {
     expect((await hoverProblems(".cta-row .bt-out{background:var(--aw-refined-surface)!important}")).join("\n")).toMatch(/cta-row .bt-out: 1\.00/);
+  }, 120_000);
+
+  // The hero's outline button has no fill of its own: a hover that loses its fill shows the paper behind it, which
+  // must be read as the paper, never as black.
+  it("RED: catches a hover fill lost on the fill-less hero button, read against the paper behind it", async () => {
+    expect((await hoverProblems(".bt.bt-out:hover{background:none!important}")).join("\n")).toMatch(/ha \.bt-out: 1\.\d\d/);
   }, 120_000);
 
   const PHONE_ROWS = [".c-list .c-more", ".c-hours.c-more", ".bc-m .bc-e"];

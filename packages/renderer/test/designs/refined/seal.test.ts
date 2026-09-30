@@ -48,7 +48,7 @@ describe.each(Object.keys(ENGINES) as Array<keyof typeof ENGINES>)("the Classic 
   }, 60_000);
   afterAll(async () => {
     await browser?.close();
-  });
+  }, 60_000);
 
   /** Every window where the seal comes closer than CLEAR px to the hero's top edge, as "WxH: clearance". */
   async function tooHigh(doc: SiteDocumentInput, css = ""): Promise<string[]> {
