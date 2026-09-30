@@ -400,6 +400,32 @@ describe("a repeated post (a double tap on Send)", () => {
     expect(await leadsOf(site.siteId)).toHaveLength(2);
   });
 
+  // The read-back SELECT runs only when nothing was stored. It must call the post a repeat only when the
+  // INSERT's own check did, or a refused visitor would be thanked while nothing was stored.
+  const DIFFERENCES: Array<[string, { site?: "other"; network?: "other"; lead?: Partial<Lead>; later?: number }]> = [
+    ["on another site", { site: "other" }],
+    ["from another network", { network: "other" }],
+    ["with another name", { lead: { name: "Dana P." } }],
+    ["with another phone", { lead: { phone: "(512) 555-0198" } }],
+    ["with another message", { lead: { message: "Something else" } }],
+    ["with no message", { lead: { message: null } }],
+    ["more than 120 s later", { later: WINDOW_MS + 1 }],
+  ];
+  it.each(DIFFERENCES)("reports the limit, not a repeat, for a refused post that matches a stored request except %s", async (_, change) => {
+    const production = writesReturnNoRows(tools.DB);
+    const site = await seedSite(tools);
+    const other = await seedSite(tools);
+    const ipHash = `stored-${newId()}`;
+    const t0 = dayStart(Date.now()) + 1_000;
+    expect(await insertLead(production, input(site, ipHash, { now: t0, lead: REQUEST }))).toBe("pending");
+    // The posting network has no room left on the site it posts to.
+    const target = change.site === "other" ? other : site;
+    const network = change.network === "other" ? `full-${newId()}` : ipHash;
+    await fill(target.siteId, PER_SITE - (target === site && network === ipHash ? 1 : 0), { createdAt: t0, ipHash: network });
+    const refused = await insertLead(production, input(target, network, { now: t0 + (change.later ?? 0), lead: { ...REQUEST, ...change.lead } }));
+    expect(refused).toBe("network_daily_limit");
+  });
+
   it("decides in the same statement: a repeat written right after the first post is not stored", async () => {
     const production = writesReturnNoRows(tools.DB);
     const site = await seedSite(tools);
