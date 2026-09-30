@@ -6,7 +6,7 @@ import { MAX_ATTEMPTS, MAX_OUTPUT_TOKENS } from "../src/generate.ts";
 import { MODEL_TEXT_CAPS } from "../src/model-facts.ts";
 import { costMicrousd, MAX_INPUT_TOKENS, MODELS, modelSettings, PROMPT_OVERHEAD_TOKENS, worstCaseJobMicrousd } from "../src/models.ts";
 import { buildPrompt } from "../src/prompt.ts";
-import { templateDraft } from "../src/template.ts";
+import { templateAnswer } from "../src/template.ts";
 import { checkDraft } from "../src/validate.ts";
 import { AI_DRAFT_JSON_SCHEMA, toWireSchema } from "../src/wire-schema.ts";
 import { BRIEF, FULL_FACTS } from "./support/samples.ts";
@@ -207,8 +207,8 @@ describe("the whole prompt (design 6.1)", () => {
 
   /** Real validator issues: the model's answer swapped the service descriptions and left out the owner-fact sections. */
   const REPAIR = ((): Issue[] => {
-    const draft = templateDraft(PRIVATE_FACTS, BRIEF);
-    const check = checkDraft(PRIVATE_FACTS, { ...draft, copy: { ...draft.copy, serviceDescriptions: [...draft.copy.serviceDescriptions].reverse() }, layout: draft.layout.slice(0, 1) });
+    const answer = templateAnswer(PRIVATE_FACTS, BRIEF);
+    const check = checkDraft(PRIVATE_FACTS, { ...answer, copy: { ...answer.copy, serviceDescriptions: [...answer.copy.serviceDescriptions].reverse() }, layout: answer.layout.slice(0, 1) });
     if (check.ok) throw new Error("REPAIR needs an answer the validator rejects");
     return check.issues;
   })();

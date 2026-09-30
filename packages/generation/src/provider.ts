@@ -3,7 +3,7 @@
 export interface ModelRequest {
   system: string;
   user: string; // Plan 3's prompt; owner text is quoted as data
-  jsonSchema: Record<string, unknown>; // z.toJSONSchema(AiDraft); refinements are checked afterwards by SiteDocument.
+  jsonSchema: Record<string, unknown>; // z.toJSONSchema(AiAnswer); refinements are checked afterwards by SiteDocument.
   maxOutputTokens: number;
   signal: AbortSignal;
 }

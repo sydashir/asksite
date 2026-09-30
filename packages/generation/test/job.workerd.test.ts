@@ -1,5 +1,5 @@
-import { AiDraft, Brief, type GenerationInputSnapshot, type GenerationJob, type GenerationRow } from "@asksite/core";
-import { SiteDocument } from "@asksite/site-schema";
+import { AiDraft, Brief, type AiAnswer, type GenerationInputSnapshot, type GenerationJob, type GenerationRow } from "@asksite/core";
+import { Facts, SiteDocument, TRADES } from "@asksite/site-schema";
 import type { D1Database, Queue } from "@cloudflare/workers-types";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { capsSnapshot } from "../eval/caps.ts";
@@ -10,7 +10,7 @@ import type { ModelProvider } from "../src/provider.ts";
 import { buildPrompt } from "../src/prompt.ts";
 import { generationAllowance, requestGeneration } from "../src/request.ts";
 import { modelCallsToday } from "../src/settings.ts";
-import { templateDraft } from "../src/template.ts";
+import { templateAnswer, templateDraft } from "../src/template.ts";
 import { AI_DRAFT_JSON_SCHEMA } from "../src/wire-schema.ts";
 import { clearTables, getGeneration, insertGeneration, seedOwnerSite, setSetting, startLocalD1, type LocalD1 } from "./support/d1.ts";
 import { FULL_SNAPSHOT } from "./support/samples.ts";
@@ -18,7 +18,9 @@ import { answer, ProviderError, scriptedProvider } from "./support/scripted.ts";
 
 const NOW = Date.UTC(2026, 8, 24, 15);
 const INPUT = JSON.stringify(FULL_SNAPSHOT);
+/** The stored template draft, and the template's answer as a model gives it (no design; the job stores it on the trade's). */
 const TEMPLATE = templateDraft(FULL_SNAPSHOT.facts, FULL_SNAPSHOT.brief);
+const MODEL_ANSWER = templateAnswer(FULL_SNAPSHOT.facts, FULL_SNAPSHOT.brief);
 
 let db: D1Database;
 let local: LocalD1 | undefined;
@@ -82,9 +84,9 @@ const AT_BOUND: GenerationInputSnapshot = (() => {
  * The P3-8 attempt-2 construction (generate.test.ts): 20 faq entries whose unknown keys repeat `fill`. Zod's
  * "Unrecognized key" message repeats each key, so the model's own text reaches attempt 2's repair lines.
  */
-const withUnknownKeys = (draft: AiDraft, fill: string) => ({
-  ...draft,
-  copy: { ...draft.copy, faq: Array.from({ length: 20 }, (_, i) => ({ question: "Do you fix leaks?", answer: "Yes, we do.", [fill.repeat(300) + String(i)]: "x" })) },
+const withUnknownKeys = (base: AiAnswer, fill: string) => ({
+  ...base,
+  copy: { ...base.copy, faq: Array.from({ length: 20 }, (_, i) => ({ question: "Do you fix leaks?", answer: "Yes, we do.", [fill.repeat(300) + String(i)]: "x" })) },
 });
 /**
  * An answer whose json is a revoked Proxy: checking it throws a TypeError in our own validator, so generateDraft rejects
@@ -109,6 +111,33 @@ describe("runGenerationJob", () => {
     expect(SiteDocument.safeParse({ facts: FULL_SNAPSHOT.facts, ...draft, hidden: [] }).success).toBe(true);
   });
 
+  // A12 (user decision 2026-09-26): every draft starts on its trade's design, the model's and the template's alike. The
+  // stored JSON is read as it is (not through AiDraft, whose default would fill in a missing design).
+  it("roofing model and template drafts store refined: every trade's model answer and template fallback store the trade's design", async () => {
+    const stored: Record<string, { model: unknown; template: unknown }> = {};
+    for (const trade of TRADES) {
+      const snapshot = { facts: Facts.parse({ ...FULL_SNAPSHOT.facts, trade }), brief: FULL_SNAPSHOT.brief };
+      const modelAnswer = { ...templateAnswer(snapshot.facts, snapshot.brief), theme: { palette: "green-amber", font: "clean" } };
+      await queued(`m-${trade}`, "first", "s1", JSON.stringify(snapshot));
+      await runGenerationJob(envWith(), `m-${trade}`, deps(scriptedProvider([answer(modelAnswer)])));
+      await queued(`t-${trade}`, "first", "s2", JSON.stringify(snapshot));
+      await runGenerationJob(envWith({ FAKE_MODE: "error" }), `t-${trade}`, deps());
+      const model = await getGeneration(db, `m-${trade}`);
+      const template = await getGeneration(db, `t-${trade}`);
+      expect(model, trade).toMatchObject({ status: "succeeded", used_fallback: 0 });
+      expect(template, trade).toMatchObject({ status: "succeeded", used_fallback: 1, fallback_reason: "provider_error" });
+      stored[trade] = { model: JSON.parse(model.output_json!).theme, template: JSON.parse(template.output_json!).theme };
+    }
+    expect(stored).toEqual({
+      plumbing: { model: { palette: "green-amber", font: "clean", design: "impact" }, template: { palette: "navy-orange", font: "clean", design: "impact" } },
+      hvac: { model: { palette: "green-amber", font: "clean", design: "impact" }, template: { palette: "blue-yellow", font: "clean", design: "impact" } },
+      electrical: { model: { palette: "green-amber", font: "clean", design: "impact" }, template: { palette: "charcoal-red", font: "sturdy", design: "impact" } },
+      roofing: { model: { palette: "green-amber", font: "clean", design: "refined" }, template: { palette: "charcoal-red", font: "sturdy", design: "refined" } },
+      cleaning: { model: { palette: "green-amber", font: "clean", design: "modern" }, template: { palette: "blue-yellow", font: "friendly", design: "modern" } },
+      landscaping: { model: { palette: "green-amber", font: "clean", design: "refined" }, template: { palette: "green-amber", font: "friendly", design: "refined" } },
+    });
+  });
+
   it("does nothing for a job that is not queued (duplicate or late delivery, or unknown id)", async () => {
     await insertGeneration(db, { id: "g1", site_id: "s1", owner_id: "o1", status: "running", input_json: INPUT, started_at: 1 });
     expect(await runGenerationJob(envWith(), "g1", deps())).toMatchObject({ outcome: "not_claimed" });
@@ -124,7 +153,7 @@ describe("runGenerationJob", () => {
 
   it("records the price of every attempt's tokens", async () => {
     await queued("g1");
-    const provider = scriptedProvider([answer({}, { inputTokens: 1000, outputTokens: 100 }), answer(TEMPLATE, { inputTokens: 1100, outputTokens: 900 })]);
+    const provider = scriptedProvider([answer({}, { inputTokens: 1000, outputTokens: 100 }), answer(MODEL_ANSWER, { inputTokens: 1100, outputTokens: 900 })]);
     await runGenerationJob(envWith({ MODEL_PROVIDER: "anthropic", MODEL_ID: "claude-opus-5-5" }), "g1", deps(provider));
     expect(await getGeneration(db, "g1")).toMatchObject({ status: "succeeded", provider: "anthropic", model: "scripted-1", attempts: 2, input_tokens: 2100, output_tokens: 1000, cost_microusd: 2100 * 4 + 1000 * 20 });
   });
@@ -210,7 +239,7 @@ describe("runGenerationJob", () => {
         async generate() {
           whileRunning = await getGeneration(db, "earlier");
           await runGenerationJob(limitOne(), "g", deps());
-          return answer(TEMPLATE);
+          return answer(MODEL_ANSWER);
         },
       };
       await runGenerationJob(limitOne(), "earlier", deps(inFlight));
@@ -319,7 +348,7 @@ describe("runGenerationJob", () => {
       id: "fake",
       async generate() {
         await db.prepare("UPDATE generations SET status = 'succeeded', used_fallback = 1, fallback_reason = 'provider_error' WHERE id = 'g1'").run();
-        return answer(TEMPLATE);
+        return answer(MODEL_ANSWER);
       },
     };
     expect(await runGenerationJob(envWith(), "g1", deps(slow))).toMatchObject({ outcome: "lost" });
@@ -394,7 +423,7 @@ describe("runGenerationJob", () => {
       id: "fake",
       async generate() {
         await db.prepare("UPDATE generations SET status = 'succeeded', used_fallback = 1, fallback_reason = 'provider_error' WHERE id = 'g1'").run();
-        return answer(TEMPLATE);
+        return answer(MODEL_ANSWER);
       },
     });
     type Path = {
@@ -409,8 +438,8 @@ describe("runGenerationJob", () => {
 
     it.each<[string, Path]>([
       ["success", { report: { outcome: "succeeded", attempts: 1, attemptOutcomes: ["valid"], ...FAKE } }],
-      ["success, with the provider's own model string", { env: () => ANTHROPIC, jobDeps: () => deps(scriptedProvider([answer(TEMPLATE)])), report: { outcome: "succeeded", attempts: 1, attemptOutcomes: ["valid"], provider: "anthropic", model: "scripted-1" } }],
-      ["success, with a model string over 200 UTF-16 units", { jobDeps: () => deps(scriptedProvider([{ ...answer(TEMPLATE), model: "m".repeat(201) }])), report: { outcome: "succeeded", attempts: 1, attemptOutcomes: ["valid"], ...FAKE } }],
+      ["success, with the provider's own model string", { env: () => ANTHROPIC, jobDeps: () => deps(scriptedProvider([answer(MODEL_ANSWER)])), report: { outcome: "succeeded", attempts: 1, attemptOutcomes: ["valid"], provider: "anthropic", model: "scripted-1" } }],
+      ["success, with a model string over 200 UTF-16 units", { jobDeps: () => deps(scriptedProvider([{ ...answer(MODEL_ANSWER), model: "m".repeat(201) }])), report: { outcome: "succeeded", attempts: 1, attemptOutcomes: ["valid"], ...FAKE } }],
       ["template fallback: a first build after three timeouts (usage unknown)", { env: () => ({ FAKE_MODE: "timeout" }), report: { outcome: "fallback", attempts: 3, usedFallback: true, fallbackReason: "provider_error", providerErrorKind: "timeout", attemptOutcomes: TIMEOUTS, usageMissing: true, ...FAKE } }],
       ["a regeneration that failed after three timeouts (usage unknown)", { kind: "regenerate", env: () => ({ FAKE_MODE: "timeout" }), report: { outcome: "failed", attempts: 3, errorCode: "provider_timeout", providerErrorKind: "timeout", attemptOutcomes: TIMEOUTS, usageMissing: true, ...FAKE } }],
       ["a regeneration that failed after three invalid answers", { kind: "regenerate", env: () => ({ FAKE_MODE: "invalid-always" }), report: { outcome: "failed", attempts: 3, errorCode: "invalid_output", attemptOutcomes: ["invalid", "invalid", "invalid"], ...FAKE } }],
@@ -465,9 +494,9 @@ describe("runGenerationJob", () => {
 
   // P3-4a: an attempt whose usage is unknown (the provider sent none, or a sent call timed out) flags the report.
   it.each([
-    ["an answer came without usage", true, {}, () => scriptedProvider([{ ...answer({}), usageMissing: true }, answer(TEMPLATE)])],
+    ["an answer came without usage", true, {}, () => scriptedProvider([{ ...answer({}), usageMissing: true }, answer(MODEL_ANSWER)])],
     ["every sent call timed out", true, { FAKE_MODE: "timeout" }, undefined],
-    ["every answer came with usage", false, {}, () => scriptedProvider([answer({}), answer(TEMPLATE)])],
+    ["every answer came with usage", false, {}, () => scriptedProvider([answer({}), answer(MODEL_ANSWER)])],
   ] as const)("reports usageMissing when %s: %s", async (_case, usageMissing, over, provider) => {
     await queued("g1");
     expect(await runGenerationJob(envWith(over), "g1", deps(provider?.()))).toMatchObject({ usageMissing });
@@ -508,7 +537,7 @@ describe("runGenerationJob", () => {
   // follow-up 2 item 2). The refusal stays recorded (the attempt's bad_request, inputBoundRefused).
   it("keeps the model slot when the input guard refuses attempt 2 after attempt 1 was sent, and gives a first build the template with fallback reason invalid_output", async () => {
     await queued("g1");
-    const provider = scriptedProvider([answer(withUnknownKeys(TEMPLATE, FDFA)), answer(TEMPLATE)]);
+    const provider = scriptedProvider([answer(withUnknownKeys(MODEL_ANSWER, FDFA)), answer(MODEL_ANSWER)]);
     expect(await runGenerationJob(envWith(), "g1", deps(provider))).toMatchObject({
       outcome: "fallback",
       fallbackReason: "invalid_output",
@@ -597,7 +626,7 @@ describe("runGenerationJob", () => {
     ["not a string (an array with a length of 1): the requested id", ["scripted-1"], "fake-template"],
   ] as const)("stores the provider's model string only when it is 1 to 200 UTF-16 units: %s", async (_case, model, stored) => {
     await queued("g1");
-    const provider = scriptedProvider([{ ...answer(TEMPLATE), model: model as unknown as string }]);
+    const provider = scriptedProvider([{ ...answer(MODEL_ANSWER), model: model as unknown as string }]);
     await runGenerationJob(envWith(), "g1", deps(provider));
     expect(await getGeneration(db, "g1")).toMatchObject({ status: "succeeded", model: stored });
   });
@@ -625,10 +654,10 @@ describe("the job's end-states and the owner's lifetime total, end to end (task-
     // P3-18: the owner's notes fill attempt 1 to the input bound; its invalid answer's repair lines make the guard refuse
     // attempt 2. One billed call, and the model's answer failed: it counts, as three invalid answers do.
     // Its report: invalid_output with providerErrorKind null, as for every invalid_output (Task 10 follow-up 2 item 2).
-    ["notes at the input bound, an invalid answer, then the input guard refused attempt 2 (P3-18)", { snapshot: AT_BOUND, provider: () => scriptedProvider([answer({}), answer(TEMPLATE)]), row: { status: "failed", error_code: "invalid_output", attempts: 1, model_slot: 1 }, counted: true, report: { outcome: "failed", errorCode: "invalid_output", providerErrorKind: null, attemptOutcomes: ["invalid", "bad_request"], inputBoundRefused: true } }],
+    ["notes at the input bound, an invalid answer, then the input guard refused attempt 2 (P3-18)", { snapshot: AT_BOUND, provider: () => scriptedProvider([answer({}), answer(MODEL_ANSWER)]), row: { status: "failed", error_code: "invalid_output", attempts: 1, model_slot: 1 }, counted: true, report: { outcome: "failed", errorCode: "invalid_output", providerErrorKind: null, attemptOutcomes: ["invalid", "bad_request"], inputBoundRefused: true } }],
     // Task 10 follow-up 2 item 9: the same when a timeout came first. Attempt 2 resends the prompt at the bound and gets an
     // invalid answer, whose repair lines make the guard refuse attempt 3. Two billed calls, and the model's answer failed.
-    ["notes at the input bound, a timeout, an invalid answer, then the input guard refused attempt 3 (P3-18)", { snapshot: AT_BOUND, provider: () => scriptedProvider([new ProviderError("timeout", "timed out"), answer({}), answer(TEMPLATE)]), row: { status: "failed", error_code: "invalid_output", attempts: 2, model_slot: 1 }, counted: true, report: { outcome: "failed", errorCode: "invalid_output", providerErrorKind: null, attemptOutcomes: ["timeout", "invalid", "bad_request"], usageMissing: true, inputBoundRefused: true } }],
+    ["notes at the input bound, a timeout, an invalid answer, then the input guard refused attempt 3 (P3-18)", { snapshot: AT_BOUND, provider: () => scriptedProvider([new ProviderError("timeout", "timed out"), answer({}), answer(MODEL_ANSWER)]), row: { status: "failed", error_code: "invalid_output", attempts: 2, model_slot: 1 }, counted: true, report: { outcome: "failed", errorCode: "invalid_output", providerErrorKind: null, attemptOutcomes: ["timeout", "invalid", "bad_request"], usageMissing: true, inputBoundRefused: true } }],
     // P3-18 changes only that refusal: a timeout or a 5xx after billed invalid answers is still the provider's fault.
     ["an invalid answer, then two timeouts", { provider: () => scriptedProvider([answer({}), new ProviderError("timeout", "timed out"), new ProviderError("timeout", "timed out")]), row: { status: "failed", error_code: "provider_timeout", attempts: 3, model_slot: 1 }, counted: false }],
     ["an invalid answer, then two 5xx answers", { provider: () => scriptedProvider([answer({}), new ProviderError("unavailable", "503"), new ProviderError("unavailable", "503")]), row: { status: "failed", error_code: "provider_unavailable", attempts: 3, model_slot: 1 }, counted: false }],
@@ -657,7 +686,7 @@ describe("the job's end-states and the owner's lifetime total, end to end (task-
     const request = await requestGeneration({ DB: db, GEN_QUEUE, GENERATION_ENABLED: "true", DAILY_MODEL_LIMIT: "30" }, { siteId: "s1", ownerId: "o1", snapshot: AT_BOUND, now: NOW });
     if (!request.ok) throw new Error(`the request was refused: ${request.code}`);
     expect(request.generation.kind).toBe("first");
-    const provider = scriptedProvider([answer({}), answer(TEMPLATE)]);
+    const provider = scriptedProvider([answer({}), answer(MODEL_ANSWER)]);
     expect(await runGenerationJob(envWith(), request.generation.id, deps(provider))).toMatchObject({
       outcome: "fallback", usedFallback: true, fallbackReason: "invalid_output", errorCode: null, attempts: 1,
       providerErrorKind: null, attemptOutcomes: ["invalid", "bad_request"], inputBoundRefused: true,

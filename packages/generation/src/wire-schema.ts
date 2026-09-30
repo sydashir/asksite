@@ -1,10 +1,13 @@
-import { AiDraft } from "@asksite/core";
+import { AiAnswer } from "@asksite/core";
 import { z } from "zod";
 
 type Schema = Record<string, unknown>;
 
-/** The JSON schema of the AI output, as Zod writes it (length caps, defaults and oneOf included). */
-export const AI_DRAFT_JSON_SCHEMA: Schema = z.toJSONSchema(AiDraft) as Schema;
+/**
+ * The JSON schema of the AI output, as Zod writes it (length caps, defaults and oneOf included): the model's answer,
+ * with no page design (A12: the server adds the trade's design, draftFromAnswer).
+ */
+export const AI_DRAFT_JSON_SCHEMA: Schema = z.toJSONSchema(AiAnswer) as Schema;
 
 // Keywords providers reject or ignore. Anthropic structured outputs refuse minLength, maxLength,
 // maxItems and minItems above 1, and support only simple regex patterns (checked 2026-09-25 on

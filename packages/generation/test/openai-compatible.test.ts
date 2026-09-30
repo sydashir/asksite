@@ -4,7 +4,7 @@ import { MODELS, type ModelSettings } from "../src/models.ts";
 import { buildPrompt } from "../src/prompt.ts";
 import { ProviderError } from "../src/provider.ts";
 import { OpenAICompatibleProvider } from "../src/providers/openai-compatible.ts";
-import { templateDraft } from "../src/template.ts";
+import { templateAnswer } from "../src/template.ts";
 import { checkDraft } from "../src/validate.ts";
 import { AI_DRAFT_JSON_SCHEMA, toWireSchema } from "../src/wire-schema.ts";
 import { abortedSignal, fakeFetch } from "./support/http.ts";
@@ -169,7 +169,7 @@ describe("OpenAICompatibleProvider: JSON Mode not met (task 7 additions A)", () 
   it("lets generateDraft send repair feedback after it, then accept a valid answer", async () => {
     const http = fakeFetch([
       { status: 400, body: { errors: [{ message: JSON_MODE_UNMET }], success: false } },
-      { status: 200, body: completion(JSON.stringify(templateDraft(FULL_FACTS, BRIEF))) },
+      { status: 200, body: completion(JSON.stringify(templateAnswer(FULL_FACTS, BRIEF))) },
     ]);
     const deps = { sleep: async () => {}, timeoutSignal: () => new AbortController().signal, now: () => 0 };
     const result = await generateDraft(compatible(http.fetch), FULL_SNAPSHOT, deps);
@@ -550,7 +550,7 @@ describe("OpenAICompatibleProvider: redirects (P3-11 c)", () => {
 const unreadable = (status: number) => async (): Promise<Response> =>
   new Response(new ReadableStream({ start: (controller) => controller.error(new TypeError("terminated")) }), { status });
 
-const VALID_ANSWER = { status: 200, body: completion(JSON.stringify(templateDraft(FULL_FACTS, BRIEF))) };
+const VALID_ANSWER = { status: 200, body: completion(JSON.stringify(templateAnswer(FULL_FACTS, BRIEF))) };
 
 // P3-11 (d): an error after a 2xx status line carries afterHeaders (the provider accepted the call and may bill it,
 // but its usage is unknown), so generateDraft marks that attempt's usage missing. An error status (3xx, 4xx, 5xx)

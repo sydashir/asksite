@@ -1,12 +1,12 @@
 import type { GenerationInputSnapshot } from "@asksite/core";
 import { ProviderError, type ModelProvider, type ModelRequest, type ModelResponse } from "../provider.ts";
-import { templateDraft } from "../template.ts";
+import { templateAnswer } from "../template.ts";
 
 export const FAKE_MODES = ["ok", "invalid-once", "invalid-always", "timeout", "error"] as const;
 export type FakeMode = (typeof FAKE_MODES)[number];
 
 /**
- * The offline provider for development and tests (design §6.2): it answers with templateDraft,
+ * The offline provider for development and tests (design §6.2): it answers as a model does, with templateAnswer,
  * and FAKE_MODE scripts failures. "invalid-*" answers put a phone number in the headline, which
  * the validator rejects; "timeout" and "error" throw transient provider errors.
  */
@@ -25,9 +25,9 @@ export class FakeProvider implements ModelProvider {
     this.#calls += 1;
     if (req.signal.aborted || this.#mode === "timeout") throw new ProviderError("timeout", "fake provider timed out");
     if (this.#mode === "error") throw new ProviderError("unavailable", "fake provider is down");
-    const draft = templateDraft(this.#snapshot.facts, this.#snapshot.brief);
+    const answer = templateAnswer(this.#snapshot.facts, this.#snapshot.brief);
     const invalid = this.#mode === "invalid-always" || (this.#mode === "invalid-once" && this.#calls === 1);
-    const json = invalid ? { ...draft, copy: { ...draft.copy, heroHeadline: "Call 555-0100 today" } } : draft;
+    const json = invalid ? { ...answer, copy: { ...answer.copy, heroHeadline: "Call 555-0100 today" } } : answer;
     const usage = { inputTokens: req.system.length + req.user.length, outputTokens: JSON.stringify(json).length };
     return { json, model: "fake-template", usage, stop: "end" };
   }

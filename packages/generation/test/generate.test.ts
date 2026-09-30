@@ -8,12 +8,12 @@ import { buildPrompt, MAX_ISSUE_MESSAGE, MAX_ISSUE_PATH, MAX_REPAIR_ISSUES } fro
 import type { ModelProvider, ModelRequest, ModelResponse } from "../src/provider.ts";
 import { FakeProvider } from "../src/providers/fake.ts";
 import { AI_DRAFT_JSON_SCHEMA, toWireSchema } from "../src/wire-schema.ts";
-import { templateDraft } from "../src/template.ts";
+import { templateAnswer, templateDraft } from "../src/template.ts";
 import { checkDraft } from "../src/validate.ts";
 import { BRIEF, FULL_SNAPSHOT } from "./support/samples.ts";
 import { answer, ProviderError, scriptedProvider } from "./support/scripted.ts";
 
-const good = templateDraft(FULL_SNAPSHOT.facts, FULL_SNAPSHOT.brief);
+const good = templateAnswer(FULL_SNAPSHOT.facts, FULL_SNAPSHOT.brief);
 const bad = { ...good, copy: { ...good.copy, heroHeadline: "Call 555-0100 today" } };
 
 /** An answer that stopped for `stop` instead of ending normally. */
@@ -79,7 +79,7 @@ describe("generateDraft", () => {
   it("returns the first valid answer", async () => {
     const { deps } = testDeps();
     const result = await generateDraft(new FakeProvider("ok", FULL_SNAPSHOT), FULL_SNAPSHOT, deps);
-    expect(result).toMatchObject({ ok: true, draft: good, attempts: 1, validOnAttempt: 1, model: "fake-template", inputBoundRefused: false });
+    expect(result).toMatchObject({ ok: true, draft: templateDraft(FULL_SNAPSHOT.facts, FULL_SNAPSHOT.brief), attempts: 1, validOnAttempt: 1, model: "fake-template", inputBoundRefused: false });
   });
 
   it("sends the AI draft schema, the output cap and a 90 s signal on every attempt", async () => {
@@ -585,14 +585,14 @@ describe("the input bound (P3-8)", () => {
   });
 
   /** An answer whose faq holds 20 entries, each with an unknown key made of `fill`: Zod's "Unrecognized key" message repeats the key, so the model's own text reaches the repair lines. */
-  const withUnknownKeys = (draft: typeof good, fill: string) => ({
-    ...draft,
-    copy: { ...draft.copy, faq: Array.from({ length: 20 }, (_, i) => ({ question: "Do you fix leaks?", answer: "Yes, we do.", [fill.repeat(300) + String(i)]: "x" })) },
+  const withUnknownKeys = (base: typeof good, fill: string) => ({
+    ...base,
+    copy: { ...base.copy, faq: Array.from({ length: 20 }, (_, i) => ({ question: "Do you fix leaks?", answer: "Yes, we do.", [fill.repeat(300) + String(i)]: "x" })) },
   });
 
   it("sends CAPS_SNAPSHOT, and its next attempt after 20 real repair lines at their caps in the euro sign (the provider is called both times)", async () => {
-    const draft = templateDraft(CAPS_SNAPSHOT.facts, CAPS_SNAPSHOT.brief);
-    const provider = scriptedProvider([answer(withUnknownKeys(draft, "\u20AC")), answer(draft)]);
+    const valid = templateAnswer(CAPS_SNAPSHOT.facts, CAPS_SNAPSHOT.brief);
+    const provider = scriptedProvider([answer(withUnknownKeys(valid, "\u20AC")), answer(valid)]);
     const result = await generateDraft(provider, CAPS_SNAPSHOT, testDeps().deps);
     expect(result).toMatchObject({ ok: true, attempts: 2, validOnAttempt: 2, inputBoundRefused: false });
     expect(provider.requests[1]!.user.split("\n").filter((line) => line.startsWith('- "copy.faq.')).length).toBe(20);
@@ -609,8 +609,8 @@ describe("the input bound (P3-8)", () => {
     // With every repair line at its caps in U+E000 it stays within the proven maximum, CAPS_SNAPSHOT with CAPS_REPAIR.
     const largest = inputBound({ ...buildPrompt(CAPS_SNAPSHOT, CAPS_REPAIR), jsonSchema: AI_DRAFT_JSON_SCHEMA });
     expect(inputBound({ ...buildPrompt(snapshot, capsRepair("\uE000")), jsonSchema: AI_DRAFT_JSON_SCHEMA })).toBeLessThanOrEqual(largest);
-    const draft = templateDraft(snapshot.facts, snapshot.brief);
-    const provider = scriptedProvider([answer(withUnknownKeys(draft, "\uE000")), answer(draft)]);
+    const valid = templateAnswer(snapshot.facts, snapshot.brief);
+    const provider = scriptedProvider([answer(withUnknownKeys(valid, "\uE000")), answer(valid)]);
     const result = await generateDraft(provider, snapshot, testDeps().deps);
     expect(result).toMatchObject({ ok: true, attempts: 2, validOnAttempt: 2, inputBoundRefused: false });
     expect(provider.requests.map((req) => inputBound(req) <= largest)).toEqual([true, true]);
@@ -635,8 +635,8 @@ describe("the input bound (P3-8)", () => {
       expect(bound, `${repair.length} repair lines`).toBeLessThanOrEqual(MAX_INPUT_TOKENS);
       expect(bytes(text.normalize("NFD")) + PROMPT_OVERHEAD_TOKENS, `${repair.length} repair lines`).toBeGreaterThan(MAX_INPUT_TOKENS);
     }
-    const draft = templateDraft(snapshot.facts, snapshot.brief);
-    const provider = scriptedProvider([answer(withUnknownKeys(draft, hangul)), answer(draft)]);
+    const valid = templateAnswer(snapshot.facts, snapshot.brief);
+    const provider = scriptedProvider([answer(withUnknownKeys(valid, hangul)), answer(valid)]);
     const result = await generateDraft(provider, snapshot, testDeps().deps);
     expect(result).toMatchObject({ ok: true, attempts: 2, validOnAttempt: 2, inputBoundRefused: false });
     expect(provider.requests.map((req) => inputBound(req) <= MAX_INPUT_TOKENS)).toEqual([true, true]);
@@ -872,5 +872,15 @@ describe("capIssues (P3-8)", () => {
       expect(issue.message.length).toBeLessThanOrEqual(MAX_ISSUE_MESSAGE);
       expect(issue.path.join(".").length).toBeLessThanOrEqual(MAX_ISSUE_PATH);
     }
+  });
+});
+
+describe("FakeProvider", () => {
+  const request = (): ModelRequest => ({ system: "s", user: "u", jsonSchema: AI_DRAFT_JSON_SCHEMA, maxOutputTokens: MAX_OUTPUT_TOKENS, signal: new AbortController().signal });
+
+  it("answers as a model does (A12): templateAnswer, palette and font with no design, and its invalid answer the same with a phone number in the headline", async () => {
+    const valid = templateAnswer(FULL_SNAPSHOT.facts, FULL_SNAPSHOT.brief);
+    expect((await new FakeProvider("ok", FULL_SNAPSHOT).generate(request())).json).toEqual(valid);
+    expect((await new FakeProvider("invalid-once", FULL_SNAPSHOT).generate(request())).json).toEqual({ ...valid, copy: { ...valid.copy, heroHeadline: "Call 555-0100 today" } });
   });
 });

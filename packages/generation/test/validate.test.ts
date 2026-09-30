@@ -1,32 +1,32 @@
-import { Facts, factSections, SiteDocument } from "@asksite/site-schema";
+import { DESIGN_IDS, Facts, factSections, SiteDocument, TRADES } from "@asksite/site-schema";
 import { describe, expect, it } from "vitest";
 import { FIXTURES, loadFixture } from "../../../fixtures/index.ts";
-import { templateDraft } from "../src/template.ts";
+import { templateAnswer, templateDraft } from "../src/template.ts";
 import { bindServiceNames, checkDraft, normalizeEnumCase } from "../src/validate.ts";
 import { AI_DRAFT_JSON_SCHEMA, dropNulls, toWireSchema } from "../src/wire-schema.ts";
 import { BRIEF, FULL_FACTS, MINIMAL_FACTS } from "./support/samples.ts";
 
 describe("checkDraft", () => {
-  const draft = templateDraft(FULL_FACTS, BRIEF);
+  const good = templateAnswer(FULL_FACTS, BRIEF);
 
   it("accepts a draft that makes a valid SiteDocument with these facts", () => {
-    expect(checkDraft(FULL_FACTS, draft)).toEqual({ ok: true, draft });
+    expect(checkDraft(FULL_FACTS, good)).toEqual({ ok: true, draft: templateDraft(FULL_FACTS, BRIEF) });
   });
 
   it("returns the parsed draft: copy trimmed and NFKC-normalised", () => {
-    const loose = { ...draft, copy: { ...draft.copy, heroHeadline: "  Plumbing help  " } };
+    const loose = { ...good, copy: { ...good.copy, heroHeadline: "  Plumbing help  " } };
     const result = checkDraft(FULL_FACTS, loose);
     expect(result.ok && result.draft.copy.heroHeadline).toBe("Plumbing help");
   });
 
   it("reports schema problems with their paths", () => {
-    const result = checkDraft(FULL_FACTS, { ...draft, copy: { ...draft.copy, heroHeadline: "Call 555-0100" } });
+    const result = checkDraft(FULL_FACTS, { ...good, copy: { ...good.copy, heroHeadline: "Call 555-0100" } });
     expect(result.ok).toBe(false);
     expect(!result.ok && result.issues.map((i) => i.path.join("."))).toContain("copy.heroHeadline");
   });
 
   it("reports claims the facts do not back, checked against these facts", () => {
-    const claim = { ...draft, copy: { ...draft.copy, ctaText: "Request a quote", heroSubheadline: "Licensed and insured plumbers." } };
+    const claim = { ...good, copy: { ...good.copy, ctaText: "Request a quote", heroSubheadline: "Licensed and insured plumbers." } };
     expect(checkDraft(FULL_FACTS, claim).ok).toBe(true);
     const services = MINIMAL_FACTS.services.map((s) => ({ service: s.name, description: "Done well." }));
     const result = checkDraft(MINIMAL_FACTS, { ...claim, copy: { ...claim.copy, serviceDescriptions: services } });
@@ -34,7 +34,7 @@ describe("checkDraft", () => {
   });
 
   it("reports a layout that leaves out an owner-fact section", () => {
-    const result = checkDraft(FULL_FACTS, { ...draft, layout: [{ id: "hero", variant: "photo" }] });
+    const result = checkDraft(FULL_FACTS, { ...good, layout: [{ id: "hero", variant: "photo" }] });
     expect(!result.ok && result.issues.map((i) => i.path.join("."))).toContain("layout");
   });
 
@@ -48,7 +48,7 @@ describe("checkDraft", () => {
   // apostrophe, a decomposed accent, fullwidth letters, and a double space with other casing.
   const OWNER_NAMES = ["Men’s shirts", "Diseño de jardines", "ＡＣ repair", "Drain  Cleaning"];
   const withServices = (facts: Facts, services: string[]) => {
-    const base = templateDraft(facts, BRIEF);
+    const base = templateAnswer(facts, BRIEF);
     return { ...base, copy: { ...base.copy, serviceDescriptions: services.map((service) => ({ service, description: "Done well." })) } };
   };
 
@@ -75,7 +75,7 @@ describe("checkDraft", () => {
 
   it("accepts a layout that adds about and faq after the owner-fact sections (prompt line, P3-A1)", () => {
     for (const facts of [FULL_FACTS, MINIMAL_FACTS]) {
-      const base = templateDraft(facts, BRIEF);
+      const base = templateAnswer(facts, BRIEF);
       const order = ["hero", ...factSections(facts), "about", "faq"];
       const layout = order.map((id) => base.layout.find((section) => section.id === id)!);
       const faq = [{ question: "Can you help with a slow drain?", answer: "Yes. Tell us what you are seeing and we will talk you through the options." }];
@@ -86,7 +86,7 @@ describe("checkDraft", () => {
   });
 
   it("accepts about in the layout when the model left the about text out (null, removed by dropNulls)", () => {
-    const answer = dropNulls({ ...draft, copy: { ...draft.copy, about: null } });
+    const answer = dropNulls({ ...good, copy: { ...good.copy, about: null } });
     const result = checkDraft(FULL_FACTS, answer);
     expect(result.ok).toBe(true);
     expect(result.ok && result.draft.layout.some((s) => s.id === "about")).toBe(true);
@@ -101,7 +101,7 @@ describe("checkDraft", () => {
 
   it("binds by position, so entries swapped between two loosely equal owner names are accepted, each under the name at its position", () => {
     const facts = Facts.parse({ ...MINIMAL_FACTS, services: [{ name: "Drain cleaning" }, { name: "drain  Cleaning" }] });
-    const base = templateDraft(facts, BRIEF);
+    const base = templateAnswer(facts, BRIEF);
     const serviceDescriptions = [
       { service: "drain  Cleaning", description: "Written for the name in lower case." },
       { service: "Drain cleaning", description: "Written for the name in title case." },
@@ -114,7 +114,7 @@ describe("checkDraft", () => {
   });
 
   it("returns the model's own hero variant even when the facts have a hero photo (Decision 7: SiteDocument applies the photo later)", () => {
-    const centered = { ...draft, layout: draft.layout.map((s) => (s.id === "hero" ? { id: "hero", variant: "centered" } : s)) };
+    const centered = { ...good, layout: good.layout.map((s) => (s.id === "hero" ? { id: "hero", variant: "centered" } : s)) };
     const hero = (layout: ReadonlyArray<{ id: string }>) => layout.find((s) => s.id === "hero");
     expect(hero(SiteDocument.parse({ facts: FULL_FACTS, ...centered, hidden: [] }).layout)).toEqual({ id: "hero", variant: "photo" });
     const result = checkDraft(FULL_FACTS, centered);
@@ -155,10 +155,10 @@ describe("checkDraft", () => {
 // checked 2026-09-27): "Structured outputs don't guarantee the capitalization of string `enum` and `const` values ...
 // Compare enum values case-insensitively, and avoid enum values that differ only in capitalization."
 describe("enum case (P3-11 m)", () => {
-  const draft = templateDraft(FULL_FACTS, BRIEF);
+  const good = templateAnswer(FULL_FACTS, BRIEF);
   const WIRE = toWireSchema(AI_DRAFT_JSON_SCHEMA);
-  const hero = draft.layout[0]!;
-  const withHero = (section: unknown) => ({ ...draft, layout: [section, ...draft.layout.slice(1)] });
+  const hero = good.layout[0]!;
+  const withHero = (section: unknown) => ({ ...good, layout: [section, ...good.layout.slice(1)] });
   const deepFreeze = <T>(value: T): T => {
     if (value !== null && typeof value === "object") Object.values(value).forEach(deepFreeze);
     return Object.freeze(value);
@@ -173,14 +173,14 @@ describe("enum case (P3-11 m)", () => {
 
   it("accepts a whole layout whose ids (discriminators) and variants are in another case, each in its own branch", () => {
     // serviceArea is camelCase in the schema: the match ignores case on both sides.
-    expect(draft.layout.map((section) => section.id)).toContain("serviceArea");
-    const shouted = draft.layout.map(({ id, variant }) => ({ id: id.toUpperCase(), variant: ` ${variant.toUpperCase()}` }));
-    const result = checkDraft(FULL_FACTS, { ...draft, layout: shouted });
-    expect(result.ok && result.draft.layout).toEqual(draft.layout);
+    expect(good.layout.map((section) => section.id)).toContain("serviceArea");
+    const shouted = good.layout.map(({ id, variant }) => ({ id: id.toUpperCase(), variant: ` ${variant.toUpperCase()}` }));
+    const result = checkDraft(FULL_FACTS, { ...good, layout: shouted });
+    expect(result.ok && result.draft.layout).toEqual(good.layout);
   });
 
   it("accepts palette and font in another case (checks the two field values only)", () => {
-    const result = checkDraft(FULL_FACTS, { ...draft, theme: { ...draft.theme, palette: " Navy-Orange", font: "CLEAN " } });
+    const result = checkDraft(FULL_FACTS, { ...good, theme: { ...good.theme, palette: " Navy-Orange", font: "CLEAN " } });
     expect(result.ok && result.draft.theme.palette).toBe("navy-orange");
     expect(result.ok && result.draft.theme.font).toBe("clean");
   });
@@ -190,7 +190,7 @@ describe("enum case (P3-11 m)", () => {
     expect(normalizeEnumCase(WIRE, { layout: [wrong] })).toEqual({ layout: [wrong] });
     const layout = checkDraft(FULL_FACTS, withHero(wrong));
     expect(!layout.ok && layout.issues.map((i) => i.path.join("."))).toContain("layout.0.id");
-    const theme = checkDraft(FULL_FACTS, { ...draft, theme: { ...draft.theme, palette: "Navy Orange" } });
+    const theme = checkDraft(FULL_FACTS, { ...good, theme: { ...good.theme, palette: "Navy Orange" } });
     expect(!theme.ok && theme.issues.map((i) => i.path.join("."))).toEqual(["theme.palette"]);
   });
 
@@ -214,7 +214,7 @@ describe("enum case (P3-11 m)", () => {
 
   it("never touches free text, even text that equals an enum member in another case: copy fields and service names", () => {
     const facts = Facts.parse({ ...MINIMAL_FACTS, services: [{ name: "Gallery" }, { name: "Split" }] });
-    const base = templateDraft(facts, BRIEF);
+    const base = templateAnswer(facts, BRIEF);
     const answer = {
       ...base,
       copy: {
@@ -237,7 +237,7 @@ describe("enum case (P3-11 m)", () => {
 
   it("leaves a non-string at an enum position unchanged, for validation to report", () => {
     for (const palette of [5, null, true, ["NAVY-ORANGE"], { value: "NAVY-ORANGE" }]) {
-      const answer = { ...draft, theme: { ...draft.theme, palette } };
+      const answer = { ...good, theme: { ...good.theme, palette } };
       expect(normalizeEnumCase(WIRE, answer), JSON.stringify(palette)).toBe(answer);
       const result = checkDraft(FULL_FACTS, answer);
       expect(!result.ok && result.issues.map((i) => i.path.join(".")), JSON.stringify(palette)).toEqual(["theme.palette"]);
@@ -245,7 +245,7 @@ describe("enum case (P3-11 m)", () => {
   });
 
   it("never mutates its input: it returns the input itself when nothing changes, and new objects only along the path to a change", () => {
-    const answer = deepFreeze({ ...draft, theme: { ...draft.theme, font: "Sturdy" } });
+    const answer = deepFreeze({ ...good, theme: { ...good.theme, font: "Sturdy" } });
     const before = JSON.stringify(answer);
     const out = normalizeEnumCase(WIRE, answer) as typeof answer;
     expect(JSON.stringify(answer)).toBe(before);
@@ -253,7 +253,7 @@ describe("enum case (P3-11 m)", () => {
     expect(out).not.toBe(answer);
     expect(out.copy).toBe(answer.copy);
     expect(out.layout).toBe(answer.layout);
-    expect(normalizeEnumCase(WIRE, draft)).toBe(draft);
+    expect(normalizeEnumCase(WIRE, good)).toBe(good);
   });
 
   it("follows the schema's properties only: an unknown key keeps its value, a missing key stays missing, an own __proto__ stays an own data key", () => {
@@ -265,5 +265,34 @@ describe("enum case (P3-11 m)", () => {
     expect(Object.hasOwn(out.theme, "__proto__")).toBe(true);
     expect(Object.getPrototypeOf(out.theme)).toBe(Object.prototype);
     expect("polluted" in out.theme).toBe(false);
+  });
+});
+
+// A12 (user decision 2026-09-26): the model answers palette and font only; the stored draft starts on its trade's design.
+describe("the page design follows the trade (A12)", () => {
+  it("AiAnswer refuses a design key: an answer that names any design is invalid", () => {
+    const answer = templateAnswer(FULL_FACTS, BRIEF);
+    for (const design of DESIGN_IDS) {
+      const result = checkDraft(FULL_FACTS, { ...answer, theme: { ...answer.theme, design } });
+      expect(!result.ok && result.issues.map((i) => `${i.path.join(".")}: ${i.code}`), design).toEqual(["theme: unrecognized_keys"]);
+    }
+  });
+
+  it("stores an accepted answer on its trade's design, with the model's own palette and font", () => {
+    const themes = Object.fromEntries(
+      TRADES.map((trade) => {
+        const facts = Facts.parse({ ...FULL_FACTS, trade });
+        const result = checkDraft(facts, { ...templateAnswer(facts, BRIEF), theme: { palette: "green-amber", font: "clean" } });
+        return [trade, result.ok ? result.draft.theme : result.issues];
+      }),
+    );
+    expect(themes).toEqual({
+      plumbing: { palette: "green-amber", font: "clean", design: "impact" },
+      hvac: { palette: "green-amber", font: "clean", design: "impact" },
+      electrical: { palette: "green-amber", font: "clean", design: "impact" },
+      roofing: { palette: "green-amber", font: "clean", design: "refined" },
+      cleaning: { palette: "green-amber", font: "clean", design: "modern" },
+      landscaping: { palette: "green-amber", font: "clean", design: "refined" },
+    });
   });
 });

@@ -1,4 +1,6 @@
+import { AiAnswer } from "@asksite/core";
 import { describe, expect, it } from "vitest";
+import { z } from "zod";
 import { AI_DRAFT_JSON_SCHEMA, dropNulls, toWireSchema } from "../src/wire-schema.ts";
 
 type Json = Record<string, unknown>;
@@ -13,10 +15,20 @@ const keywords = (schema: unknown, found = new Set<string>()): Set<string> => {
 };
 
 describe("AI_DRAFT_JSON_SCHEMA", () => {
-  it("is z.toJSONSchema(AiDraft): copy, layout and theme with the length caps", () => {
+  it("is z.toJSONSchema(AiAnswer): copy, layout and theme with the length caps", () => {
+    expect(AI_DRAFT_JSON_SCHEMA).toEqual(z.toJSONSchema(AiAnswer));
     expect(AI_DRAFT_JSON_SCHEMA.type).toBe("object");
     expect(Object.keys(AI_DRAFT_JSON_SCHEMA.properties as Json)).toEqual(["copy", "layout", "theme"]);
     expect(JSON.stringify(AI_DRAFT_JSON_SCHEMA)).toContain('"maxLength":80');
+  });
+
+  // A12 (user decision 2026-09-26): the page design follows the trade; the model never chooses it, so it is not on the wire.
+  it("has no design: the theme's properties and required list are palette and font, in the Zod schema and on the wire", () => {
+    for (const schema of [AI_DRAFT_JSON_SCHEMA, toWireSchema(AI_DRAFT_JSON_SCHEMA)]) {
+      const theme = (schema.properties as Json).theme as Json;
+      expect({ properties: Object.keys(theme.properties as Json), required: theme.required }).toEqual({ properties: ["palette", "font"], required: ["palette", "font"] });
+    }
+    expect(JSON.stringify(toWireSchema(AI_DRAFT_JSON_SCHEMA))).not.toContain("design");
   });
 });
 

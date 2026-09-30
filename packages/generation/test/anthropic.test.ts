@@ -5,7 +5,7 @@ import { MODELS } from "../src/models.ts";
 import { buildPrompt, type Prompt } from "../src/prompt.ts";
 import { ProviderError } from "../src/provider.ts";
 import { AnthropicProvider } from "../src/providers/anthropic.ts";
-import { templateDraft } from "../src/template.ts";
+import { templateAnswer } from "../src/template.ts";
 import { AI_DRAFT_JSON_SCHEMA, toWireSchema } from "../src/wire-schema.ts";
 import { abortedSignal, fakeFetch } from "./support/http.ts";
 import { BRIEF, FULL_FACTS, FULL_SNAPSHOT } from "./support/samples.ts";
@@ -615,7 +615,7 @@ const abortMidBody = (controller: AbortController, status: number) => async (_in
 const unreadable = (status: number) => async (): Promise<Response> =>
   new Response(new ReadableStream({ start: (controller) => controller.error(new TypeError("terminated")) }), { status });
 
-const VALID_ANSWER = { status: 200, body: message(JSON.stringify(templateDraft(FULL_FACTS, BRIEF))) };
+const VALID_ANSWER = { status: 200, body: message(JSON.stringify(templateAnswer(FULL_FACTS, BRIEF))) };
 const DEPS = { sleep: async () => {}, timeoutSignal: () => new AbortController().signal, now: () => 0 };
 
 describe("AnthropicProvider: our abort while the body is read (P3-11 a)", () => {

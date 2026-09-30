@@ -1,4 +1,4 @@
-import { AiDraft, toIssues, type Issue } from "@asksite/core";
+import { AiAnswer, draftFromAnswer, toIssues, type AiDraft, type Issue } from "@asksite/core";
 import { SiteDocument, type Facts } from "@asksite/site-schema";
 import { wellFormed } from "./model-facts.ts";
 import { AI_DRAFT_JSON_SCHEMA, toWireSchema } from "./wire-schema.ts";
@@ -116,15 +116,17 @@ export function bindServiceNames(facts: Facts, json: unknown): unknown {
 /**
  * The single acceptance test for AI output (design §6.1): the answer, with the case of its enum values
  * normalized (normalizeEnumCase) and its service names bound to the owner's (bindServiceNames), must be
- * an AiDraft, and SiteDocument must accept it with these facts and no hidden sections. That runs every
- * Plan 1 rule: caps, no digits or links, Latin script, hidden characters, the claim checker, the
- * owner-fact sections and one description per service. The two steps touch different positions (enum
- * values; the free-text service names), so their order does not change the result. Returns the parsed draft.
+ * an AiAnswer (no page design: A12), and SiteDocument must accept the draft it makes with these facts and
+ * no hidden sections. That runs every Plan 1 rule: caps, no digits or links, Latin script, hidden
+ * characters, the claim checker, the owner-fact sections and one description per service. The two steps
+ * touch different positions (enum values; the free-text service names), so their order does not change the
+ * result. Returns the draft to store: the parsed answer on the trade's design (draftFromAnswer).
  */
 export function checkDraft(facts: Facts, json: unknown): DraftCheck {
-  const shape = AiDraft.safeParse(bindServiceNames(facts, normalizeEnumCase(WIRE_SCHEMA, json)));
+  const shape = AiAnswer.safeParse(bindServiceNames(facts, normalizeEnumCase(WIRE_SCHEMA, json)));
   if (!shape.success) return { ok: false, issues: toIssues(shape.error) };
-  const doc = SiteDocument.safeParse({ facts, ...shape.data, hidden: [] });
+  const draft = draftFromAnswer(shape.data, facts.trade);
+  const doc = SiteDocument.safeParse({ facts, ...draft, hidden: [] });
   if (!doc.success) return { ok: false, issues: toIssues(doc.error) };
-  return { ok: true, draft: shape.data };
+  return { ok: true, draft };
 }
