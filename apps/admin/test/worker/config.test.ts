@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 // §9.1 "Unsafe production configuration" for the admin Worker. wrangler.jsonc is plain JSON.
 const config = JSON.parse(readFileSync(new URL("../../wrangler.jsonc", import.meta.url), "utf8")) as {
+  main: unknown;
   compatibility_date: unknown;
   compatibility_flags?: string[];
   routes: unknown;
@@ -34,6 +35,10 @@ describe("production wrangler.jsonc", () => {
     expect(config.vars["MAILER"]).toBe("resend");
     expect(config.vars["MODEL_PROVIDER"]).not.toBe("fake");
     expect(JSON.stringify(config)).not.toContain('"dev"');
+  });
+
+  it("is built from ./src/worker/index.ts, inside the src/ tree that clock-seam.test.ts checks", () => {
+    expect(config.main).toBe("./src/worker/index.ts");
   });
 
   it("is reachable only on its own route and keeps request logs off", () => {
