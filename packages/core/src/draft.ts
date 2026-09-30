@@ -1,9 +1,26 @@
-import { Copy, Layout, OwnerHidden, SECTION_VARIANTS, Theme, type SectionId } from "@asksite/site-schema";
+import { Copy, Layout, OwnerHidden, SECTION_VARIANTS, Theme, ThemeChoice, type SectionId, type Trade } from "@asksite/site-schema";
 import { z } from "zod";
+import { designForTrade } from "./designs.ts";
 
-/** What the model returns: Plan 1 copy, layout and theme. Owner facts never come from the model. */
+/**
+ * What the model returns: Plan 1 copy, layout, palette and font. Owner facts never come from the model, and
+ * neither does the page design (user decision 2026-09-26): it is not on the wire, and draftFromAnswer adds it.
+ */
+export const AiAnswer = z.strictObject({
+  copy: Copy,
+  layout: Layout,
+  theme: z.strictObject({ palette: Theme.shape.palette, font: Theme.shape.font }),
+});
+export type AiAnswer = z.infer<typeof AiAnswer>;
+
+/** A stored draft (generations.output_json): an answer plus its page design. One stored before A12 gets DEFAULT_DESIGN. */
 export const AiDraft = z.strictObject({ copy: Copy, layout: Layout, theme: Theme });
 export type AiDraft = z.infer<typeof AiDraft>;
+
+/** The draft to store for an answer, the model's or the template's: it starts on the trade's design. */
+export function draftFromAnswer(answer: AiAnswer, trade: Trade): AiDraft {
+  return { ...answer, theme: { ...answer.theme, design: designForTrade(trade) } };
+}
 
 const EditText = z.string().max(2000);
 
@@ -60,14 +77,19 @@ export const SectionOrder = z
   .length(SECTION_IDS.length)
   .refine((ids) => new Set(ids).size === ids.length && ids[0] === "hero", { error: "Order must list every section once, hero first" });
 
-export const OwnerEdits = z.strictObject({
+const editsFields = {
   baseGenerationId: z.string().max(36).nullable(), // copy and order edits apply only to this generation (a newId(): 36 characters)
   copy: CopyEdits,
   order: SectionOrder.nullable(),
   hidden: OwnerHidden, // A6 schema from @asksite/site-schema (unique, hideable ids only)
-  theme: Theme.nullable(),
-});
+};
+
+/** Stored owner edits (sites.edits_json). A theme stored before A12 gets DEFAULT_DESIGN. */
+export const OwnerEdits = z.strictObject({ ...editsFields, theme: Theme.nullable() });
 export type OwnerEdits = z.infer<typeof OwnerEdits>;
+
+/** Owner edits in a request body (PATCH /draft): a theme must name its design. Parses to an OwnerEdits. */
+export const OwnerEditsBody = z.strictObject({ ...editsFields, theme: ThemeChoice.nullable() });
 
 /** A site's edits before the owner changes anything. Frozen, arrays included: every caller shares it. */
 export const EMPTY_EDITS: OwnerEdits = { baseGenerationId: null, copy: {}, order: null, hidden: [], theme: null };

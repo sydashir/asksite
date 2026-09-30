@@ -23,7 +23,7 @@
 - The approval rule is enforced by bindings: `asksite-sites` binds only `DB`, `LIVE` and `MEDIA` (read-only; a test fails on any `put` or `delete`), and `FORM_RL`; it never binds `WORK`. Only `asksite-admin` writes `LIVE` (design §0.2, §1.2).
 - D1 decides what is served; R2 only holds bytes. Everything except an approved, indexable page is sent with `X-Robots-Tag: noindex` (design §0.2, §7.4).
 - Logs hold IDs and error codes only: never tokens, emails, IPs, lead content or keys. Raw IPs are never stored (`hashIp` with the secret `IP_HASH_KEY`). The lead email goes only to the owner's verified login email (design §1.2, §7.5, §9.1).
-- WCAG 2.2 AA: every fixed page (404, 503, 429, 413/415, 400, thank-you, apex) passes axe (serious/critical WCAG 2.2 AA plus the structure rules) and reflows at 320 px (design §7.5, §9.2).
+- WCAG 2.2 AA: every fixed page (404, 503, 429, 413/415, 400, thank-you, apex) passes axe (every WCAG 2.2 A/AA violation fails, whatever axe's impact rating, plus the structure rules; A9 item 4) and reflows at 320 px (design §7.5, §9.2).
 - Everything is testable locally without accounts or keys (`createTestHarness`, `wrangler dev`, fakes). Only Task 19 needs the user's Cloudflare and Resend accounts.
 - Process hygiene (CLAUDE.md): stop every process you start. Never run a bare `killall node` or `pkill node` (the user's other projects run on node); stop by PID or by an exact pattern containing this repo's path, e.g. `pkill -f "/Users/ashir/Documents/workk2/web_maker/"`. After every task that starts `wrangler`, run the **leftover check** below; it must print `nothing left running`. It looks for this repo's path in any command line (wrangler and workerd from `node_modules`), and for `scripts/dev.ts`, `wrangler` or `workerd` processes whose working folder is this repo (`pnpm dev` and `node scripts/dev.ts` run with relative paths, so a path search alone misses them). Processes of another folder (another session's `pnpm dev`) are not listed and must be left alone. `pnpm dev` and the sites browser tests use fixed ports (8789, inspector 9239): two sessions cannot run either at the same time.
 
@@ -719,6 +719,17 @@ describe("toIssues", () => {
     if (refined.success) throw new Error("expected a refinement issue");
     expect(toIssues(refined.error)).toEqual([{ path: ["Symbol(s)"], code: "custom", message: "symbolic" }]);
   });
+
+  it("returns only the first 50 issues (A9)", () => {
+    const issuesFor = (count: number) => {
+      const result = z.array(z.string()).safeParse(Array.from({ length: count }, () => 0));
+      if (result.success) throw new Error("expected type issues");
+      return { zod: result.error.issues.length, ours: toIssues(result.error).map((issue) => issue.path) };
+    };
+    expect(issuesFor(50)).toEqual({ zod: 50, ours: Array.from({ length: 50 }, (_, i) => [i]) });
+    expect(issuesFor(51)).toEqual({ zod: 51, ours: Array.from({ length: 50 }, (_, i) => [i]) });
+    expect(issuesFor(10_000)).toEqual({ zod: 10_000, ours: Array.from({ length: 50 }, (_, i) => [i]) });
+  });
 });
 ```
 
@@ -904,9 +915,16 @@ export interface Issue {
   message: string;
 }
 
-/** Flattens a ZodError into plain issues; symbol path keys become String(key). */
+/**
+ * The most issues toIssues returns (A9). zod reports one issue per bad array element before any
+ * length check, so a facts JSON near LIMITS.factsJsonMaxBytes gave 152,289 issues (an 18.6 MB
+ * error body). The first 50 are kept, in zod's order.
+ */
+const MAX_ISSUES = 50;
+
+/** Flattens a ZodError into plain issues, the first MAX_ISSUES only; symbol path keys become String(key). */
 export function toIssues(error: z.ZodError): Issue[] {
-  return error.issues.map((issue) => ({
+  return error.issues.slice(0, MAX_ISSUES).map((issue) => ({
     path: issue.path.map((key) => (typeof key === "symbol" ? String(key) : key)),
     code: issue.code,
     message: issue.message,
@@ -1232,6 +1250,31 @@ export type AiDraft = z.infer<typeof AiDraft>;
 
 const EditText = z.string().max(2000);
 
+/** A plain object (prototype Object.prototype or null), as JSON.parse makes. Like z.record, this refuses
+ *  null, arrays and class instances such as Map or Date. */
+const isPlainObject = (value: unknown): value is Record<string, unknown> => {
+  if (typeof value !== "object" || value === null) return false;
+  const proto: unknown = Object.getPrototypeOf(value);
+  return proto === Object.prototype || proto === null;
+};
+
+/**
+ * Service name -> owner text. Not a plain z.record: zod 4.6.5's record drops an own "__proto__" key
+ * without an issue (its prototype-pollution guard), which would silently lose the owner's text for a
+ * service with that name (§2.8: such a name behaves like any other). The entries are checked as a Map
+ * and rebuilt with Object.fromEntries, which defines own data properties, so "__proto__" stays plain
+ * data and never sets a prototype. The limits and issue paths are z.record's; only a name over 40
+ * characters is reported as too_big instead of invalid_key. At most 12 entries, as many as Facts
+ * allows services (A8c), so the largest valid OwnerEdits is finite (LIMITS.editsJsonMaxBytes).
+ */
+const ServiceDescriptionEdits = z
+  .preprocess((value, ctx) => {
+    if (isPlainObject(value)) return new Map(Object.entries(value));
+    ctx.issues.push({ code: "invalid_type", expected: "record", input: value });
+    return value;
+  }, z.map(z.string().max(40), EditText).max(12))
+  .transform((edits) => Object.fromEntries(edits));
+
 /** Owner wording edits. After composition every Plan 1 Copy rule applies to them (design §2.2). */
 export const CopyEdits = z.strictObject({
   heroHeadline: EditText.optional(),
@@ -1246,9 +1289,7 @@ export const CopyEdits = z.strictObject({
       contact: EditText.nullable().optional(),
     })
     .optional(),
-  serviceDescriptions: z.record(z.string().max(40), EditText)
-    .refine((d) => Object.keys(d).length <= 12)
-    .optional(), // key = facts.services[].name, exact; at most as many as Facts allows services (A8c)
+  serviceDescriptions: ServiceDescriptionEdits.optional(), // key = the trimmed facts.services[].name (Decision 14)
   faq: z.array(z.strictObject({ question: EditText, answer: EditText })).max(8).optional(), // replaces the AI list
 });
 export type CopyEdits = z.infer<typeof CopyEdits>;
@@ -1584,7 +1625,7 @@ export const Brief = z.strictObject({
   notes: briefText(2000).optional(), // "Pretend you're texting a friend..."
   comments: z
     .record(z.string().regex(/^[a-z][a-zA-Z0-9]{0,39}$/), briefText(500))
-    .refine((c) => Object.keys(c).length <= 20)
+    .refine((c) => Object.keys(c).length <= 20, { error: "You can add at most 20 comments." })
     .default({}), // per-question comments, keyed by question id
   reviewsAreReal: z.boolean().default(false), // owner attests pasted reviews are real (FTC)
 });
@@ -1621,7 +1662,7 @@ export const LIMITS = {
   leadsPerSitePerDay: 50,
   leadRetentionDays: 180,
   publishRequestsPerSitePerDay: 20, // publish clicks (versions) per site per UTC day: bounds D1 and R2 growth (Plan 2 Decision 25)
-  factsJsonMaxBytes: 307_200, // 300 KiB: the largest valid Facts is 306,552 bytes once JSON-encoded (A8b; test/schemas.test.ts)
+  factsJsonMaxBytes: 307_200, // 300 KiB: the largest valid Facts is 306,352 bytes once JSON-encoded (A8b, A9; test/schemas.test.ts)
   briefJsonMaxBytes: 74_752, // 73 KiB: the largest valid Brief is 73,865 bytes once JSON-encoded (A8; test/schemas.test.ts)
   editsJsonMaxBytes: 436_224, // 426 KiB: the largest valid OwnerEdits is 435,810 bytes once JSON-encoded (A8c; test/schemas.test.ts)
 } as const;
@@ -1883,21 +1924,23 @@ import { z } from "zod";
 import { OwnerEdits } from "./draft.ts";
 import { TOKEN_PATTERN } from "./tokens.ts";
 
-// Request bodies of the owner and admin APIs (design §4.3). Emails are trimmed and lower-cased
-// before use; a body that fails its schema gets 422 validation_failed with issues.
+// Request bodies of the owner and admin APIs (design §4.3). Emails are trimmed before the email
+// check (A9: z.email() alone refuses surrounding spaces) and lower-cased before use; a body that
+// fails its schema gets 422 validation_failed with issues.
 
 const Token = z.string().regex(TOKEN_PATTERN);
 const Rev = z.int().min(1);
 const Json = z.record(z.string(), z.unknown());
+const Email = z.string().trim().pipe(z.email().max(254));
 export const AcceptInviteBody = z.strictObject({ token: Token });
-export const LoginBody = z.strictObject({ email: z.email().max(254) });
+export const LoginBody = z.strictObject({ email: Email });
 export const VerifyLoginBody = z.strictObject({ token: Token });
 export const PatchDraftBody = z
   .strictObject({ rev: Rev, facts: Json.optional(), brief: Json.optional(), edits: OwnerEdits.optional() })
   .refine((b) => b.facts !== undefined || b.brief !== undefined || b.edits !== undefined, { error: "Nothing to save" });
 export const SetSlugBody = z.strictObject({ rev: Rev, slug: z.string().max(40) });
 export const PublishBody = z.strictObject({ rev: Rev });
-export const CreateInviteBody = z.strictObject({ email: z.email().max(254) }); // always emailed
+export const CreateInviteBody = z.strictObject({ email: Email }); // always emailed
 export const ApproveBody = z.strictObject({
   htmlSha256: z.string().regex(/^[0-9a-f]{64}$/), // the version's html_sha256 as shown to the admin
   note: z.string().trim().max(1000).optional(),
@@ -2082,8 +2125,21 @@ afterAll(async () => {
   await server.close();
 });
 
-const OWNER = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
-const SITE = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+/** A fresh id, slug or token for one test, so a test never meets a row an earlier run left (A9b: --repeats). */
+const fresh = (): string => crypto.randomUUID();
+
+/**
+ * A new owner and a new site (fresh ids, default columns) for one test. Every test sets up its own
+ * rows with fresh ids, slugs and tokens, so each passes alone (-t), in any order (A9) and again
+ * against the same database (vitest --repeats, A9b).
+ */
+async function newSite(): Promise<{ owner: string; site: string }> {
+  const owner = fresh();
+  const site = fresh();
+  await db.prepare("INSERT INTO owners (id, email, created_at) VALUES (?, ?, ?)").bind(owner, `${owner}@example.com`, 1).run();
+  await db.prepare("INSERT INTO sites (id, owner_id, created_at, updated_at) VALUES (?, ?, ?, ?)").bind(site, owner, 1, 1).run();
+  return { owner, site };
+}
 
 describe("0001_init.sql", () => {
   it("creates every table", async () => {
@@ -2093,58 +2149,85 @@ describe("0001_init.sql", () => {
     ]);
   });
 
+  it("makes every table STRICT (A9)", async () => {
+    const { results } = await db.prepare("PRAGMA table_list").all<{ name: string; strict: number }>();
+    const ours = results.filter((t) => !/^(sqlite_|_cf_|d1_migrations$)/.test(t.name));
+    expect(ours).toHaveLength(12);
+    expect(ours.filter((t) => t.strict !== 1).map((t) => t.name)).toEqual([]);
+  });
+
+  it("refuses a value of the wrong type instead of storing it (STRICT, A9)", async () => {
+    const { owner, site } = await newSite();
+    const refused = /SQLITE_CONSTRAINT_DATATYPE/;
+    const id = fresh();
+    await expect(db.prepare("INSERT INTO owners (id, email, created_at) VALUES (?, ?, ?)").bind(id, `${id}@example.com`, "not-a-time").run()).rejects.toThrow(refused);
+    await expect(db.prepare("UPDATE sites SET created_at = ? WHERE id = ?").bind(1.5, site).run()).rejects.toThrow(refused);
+    await expect(
+      db.prepare("INSERT INTO login_tokens (token_hash, owner_id, created_at, expires_at) VALUES (?, ?, 1, ?)").bind(id, owner, "2026-09-25T00:00:00Z").run(),
+    ).rejects.toThrow(refused);
+    await expect(
+      db.prepare("INSERT INTO generations (id, site_id, owner_id, kind, status, input_json, cost_microusd, created_at) VALUES (?, ?, ?, 'first', 'failed', '{}', ?, 1)").bind(id, site, owner, 12.5).run(),
+    ).rejects.toThrow(refused);
+  });
+
   it("gives a new site the empty OwnerEdits and rev 1", async () => {
-    await db.prepare("INSERT INTO owners (id, email, created_at) VALUES (?, ?, ?)").bind(OWNER, "owner@example.com", 1).run();
-    await db.prepare("INSERT INTO sites (id, owner_id, created_at, updated_at) VALUES (?, ?, ?, ?)").bind(SITE, OWNER, 1, 1).run();
-    const row = await db.prepare("SELECT edits_json, rev, indexable, slug FROM sites WHERE id = ?").bind(SITE).first<{ edits_json: string; rev: number; indexable: number; slug: string | null }>();
+    const { site } = await newSite();
+    const row = await db.prepare("SELECT edits_json, rev, indexable, slug FROM sites WHERE id = ?").bind(site).first<{ edits_json: string; rev: number; indexable: number; slug: string | null }>();
     expect(OwnerEdits.parse(JSON.parse(row?.edits_json ?? "null"))).toEqual(EMPTY_EDITS);
     expect(row).toMatchObject({ rev: 1, indexable: 1, slug: null });
   });
 
   it("enforces foreign keys", async () => {
     await expect(
-      db.prepare("INSERT INTO sites (id, owner_id, created_at, updated_at) VALUES (?, ?, ?, ?)").bind("cccccccc-cccc-4ccc-8ccc-cccccccccccc", "no-such-owner", 1, 1).run(),
+      db.prepare("INSERT INTO sites (id, owner_id, created_at, updated_at) VALUES (?, ?, ?, ?)").bind(fresh(), "no-such-owner", 1, 1).run(),
     ).rejects.toThrow(/FOREIGN KEY constraint failed/);
   });
 
   it("allows many sites without a slug but never two with the same slug", async () => {
+    const { owner } = await newSite();
     const insert = (id: string, slug: string | null) =>
-      db.prepare("INSERT INTO sites (id, owner_id, slug, created_at, updated_at) VALUES (?, ?, ?, 1, 1)").bind(id, OWNER, slug).run();
-    await insert("dddddddd-dddd-4ddd-8ddd-dddddddddddd", null);
-    await insert("eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee", "joes");
-    await expect(insert("ffffffff-ffff-4fff-8fff-ffffffffffff", "joes")).rejects.toThrow(/UNIQUE constraint failed: sites.slug/);
+      db.prepare("INSERT INTO sites (id, owner_id, slug, created_at, updated_at) VALUES (?, ?, ?, 1, 1)").bind(id, owner, slug).run();
+    const slug = `joes-${fresh()}`;
+    await insert(fresh(), null);
+    await insert(fresh(), slug);
+    await expect(insert(fresh(), slug)).rejects.toThrow(/UNIQUE constraint failed: sites.slug/);
   });
 
   it("allows at most one queued or running generation per site (partial unique index)", async () => {
+    const { owner, site } = await newSite();
     const insert = (id: string, status: string) =>
-      db.prepare("INSERT INTO generations (id, site_id, owner_id, kind, status, input_json, created_at) VALUES (?, ?, ?, 'first', ?, '{}', 1)").bind(id, SITE, OWNER, status).run();
-    await insert("10000000-0000-4000-8000-000000000001", "succeeded");
-    await insert("10000000-0000-4000-8000-000000000002", "queued");
-    await expect(insert("10000000-0000-4000-8000-000000000003", "queued")).rejects.toThrow(/UNIQUE constraint failed: generations.site_id/);
-    await expect(insert("10000000-0000-4000-8000-000000000004", "running")).rejects.toThrow(/UNIQUE constraint failed/);
-    await insert("10000000-0000-4000-8000-000000000005", "failed");
+      db.prepare("INSERT INTO generations (id, site_id, owner_id, kind, status, input_json, created_at) VALUES (?, ?, ?, 'first', ?, '{}', 1)").bind(id, site, owner, status).run();
+    await insert(fresh(), "succeeded");
+    await insert(fresh(), "queued");
+    await expect(insert(fresh(), "queued")).rejects.toThrow(/UNIQUE constraint failed: generations.site_id/);
+    await expect(insert(fresh(), "running")).rejects.toThrow(/UNIQUE constraint failed/);
+    await insert(fresh(), "failed");
   });
 
   it("rejects values outside the CHECK constraints", async () => {
-    await expect(db.prepare("UPDATE sites SET indexable = 2 WHERE id = ?").bind(SITE).run()).rejects.toThrow(/CHECK constraint failed/);
+    const { site } = await newSite();
+    await expect(db.prepare("UPDATE sites SET indexable = 2 WHERE id = ?").bind(site).run()).rejects.toThrow(/CHECK constraint failed/);
     await expect(
-      db.prepare("INSERT INTO leads (id, site_id, created_at, name, phone, email_status, ip_hash) VALUES ('l1', ?, 1, 'n', 'p', 'lost', 'h')").bind(SITE).run(),
+      db.prepare("INSERT INTO leads (id, site_id, created_at, name, phone, email_status, ip_hash) VALUES (?, ?, 1, 'n', 'p', 'lost', 'h')").bind(fresh(), site).run(),
     ).rejects.toThrow(/CHECK constraint failed/);
   });
 
   it("numbers versions uniquely per site", async () => {
+    const { owner, site } = await newSite();
     const insert = (id: string, n: number) =>
       db.prepare(
         "INSERT INTO site_versions (id, site_id, number, status, document_json, document_sha256, edits_json, html_key, html_sha256, stylesheet_sha256, requested_by, requested_at) VALUES (?, ?, ?, 'pending', '{}', 'd', '{}', 'k', 'h', 's', ?, 1)",
-      ).bind(id, SITE, n, OWNER).run();
-    await insert("20000000-0000-4000-8000-000000000001", 1);
-    await expect(insert("20000000-0000-4000-8000-000000000002", 1)).rejects.toThrow(/UNIQUE constraint failed: site_versions.site_id, site_versions.number/);
+      ).bind(id, site, n, owner).run();
+    await insert(fresh(), 1);
+    await expect(insert(fresh(), 1)).rejects.toThrow(/UNIQUE constraint failed: site_versions.site_id, site_versions.number/);
   });
 
   it("consumes a single-use token exactly once, even when two verifies race", async () => {
-    await db.prepare("INSERT INTO login_tokens (token_hash, owner_id, created_at, expires_at) VALUES ('t1', ?, 1, ?)").bind(OWNER, Number.MAX_SAFE_INTEGER).run();
+    const { owner } = await newSite();
+    const token = fresh();
+    await db.prepare("INSERT INTO login_tokens (token_hash, owner_id, created_at, expires_at) VALUES (?, ?, 1, ?)").bind(token, owner, Number.MAX_SAFE_INTEGER).run();
     const consume = () =>
-      db.prepare("UPDATE login_tokens SET used_at = ? WHERE token_hash = ? AND used_at IS NULL AND expires_at > ?").bind(2, "t1", 2).run();
+      db.prepare("UPDATE login_tokens SET used_at = ? WHERE token_hash = ? AND used_at IS NULL AND expires_at > ?").bind(2, token, 2).run();
     const results = await Promise.all([consume(), consume(), consume()]);
     expect(results.map((r) => r.meta.changes).sort()).toEqual([0, 0, 1]);
   });
@@ -2154,7 +2237,7 @@ describe("0001_init.sql", () => {
 - [ ] **Step 3: Run it and watch it fail**
 
 Run: `pnpm vitest run packages/core/test/migration.workerd.test.ts`
-Expected: FAIL: `Error: No migrations present at …/packages/core/migrations.` and `Tests  8 skipped (8)`.
+Expected: FAIL: `Error: No migrations present at …/packages/core/migrations.` and `Tests  10 skipped (10)` (8 before A9 added the two STRICT tests).
 
 - [ ] **Step 4: Write the migration**
 
@@ -2170,7 +2253,7 @@ CREATE TABLE owners (
   created_at INTEGER NOT NULL,
   disabled_at INTEGER,
   disabled_reason TEXT
-);
+) STRICT;
 
 CREATE TABLE sites (
   id TEXT PRIMARY KEY,
@@ -2187,7 +2270,7 @@ CREATE TABLE sites (
   takedown_reason TEXT,
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
-);
+) STRICT;
 CREATE INDEX sites_owner ON sites(owner_id);
 
 CREATE TABLE invites (
@@ -2201,7 +2284,7 @@ CREATE TABLE invites (
   revoked_at INTEGER,
   owner_id TEXT REFERENCES owners(id),
   site_id TEXT REFERENCES sites(id)
-);
+) STRICT;
 
 CREATE TABLE login_tokens (
   token_hash TEXT PRIMARY KEY,
@@ -2209,7 +2292,7 @@ CREATE TABLE login_tokens (
   created_at INTEGER NOT NULL,
   expires_at INTEGER NOT NULL,
   used_at INTEGER
-);
+) STRICT;
 CREATE INDEX login_tokens_owner ON login_tokens(owner_id, created_at);
 
 CREATE TABLE sessions (
@@ -2218,7 +2301,7 @@ CREATE TABLE sessions (
   created_at INTEGER NOT NULL,
   expires_at INTEGER NOT NULL,
   last_seen_at INTEGER NOT NULL
-);
+) STRICT;
 CREATE INDEX sessions_owner ON sessions(owner_id);
 
 CREATE TABLE uploads (
@@ -2229,7 +2312,7 @@ CREATE TABLE uploads (
   bytes INTEGER NOT NULL,
   created_at INTEGER NOT NULL,
   deleted_at INTEGER
-);
+) STRICT;
 CREATE INDEX uploads_site ON uploads(site_id);
 
 CREATE TABLE generations (
@@ -2253,7 +2336,7 @@ CREATE TABLE generations (
   created_at INTEGER NOT NULL,
   started_at INTEGER,
   finished_at INTEGER
-);
+) STRICT;
 CREATE INDEX generations_site ON generations(site_id, created_at);
 CREATE INDEX generations_owner ON generations(owner_id);
 CREATE INDEX generations_slots ON generations(model_slot, started_at);
@@ -2277,7 +2360,7 @@ CREATE TABLE site_versions (
   reviewed_at INTEGER,
   review_note TEXT,
   UNIQUE (site_id, number)
-);
+) STRICT;
 CREATE INDEX site_versions_status ON site_versions(status, requested_at);
 
 CREATE TABLE leads (
@@ -2293,7 +2376,7 @@ CREATE TABLE leads (
   email_status TEXT NOT NULL CHECK (email_status IN ('pending', 'sent', 'failed', 'skipped')),
   email_error TEXT,
   ip_hash TEXT NOT NULL
-);
+) STRICT;
 CREATE INDEX leads_site ON leads(site_id, created_at);
 
 CREATE TABLE settings (
@@ -2301,7 +2384,7 @@ CREATE TABLE settings (
   value TEXT NOT NULL,
   updated_at INTEGER NOT NULL,
   updated_by TEXT NOT NULL
-);
+) STRICT;
 
 CREATE TABLE audit_log (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -2310,7 +2393,7 @@ CREATE TABLE audit_log (
   action TEXT NOT NULL,                 -- one of AUDIT_ACTIONS
   site_id TEXT,
   detail_json TEXT
-);
+) STRICT;
 CREATE INDEX audit_site ON audit_log(site_id, at);
 
 CREATE TABLE dev_outbox (               -- written only by LogMailer (development/test); never in production
@@ -2320,7 +2403,7 @@ CREATE TABLE dev_outbox (               -- written only by LogMailer (developmen
   subject TEXT NOT NULL,
   text TEXT NOT NULL,
   tag TEXT NOT NULL
-);
+) STRICT;
 ```
 
 - [ ] **Step 5: Run the core tests and the typecheck**
@@ -6912,16 +6995,15 @@ import { E2E_FIXTURES } from "./global-setup.ts";
 const ROOT = "localhost:8789";
 const sites = (): Record<string, { siteId: string; url: string }> => JSON.parse(process.env["ASKSITE_E2E_SITES"] ?? "{}");
 
-// The same gates as Plan 1's e2e: serious/critical WCAG 2.2 AA violations plus every structure rule.
+// The same gates as Plan 1's e2e (A9 item 4): every WCAG 2.2 A/AA violation, whatever axe's impact rating
+// (impact is severity, not the WCAG level: meta-viewport is AA but rated moderate), plus every structure rule.
 const WCAG_TAGS = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"];
 const STRUCTURE_RULES = ["region", "heading-order", "landmark-one-main", "landmark-unique", "page-has-heading-one"];
 
 async function axeProblems(page: Page): Promise<string[]> {
   const wcag = await new AxeBuilder({ page }).withTags(WCAG_TAGS).analyze();
   const structure = await new AxeBuilder({ page }).withRules(STRUCTURE_RULES).analyze();
-  return [...wcag.violations.filter((v) => v.impact === "serious" || v.impact === "critical"), ...structure.violations].map(
-    (v) => `${v.id}: ${v.nodes.map((n) => n.target.join(" ")).join(" | ")}`,
-  );
+  return [...wcag.violations, ...structure.violations].map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(" ")).join(" | ")}`);
 }
 
 const sidewaysScroll = (page: Page) => page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
@@ -7657,6 +7739,10 @@ Expected: the diff shows only the domain, the database id, the sender name and t
 
 Run: `pnpm exec wrangler d1 migrations apply asksite --remote -c apps/sites/wrangler.jsonc`
 Expected: `0001_init.sql` listed with ✅.
+
+Then check that production D1 made every table STRICT (A9; local D1 is proven by `migration.workerd.test.ts`):
+Run: `pnpm exec wrangler d1 execute asksite --remote -c apps/sites/wrangler.jsonc --json --command "PRAGMA table_list"`
+Expected: each of the 12 tables of `0001_init.sql` (`owners` … `dev_outbox`) has `"strict": 1`. If any has `0`, stop and tell the moderator before deploying.
 
 - [ ] **Step 6: DNS records (Cloudflare dashboard → DNS)**
 

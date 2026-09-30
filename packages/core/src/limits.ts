@@ -13,7 +13,7 @@ export const LIMITS = {
   leadsPerNetworkPerDay: 5, // one network across all sites, spam included (A15)
   leadRetentionDays: 180,
   publishRequestsPerSitePerDay: 20, // publish clicks (versions) per site per UTC day: bounds D1 and R2 growth (Plan 2 Decision 25)
-  factsJsonMaxBytes: 307_200, // 300 KiB: the largest valid Facts is 306,552 bytes once JSON-encoded (A8b; test/schemas.test.ts)
+  factsJsonMaxBytes: 307_200, // 300 KiB: the largest valid Facts is 306,352 bytes once JSON-encoded (A8b, A9; test/schemas.test.ts)
   briefJsonMaxBytes: 74_752, // 73 KiB: the largest valid Brief is 73,865 bytes once JSON-encoded (A8; test/schemas.test.ts)
-  editsJsonMaxBytes: 436_224, // 426 KiB: the largest valid OwnerEdits is 435,810 bytes once JSON-encoded (A8c; test/schemas.test.ts)
+  editsJsonMaxBytes: 436_224, // 426 KiB: the largest valid OwnerEdits is 435,829 bytes once JSON-encoded (A8c, A12; test/schemas.test.ts)
 } as const;

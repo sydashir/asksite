@@ -14,6 +14,9 @@ importers:
       '@asksite/renderer':
         specifier: workspace:*
         version: link:packages/renderer
+      '@asksite/site-css':
+        specifier: workspace:*
+        version: link:packages/site-css
       '@asksite/site-schema':
         specifier: workspace:*
         version: link:packages/site-schema
@@ -125,6 +128,10 @@ importers:
         version: 4.3.3
 
   packages/site-css:
+    dependencies:
+      '@asksite/site-schema':
+        specifier: workspace:*
+        version: link:../site-schema
     devDependencies:
       '@asksite/core':
         specifier: workspace:*
@@ -141,6 +148,10 @@ importers:
       zod:
         specifier: 4.6.5
         version: 4.6.5
+    devDependencies:
+      wrangler:
+        specifier: 4.138.0
+        version: 4.138.0(@cloudflare/workers-types@5.20260924.1)(@types/node@24.13.6)
 
 packages:
 

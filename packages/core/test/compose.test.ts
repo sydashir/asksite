@@ -1,12 +1,14 @@
 import { render } from "@asksite/renderer";
 import { SiteDocument, type SiteDocumentInput } from "@asksite/site-schema";
 import { describe, expect, expectTypeOf, it } from "vitest";
-import { FIXTURES, loadFixture } from "../../../fixtures/index.ts";
+import { FIXTURES, loadFixture, stubStylesheets } from "../../../fixtures/index.ts";
 import {
+  AiAnswer,
   AiDraft,
   canonicalJson,
   composeDocument,
   documentSha256,
+  draftFromAnswer,
   EMPTY_EDITS,
   mediaUrl,
   OwnerEdits,
@@ -38,8 +40,8 @@ describe("composeDocument", () => {
     const fixture = loadFixture(name);
     const { facts, ai } = split(fixture);
     const composed = SiteDocument.parse(composeDocument(facts, ai, EMPTY_EDITS));
-    const options = { stylesheet: "/* css */", formAction: "https://joes.asksite.example/_f/x" };
-    expect(render(composed, options)).toBe(render(fixture, options));
+    const options = { stylesheets: stubStylesheets(), formAction: "https://joes.asksite.example/_f/x" };
+    expect(render(composed, options)).toEqual(render(fixture, options));
   });
 
   it("stays valid when the owner adds a first photo, review and licence after generation", () => {
@@ -100,13 +102,13 @@ describe("composeDocument", () => {
       copy: { heroHeadline: "Old wording" },
       order: ["hero", "faq", ...SECTION_IDS.filter((id) => id !== "hero" && id !== "faq")],
       hidden: ["faq"],
-      theme: { palette: "charcoal-red", font: "sturdy" },
+      theme: { palette: "charcoal-red", font: "sturdy", design: "refined" },
     });
     const composed = composeDocument(facts, ai, stale);
     expect(composed.copy.heroHeadline).toBe(ai.draft.copy.heroHeadline);
     expect(composed.layout.map((s) => s.id)).toEqual(ai.draft.layout.map((s) => s.id));
     expect(composed.hidden).toEqual(["faq"]);
-    expect(composed.theme).toEqual({ palette: "charcoal-red", font: "sturdy" });
+    expect(composed.theme).toEqual({ palette: "charcoal-red", font: "sturdy", design: "refined" });
     expect(ownerEditedPaths(ai, stale)).toEqual([]);
   });
 
@@ -187,6 +189,29 @@ describe("composeDocument", () => {
     const composed = composeDocument(facts, ai, owner);
     expect(composed.hidden).toEqual(["faq"]);
     expect(composed.hidden).not.toBe(owner.hidden);
+  });
+});
+
+describe("page designs in the document (A12)", () => {
+  it("the stored draft's design reaches the document", () => {
+    const fixture = loadFixture("roofing-extreme");
+    const { facts, ai } = split(fixture);
+    const refined = { ...ai, draft: draftFromAnswer(AiAnswer.parse({ ...ai.draft, theme: { palette: "green-amber", font: "sturdy" } }), "roofing") };
+    expect(SiteDocument.parse(composeDocument(facts, refined, EMPTY_EDITS)).theme).toEqual({ palette: "green-amber", font: "sturdy", design: "refined" });
+  });
+
+  it("the owner's theme, design included, overrides the draft's", () => {
+    const { facts, ai } = split(loadFixture("plumber-austin"));
+    const theme = { palette: "blue-yellow", font: "friendly", design: "modern" } as const;
+    expect(SiteDocument.parse(composeDocument(facts, ai, edits({ theme }))).theme).toEqual(theme);
+  });
+
+  it("a design-only change moves documentSha256", async () => {
+    const { facts, ai } = split(loadFixture("hvac-phoenix"));
+    const shaFor = (design: "impact" | "refined") =>
+      documentSha256(SiteDocument.parse(composeDocument(facts, ai, edits({ theme: { ...ai.draft.theme, design } }))));
+    expect(ai.draft.theme.design).toBe("impact");
+    expect(await shaFor("refined")).not.toBe(await shaFor("impact"));
   });
 });
 

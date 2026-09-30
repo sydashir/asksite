@@ -1,4 +1,4 @@
-import { DAYS, Facts, FONT_IDS, HIDEABLE_SECTIONS, PALETTE_IDS, SOCIAL_NETWORKS, Theme, TRADES } from "@asksite/site-schema";
+import { DAYS, DESIGN_IDS, Facts, FONT_IDS, HIDEABLE_SECTIONS, PALETTE_IDS, SOCIAL_NETWORKS, Theme, TRADES } from "@asksite/site-schema";
 import { describe, expect, expectTypeOf, it } from "vitest";
 import { z } from "zod";
 import {
@@ -7,11 +7,13 @@ import {
   AUDIT_ACTIONS,
   Brief,
   canonicalJson,
+  CreateInviteBody,
   EMPTY_EDITS,
   ERROR_STATUS,
   GOALS,
   LIMITS,
   LOOKS,
+  LoginBody,
   newId,
   newToken,
   OwnerEdits,
@@ -67,6 +69,14 @@ describe("Brief", () => {
   it("rejects unknown keys", () => {
     expect(Brief.safeParse({ tone: "friendly", goal: "call", extra: 1 }).success).toBe(false);
   });
+
+  it("tells the owner how many comments they can add (A9)", () => {
+    const many = Object.fromEntries(Array.from({ length: 21 }, (_, i) => [`q${i}`, "x"]));
+    const result = Brief.safeParse({ tone: "friendly", goal: "call", comments: many });
+    expect(result.success ? [] : result.error.issues.map((i) => ({ path: i.path, code: i.code, message: i.message }))).toEqual([
+      { path: ["comments"], code: "custom", message: "You can add at most 20 comments." },
+    ]);
+  });
 });
 
 describe("LIMITS.briefJsonMaxBytes", () => {
@@ -105,13 +115,13 @@ describe("LIMITS.briefJsonMaxBytes", () => {
 
 describe("LIMITS.factsJsonMaxBytes", () => {
   // The largest valid Facts: every list at its longest and every field at its cap, in the costliest
-  // characters. Facts text and URLs both accept a lone surrogate. A URL must start "https:" and name
-  // a host that holds no lone surrogate, so the costliest URL is "https:", one 3-byte host character
-  // ("ａ", read as "a"), a backslash (read as "/", 2 bytes once JSON-encoded), then lone surrogates.
-  // A social link's host must be its network's. Trying every code point the URL parser reads as
-  // ASCII, the largest link is google's with g.page spelled "ｇ．㎩ｇｅ" (㎩ reads "pa"): the fewest
-  // host characters leave the most room for lone surrogates. The looser test below needs no search.
-  const url = (host: string) => `https:${host}\\${lone.repeat(2048 - "https:".length - host.length - 1)}`;
+  // characters. Facts text and URLs both accept a lone surrogate. A URL must start "https://" (A9) and
+  // name a host that holds no lone surrogate, so the costliest URL is "https://", one 3-byte host
+  // character ("ａ", read as "a"), a backslash (read as "/", 2 bytes once JSON-encoded), then lone
+  // surrogates. A social link's host must be its network's. Trying every code point the URL parser
+  // reads as ASCII, the largest link is google's with g.page spelled "ｇ．㎩ｇｅ" (㎩ reads "pa"): the
+  // fewest host characters leave the most room for lone surrogates. The looser test below needs no search.
+  const url = (host: string) => `https://${host}\\${lone.repeat(2048 - "https://".length - host.length - 1)}`;
   const photo = { url: url("ａ"), alt: lone.repeat(125), width: 10_000, height: 10_000, caption: lone.repeat(80) };
   const link = { network: "google", url: url("ｇ．㎩ｇｅ") };
   const largest = {
@@ -140,7 +150,7 @@ describe("LIMITS.factsJsonMaxBytes", () => {
 
   it("holds the largest valid Facts once JSON-encoded, rounded up to a whole KiB", () => {
     const bytes = jsonBytes(Facts.parse(largest));
-    expect(bytes).toBe(306_552);
+    expect(bytes).toBe(306_352);
     expect(bytes).toBeLessThanOrEqual(LIMITS.factsJsonMaxBytes);
     expect(LIMITS.factsJsonMaxBytes).toBe(Math.ceil(bytes / 1024) * 1024);
   });
@@ -233,7 +243,7 @@ describe("LIMITS.editsJsonMaxBytes", () => {
     },
     order: [...SECTION_IDS], // every order lists the same ids, so every order is the same size
     hidden: [...HIDEABLE_SECTIONS],
-    theme: { palette: longest(PALETTE_IDS), font: longest(FONT_IDS) },
+    theme: { palette: longest(PALETTE_IDS), font: longest(FONT_IDS), design: longest(DESIGN_IDS) },
   };
 
   it("fills every field OwnerEdits allows", () => {
@@ -248,7 +258,7 @@ describe("LIMITS.editsJsonMaxBytes", () => {
 
   it("holds the largest valid OwnerEdits once JSON-encoded, rounded up to a whole KiB (never below 64 KiB)", () => {
     const bytes = jsonBytes(OwnerEdits.parse(largest));
-    expect(bytes).toBe(435_810);
+    expect(bytes).toBe(435_829); // 435,810 before A12, plus ,"design":"refined" (19 bytes)
     expect(bytes).toBeLessThanOrEqual(LIMITS.editsJsonMaxBytes);
     expect(LIMITS.editsJsonMaxBytes).toBe(Math.max(65_536, Math.ceil(bytes / 1024) * 1024));
   });
@@ -278,6 +288,7 @@ describe("LIMITS.editsJsonMaxBytes", () => {
     ["the section order", { order: [...SECTION_IDS, "faq"] }],
     ["the hidden list", { hidden: [...HIDEABLE_SECTIONS, "faq"] }],
     ["the look", { theme: { ...largest.theme, palette: `${largest.theme.palette}x` } }],
+    ["the design", { theme: { ...largest.theme, design: `${largest.theme.design}x` } }],
     ["an unknown wording field", { copy: { ...copy, motto: text } }],
     ["an unknown top-level field", { note: text }],
   ] as Array<[string, object]>)("is measured at the caps: one more in %s is refused", (_, change) => {
@@ -289,6 +300,25 @@ describe("request bodies", () => {
   it("accepts a real token and rejects anything else", () => {
     expect(AcceptInviteBody.safeParse({ token: newToken() }).success).toBe(true);
     expect(AcceptInviteBody.safeParse({ token: "short" }).success).toBe(false);
+  });
+
+  it.each([
+    ["LoginBody", LoginBody],
+    ["CreateInviteBody", CreateInviteBody],
+  ] as const)("%s trims the email before checking it (A9)", (_, Body) => {
+    expect(Body.parse({ email: " \t owner@example.com \n" })).toEqual({ email: "owner@example.com" });
+    expect(Body.parse({ email: ` ${"a".repeat(242)}@example.com ` }).email).toHaveLength(254); // the cap counts the trimmed email
+    expect(Body.safeParse({ email: `${"a".repeat(243)}@example.com` }).success).toBe(false); // 255 characters
+    expect(Body.safeParse({ email: "   " }).success).toBe(false);
+    expect(Body.safeParse({ email: "owner at example.com" }).success).toBe(false);
+    expect(Body.safeParse({ email: 42 }).success).toBe(false);
+  });
+
+  it("LoginBody and CreateInviteBody keep their types (A9)", () => {
+    expectTypeOf<z.input<typeof LoginBody>>().toEqualTypeOf<{ email: string }>();
+    expectTypeOf<z.output<typeof LoginBody>>().toEqualTypeOf<{ email: string }>();
+    expectTypeOf<z.input<typeof CreateInviteBody>>().toEqualTypeOf<{ email: string }>();
+    expectTypeOf<z.output<typeof CreateInviteBody>>().toEqualTypeOf<{ email: string }>();
   });
 
   it("PatchDraftBody needs at least one part", () => {
@@ -325,6 +355,16 @@ describe("constants", () => {
     expect(LIMITS.leadRetentionDays).toBe(180);
     expect(LIMITS.publishRequestsPerSitePerDay).toBe(20);
     expect(AUDIT_ACTIONS).toContain("site.taken_down");
+  });
+
+  it("lists the audit actions append-only: A14 adds admin.login_link_sent (the admin 'Send sign-in link', A11b) last", () => {
+    // audit_log.action has no SQL CHECK (0001_init.sql), so stored rows keep their meaning when an action is added.
+    expect(AUDIT_ACTIONS).toEqual([
+      "invite.created", "invite.revoked", "invite.accepted", "auth.login",
+      "generation.requested", "version.requested", "version.withdrawn", "version.approved", "version.rejected",
+      "site.taken_down", "site.restored", "site.indexable_changed", "owner.disabled", "owner.enabled",
+      "settings.updated", "admin.login_link_sent",
+    ]);
   });
 });
 

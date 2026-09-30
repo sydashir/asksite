@@ -1,5 +1,16 @@
-import { describe, expect, it } from "vitest";
-import { factSections, Facts, SiteDocument, type SiteDocumentInput } from "../src/index.ts";
+import { describe, expect, expectTypeOf, it } from "vitest";
+import type { z } from "zod";
+import {
+  DEFAULT_DESIGN,
+  DESIGN_IDS,
+  factSections,
+  Facts,
+  SiteDocument,
+  Theme,
+  ThemeChoice,
+  type DesignId,
+  type SiteDocumentInput,
+} from "../src/index.ts";
 
 const doc: SiteDocumentInput = {
   facts: {
@@ -54,6 +65,14 @@ describe("SiteDocument", () => {
   it("rejects an unknown palette or font", () => {
     expect(issues({ ...doc, theme: { palette: "hot-pink", font: "clean" } })).toHaveLength(1);
     expect(issues({ ...doc, theme: { palette: "navy-orange", font: "comic" } })).toHaveLength(1);
+  });
+
+  it("gives a stored theme without a design the default design, and keeps a named one (A12)", () => {
+    expect(SiteDocument.parse(doc).theme).toEqual({ palette: "green-amber", font: "clean", design: "impact" });
+    expect(SiteDocument.parse({ ...doc, theme: { ...doc.theme, design: "modern" } }).theme.design).toBe("modern");
+    expect(issues({ ...doc, theme: { ...doc.theme, design: "brutalist" } })).toEqual([
+      'theme.design: Invalid option: expected one of "impact"|"refined"|"modern"',
+    ]);
   });
 
   it("needs one service description per owner service, named and in order", () => {
@@ -125,5 +144,44 @@ describe("SiteDocument", () => {
   it("keeps facts out of copy and copy out of facts", () => {
     expect(issues({ ...doc, copy: { ...doc.copy, phone: "+15125550142" } })).toHaveLength(1);
     expect(issues({ ...doc, facts: { ...doc.facts, heroHeadline: "x" } })).toHaveLength(1);
+  });
+});
+
+describe("page designs (A12)", () => {
+  const colours = { palette: "navy-orange", font: "clean" } as const;
+  const problems = (schema: typeof Theme | typeof ThemeChoice, input: unknown) => {
+    const result = schema.safeParse(input);
+    return result.success ? [] : result.error.issues.map((i) => ({ path: i.path, code: i.code, message: i.message }));
+  };
+  const unknownDesign = [{ path: ["design"], code: "invalid_value", message: 'Invalid option: expected one of "impact"|"refined"|"modern"' }];
+
+  it("has three permanent design ids, and impact is the default", () => {
+    expect(DESIGN_IDS).toEqual(["impact", "refined", "modern"]);
+    expect(DEFAULT_DESIGN).toBe("impact");
+    expectTypeOf<DesignId>().toEqualTypeOf<"impact" | "refined" | "modern">();
+  });
+
+  it("Theme (stored data) fills the default design; ThemeChoice (incoming data) requires one", () => {
+    expect(Theme.parse(colours)).toEqual({ ...colours, design: "impact" });
+    expect(problems(ThemeChoice, colours)).toEqual(unknownDesign);
+    for (const design of DESIGN_IDS) {
+      expect(Theme.parse({ ...colours, design })).toEqual({ ...colours, design });
+      expect(ThemeChoice.parse({ ...colours, design })).toEqual({ ...colours, design });
+    }
+  });
+
+  it("both refuse an unknown design, a design of the wrong type and an unknown key", () => {
+    for (const schema of [Theme, ThemeChoice]) {
+      expect(problems(schema, { ...colours, design: "brutalist" })).toEqual(unknownDesign);
+      expect(problems(schema, { ...colours, design: "Impact" })).toEqual(unknownDesign);
+      expect(problems(schema, { ...colours, design: null })).toEqual(unknownDesign);
+      expect(problems(schema, { ...colours, design: "impact", layout: "grid" }).map((i) => i.code)).toEqual(["unrecognized_keys"]);
+    }
+  });
+
+  it("types the stored and the incoming theme alike once parsed", () => {
+    expectTypeOf<z.output<typeof Theme>>().toEqualTypeOf<z.output<typeof ThemeChoice>>();
+    expectTypeOf<z.input<typeof Theme>["design"]>().toEqualTypeOf<DesignId | undefined>();
+    expectTypeOf<z.input<typeof ThemeChoice>["design"]>().toEqualTypeOf<DesignId>();
   });
 });

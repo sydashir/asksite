@@ -9,6 +9,9 @@
   "scripts": {
     "build": "node scripts/build.ts"
   },
+  "dependencies": {
+    "@asksite/site-schema": "workspace:*"
+  },
   "devDependencies": {
     "@asksite/core": "workspace:*",
     "@asksite/renderer": "workspace:*",

@@ -174,7 +174,31 @@ Assume 50 live sites, 5,000 page views per site per month and 20 leads per site 
 
 ### 2.2 Owner-edited wording: which rules apply, and escaping
 
-**Decision:** the composed copy must pass Plan 1's `Copy` schema and the `SiteDocument` checks unchanged. That means the 80/160/24/480/140/160/80/320 caps, the `FACT_LIKE` ban (no digits in any script, currency, `@`, `http:`, `https:` or `www.`), A1 (Latin, Common and Inherited scripts only), hidden-character bans (`\p{Cc}`, `\p{Cf}`, and `HIDDEN_IN_COPY`), NFKC, and the claim checker (`NEVER_IN_COPY`, and `NEEDS_A_FACT` backed by facts).
+**Decision:** the composed copy must pass Plan 1's `Copy` schema and the `SiteDocument` checks unchanged. That means the 80/160/24/480/140/160/80/320 caps, the `FACT_LIKE` ban (no digits in any script, currency, `@`, `http:`, `https:` or `www.`), A1 (Latin, Common and Inherited scripts only), the letter rule (A9b, A9c, A9e, A9f, A9g; below), hidden-character bans (`\p{Cc}`, `\p{Cf}`, and `HIDDEN_IN_COPY`), NFKC, and the claim checker (`NEVER_IN_COPY`, and `NEEDS_A_FACT` backed by facts).
+
+**Scope and standard (A9f, 2026-09-27):** the letter rule and the claim checker below apply only to copy (AI copy and owner copy edits), which is English marketing text. Facts (business names, places, testimonials, services) are never affected. The standard: no ordinary English marketing sentence is refused that main (acae4ab) accepts, English sentences with real proper names and places in any Latin orthography included (Hawaiian, Vietnamese, Spanish, Polish, Nordic, German, Azerbaijani names, GNIS names), and no look-alike claim that 3fc9a93 caught passes where catching it is cheap. Non-English running text, transliterations and IPA are accepted residuals (listed below); the approval screen is the backstop, and a claim message names the word that triggered it.
+
+**Letter rule (changed by A9b, A9c, A9d, A9e, A9f and A9g, 2026-09-27):** copy refuses small capitals, which pass for A-Z letters (and, since A9g, the Latin epigraphic letters; below): every letter whose Unicode name says SMALL CAPITAL (UnicodeData.txt 18.0.0: 78 letters in IPA Extensions, the Phonetic Extensions and Latin Extended-C, -D, -E, -F and -G, the modifier small capitals included), so "ɪnsured", "ᴄertified" and "ʟɪᴄᴇɴꜱᴇᴅ" are refused. Every other Latin letter is allowed, phonetic letters included (A9e), because real names and places use them: "Bjørn", "Łukasz", "Straße", "Cœur d’Alene", "Hawaiʻi" (U+02BB ʻokina), "Oʼahu" (U+02BC), "Tiệm Giặt Sấy", "Saïd", the glottal stop of "dukMéʔem wáťa" (GNIS 260516), the schwa of "Wewətanagok" (GNIS 580743) and of Azerbaijani names ("Ayşən Əbdüləzimova"), the saltillo of "Chevak Cupꞌik" and the open e and open o of West African names ("Ofon Na Ɛdi Asɛm Fo", "Oberi Ɔkaimɛ"). The claim checker reads the look-alikes among them as the A-Z letters they look like (below), so "ꬶuaranteed" and "licənsəd" are claims. A9's rule that every letter be A-Z once its accents are removed, and A9b's rule that refused every letter of the phonetic blocks (it refused "Wewətanagok" too), are replaced. Accepted residual: a real name or title written with a small capital is refused ("Hrøríkʀ of Novgorod", "Naimángitsoᴋ' Petersen", IPA titles such as "/ɪ/": 164 of the 1,550,638 non-ASCII English Wikipedia titles, measured by A9e and again by A9f), and (A9f ruling) so are small capitals used as ordinary letters in living African and Indigenous orthographies (Kusaal, Fante and Dagaare ᴐ and ᴜ: "Ba mᴐri", "Ankara yᴜᴜm", "Dzin Pᴐtsee"; Dagbani and Ewe ᴐ for ɔ: "kᴐŋko", "Igbo (gbegbᴐgblᴐ)"; Gua ɪ: "àkpálɪ̀"; Wendat ᴕ: "oskᴕenha") and IPA pronunciations in a sentence ("Nguyen sounds like /wɪn/."). The `FACT_LIKE` ban also refuses the Latin letters that look like a digit (A9c, `DIGIT_LETTER` in copy.ts): those Unicode's confusables.txt (18.0.0) reads as a digit, such as "Ƨ", "Ʒ" and "Ƽ", the other case of each, which draws the same digit smaller ("ƨ", "ƽ", "ȝ", "ǯ"), and the letters named after one of them ("ƺ", EZH WITH TAIL); "Ỽ" and "ỽ" (U+1EFC and U+1EFD, MIDDLE-WELSH V; A9d), which draw as a 6 and a small 6 in all six theme font stacks but have no confusables.txt entry; and (A9e) the letters of the blocks A9e opens that draw as a digit: those whose confusables.txt skeleton holds a digit or one of those letters ("ᴈ", "ᴤ", "ɮ", "ʤ", "Ꜩ", "ꜩ"), the cuatrillo "ꜭ" and "Ꜭ", which NamesList.txt cross-refers to the digit four, and "Ꜣ", "ꜣ", "Ꝝ", "Ꝣ", "ꝸ", "ᵷ", "ᵹ", "Ꞁ", "ꭋ", "Ꟃ", "Ꟑ" and "ꟼ", which draw as a digit in the Unicode 18.0 code charts, the macOS theme fonts or Noto Sans and Noto Serif; and (A9f) "Ɥ" and "ɥ" (TURNED H), which draw like an open 4, the letters named after ɥ ("ʮ", "ʯ") and U+1DF3E BARRED TURNED H of Unicode 18.0 (confusables.txt: ɥ + U+0335). So "Call (ƧOȢ) ƼƼƼ-…", "Call (ƨƽƽ) ƽƽƽ-…", "Save ỼO% on drain cleaning", "Save ꜭO% today" and "Save ꞍO% on drain cleaning" are refused. Accepted residual: real words written with such a letter are refused too (Middle English yogh "Laȝamon", stylised "Merry Xmaƨ Everybody", the Egyptological alef of "Wꜣs-sceptre": 97 of the 1,550,638 non-ASCII English Wikipedia titles, 65 of them refused as a number since A9c and A9d, and all 97 refused before A9e; 105 since A9f, whose 8 more are IPA titles and single letters such as "/ɥ/" and "Ɥ (IPA)"). Measured by A9f on the 3,564,038 non-ASCII English Wiktionary titles (enwiktionary all-titles dump of 2026-09-02): 3,019 are refused as a number although main accepts them, by letter class ȝ Ȝ (Middle English yogh) 1,631, ꜣ Ꜣ (Egyptological alef) 988, ʒ Ʒ and the letters named after them (ezh: Laz, Skolt Sami, Dagbani and transcriptions) 162, ƨ Ƨ (the Zhuang tone letter) 76, ɜ and its kin (reversed open e) 12, ɥ Ɥ ʮ ʯ (A9f; IPA, Manta "mɥáà" and Bangime "ɥɛ̀") 9, ȣ Ȣ 3, and single letters of the other classes (a title can hold two classes). The A9e attack round also found Italian inclusive plurals with ɜ ("benvenutɜ") and Abenaki and Wendat words with ȣ in the French Wiktionary. Not caught (they pass at main too): ASCII "O" and "l" read as 0 and 1, and symbols that draw like a digit or "$": "⁊" (U+204A) for 7 ("Call l-⁊O⁊-…" reads "1-707-…" in five of the six theme font stacks, in Chromium and WebKit), and in WebKit "⧶" (U+29F6) and U+31C7 for 7, "℈" (U+2108) for 3, and "S" + U+20D2 for "$" ("Visits from S⃒five" reads "$five"); and, since A9e lets them into copy, the letters S with a stroke (U+A7A8-A7A9, U+A7C9-A7CA, U+A7CC-A7CD, such as "Ꞩ"), which can pass for "$" (the claim checker reads them as S). A9g: copy also refuses U+A7F7-A7FF, the Latin epigraphic letters ꟷ, ꟻ, ꟽ, ꟾ and ꟿ (UnicodeData.txt 18.0.0 names U+A7F7 and U+A7FB-A7FF LATIN EPIGRAPHIC LETTER: letters of ancient Roman and Celtic inscriptions), with the message "AI copy must use Latin script letters, not epigraphic letters such as ꟾ or ꟽ"; they have no use in English copy or real names, and ꟾ, which the claim checker reads as i or l, hid a claim when used both ways in one word ("ꟾꟾcensed"). The rest of the range is refused as before (ꟺ is a small capital, ꟼ looks like a digit), and NFKC turns ꟸ and ꟹ (superscript letters for IPA and UPA) into Ħ and œ first, so copy never holds a character of the range. The claim checker keeps their readings (harmless). Accepted residual: English Wikipedia and Wiktionary titles that are these letters themselves ("ꟾ", "Long ꟾ", "ꟿ."; 6 of the 1,550,638 unique non-ASCII English Wikipedia titles and 6 of the 3,564,038 unique non-ASCII English Wiktionary titles, all-titles dumps of 2026-09-04 and 2026-09-02, measured by A9g) are refused.
+
+**Claim checker reading (A9, A9b, A9c, A9d, A9e, A9f, A9g):** the claim checker reads copy as typed and folded, and a claim any reading finds counts: as typed; and folded (`foldings` in lookalikes.ts): composed with NFC, every combining mark removed that is not part of a precomposed letter ("Licen" + U+0336 + "sed"), the look-alikes listed in `packages/site-schema/src/lookalikes.ts` read as the A-Z letters they look like ("lıcensed", "ƒree", "ŁICENSED", "ƜARRANTY" and, A9e, "ꬶuaranteed", "Ꝼree" and "ƐMERGENCY" are claims), and the click letters ǀ ǁ ǂ ǃ read as punctuation, never as letters ("ǀCertifiedǀ"). The typed reading runs first, then the folded one (A9c item 1 said "folded, then as typed"; the order only decides which spelling of a found word is shown, since a claim any reading finds counts; recorded by A9e). Reading it as typed too (A9b round 1) keeps every claim the checker found before A9, because the fold on its own joins words the page shows apart, such as "Top" + U+0336 + "rated". A9f: a letter that reads two ways is read both ways, each on its own, so the folded reading is made once for every combination of the two-way letters in the text (at most 8; 16 since A9g adds Ʋ, below): ʋ as v (like its capital Ʋ) or u (confusables.txt), ꞵ as b (like its capital Ꞵ) or ß, read "ss" (confusables.txt), and ꟾ (I longa) as i (its name) or l (confusables.txt), so "Fiʋe-star", "insʋred", "ꞵonded", "Licenꞵed", "Lꟾcensed", "cꟾock" and "ꟾnsʋred" are claims. A9f also reads ꟽ as w, ɘ as e, ᴉ as i, ꟻ as f and ʊ as u (with Ʊ as U and ᵿ as u, by the table's own rules), letters that draw like those A-Z letters though confusables.txt gives them no A-Z prototype ("ꟽARRANTY", "licɘnsɘd", "Lᴉcensed", "ꟻREE", "insʊred"), and ꟷ (U+A7F7 LATIN EPIGRAPHIC LETTER SIDEWAYS I, which draws as a dash) as an em dash, so "Awardꟷwinning" joins like "Award—winning". The A9f attack round found five more letters that draw like A-Z letters in all six theme font stacks (Chromium and WebKit render) and to which confusables.txt gives no prototype, and the claim checker now reads them too (A9f review round 1): ʗ (U+0297 STRETCHED C) as c, ʘ (U+0298 BILABIAL CLICK, an O with a dot) as o, Ꜧ and ꜧ (U+A726/U+A727 HENG; NamesList.txt cross-refers Ꜧ to Ⱨ) as H and h, and ɧ (U+0267 HENG WITH HOOK) as h; by the table's name rule, U+1DF0F (STRETCHED C WITH CURL) reads c, and copy's NFKC turns the modifier letters U+107B5, U+AB5C and U+10797 into ʘ, ꜧ and ɧ first. So "BʘNDED CREW", "Our ʗertified pros", "Aʗʗredited team", "Fully liʗensed", "Tɧousands served", "ꜦUNDREDS SERVED" and "Over ꜧundreds of homes" are claims. A9g: Ʋ, the capital of ʋ, reads both ways too, V by its name and U as it draws in all six theme font stacks, so "FULLY INSƲRED CREW", "GƲARANTEED WORK" and "HƲNDREDS SERVED" are claims. And four of the letters the table reads as A-Z letters also draw as punctuation or a symbol: ᴉ as "!", ʗ as "(", ʘ as "⊙" (its Unicode 1.0 name is LATIN LETTER BULLSEYE) and Ʊ as "℧" (confusables.txt reads ℧ as Ʊ). Read only as a letter, one glued to a claim word that carries a look-alike joined it and hid the claim, while the page showed "free!" or "(free)" (the A9f round-2 attack: 1,940 of 2,196 generated attacks passed at c76f761). So when the text holds one of them, every reading is made again with each of them read as a space, a word break (the attack's measured fix): "Estimates are ƒreeᴉ", "We are ƀondedᴉ", "ƱƑREE ESTIMATES", "Fully ƱŁICENSED", "Ask about our ʘƒree estimates" and "Estimates ʗƒree)" are claims. That makes at most 2^4 x 2 = 32 folded readings (16 for copy, which refuses ꟾ); the claim check of 36 fields (a page's most) of 480 characters each (more than any field but "about" holds), each holding all of these letters, takes about 42 ms in Node 25 on the development Mac (15 ms at c76f761; 21 ms without ꟾ), measured by A9g. The copy itself is never changed.
+
+Not caught (accepted residuals, with the approval screen as the backstop). Each of these attacks, from the A9b and A9c attack logs, passes at main (acae4ab) too, so none is a regression (recorded by A9d):
+- a precomposed accented letter, read as typed, so a deliberately accented claim word is not caught, as before A9 (A9c): "lícensed", "frée", "Bónded", "LİCENSED", "Liceṅsed", "lịcensed", "Our Accreditėd crew";
+- ASCII "l" or "|", or a click letter, used for "I" or "l": "CERTlFlED", "ǀicensed", "Estabǀished crew", "Save doǁars today", "Over a miǁion served", "ǀNSURED", "ǃNSURED CREW";
+- a letter the table reads another way or does not list: þ reads "th", not "p" ("cheaþest", "comþlimentary"); Ɩ reads "I", not "l" ("Ɩicensed"); turned, reversed and open letters ("FrɅe"; since A9e lets the phonetic letters into copy, also "ɹated", "ɐward", "ɒward-winning", "bɔnded" and "ɔertified", which pass at main too) and the other look-alikes no rule derives ("Fully insᴗred" U+1D17, "ꞷarranty" U+A7B7, "ʃree quotes", "ʍillions served", "Ꜿertified", "Complimentarꝩ", "ꝭince"; all pass at main too; and ɞ and ʚ U+025E/U+029A for o, "Our bɞnded crew", ʬ U+02AC for w, "ʬarranty included", and ɿ U+027F for i, "Lɿcensed crew", which the A9f attack round rated weaker look-alikes than ʗ, ʘ and heng and left to the moderator; they pass at main too, and reading them would change no verdict in the A9f English corpora but those attacks); a combining Latin small letter used as a letter ("Lic" + U+0364 + "nsed"). "Ɛmergency" was here until A9e, which reads Ɛ as E, "insʊred", "ꟽARRANTY", "Lᴉcensed", "licɘnsɘd", "ꟻREE", "insʋred" and "cꟾock" until A9f, and "BʘNDED", "ʗertified", "Tɧousands" and "ꜦUNDREDS" until the A9f review round;
+- a two-way letter used both ways inside one claim word: one reading reads every copy of a letter the same way (A9f record (b), confirmed by A9g). The case found, ꟾ for l and then i ("ꟾꟾcensed", "Estabꟾꟾshed"), no longer reaches a page: since A9g copy refuses ꟾ (letter rule above). ʋ and Ʋ keep the same limit, but no claim word the lists match holds both a u and a v. Also confirmed (A9f record (b)): ꞵ reads b or ß, which reads "ss", never a single s, so "Fully inꞵured" and "Five-ꞵtar service" pass, like "inßured", while "Licenꞵed" is a claim shown as "Licenssed";
+- (A9g) a letter the table reads that draws as a letter, glued to a claim word that carries a look-alike, which joins the two: ɘ, ʊ, ꟻ and ꟽ ("Fully ɘlıcensed crew", "Our ʊƀonded crew"; "Fully ꟻlıcensed" and "Get a ꟽƒree quote" no longer reach a page, since copy refuses ꟻ and ꟽ), and the same for ᵿ, ɧ, ꜧ and Ɣ ("Fully ᵿlıcensed crew", "ɧƒree estimates", "ꜧƒree estimates", "Ɣƒree estimates"). The page shows an extra visible letter ("elicensed", "ubonded"), like ASCII "wfree" or "xlicensed", which no version catches; all pass at main too;
+- (A9g) one of ᴉ, ʗ, ʘ and Ʊ used as a letter inside a claim word while another copy of one of them is glued to it: "Our ʗertifiedᴉ pros", "ʘbʘnded crew". The word-break reading reads every copy as a break and the letter reading every copy as a letter, so neither finds the claim; reading each copy both ways costs up to 128 readings (about 197 ms in the attack round's worst case). They pass at main too;
+- the saltillo, which reads as an apostrophe (A9e), used for a letter: "ꞋNSURED" reads "'NSURED", as the ASCII apostrophe does at main (it draws as a raised tick, not an I);
+- a symbol the table does not list: "fr℮℮" (U+212E), "L¡censed" (U+00A1), "seven days∕week" (U+2215), "INS℧RED" (U+2127 INVERTED OHM SIGN, which confusables.txt reads as Ʊ), "B⊙NDED CREW" and "Our b☉nded crew" (U+2299 ⊙, U+2609 ☉ and U+2A00 ⨀, which confusables.txt reads as ʘ; they pass at 3fc9a93 too);
+- an overlay mark inside a claim word together with a listed look-alike glued to its end, which neither reading finds: "Bon" + U+0336 + "dedł crew", "Our Certi" + U+0307 + "fiedı crew", "Save dolla" + U+0336 + "rsı today";
+- a claim word run into another word in CamelCase, read as typed, as before A9: "TopRated", "WeAreBonded", "TOPrated", "Top_Rated". A9c's CamelCase reading refused real names that main accepts, such as the official place name "McMillion Creek" (GNIS 1552041, read "Mc Million"), "FreeFlow Plumbing", "BondTech Roofing" and "StreakFree Window Cleaning", so A9d dropped it.
+
+Refused although main accepts them (accepted residuals, recorded by A9e and A9f; the owner sees the message and rephrases):
+- a name or title with a small capital or with a letter that looks like a digit (the letter rule above: "Hrøríkʀ of Novgorod", "kᴐŋko", "Laȝamon", "Merry Xmaƨ Everybody", "Wꜣs-sceptre", "Ɥ (IPA)");
+- a straight-quoted phrase whose first letter is a look-alike, which the folded reading sees as a quote (since A9b): 'Crew lead "Łukasz" answers', 'FB "Łucznik" Radom', '"Đại Định"', 'National Library of Montenegro "Đurđe Crnojević"', and since A9e reads the other case of the letters it opened, 'Ask for "Əli"', 'The "Ɛdi" song', '"Əmək" ordeni'. The same phrase in ASCII ('"Lukasz"') is refused at main too, by the quote rule;
+- (A9f ruling) words of other languages and transliterations that the folded reading turns into a claim word: Twi and Fante "frɛɛ" and "Wɔfrɛɛ no Kofi." ("free"), Dagbani and Kabiyè "saɣ", "Saɣ'tuliga" and "Serving homes near Saɣ'tuliga." ("say"), Azerbaijani "Əyn-Sincə" ("Since"), Hamer-Banna "bonɗá" ("bond"), the IPA "[ma.tsɯ.o ba.ɕoː]" (the web address "ba.co"). The claim message names the word;
+- Middle English with þ, which reads "th" (since A9b; A9f keeps the reading): "Þursday", "þousand".
 
 Reasons:
 1. **Security on free subdomains.** A link-free, digit-free body stops an owner, or someone who hijacked an owner account, from planting "Call 1-800-…" or "paypa1-login.com" on a page served from our domain. The phone, email, prices and "Since" year shown on the page always come from facts, so they cannot drift from the facts the admin checked.
@@ -265,7 +289,7 @@ CREATE TABLE owners (
   created_at INTEGER NOT NULL,
   disabled_at INTEGER,
   disabled_reason TEXT
-);
+) STRICT;
 
 CREATE TABLE sites (
   id TEXT PRIMARY KEY,
@@ -282,7 +306,7 @@ CREATE TABLE sites (
   takedown_reason TEXT,
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
-);
+) STRICT;
 CREATE INDEX sites_owner ON sites(owner_id);
 
 CREATE TABLE invites (
@@ -296,7 +320,7 @@ CREATE TABLE invites (
   revoked_at INTEGER,
   owner_id TEXT REFERENCES owners(id),
   site_id TEXT REFERENCES sites(id)
-);
+) STRICT;
 
 CREATE TABLE login_tokens (
   token_hash TEXT PRIMARY KEY,
@@ -304,7 +328,7 @@ CREATE TABLE login_tokens (
   created_at INTEGER NOT NULL,
   expires_at INTEGER NOT NULL,
   used_at INTEGER
-);
+) STRICT;
 CREATE INDEX login_tokens_owner ON login_tokens(owner_id, created_at);
 
 CREATE TABLE sessions (
@@ -313,7 +337,7 @@ CREATE TABLE sessions (
   created_at INTEGER NOT NULL,
   expires_at INTEGER NOT NULL,
   last_seen_at INTEGER NOT NULL
-);
+) STRICT;
 CREATE INDEX sessions_owner ON sessions(owner_id);
 
 CREATE TABLE uploads (
@@ -324,7 +348,7 @@ CREATE TABLE uploads (
   bytes INTEGER NOT NULL,
   created_at INTEGER NOT NULL,
   deleted_at INTEGER
-);
+) STRICT;
 CREATE INDEX uploads_site ON uploads(site_id);
 
 CREATE TABLE generations (
@@ -348,7 +372,7 @@ CREATE TABLE generations (
   created_at INTEGER NOT NULL,
   started_at INTEGER,
   finished_at INTEGER
-);
+) STRICT;
 CREATE INDEX generations_site ON generations(site_id, created_at);
 CREATE INDEX generations_owner ON generations(owner_id);
 CREATE INDEX generations_slots ON generations(model_slot, started_at);
@@ -372,7 +396,7 @@ CREATE TABLE site_versions (
   reviewed_at INTEGER,
   review_note TEXT,
   UNIQUE (site_id, number)
-);
+) STRICT;
 CREATE INDEX site_versions_status ON site_versions(status, requested_at);
 
 CREATE TABLE leads (
@@ -388,7 +412,7 @@ CREATE TABLE leads (
   email_status TEXT NOT NULL CHECK (email_status IN ('pending', 'sent', 'failed', 'skipped')),
   email_error TEXT,
   ip_hash TEXT NOT NULL
-);
+) STRICT;
 CREATE INDEX leads_site ON leads(site_id, created_at);
 
 CREATE TABLE settings (
@@ -396,7 +420,7 @@ CREATE TABLE settings (
   value TEXT NOT NULL,
   updated_at INTEGER NOT NULL,
   updated_by TEXT NOT NULL
-);
+) STRICT;
 
 CREATE TABLE audit_log (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -405,7 +429,7 @@ CREATE TABLE audit_log (
   action TEXT NOT NULL,                 -- one of AUDIT_ACTIONS (§2.8)
   site_id TEXT,
   detail_json TEXT
-);
+) STRICT;
 CREATE INDEX audit_site ON audit_log(site_id, at);
 
 CREATE TABLE dev_outbox (               -- written only by LogMailer (development/test); never in production
@@ -415,7 +439,7 @@ CREATE TABLE dev_outbox (               -- written only by LogMailer (developmen
   subject TEXT NOT NULL,
   text TEXT NOT NULL,
   tag TEXT NOT NULL
-);
+) STRICT;
 ```
 
 - **`settings` keys:**
@@ -423,6 +447,7 @@ CREATE TABLE dev_outbox (               -- written only by LogMailer (developmen
   - `generation.daily_model_limit`: an integer string, the most jobs per UTC day that may call the model. A missing row means the `DAILY_MODEL_LIMIT` variable.
 - **Migrations:** every `wrangler.jsonc` sets `"migrations_dir": "../../packages/core/migrations"`. [verified: the key exists in wrangler 4.138.0; local apply ran in the spike] A plan that needs a schema change asks the moderator. No plan adds a migration by itself.
 - **Partial unique index:** SQLite supports it, so D1 should too [inferred]. Stage 0 proves it with a test: a second `queued` row for the same site must fail.
+- **STRICT tables (A9):** every table is `STRICT`, so D1 refuses a value whose type does not match its column (`SQLITE_CONSTRAINT_DATATYPE`) instead of storing it; for example, an expiry bound as a string would otherwise never expire under `expires_at > ?`. D1 recommends STRICT tables ("Type conversion", developers.cloudflare.com/d1/worker-api/). The schema uses only `TEXT` and `INTEGER`, both allowed in STRICT tables (sqlite.org/stricttables.html). Local D1 enforces it [verified: the migration test]; production is inferred from D1's `PRAGMA table_list`, which has a `strict` column, and Plan 2 Task 19 checks it after the first migration apply.
 
 ### 2.7 R2 key layout
 
@@ -497,7 +522,7 @@ export const Brief = z.strictObject({
   differentiator: briefText(140).optional(),       // "What makes you different?"
   notes: briefText(2000).optional(),               // "Pretend you're texting a friend..."
   comments: z.record(z.string().regex(/^[a-z][a-zA-Z0-9]{0,39}$/), briefText(500))
-    .refine((c) => Object.keys(c).length <= 20).default({}), // per-question comments, keyed by question id
+    .refine((c) => Object.keys(c).length <= 20, { error: "You can add at most 20 comments." }).default({}), // per-question comments, keyed by question id (message: A9)
   reviewsAreReal: z.boolean().default(false),      // owner attests pasted reviews are real (FTC)
 });
 export type Brief = z.infer<typeof Brief>;
@@ -511,6 +536,14 @@ import { Copy, Layout, Theme, SECTION_VARIANTS, OwnerHidden, type Facts, type Se
 export const AiDraft = z.strictObject({ copy: Copy, layout: Layout, theme: Theme });
 export type AiDraft = z.infer<typeof AiDraft>;
 const EditText = z.string().max(2000);
+// Service name -> owner text (A7): a plain object is checked as a Map and rebuilt with Object.fromEntries,
+// so an own "__proto__" key is plain data (z.record would drop it). At most 12 entries, as many as Facts
+// allows services (A8c): a 13th is a too_big issue ("Too big: expected map to have <=12 entries"), and a
+// name over 40 characters is too_big too.
+const ServiceDescriptionEdits = z.preprocess(
+  (value, ctx) => { if (isPlainObject(value)) return new Map(Object.entries(value)); ctx.issues.push({ code: "invalid_type", expected: "record", input: value }); return value; },
+  z.map(z.string().max(40), EditText).max(12),
+).transform((edits) => Object.fromEntries(edits));   // isPlainObject: prototype Object.prototype or null
 export const CopyEdits = z.strictObject({
   heroHeadline: EditText.optional(),
   heroSubheadline: EditText.optional(),
@@ -520,8 +553,7 @@ export const CopyEdits = z.strictObject({
     services: EditText.nullable().optional(), gallery: EditText.nullable().optional(),
     faq: EditText.nullable().optional(), contact: EditText.nullable().optional(),
   }).optional(),
-  serviceDescriptions: z.record(z.string().max(40), EditText)
-    .refine((d) => Object.keys(d).length <= 12).optional(), // key = facts.services[].name, exact; at most as many as Facts allows services (A8c)
+  serviceDescriptions: ServiceDescriptionEdits.optional(),     // key = facts.services[].name, exact
   faq: z.array(z.strictObject({ question: EditText, answer: EditText })).max(8).optional(), // replaces the AI list
 });
 export const SECTION_IDS = Object.keys(SECTION_VARIANTS) as [SectionId, ...SectionId[]];
@@ -579,7 +611,7 @@ export function photoRefIssues(facts: unknown, siteId: string, root: string, upl
 
 // issues.ts
 export interface Issue { path: Array<string | number>; code: string; message: string }
-export function toIssues(error: z.ZodError): Issue[]; // symbol path keys become String(key)
+export function toIssues(error: z.ZodError): Issue[]; // the first 50 issues only (A9: zod reports one issue per bad array element, and a facts JSON near its cap gave 152,289); symbol path keys become String(key)
 
 // looks.ts: LOOKS as in §2.4
 
@@ -595,7 +627,7 @@ export const LIMITS = {
   loginTokensPerOwnerPerDay: 10,
   leadsPerSitePerDay: 50,
   leadRetentionDays: 180,
-  factsJsonMaxBytes: 307_200,                 // 300 KiB: the largest valid Facts is 306,552 bytes once JSON-encoded (A8b)
+  factsJsonMaxBytes: 307_200,                 // 300 KiB: the largest valid Facts is 306,352 bytes once JSON-encoded (A8b, A9)
   briefJsonMaxBytes: 74_752,                  // 73 KiB: the largest valid Brief is 73,865 bytes once JSON-encoded (A8)
   editsJsonMaxBytes: 436_224,                 // 426 KiB: the largest valid OwnerEdits is 435,810 bytes once JSON-encoded (A8c)
 } as const;
@@ -628,7 +660,7 @@ export interface GenerationInputSnapshot { facts: Facts; brief: Brief } // store
 export const AUDIT_ACTIONS = ["invite.created", "invite.revoked", "invite.accepted", "auth.login",
   "generation.requested", "version.requested", "version.withdrawn", "version.approved", "version.rejected",
   "site.taken_down", "site.restored", "site.indexable_changed", "owner.disabled", "owner.enabled",
-  "settings.updated"] as const;
+  "settings.updated", "admin.login_link_sent"] as const;
 
 // views.ts: response types (§4)
 ```
@@ -702,7 +734,7 @@ export const AUDIT_ACTIONS = ["invite.created", "invite.revoked", "invite.accept
 
 ### 4.1 Conventions (all Workers)
 
-- **Request and response bodies:** JSON (`application/json; charset=utf-8`) except the upload (`multipart/form-data`) and the public form (`application/x-www-form-urlencoded`). The server checks `Content-Length` first and stops reading past the limit. Limits: 256 KB for JSON bodies, 10 MB for uploads, 16 KB for the public form. Larger bodies get `413 payload_too_large`.
+- **Request and response bodies:** JSON (`application/json; charset=utf-8`) except the upload (`multipart/form-data`) and the public form (`application/x-www-form-urlencoded`). The server checks `Content-Length` first and stops reading past the limit. Limits: 256 KB for JSON bodies, 10 MB for uploads, 16 KB for the public form. Larger bodies get `413 payload_too_large`. **One exception:** `PATCH /api/sites/:siteId/draft` reads up to 1 MiB (`DRAFT_JSON_MAX_BYTES`, A8c). It is the only request whose body carries a whole Facts, Brief or OwnerEdits, and those parts may reach `LIMITS.factsJsonMaxBytes` + `briefJsonMaxBytes` + `editsJsonMaxBytes` = 818,176 bytes (§2.8). A test pins `DRAFT_JSON_MAX_BYTES` at or above that sum plus 4 KiB, so the body limit never refuses a draft whose parts fit their own limits, and a part over its limit gets that part's own 413. The three parts together stay under D1's 2,000,000-byte row limit.
 - **Errors:** `ErrorBody` (§2.8) with `ERROR_STATUS[code]`. `validation_failed`, `not_ready` and `publish_invalid` include `issues`. `conflict` includes `currentRev`. Every 429 includes `retryAfter` (seconds) and the `Retry-After` header.
 - **CSRF defence:** every state-changing `/api/*` request must carry `Origin` equal to `APP_ORIGIN` (or `ADMIN_ORIGIN` on the admin Worker) and the expected content type. Otherwise the server returns `403 forbidden`. Cookies are `SameSite=Lax`.
 - **Response headers on every API response:** `Cache-Control: no-store`, `X-Robots-Tag: noindex`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, `X-Frame-Options: DENY`. **One exception:** the two stored-version page routes (`…/versions/:versionId/page`) send `X-Frame-Options: SAMEORIGIN` and the §7.4 review CSP (which has `frame-ancestors 'self'`), because the admin review screen shows them in an iframe; `DENY` would blank that iframe.
@@ -776,15 +808,16 @@ export interface AdminSettings {
 const Token = z.string().regex(TOKEN_PATTERN);
 const Rev = z.int().min(1);
 const Json = z.record(z.string(), z.unknown());
+const Email = z.string().trim().pipe(z.email().max(254)); // trimmed before the email check (A9)
 export const AcceptInviteBody = z.strictObject({ token: Token });
-export const LoginBody = z.strictObject({ email: z.email().max(254) });
+export const LoginBody = z.strictObject({ email: Email });
 export const VerifyLoginBody = z.strictObject({ token: Token });
 export const PatchDraftBody = z
   .strictObject({ rev: Rev, facts: Json.optional(), brief: Json.optional(), edits: OwnerEdits.optional() })
   .refine((b) => b.facts !== undefined || b.brief !== undefined || b.edits !== undefined, { error: "Nothing to save" });
 export const SetSlugBody = z.strictObject({ rev: Rev, slug: z.string().max(40) });
 export const PublishBody = z.strictObject({ rev: Rev });
-export const CreateInviteBody = z.strictObject({ email: z.email().max(254) }); // always emailed (§3.2)
+export const CreateInviteBody = z.strictObject({ email: Email }); // always emailed (§3.2)
 export const ApproveBody = z.strictObject({
   htmlSha256: z.string().regex(/^[0-9a-f]{64}$/), // the version's html_sha256 as shown to the admin
   note: z.string().trim().max(1000).optional(), indexable: z.boolean().default(true),

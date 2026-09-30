@@ -28,5 +28,5 @@
     { "id": "faq", "variant": "accordion" },
     { "id": "contact", "variant": "card" }
   ],
-  "theme": { "palette": "green-amber", "font": "clean" }
+  "theme": { "palette": "green-amber", "font": "clean", "design": "modern" }
 }

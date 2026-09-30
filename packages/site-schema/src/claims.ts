@@ -1,5 +1,6 @@
 import type { Copy } from "./copy.ts";
 import { DAYS, type Facts } from "./facts.ts";
+import { foldings } from "./lookalikes.ts";
 
 // Claim checker for AI copy. Credentials, insurance, time in business, hours, prices, reviews
 // and contact details are owner facts that the renderer shows from `facts`. Copy may mention a
@@ -13,6 +14,40 @@ import { DAYS, type Facts } from "./facts.ts";
 // as an em dash (A8c) but does NOT fold en/em dash to a hyphen (A2: they usually separate two
 // clauses, not join one compound word), so this class is spelled out wherever a pattern below
 // joins two words.
+//
+// Claims are matched on the page read as typed and folded (A9, A9b, A9c, A9f, A9g), and a claim any reading finds counts.
+// The typed reading runs first (A9c item 1 said "folded, then as typed"; the order only decides which spelling of a found
+// word is shown, recorded by A9e):
+// - as typed, as before A9, so every claim the checker found before A9 is still found;
+// - folded (foldings in lookalikes.ts): composed (NFC), with every combining mark removed that is not part
+//   of a precomposed letter, the look-alikes listed in lookalikes.ts read as the A-Z letters they look like, and
+//   the click letters read as punctuation. A letter that reads two ways (A9f: ʋ as v or u, ꞵ as b or ß, ꟾ as i or l;
+//   A9g: Ʋ as V or U) is read both ways, so there is one folded reading for each combination of the two-way letters in
+//   the text. So an overlay mark inside a word or between two words ("Licen" +
+//   U+0336 + "sed", "Award" + " " + U+0336 + "winning"), a look-alike letter ("lıcensed", "ƒree", "ŁICENSED")
+//   or a click letter ("ǀCertifiedǀ", where "ǀ" looks like "|") on its own hides no claim. The fold alone would join two
+//   words the page shows apart ("Top" + U+0336 + "rated"), so the typed reading stays: the fold only ever adds a claim.
+//   A9g: ᴉ, ʗ, ʘ and Ʊ also draw as "!", "(", "⊙" and "℧", so when the text holds one, every folded reading is made
+//   again with each of them as a word break ("Estimates are ƒreeᴉ" reads "free!" on the page and is a claim).
+// A CamelCase word is read as typed, as before A9: A9d dropped A9c's CamelCase reading, which refused real names
+// that run a claim word into another word ("McMillion Creek", "FreeFlow Plumbing", "StreakFree Window Cleaning").
+// Small capitals and letters that look like digits ("ɪnsured", "ᴄertified", "Ƨ", "ꜭ") never get here: Copy refuses
+// them. Other phonetic letters do (A9e), and lookalikes.ts lists the look-alikes among them ("ɡuaranteed", "licənsəd").
+// Accepted residuals (the approval screen is the backstop; each passes at main too; design §2.2 lists them with
+// examples): a precomposed accented letter is read as typed, so a deliberately accented claim word ("lícensed", "frée")
+// is not caught (A9c), as before A9; a letter the table reads another way ("cheaþest", þ is "th"; "Ɩicensed", Ɩ is "I")
+// or does not list (turned, reversed and open letters such as "Ʌ", "ɐ", "ɒ" and "ɹ": "FrɅe", "ɹated", and other
+// look-alikes no rule derives: "insᴗred", "ꞷarranty", "ʃree", "ʍillions"), or a symbol ("fr℮℮", "L¡censed",
+// "days∕week", "INS℧RED"); a two-way letter used both ways inside one claim word ("ꟾꟾcensed", A9f: one reading reads
+// every copy of a letter the same way; since A9g copy refuses ꟾ); a letter the table reads that draws as a letter,
+// glued to a claim word that has a look-alike ("Fully ɘlıcensed", "Our ʊƀonded crew": the page shows an extra letter,
+// like ASCII "xlicensed"; A9g); one of ᴉ ʗ ʘ Ʊ read as a letter inside a claim word while another is glued to it
+// ("Our ʗertifiedᴉ pros", A9g); a combining Latin small letter used as a letter ("Lic" + U+0364 + "nsed"); ASCII
+// "l" or "|" for "I" and a click letter for "l" ("CERTlFlED", "ǀicensed"); an overlay mark inside a claim word together
+// with a look-alike glued to its end ("Bon" + U+0336 + "dedł"), which neither reading finds; a claim word run into
+// another word in CamelCase ("TopRated", "WeAreBonded"; A9d); and the phrasings the word lists do not cover.
+// The other way round, the folded reading finds claim words in some words of other languages, which main accepts
+// ("frɛɛ", "saɣ", Middle English "Þursday"): copy is English marketing text, so A9f accepts these as residuals too.
 
 /** Claims no owner fact backs: rejected in copy whatever the facts say. */
 export const NEVER_IN_COPY: readonly RegExp[] = [
@@ -45,12 +80,13 @@ export const NEEDS_A_FACT: ReadonlyArray<{ readonly pattern: RegExp; readonly ba
   },
   {
     // The full-week phrase, backed by 24/7 service or by opening hours on every day (A8c): "seven days
-    // a/per/each/every week", "seven days of the week", "seven days/week", and "seven days" right
-    // after "open" or "open all". Not caught (known): "seven-day service", which reads the same as
-    // "seven-day turnaround". Refused without those facts even when it says how often, not when
-    // ("water the sod seven days a week"): the owner sees the message and rephrases.
+    // a/per/each/every week", "seven days of the week" and "seven days/week". Not caught (known):
+    // "seven-day service", which reads the same as "seven-day turnaround", and "open seven days",
+    // which reads the same as "keep the vents open seven days" (A8c-2). Refused without those facts
+    // even when it says how often, not when ("water the sod seven days a week"): the owner sees the
+    // message and rephrases.
     pattern:
-      /\b(seven[-\u2012\u2013\u2014\u2212 ]days?([-\u2012\u2013\u2014\u2212 ](a|per|each|every)[-\u2012\u2013\u2014\u2212 ]|[-\u2012\u2013\u2014\u2212 ]of[-\u2012\u2013\u2014\u2212 ]the[-\u2012\u2013\u2014\u2212 ]| ?\/ ?)week|(?<=\bopen[-\u2012\u2013\u2014\u2212 ](all[-\u2012\u2013\u2014\u2212 ])?)seven[-\u2012\u2013\u2014\u2212 ]days)\b/i,
+      /\bseven[-\u2012\u2013\u2014\u2212 ]days?([-\u2012\u2013\u2014\u2212 ](a|per|each|every)[-\u2012\u2013\u2014\u2212 ]|[-\u2012\u2013\u2014\u2212 ]of[-\u2012\u2013\u2014\u2212 ]the[-\u2012\u2013\u2014\u2212 ]| ?\/ ?)week\b/i,
     backedBy: (facts) => facts.emergency247 || opensEveryDay(facts),
   },
   { pattern: /(?<![\w-])free\b|\bno[-\u2012\u2013\u2014\u2212 ](charge|cost)\b|\bcomplimentary\b/i, backedBy: (facts) => facts.freeEstimates },
@@ -59,40 +95,58 @@ export const NEEDS_A_FACT: ReadonlyArray<{ readonly pattern: RegExp; readonly ba
 /**
  * The invisible characters copy.ts lets through: U+034F COMBINING GRAPHEME JOINER and the
  * variation selectors U+FE00-U+FE0F and U+E0100-U+E01EF (default-ignorable, Script=Inherited, not
- * \p{Cc}/\p{Cf}). Inside a word one splits it for the claim and link checks while the page still
- * shows the whole word ("Licen\u034Fsed" reads "Licensed"), so document.ts rejects copy that
- * contains any of them. The one exception is U+FE0E/U+FE0F directly after an emoji, which picks
- * the emoji's text or colour form (✔ then U+FE0F). After NFKC the only emoji that are letters
- * or digits are the digits 0-9, which copy bans, so an allowed selector never sits inside a word.
+ * \p{Cc}/\p{Cf}). Inside a word one splits it while the page still shows the whole word
+ * ("Licen\u034Fsed" reads "Licensed"). They are all combining marks, which the claim and link
+ * checks remove (A9), but an invisible character has no honest use in copy, so document.ts still
+ * rejects copy that contains any of them. The one exception is U+FE0E/U+FE0F directly after an
+ * emoji, which picks the emoji's text or colour form (✔ then U+FE0F). After NFKC the only emoji
+ * that are letters or digits are the digits 0-9, which copy bans, so an allowed selector never
+ * sits inside a word.
  */
 export const HIDDEN_IN_COPY = /(?![\uFE0E\uFE0F])\p{Default_Ignorable_Code_Point}|(?<!\p{Emoji})[\uFE0E\uFE0F]/u;
 
 /**
  * Every other dash reads as an em dash (A8c): any \p{Pd} except the hyphens and the dashes the joiner
- * class already lists, plus six dash-like characters that are not \p{Pd} (U+2043 HYPHEN BULLET,
- * U+23AF, U+2500, U+2501, U+30FC and U+FF70). So "Award" + U+2015 + "winning" joins like
- * "Award" + U+2014 + "winning", and a free after one of them is a free offer, as after an em dash.
+ * class already lists, plus seven dash-like characters that are not \p{Pd} (U+2043 HYPHEN BULLET,
+ * U+23AF, U+2500, U+2501, U+30FC, U+FF70 and, A9f, U+A7F7 LATIN EPIGRAPHIC LETTER SIDEWAYS I, a letter
+ * that draws as a dash, which confusables.txt reads as U+30FC through an em dash; since A9g copy refuses it, and the
+ * reading stays, harmless). So "Award" + U+2015 + "winning" joins like "Award" + U+2014 + "winning", and a free after
+ * one of them is a free offer, as after an em dash.
  */
-const OTHER_DASH = /(?![-\u2010-\u2014])[\p{Pd}\u2043\u23AF\u2500\u2501\u30FC\uFF70]/gu;
+const OTHER_DASH = /(?![-\u2010-\u2014])[\p{Pd}\u2043\u23AF\u2500\u2501\u30FC\uFF70\uA7F7]/gu;
 
 // HTML shows a run of whitespace as one space and U+2010/U+2011 look like "-" (en/em dashes do not).
-const asReadOnPage = (text: string): string =>
+export const asReadOnPage = (text: string): string =>
   text.replace(/\s+/g, " ").replace(/[\u2010\u2011]/g, "-").replace(OTHER_DASH, "\u2014");
+
+/** The page read as typed, then folded every way (see the top of this file). */
+function readings(text: string): readonly string[] {
+  return [text, ...foldings(text)].map(asReadOnPage);
+}
 
 /**
  * The words in `text` that state a claim the owner's facts do not back (empty when the text is
- * fine), matched as a reader sees the page; the copy itself is not changed.
+ * fine), matched as a reader sees the page, read the ways above. A claim any reading finds counts,
+ * so every word the typed reading alone finds is found. A found word is shown from the first reading that
+ * finds it, as typed when it can be, so the owner can find it in the copy; the copy itself is not changed.
  */
 export function unbackedClaims(text: string, facts: Facts): string[] {
-  const page = asReadOnPage(text);
+  const read = readings(text);
+  const claim = (pattern: RegExp): string | undefined => {
+    for (const reading of read) {
+      const word = pattern.exec(reading)?.[0];
+      if (word !== undefined) return word;
+    }
+    return undefined;
+  };
   const found: string[] = [];
   for (const pattern of NEVER_IN_COPY) {
-    const match = pattern.exec(page);
-    if (match) found.push(match[0]);
+    const word = claim(pattern);
+    if (word !== undefined) found.push(word);
   }
   for (const { pattern, backedBy } of NEEDS_A_FACT) {
-    const match = pattern.exec(page);
-    if (match && !backedBy(facts)) found.push(match[0]);
+    const word = claim(pattern);
+    if (word !== undefined && !backedBy(facts)) found.push(word);
   }
   return found;
 }

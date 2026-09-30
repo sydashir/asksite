@@ -29,5 +29,15 @@ export {
   type SectionId,
   type VariantOf,
 } from "./layout.ts";
-export { FONT_IDS, PALETTE_IDS, Theme, type FontId, type PaletteId } from "./theme.ts";
+export {
+  DEFAULT_DESIGN,
+  DESIGN_IDS,
+  FONT_IDS,
+  PALETTE_IDS,
+  Theme,
+  ThemeChoice,
+  type DesignId,
+  type FontId,
+  type PaletteId,
+} from "./theme.ts";
 export { isSafeUrl, LINK_SCHEMES, type UrlScheme } from "./url.ts";
