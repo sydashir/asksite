@@ -335,12 +335,15 @@ describe("sweepStuckJobs", () => {
       expect(await getGeneration(db, "new")).toMatchObject({ status: "failed", error_code: "internal", finished_at: LATER });
     });
 
-    it.each<[string, "first" | "regenerate", number, string[]]>([
-      ["a first build whose template write throws", "first", 1, ["poison template", "poison failed"]],
-      ["a regeneration whose failed write throws once", "regenerate", 1, ["poison failed", "poison failed"]],
-    ])("ends %s failed/internal with a second, conditional write, and ends every other stuck job in the same run", async (_case, kind, failures, poisonWrites) => {
+    // The running rows (item 6) pin the second write's status binding: it is the status read, never the literal 'queued'.
+    it.each<[string, "first" | "regenerate", "queued" | "running", number, string[]]>([
+      ["a queued first build whose template write throws", "first", "queued", 1, ["poison template", "poison failed"]],
+      ["a queued regeneration whose failed write throws once", "regenerate", "queued", 1, ["poison failed", "poison failed"]],
+      ["a running first build whose template write throws", "first", "running", 1, ["poison template", "poison failed"]],
+      ["a running regeneration whose failed write throws once", "regenerate", "running", 1, ["poison failed", "poison failed"]],
+    ])("ends %s failed/internal with a second, conditional write, and ends every other stuck job in the same run", async (_case, kind, status, failures, poisonWrites) => {
       await seedStuck();
-      await db.prepare("UPDATE generations SET kind = ?2 WHERE id = ?1").bind("poison", kind).run();
+      await db.prepare("UPDATE generations SET kind = ?2, status = ?3, started_at = ?4 WHERE id = ?1").bind("poison", kind, status, status === "running" ? OLD - 3 : null).run();
       const log: string[] = [];
       expect(await sweepStuckJobs({ DB: failingWrites("poison", failures, log) }, NOW)).toEqual({ fallback: 1, failed: 2, errors: 1 });
       expect(log).toEqual([...poisonWrites, "first template", "regen failed"]);
