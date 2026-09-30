@@ -98,7 +98,19 @@ export function useAdminHarness(vars: Record<string, string> = {}) {
     return [];
   }
 
-  return { server, call, db, r2, pendingSite, outbox };
+  /** The Worker's JSON log lines since the harness started or server.clearLogs(). */
+  function logLines(): Array<Record<string, unknown>> {
+    return server.getLogs().flatMap((entry) => {
+      try {
+        const line: unknown = JSON.parse(entry.message);
+        return typeof line === "object" && line !== null ? [line as Record<string, unknown>] : [];
+      } catch {
+        return [];
+      }
+    });
+  }
+
+  return { server, call, db, r2, pendingSite, outbox, logLines };
 }
 
 export interface D1Like {

@@ -1,8 +1,9 @@
-import { ApiError, auditStatement, inviteEmail, readJson } from "@asksite/app-common";
+import { ApiError, auditStatement, inviteEmail, noteLog, readJson } from "@asksite/app-common";
 import { CreateInviteBody, newId, newToken, sha256Hex, TTL, type InviteRow, type InviteView } from "@asksite/core";
 import { Hono } from "hono";
 import { mailerEnv } from "../db.ts";
 import type { AdminDeps } from "../deps.ts";
+import { mailFailure } from "../mail-failure.ts";
 import type { AdminEnv } from "../types.ts";
 
 const toInviteView = (row: InviteRow): InviteView => ({
@@ -28,19 +29,18 @@ export function inviteRoutes(deps: AdminDeps): Hono<AdminEnv> {
     const token = newToken();
     const now = Date.now();
     const id = newId();
+    // Built before the row exists, so a configuration error (MAILER, APP_ORIGIN) is a 500 that leaves no invite.
+    const mailer = deps.createMailer(mailerEnv(c.env));
+    const content = inviteEmail({ appOrigin: c.env.APP_ORIGIN, token });
     await db
       .prepare("INSERT INTO invites (id, token_hash, email, created_by, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?)")
       .bind(id, await sha256Hex(token), email, admin, now, now + TTL.inviteMs)
       .run();
     try {
-      await deps.createMailer(mailerEnv(c.env)).send({
-        to: email,
-        ...inviteEmail({ appOrigin: c.env.APP_ORIGIN, token }),
-        tag: "invite",
-        idempotencyKey: `invite:${id}`,
-      });
-    } catch {
-      // No email, no invite: nothing is left for anyone to use or revoke.
+      await mailer.send({ to: email, ...content, tag: "invite", idempotencyKey: `invite:${id}` });
+    } catch (err) {
+      // No email, no invite: nothing is left for anyone to use or revoke. The log says why, never to whom.
+      noteLog(c, { error: mailFailure(err) });
       await db.prepare("DELETE FROM invites WHERE id = ?").bind(id).run();
       throw new ApiError("email_failed", "Email could not be sent, try again");
     }
