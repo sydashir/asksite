@@ -775,6 +775,19 @@ describe("the input bound (P3-8)", () => {
     expect(sleeps).toEqual([]);
   });
 
+  // Task 10 follow-up 2 item 9: the rule needs an earlier sent answer that was not valid, not attempt 1's in particular.
+  // Attempt 1 times out (sent, its usage unknown), attempt 2 sends the same prompt at the bound and is answered with a bad
+  // headline, and that answer's repair lines make the guard refuse attempt 3: invalid_output, providerErrorKind null.
+  it("fails with invalid_output when a timeout and then an invalid answer make the guard refuse attempt 3 of a prompt at the bound (P3-18)", async () => {
+    const { deps, sleeps } = testDeps();
+    const provider = scriptedProvider([new ProviderError("timeout", "timed out"), answer(bad), answer(good)]);
+    const result = await generateDraft(provider, notesAtBound(), deps);
+    expect(provider.requests.map((req) => inputBound(req))).toEqual([MAX_INPUT_TOKENS, MAX_INPUT_TOKENS]);
+    expect(result).toMatchObject({ ok: false, failure: "invalid_output", providerErrorKind: null, attempts: 2, inputBoundRefused: true });
+    expect(result.log.map((a) => [a.outcome, a.usageMissing])).toEqual([["timeout", true], ["invalid", false], ["bad_request", false]]);
+    expect(sleeps).toEqual([2_000]);
+  });
+
   // Only the guard's refusal of a prompt that an answer grew is the model's failure. A provider that refuses the request
   // itself (a 400) after an invalid answer is still a provider error, as is a refusal of attempt 1 (the test above that
   // fills the snapshot with U+FDFA) and a timeout or a 5xx after invalid answers (P3-16 (B): the provider's fault).
