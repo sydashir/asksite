@@ -365,17 +365,24 @@ function withImagesHook(env: Env, path: string): Env {
 /** When true, the next MEDIA.put of any request fails, as an R2 outage would. */
 let nextMediaPutFails = false;
 
+/** When true, the next MEDIA.delete of any request fails, as an R2 outage would. */
+let nextMediaDeleteFails = false;
+
 /**
- * The Worker's env for a request to `path`, with a MEDIA binding whose next put() can be made to fail once, and
- * whose put() is noted as a step, failed or not, when the path is watched.
+ * The Worker's env for a request to `path`, with a MEDIA binding whose next put() or delete() can be made to fail
+ * once, and whose put() is noted as a step, failed or not, when the path is watched.
  */
 function withMediaHook(env: Env, path: string): Env {
-  if (!nextMediaPutFails && !stepsOf.has(path)) return env;
+  if (!nextMediaPutFails && !nextMediaDeleteFails && !stepsOf.has(path)) return env;
   const MEDIA = new Proxy(env.MEDIA, {
     get(target, key) {
       if (key === "put" && nextMediaPutFails) {
         nextMediaPutFails = false;
         return () => noted(path, "put", Promise.reject(new Error("R2 put failed: made by the test Worker")));
+      }
+      if (key === "delete" && nextMediaDeleteFails) {
+        nextMediaDeleteFails = false;
+        return () => Promise.reject(new Error("R2 delete failed: made by the test Worker"));
       }
       if (key === "put") return (...args: Parameters<R2Bucket["put"]>) => noted(path, "put", target.put(...args));
       const value: unknown = Reflect.get(target, key);
@@ -495,6 +502,12 @@ helpers.post("/__test/images-output-format", async (c) => {
 /** Arms the hook above: the next MEDIA.put of any request fails. */
 helpers.post("/__test/media-put-fails", (c) => {
   nextMediaPutFails = true;
+  return c.json({ ok: true });
+});
+
+/** Arms the hook above: the next MEDIA.delete of any request fails. */
+helpers.post("/__test/media-delete-fails", (c) => {
+  nextMediaDeleteFails = true;
   return c.json({ ok: true });
 });
 

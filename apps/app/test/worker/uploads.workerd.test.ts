@@ -65,6 +65,20 @@ const shape = (row: UploadRow) => ({ width: row.width, height: row.height, bytes
 /** The row a photo that fails in the transform leaves (P4-14): no size, already deleted, counted toward the 150 total. */
 const COUNTED_FAILURE = { width: 0, height: 0, bytes: 0, deleted: true };
 
+/** The Worker's log lines of this event about the site, whichever request or work wrote them (P4-21 follow-up). */
+const eventLines = (event: string, siteId: string) => h.logLines().filter((line) => line["event"] === event && line["siteId"] === siteId);
+
+/** Runs `body` with a temporary SQL trigger in the test database, standing in for a failure (as auth.workerd.test.ts does). */
+async function withTrigger(name: string, sql: string, body: () => Promise<void>): Promise<void> {
+  const db = await h.db();
+  await db.prepare(sql).bind().run();
+  try {
+    await body();
+  } finally {
+    await db.prepare(`DROP TRIGGER ${name}`).bind().run();
+  }
+}
+
 describe("POST /api/sites/:siteId/uploads", () => {
   it("stores a PNG as a WebP in MEDIA and returns the UploadView", async () => {
     const owner = await h.signIn();
@@ -753,6 +767,8 @@ describe("upload reservations: a counted row is reserved before the billed trans
       expect((await json<ErrorJson>(res)).error.code).toBe("internal");
       expect(await mediaKeys(owner.siteId)).toEqual([]);
       expect((await uploadRows(owner.siteId)).map(shape)).toEqual([COUNTED_FAILURE]);
+      const [row] = await uploadRows(owner.siteId);
+      expect(eventLines("upload_reservation_lost", owner.siteId)).toEqual([{ event: "upload_reservation_lost", uploadId: row?.id, siteId: owner.siteId, code: "internal" }]);
     });
 
     it("keeps it a counted failure when it was aged out before a failure of ours would release it: the release deletes only a reservation", async () => {
@@ -787,6 +803,7 @@ describe("upload reservations: a counted row is reserved before the billed trans
       expect(rows.map(shape)).toEqual([COUNTED_FAILURE]);
       expect(rows[0]?.reserved_at).toBeNull();
       expect(await counts(owner.siteId)).toEqual({ total: 1, kept: 0 });
+      expect(eventLines("upload_reservation_lost", owner.siteId)).toEqual([{ event: "upload_reservation_lost", uploadId: rows[0]?.id, siteId: owner.siteId, code: "site_taken_down" }]);
     });
 
     it.each([
@@ -811,6 +828,52 @@ describe("upload reservations: a counted row is reserved before the billed trans
       const saved = await h.call("PATCH", `/api/sites/${owner.siteId}/draft`, { cookie: owner.cookie, body: { rev: 1, facts: { ...VALID_FACTS, heroPhoto: ghost } } });
       const issues = (await json<{ issues: SiteView["issues"] }>(saved)).issues.photos;
       expect(issues.map((issue) => [issue.path.join("."), issue.code, issue.message])).toEqual([["facts.heroPhoto.url", "photo_ref", "Choose a photo you uploaded for this site"]]);
+    });
+  });
+
+  // A clean-up write that fails keeps the failure that came first (the fail-safe direction), and writes its own line:
+  // the event, the upload's and site's ids, the step and the error's class name, never its message.
+  describe("a clean-up write that fails leaves its own upload_cleanup_failed line", () => {
+    const post = (owner: { siteId: string; cookie: string }, photo: Uint8Array) =>
+      h.call("POST", `/api/sites/${owner.siteId}/uploads`, { cookie: owner.cookie, body: upload(photo) });
+
+    /** The line a failed clean-up write of the site's one upload row leaves, at this step. */
+    async function cleanupLine(siteId: string, step: string) {
+      const [row] = await uploadRows(siteId);
+      return { event: "upload_cleanup_failed", uploadId: row?.id, siteId, step, error: "Error" };
+    }
+
+    it("step release: the release after an Images service error fails, so the reservation stays counted until it is aged out", async () => {
+      const owner = await h.signIn();
+      await withTrigger("fail_release", `CREATE TRIGGER fail_release BEFORE DELETE ON uploads WHEN OLD.site_id = '${owner.siteId}' BEGIN SELECT RAISE(ABORT, 'test failure'); END`, async () => {
+        await h.call("POST", "/__test/images-fails", { body: { step: "output", code: 9424 } });
+        const res = await post(owner, await png(400, 300));
+        expect([res.status, (await json<ErrorJson>(res)).error.code]).toEqual([500, "internal"]);
+      });
+      expect(await reservationsLeft(owner.siteId)).toBe(1);
+      expect(eventLines("upload_cleanup_failed", owner.siteId)).toEqual([await cleanupLine(owner.siteId, "release")]);
+    });
+
+    it("step mark_failed: marking a transform that gave no WebP as failed fails, so the reservation stays counted until it is aged out", async () => {
+      const owner = await h.signIn();
+      await withTrigger("fail_mark", `CREATE TRIGGER fail_mark BEFORE UPDATE ON uploads WHEN OLD.site_id = '${owner.siteId}' BEGIN SELECT RAISE(ABORT, 'test failure'); END`, async () => {
+        const res = await post(owner, await truncatedJpeg(800, 600));
+        expect([res.status, (await json<ErrorJson>(res)).error.code]).toEqual([422, "image_rejected"]);
+      });
+      expect(await reservationsLeft(owner.siteId)).toBe(1);
+      expect(eventLines("upload_cleanup_failed", owner.siteId)).toEqual([await cleanupLine(owner.siteId, "mark_failed")]);
+    });
+
+    it("step media_delete: deleting a lost reservation's object fails, so the object stays behind, logged; the row is still a counted failure", async () => {
+      const owner = await h.signIn();
+      await h.call("POST", "/__test/lose-upload-reservation", { body: { siteId: owner.siteId, how: "aged_out" } });
+      await h.call("POST", "/__test/media-delete-fails");
+      const res = await post(owner, await png(400, 300));
+      expect([res.status, (await json<ErrorJson>(res)).error.code]).toEqual([500, "internal"]);
+      const [row] = await uploadRows(owner.siteId);
+      expect(await mediaKeys(owner.siteId)).toEqual([mediaKey(owner.siteId, row?.id ?? "")]);
+      expect(eventLines("upload_cleanup_failed", owner.siteId)).toEqual([await cleanupLine(owner.siteId, "media_delete")]);
+      expect(eventLines("upload_reservation_lost", owner.siteId)).toEqual([{ event: "upload_reservation_lost", uploadId: row?.id, siteId: owner.siteId, code: "internal" }]);
     });
   });
 });

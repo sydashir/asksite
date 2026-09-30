@@ -67,7 +67,7 @@ export function errorResponse(code: ErrorCode, message: string, extra: ErrorExtr
 
 type LogFields = Record<string, string | number>;
 
-/** One structured log line. Logs hold route patterns, statuses and error codes only: never bodies, tokens, emails or IPs. */
+/** One structured log line. Logs hold route patterns, statuses, error codes and record ids only: never bodies, tokens, emails or IPs. */
 export function logLine(fields: LogFields): void {
   console.log(JSON.stringify(fields));
 }

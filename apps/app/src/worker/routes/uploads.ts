@@ -1,4 +1,4 @@
-import { ApiError, noteLog, rateLimit, readBytes, runToEnd } from "@asksite/app-common";
+import { ApiError, logLine, noteLog, rateLimit, readBytes, runToEnd } from "@asksite/app-common";
 import { LIMITS, mediaKey, mediaUrl, newId, type UploadView } from "@asksite/core";
 import { type Context, Hono } from "hono";
 import { assertNotTakenDown, ownedSite, siteTakenDown } from "../db.ts";
@@ -71,15 +71,26 @@ interface StoredPhoto {
   createdAt: number;
 }
 
+/** Which upload a clean-up or a lost reservation is about: record ids only, for its log line. */
+interface UploadIds {
+  uploadId: string;
+  siteId: string;
+}
+
+/** The clean-up write a failed clean-up names: releasing the reservation, marking it failed, or deleting its object. */
+type CleanUpStep = "release" | "mark_failed" | "media_delete";
+
 /**
  * Runs a clean-up write after a failure without letting its own failure replace that one. A reservation it could not
  * change stays reserved, counted by both caps, until it is aged out into a counted failure: the fail-safe direction.
+ * An object it could not delete stays in MEDIA. Either way it writes its own line (the error's class name, never its
+ * message), as inBackground does: this work runs inside runToEnd and can outlive the request's one line.
  */
-async function cleanUp(write: Promise<unknown>): Promise<void> {
+async function cleanUp(step: CleanUpStep, ids: UploadIds, write: Promise<unknown>): Promise<void> {
   try {
     await write;
-  } catch {
-    // Nothing more to do: see above.
+  } catch (err) {
+    logLine({ event: "upload_cleanup_failed", uploadId: ids.uploadId, siteId: ids.siteId, step, error: err instanceof Error ? err.name : "unknown" });
   }
 }
 
@@ -94,6 +105,7 @@ async function cleanUp(write: Promise<unknown>): Promise<void> {
  */
 async function reserveTransformAndStore(env: Env, siteId: string, bytes: Uint8Array): Promise<StoredPhoto> {
   const id = newId();
+  const ids: UploadIds = { uploadId: id, siteId };
   const reservedAt = Date.now();
   const reservation = await reserve(env.DB, id, siteId, reservedAt);
   // Decision 39: the route checked the site before reading the body, whose pace the owner sets; it may be down now.
@@ -104,14 +116,14 @@ async function reserveTransformAndStore(env: Env, siteId: string, bytes: Uint8Ar
     still = await toStillWebp(env.IMAGES, bytes);
   } catch (err) {
     // A failure that does not blame the file (images.ts) is ours: the row is released, as P4-14 rules.
-    await cleanUp(release(env.DB, id));
+    await cleanUp("release", ids, release(env.DB, id));
     throw err;
   }
   if (still === null) {
     // The transform ran and gave no WebP to store: the file made it fail, it answered another format (P4-15 b), or
     // its WebP could not be measured (P4-21 item 2). Counted like an upload deleted at once (P4-14): the 150 total cap
     // bounds these too; the row has no object and is never shown.
-    await cleanUp(markFailed(env.DB, id, Date.now()));
+    await cleanUp("mark_failed", ids, markFailed(env.DB, id, Date.now()));
     throw unreadablePhoto();
   }
   const photo: StoredPhoto = { id, width: still.width, height: still.height, bytes: still.webp.byteLength, createdAt: reservedAt };
@@ -120,16 +132,19 @@ async function reserveTransformAndStore(env: Env, siteId: string, bytes: Uint8Ar
     // Before the row is finished, so a finished photo row never lacks its object.
     await env.MEDIA.put(key, still.webp, { httpMetadata: { contentType: "image/webp" }, customMetadata: { siteId, uploadId: id } });
   } catch (err) {
-    await cleanUp(release(env.DB, id));
+    await cleanUp("release", ids, release(env.DB, id));
     throw err;
   }
   if (!(await finishPhoto(env.DB, id, photo))) {
     // The reservation was lost meanwhile: aged out, marked deleted by a takedown's purge, or its site taken down. Its
     // object goes, and its row becomes a counted failure at once (a no-op once aged out; a purge's deletion time is
-    // kept). The upload fails loud (DECIDED P4-21): as a takedown answers when the site is down, else as our failure.
-    await cleanUp(env.MEDIA.delete(key));
-    await cleanUp(markFailed(env.DB, id, Date.now()));
-    if (await isTakenDown(env.DB, siteId)) throw siteTakenDown();
+    // kept). The upload fails loud (DECIDED P4-21): as a takedown answers when the site is down, else as our failure,
+    // with its own line, since this work can outlive the request's one line.
+    await cleanUp("media_delete", ids, env.MEDIA.delete(key));
+    await cleanUp("mark_failed", ids, markFailed(env.DB, id, Date.now()));
+    const takenDown = await isTakenDown(env.DB, siteId);
+    logLine({ event: "upload_reservation_lost", uploadId: id, siteId, code: takenDown ? "site_taken_down" : "internal" });
+    if (takenDown) throw siteTakenDown();
     throw new Error("upload reservation lost before the photo was stored");
   }
   return photo;
