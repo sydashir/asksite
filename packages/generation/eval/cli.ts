@@ -299,8 +299,8 @@ async function probeCaps(plan: readonly LiveRow[], budget: Budget, deps: CliDeps
   for (const { candidate, env, worstMicrousd } of plan) {
     let res: ModelResponse | undefined;
     try {
-      const provider = deps.makeProvider(env, CAPS_SNAPSHOT);
-      const request = () => provider.generate({ ...buildPrompt(CAPS_SNAPSHOT, CAPS_REPAIR), jsonSchema: AI_DRAFT_JSON_SCHEMA, maxOutputTokens: CAPS_PROBE_OUTPUT_TOKENS, signal: deps.generateDeps.timeoutSignal(ATTEMPT_TIMEOUT_MS) });
+      // The provider is built only once the budget lets the request go.
+      const request = () => deps.makeProvider(env, CAPS_SNAPSHOT).generate({ ...buildPrompt(CAPS_SNAPSHOT, CAPS_REPAIR), jsonSchema: AI_DRAFT_JSON_SCHEMA, maxOutputTokens: CAPS_PROBE_OUTPUT_TOKENS, signal: deps.generateDeps.timeoutSignal(ATTEMPT_TIMEOUT_MS) });
       res = await budget.send(candidate.label, worstMicrousd, request, costOf(candidate));
     } catch (error) {
       deps.print(`${candidate.label}: ${kindOf(error)}, not measured`);
@@ -336,8 +336,8 @@ async function record(plan: readonly LiveRow[], budget: Budget, deps: CliDeps): 
     const sink: Array<{ status: number; body: unknown }> = [];
     let res: ModelResponse | undefined;
     try {
-      const provider = deps.makeProvider(env, profile.snapshot, recordingFetch(deps.fetch, sink));
-      const request = () => provider.generate({ ...buildPrompt(profile.snapshot), jsonSchema: AI_DRAFT_JSON_SCHEMA, maxOutputTokens: MAX_OUTPUT_TOKENS, signal: deps.generateDeps.timeoutSignal(ATTEMPT_TIMEOUT_MS) });
+      // The provider is built only once the budget lets the request go.
+      const request = () => deps.makeProvider(env, profile.snapshot, recordingFetch(deps.fetch, sink)).generate({ ...buildPrompt(profile.snapshot), jsonSchema: AI_DRAFT_JSON_SCHEMA, maxOutputTokens: MAX_OUTPUT_TOKENS, signal: deps.generateDeps.timeoutSignal(ATTEMPT_TIMEOUT_MS) });
       res = await budget.send(candidate.label, worstMicrousd, request, costOf(candidate));
     } catch (error) {
       deps.print(`${candidate.label}: ${kindOf(error)}, nothing recorded`);

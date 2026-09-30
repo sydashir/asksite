@@ -207,6 +207,7 @@ describe("a live caps probe (P3-17 D3)", () => {
     // 51,234 in and 256 out: gemma 5,201, groq 7,839, hf 7,878 micro-US$ (20,918 in all); gpt-oss would then pass $0.03.
     expect(await main(["--caps-probe", "--live", "--max-usd", "0.03"], h.deps)).toBe(1);
     expect(h.requests).toEqual(modelIds([GEMMA, GROQ, "hf-router/gpt-oss-120b:groq"]));
+    expect(h.built).toEqual(h.requests);
     expect(h.out).toContain(`${GEMMA}: 51234 input tokens for the caps prompt (bound 70000) OK`);
     expect(h.out).toContain("workers-ai/gpt-oss-120b: not measured: the budget stopped the run");
     expect(h.out).toContain(`${OPUS}: not measured: the budget stopped the run`);
@@ -399,6 +400,7 @@ describe("a live --record (P3-17 D3)", () => {
     // --record worst cases: gemma $0.009458, groq $0.015416, opus $0.443840; the actual 400 + 750 leave opus far over $0.03.
     expect(await main(["--record", "--live", "--max-usd", "0.03", "--only", `${OPUS},${GROQ},${GEMMA}`], h.deps)).toBe(0);
     expect(h.requests).toEqual(modelIds([GEMMA, GROQ]));
+    expect(h.built).toEqual(h.requests);
     expect(readdirSync(join(h.dir, "fixtures")).sort()).toEqual(["groq__gpt-oss-120b.json", "workers-ai__gemma-4-26b-a4b-it.json"]);
     const fixture = readFileSync(join(h.dir, "fixtures", "groq__gpt-oss-120b.json"), "utf8");
     expect(JSON.parse(fixture)).toEqual({ provider: "openai-compatible", modelId: "openai/gpt-oss-120b", status: 200, body });
@@ -427,6 +429,24 @@ describe("a live --record (P3-17 D3)", () => {
     expect(h.out).toContain(`${GEMMA}: it cost $0.009459, more than its worst case of $0.009458 (70010 input and 8192 output tokens); nothing more goes to this model, and the other models go on.`);
     expect(h.out).toContain("groq/gpt-oss-120b: recorded test/fixtures/groq__gpt-oss-120b.json");
     expect(h.out).toContain("The budget did not stop the run.");
+  });
+});
+
+describe("--caps-probe and --record build a provider only once the budget lets its request go (fix round #3, #15)", () => {
+  it.each([
+    ["--caps-probe", `${OPUS}: not measured: the budget stopped the run`],
+    ["--record", `${OPUS}: nothing recorded: the budget stopped the run`],
+  ])("%s: a model the budget refuses gets no provider, so it is reported as stopped by the budget, never as a build error", async (flag, line) => {
+    const h = harness({ answer: async () => ({ json: undefined, model: "fake", usage: { inputTokens: 51_234, outputTokens: 256 }, stop: "max_tokens" }) });
+    const build = h.deps.makeProvider;
+    h.deps.makeProvider = (env, snapshot, fetchImpl) => {
+      if (env.MODEL_ID === byLabel(OPUS).modelId) throw new ProviderError("auth", "a key an HTTP header cannot carry");
+      return build(env, snapshot, fetchImpl);
+    };
+    await main([flag, "--live", "--max-usd", "0.03", "--only", `${OPUS},${GEMMA}`], h.deps);
+    expect([h.built, h.requests]).toEqual([modelIds([GEMMA]), modelIds([GEMMA])]);
+    expect(h.out).toContain(line);
+    expect(h.out.join("\n")).not.toContain("auth");
   });
 });
 
