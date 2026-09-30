@@ -6,6 +6,7 @@ import { requireTurnstile, SITEVERIFY_TIMEOUT_MS } from "../../src/worker/turnst
 import type { AppEnv } from "../../src/worker/types.ts";
 import { createWorker } from "../../src/worker/worker.ts";
 import { calledLikeFetch, errorName, fakeApprove, fakeCreateMailer, fakeGeneration, fakePublishing, fakeSiteverify, fetchCalledOn, finishGeneration, refuseNextGeneration, siteverifyCallsSoFar } from "./fakes.ts";
+import { PURGE_UPLOADS_SQL, TAKE_DOWN_SITE_SQL } from "./plan2b-statements.ts";
 
 // The app Worker wired to the fakes, plus /__test/* helpers that stand in for the admin and the
 // generator in tests. Used by the Worker tests (test/wrangler.test.jsonc) and the browser tests
@@ -149,9 +150,9 @@ async function loseReservations(db: D1Database): Promise<void> {
   for (const [siteId, how] of sites) {
     const now = Date.now();
     if (how === "taken_down") {
-      // Copied verbatim from Plan 2B takeDown (plan2b-serve e8e4a33 packages/publishing/src/site-state.ts:25).
+      // Pinned to Plan 2B's statements by test/worker/plan2b-statements.test.ts.
       await db
-        .prepare("UPDATE sites SET taken_down_at = ?, takedown_reason = ?, pending_version_id = NULL, updated_at = ? WHERE id = ? AND taken_down_at IS NULL")
+        .prepare(TAKE_DOWN_SITE_SQL)
         .bind(now, TEST_TAKEDOWN_REASON, now, siteId)
         .run();
       continue;
@@ -159,7 +160,7 @@ async function loseReservations(db: D1Database): Promise<void> {
     const sql =
       how === "aged_out"
         ? "UPDATE uploads SET deleted_at = ?, reserved_at = NULL WHERE site_id = ? AND reserved_at IS NOT NULL"
-        : "UPDATE uploads SET deleted_at = ? WHERE site_id = ? AND deleted_at IS NULL";
+        : PURGE_UPLOADS_SQL;
     await db.prepare(sql).bind(now, siteId).run();
   }
 }
