@@ -170,7 +170,8 @@ describe("Classic states no credential the owner does not have", () => {
     const doc = SiteDocument.parse(inDesign(input, "refined"));
     const shown = render(doc, OPTIONS).html;
     expect(invariantProblems(shown, renderDocument(doc, BASELINE, OPTIONS).html, doc, DESIGNS.refined)).toEqual([]);
-    expect(text(shown)).not.toMatch(/insured|24\/7|emergency|\bfree\b/i);
+    // squashedText drops the spaces, so the words are matched without word edges.
+    expect(text(shown)).not.toMatch(/insured|24\/7|emergency|free/i);
   });
 });
 
