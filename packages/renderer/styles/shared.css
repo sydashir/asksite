@@ -23,6 +23,20 @@
    focus is on anything outside the bar (the page's only <aside>), the bar stops sticking. */
 @custom-variant focus-outside (html:has(:focus-visible:not(aside *)) &);
 
+/* That rule has a catch on phones: pressing Send moves focus off the text field, so the bar sticks again
+   under the finger, the release lands on the bar, and the click never reaches Send, so nothing is sent
+   (Plan 2B QA; A12-0 round-5 rulings). So a form's submit button stacks above the call bar (z-10), and the
+   press and the release land on it. This holds only while no ancestor of the button forms its own stacking
+   context (a z-index, transform, opacity, filter or clip-path, for example) and the bar stays below 20; the
+   per-design e2e Send check proves it for every design. In the components layer, so a design's utilities
+   can restack it. */
+@layer components {
+  form button[type="submit"] {
+    position: relative;
+    z-index: 20;
+  }
+}
+
 /* Buttons ported from AstroWind's tailwind.css (MIT, see THIRD_PARTY_NOTICES.md). Changes:
    dark-mode and ring variants dropped, 48px minimum height for thumbs, brand-coloured focus
    outline, and a secondary style that meets WCAG AA on every palette. */

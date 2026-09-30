@@ -179,6 +179,57 @@ function expectSameShape(select: FieldShape, field: FieldShape): void {
   expect(height).toBeCloseTo(fieldHeight, 1);
 }
 
+/** Where the sticky call bar can cover Send on a phone: Send's centre this many px above the window's bottom edge. */
+const SEND_OFFSETS = [10, 40, 75] as const;
+
+type TapLog = { clicks: string[]; submits: number };
+
+/**
+ * Fills the contact form, leaving keyboard focus in the message box (a visitor who has just typed), scrolls
+ * Send's centre `offset` px above the window's bottom edge and taps it there with the mouse or a finger.
+ * Returns what the tap's click landed on and how many requests the form posted. The form's endpoint answers
+ * 204 No Content, so the page stays, and a submission is counted once its request reaches the network.
+ * Why: while a text field has focus the call bar stops sticking (focus-outside); pressing Send moves focus off
+ * the field, the bar sticks again under the finger, and the release used to land on the bar, so the tap never
+ * clicked Send and nothing was sent (Plan 2B QA, A12-0 round-5 rulings).
+ */
+async function tapSend(page: Page, input: "mouse" | "touch", offset: number): Promise<{ clicked: string; posts: number }> {
+  let posts = 0;
+  await page.route(FIXTURE_FORM_ACTION, (route) => {
+    if (route.request().method() === "POST") posts += 1;
+    return route.fulfill({ status: 204 });
+  });
+  await page.locator("#contact-name").fill("Pat Smith");
+  await page.locator("#contact-phone").fill("512 555 0100");
+  await page.locator("#contact-message").fill("The kitchen tap drips.");
+  const point = await page.getByRole("button", { name: "Send request" }).evaluate((send, above) => {
+    const box = send.getBoundingClientRect();
+    window.scrollBy(0, box.top + box.height / 2 - (window.innerHeight - above));
+    const moved = send.getBoundingClientRect();
+    return { x: moved.left + moved.width / 2, y: moved.top + moved.height / 2, above: window.innerHeight - (moved.top + moved.height / 2) };
+  }, offset);
+  expect(Math.abs(point.above - offset)).toBeLessThanOrEqual(1); // WebKit scrolls by whole pixels
+  await page.evaluate(() => {
+    const log: TapLog = { clicks: [], submits: 0 };
+    Object.assign(window, { tapLog: log });
+    document.addEventListener("click", (event) => {
+      const target = event.target instanceof Element ? event.target : document.body;
+      const control = target.closest("button, a");
+      log.clicks.push(control === null ? target.tagName : `${control.tagName} ${(control.textContent ?? "").trim()}`);
+    }, true);
+    document.addEventListener("submit", () => {
+      log.submits += 1;
+    }, true);
+  });
+  if (input === "touch") await page.touchscreen.tap(point.x, point.y);
+  else await page.mouse.click(point.x, point.y);
+  const log = (): TapLog => (window as unknown as { tapLog: TapLog }).tapLog;
+  await page.waitForFunction(() => (window as unknown as { tapLog: TapLog }).tapLog.clicks.length > 0);
+  const { clicks, submits } = await page.evaluate(log);
+  await expect.poll(() => posts).toBe(submits);
+  return { clicked: clicks.join(", "), posts };
+}
+
 /** The id of each element keyboard focus lands on, over `steps` presses ("" for one without an id). */
 async function focusedIds(page: Page, browserName: string, steps = 80): Promise<string[]> {
   const ids: string[] = [];
@@ -275,6 +326,23 @@ for (const design of DESIGN_IDS) {
       }
       expect(fonts.size).toBe(FONT_IDS.length);
     });
+
+    // A phone visitor who has typed a message and taps Send low on the screen, where the call bar sticks again
+    // as the press moves focus off the field (A12-0 round-5 rulings; the 390 px projects run it in Chromium and
+    // WebKit, with the mouse and with touch).
+    for (const input of ["mouse", "touch"] as const) {
+      test.describe(`tapping Send with the ${input}`, () => {
+        test.use({ hasTouch: input === "touch" });
+
+        for (const offset of SEND_OFFSETS) {
+          test(`sends the form exactly once with Send's centre ${offset} px above the bottom edge`, async ({ page }) => {
+            test.skip(page.viewportSize()?.width !== 390, "checked in the 390 px projects, where the call bar shows");
+            await open(page, "plumber-austin", design);
+            expect(await tapSend(page, input, offset)).toEqual({ clicked: "BUTTON Send request", posts: 1 });
+          });
+        }
+      });
+    }
 
     test.describe("with JavaScript disabled", () => {
       test.use({ javaScriptEnabled: false });
@@ -435,6 +503,14 @@ test.describe("the gates can fail (RED proof)", () => {
     const unit = await fieldShape(page, "#contact-service");
     expect(name.width - unit.width).toBe(0.015625);
     expectSameShape(unit, name);
+  });
+
+  test("the Send check sees a tap that the call bar takes", async ({ page }) => {
+    test.skip(page.viewportSize()?.width !== 390, "checked in the 390 px projects, where the call bar shows");
+    await openToday(page, "plumber-austin");
+    // Today's page without the fix in styles/shared.css: Send no longer stacks above the call bar.
+    await page.addStyleTag({ content: 'form button[type="submit"]{position:static!important;z-index:auto!important}' });
+    expect(await tapSend(page, "mouse", 40)).toEqual({ clicked: "BODY", posts: 0 });
   });
 
   test("the focus check sees a link hidden under a call bar that sticks while a link has focus", async ({ page, browserName }) => {
