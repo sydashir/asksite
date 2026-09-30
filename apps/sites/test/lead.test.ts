@@ -75,6 +75,13 @@ describe("readLead", () => {
     expect(result).toEqual({ ok: true, lead: { name: "Pat Smith", phone: "5125550123", email: null, service: null, message: "Kitchen sink leaking\nUpstairs\nbath\nAttic" } });
   });
 
+  // U+0085 NEXT LINE is a line break too (UAX #14 class NL, which "acts like BK"). Deleted as a control
+  // character, it glued the words on each side together.
+  it("turns NEXT LINE (U+0085) into a line break: a newline in the message, a space elsewhere", () => {
+    const result = readLead(fields({ name: "Pat\u0085Smith", phone: "512\u00855550199", service: "Drain\u0085cleaning", message: "Leak\u0085upstairs" }));
+    expect(result).toEqual({ ok: true, lead: { name: "Pat Smith", phone: "512 5550199", email: null, service: "Drain cleaning", message: "Leak\nupstairs" } });
+  });
+
   it("counts a vertical tab, form feed or line separator in the message as one character, like a newline", () => {
     for (const lineBreak of ["\u000B", "\f", "\u2028", "\u2029"]) {
       const result = readLead(fields({ name: "Al", phone: "5125550199", message: `${"m".repeat(999)}${lineBreak}${"m".repeat(1000)}` }));
