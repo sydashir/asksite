@@ -162,3 +162,22 @@ describe("invites", () => {
     });
   });
 });
+
+// The POST is INSERT, then send, then the audit row (or, on a failed send, the DELETE). An admin who disconnects
+// after the INSERT must not leave an invite with no audit row, so the whole sequence goes to waitUntil as one
+// promise (runToEnd). A refused body never reaches it (web-maker-f4, 2026-09-30).
+describe("the invite POST hands its whole sequence to waitUntil", () => {
+  it("adds one waitUntil promise for an invite, one for a failed send, none for a refused body", async () => {
+    const path = "/api/admin/invites";
+    const handedOver = async (body: unknown) => {
+      const before = await h.waitUntilCount(path);
+      const { status } = await h.call("POST", path, { body });
+      return { status, waitUntil: (await h.waitUntilCount(path)) - before };
+    };
+    const sent = await handedOver({ email: "guard.ok@example.com" });
+    const failed = await handedOver({ email: "guard@mail-fails.example" });
+    const refused = await handedOver({ email: "not an address" });
+    expect({ sent, failed, refused }).toEqual({ sent: { status: 201, waitUntil: 1 }, failed: { status: 502, waitUntil: 1 }, refused: { status: 422, waitUntil: 0 } });
+    await h.backgroundDone(path);
+  });
+});

@@ -1,8 +1,9 @@
-import { ApiError, auditStatement, inviteEmail, noteLog, readJson, sendReporting, type AuditAction } from "@asksite/app-common";
+import { ApiError, auditStatement, inviteEmail, noteLog, readJson, runToEnd, sendReporting, type AuditAction } from "@asksite/app-common";
 import { CreateInviteBody, newId, newToken, sha256Hex, TTL, type InviteRow, type InviteView } from "@asksite/core";
 import { Hono } from "hono";
 import { mailerEnv } from "../db.ts";
 import type { AdminDeps } from "../deps.ts";
+import { emailFailed } from "../send-errors.ts";
 import type { AdminEnv } from "../types.ts";
 
 const toInviteView = (row: InviteRow): InviteView => ({
@@ -15,14 +16,6 @@ const toInviteView = (row: InviteRow): InviteView => ({
   revokedAt: row.revoked_at,
   siteId: row.site_id,
 });
-
-/**
- * What the admin reads when the invite email fails. rate_limited gets its own words, true for every Resend 429
- * the mailer maps to it (§7.6): the per-second limit (a minute later works) and the daily or monthly quota (it does not).
- */
-const SEND_FAILED = "Email could not be sent, try again";
-const EMAIL_SERVICE_LIMITED =
-  "The email service is limiting how many emails we can send right now. Try again in a minute. If it still fails, today's email limit may be used up: try again after 00:00 UTC.";
 
 /**
  * auditStatement's row (§2.6), but written only when the revoke's UPDATE is about to change the invite: it runs
@@ -48,18 +41,25 @@ export function inviteRoutes(deps: AdminDeps): Hono<AdminEnv> {
     // Built before the row exists, so a configuration error (MAILER, APP_ORIGIN) is a 500 that leaves no invite.
     const mailer = deps.createMailer(mailerEnv(c.env));
     const content = inviteEmail({ appOrigin: c.env.APP_ORIGIN, token });
-    await db
-      .prepare("INSERT INTO invites (id, token_hash, email, created_by, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?)")
-      .bind(id, await sha256Hex(token), email, admin, now, now + TTL.inviteMs)
-      .run();
-    const failure = await sendReporting(mailer, { to: email, ...content, tag: "invite", idempotencyKey: `invite:${id}` });
-    if (failure !== null) {
-      // No email, no invite: nothing is left for anyone to use or revoke. The request's line says why, never to whom.
-      noteLog(c, { error: failure });
-      await db.prepare("DELETE FROM invites WHERE id = ?").bind(id).run();
-      throw new ApiError("email_failed", failure === "rate_limited" ? EMAIL_SERVICE_LIMITED : SEND_FAILED);
-    }
-    await auditStatement(db, { at: now, actor: `admin:${admin}`, action: "invite.created", siteId: null, detail: { inviteId: id } }).run();
+    // INSERT, send, then the audit row: one promise handed to waitUntil, so an admin who goes away after the INSERT
+    // cannot leave an invite with no audit row (or, after a failed send, an invite that was never emailed).
+    await runToEnd(
+      c.executionCtx,
+      (async () => {
+        await db
+          .prepare("INSERT INTO invites (id, token_hash, email, created_by, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?)")
+          .bind(id, await sha256Hex(token), email, admin, now, now + TTL.inviteMs)
+          .run();
+        const failure = await sendReporting(mailer, { to: email, ...content, tag: "invite", idempotencyKey: `invite:${id}` });
+        if (failure !== null) {
+          // No email, no invite: nothing is left for anyone to use or revoke. The request's line says why, never to whom.
+          noteLog(c, { error: failure });
+          await db.prepare("DELETE FROM invites WHERE id = ?").bind(id).run();
+          throw emailFailed(failure);
+        }
+        await auditStatement(db, { at: now, actor: `admin:${admin}`, action: "invite.created", siteId: null, detail: { inviteId: id } }).run();
+      })(),
+    );
     const row = await db.prepare("SELECT * FROM invites WHERE id = ?").bind(id).first<InviteRow>();
     if (row === null) throw new Error("invite row missing after insert");
     return c.json({ invite: toInviteView(row) }, 201);
