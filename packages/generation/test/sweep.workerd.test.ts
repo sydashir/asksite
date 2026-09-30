@@ -208,6 +208,20 @@ describe("sweepStuckJobs", () => {
     expect(rowsRead[0]).toBeLessThanOrEqual(10);
   });
 
+  // Task 10 follow-up 2 item 7: SQL leaves the order of rows of equal age open (the partial index read gave site_id order,
+  // the full scan before it insertion order), so `id` breaks the tie and a LIMITed read gets the same rows whatever the plan.
+  // The higher id is inserted first and on the lower site, so neither insertion order nor site_id order passes.
+  it.each<[string, "queued" | "running"]>([
+    ["two queued jobs created at the same time", "queued"],
+    ["a running job started when a queued one was created", "running"],
+  ])("ends jobs stuck equally long in id order, the lower id first: %s", async (_case, higherIdStatus) => {
+    const since = higherIdStatus === "running" ? { created_at: 0, started_at: OLD } : { created_at: OLD };
+    await insertGeneration(db, { id: "tie-b", site_id: "s1", owner_id: "o1", status: higherIdStatus, input_json: INPUT, ...since });
+    await insertGeneration(db, { id: "tie-a", site_id: "s2", owner_id: "o1", status: "queued", input_json: INPUT, created_at: OLD });
+    expect(await sweepStuckJobs({ DB: db }, NOW, 1)).toEqual({ fallback: 1, failed: 0, errors: 0 });
+    expect([(await getGeneration(db, "tie-a")).status, (await getGeneration(db, "tie-b")).status]).toEqual(["succeeded", higherIdStatus]);
+  });
+
   describe("the run's reads and its limit (Task 10 follow-up items 4 to 6)", () => {
     /** Wraps the local D1 and logs the LIMIT of every read the sweeper sends. */
     const countedReads = (limits: unknown[]): D1Database =>

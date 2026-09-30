@@ -15,10 +15,12 @@ export const SWEEP_MAX_PER_RUN = 400;
 
 // The first term is exactly the WHERE of the partial index generations_one_active, so SQLite can read only active rows
 // (sqlite.org/partialindex.html: the query must hold that term, AND-connected, as written). Both branches already
-// require it, so the rows are the same; without it every run reads every row ever written (D1 bills rows read).
+// require it, so it matches the same set of rows; without it every run reads every row ever written (D1 bills rows
+// read). SQL leaves the order of rows of equal age open (read through that index, they came in site_id order), so
+// `id` breaks the tie: the order, and with it the rows each LIMITed read gets, is stable.
 const STUCK = `SELECT id, kind, status, input_json FROM generations
 WHERE status IN ('queued', 'running') AND ((status = 'queued' AND created_at < ?1) OR (status = 'running' AND started_at < ?1))
-ORDER BY COALESCE(started_at, created_at) LIMIT ?2`;
+ORDER BY COALESCE(started_at, created_at), id LIMIT ?2`;
 const FAIL = "UPDATE generations SET status = 'failed', error_code = 'internal', finished_at = ?3 WHERE id = ?1 AND status = ?2";
 const TEMPLATE =
   "UPDATE generations SET status = 'succeeded', output_json = ?3, used_fallback = 1, fallback_reason = 'provider_error', finished_at = ?4 WHERE id = ?1 AND status = ?2";
