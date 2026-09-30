@@ -37,6 +37,12 @@ export default {
 
   /** Every 5 minutes: end jobs stuck longer than JOB_STUCK_AFTER_MS (§6.3). */
   async scheduled(_controller, env: Env): Promise<void> {
-    log({ event: "generation.sweep", ...(await sweepStuckJobs(env, Date.now())) });
+    try {
+      log({ event: "generation.sweep", ...(await sweepStuckJobs(env, Date.now())) });
+    } catch (error) {
+      // A fixed line (never the error's text), then the failure goes on so the runtime records the cron run as failed.
+      log({ event: "generation.sweep_failed" });
+      throw error;
+    }
   },
 } satisfies ExportedHandler<Env>;

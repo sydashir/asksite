@@ -136,4 +136,11 @@ describe("scheduled", () => {
     expect(now).toBeLessThanOrEqual(Date.now());
     expect(lines()).toEqual([{ event: "generation.sweep", ...counts }]);
   });
+
+  it("logs one fixed generation.sweep_failed line, without the error's text, and rethrows so the runtime records the failure", async () => {
+    const failure = new Error("d1 said secret-marker");
+    vi.mocked(sweepStuckJobs).mockRejectedValue(failure);
+    await expect(worker.scheduled({ cron: "*/5 * * * *", scheduledTime: 0, type: "scheduled", noRetry: () => undefined } as never, ENV)).rejects.toBe(failure);
+    expect(logged.mock.calls).toEqual([['{"event":"generation.sweep_failed"}']]);
+  });
 });
