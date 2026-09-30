@@ -142,7 +142,7 @@ Copyright (c) 2023 Svix (https://www.svix.com)
 ## Bundled into the generator Worker
 
 The generator Worker's bundle (`apps/generator`, built by wrangler) holds code from the npm packages below, besides
-`standardwebhooks` (above). Each licence text is copied from the LICENSE file in the installed package.
+`standardwebhooks` (above). Each licence text is copied from the package's LICENSE file (for the vendored parser, from its published npm tarball, as its entry says).
 
 ### @anthropic-ai/sdk
 
@@ -251,6 +251,9 @@ For more information, please refer to <http://unlicense.org>
 
 ### partial-json-parser
 
+- Source: https://www.npmjs.com/package/partial-json-parser (closest published 1.2.1 / 1.2.2), vendored and modified inside @anthropic-ai/sdk 0.128.0
+- Used in: the generator Worker bundle, through @anthropic-ai/sdk (internal/message-stream-utils)
+
 partial-json-parser (MIT). The closest published versions are 1.2.1 and 1.2.2, which have identical source. It is
 vendored and modified inside @anthropic-ai/sdk 0.128.0, so the bundled code matches no published version exactly. npm
 metadata for 1.1.0-1.2.2 says ISC, but every published LICENSE file is the MIT text below.
@@ -277,4 +280,28 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+```
+
+### neoqs (vendored qs)
+
+- Source: vendored inside @anthropic-ai/sdk 0.128.0 under `internal/qs/` (compiled code; the licence file is
+  `src/internal/qs/LICENSE.md` in the same package). The SDK's own `src/internal/qs/README.md` says it is a vendored
+  version of neoqs (https://github.com/PuruVJ/neoqs), a TypeScript rewrite of qs (https://github.com/ljharb/qs).
+- Used in: the generator Worker bundle, through @anthropic-ai/sdk's query-string code (`client.mjs:10` imports
+  `stringifyQuery` from `internal/utils/query.mjs`, which imports `../qs/stringify.mjs` at line 1).
+
+```
+BSD 3-Clause License
+
+Copyright (c) 2014, Nathan LaFreniere and other [contributors](https://github.com/puruvj/neoqs/graphs/contributors) All rights reserved.
+
+Redistribution and use in source and binary forms, with or without modification, are permitted provided that the following conditions are met:
+
+1. Redistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer.
+
+2. Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the following disclaimer in the documentation and/or other materials provided with the distribution.
+
+3. Neither the name of the copyright holder nor the names of its contributors may be used to endorse or promote products derived from this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ```
