@@ -137,13 +137,16 @@ describe("sweepStuckJobs", () => {
     expect((await getGeneration(db, "past")).status).toBe("succeeded");
   });
 
-  it("ends the job stuck the longest first: a queued job counts from created_at, a running one from started_at", async () => {
-    // Queued since OLD - 1, so stuck for longer than the running job, although that one was created long before.
-    await insertGeneration(db, { id: "queued", site_id: "s1", owner_id: "o1", status: "queued", input_json: INPUT, created_at: OLD - 1 });
-    await insertGeneration(db, { id: "running", site_id: "s2", owner_id: "o1", status: "running", input_json: INPUT, created_at: 0, started_at: OLD });
+  // Both ways (Task 10 follow-up item 7), so neither "queued rows first" nor "running rows first" passes.
+  it.each<[string, number, number, "queued" | "running"]>([
+    ["an older queued job before a newer running one, although the running one was created long before", OLD - 1, OLD, "queued"],
+    ["an older running job before a newer queued one", OLD, OLD - 1, "running"],
+  ])("ends the job stuck the longest first, a queued job counted from created_at and a running one from started_at: %s", async (_case, queuedSince, runningSince, first) => {
+    await insertGeneration(db, { id: "queued", site_id: "s1", owner_id: "o1", status: "queued", input_json: INPUT, created_at: queuedSince });
+    await insertGeneration(db, { id: "running", site_id: "s2", owner_id: "o1", status: "running", input_json: INPUT, created_at: 0, started_at: runningSince });
     expect(await sweepStuckJobs({ DB: db }, NOW, 1)).toEqual({ fallback: 1, failed: 0 });
-    expect((await getGeneration(db, "queued")).status).toBe("succeeded");
-    expect((await getGeneration(db, "running")).status).toBe("running");
+    const statuses = [(await getGeneration(db, "queued")).status, (await getGeneration(db, "running")).status];
+    expect(statuses).toEqual(first === "queued" ? ["succeeded", "running"] : ["queued", "succeeded"]);
   });
 
   it("reads SWEEP_BATCH rows a query and at most 400 a run: 16 reads and at most 800 writes (a second one when a row's first write throws) stay under D1's 1,000 queries per invocation (Decision 27)", async () => {
@@ -203,6 +206,81 @@ describe("sweepStuckJobs", () => {
     expect(await sweepStuckJobs({ DB: recorded }, NOW)).toEqual({ fallback: 3, failed: 0 });
     expect(rowsRead).toHaveLength(1);
     expect(rowsRead[0]).toBeLessThanOrEqual(10);
+  });
+
+  describe("the run's reads and its limit (Task 10 follow-up items 4 to 6)", () => {
+    /** Wraps the local D1 and logs the LIMIT of every read the sweeper sends. */
+    const countedReads = (limits: unknown[]): D1Database =>
+      new Proxy(db, {
+        get(target, prop, receiver) {
+          if (prop !== "prepare") return Reflect.get(target, prop, receiver);
+          return (sql: string) => {
+            if (!sql.startsWith("SELECT")) return target.prepare(sql);
+            return {
+              bind: (...values: unknown[]) => {
+                limits.push(values[1]);
+                return target.prepare(sql).bind(...values);
+              },
+            };
+          };
+        },
+      });
+    /** `count` stuck queued first builds, each on its own site, the oldest `j0`. */
+    const seedQueued = async (count: number): Promise<void> => {
+      await db.batch(
+        Array.from({ length: count }, (_, i) => [
+          db.prepare("INSERT INTO sites (id, owner_id, created_at, updated_at) VALUES (?1, 'o1', 0, 0)").bind(`j${i}`),
+          db.prepare("INSERT INTO generations (id, site_id, owner_id, kind, status, input_json, created_at) VALUES (?1, ?1, 'o1', 'first', 'queued', ?2, ?3)").bind(`j${i}`, INPUT, OLD - count + i),
+        ]).flat(),
+      );
+    };
+
+    // The cron calls sweepStuckJobs(env, now) with no limit, so the default is what bounds a production run.
+    it("stops at SWEEP_MAX_PER_RUN when called without a limit, as the cron calls it: 16 full reads and 400 writes", async () => {
+      const limits: unknown[] = [];
+      let writes = 0;
+      let next = 0;
+      // A D1 that always has a full batch of stuck regenerations and ends each one it is asked to.
+      const alwaysFull = {
+        prepare: (sql: string) => ({
+          bind: (...values: unknown[]) => ({
+            all: async () => {
+              expect(sql.startsWith("SELECT")).toBe(true);
+              limits.push(values[1]);
+              return { results: Array.from({ length: Number(values[1]) }, () => ({ id: `x${next++}`, kind: "regenerate", status: "queued", input_json: "{}" })), meta: {} };
+            },
+            run: async () => {
+              expect(sql.startsWith("UPDATE")).toBe(true);
+              writes += 1;
+              return { meta: { changes: 1 } };
+            },
+          }),
+        }),
+      } as unknown as D1Database;
+      expect(await sweepStuckJobs({ DB: alwaysFull }, NOW)).toEqual({ fallback: 0, failed: SWEEP_MAX_PER_RUN });
+      expect(limits).toEqual(Array.from({ length: 16 }, () => SWEEP_BATCH));
+      expect(writes).toBe(400);
+    });
+
+    it.each<[number, unknown[]]>([
+      [1, [SWEEP_BATCH]],
+      [30, [SWEEP_BATCH, SWEEP_BATCH]],
+    ])("makes no further read after a read that returned fewer rows than it asked for: %i stuck jobs", async (count, reads) => {
+      await seedQueued(count);
+      const limits: unknown[] = [];
+      expect(await sweepStuckJobs({ DB: countedReads(limits) }, NOW)).toEqual({ fallback: count, failed: 0 });
+      expect(limits).toEqual(reads);
+    });
+
+    it("ends exactly `limit` jobs, the oldest, when the limit is not a multiple of SWEEP_BATCH: 30 of 40", async () => {
+      await seedQueued(40);
+      const limits: unknown[] = [];
+      expect(30 % SWEEP_BATCH).not.toBe(0);
+      expect(await sweepStuckJobs({ DB: countedReads(limits) }, NOW, 30)).toEqual({ fallback: 30, failed: 0 });
+      expect(limits).toEqual([SWEEP_BATCH, 30 - SWEEP_BATCH]);
+      const { results } = await db.prepare("SELECT id FROM generations WHERE status = 'queued' ORDER BY created_at").all<{ id: string }>();
+      expect(results.map((row) => row.id)).toEqual(Array.from({ length: 10 }, (_, i) => `j${30 + i}`));
+    });
   });
 
   describe("one row whose ending throws never stops the others (Task 10 follow-up item 2)", () => {
