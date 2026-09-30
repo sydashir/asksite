@@ -39,7 +39,7 @@ describe("sweepStuckJobs", () => {
     await insertGeneration(db, { id: "q1", site_id: "s1", owner_id: "o1", kind: "first", status: "queued", input_json: INPUT, created_at: OLD });
     await insertGeneration(db, { id: "r1", site_id: "s2", owner_id: "o1", kind: "first", status: "running", input_json: INPUT, created_at: 0, started_at: OLD });
     await insertGeneration(db, { id: "q2", site_id: "s3", owner_id: "o1", kind: "regenerate", status: "queued", input_json: INPUT, created_at: OLD });
-    expect(await sweepStuckJobs({ DB: db }, NOW)).toEqual({ fallback: 2, failed: 1 });
+    expect(await sweepStuckJobs({ DB: db }, NOW)).toEqual({ fallback: 2, failed: 1, errors: 0 });
     for (const id of ["q1", "r1"]) {
       const row = await getGeneration(db, id);
       expect(row).toMatchObject({ status: "succeeded", used_fallback: 1, fallback_reason: "provider_error", finished_at: NOW });
@@ -53,22 +53,22 @@ describe("sweepStuckJobs", () => {
     await insertGeneration(db, { id: "run", site_id: "s2", owner_id: "o1", status: "running", input_json: INPUT, created_at: 0, started_at: NOW - 1000 });
     await insertGeneration(db, { id: "done", site_id: "s3", owner_id: "o1", status: "succeeded", input_json: INPUT, created_at: 0 });
     await insertGeneration(db, { id: "old", site_id: "s4", owner_id: "o1", status: "queued", input_json: INPUT, created_at: OLD });
-    expect(await sweepStuckJobs({ DB: db }, NOW)).toEqual({ fallback: 1, failed: 0 });
-    expect(await sweepStuckJobs({ DB: db }, NOW)).toEqual({ fallback: 0, failed: 0 });
+    expect(await sweepStuckJobs({ DB: db }, NOW)).toEqual({ fallback: 1, failed: 0, errors: 0 });
+    expect(await sweepStuckJobs({ DB: db }, NOW)).toEqual({ fallback: 0, failed: 0, errors: 0 });
     expect((await getGeneration(db, "new")).status).toBe("queued");
     expect((await getGeneration(db, "run")).status).toBe("running");
   });
 
   it("fails a stuck first build whose input cannot be read", async () => {
     await insertGeneration(db, { id: "bad", site_id: "s1", owner_id: "o1", kind: "first", status: "queued", input_json: "not json", created_at: OLD });
-    expect(await sweepStuckJobs({ DB: db }, NOW)).toEqual({ fallback: 0, failed: 1 });
+    expect(await sweepStuckJobs({ DB: db }, NOW)).toEqual({ fallback: 0, failed: 1, errors: 0 });
     expect(await getGeneration(db, "bad")).toMatchObject({ status: "failed", error_code: "internal" });
   });
 
   it("handles at most `limit` jobs per run, oldest first", async () => {
     for (const [i, site] of ["s1", "s2", "s3"].entries())
       await insertGeneration(db, { id: `j${i}`, site_id: site, owner_id: "o1", status: "queued", input_json: INPUT, created_at: OLD - i });
-    expect(await sweepStuckJobs({ DB: db }, NOW, 2)).toEqual({ fallback: 2, failed: 0 });
+    expect(await sweepStuckJobs({ DB: db }, NOW, 2)).toEqual({ fallback: 2, failed: 0, errors: 0 });
     expect((await getGeneration(db, "j0")).status).toBe("queued");
   });
 
@@ -78,7 +78,7 @@ describe("sweepStuckJobs", () => {
       await insertGeneration(db, { id: `b${i}`, site_id: `b${i}`, owner_id: "o1", status: "queued", input_json: INPUT, created_at: OLD - i });
     }
     expect(SWEEP_BATCH).toBeLessThan(30);
-    expect(await sweepStuckJobs({ DB: db }, NOW)).toEqual({ fallback: 30, failed: 0 });
+    expect(await sweepStuckJobs({ DB: db }, NOW)).toEqual({ fallback: 30, failed: 0, errors: 0 });
   });
 
   it("never overwrites a job that claimed or finished the row after the sweeper read it (each write is conditional on the status read)", async () => {
@@ -113,7 +113,7 @@ describe("sweepStuckJobs", () => {
         };
       },
     });
-    expect(await sweepStuckJobs({ DB: jobFirst }, NOW)).toEqual({ fallback: 0, failed: 0 });
+    expect(await sweepStuckJobs({ DB: jobFirst }, NOW)).toEqual({ fallback: 0, failed: 0, errors: 0 });
     expect(raced).toEqual(["q1", "q2", "r1", "r2"]);
     for (const id of ["q1", "q2"]) expect(await getGeneration(db, id)).toMatchObject({ status: "running", started_at: NOW, finished_at: null, error_code: null, output_json: null });
     expect(await getGeneration(db, "r1")).toMatchObject({ status: "succeeded", output_json: modelDraft, used_fallback: 0, fallback_reason: null, attempts: 1, finished_at: NOW - 1 });
@@ -125,14 +125,14 @@ describe("sweepStuckJobs", () => {
     await insertGeneration(db, { id: "ok", site_id: "s1", owner_id: "o1", kind: "first", status: "succeeded", input_json: INPUT, output_json: draft, model_slot: 1, attempts: 1, created_at: OLD, started_at: OLD, finished_at: OLD + 1 });
     await insertGeneration(db, { id: "bad", site_id: "s2", owner_id: "o1", kind: "regenerate", status: "failed", error_code: "invalid_output", input_json: INPUT, model_slot: 1, attempts: 3, created_at: OLD, started_at: OLD, finished_at: OLD + 1 });
     const before = [await getGeneration(db, "ok"), await getGeneration(db, "bad")];
-    expect(await sweepStuckJobs({ DB: db }, NOW)).toEqual({ fallback: 0, failed: 0 });
+    expect(await sweepStuckJobs({ DB: db }, NOW)).toEqual({ fallback: 0, failed: 0, errors: 0 });
     expect([await getGeneration(db, "ok"), await getGeneration(db, "bad")]).toEqual(before);
   });
 
   it("measures a running job from started_at: exactly JOB_STUCK_AFTER_MS is not stuck yet, 1 ms more is", async () => {
     await insertGeneration(db, { id: "edge", site_id: "s1", owner_id: "o1", status: "running", input_json: INPUT, created_at: 0, started_at: NOW - JOB_STUCK_AFTER_MS });
     await insertGeneration(db, { id: "past", site_id: "s2", owner_id: "o1", status: "running", input_json: INPUT, created_at: 0, started_at: NOW - JOB_STUCK_AFTER_MS - 1 });
-    expect(await sweepStuckJobs({ DB: db }, NOW)).toEqual({ fallback: 1, failed: 0 });
+    expect(await sweepStuckJobs({ DB: db }, NOW)).toEqual({ fallback: 1, failed: 0, errors: 0 });
     expect((await getGeneration(db, "edge")).status).toBe("running");
     expect((await getGeneration(db, "past")).status).toBe("succeeded");
   });
@@ -144,7 +144,7 @@ describe("sweepStuckJobs", () => {
   ])("ends the job stuck the longest first, a queued job counted from created_at and a running one from started_at: %s", async (_case, queuedSince, runningSince, first) => {
     await insertGeneration(db, { id: "queued", site_id: "s1", owner_id: "o1", status: "queued", input_json: INPUT, created_at: queuedSince });
     await insertGeneration(db, { id: "running", site_id: "s2", owner_id: "o1", status: "running", input_json: INPUT, created_at: 0, started_at: runningSince });
-    expect(await sweepStuckJobs({ DB: db }, NOW, 1)).toEqual({ fallback: 1, failed: 0 });
+    expect(await sweepStuckJobs({ DB: db }, NOW, 1)).toEqual({ fallback: 1, failed: 0, errors: 0 });
     const statuses = [(await getGeneration(db, "queued")).status, (await getGeneration(db, "running")).status];
     expect(statuses).toEqual(first === "queued" ? ["succeeded", "running"] : ["queued", "succeeded"]);
   });
@@ -169,7 +169,7 @@ describe("sweepStuckJobs", () => {
         };
       },
     });
-    expect(await sweepStuckJobs({ DB: counted }, NOW, 50)).toEqual({ fallback: 50, failed: 0 });
+    expect(await sweepStuckJobs({ DB: counted }, NOW, 50)).toEqual({ fallback: 50, failed: 0, errors: 0 });
     expect(queries.filter((query) => query === "SELECT")).toHaveLength(2);
     expect(queries.filter((query) => query === "UPDATE")).toHaveLength(50);
     expect((await getGeneration(db, "m0")).status).toBe("queued");
@@ -203,7 +203,7 @@ describe("sweepStuckJobs", () => {
         };
       },
     });
-    expect(await sweepStuckJobs({ DB: recorded }, NOW)).toEqual({ fallback: 3, failed: 0 });
+    expect(await sweepStuckJobs({ DB: recorded }, NOW)).toEqual({ fallback: 3, failed: 0, errors: 0 });
     expect(rowsRead).toHaveLength(1);
     expect(rowsRead[0]).toBeLessThanOrEqual(10);
   });
@@ -256,7 +256,7 @@ describe("sweepStuckJobs", () => {
           }),
         }),
       } as unknown as D1Database;
-      expect(await sweepStuckJobs({ DB: alwaysFull }, NOW)).toEqual({ fallback: 0, failed: SWEEP_MAX_PER_RUN });
+      expect(await sweepStuckJobs({ DB: alwaysFull }, NOW)).toEqual({ fallback: 0, failed: SWEEP_MAX_PER_RUN, errors: 0 });
       expect(limits).toEqual(Array.from({ length: 16 }, () => SWEEP_BATCH));
       expect(writes).toEqual(Array.from({ length: 400 }, () => "UPDATE"));
     });
@@ -267,7 +267,7 @@ describe("sweepStuckJobs", () => {
     ])("makes no further read after a read that returned fewer rows than it asked for: %i stuck jobs", async (count, reads) => {
       await seedQueued(count);
       const limits: unknown[] = [];
-      expect(await sweepStuckJobs({ DB: countedReads(limits) }, NOW)).toEqual({ fallback: count, failed: 0 });
+      expect(await sweepStuckJobs({ DB: countedReads(limits) }, NOW)).toEqual({ fallback: count, failed: 0, errors: 0 });
       expect(limits).toEqual(reads);
     });
 
@@ -275,7 +275,7 @@ describe("sweepStuckJobs", () => {
       await seedQueued(40);
       const limits: unknown[] = [];
       expect(30 % SWEEP_BATCH).not.toBe(0);
-      expect(await sweepStuckJobs({ DB: countedReads(limits) }, NOW, 30)).toEqual({ fallback: 30, failed: 0 });
+      expect(await sweepStuckJobs({ DB: countedReads(limits) }, NOW, 30)).toEqual({ fallback: 30, failed: 0, errors: 0 });
       expect(limits).toEqual([SWEEP_BATCH, 30 - SWEEP_BATCH]);
       const { results } = await db.prepare("SELECT id FROM generations WHERE status = 'queued' ORDER BY created_at").all<{ id: string }>();
       expect(results.map((row) => row.id)).toEqual(Array.from({ length: 10 }, (_, i) => `j${30 + i}`));
@@ -325,12 +325,13 @@ describe("sweepStuckJobs", () => {
       vi.mocked(templateDraft).mockImplementationOnce(() => {
         throw new Error("the template cannot be made");
       });
-      expect(await sweepStuckJobs({ DB: db }, NOW)).toEqual({ fallback: 1, failed: 2 });
+      // The counts are not a partition (item 4): the poison row counts in `failed` (the rescue write ended it) and in `errors`.
+      expect(await sweepStuckJobs({ DB: db }, NOW)).toEqual({ fallback: 1, failed: 2, errors: 1 });
       expect(await getGeneration(db, "poison")).toMatchObject({ status: "failed", error_code: "internal", output_json: null, used_fallback: 0, fallback_reason: null, finished_at: NOW });
       await endedNormally();
       // The next run is not blocked: it ends a job that got stuck since.
       await insertGeneration(db, { id: "new", site_id: "s4", owner_id: "o1", kind: "regenerate", status: "queued", input_json: INPUT, created_at: LATER - JOB_STUCK_AFTER_MS - 1 });
-      expect(await sweepStuckJobs({ DB: db }, LATER)).toEqual({ fallback: 0, failed: 1 });
+      expect(await sweepStuckJobs({ DB: db }, LATER)).toEqual({ fallback: 0, failed: 1, errors: 0 });
       expect(await getGeneration(db, "new")).toMatchObject({ status: "failed", error_code: "internal", finished_at: LATER });
     });
 
@@ -341,7 +342,7 @@ describe("sweepStuckJobs", () => {
       await seedStuck();
       await db.prepare("UPDATE generations SET kind = ?2 WHERE id = ?1").bind("poison", kind).run();
       const log: string[] = [];
-      expect(await sweepStuckJobs({ DB: failingWrites("poison", failures, log) }, NOW)).toEqual({ fallback: 1, failed: 2 });
+      expect(await sweepStuckJobs({ DB: failingWrites("poison", failures, log) }, NOW)).toEqual({ fallback: 1, failed: 2, errors: 1 });
       expect(log).toEqual([...poisonWrites, "first template", "regen failed"]);
       expect(await getGeneration(db, "poison")).toMatchObject({ status: "failed", error_code: "internal", output_json: null, used_fallback: 0, finished_at: NOW });
       await endedNormally();
@@ -351,7 +352,7 @@ describe("sweepStuckJobs", () => {
       await seedStuck();
       const log: string[] = [];
       const claim = () => db.prepare("UPDATE generations SET status = 'running', started_at = ?2 WHERE id = ?1").bind("poison", NOW).run();
-      expect(await sweepStuckJobs({ DB: failingWrites("poison", 1, log, claim) }, NOW)).toEqual({ fallback: 1, failed: 1 });
+      expect(await sweepStuckJobs({ DB: failingWrites("poison", 1, log, claim) }, NOW)).toEqual({ fallback: 1, failed: 1, errors: 1 });
       expect(log).toEqual(["poison template", "poison failed", "first template", "regen failed"]);
       expect(await getGeneration(db, "poison")).toMatchObject({ status: "running", started_at: NOW, error_code: null, output_json: null, finished_at: null });
       await endedNormally();
@@ -361,7 +362,8 @@ describe("sweepStuckJobs", () => {
       await seedStuck();
       const log: string[] = [];
       const broken = failingWrites("poison", Infinity, log);
-      expect(await sweepStuckJobs({ DB: broken }, NOW)).toEqual({ fallback: 1, failed: 1 });
+      // Two steps of the poison row threw (its first write and the rescue write): it counts once in `errors` (item 4).
+      expect(await sweepStuckJobs({ DB: broken }, NOW)).toEqual({ fallback: 1, failed: 1, errors: 1 });
       expect(log).toEqual(["poison template", "poison failed", "first template", "regen failed"]);
       expect(await getGeneration(db, "poison")).toMatchObject({ status: "queued", finished_at: null });
       await endedNormally();
@@ -369,11 +371,49 @@ describe("sweepStuckJobs", () => {
       for (const [at, site] of [[LATER, "s4"], [LATER + 5 * 60_000, "s5"]] as const) {
         await insertGeneration(db, { id: `new-${site}`, site_id: site, owner_id: "o1", kind: "regenerate", status: "queued", input_json: INPUT, created_at: at - JOB_STUCK_AFTER_MS - 1 });
         log.length = 0;
-        expect(await sweepStuckJobs({ DB: broken }, at)).toEqual({ fallback: 0, failed: 1 });
+        expect(await sweepStuckJobs({ DB: broken }, at)).toEqual({ fallback: 0, failed: 1, errors: 1 });
         expect(log).toEqual(["poison template", "poison failed", `new-${site} failed`]);
         expect(await getGeneration(db, `new-${site}`)).toMatchObject({ status: "failed", error_code: "internal", finished_at: at });
       }
       expect((await getGeneration(db, "poison")).status).toBe("queued");
+    });
+
+    it("counts a row once in errors when its template throws and then its rescue write throws too", async () => {
+      await seedStuck();
+      vi.mocked(templateDraft).mockImplementationOnce(() => {
+        throw new Error("the template cannot be made");
+      });
+      const log: string[] = [];
+      expect(await sweepStuckJobs({ DB: failingWrites("poison", Infinity, log) }, NOW)).toEqual({ fallback: 1, failed: 1, errors: 1 });
+      expect(log).toEqual(["poison failed", "first template", "regen failed"]);
+      expect(await getGeneration(db, "poison")).toMatchObject({ status: "queued", finished_at: null });
+      await endedNormally();
+    });
+
+    // Item 4: without `errors`, a run whose every write threw returned { fallback: 0, failed: 0 }, the same as a run with
+    // nothing stuck, so the cron's generation.sweep line hid a D1 write outage.
+    it("reports a D1 write outage (every UPDATE throws) in errors, not as an idle run: each row once, although both its writes threw", async () => {
+      await seedStuck();
+      const log: string[] = [];
+      const outage = new Proxy(db, {
+        get(target, prop, receiver) {
+          if (prop !== "prepare") return Reflect.get(target, prop, receiver);
+          return (sql: string) => {
+            if (!sql.startsWith("UPDATE")) return target.prepare(sql);
+            return {
+              bind: (...values: unknown[]) => ({
+                run: async () => {
+                  log.push(`${String(values[0])} ${sql.includes("status = 'succeeded'") ? "template" : "failed"}`);
+                  throw new Error("D1 down");
+                },
+              }),
+            };
+          };
+        },
+      });
+      expect(await sweepStuckJobs({ DB: outage }, NOW)).toEqual({ fallback: 0, failed: 0, errors: 3 });
+      expect(log).toEqual(["poison template", "poison failed", "first template", "first failed", "regen failed", "regen failed"]);
+      for (const id of ["poison", "first", "regen"]) expect((await getGeneration(db, id)).finished_at).toBeNull();
     });
   });
 });
@@ -428,7 +468,7 @@ describe("the sweeper's end-states and the allowance counts, end to end (task-10
     }
     // While it is live, the job counts toward the day and, as a regeneration, toward the owner's total.
     expect(await allowance()).toEqual({ generationsLeftToday: 4, generationsLeftTotal: stuck.kind === "regenerate" ? 19 : 20 });
-    expect(await sweepStuckJobs({ DB: db }, NOW)).toEqual(stuck.end.status === "succeeded" ? { fallback: 1, failed: 0 } : { fallback: 0, failed: 1 });
+    expect(await sweepStuckJobs({ DB: db }, NOW)).toEqual(stuck.end.status === "succeeded" ? { fallback: 1, failed: 0, errors: 0 } : { fallback: 0, failed: 1, errors: 0 });
     expect(await getGeneration(db, id)).toMatchObject({ kind: stuck.kind, created_at: START, finished_at: NOW, ...stuck.end });
     // A model slot the job took stays taken (it may have paid for a call), so it still counts toward today's model limit.
     expect(await modelCallsToday(db, NOW)).toBe(stuck.end.model_slot);

@@ -25,6 +25,14 @@ const TEMPLATE =
 
 type StuckRow = { id: string; kind: "first" | "regenerate"; status: "queued" | "running"; input_json: string };
 
+/**
+ * What one run did with the rows it read. Not a partition: `errors` counts each row whose ending threw (its template,
+ * its JSON, its first write or the rescue write) once, however many of those steps threw, and that row also counts in
+ * `failed` when the rescue write then ended it. A row that another writer ended or claimed before this run's write
+ * counts in neither `fallback` nor `failed`.
+ */
+type SweepCounts = { fallback: number; failed: number; errors: number };
+
 /** Ends one stuck row with one write, conditional on the status read: how it ended, or null if another writer came first. */
 async function endStuckRow(db: D1Database, row: StuckRow, now: number): Promise<"fallback" | "failed" | null> {
   const snapshot = row.kind === "first" ? parseSnapshot(row.input_json) : null;
@@ -45,8 +53,8 @@ async function endStuckRow(db: D1Database, row: StuckRow, now: number): Promise<
  * 'internal', as job.ts's templateEnding ends a first build whose template cannot be made; if that write
  * throws too, the run gives up on the row for now. Either way the run goes on to the next row.
  */
-export async function sweepStuckJobs(env: { DB: D1Database }, now: number, limit = SWEEP_MAX_PER_RUN): Promise<{ fallback: number; failed: number }> {
-  const counts = { fallback: 0, failed: 0 };
+export async function sweepStuckJobs(env: { DB: D1Database }, now: number, limit = SWEEP_MAX_PER_RUN): Promise<SweepCounts> {
+  const counts: SweepCounts = { fallback: 0, failed: 0, errors: 0 };
   let seen = 0;
   while (seen < limit) {
     const batch = Math.min(SWEEP_BATCH, limit - seen);
@@ -56,8 +64,9 @@ export async function sweepStuckJobs(env: { DB: D1Database }, now: number, limit
         const ended = await endStuckRow(env.DB, row, now);
         if (ended !== null) counts[ended] += 1;
       } catch {
-        // One row must never stop the others (the oldest would be read first in every run): one more write tries to
-        // fail it with 'internal'.
+        // One row must never stop the others (the oldest would be read first in every run): it counts once in `errors`,
+        // and one more write tries to fail it with 'internal'.
+        counts.errors += 1;
         try {
           const { meta } = await env.DB.prepare(FAIL).bind(row.id, row.status, now).run();
           if (meta.changes === 1) counts.failed += 1;

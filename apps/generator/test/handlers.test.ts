@@ -122,14 +122,18 @@ describe("queue: a message it cannot run", () => {
 });
 
 describe("scheduled", () => {
-  it("sweeps stuck jobs as of now and logs the counts", async () => {
-    vi.mocked(sweepStuckJobs).mockResolvedValue({ fallback: 2, failed: 1 });
+  // Counts only: the line never carries an error's text (Task 10 follow-up 2, item 4).
+  it.each([
+    ["a run that ended jobs", { fallback: 2, failed: 1, errors: 0 }],
+    ["a run whose every write threw (a D1 outage), which must not look idle", { fallback: 0, failed: 0, errors: 3 }],
+  ])("sweeps stuck jobs as of now and logs the counts, errors included: %s", async (_case, counts) => {
+    vi.mocked(sweepStuckJobs).mockResolvedValue(counts);
     const before = Date.now();
     await worker.scheduled({ cron: "*/5 * * * *", scheduledTime: 0, type: "scheduled", noRetry: () => undefined } as never, ENV);
     const [[env, now]] = vi.mocked(sweepStuckJobs).mock.calls as [[Env, number]];
     expect(env).toBe(ENV);
     expect(now).toBeGreaterThanOrEqual(before);
     expect(now).toBeLessThanOrEqual(Date.now());
-    expect(lines()).toEqual([{ event: "generation.sweep", fallback: 2, failed: 1 }]);
+    expect(lines()).toEqual([{ event: "generation.sweep", ...counts }]);
   });
 });

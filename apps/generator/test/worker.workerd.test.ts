@@ -153,7 +153,7 @@ describe("asksite-generator", () => {
     await queueRow(id, Date.now() - 7 * 60_000);
     expect(await server.getWorker().scheduled({ cron: "*/5 * * * *", scheduledTime: new Date() })).toMatchObject({ outcome: "ok" });
     expect(await waitForFinal(id)).toMatchObject({ status: "succeeded", used_fallback: 1, fallback_reason: "provider_error" });
-    expect(await waitForLine((line) => line.event === "generation.sweep")).toEqual({ event: "generation.sweep", fallback: 1, failed: 0 });
+    expect(await waitForLine((line) => line.event === "generation.sweep")).toEqual({ event: "generation.sweep", fallback: 1, failed: 0, errors: 0 });
   }, 30_000);
 
   it("logs IDs and codes only, never owner text", async () => {
