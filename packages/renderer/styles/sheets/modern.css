@@ -1,0 +1,593 @@
+/* Modern (modern), compiled by scripts/build-css.ts to styles/out/modern.css (A12). Tailwind with automatic scanning
+   off, the shared tokens and rules, and only render.ts and this design's own folder scanned: no other design's
+   classes reach this sheet. The design's own rules are plain CSS in the components layer, so Tailwind's utilities
+   (sr-only, sticky, focus-outside:static, whitespace-nowrap) still win where both apply. Colours and the display
+   lettering come from the page's --aw-modern-* properties (src/designs/modern/tokens.ts). */
+@import "tailwindcss" source(none);
+@import "../shared.css";
+@source "../../src/render.ts";
+@source "../../src/designs/modern";
+
+@layer components {
+  /* ---------- tokens and base ---------- */
+  :root {
+    --ink: var(--aw-modern-ink);
+    --text: var(--aw-modern-text);
+    --muted: var(--aw-modern-muted);
+    --tint: var(--aw-modern-tint);
+    --line: var(--aw-modern-line);
+    --field: var(--aw-modern-field);
+    --brand: var(--aw-modern-brand);
+    --brand-line: var(--aw-modern-brand-line);
+    --on-brand-muted: var(--aw-modern-on-brand-muted);
+    --act: var(--aw-modern-act);
+    --on-act: var(--aw-modern-on-act);
+    --band-accent: var(--aw-modern-band-accent);
+    --display: var(--aw-modern-display);
+    --trk: var(--aw-modern-tracking);
+    --body: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, Roboto, "Helvetica Neue", Arial, sans-serif;
+    --livery: linear-gradient(var(--act) 0 4px, var(--brand) 4px 8px);
+    --lift: 0 20px 40px -28px rgb(0 0 0 / 0.35);
+    --gut: 16px;
+    --r: 6px;
+    --hdr: 66px;
+    --menu-row: 0px;
+  }
+  @media (min-width: 360px) {
+    :root { --gut: 20px; }
+  }
+  @media (min-width: 768px) {
+    :root { --gut: 32px; }
+  }
+  @media (min-width: 1200px) {
+    :root { --gut: 40px; }
+  }
+  .page {
+    background: #fff;
+    color: var(--text);
+    font: 400 1rem/1.6 var(--body);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    overflow-wrap: break-word;
+  }
+  @media (min-width: 768px) {
+    .page { font-size: 1.0625rem; }
+  }
+  .page :focus-visible { outline: 3px solid var(--brand); outline-offset: 2px; }
+  .on-brand :focus-visible, .band--brand :focus-visible, .call-card :focus-visible, .foot :focus-visible { outline-color: #fff; }
+  .wrap { width: 100%; max-width: calc(1200px + 2 * var(--gut)); margin-inline: auto; padding-inline: var(--gut); }
+  .i { width: 20px; height: 20px; flex: none; }
+
+  /* ---------- type: the display face for headings; the livery mark (action over brand) opens each section ---------- */
+  .display { font-family: var(--display); font-weight: 700; color: var(--ink); text-wrap: balance; }
+  .h1 { font-size: clamp(2rem, 1.4rem + 2.6vw, 3.5rem); line-height: 1.05; letter-spacing: calc(var(--trk) * -0.025em); }
+  .h1--long { font-size: clamp(1.75rem, 1.3rem + 2vw, 2.875rem); }
+  .h2 { font-size: clamp(1.75rem, 1.35rem + 1.6vw, 2.625rem); line-height: 1.1; letter-spacing: calc(var(--trk) * -0.022em); }
+  .h3 { font: 700 1.1875rem/1.25 var(--display); letter-spacing: calc(var(--trk) * -0.01em); color: var(--ink); text-wrap: balance; }
+  .lede { margin-top: 12px; max-width: 40rem; font-size: 1.0625rem; line-height: 1.55; color: var(--muted); text-wrap: pretty; }
+  .head { margin-bottom: 28px; }
+  .head::before { content: ""; display: block; width: 44px; height: 8px; margin-bottom: 18px; background: var(--livery); }
+  .on-brand .head::before { background: linear-gradient(var(--act) 0 4px, #fff 4px 8px); }
+  @media (min-width: 768px) {
+    .lede { font-size: 1.1875rem; }
+    .head { margin-bottom: 44px; }
+    .head::before { width: 56px; margin-bottom: 22px; }
+  }
+
+  /* ---------- buttons: the action colour for Call and Send, an ink outline for the owner's call to action ---------- */
+  .button {
+    display: inline-flex; align-items: center; justify-content: center; gap: 10px; min-height: 52px; padding: 8px 22px;
+    border: 2px solid transparent; border-radius: var(--r); font: 700 1.0625rem/1.2 var(--body); text-align: center; text-wrap: balance; cursor: pointer;
+  }
+  .button-lg { min-height: 56px; padding-inline: 24px; font-size: 1.125rem; }
+  .button-act { background: var(--act); color: var(--on-act); }
+  .button-line { border-color: var(--ink); background: #fff; color: var(--ink); }
+  .on-brand .button-act { background: var(--aw-modern-band-act); color: var(--aw-modern-on-band-act); }
+  .on-brand .button-line { border-color: #fff; background: transparent; color: #fff; }
+  /* Hover only where the pointer can hover, so a tap never leaves a button in its hover colours (MDN: hover). */
+  @media (hover: hover) {
+    .button-act:hover { background: var(--aw-modern-act-hover); }
+    .button-line:hover { background: var(--ink); color: #fff; }
+    .on-brand .button-act:hover { background: var(--aw-modern-band-act-hover); }
+    .on-brand .button-line:hover { background: #fff; color: var(--brand); }
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .button { transition: background-color 0.15s, color 0.15s; }
+  }
+
+  /* ---------- header: sticky from 768 px, so a Call button is always on screen ---------- */
+  .hdr { position: relative; z-index: 40; background: #fff; box-shadow: 0 1px 0 var(--line); }
+  .hdr::before { content: ""; display: block; height: 6px; background: linear-gradient(var(--act) 0 3px, var(--brand) 3px 6px); }
+  .bar { display: flex; align-items: center; gap: 12px; min-height: 56px; padding-block: 6px; }
+  .brand { margin-right: auto; min-width: 0; font: 700 1.125rem/1.15 var(--display); letter-spacing: calc(var(--trk) * -0.015em); color: var(--ink); text-wrap: balance; }
+  .brand--long { max-width: 15rem; font-size: 1rem; }
+  .nav { order: 3; }
+  .nav-links { display: none; }
+  .nav-links a { display: inline-flex; align-items: center; min-height: 44px; padding: 0 9px; border-radius: var(--r); font-size: 0.9375rem; font-weight: 600; white-space: nowrap; }
+  .menu { position: relative; }
+  .menu summary {
+    display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 12px; border: 2px solid var(--ink); border-radius: var(--r);
+    color: var(--ink); font-size: 0.9375rem; font-weight: 700; list-style: none; cursor: pointer;
+  }
+  .menu summary::-webkit-details-marker { display: none; }
+  .i-close, .menu[open] .i-open { display: none; }
+  .menu[open] .i-close { display: block; }
+  .menu-list {
+    position: absolute; right: 0; top: calc(100% + 8px); width: min(260px, calc(100vw - 2 * var(--gut))); padding: 8px;
+    border: 1px solid var(--line); border-radius: var(--r); background: #fff; box-shadow: 0 18px 40px -18px rgb(0 0 0 / 0.35);
+  }
+  .menu-list a { display: flex; align-items: center; min-height: 48px; padding: 0 14px; border-radius: 4px; color: var(--ink); font-weight: 600; white-space: nowrap; }
+  @media (hover: hover) {
+    .nav-links a:hover { color: var(--ink); text-decoration: underline 2px; text-underline-offset: 0.35em; }
+    .menu-list a:hover { background: var(--tint); }
+  }
+  .hdr-call { display: none; }
+  @media (min-width: 768px) {
+    html { scroll-padding-top: calc(var(--hdr) + var(--menu-row) + 12px); }
+    .hdr { position: sticky; top: 0; }
+    /* WCAG 2.4.11: keyboard focus on a link or button below the header lets the header go, so it never hides the
+       focus. A text field keeps it; scroll-padding-top keeps the field (and, while one has focus, its label) below it. */
+    html:has(:focus-visible:not(.hdr *):not(input, select, textarea)) .hdr { position: relative; }
+    html:has(.input:focus) { scroll-padding-top: calc(var(--hdr) + var(--menu-row) + 60px); }
+    .bar { min-height: 60px; gap: 16px; }
+    .brand { font-size: 1.25rem; }
+    .brand--long { max-width: 20rem; font-size: 1.0625rem; }
+    .hdr-call { display: inline-flex; min-height: 46px; padding: 0 18px; font-size: 1rem; }
+  }
+  /* 768-1199 px: the open menu is one row of links across the sticky header. It stays open after a tap (no
+     JavaScript closes it), so scroll-padding grows by its height and a jump lands below the row. */
+  @media (min-width: 768px) and (max-width: 1199px) {
+    html:has(.menu[open]) { --menu-row: 57px; }
+    .menu { position: static; }
+    .menu-list {
+      display: flex; align-items: center; gap: 2px; left: 0; right: 0; top: 100%; width: auto; height: 57px;
+      padding: 0 max(var(--gut), (100% - 1200px) / 2); border: 0; border-top: 1px solid var(--line); border-radius: 0;
+      box-shadow: 0 1px 0 var(--line); overflow-x: auto;
+    }
+    .menu-list a { min-height: 44px; padding: 0 12px; font-size: 0.9375rem; }
+  }
+  @media (min-width: 1200px) {
+    .bar { gap: 20px; }
+    .nav { order: 0; }
+    .nav-links { display: flex; }
+    .menu { display: none; }
+  }
+
+  /* ---------- hero ---------- */
+  /* --edge: where the content column starts, measured on the hero (a size container), so a classic scrollbar never
+     shifts it; 100vw where container units are missing. */
+  .hero { --edge: max(var(--gut), (100vw - 1200px) / 2); }
+  @supports (width: 1cqw) {
+    .hero { container-type: inline-size; --edge: max(var(--gut), (100cqw - 1200px) / 2); }
+  }
+  .band { position: relative; overflow: hidden; background: var(--brand); }
+  /* Phones: a photo strip that follows the screen height (svh: with the browser bars shown), so the headline and the
+     credentials still share the first screen with the call bar. Crops lean to the top, where a face sits. */
+  .band--photo { height: clamp(140px, 28vh, 240px); height: clamp(140px, 28svh, 240px); }
+  .band--photo img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: 50% 22%; }
+  .hero--tall .band--photo img { object-position: 50% 16%; }
+  .band--brand::after { content: ""; display: block; height: 8px; background: var(--livery); }
+  .band-in { padding-block: 16px 18px; }
+  .band-line, .hl { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 18px; font-size: 0.9375rem; font-weight: 700; line-height: 1.35; }
+  .band-line { color: #fff; }
+  .hl { margin-bottom: 8px; color: var(--ink); }
+  .line-247 { display: inline-flex; align-items: center; gap: 8px; }
+  .band-line .i, .hl .i { width: 18px; height: 18px; }
+  .band-line .i { color: var(--band-accent); }
+  .hl .i { color: var(--brand); }
+  .line-tag { font-weight: 600; }
+  .band-line .line-tag { color: var(--on-brand-muted); }
+  .hl .line-tag { color: var(--muted); }
+  .hero-body { padding-block: 16px 36px; }
+  /* the livery seam where the text meets the photo */
+  .hero--photo .hero-body { border-top: 4px solid var(--act); box-shadow: inset 0 4px 0 var(--brand); }
+  .hero--plain .hero-body { padding-top: 26px; }
+  .hero--plain .panel { max-width: 48rem; }
+  .hero-sub { margin-top: 10px; max-width: 36rem; color: var(--muted); text-wrap: pretty; }
+  .hero-actions { display: none; }
+  /* Phones: the credentials come straight after the headline and the subheadline follows them, so the license,
+     insured and founded facts sit above the call bar on the first screen. The panel is a plain div, so
+     display: contents drops no meaning, and the reading order (headline, subheadline, credentials) is unchanged. */
+  @media (max-width: 767px) {
+    .hero-body { display: flex; flex-direction: column; }
+    .panel { display: contents; }
+    .hero-sub { order: 1; margin-top: 16px; }
+    .door { order: 2; }
+  }
+  /* Short phones give the text more room: dense credentials (two licenses, a long number) and a long headline take
+     a shorter strip, never flatter than about 3.5:1, so a face in the upper third stays in frame. */
+  @media (max-width: 767px) and (max-height: 760px) {
+    .hero--dense .band--photo { height: clamp(96px, 16vh, 240px); height: clamp(96px, 16svh, 240px); }
+    /* the trade and town (also in the footer) give their line to the credentials, which sit 2 px closer */
+    .hero--dense .hl .line-tag { display: none; }
+    .hero--dense .proof-list { row-gap: 10px; }
+  }
+  @media (max-width: 767px) and (max-height: 700px) {
+    .hero:has(.h1--long) .band--photo { height: clamp(110px, 20svh, 240px); }
+    .hero .h1--long { font-size: 1.625rem; }
+  }
+  @media (max-width: 767px) and (max-height: 600px) {
+    .band--photo { height: clamp(110px, 20vh, 240px); height: clamp(110px, 20svh, 240px); }
+  }
+
+  /* the credentials: licenses first (with their label), then insured, the founding year and free estimates */
+  .proof { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
+  .proof-list { display: grid; grid-template-columns: repeat(2, minmax(0, auto)); gap: 12px 16px; font-size: 0.9375rem; }
+  .proof .wide { grid-column: 1 / -1; }
+  .cred { display: flex; align-items: flex-start; gap: 9px; min-width: 0; color: var(--ink); line-height: 1.25; }
+  .cred .i { margin-top: -1px; color: var(--brand); }
+  .cred strong { display: block; font-weight: 700; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+  .cred small { display: block; margin-top: 3px; font-size: 0.8125rem; color: var(--muted); overflow-wrap: anywhere; }
+  /* "3 more licenses": the arrow sits on the text's centre line in every hero */
+  .more a { display: inline-flex; align-items: center; gap: 6px; min-height: 44px; margin-block: -12px; color: var(--brand); font-weight: 700; text-decoration: underline; text-underline-offset: 0.2em; }
+  .proof-list .more .i { width: 16px; height: 16px; margin: 0; }
+  @media (min-width: 600px) {
+    .proof-list { font-size: 1rem; }
+    .proof-list small { font-size: 0.875rem; }
+  }
+
+  /* no-photo hero: the opening hours card */
+  .door {
+    margin-top: 28px; padding: 22px 18px 18px; border: 1px solid var(--line); border-top: 4px solid var(--brand);
+    border-radius: var(--r); background: #fff; box-shadow: var(--lift);
+  }
+  .door-label { margin-bottom: 8px; color: var(--ink); font-size: 0.9375rem; font-weight: 700; }
+
+  @media (min-width: 768px) {
+    .band--photo { height: clamp(300px, max(36vh, 35vw), 420px); }
+    .band-in { padding-block: 18px 20px; }
+    .band-line, .hl { font-size: 1rem; }
+    .hl { margin-bottom: 14px; }
+    .hero-body { padding-block: 32px 56px; }
+    .hero--plain .hero-body { padding-top: 40px; }
+    .hero-sub { margin-top: 16px; font-size: 1.1875rem; line-height: 1.55; }
+    .hero-actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 26px; }
+    .proof { margin-top: 28px; padding-top: 22px; }
+    .proof-list { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 28px; }
+    .door { margin-top: 32px; padding: 26px 30px 24px; }
+  }
+  @media (min-width: 1024px) {
+    .proof-list { grid-template-columns: repeat(2, minmax(0, max-content)); gap: 16px 56px; }
+    .proof .wide { grid-column: auto; }
+    .proof .more { grid-column: 1 / -1; }
+    .hero--plain .hero-body { padding-block: 48px 64px; }
+    .hero--card .hero-body { display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); grid-template-rows: auto 1fr; column-gap: 56px; }
+    .hero--card .proof { grid-column: 1; }
+    .hero--card .door { grid-column: 2; grid-row: 1 / 3; align-self: start; margin: 0; padding: 26px 28px 24px; }
+  }
+  /* The split hero, on every desktop window and on landscape phones: the text column (the brand strip with the hero
+     line, the headline, the buttons, then the credentials) beside the photo, which spans both rows, so the headline
+     and both buttons sit in the upper part of the first screen at any window height. */
+  @media (min-width: 1024px), (min-width: 768px) and (max-height: 500px) {
+    .hero--photo { display: grid; grid-template-columns: minmax(0, 1fr) 44%; grid-template-rows: auto 1fr; }
+    .hero--photo .band--photo { grid-column: 2; grid-row: 1 / -1; height: auto; min-height: max(320px, 17.6vw); }
+    .hero--tall .band--photo { min-height: max(320px, 20vw); }
+    .hero--photo .hero-body { display: contents; }
+    .hero--photo .panel { grid-column: 1; grid-row: 1; padding: 40px 48px 48px var(--edge); }
+    .hero--photo .hl {
+      min-height: 48px; margin: -40px -48px 36px calc(-1 * var(--edge)); padding: 12px 48px 12px var(--edge);
+      background: var(--brand); color: #fff; border-bottom: 4px solid var(--act); box-shadow: 0 4px 0 var(--brand);
+    }
+    .hero--photo .hl .i { color: var(--band-accent); }
+    .hero--photo .hl .line-tag { color: var(--on-brand-muted); }
+    .hero--photo .proof { grid-column: 1; grid-row: 2; align-self: start; margin: -24px 48px 48px var(--edge); padding-top: 14px; }
+  }
+  /* Landscape phones: tighter, and the subheadline moves under the buttons, so the headline and the Call button are
+     on the first screen under the sticky header. */
+  @media (min-width: 768px) and (max-height: 500px) {
+    .hero--photo .band--photo { min-height: 0; }
+    .panel { display: flex; flex-direction: column; }
+    .hero--photo .panel { padding-top: 20px; }
+    .band-in { padding-block: 10px 12px; }
+    .hero--plain .hero-body { padding-top: 20px; }
+    .hero--photo .hl { min-height: 0; margin: -20px -48px 18px calc(-1 * var(--edge)); padding-block: 8px; }
+    .hero .h1 { font-size: clamp(1.75rem, 1.1rem + 1.6vw, 2.25rem); }
+    .hero .h1--long { font-size: 1.625rem; }
+    .hero-sub { order: 1; margin-top: 14px; font-size: 1.0625rem; }
+    .hero-actions { margin-top: 16px; }
+  }
+
+  /* ---------- sections ---------- */
+  .sec { padding-block: 64px; }
+  .tint { background: var(--tint); }
+  .white { background: #fff; }
+  .on-brand { background: var(--brand); color: #fff; }
+  .on-brand .display { color: #fff; }
+  @media (min-width: 768px) {
+    .sec { padding-block: 96px; }
+  }
+
+  /* the trust section as a band of its own (when the layout does not put it straight after the hero) */
+  .trust { padding-block: 32px; }
+  .trust-h { margin-bottom: 14px; color: var(--ink); font-size: 0.9375rem; font-weight: 700; }
+  .creds { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; }
+  @media (min-width: 640px) {
+    .creds { display: flex; flex-wrap: wrap; gap: 16px 40px; }
+  }
+
+  /* services: priced cards under a full-width heading; the owner's call to action sits level with the heading */
+  .cards { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
+  .card { display: flex; flex-direction: column; padding: 22px 22px 24px; border: 1px solid var(--line); border-radius: var(--r); background: #fff; }
+  .white .card { border-color: transparent; background: var(--tint); }
+  .card-top { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 10px 16px; }
+  .card-top .h3 { flex: 1 1 11rem; min-width: 0; font-size: 1.25rem; }
+  .price { flex: none; padding: 3px 12px; border-radius: 999px; background: var(--tint); color: var(--ink); font-size: 1.0625rem; font-weight: 700; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .white .price { background: #fff; }
+  .price small { font-size: 0.875rem; font-weight: 500; color: var(--muted); }
+  .price.price--ask { padding-inline: 0; background: none; font-size: 0.9375rem; font-weight: 500; color: var(--muted); }
+  .card-desc { margin-top: 12px; color: var(--muted); text-wrap: pretty; }
+  .cards--compact .card { padding: 18px 18px 20px; }
+  .cards--compact .h3 { font-size: 1.125rem; }
+  .cards--c1 { max-width: 40rem; }
+  .svc-cta { display: grid; grid-template-columns: minmax(0, 1fr); justify-items: start; gap: 12px; margin-top: 28px; }
+  .svc-cta p { color: var(--text); font-weight: 600; text-wrap: pretty; }
+  @media (max-width: 599px) {
+    .svc-cta .button, .faq-more .button { width: 100%; }
+  }
+  @media (min-width: 640px) {
+    .cards--c2, .cards--c3, .cards--c4 { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
+  }
+  @media (min-width: 1024px) {
+    .svc { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 48px; }
+    .svc > .head, .svc > .svc-cta { grid-row: 1; }
+    .svc > .svc-cta { grid-column: 2; align-self: end; justify-items: end; margin: 0 0 44px; max-width: 22rem; text-align: right; }
+    .svc > .cards { grid-column: 1 / -1; }
+    .cards--c3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .cards.cards--c4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    .card { padding: 28px 28px 30px; }
+  }
+
+  /* reviews: the lead quote featured, the others as cards in balanced rows; no card is stretched past its text */
+  .lead-q { display: grid; grid-template-columns: minmax(0, 1fr); gap: 18px; padding-bottom: 28px; }
+  .lead-q blockquote::before, .q blockquote::before { content: "\201C"; display: block; color: var(--brand); font: 800 4.5rem/1 Georgia, "Times New Roman", serif; }
+  .lead-q blockquote::before { height: 36px; }
+  .lead-q blockquote p { max-width: 46rem; font: 700 clamp(1.375rem, 1.1rem + 1.1vw, 2rem)/1.3 var(--display); letter-spacing: calc(var(--trk) * -0.015em); color: var(--ink); text-wrap: pretty; }
+  .lead-q--long blockquote p { font-size: clamp(1.1875rem, 1.05rem + 0.6vw, 1.5rem); line-height: 1.4; }
+  .who { display: flex; flex-wrap: wrap; column-gap: 10px; line-height: 1.3; }
+  .who > * { min-width: 0; overflow-wrap: anywhere; }
+  .who strong { color: var(--ink); }
+  .who span { color: var(--muted); }
+  .quotes { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; margin-top: 8px; }
+  .q { display: flex; flex-direction: column; height: 100%; padding: 22px; border-radius: var(--r); background: var(--tint); box-shadow: inset 0 4px 0 var(--brand); }
+  .tint .q { background: #fff; }
+  .q blockquote { flex: 1; }
+  .q blockquote::before { height: 30px; margin-bottom: 4px; font-size: 3.25rem; }
+  .q blockquote p { color: var(--ink); font-size: 1.0625rem; font-weight: 500; line-height: 1.55; text-wrap: pretty; }
+  .q .who { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line); }
+  @media (min-width: 700px) {
+    .quotes { grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 20px; }
+    .quotes > .s2, .quotes > .s3 { grid-column: span 3; }
+    .quotes > .s6 { grid-column: span 6; }
+  }
+  @media (min-width: 700px) and (max-width: 1023px) {
+    .quotes > li:last-child:nth-child(odd) { grid-column: span 6; }
+  }
+  @media (min-width: 768px) {
+    .q { padding: 28px 28px 24px; }
+    .q blockquote p { font-size: 1.125rem; }
+  }
+  @media (min-width: 1024px) {
+    .lead-q {
+      grid-template-columns: minmax(0, 1fr) minmax(12rem, 15rem); column-gap: 28px; padding: 40px 40px 40px 32px;
+      border: 1px solid var(--line); border-top: 4px solid var(--brand); border-radius: var(--r); background: #fff; box-shadow: var(--lift);
+    }
+    .tint .lead-q { border-color: transparent; border-top-color: var(--brand); }
+    .lead-q blockquote { display: flex; gap: 24px; }
+    .lead-q blockquote::before { flex: none; height: 48px; font-size: 5.5rem; }
+    .lead-q--short blockquote p { font-size: clamp(1.875rem, 1rem + 1.4vw, 2.375rem); line-height: 1.2; }
+    .lead-q .who { flex-direction: column; justify-content: center; row-gap: 4px; padding-left: 28px; border-left: 1px solid var(--line); font-size: 1.125rem; }
+    /* one review alone: no card, the name set large beside it */
+    .lead-q.lead-q--solo { padding: 8px 0 0; border: 0; background: none; box-shadow: none; }
+    .quotes { margin-top: 20px; }
+    .quotes > .s2 { grid-column: span 2; }
+  }
+
+  /* gallery: every photo once, in an even grid, with its caption under it (never over the photo) */
+  .shots { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 12px; }
+  .shots > li { min-width: 0; }
+  .shots > li:first-child:nth-last-child(odd) { grid-column: 1 / -1; }
+  .shots img { width: 100%; aspect-ratio: 4 / 3; object-fit: cover; border-radius: 4px; background: var(--line); }
+  .shots figcaption { margin-top: 8px; color: var(--text); font-size: 0.875rem; line-height: 1.4; text-wrap: pretty; }
+  .shots.shots--one { grid-template-columns: minmax(0, 1fr); max-width: 56rem; margin-inline: auto; }
+  @media (min-width: 640px) {
+    .shots--one img { aspect-ratio: 16 / 9; }
+    .shots figcaption { font-size: 0.9375rem; }
+  }
+  @media (min-width: 1024px) {
+    .shots:not(.shots--one, .shots--two) { grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 28px 20px; }
+    .shots:not(.shots--one, .shots--two) > li { grid-column: span 2; }
+    /* a short last row sits in the middle */
+    .shots:not(.shots--one, .shots--two) > li:last-child:nth-child(3n + 1) { grid-column: 3 / 5; }
+    .shots:not(.shots--one, .shots--two) > li:nth-last-child(2):nth-child(3n + 1) { grid-column: 2 / 4; }
+    .shots:not(.shots--one, .shots--two) > li:last-child:nth-child(3n + 2) { grid-column: 4 / 6; }
+    .shots--two { gap: 28px 24px; }
+  }
+
+  /* about: the owner's statement as type on the brand band, with Call and the call to action beside it */
+  .about-text { max-width: 44rem; font: 500 clamp(1.1875rem, 1.05rem + 0.7vw, 1.5rem)/1.5 var(--body); color: #fff; text-wrap: pretty; }
+  .about-text--short { font-size: clamp(1.375rem, 1.1rem + 1.1vw, 1.75rem); line-height: 1.4; }
+  .about-foot { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; margin-top: 28px; }
+  @media (min-width: 600px) {
+    .about-foot { display: flex; flex-wrap: wrap; }
+  }
+  @media (min-width: 1024px) {
+    .about { display: grid; grid-template-columns: minmax(0, 8fr) minmax(0, 4fr); grid-template-rows: auto 1fr; column-gap: 64px; }
+    .about > .head { grid-column: 1; }
+    .about-text { grid-column: 1; grid-row: 2; font-size: clamp(1.375rem, 0.9rem + 0.9vw, 1.75rem); }
+    .about-text--long { font-size: 1.25rem; line-height: 1.55; }
+    .about-text.about-text--short { font-size: clamp(1.875rem, 1rem + 1.6vw, 2.375rem); line-height: 1.3; }
+    .about-foot { grid-column: 2; grid-row: 2; align-self: end; display: grid; margin: 0; padding-left: 40px; border-left: 1px solid var(--brand-line); }
+    .about-foot .button { width: 100%; }
+  }
+
+  /* service area: boards with a brand header, each as tall as its own content (never stretched) */
+  .area { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
+  .area > * { min-width: 0; }
+  .board { overflow: hidden; border: 1px solid var(--line); border-radius: var(--r); background: #fff; }
+  .tint .board { border-color: transparent; }
+  .board-h { display: flex; align-items: center; gap: 10px; padding: 14px 20px; background: var(--brand); color: #fff; font: 700 1.0625rem/1.3 var(--body); }
+  .board-h .i { color: var(--band-accent); }
+  .board-body { padding: 4px 20px 20px; }
+  .places { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 8.5rem), 1fr)); column-gap: 20px; }
+  .place { min-width: 0; padding-block: 9px; border-bottom: 1px solid var(--line); color: var(--ink); font-weight: 600; }
+  .place.span { grid-column: 1 / -1; }
+  .addr { display: block; padding-top: 16px; color: var(--text); font-style: normal; }
+  .few { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; align-content: start; }
+  .few-line { display: flex; gap: 12px; color: var(--ink); font-size: 1.1875rem; line-height: 1.4; }
+  .few-line .i { margin-top: 3px; color: var(--brand); }
+  .few-line span { min-width: 0; }
+  .few .addr { padding: 0 0 0 32px; }
+  /* the hours table, in the hero card and on the hours board */
+  .hours { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+  .hours th, .hours td { padding: 9px 0; border-top: 1px solid var(--line); text-align: left; vertical-align: baseline; }
+  .hours tr:first-child > * { border-top: 0; }
+  .hours th { padding-right: 12px; font-weight: 500; color: var(--text); }
+  .hours .time { color: var(--ink); font-weight: 700; text-align: right; white-space: nowrap; }
+  .hours .closed { color: var(--muted); font-weight: 500; }
+  .board .hours th, .board .hours td { padding: 14px 20px; }
+  .board .hours td { padding-left: 0; }
+  .em { margin-top: 10px; padding: 12px 14px 6px; border-radius: 4px; background: var(--aw-modern-well); color: var(--ink); line-height: 1.4; }
+  .board .em { margin: 0; padding: 16px 20px 14px; border-radius: 0; }
+  .em-call { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; font-weight: 700; font-variant-numeric: tabular-nums; text-decoration: underline; text-underline-offset: 0.2em; }
+  .em-call .i { color: var(--brand); }
+  @media (max-width: 359px) {
+    .hours th { white-space: normal; }
+    .board .hours th, .board .hours td { padding-inline: 14px; }
+    .board .hours td { padding-left: 0; }
+  }
+  @media (min-width: 768px) {
+    .board-h { padding: 16px 26px; }
+    .board-body { padding: 6px 26px 24px; }
+    .board .hours th, .board .hours td { padding: 15px 26px; }
+    .board .hours td { padding-left: 0; }
+    .board .em { padding: 18px 26px 16px; }
+  }
+  @media (min-width: 900px) {
+    .area { grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); gap: 20px; align-items: start; }
+    .area.area--solo { grid-template-columns: minmax(0, 1fr); }
+  }
+
+  /* questions: a ruled list with a square key, a call panel beside it */
+  .qa-list { border-top: 2px solid var(--ink); }
+  .qa { border-bottom: 1px solid var(--line); }
+  .qa summary { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 64px; padding: 16px 0; list-style: none; cursor: pointer; }
+  .qa summary::-webkit-details-marker { display: none; }
+  .qa .h3, .qo .h3 { min-width: 0; font-size: 1.0625rem; }
+  .tog { position: relative; flex: none; width: 32px; height: 32px; border: 1.5px solid var(--field); border-radius: 4px; background: #fff; }
+  .tog::before, .tog::after { content: ""; position: absolute; left: 50%; top: 50%; width: 14px; height: 2px; margin: -1px 0 0 -7px; background: var(--ink); }
+  .tog::after { rotate: 90deg; }
+  .qa[open] .tog { border-color: var(--brand); background: var(--brand); }
+  .qa[open] .tog::before, .qa[open] .tog::after { background: #fff; }
+  .qa[open] .tog::after { rotate: none; }
+  @media (hover: hover) {
+    .qa summary:hover .tog { border-color: var(--ink); }
+  }
+  .qa-body { max-width: 44rem; margin-bottom: 22px; padding: 2px 0 2px 18px; border-left: 3px solid var(--brand); }
+  .qo { padding-block: 22px; border-bottom: 1px solid var(--line); }
+  .qo p { max-width: 44rem; margin-top: 8px; }
+  .faq-more { display: grid; grid-template-columns: minmax(0, 1fr); justify-items: start; gap: 12px; margin-top: 32px; }
+  .faq-more-q { color: var(--ink); font-weight: 700; }
+  @media (min-width: 768px) {
+    .qa .h3, .qo .h3 { font-size: 1.1875rem; }
+  }
+  @media (min-width: 1024px) {
+    .faq { display: grid; grid-template-columns: minmax(0, 8fr) minmax(0, 4fr); column-gap: 56px; align-items: start; }
+    .faq .head { grid-column: 1 / -1; }
+    .faq-more {
+      grid-column: 2; grid-row: 2; position: sticky; top: calc(var(--hdr) + 24px); display: block; margin: 0;
+      padding: 26px 26px 28px; border-top: 4px solid var(--brand); border-radius: var(--r); background: #fff;
+    }
+    .white .faq-more { background: var(--tint); }
+    .faq-more-q { margin-bottom: 16px; font: 700 1.375rem/1.2 var(--display); letter-spacing: calc(var(--trk) * -0.01em); }
+    .faq-more .button { width: 100%; }
+  }
+
+  /* contact: the form, then the call card; the <form> itself is the field grid */
+  .contact { display: grid; grid-template-columns: minmax(0, 1fr); gap: 28px; }
+  .contact > * { min-width: 0; }
+  .contact-main { scroll-margin-top: 16px; }
+  .form-card { position: relative; padding: 26px 20px 22px; border: 1px solid var(--line); border-top: 4px solid var(--brand); border-radius: var(--r); background: #fff; box-shadow: var(--lift); color: var(--text); }
+  .form { display: grid; grid-template-columns: minmax(0, 1fr); gap: 18px; }
+  .field label { display: block; margin-bottom: 7px; color: var(--ink); font-size: 0.9375rem; font-weight: 700; }
+  .input { display: block; width: 100%; min-height: 52px; padding: 13px 14px; border: 1.5px solid var(--field); border-radius: var(--r); background: #fff; color: var(--text); font: 400 1rem/1.4 var(--body); }
+  .input:focus-visible { border-color: var(--brand); outline-offset: 1px; }
+  textarea.input { min-height: 120px; resize: vertical; }
+  .select { position: relative; color: var(--text); }
+  /* WebKit draws a native select at its own height and counts a long chosen option as page width, so the select
+     drops the native look, clips its text and draws its own arrow. */
+  select.input { appearance: none; padding-right: 44px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .select .i { position: absolute; right: 14px; top: 50%; translate: 0 -50%; pointer-events: none; }
+  .hp { position: absolute; left: -9999px; width: 1px; height: 1px; overflow: hidden; }
+  .form-end { margin-top: 6px; }
+  .form-end .button { width: 100%; }
+  @media (hover: hover) {
+    .input:hover { border-color: var(--ink); }
+  }
+  @media (min-width: 640px) {
+    .form { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+    .full, .form-end { grid-column: 1 / -1; }
+  }
+  @media (min-width: 768px) {
+    .contact-main { scroll-margin-top: 12px; }
+    .form-card { padding: 38px 36px 34px; }
+  }
+  /* The call card is a size container: the big number takes the card's width less the icon and gap (38 px) divided
+     by the number's width in em for the lettering (--aw-modern-phone-em), so it never passes the padding. */
+  .call-card { container-type: inline-size; padding: 26px 22px; border-radius: var(--r); background: var(--brand); color: #fff; }
+  .lbl { display: block; color: var(--on-brand-muted); font-size: 0.875rem; font-weight: 700; }
+  .big { display: inline-flex; align-items: center; gap: 12px; min-height: 48px; margin-top: 4px; color: #fff; font: 700 1.625rem/1.15 var(--display); letter-spacing: calc(var(--trk) * -0.01em); font-variant-numeric: tabular-nums; }
+  @supports (width: 1cqi) {
+    .big { font-size: clamp(1.25rem, (100cqi - 38px) / var(--aw-modern-phone-em), 2rem); }
+  }
+  .big .i { width: 26px; height: 26px; color: var(--band-accent); }
+  .call-card ul { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; margin-top: 18px; padding-top: 18px; border-top: 1px solid var(--brand-line); }
+  .call-card li { min-width: 0; line-height: 1.4; text-wrap: balance; }
+  .call-card li a { font-weight: 600; text-decoration: underline; text-underline-offset: 0.2em; }
+  @media (hover: hover) {
+    .big:hover { text-decoration: underline 2px; }
+  }
+  @media (min-width: 1024px) {
+    .contact { grid-template-columns: minmax(0, 7fr) minmax(0, 4fr); grid-template-rows: auto auto; column-gap: 56px; }
+    .contact-main { grid-column: 1; grid-row: 1 / span 2; display: grid; grid-template-rows: subgrid; }
+    .call-card { grid-column: 2; grid-row: 2; align-self: start; padding: 34px 32px; }
+  }
+
+  /* ---------- footer ---------- */
+  .foot { padding-block: 56px; border-top: 4px solid var(--act); background: var(--brand); color: var(--on-brand-muted); }
+  .foot-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 32px; }
+  .foot-grid > * { min-width: 0; }
+  .foot-name { font: 700 1.25rem/1.25 var(--display); letter-spacing: calc(var(--trk) * -0.015em); color: #fff; text-wrap: balance; }
+  .foot-h { margin-bottom: 8px; color: #fff; font-size: 0.9375rem; font-weight: 700; line-height: 1.25; }
+  .foot-list li, .foot-trade { padding-block: 4px; font-size: 0.9375rem; line-height: 24px; }
+  .foot-social { display: flex; flex-wrap: wrap; gap: 4px 20px; margin-top: 12px; }
+  .foot a { color: #fff; text-decoration: underline 2px var(--brand-line); text-underline-offset: 0.2em; }
+  .foot-social a { display: inline-block; padding-block: 4px; font-size: 0.9375rem; font-weight: 600; line-height: 24px; }
+  @media (hover: hover) {
+    .foot a:hover { text-decoration-color: currentColor; }
+  }
+  @media (min-width: 768px) {
+    .foot { padding-block: 72px; }
+    .foot-grid { grid-template-columns: minmax(0, 5fr) minmax(0, 4fr) minmax(0, 4fr); gap: 48px; }
+  }
+
+  /* ---------- the phone call bar: Call and the owner's call to action, under the thumb ---------- */
+  .callbar { bottom: 0; z-index: 10; display: flex; gap: 8px; padding: 10px var(--gut) calc(10px + env(safe-area-inset-bottom)); border-top: 1px solid var(--line); background: #fff; }
+  .callbar .button { min-height: 54px; padding: 0 12px; gap: 8px; font-size: 1rem; }
+  .callbar .button-act { flex: 1 1 auto; font-variant-numeric: tabular-nums; }
+  /* the call to action may wrap rather than push the bar wider than the screen */
+  .callbar .button-line { flex: 0 1 auto; min-width: 0; overflow-wrap: anywhere; }
+  /* The full short label ("Free quote", "Book a visit") from 340 px, one word below. Under 375 px the bar tightens so
+     the widest label and the number fit side by side. */
+  .cta-s { display: none; }
+  @media (max-width: 374px) {
+    .callbar { gap: 6px; padding-inline: 12px; }
+    .callbar .button { gap: 6px; padding-inline: 10px; letter-spacing: -0.01em; }
+  }
+  @media (min-width: 340px) {
+    .cta-s { display: inline; }
+    .cta-t { display: none; }
+  }
+  @media (min-width: 768px) {
+    .callbar { display: none; }
+  }
+}
