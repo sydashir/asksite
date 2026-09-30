@@ -182,7 +182,7 @@ async function answerWithinLimit(provider: ModelProvider, req: ModelRequest): Pr
  * check sends its issues back as repair feedback. An attempt that outlasts ATTEMPT_TIMEOUT_MS is a
  * timeout, and so is one whose deadline passed before its call (nothing is sent). A prompt over the
  * input bound (inputBound) is refused before its call as a bad request; when an earlier answer's repair
- * lines grew it, the failure is invalid_output (P3-18). Transient provider errors
+ * lines grew it, the failure is invalid_output (P3-18), with providerErrorKind null. Transient provider errors
  * pause 2 s then 6 s; auth and bad-request errors stop at once. Only these are recorded as provider
  * errors: the provider call's own errors, our timeouts and the input-bound refusal. An exception from
  * our own code (buildPrompt, timeoutSignal, the bound's measurement, usage accounting, checkDraft) is
@@ -237,9 +237,10 @@ export async function generateDraft(provider: ModelProvider, snapshot: Generatio
       log.push({ outcome: kind, issues: [], latencyMs: deps.now() - started, usageMissing: sent && unknown });
       // P3-18: once an answer was not valid, its repair lines grew this prompt, so a refusal by the guard is the model's
       // failure (invalid_output: a regeneration then counts toward the owner's total, P3-16 (B)), not the provider's.
-      // The refusal stays recorded: this attempt's outcome and providerErrorKind are bad_request, inputBoundRefused true.
+      // providerErrorKind is null, as for every invalid_output; the refusal stays recorded in this attempt's outcome
+      // (bad_request) and inputBoundRefused (true).
       failure = refused && answered ? "invalid_output" : "provider_error";
-      providerErrorKind = kind;
+      providerErrorKind = failure === "invalid_output" ? null : kind;
       if (!TRANSIENT_KINDS.has(kind)) return { ok: false, failure, providerErrorKind, issues: capIssues(repair), attempts: calls, model, usage, log, inputBoundRefused };
       if (attempt < MAX_ATTEMPTS) await deps.sleep(RETRY_DELAYS_MS[Math.min(transientErrors, RETRY_DELAYS_MS.length - 1)]!);
       transientErrors += 1;

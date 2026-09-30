@@ -648,7 +648,7 @@ describe("the input bound (P3-8)", () => {
     const provider = scriptedProvider([answer(withUnknownKeys(good, "\uFDFA")), answer(good)]);
     const result = await generateDraft(provider, FULL_SNAPSHOT, deps);
     expect(provider.requests).toHaveLength(1);
-    expect(result).toMatchObject({ ok: false, failure: "invalid_output", providerErrorKind: "bad_request", attempts: 1, inputBoundRefused: true });
+    expect(result).toMatchObject({ ok: false, failure: "invalid_output", providerErrorKind: null, attempts: 1, inputBoundRefused: true });
     expect(result.log.map((a) => [a.outcome, a.usageMissing])).toEqual([["invalid", false], ["bad_request", false]]);
     expect(sleeps).toEqual([]);
     const issues = result.ok ? [] : result.issues;
@@ -757,7 +757,8 @@ describe("the input bound (P3-8)", () => {
 
   // P3-18 (the moderator's M1): an owner sizes the notes so attempt 1 just fits the bound. Any answer that is not valid
   // adds repair lines, so the guard refuses attempt 2. The model's answer failed, not the provider: the failure is
-  // invalid_output (a regeneration then counts toward the owner's total, P3-16 (B)); the refusal stays recorded.
+  // invalid_output (a regeneration then counts toward the owner's total, P3-16 (B)), so providerErrorKind is null, as for
+  // every invalid_output (Task 10 follow-up 2 item 2). The refusal stays recorded: the log's bad_request, inputBoundRefused.
   it.each<[string, () => ModelResponse, AttemptOutcome]>([
     ["an invalid answer", () => answer(bad), "invalid"],
     ["a cut-off answer", () => stopped("max_tokens"), "max_tokens"],
@@ -769,7 +770,7 @@ describe("the input bound (P3-8)", () => {
     const provider = scriptedProvider([first(), answer(good)]);
     const result = await generateDraft(provider, snapshot, deps);
     expect(provider.requests.map((req) => inputBound(req))).toEqual([MAX_INPUT_TOKENS]);
-    expect(result).toMatchObject({ ok: false, failure: "invalid_output", providerErrorKind: "bad_request", attempts: 1, inputBoundRefused: true });
+    expect(result).toMatchObject({ ok: false, failure: "invalid_output", providerErrorKind: null, attempts: 1, inputBoundRefused: true });
     expect(result.log.map((a) => a.outcome)).toEqual([outcome, "bad_request"]);
     expect(sleeps).toEqual([]);
   });

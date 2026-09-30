@@ -500,7 +500,8 @@ describe("runGenerationJob", () => {
   });
 
   // P3-18: attempt 1's invalid answer grew attempt 2's prompt (its repair lines), so the model's answer failed, not the
-  // provider: the fallback reason is invalid_output. The refusal stays recorded (bad_request, inputBoundRefused).
+  // provider: the fallback reason is invalid_output, and providerErrorKind is null, as for every invalid_output (Task 10
+  // follow-up 2 item 2). The refusal stays recorded (the attempt's bad_request, inputBoundRefused).
   it("keeps the model slot when the input guard refuses attempt 2 after attempt 1 was sent, and gives a first build the template with fallback reason invalid_output", async () => {
     await queued("g1");
     const provider = scriptedProvider([answer(withUnknownKeys(TEMPLATE, FDFA)), answer(TEMPLATE)]);
@@ -508,7 +509,7 @@ describe("runGenerationJob", () => {
       outcome: "fallback",
       fallbackReason: "invalid_output",
       attempts: 1,
-      providerErrorKind: "bad_request",
+      providerErrorKind: null,
       attemptOutcomes: ["invalid", "bad_request"],
       inputBoundRefused: true,
     });
@@ -605,7 +606,10 @@ describe("runGenerationJob", () => {
 describe("the job's end-states and the owner's lifetime total, end to end (task-9-additions F)", () => {
   const GEN_QUEUE = { send: async () => {} } as unknown as Queue<GenerationJob>;
   const allowance = () => generationAllowance({ DB: db }, { siteId: "s1", ownerId: "o1", now: NOW });
-  type EndState = { snapshot?: GenerationInputSnapshot; env?: Partial<JobEnv>; setting?: [string, string]; provider?: () => ModelProvider; row: Partial<GenerationRow>; counted: boolean };
+  type EndState = {
+    snapshot?: GenerationInputSnapshot; env?: Partial<JobEnv>; setting?: [string, string]; provider?: () => ModelProvider;
+    row: Partial<GenerationRow>; counted: boolean; report?: Partial<JobReport>;
+  };
 
   it.each<[string, EndState]>([
     ["refused at claim time: generation is switched off", { env: { GENERATION_ENABLED: "false" }, row: { status: "failed", error_code: "generation_disabled", attempts: 0, model_slot: 0 }, counted: false }],
@@ -616,7 +620,8 @@ describe("the job's end-states and the owner's lifetime total, end to end (task-
     ["three invalid answers", { env: { FAKE_MODE: "invalid-always" }, row: { status: "failed", error_code: "invalid_output", attempts: 3, model_slot: 1 }, counted: true }],
     // P3-18: the owner's notes fill attempt 1 to the input bound; its invalid answer's repair lines make the guard refuse
     // attempt 2. One billed call, and the model's answer failed: it counts, as three invalid answers do.
-    ["notes at the input bound, an invalid answer, then the input guard refused attempt 2 (P3-18)", { snapshot: AT_BOUND, provider: () => scriptedProvider([answer({}), answer(TEMPLATE)]), row: { status: "failed", error_code: "invalid_output", attempts: 1, model_slot: 1 }, counted: true }],
+    // Its report: invalid_output with providerErrorKind null, as for every invalid_output (Task 10 follow-up 2 item 2).
+    ["notes at the input bound, an invalid answer, then the input guard refused attempt 2 (P3-18)", { snapshot: AT_BOUND, provider: () => scriptedProvider([answer({}), answer(TEMPLATE)]), row: { status: "failed", error_code: "invalid_output", attempts: 1, model_slot: 1 }, counted: true, report: { outcome: "failed", errorCode: "invalid_output", providerErrorKind: null, attemptOutcomes: ["invalid", "bad_request"], inputBoundRefused: true } }],
     // P3-18 changes only that refusal: a timeout or a 5xx after billed invalid answers is still the provider's fault.
     ["an invalid answer, then two timeouts", { provider: () => scriptedProvider([answer({}), new ProviderError("timeout", "timed out"), new ProviderError("timeout", "timed out")]), row: { status: "failed", error_code: "provider_timeout", attempts: 3, model_slot: 1 }, counted: false }],
     ["an invalid answer, then two 5xx answers", { provider: () => scriptedProvider([answer({}), new ProviderError("unavailable", "503"), new ProviderError("unavailable", "503")]), row: { status: "failed", error_code: "provider_unavailable", attempts: 3, model_slot: 1 }, counted: false }],
@@ -631,7 +636,8 @@ describe("the job's end-states and the owner's lifetime total, end to end (task-
     // A queued regeneration counts until the job ends it.
     expect(await allowance()).toEqual({ generationsLeftToday: 4, generationsLeftTotal: 19 });
     if (end.setting) await setSetting(db, ...end.setting);
-    await runGenerationJob(envWith(end.env), request.generation.id, deps(end.provider?.()));
+    const report = await runGenerationJob(envWith(end.env), request.generation.id, deps(end.provider?.()));
+    expect(report).toMatchObject(end.report ?? {});
     expect(await getGeneration(db, request.generation.id)).toMatchObject({ kind: "regenerate", ...end.row });
     expect(await modelCallsToday(db, NOW)).toBe(end.row.model_slot);
     expect(await allowance()).toEqual({ generationsLeftToday: 4, generationsLeftTotal: end.counted ? 19 : 20 });
@@ -647,7 +653,7 @@ describe("the job's end-states and the owner's lifetime total, end to end (task-
     const provider = scriptedProvider([answer({}), answer(TEMPLATE)]);
     expect(await runGenerationJob(envWith(), request.generation.id, deps(provider))).toMatchObject({
       outcome: "fallback", usedFallback: true, fallbackReason: "invalid_output", errorCode: null, attempts: 1,
-      providerErrorKind: "bad_request", attemptOutcomes: ["invalid", "bad_request"], inputBoundRefused: true,
+      providerErrorKind: null, attemptOutcomes: ["invalid", "bad_request"], inputBoundRefused: true,
     });
     // Attempt 1 was sent at exactly the bound; attempt 2 was never sent.
     expect(provider.requests.map((req) => inputBound(req))).toEqual([MAX_INPUT_TOKENS]);
