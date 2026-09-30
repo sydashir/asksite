@@ -25,6 +25,6 @@ export interface SignInEmailsView {
  */
 export interface TakedownView {
   noticeSent: boolean;
-  /** Present (true) when a step after the commit (the LIVE delete or the media purge) threw: the site is offline but its cleanup did not finish, so a second takedown finishes it. */
+  /** Present (true) when a step after the commit (the LIVE delete or the media purge) threw: the site is offline but its cleanup did not finish, so cleanup did not finish. The leftover LIVE object or media is NOT served (the sites Worker gates on taken_down_at) and is removed by the Task 27 ops clean-up sweep (task-27-checklist item 42). */
   cleanupFailed?: true;
 }
