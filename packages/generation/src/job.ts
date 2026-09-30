@@ -38,7 +38,10 @@ export interface JobReport {
   usageMissing: boolean;
   /** The input-bound guard refused an attempt's prompt before its call (P3-8). */
   inputBoundRefused: boolean;
-  /** generateDraft rejected (our own bug), maybe after paid calls: their tokens and cost are unknown, recorded as 0. */
+  /**
+   * Our own code threw once a call could have been sent (a bug), maybe after paid calls: how many calls were sent and
+   * their tokens and cost are unknown, so attempts, the tokens and the cost are each recorded as 0.
+   */
   costUnknown: boolean;
   durationMs: number;
   /**
