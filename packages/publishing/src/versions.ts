@@ -11,8 +11,8 @@ import {
   type OwnerEdits,
   type VersionSummary,
 } from "@asksite/core";
-import { render } from "@asksite/renderer";
-import { SITE_CSS, SITE_CSS_SHA256 } from "@asksite/site-css";
+import { render, type RenderedPage } from "@asksite/renderer";
+import { DESIGN_CSS } from "@asksite/site-css";
 import { SiteDocument } from "@asksite/site-schema";
 import { PublishError } from "./errors.ts";
 import { auditIfChanged, HTML_TYPE } from "./shared.ts";
@@ -48,19 +48,21 @@ export async function createPendingVersion(
   const refused = await refusal(db, input);
   if (refused !== null) throw refused;
 
-  let html: string;
+  // The page in the document's own design, with that design's stylesheet; render() reports the sheet's
+  // SHA-256, which the version records (A12).
+  let page: RenderedPage;
   try {
-    html = render(document, { stylesheet: SITE_CSS, formAction: formActionUrl(env.ROOT_DOMAIN, slug, siteId) });
+    page = render(document, { stylesheets: DESIGN_CSS, formAction: formActionUrl(env.ROOT_DOMAIN, slug, siteId) });
   } catch (error) {
     throw new PublishError("render_failed", [{ path: [], code: "render_failed", message: error instanceof Error ? error.message : "Render failed" }]);
   }
 
   const versionId = newId();
   const key = versionKey(siteId, versionId);
-  const htmlSha256 = await sha256Hex(html);
+  const htmlSha256 = await sha256Hex(page.html);
   // A page the batch below refuses is deleted again. If D1 itself fails, whether the batch committed is
   // unknown, so the page stays; an orphan is harmless, as nothing ever serves WORK publicly.
-  await env.WORK.put(key, html, { httpMetadata: { contentType: HTML_TYPE }, customMetadata: { siteId, versionId, sha256: htmlSha256 } });
+  await env.WORK.put(key, page.html, { httpMetadata: { contentType: HTML_TYPE }, customMetadata: { siteId, versionId, sha256: htmlSha256 } });
 
   const dayStart = utcDayStart(now);
   const siteIsReady = "EXISTS (SELECT 1 FROM sites WHERE id = ? AND owner_id = ? AND slug = ? AND taken_down_at IS NULL)";
@@ -78,7 +80,7 @@ export async function createPendingVersion(
          WHERE ${siteIsReady} AND ${underCap}`,
       )
       .bind(versionId, siteId, canonicalJson(document), await documentSha256(document), canonicalJson(edits), generationId,
-        key, htmlSha256, SITE_CSS_SHA256, ownerId, now, siteId, siteId, ownerId, slug, siteId, dayStart, cap),
+        key, htmlSha256, page.stylesheetSha256, ownerId, now, siteId, siteId, ownerId, slug, siteId, dayStart, cap),
     // The number, read in the same transaction. Not RETURNING: production D1 returns no rows for writes (A10).
     db.prepare("SELECT number FROM site_versions WHERE id = ?").bind(versionId),
     // Only when the INSERT above happened (same transaction), so the site never points at a missing version.

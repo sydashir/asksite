@@ -1,7 +1,7 @@
 import { canonicalJson, documentSha256, formActionUrl, LIMITS, newId, OwnerEdits, sha256Hex, versionKey } from "@asksite/core";
 import { render } from "@asksite/renderer";
-import { SITE_CSS, SITE_CSS_SHA256 } from "@asksite/site-css";
-import type { SiteDocument } from "@asksite/site-schema";
+import { DESIGN_CSS } from "@asksite/site-css";
+import { DESIGN_IDS, type SiteDocument } from "@asksite/site-schema";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { createPendingVersion, withdrawPending } from "../src/index.ts";
 import { publishFailure as failure } from "./support/errors.ts";
@@ -124,18 +124,18 @@ describe("createPendingVersion", () => {
     const summary = await createPendingVersion(env, { siteId, ownerId, slug, document, edits: EDITS, generationId: null, now: 1000 });
     expect(summary).toMatchObject({ number: 1, status: "pending", requestedAt: 1000, reviewedAt: null, reviewNote: null });
 
-    const expected = render(document, { stylesheet: SITE_CSS, formAction: formActionUrl(ROOT, slug, siteId) });
+    const expected = render(document, { stylesheets: DESIGN_CSS, formAction: formActionUrl(ROOT, slug, siteId) });
     const object = await env.WORK.get(versionKey(siteId, summary.id));
-    expect(await object?.text()).toBe(expected);
+    expect(await object?.text()).toBe(expected.html);
     expect(object?.httpMetadata?.contentType).toBe("text/html; charset=utf-8");
-    expect(object?.customMetadata).toEqual({ siteId, versionId: summary.id, sha256: await sha256Hex(expected) });
-    expect(expected).toContain(`action="https://${slug}.asksite.example/_f/${siteId}"`);
+    expect(object?.customMetadata).toEqual({ siteId, versionId: summary.id, sha256: await sha256Hex(expected.html) });
+    expect(expected.html).toContain(`action="https://${slug}.asksite.example/_f/${siteId}"`);
 
     expect(await versionRow(env.DB, summary.id)).toMatchObject({
       site_id: siteId, number: 1, status: "pending",
       document_json: canonicalJson(document), document_sha256: await documentSha256(document),
       edits_json: canonicalJson(EDITS), generation_id: null,
-      html_key: versionKey(siteId, summary.id), html_sha256: await sha256Hex(expected), stylesheet_sha256: SITE_CSS_SHA256,
+      html_key: versionKey(siteId, summary.id), html_sha256: await sha256Hex(expected.html), stylesheet_sha256: expected.stylesheetSha256,
       requested_by: ownerId, requested_at: 1000, reviewed_by: null,
     });
     expect((await siteRow(env.DB, siteId))?.pending_version_id).toBe(summary.id);
@@ -214,8 +214,28 @@ describe("createPendingVersion", () => {
     expect(row?.document_json).toBe(canonicalJson(document));
     expect(row?.document_sha256).toBe(await sha256Hex(row?.document_json as string));
     // And the stored page is the page of that stored document.
-    const page = render(document, { stylesheet: SITE_CSS, formAction: formActionUrl(ROOT, slug, siteId) });
-    expect(await (await env.WORK.get(versionKey(siteId, summary.id)))?.text()).toBe(page);
+    const page = render(document, { stylesheets: DESIGN_CSS, formAction: formActionUrl(ROOT, slug, siteId) });
+    expect(await (await env.WORK.get(versionKey(siteId, summary.id)))?.text()).toBe(page.html);
+  });
+
+  // A12: the stored page is drawn in the document's own design and inlines that design's stylesheet, and the
+  // version records that sheet's SHA-256, as render() reports it (A12-0 ruling M2).
+  it.each(DESIGN_IDS)("stores the page in the %s design with that design's stylesheet", async (design) => {
+    const { ownerId, siteId, slug } = await seedSite(env.DB);
+    const plumber = doc();
+    const document: SiteDocument = { ...plumber, theme: { ...plumber.theme, design } };
+    const summary = await createPendingVersion(env, { siteId, ownerId, slug, document, edits: EDITS, generationId: null, now: 1 });
+
+    const page = render(document, { stylesheets: DESIGN_CSS, formAction: formActionUrl(ROOT, slug, siteId) });
+    expect(page.design).toBe(design);
+    const stored = await (await env.WORK.get(versionKey(siteId, summary.id)))?.text();
+    expect(stored).toBe(page.html);
+    expect(stored).toContain(`<body data-design="${design}"`);
+    expect(stored).toContain(`<style>${DESIGN_CSS[design].css}</style>`);
+    const row = await versionRow(env.DB, summary.id);
+    expect(row).toMatchObject({ html_sha256: await sha256Hex(page.html), stylesheet_sha256: page.stylesheetSha256 });
+    expect(row?.stylesheet_sha256).toBe(DESIGN_CSS[design].sha256);
+    expect(JSON.parse(row?.document_json as string).theme.design).toBe(design);
   });
 
   it("refuses an invalid document with its issues and writes nothing", async () => {
