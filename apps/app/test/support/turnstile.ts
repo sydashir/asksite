@@ -7,7 +7,7 @@ export const TURNSTILE_TEST_SITE_KEY = "1x00000000000000000000AA";
 export const TURNSTILE_TEST_SECRET = "1x0000000000000000000000000000000AA";
 /** The token a test sitekey's widget produces. */
 export const TURNSTILE_DUMMY_TOKEN = "XXXX.DUMMY.TOKEN.XXXX";
-/** What the documented test secrets answer for the dummy token: action "test" and host name "localhost" (same page). */
+/** What the docs page shows for the dummy token (action "test", host "localhost"); the REAL service answers neither (see fakes.ts). Used only as stand-in host/action values. */
 export const TURNSTILE_TEST_HOSTNAME = "localhost";
 export const TURNSTILE_TEST_ACTION = "test";
 /** A stand-in for a production secret key: not one of the documented dummy secrets, so the real checks apply. */

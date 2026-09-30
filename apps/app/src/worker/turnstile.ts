@@ -24,9 +24,6 @@ type Refusal = "missing" | "rejected" | "action" | "hostname" | "testing_key" | 
 /** The action the sign-in widget sets (data-action) and siteverify echoes back. */
 export const LOGIN_ACTION = "login";
 
-/** What the docs show a dummy secret answering for the dummy token (same page): action "test", host name "localhost". */
-const TEST_ANSWER = { action: "test", hostname: "localhost" };
-
 interface SiteverifyResult {
   success: boolean;
   action: unknown;
@@ -59,16 +56,16 @@ async function siteverifyOnce(send: Siteverify, body: string, timeoutMs: number)
 /**
  * D1 (moderator): a dummy secret's result passes only where dummy secrets belong, local development on a
  * *.localhost host; anywhere else it is refused even with success true, so a test secret that reaches
- * production can never let a request through. There it must be the documented dummy answer (action
- * "test", host name "localhost"). Any other secret needs action "login" and this app's host name; an
+ * production can never let a request through. There success true is enough: the real service answers a dummy
+ * secret with no action and the host name example.com (measured 2026-09-30, unlike its docs page), so neither
+ * is checked (P4-22 M1 re-ruling). Any other secret needs action "login" and this app's host name; an
  * answer with no host name is refused. Docs: "Check if action / hostname matches expected value".
  */
 function judge(result: SiteverifyResult, expected: Expected): Refusal | null {
   if (!result.success) return "rejected";
   if (expected.testSecret) {
     if (!expected.testSecretAllowed) return "testing_key";
-    if (result.action !== TEST_ANSWER.action) return "action";
-    return result.hostname === TEST_ANSWER.hostname ? null : "hostname";
+    return null;
   }
   if (result.action !== LOGIN_ACTION) return "action";
   return result.hostname === expected.hostname ? null : "hostname";

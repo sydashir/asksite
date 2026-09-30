@@ -3,7 +3,7 @@ import { LIMITS, sha256Hex } from "@asksite/core";
 import { Facts } from "@asksite/site-schema";
 import { afterEach, describe, expect, it } from "vitest";
 import { APP_ORIGIN, awayFromMinuteBoundary, json, nextIp, useAppHarness } from "../support/harness.ts";
-import { TURNSTILE_DUMMY_TOKEN, TURNSTILE_TEST_HOSTNAME } from "../support/turnstile.ts";
+import { TURNSTILE_DUMMY_TOKEN } from "../support/turnstile.ts";
 
 const h = useAppHarness();
 
@@ -596,9 +596,9 @@ describe("Turnstile on sign-in (A11)", () => {
     expect(h.server.getLogs().map((entry) => entry.message).join("\n")).not.toMatch(/quiet@|192\.0\.2\.77|always-fails/);
   });
 
-  it("accepts Cloudflare's test-key result (action test, host name localhost, as its docs show) in development on a *.localhost host", async () => {
+  it("accepts Cloudflare's test-key result (the real answer: success only, no action, host name example.com) in development on a *.localhost host", async () => {
     await h.signIn("test-key@example.com");
-    expect(new URL(APP_ORIGIN).hostname).not.toBe(TURNSTILE_TEST_HOSTNAME);
+    expect(new URL(APP_ORIGIN).hostname).not.toBe("example.com");
     expect((await h.login("test-key@example.com")).status).toBe(202);
     await waitForEmail("test-key@example.com");
   });
