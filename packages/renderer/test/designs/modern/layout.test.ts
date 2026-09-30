@@ -97,7 +97,7 @@ function lostText(): string[] {
   return [...new Set(out)];
 }
 
-describe.each(ENGINES)("Modern in %s", (_engine, engine) => {
+describe.each(ENGINES)("Modern in %s", (engineName, engine) => {
   let browser: Browser;
   let tab: Page;
   beforeAll(async () => {
@@ -393,6 +393,45 @@ describe.each(ENGINES)("Modern in %s", (_engine, engine) => {
             }
           }
         }
+      }
+    }
+    expect(found).toEqual([]);
+  }, 60_000);
+
+  // Round 3: hiding the no-hours card moved the fewest-facts page up, and on the Pixel 7 the services card's button
+  // then stuck out 0.4 px above the call bar, which failed the phone e2e's axe check. axe-core 4.13's target-size rule
+  // (node_modules/axe-core/axe.js: targetSizeEvaluate, targetOffsetEvaluate) passes a target the bar's box wholly
+  // contains; one that sticks out past the bar's top edge, or past the screen's bottom edge, passes only when the part
+  // that sticks out is at least 2 x (12 px - the gap between that edge and the bar's buttons): 2 px above, 4 px below.
+  // At the e2e phone windows every tap target keeps 3 px clear of those bands, so a sub-pixel change in a font or an
+  // engine cannot flip the check.
+  it("leaves no tap target half under the call bar on the e2e phone windows (axe target-size, round 3)", async () => {
+    const found: string[] = [];
+    // The phone e2e projects: chromium-390 and Pixel 7; webkit-390 and iPhone 13 (playwright.config.ts).
+    const windows = engineName === "chromium" ? [[390, 900], [412, 839]] : [[390, 844], [390, 664]];
+    const halfUnder = () => {
+      const bar = document.querySelector("aside").getBoundingClientRect();
+      const buttons = document.querySelector("aside a").getBoundingClientRect();
+      const above = 2 * (12 - (buttons.top - bar.top)) + 3;
+      const below = 2 * (12 - (bar.bottom - buttons.bottom)) + 3;
+      const out: string[] = [];
+      for (const target of document.querySelectorAll("a, button, summary, input, select, textarea")) {
+        const box = target.getBoundingClientRect();
+        if (target.closest("aside") !== null || box.height === 0) continue;
+        // How far the target sticks out above the bar, and past the screen's bottom (negative: it stays inside).
+        const up = bar.top - box.top;
+        const down = box.bottom - bar.bottom;
+        if ((up > -3 && up < above && box.bottom > bar.top) || (down > -3 && down < below && box.top < bar.bottom)) {
+          out.push(`"${target.textContent.trim().slice(0, 20)}" sticks out ${up.toFixed(1)} px above the bar, ${down.toFixed(1)} px below the screen`);
+        }
+      }
+      return out;
+    };
+    for (const name of FIXTURES) {
+      await open(page(name), 390);
+      for (const [width, height] of windows) {
+        await tab.setViewportSize({ width: width!, height: height! });
+        for (const problem of await tab.evaluate(halfUnder)) found.push(`${name} ${width}x${height}: ${problem}`);
       }
     }
     expect(found).toEqual([]);

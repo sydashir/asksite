@@ -181,7 +181,9 @@
   .hero-body { padding-block: 16px 36px; }
   /* the livery seam where the text meets the photo */
   .hero--photo .hero-body { border-top: 4px solid var(--act); box-shadow: inset 0 4px 0 var(--brand); }
-  .hero--plain .hero-body { padding-top: 26px; }
+  /* the no-photo hero: its headline 40 px under the brand band on phones as on tablets (on phones this also keeps the
+     fixtures' first-screen tap targets clear of the call bar's edges, which axe's target-size check measures) */
+  .hero--plain .hero-body { padding-top: 40px; }
   .hero-sub { margin-top: 10px; max-width: 36rem; color: var(--muted); text-wrap: pretty; }
   .hero-actions { display: none; }
   /* Phones: the credentials come straight after the headline and the subheadline follows them, so the license,
@@ -252,7 +254,6 @@
     .band-line, .hl { font-size: 1rem; }
     .hl { margin-bottom: 14px; }
     .hero-body { padding-block: 32px 56px; }
-    .hero--plain .hero-body { padding-top: 40px; }
     .hero-sub { margin-top: 16px; font-size: 1.1875rem; line-height: 1.55; }
     /* fit-content: side by side at their own widths; stacked, both take the column's width (one width) */
     .hero-actions { display: flex; flex-wrap: wrap; gap: 12px; width: fit-content; margin-top: 26px; }
