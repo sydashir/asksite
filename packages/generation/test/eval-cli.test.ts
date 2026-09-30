@@ -1,4 +1,4 @@
-import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -279,6 +279,8 @@ describe("the overrun exit code, 3, in every live mode (iii)", () => {
     expect(h.requests).toEqual(modelIds([GEMMA, GROQ]));
     expect(h.err).toEqual(["The run ended early on an error (error) after a request that cost more than its worst case."]);
     expect(h.text()).not.toContain("marker-print-failed");
+    // gemma 7,078 (its overrun) and groq 51,234 x 0.15 + 256 x 0.6 = 7,838.7, so 7,839.
+    expect(h.out.slice(-2)).toEqual(["Spent: $0.014917 counted against the $1.000000 budget.", "The budget did not stop the run."]);
   });
 });
 
@@ -540,6 +542,39 @@ describe("a live --record (P3-17 D3)", () => {
     expect(h.out).toContain(`${GEMMA}: it cost $0.009459, more than its worst case of $0.009458 (70010 input and 8192 output tokens); nothing more goes to this model, and the other models go on.`);
     expect(h.out).toContain("groq/gpt-oss-120b: recorded test/fixtures/groq__gpt-oss-120b.json");
     expect(h.out).toContain("The budget did not stop the run.");
+  });
+});
+
+describe("the spend line when our own code throws outside the per-model try (ii)", () => {
+  it("--caps-probe: prints what was spent, then passes the exception on", async () => {
+    const boom = new Error("boom");
+    const h = harness({ answer: async () => ({ json: undefined, model: "fake", usage: { inputTokens: 51_234, outputTokens: 256 }, stop: "max_tokens" }) });
+    const print = h.deps.print;
+    h.deps.print = (line) => {
+      if (line.startsWith(`${GEMMA}: 51234 input tokens`)) throw boom;
+      print(line);
+    };
+    await expect(main(["--caps-probe", "--live", "--max-usd", "1", "--only", `${GEMMA},${GROQ}`], h.deps)).rejects.toBe(boom);
+    expect(h.requests).toEqual(modelIds([GEMMA]));
+    // gemma's answer: 51,234 x 0.1 + 256 x 0.3 = 5,200.2, so 5,201.
+    expect(h.out.slice(-2)).toEqual(["Spent: $0.005201 counted against the $1.000000 budget.", "The budget did not stop the run."]);
+  });
+
+  it("--record: prints what was spent after a fixture that cannot be written, then passes the exception on", async () => {
+    const body = { model: "m", choices: [{ message: { content: "{}" }, finish_reason: "stop" }], usage: { prompt_tokens: 5, completion_tokens: 6 } };
+    const http = fakeFetch([{ status: 200, body }]);
+    const recorded: Answer = async (env, snapshot, fetchImpl) => {
+      await fetchImpl!("https://record.example.invalid/v1/chat/completions", { method: "POST", body: "{}" });
+      return validDraft(env, snapshot, fetchImpl);
+    };
+    const h = harness({ answer: recorded, fetch: http.fetch });
+    // The fixtures folder would sit under a plain file, so it cannot be made (ENOTDIR).
+    writeFileSync(join(h.dir, "blocker"), "");
+    h.deps.fixturesDir = pathToFileURL(join(h.dir, "blocker", "fixtures/"));
+    await expect(main(["--record", "--live", "--max-usd", "1", "--only", `${GEMMA},${GROQ}`], h.deps)).rejects.toMatchObject({ code: "ENOTDIR" });
+    expect(h.requests).toEqual(modelIds([GEMMA]));
+    // gemma's answer: 1,000 x 0.1 + 1,000 x 0.3 = 400.
+    expect(h.out.slice(-2)).toEqual(["Spent: $0.000400 counted against the $1.000000 budget.", "The budget did not stop the run."]);
   });
 });
 

@@ -232,12 +232,15 @@ async function live(flags: Flags, capMicrousd: number, rows: readonly Row[], dep
   let measured = true;
   try {
     if (flags.mode === "evaluation") await evaluate(flags.runs, plan, budget, deps);
-    else if (flags.mode === "record") {
-      await record(plan, budget, deps);
-      printSpend(budget, deps);
-    } else {
-      measured = (await probeCaps(plan, budget, deps)) && unpriced === 0;
-      printSpend(budget, deps);
+    else {
+      // What was spent shows even when our own code throws outside a model's try, such as a fixture that cannot be
+      // written (fix (ii)); the exception is then passed on.
+      try {
+        if (flags.mode === "record") await record(plan, budget, deps);
+        else measured = (await probeCaps(plan, budget, deps)) && unpriced === 0;
+      } finally {
+        printSpend(budget, deps);
+      }
     }
   } catch (error) {
     if (!overran(budget)) throw error;
