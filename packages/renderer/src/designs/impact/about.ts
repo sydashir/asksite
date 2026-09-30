@@ -4,7 +4,7 @@ import type { RenderContext } from "../../context.ts";
 import { TRADE_LABEL } from "../../format.ts";
 import { html, type SafeHtml } from "../../html.ts";
 import { DOM_ID } from "../../sections/ids.ts";
-import { bandClass, sectionHead } from "./parts.ts";
+import { addressMarkup, bandClass, sectionHead } from "./parts.ts";
 import { yearClass } from "./rules.ts";
 
 export function renderAbout(ctx: RenderContext): SafeHtml {
@@ -17,7 +17,7 @@ export function renderAbout(ctx: RenderContext): SafeHtml {
 ${sectionHead("about", "About", "Who we are", undefined, numeral)}
 <div class="about-body">
 <p class="about-text">${copy.about}</p>
-<p class="sign"><span class="sign-name">${facts.businessName}</span><span class="sign-meta">${TRADE_LABEL[facts.trade]} · ${facts.location.city}, ${facts.location.state}</span></p>
+<p class="sign"><span class="sign-name">${addressMarkup(facts.businessName)}</span><span class="sign-meta">${TRADE_LABEL[facts.trade]} · ${facts.location.city}, ${facts.location.state}</span></p>
 </div>
 </div>
 </section>`;

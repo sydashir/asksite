@@ -121,6 +121,9 @@ describe("the Bold sheet's grids never size a column by its longest word", () =>
     expect(trackProblems(".d{display:grid;grid-template-columns:repeat(2,minmax(min-content,1fr))}")).toEqual([".d: minmax(min-content,1fr)"]);
     expect(trackProblems('.e{display:grid;grid-template:"a b" auto/minmax(0,1fr) max-content}')).toEqual([".e: max-content"]);
     expect(trackProblems(".f{display:grid}@media (min-width:40rem){.f{grid-template-columns:minmax(0,1fr)}}")).toEqual([".f: a grid with no column list"]);
+    // The allow-list names a track, not only a selector: the call bar may keep its one listed track, no other (review2 M1).
+    expect(trackProblems(".callbar{display:grid;grid-template-columns:auto 1fr}")).toEqual([".callbar: auto, 1fr"]);
+    expect(trackProblems(".callbar{display:grid;grid-template-columns:minmax(min-content,1fr) minmax(0,max-content)}")).toEqual([]);
   });
 
   it("allows fixed minimums, repeat() and auto-fit tracks with a fixed minimum", () => {

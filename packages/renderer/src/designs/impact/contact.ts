@@ -11,7 +11,7 @@ import { html, type SafeHtml } from "../../html.ts";
 import { icon as sharedIcon } from "../../icons.ts";
 import { DOM_ID } from "../../sections/ids.ts";
 import { icon } from "./icons.ts";
-import { bandClass, buttonClass } from "./parts.ts";
+import { addressMarkup, bandClass, buttonClass } from "./parts.ts";
 import { contactHeading } from "./rules.ts";
 
 export function renderContact(ctx: RenderContext, _variant: VariantOf<"contact">): SafeHtml {
@@ -40,7 +40,7 @@ ${facts.services.map((s) => html`<option>${s.name}</option>`)}
 <p class="kicker">Prefer to talk?</p>
 <p><a class="big-phone display whitespace-nowrap" href="${telUrl(facts.phone)}">${formatPhone(facts.phone)}</a></p>
 ${facts.emergency247 && html`<p><span class="chip">${icon("clock")}24/7 emergency calls</span></p>`}
-<p><a class="mail" href="${mailtoUrl(facts.email)}">${icon("mail")}${facts.email}</a></p>
+<p><a class="mail" href="${mailtoUrl(facts.email)}">${icon("mail")}<span>${addressMarkup(facts.email)}</span></a></p>
 </div>
 </div>
 </section>`;

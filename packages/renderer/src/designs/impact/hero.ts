@@ -11,38 +11,52 @@ import { icon } from "./icons.ts";
 import { boldPage, callButton, ctaButton, licenceMarkup } from "./parts.ts";
 import { groupedHours, headlineClass } from "./rules.ts";
 
-/** Owner facts only: the first licence (never cut) and a count of the rest, Insured, and the founding year. */
-function proofItems(ctx: RenderContext): SafeHtml[] {
+/**
+ * Owner facts only, in the two groups the strip never splits: the licences (the first, never cut, and a count
+ * of the rest) and the owner's standing (Insured and the founding year, or 24/7 service when the card has
+ * nothing else).
+ */
+interface ProofGroups {
+  readonly licences: readonly SafeHtml[];
+  readonly standing: readonly SafeHtml[];
+}
+
+function proofGroups(ctx: RenderContext): ProofGroups {
   const { facts } = ctx.doc;
   const { trustInHero } = boldPage(ctx);
   const [first, ...rest] = facts.licences;
-  const items: SafeHtml[] = [];
+  const licences: SafeHtml[] = [];
   if (first !== undefined) {
-    items.push(html`<li class="proof-lic">${icon("certificate")}<span>${licenceMarkup(first, "proof-label", "proof-num")}</span></li>`);
+    licences.push(html`<li class="proof-lic">${icon("certificate")}<span>${licenceMarkup(first, "proof-label", "proof-num")}</span></li>`);
     if (rest.length > 0) {
       const more = `+${rest.length} more ${rest.length === 1 ? "license" : "licenses"}`;
-      items.push(
+      licences.push(
         trustInHero
           ? html`<li class="proof-more-li"><details class="proof-more"><summary>${more}</summary><ul>${rest.map((l) => html`<li>${licenceMarkup(l)}</li>`)}</ul></details></li>`
           : html`<li class="proof-more-li"><a class="proof-more-link" href="${fragment(DOM_ID.trust)}">${more}</a></li>`,
       );
     }
   }
-  if (facts.insured) items.push(html`<li>${icon("shield-check")}<span>Insured</span></li>`);
-  if (facts.yearFounded !== undefined) items.push(html`<li>${icon("calendar")}<span>Since ${facts.yearFounded}</span></li>`);
-  if (trustInHero && items.length === 0 && facts.emergency247) items.push(html`<li>${icon("clock")}<span>24/7 emergency service</span></li>`);
-  return items;
+  const standing: SafeHtml[] = [];
+  if (facts.insured) standing.push(html`<li>${icon("shield-check")}<span>Insured</span></li>`);
+  if (facts.yearFounded !== undefined) standing.push(html`<li>${icon("calendar")}<span>Since ${facts.yearFounded}</span></li>`);
+  if (trustInHero && licences.length === 0 && standing.length === 0 && facts.emergency247) {
+    standing.push(html`<li>${icon("clock")}<span>24/7 emergency service</span></li>`);
+  }
+  return { licences, standing };
 }
 
 /**
  * The credentials under the headline, shown while the credentials section is on the page. Straight under
- * the hero that section IS this card, so it keeps its id and label here.
+ * the hero that section IS this card, so it keeps its id and label here. Each group is its own list, which the
+ * strip moves to the next line whole.
  */
-function proof(ctx: RenderContext, items: readonly SafeHtml[]): SafeHtml | false {
-  if (!isVisible(ctx, "trust") || items.length === 0) return false;
+function proof(ctx: RenderContext, { licences, standing }: ProofGroups): SafeHtml | false {
+  if (!isVisible(ctx, "trust") || licences.length + standing.length === 0) return false;
+  const lists = html`${licences.length > 0 && html`<ul class="proof-list proof-lics">${licences}</ul>`}${standing.length > 0 && html`<ul class="proof-list">${standing}</ul>`}`;
   return boldPage(ctx).trustInHero
-    ? html`<section id="${DOM_ID.trust}" class="proof" aria-label="Credentials"><ul class="proof-list">${items}</ul></section>`
-    : html`<div class="proof"><ul class="proof-list">${items}</ul></div>`;
+    ? html`<section id="${DOM_ID.trust}" class="proof" aria-label="Credentials">${lists}</section>`
+    : html`<div class="proof">${lists}</div>`;
 }
 
 /** The towns served: the first three, then "and N more", a link to the service area. */
@@ -79,13 +93,13 @@ export function renderHero(ctx: RenderContext, variant: VariantOf<"hero">): Safe
   const { facts, copy } = ctx.doc;
   const { flow, surface, trustInHero } = boldPage(ctx);
   const photo = variant === "photo" ? facts.heroPhoto : undefined;
-  const items = proofItems(ctx);
+  const groups = proofGroups(ctx);
   // With no other credential, the card straight under the headline carries 24/7 instead of the chip.
   const chipInProof = trustInHero && facts.emergency247 && facts.licences.length === 0 && !facts.insured && facts.yearFounded === undefined;
   const copyBlock = html`<div class="hero-copy">
 <p class="hero-kicker">${facts.emergency247 && !chipInProof && html`<span class="chip">${icon("clock")}24/7 emergency service</span>`}<span class="hero-where">${TRADE_LABEL[facts.trade]} · ${facts.location.city}, ${facts.location.state}</span></p>
 <h1 id="${DOM_ID.hero}-title" class="${headlineClass(copy.heroHeadline)}">${copy.heroHeadline}</h1>
-${proof(ctx, items)}
+${proof(ctx, groups)}
 <p class="hero-sub">${copy.heroSubheadline}</p>
 <div class="hero-actions">${callButton(ctx, "action", true)}${boldPage(ctx).contact && ctaButton(ctx, true)}</div>
 </div>`;

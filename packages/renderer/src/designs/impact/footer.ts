@@ -6,7 +6,7 @@ import type { SocialLink } from "@asksite/site-schema";
 import type { RenderContext } from "../../context.ts";
 import { formatPhone, mailtoUrl, telUrl, TRADE_LABEL } from "../../format.ts";
 import { html, safeUrl, type SafeHtml } from "../../html.ts";
-import { boldPage, callButton, licenceMarkup, shortCtaButton } from "./parts.ts";
+import { addressMarkup, boldPage, callButton, licenceMarkup, shortCtaButton } from "./parts.ts";
 
 const SOCIAL_LABEL: Record<SocialLink["network"], string> = {
   facebook: "Facebook",
@@ -26,10 +26,10 @@ export function renderFooter(ctx: RenderContext): SafeHtml {
   return html`<footer class="site-footer">
 <div class="wrap">
 <div class="foot-grid">
-<div><p class="foot-brand">${facts.businessName}</p><p class="foot-sub">${TRADE_LABEL[facts.trade]} · ${location.city}, ${location.state}</p></div>
+<div><p class="foot-brand">${addressMarkup(facts.businessName)}</p><p class="foot-sub">${TRADE_LABEL[facts.trade]} · ${location.city}, ${location.state}</p></div>
 <div><h2 class="kicker">Contact</h2><ul>
 <li><a class="whitespace-nowrap" href="${telUrl(facts.phone)}">${formatPhone(facts.phone)}</a></li>
-<li><a class="foot-email" href="${mailtoUrl(facts.email)}">${facts.email}</a></li>
+<li><a class="foot-email" href="${mailtoUrl(facts.email)}">${addressMarkup(facts.email)}</a></li>
 ${location.streetAddress && html`<li>${location.streetAddress}, ${location.city}, ${location.state}${location.postalCode && html` ${location.postalCode}`}</li>`}
 </ul></div>
 ${hasCredentials && html`<div><h2 class="kicker">Credentials</h2><ul>${facts.licences.map((l) => html`<li>${licenceMarkup(l)}</li>`)}${facts.insured && html`<li>Insured</li>`}</ul></div>`}

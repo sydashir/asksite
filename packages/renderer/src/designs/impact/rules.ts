@@ -15,6 +15,25 @@ export function headlineClass(headline: string): "h1 display" | "h1 display h1--
   return n <= 60 ? "h1 display h1--long" : "h1 display h1--xlong";
 }
 
+/** A word this long can reach a line's end on a 320 px phone; overflow-wrap still breaks any part too wide for its line. */
+const LONG_WORD = 16;
+
+/**
+ * `text` cut where a long email or web address may break, as the owner typed it: after "@", and before each "."
+ * that a letter or digit follows (MDN <wbr>: break a web address before its punctuation, so no line ends on a dot
+ * a reader could take for the end). Only words of 16 or more characters are cut, so a name's own dots ("J.R.",
+ * "Co.") never become break points. The parts joined give `text` back.
+ */
+export function addressParts(text: string): string[] {
+  const parts = [""];
+  for (const word of text.split(/(\s+)/)) {
+    const pieces = length(word) >= LONG_WORD ? word.split(/(?<=@)(?=\S)|(?<=\S)(?=\.[\p{L}\p{N}])/u) : [word];
+    parts[parts.length - 1] += pieces[0] ?? "";
+    parts.push(...pieces.slice(1));
+  }
+  return parts;
+}
+
 /** A business name over 28 characters gets the smaller brand size (the schema allows 60). */
 export const brandClass = (name: string): "brand" | "brand brand--long" => (length(name) > 28 ? "brand brand--long" : "brand");
 

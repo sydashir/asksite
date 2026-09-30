@@ -1,12 +1,12 @@
 // Pieces every Bold section shares: the page model (which band is ink, the button case) and the markup of
-// buttons, section heads and licences.
+// buttons, section heads, licences and addresses.
 import type { Facts, SectionId } from "@asksite/site-schema";
 import { isVisible, type RenderContext } from "../../context.ts";
 import { formatPhone, telUrl } from "../../format.ts";
 import { fragment, html, type SafeHtml } from "../../html.ts";
 import { DOM_ID } from "../../sections/ids.ts";
 import { icon } from "./icons.ts";
-import { buttonCase, licenceParts, seamClass, shortCta, surfaces, type Surface } from "./rules.ts";
+import { addressParts, buttonCase, licenceParts, seamClass, shortCta, surfaces, type Surface } from "./rules.ts";
 
 export interface BoldPage {
   /** The sections drawn as their own band, in page order (credentials right under the hero live inside it). */
@@ -88,6 +88,15 @@ export function shortCtaButton(ctx: RenderContext): SafeHtml {
  */
 export function sectionHead(id: SectionId, eyebrow: string, title: string, intro?: string, extra: SafeHtml | false = false): SafeHtml {
   return html`<div class="sec-head"><p class="kicker eyebrow">${eyebrow}</p><h2 id="${DOM_ID[id]}-title" class="h2 display">${title}</h2>${intro && html`<p class="sec-intro">${intro}</p>`}${extra}</div>`;
+}
+
+/**
+ * An email address or a business name, with a <wbr> wherever a long address may break (rules.ts addressParts):
+ * "office@<wbr>smithandsons<wbr>.com". The sheet breaks inside a part only when it alone is wider than the line.
+ */
+export function addressMarkup(text: string): SafeHtml {
+  const [first = "", ...rest] = addressParts(text);
+  return html`${first}${rest.map((part) => html`<wbr>${part}`)}`;
 }
 
 /** A licence: its label, then its number as one unit ("Texas master plumber M-40123"). */

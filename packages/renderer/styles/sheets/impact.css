@@ -602,8 +602,14 @@
     }
   }
 
-  /* Credentials under the headline: a strip in the text column; on desktop photo heroes a card on the photo. */
+  /* Credentials under the headline: a strip in the text column; on desktop photo heroes a card on the photo.
+     The strip holds two lists it never splits, the licences (the first, then "+N more") and the owner's standing
+     (Insured, Since), and moves a list to the next line whole: one line where everything fits, else the licences
+     over "Insured  Since 1998". A list breaks inside only when it alone is wider than the line. */
   .proof {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.375rem 1.125rem;
     margin-top: 0.875rem;
     font-size: 0.9375rem;
     font-weight: 600;
@@ -614,6 +620,7 @@
     display: flex;
     flex-wrap: wrap;
     gap: 0.375rem 1.125rem;
+    min-width: 0;
   }
   .proof-list > li {
     display: inline-flex;
@@ -621,10 +628,9 @@
     gap: 0.4375rem;
     min-width: 0;
   }
-  /* The first licence and the count of the others take a line each, so the line under them always reads
-     "Insured  Since 1998" whole: a credential never sits alone on the last line at any width. */
-  .proof-lic,
-  .proof-more-li {
+  /* An open "+N more" starts a line of its own, so the other licences line up under the first. */
+  .proof-lics:has(details[open]),
+  .proof-more-li:has(details[open]) {
     flex-basis: 100%;
   }
   .proof .ic {
@@ -748,20 +754,30 @@
       background: var(--aw-color-bg-page);
       box-shadow: none;
     }
+    /* In the card the lists stack: the licences as a ruled block, then Insured and Since side by side. */
+    .hero--photo .proof {
+      display: block;
+    }
     .hero--photo .proof-list {
       display: grid;
       grid-template-columns: minmax(0, max-content) minmax(0, max-content);
       justify-content: start;
       gap: 0.875rem 1.5rem;
     }
+    .hero--photo .proof-lics {
+      grid-template-columns: minmax(0, 1fr);
+      gap: 0.5rem;
+      padding-bottom: 0.875rem;
+      border-bottom: 1px solid var(--fg-l);
+    }
+    .hero--photo .proof-lics + .proof-list {
+      margin-top: 0.875rem;
+    }
     .hero--photo .proof .ic {
       color: var(--fg-h);
     }
     .hero--photo .proof-lic {
-      grid-column: 1/-1;
       align-items: flex-start;
-      padding-bottom: 0.875rem;
-      border-bottom: 1px solid var(--fg-l);
     }
     .hero--photo .proof-lic .ic {
       width: 1.5rem;
@@ -784,19 +800,9 @@
       font-weight: 800;
       letter-spacing: -0.005em;
     }
-    .hero--photo .proof-more-li {
-      grid-column: 1/-1;
-      margin-top: -0.375rem;
-      padding-bottom: 0.875rem;
-      border-bottom: 1px solid var(--fg-l);
-    }
     .hero--photo .proof-more-link,
     .hero--photo .proof-more summary {
       font-size: 0.9375rem;
-    }
-    .hero--photo .proof-lic:has(+ .proof-more-li) {
-      padding-bottom: 0;
-      border-bottom: 0;
     }
   }
   /* Laptops 64-80rem: a full-height photo column is nearly square there and cut the subject out of a wide photo
@@ -1944,6 +1950,11 @@
     text-decoration-color: var(--fg-m);
     overflow-wrap: anywhere;
   }
+  /* The address breaks at its <wbr> points (after "@", before a dot) into even lines; "anywhere" only breaks a
+     part that alone is wider than the line. */
+  .mail > span {
+    text-wrap: balance;
+  }
   .mail .ic {
     color: var(--fg-m);
   }
@@ -2088,6 +2099,7 @@
   }
   .foot-email {
     overflow-wrap: anywhere;
+    text-wrap: balance;
   }
   .foot-social {
     display: flex;

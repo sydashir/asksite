@@ -8,7 +8,7 @@ import { formatPhone, telUrl } from "../../format.ts";
 import { fragment, html, type SafeHtml } from "../../html.ts";
 import { DOM_ID, NAV_LABEL } from "../../sections/ids.ts";
 import { icon } from "./icons.ts";
-import { boldPage, buttonClass, callButton, shortCtaButton } from "./parts.ts";
+import { addressMarkup, boldPage, buttonClass, callButton, shortCtaButton } from "./parts.ts";
 import { brandClass } from "./rules.ts";
 
 export function renderHeader(ctx: RenderContext): SafeHtml {
@@ -23,7 +23,7 @@ export function renderHeader(ctx: RenderContext): SafeHtml {
 
   return html`<header class="site-header" id="menu">
 <div class="wrap header-row">
-<a class="${brandClass(facts.businessName)}" href="${fragment(DOM_ID.hero)}">${facts.businessName}</a>
+<a class="${brandClass(facts.businessName)}" href="${fragment(DOM_ID.hero)}">${addressMarkup(facts.businessName)}</a>
 <nav class="nav" aria-label="Main">
 <ul class="nav-desktop">${desktop.map((l) => (l.id === "about" ? html`<li class="nav-opt"><a href="${l.href}">${l.label}</a></li>` : html`<li><a href="${l.href}">${l.label}</a></li>`))}</ul>
 <a class="menu-btn menu-open" href="${fragment("menu")}" aria-controls="menu-panel"><span class="sr-only">Open the menu</span>${icon("menu-2")}</a>
