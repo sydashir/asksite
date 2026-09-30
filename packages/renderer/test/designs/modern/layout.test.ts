@@ -321,6 +321,40 @@ describe.each(ENGINES)("Modern in %s", (engineName, engine) => {
     expect(found).toEqual([]);
   }, 120_000);
 
+  // Round 3's mutants: a group too wide for one row (five licenses) must wrap inside its own list; a list that did not
+  // would run past the band's edge. Each credential still keeps its text on one line.
+  it("wraps a group of credentials too wide for one row inside the band: five licenses (round 3)", async () => {
+    const found: string[] = [];
+    const hvac = loadFixture("hvac-phoenix");
+    const five = withFacts(hvac, {
+      licences: [
+        ...(hvac.facts.licences ?? []),
+        { label: "Arizona ROC (commercial)", number: "ROC 999003" },
+        { label: "City of Phoenix", number: "MECH-20417" },
+        { label: "Maricopa County", number: "MC-88120" },
+      ],
+    });
+    for (const font of FONT_IDS) {
+      await open(pageOf(five, font), 768);
+      for (const width of [768, 1024, 1280, 1920]) {
+        await tab.setViewportSize({ width, height: 800 });
+        const outside = await tab.evaluate(() => {
+          const band = document.querySelector("#credentials .creds").getBoundingClientRect();
+          const lines = (li: any) => {
+            const range = document.createRange();
+            range.selectNodeContents(li.querySelector("strong"));
+            return new Set([...range.getClientRects()].filter((r) => r.width > 0.5).map((r) => Math.round(r.top))).size;
+          };
+          return [...document.querySelectorAll("#credentials .cred")]
+            .filter((li) => li.getBoundingClientRect().right > band.right + 1 || lines(li) !== 1)
+            .map((li) => li.querySelector("strong").textContent);
+        });
+        for (const text of outside) found.push(`${font} ${width}: "${text}" runs past the band or onto two lines`);
+      }
+    }
+    expect(found).toEqual([]);
+  }, 60_000);
+
   // Round 2's judges: on phones and tablets the fewest-facts page stacked its no-hours card (the service area and the
   // email) under the subheadline: the town a third time on one screen, and Services pushed under the call bar. The
   // card balances the split hero, so it shows from 1024 px, beside the headline; the hours card shows everywhere.
