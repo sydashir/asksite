@@ -19,8 +19,11 @@ export interface CandidateSummary {
   costPerPassingSiteMicrousd: number | null;
   /** Attempts whose provider left the usage out (usageMissing): the costs above cannot include them. */
   usageMissingAttempts: number;
-  /** The automatic half of the proposed gate: >= 95 % pass within 2 retries and >= 80 % first try. */
-  meetsAutomaticGate: boolean;
+  /**
+   * The automatic half of the proposed gate: >= 95 % pass within 2 retries and >= 80 % first try. null, no verdict,
+   * when the model ran fewer sites than planned: a live run cut it short (fix round #10).
+   */
+  meetsAutomaticGate: boolean | null;
 }
 
 /** A short name for the rule an issue broke. */
@@ -45,7 +48,8 @@ export function percentile(values: readonly number[], p: number): number {
 
 const bump = (counts: Record<string, number>, key: string): void => void (counts[key] = (counts[key] ?? 0) + 1);
 
-export function summarise(runs: readonly EvalRun[]): CandidateSummary[] {
+/** Each model's figures; with `sitesPerModel` (the planned profiles x runs), a model with fewer sites gets no gate verdict. */
+export function summarise(runs: readonly EvalRun[], sitesPerModel?: number): CandidateSummary[] {
   const labels = [...new Set(runs.map((r) => r.candidate))];
   return labels.map((label) => {
     const mine = runs.filter((r) => r.candidate === label);
@@ -79,7 +83,7 @@ export function summarise(runs: readonly EvalRun[]): CandidateSummary[] {
       totalCostMicrousd,
       costPerPassingSiteMicrousd: passes === 0 ? null : Math.round(totalCostMicrousd / passes),
       usageMissingAttempts: mine.reduce((sum, r) => sum + r.result.log.filter((attempt) => attempt.usageMissing).length, 0),
-      meetsAutomaticGate: passRate >= 0.95 && firstTryPassRate >= 0.8,
+      meetsAutomaticGate: sitesPerModel !== undefined && mine.length < sitesPerModel ? null : passRate >= 0.95 && firstTryPassRate >= 0.8,
     };
   });
 }
@@ -99,6 +103,10 @@ export interface SpendReport {
   /** The kind of exception that ended the run before every site was sent (fix round #2); absent when none did. */
   error?: string;
 }
+
+/** The gate cell: a verdict, or why there is none. */
+const gate = (s: CandidateSummary, spend: SpendReport | undefined): string =>
+  s.meetsAutomaticGate === null ? `not enough runs: cut by ${spend?.error === undefined ? "the budget" : "an error"}` : s.meetsAutomaticGate ? "pass" : "fail";
 
 const spent = (label: string, micro: number, missing: number): string => `- ${label}: spent ${formatUsd(micro)}${missing === 0 ? "" : `, plus ${unknownCost(missing)}`}`;
 
@@ -124,7 +132,7 @@ export function formatReport(summaries: readonly CandidateSummary[], spend?: Spe
     "",
     "| model | runs | first try | within 2 retries | p50 ms | p95 ms | cost per passing site | automatic gate |",
     "|---|---|---|---|---|---|---|---|",
-    ...summaries.map((s) => `| ${s.label} | ${s.runs} | ${pct(s.firstTryPassRate)} | ${pct(s.passRate)} | ${s.latencyMsP50} | ${s.latencyMsP95} | ${s.usageMissingAttempts === 0 ? usd(s.costPerPassingSiteMicrousd) : unknownCost(s.usageMissingAttempts)} | ${s.meetsAutomaticGate ? "pass" : "fail"} |`),
+    ...summaries.map((s) => `| ${s.label} | ${s.runs} | ${pct(s.firstTryPassRate)} | ${pct(s.passRate)} | ${s.latencyMsP50} | ${s.latencyMsP95} | ${s.usageMissingAttempts === 0 ? usd(s.costPerPassingSiteMicrousd) : unknownCost(s.usageMissingAttempts)} | ${gate(s, spend)} |`),
     "",
     ...summaries.flatMap((s) => [`## ${s.label}`, "", `- Rules broken (attempts): ${counts(s.failedRules)}`, `- Claim words caught: ${counts(s.claimWords)}`, `- Provider errors: ${counts(s.providerErrors)}`, `- Largest input per run: ${s.maxInputTokensPerRun} tokens`, ""]),
     ...(spend === undefined ? [] : spendSection(summaries, spend)),

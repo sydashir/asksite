@@ -319,6 +319,21 @@ describe("a live evaluation (P3-17 D3, D4)", () => {
     expect(h.text()).not.toMatch(/marker-/);
   });
 
+  it("gives no gate verdict for a model the budget cut short (fix round #10)", async () => {
+    const h = harness();
+    // As above: gemma runs its 20 sites, opus only 2 of its 20.
+    expect(await main(["--live", "--max-usd", "1.37", "--runs", "1", "--only", `${OPUS},${GEMMA}`], h.deps)).toBe(0);
+    const [stamp] = readdirSync(join(h.dir, "results"));
+    const report = readFileSync(join(h.dir, "results", stamp!, "report.md"), "utf8");
+    expect(report).toContain(`| ${GEMMA} | 20 | 100% | 100% | 0 | 0 | $0.0004 | pass |`);
+    expect(report).toContain(`| ${OPUS} | 2 | 100% | 100% | 0 | 0 | $0.0240 | not enough runs: cut by the budget |`);
+    const summary = JSON.parse(readFileSync(join(h.dir, "results", stamp!, "summary.json"), "utf8")) as Array<{ label: string; meetsAutomaticGate: boolean | null }>;
+    expect(summary.map((s) => [s.label, s.meetsAutomaticGate])).toEqual([
+      [GEMMA, true],
+      [OPUS, null],
+    ]);
+  });
+
   it("refuses a candidate with no recorded price and evaluates the others", async () => {
     const unpriced: Candidate = { label: "claude-unpriced", provider: "anthropic", modelId: "claude-unpriced", needs: ["ANTHROPIC_API_KEY"] };
     const h = harness({ candidates: [unpriced, byLabel(GEMMA)] });
@@ -372,6 +387,7 @@ describe("a live evaluation (P3-17 D3, D4)", () => {
     expect(report).toContain("- Budget: $5.000000. Counted against it: $0.029573 (a site with an attempt without usage counts at its worst case).");
     expect(report).toContain(`- ${GEMMA}: spent $0.001200\n`);
     expect(report).toContain("- The run ended early on an error (error): the results are the sites that completed before it.");
+    expect(report).toContain(`| ${GEMMA} | 3 | 100% | 100% | 0 | 0 | $0.0004 | not enough runs: cut by an error |`);
     expect(h.out.join("\n")).toContain(report.trimEnd());
   });
 

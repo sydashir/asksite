@@ -268,13 +268,16 @@ async function evaluate(runs: number, plan: readonly LiveRow[], budget: Budget, 
     throw thrown;
   } finally {
     deps.progress("\n");
-    writeResults(results, { budgetMicrousd: budget.capMicrousd, countedMicrousd: budget.spentMicrousd, stop: budget.stop, ...(error === undefined ? {} : { error }) }, deps);
+    writeResults(results, EVAL_PROFILES.length * runs, { budgetMicrousd: budget.capMicrousd, countedMicrousd: budget.spentMicrousd, stop: budget.stop, ...(error === undefined ? {} : { error }) }, deps);
   }
 }
 
-/** Prints the report first, so what was spent shows even if a write fails, then writes the results and the rating sheet. */
-function writeResults(results: readonly EvalRun[], spend: SpendReport, deps: CliDeps): void {
-  const summaries = summarise(results);
+/**
+ * Prints the report first, so what was spent shows even if a write fails, then writes the results and the rating
+ * sheet. A model with fewer than `sitesPerModel` sites was cut short and gets no gate verdict.
+ */
+function writeResults(results: readonly EvalRun[], sitesPerModel: number, spend: SpendReport, deps: CliDeps): void {
+  const summaries = summarise(results, sitesPerModel);
   const report = formatReport(summaries, spend);
   deps.print(report);
   const dir = new URL(`./${new Date().toISOString().replace(/[:.]/g, "-")}/`, deps.resultsDir);

@@ -423,6 +423,18 @@ describe("the report's spend section (P3-17 D4, additions B)", () => {
     expect(report).toContain(`- Stopped for the budget before opus ${EVAL_PROFILES[0]!.id} run 2: its worst case would have taken the spend over the budget, so nothing more was sent.`);
   });
 
+  it("gives no gate verdict for a model with fewer sites than planned, and says what cut it (fix round #10)", async () => {
+    const requests: string[] = [];
+    const runs = await runEval({ candidates: [candidate("opus", OPUS, (s) => fixedAnswer(s, THOUSAND), requests)], profiles: EVAL_PROFILES.slice(0, 2), runs: 1, deps: FAST });
+    expect(summarise(runs, 2)[0]!.meetsAutomaticGate).toBe(true);
+    expect(summarise(runs, 3)[0]!.meetsAutomaticGate).toBeNull();
+    expect(summarise(runs)[0]!.meetsAutomaticGate).toBe(true);
+    const spend = { budgetMicrousd: OPUS_SITE, countedMicrousd: 2 * SITE_COST, stop: null };
+    expect(formatReport(summarise(runs, 3), spend)).toContain("| not enough runs: cut by the budget |");
+    expect(formatReport(summarise(runs, 3), { ...spend, error: "auth" })).toContain("| not enough runs: cut by an error |");
+    expect(formatReport(summarise(runs, 2), spend)).toContain("| pass |");
+  });
+
   it("says when the budget did not stop the run, and leaves the section out without a budget", async () => {
     const requests: string[] = [];
     const runs = await runEval({ candidates: [candidate("opus", OPUS, (s) => fixedAnswer(s, THOUSAND), requests)], profiles: EVAL_PROFILES.slice(0, 1), runs: 1, deps: FAST, budget: new Budget(OPUS_SITE) });
