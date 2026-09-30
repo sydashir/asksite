@@ -63,7 +63,10 @@ describe("production wrangler.jsonc", () => {
   });
 
   it("is served on its route, with the daily cleanup at 06:00 UTC", () => {
-    expect(config.routes).toEqual([{ pattern: "app.asksite.example/*", zone_name: "asksite.example" }]);
+    // Relative to the config's own ROOT_DOMAIN, so Task 27's domain swap needs no test edit.
+    const root = config.vars["ROOT_DOMAIN"];
+    expect(root).toMatch(/^[a-z0-9-]+(\.[a-z0-9-]+)+$/);
+    expect(config.routes).toEqual([{ pattern: `app.${root}/*`, zone_name: root }]);
     expect(config.triggers).toEqual({ crons: ["0 6 * * *"] });
   });
 
@@ -89,7 +92,7 @@ describe("production wrangler.jsonc", () => {
   it("uses its exact https origin and a plain support address", () => {
     // Exact: requireOrigin compares the Origin header with this value byte for byte, so a trailing slash
     // or any other drift would refuse every change the owner makes.
-    expect(config.vars["APP_ORIGIN"]).toBe("https://app.asksite.example");
+    expect(config.vars["APP_ORIGIN"]).toBe(`https://app.${config.vars["ROOT_DOMAIN"]}`);
     expect(config.vars["SUPPORT_EMAIL"]).toMatch(/^[a-z0-9._%+-]+@[a-z0-9-]+(\.[a-z0-9-]+)+$/i);
   });
 
