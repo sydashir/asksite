@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { headersFile } from "../../build-config.ts";
 import { TURNSTILE_TEST_SECRET, TURNSTILE_TEST_SITE_KEY } from "../support/turnstile.ts";
 
 // §9.1 "Unsafe production configuration": the committed wrangler.jsonc is the production config.
@@ -125,5 +126,50 @@ describe("test wrangler.test.jsonc", () => {
     expect(testConfig.vars["TURNSTILE_SECRET_KEY"]).toBe(TURNSTILE_TEST_SECRET);
     expect(testConfig.vars["TURNSTILE_SITE_KEY"]).toMatch(TEST_SITE_KEY);
     expect(testConfig.vars["LOGIN_EMAILS_PER_DAY"]).toBe(config.vars["LOGIN_EMAILS_PER_DAY"]);
+  });
+});
+
+describe("e2e wrangler.e2e.jsonc", () => {
+  const e2eConfig = JSON.parse(readFileSync(new URL("../e2e/wrangler.e2e.jsonc", import.meta.url), "utf8")) as {
+    compatibility_flags?: string[];
+    vars: Record<string, string>;
+  };
+
+  it("turns Node.js compatibility off like production (A13), for the Vite-built Worker too", () => {
+    expectNodeCompatOff(e2eConfig.compatibility_flags);
+  });
+
+  it("uses Cloudflare's documented always-pass Turnstile test keys and the production daily cap (M6: every e2e run starts from an empty database)", () => {
+    expect(e2eConfig.vars["TURNSTILE_SITE_KEY"]).toBe(TURNSTILE_TEST_SITE_KEY);
+    expect(e2eConfig.vars["TURNSTILE_SECRET_KEY"]).toBe(TURNSTILE_TEST_SECRET);
+    expect(e2eConfig.vars["LOGIN_EMAILS_PER_DAY"]).toBe(config.vars["LOGIN_EMAILS_PER_DAY"]);
+  });
+});
+
+describe("package.json scripts and headers", () => {
+  const { scripts } = JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8")) as { scripts: Record<string, string> };
+
+  it("builds for this machine with `build` and deploys only a production build", () => {
+    expect(scripts["build"]).toBe("vite build --mode development");
+    expect(scripts["build:production"]).toBe("vite build --mode production");
+    // Named "release", not "deploy": `pnpm deploy` is a built-in pnpm command and would never run this script.
+    expect(scripts["release"]).toBe("vite build --mode production && wrangler deploy");
+    expect(scripts["deploy"]).toBeUndefined();
+  });
+
+  it("keeps the browser-floor check (P4-7)", () => {
+    expect(scripts["check:floor"]).toContain("check-browser-floor.ts");
+  });
+
+  it("never gives a test Worker the production name, so a test build can never replace production", () => {
+    for (const path of ["../wrangler.test.jsonc", "../e2e/wrangler.e2e.jsonc"]) {
+      const { name } = JSON.parse(readFileSync(new URL(path, import.meta.url), "utf8")) as { name: string };
+      expect(name).toMatch(/^asksite-app-(test|e2e)$/);
+    }
+  });
+
+  it("sends HSTS from production builds only (Plan 2 decision 8)", () => {
+    expect(headersFile("asksite.example", true)).toContain("Strict-Transport-Security: max-age=31536000; includeSubDomains");
+    expect(headersFile("localhost:8789", false)).not.toContain("Strict-Transport-Security");
   });
 });

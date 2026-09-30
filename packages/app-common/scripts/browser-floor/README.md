@@ -61,8 +61,8 @@ This is our own client code, not an attacker boundary. The check does not judge:
   literal (`URL[key]` with `const key = "canParse"`, aliases.ts `viaConstKey`). Nothing else covers
   them.
 - `eval`, `Function` and string code in `setTimeout`/`setInterval`: the code inside the string is not
-  read. The owner app's planned policy (Task 14, `contentSecurityPolicy`: `script-src 'self'`, no
-  `'unsafe-eval'`) blocks all of them at run time (MDN, CSP `script-src`), so such code cannot run at
+  read. The owner app's policy (`apps/app/build-config.ts` `contentSecurityPolicy`: `script-src 'self'`
+  plus `https://challenges.cloudflare.com` for the Turnstile widget, no `'unsafe-eval'`) blocks all of them at run time (MDN, CSP `script-src`), so such code cannot run at
   all. Nothing checks the code itself.
 - `any`-typed receivers: `(URL as any).canParse`, a member read from `JSON.parse(...)` or from
   `Response.json()`. The receiver has no type to map, so the member passes. Nothing covers them (the
@@ -103,8 +103,8 @@ This is our own client code, not an attacker boundary. The check does not judge:
   attributes such as `popover`), and DOM event names given as strings or React props
   (`addEventListener("scrollend")`, `onScrollEnd`). Partly covered: Tailwind CSS v4 targets Safari 16.4
   (tailwindcss.com/docs/compatibility), and Vite 8 minifies CSS with Lightning CSS, which lowers some
-  newer CSS syntax for `build.cssTarget` (defaults to `build.target`, which Task 14 is to set from
-  `BROWSER_FLOOR_BUILD_TARGET`). That lowers syntax; it does not check for a property the floor lacks.
+  newer CSS syntax for `build.cssTarget` (defaults to `build.target`, which `apps/app/vite.config.ts` sets from
+  `BROWSER_FLOOR_BUILD_TARGET` plus Vite's default chrome111, edge111 and firefox114). That lowers syntax; it does not check for a property the floor lacks.
   Nothing checks the rest.
 - A constructor reached through an alias (`const V = VideoColorSpace; new V()`): judged on the
   interface's entry only, not on the constructor's (`new X()`, `new (X)()` and `class extends X` are
@@ -137,8 +137,7 @@ Reported although the code may be fine (each fails loudly; check it by hand, the
   iPhone run CURRENT WebKit, not iOS 16.4. So neither the browser tests (e.g. Task 16's photo tests)
   nor the real-iPhone check (Task 27) catches a DOM API that is too new for the floor.
 - Only two gates do:
-  - the TypeScript lib gate, for ES built-ins: the client's typecheck config (planned in Task 14,
-    `apps/app/tsconfig.client.json`) uses `lib: ["es2023", "dom", "dom.iterable"]`, so an ES built-in
+  - the TypeScript lib gate, for ES built-ins: the client's typecheck config (`apps/app/tsconfig.client.json`) uses `lib: ["es2023", "dom", "dom.iterable"]`, so an ES built-in
     newer than ES2023 is a type error (TS2339). It says nothing about DOM APIs: `lib.dom` declares
     the newest ones;
   - this checker, for DOM and ES APIs alike. That is why the closed list above matters.
