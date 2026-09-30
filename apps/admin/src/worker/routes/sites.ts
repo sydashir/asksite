@@ -2,6 +2,7 @@ import { ApiError, auditStatement, readJson, runToEnd, siteNoticeEmail, trySend 
 import { DisableOwnerBody, IndexableBody, TakedownBody, type AuditRow, type GenerationRow, type SiteVersionRow } from "@asksite/core";
 import { Hono } from "hono";
 import { z } from "zod";
+import type { TakedownView } from "../../settings-view.ts";
 import { mailerEnv, siteWithOwner, toAdminSiteRow, toVersionSummary, type AdminSiteColumns } from "../db.ts";
 import type { AdminDeps, PublishErrorLike } from "../deps.ts";
 import { publishApiError, type PublishAction } from "../publish-errors.ts";
@@ -67,20 +68,27 @@ export function siteRoutes(deps: AdminDeps): Hono<AdminEnv> {
     const body = await readJson(c, TakedownBody);
     const site = await siteWithOwner(c.env.DB, c.req.param("siteId"));
     // The notice is built before anything changes, so a configuration error (MAILER, APP_ORIGIN) is a 500 that
-    // leaves the site up. It is sent after the takedown, in the background: a takedown is never undone by a failed email.
+    // leaves the site up. After the takedown commits the notice is sent inside the same runToEnd and the answer says
+    // whether it went out: a takedown is never undone by a failed email, but the admin must learn the owner was not told.
     const mailer = deps.createMailer(mailerEnv(c.env));
     const ownerMessage = body.ownerMessage === undefined || body.ownerMessage === "" ? null : body.ownerMessage;
     // The owner always hears about it, with the admin's message when there is one, and where to ask (decision 34).
     const email = siteNoticeEmail({ appOrigin: c.env.APP_ORIGIN, supportEmail: c.env.SUPPORT_EMAIL, ownerMessage });
     // Plan 2's takeDown commits a D1 batch, then deletes LIVE, then purges MEDIA: it runs to its end even if the client goes away.
-    await publishing(
-      () => runToEnd(c.executionCtx, deps.publishing.takeDown(c.env, { siteId: site.id, reviewer: c.get("admin"), reason: body.reason, purgeMedia: body.purgeMedia, now: Date.now() })),
+    // trySend never throws (it logs the mailer's code or error class only, never the address or the content).
+    const noticeSent = await publishing(
+      () =>
+        runToEnd(
+          c.executionCtx,
+          (async () => {
+            await deps.publishing.takeDown(c.env, { siteId: site.id, reviewer: c.get("admin"), reason: body.reason, purgeMedia: body.purgeMedia, now: Date.now() });
+            return trySend(mailer, { to: site.owner_email, ...email, replyTo: c.env.SUPPORT_EMAIL, tag: "site_notice", idempotencyKey: `takedown:${site.id}:${Date.now()}` });
+          })(),
+        ),
       "change",
     );
-    c.executionCtx.waitUntil(
-      trySend(mailer, { to: site.owner_email, ...email, replyTo: c.env.SUPPORT_EMAIL, tag: "site_notice", idempotencyKey: `takedown:${site.id}:${Date.now()}` }),
-    );
-    return c.json({});
+    const view: TakedownView = { noticeSent };
+    return c.json(view);
   });
 
   sites.post("/sites/:siteId/restore", async (c) => {

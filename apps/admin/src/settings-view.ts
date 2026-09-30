@@ -17,3 +17,12 @@ export interface SignInEmailsView {
   dailyCap: number;
   capReachedAt: number | null;
 }
+
+/**
+ * What POST /api/admin/sites/:siteId/takedown answers once the takedown has committed: whether the owner's notice
+ * email went out. false means the owner was NOT told (for example the email service's daily cap was reached), so the
+ * admin must contact them by hand. The takedown itself stands either way.
+ */
+export interface TakedownView {
+  noticeSent: boolean;
+}

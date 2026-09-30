@@ -57,7 +57,8 @@ describe("list queries read only what their views output (moderator ruling, 2026
 describe("multi-write publishing calls run to their end (web-maker-f4, 2026-09-30)", () => {
   // Plan 2's takeDown (D1 batch, LIVE delete, MEDIA purge) and restore (LIVE put, D1 batch) are several writes that a
   // client that goes away could cut short, so each goes to waitUntil (runToEnd). The takedown's owner email is a
-  // second promise. setIndexable is one D1 batch, so it gets none.
+  // setIndexable is one D1 batch, so it gets none. The takedown's owner email is awaited inside the takedown's own
+  // promise (one waitUntil), so the answer can say whether the owner was told.
   it("hands the takedown, the restore and nothing for the search-engine switch to waitUntil", async () => {
     const site = await h.pendingSite();
     await h.call("POST", `/api/admin/versions/${site.versionId}/approve`, { body: { htmlSha256: site.htmlSha256 } });
@@ -71,7 +72,7 @@ describe("multi-write publishing calls run to their end (web-maker-f4, 2026-09-3
       unknownTakedown: await handedOver("POST", `/api/admin/sites/${newId()}/takedown`, { reason: "x" }),
     };
     expect(observed).toEqual({
-      takedown: { status: 200, waitUntil: 2 },
+      takedown: { status: 200, waitUntil: 1 },
       restore: { status: 200, waitUntil: 1 },
       indexable: { status: 200, waitUntil: 0 },
       unknownTakedown: { status: 404, waitUntil: 0 },
@@ -85,18 +86,38 @@ describe("multi-write publishing calls run to their end (web-maker-f4, 2026-09-3
   });
 });
 
-describe("the takedown notice", () => {
-  it("does not undo a takedown when the email cannot be sent, and logs only the code", async () => {
+describe("the takedown notice (web-maker-f4, 2026-09-30: awaited after the commit, answered as noticeSent)", () => {
+  it("answers noticeSent true when the owner's email went out", async () => {
+    const site = await h.pendingSite();
+    const path = `/api/admin/sites/${site.siteId}/takedown`;
+    const res = await h.call("POST", path, { body: { reason: "Spam report" } });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ noticeSent: true });
+    // Awaited before the answer: the email is already in the outbox, with no wait for the background.
+    expect((await h.outbox(site.email)).filter((m) => m.tag === "site_notice")).toHaveLength(1);
+    await h.backgroundDone(path);
+  });
+
+  it("does not undo a takedown when the email cannot be sent: 200 noticeSent false, one log line with only the code", async () => {
     const site = await h.pendingSite();
     await (await h.db()).prepare("UPDATE owners SET email = ? WHERE id = ?").bind("owner@mail-fails.example", site.ownerId).run();
     h.server.clearLogs();
     const path = `/api/admin/sites/${site.siteId}/takedown`;
-    expect((await h.call("POST", path, { body: { reason: "Spam report" } })).status).toBe(200);
+    const res = await h.call("POST", path, { body: { reason: "Spam report" } });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ noticeSent: false });
     await h.backgroundDone(path);
     const row = await (await h.db()).prepare("SELECT taken_down_at FROM sites WHERE id = ?").bind(site.siteId).first<{ taken_down_at: number | null }>();
     expect(row?.taken_down_at).not.toBeNull();
-    expect(h.logLines()).toContainEqual({ event: "email_failed", tag: "site_notice", error: "rejected" });
+    expect(h.logLines().filter((l) => l["event"] === "email_failed")).toEqual([{ event: "email_failed", tag: "site_notice", error: "rejected" }]);
     expect(JSON.stringify(h.logLines())).not.toContain("mail-fails");
+  });
+
+  it("says the owner was not told when the email service is rate limited (the daily cap case)", async () => {
+    const site = await h.pendingSite();
+    await (await h.db()).prepare("UPDATE owners SET email = ? WHERE id = ?").bind("owner@mail-rate-limited.example", site.ownerId).run();
+    const res = await h.call("POST", `/api/admin/sites/${site.siteId}/takedown`, { body: { reason: "Spam report" } });
+    expect(await res.json()).toEqual({ noticeSent: false });
   });
 });
 
