@@ -181,7 +181,15 @@ function byLengthCode(issue: Issue): string | null {
   return null;
 }
 
+/**
+ * A12: any issue with the page design or colors, at a stored `theme` or a request's `edits.theme` or below it, gets one
+ * message and no questionnaire fix (the editor's goToIssue sends it to the Look tab, Task 17).
+ */
+const THEME_MESSAGE: OwnerMessage = { text: "Choose your page design and colors again." };
+const isThemeIssue = ({ path: [root, part] }: Issue): boolean => root === "theme" || (root === "edits" && part === "theme");
+
 export function ownerMessage(issue: Issue): OwnerMessage {
+  if (isThemeIssue(issue)) return THEME_MESSAGE;
   const coded = BY_CODE[issue.code];
   if (coded !== undefined) return coded;
   if (issue.message.startsWith(CLAIM_PREFIX)) return claimMessage(issue.message);

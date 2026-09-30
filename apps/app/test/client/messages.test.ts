@@ -1,9 +1,9 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { SiteDocument, Facts } from "@asksite/site-schema";
-import { EMPTY_EDITS, OwnerEdits, toIssues, type Issue } from "@asksite/core";
+import { EMPTY_EDITS, OwnerEdits, PatchDraftBody, toIssues, type Issue } from "@asksite/core";
 import { describe, expect, it } from "vitest";
 import { loadFixture } from "../../../../fixtures/index.ts";
-import { issuesAt, issuesToShow, issuesUnder, ownerMessage } from "../../src/client/lib/messages.ts";
+import { issuesAt, issuesToShow, issuesUnder, ownerMessage, type OwnerMessage } from "../../src/client/lib/messages.ts";
 import { VALID_FACTS } from "../support/facts.ts";
 
 const issue = (path: Issue["path"], code: string, message: string): Issue => ({ path, code, message });
@@ -246,6 +246,31 @@ describe("issuesToShow on a real SiteDocument list", () => {
       issue(opens, "custom", "m"),
     ];
     expect(issuesToShow(other)).toEqual(other);
+  });
+});
+
+// DECIDED (web-maker-d3, 2026-09-30; A12): every issue at or below `theme` or `edits.theme` gets one message, in US
+// spelling (us-spelling.md), with no questionnaire fix: the editor's goToIssue sends it to the Look tab (Task 17).
+describe("theme messages (A12)", () => {
+  const THEME_MESSAGE: OwnerMessage = { text: "Choose your page design and colors again." };
+  const shown = (issues: Issue[]): Array<[string, string, OwnerMessage]> => issues.map((i) => [i.path.join("."), i.code, ownerMessage(i)]);
+  const saved = (theme: unknown): Issue[] => toIssues(PatchDraftBody.safeParse({ rev: 1, edits: { ...EMPTY_EDITS, theme } }).error!);
+  const stored = (theme: unknown): Issue[] => toIssues(OwnerEdits.safeParse({ ...EMPTY_EDITS, theme }).error!);
+
+  it.each([
+    ["a saved theme without a design", () => saved({ palette: "navy-orange", font: "clean" }), "edits.theme.design", "invalid_value"],
+    ["a saved theme with an unknown palette", () => saved({ palette: "pink", font: "clean", design: "impact" }), "edits.theme.palette", "invalid_value"],
+    ["a saved theme that is not an object", () => saved("x"), "edits.theme", "invalid_type"],
+    ["a stored theme with an unknown palette", () => stored({ palette: "pink", font: "clean" }), "theme.palette", "invalid_value"],
+    ["a stored theme that is not an object", () => stored("x"), "theme", "invalid_type"],
+  ])("%s", (_, issues, path, code) => {
+    expect(shown(issues())).toStrictEqual([[path, code, THEME_MESSAGE]]);
+  });
+
+  it("keeps every other path's own message, under edits too", () => {
+    expect(ownerMessage(issue(["edits", "copy", "heroHeadline"], "too_big", "Too big: expected string to have <=80 characters")).text).toBe("Please use 80 characters or fewer.");
+    expect(ownerMessage(issue(["edits", "order"], "invalid_value", "m")).text).toBe("Please choose one.");
+    expect(ownerMessage(issue(["facts", "trade"], "invalid_value", "m")).text).toBe("Choose the kind of work you do.");
   });
 });
 
