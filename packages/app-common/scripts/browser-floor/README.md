@@ -70,9 +70,9 @@ This is our own client code, not an attacker boundary. The check does not judge:
 - APIs typed by our own declarations: a structural annotation (`const U: { canParse(u: string):
   boolean } = URL; U.canParse(x)`) or an augmentation (`declare global { var EyeDropper: ... }`).
   The check judges only what TypeScript's default lib files declare, and the lib gate accepts our own
-  declarations. Nothing covers them. A receiver whose type also holds a lib type that declares the
-  member (`PopoverHandle & HTMLElement`, `OwnBody | Response`) is judged on the lib's declaration
-  (a-receivers.ts `ownFirstIntersection`, `ownFirstUnion`; `ownOnlyMember` passes).
+  declarations. Nothing covers them. A union or intersection receiver that also holds a lib type that
+  declares the member (`PopoverHandle & HTMLElement`, `OwnBody | Response`) is judged on the lib's
+  declaration (a-receivers.ts `ownFirstIntersection`, `ownFirstUnion`; `ownOnlyMember` passes).
 - Sub-features under a member: options and parameters (`div.focus({ focusVisible: true })`, MDN
   `api.HTMLElement.focus.options_focusVisible_parameter`, iOS 18.4) and behaviors such as symbols as
   WeakMap keys (`javascript.builtins.WeakMap.symbol_as_keys`, 16.4, so it passes at today's floor).
