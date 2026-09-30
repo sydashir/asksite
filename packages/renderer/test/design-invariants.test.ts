@@ -18,7 +18,17 @@ import type { Design } from "../src/design.ts";
 import { DESIGNS } from "../src/designs/index.ts";
 import { html } from "../src/html.ts";
 import { render, renderDocument } from "../src/render.ts";
-import { CREDENTIAL_CLAIMS, formSkeleton, invariantProblems, navLinks, pageClaims, ROUND_THE_CLOCK, variableProblems } from "./support/design-invariants.ts";
+import {
+  CREDENTIAL_CLAIMS,
+  formSkeleton,
+  invariantProblems,
+  navLinks,
+  pageClaims,
+  ROUND_THE_CLOCK,
+  SERVICE_HOURS,
+  STAR_RATING,
+  variableProblems,
+} from "./support/design-invariants.ts";
 
 const OPTIONS = { stylesheets: stubStylesheets(), formAction: FIXTURE_FORM_ACTION };
 
@@ -180,12 +190,43 @@ describe("the invariant checks can fail (RED proof, on edited pages)", () => {
     ["round-the-clock hours", "<p>Open 7 days a week, day or night.</p>", ["day or night"]],
     ["a 24/7 pill", '<p><span class="pill">24/7</span> Call now</p>', ["24/7"]],
     ["a claim inside quotation marks", '<p>"Fully insured crew"</p>', ["insured"]],
+    // Digits and symbols, which site-schema's word lists leave out (A12-0 round-5 rulings, review4 I-1).
+    ["a star row that screen readers skip", '<p><span aria-hidden="true">\u2605\u2605\u2605\u2605\u2605</span> Loved by our neighbors</p>', ["\u2605"]],
+    ["a 5-star claim", "<p>5-star service</p>", ["5-star"]],
+    ["a 4.9-star rating", "<p>4.9 stars on Google</p>", ["4.9 stars"]],
+    ["24-hour opening", "<p>Open 24 hours</p>", ["24 hours"]],
+    ["24-hour service", "<p>24-hour service</p>", ["24-hour"]],
+    ["same-day service", "<p>Same-day service</p>", ["same-day"]],
+    ["two claims of one kind in one text", "<p>Same-day or next-day visits, 24 hrs</p>", ["same-day", "next-day", "24 hrs"]],
   ])("catch %s on cleaning-minimal", (_, extra, claims) => {
     const doc = SiteDocument.parse(loadFixture("cleaning-minimal"));
     const baseline = renderDocument(doc, BASELINE, OPTIONS).html;
     const edited = baseline.replace("</footer>", `${extra}\n</footer>`);
     expect(edited).not.toBe(baseline);
     expect(invariantProblems(edited, baseline, doc, BASELINE)).toEqual([`unbacked claims ${JSON.stringify(claims)}`]);
+  });
+
+  // The probe of A12-0 review4 I-1, as a design whose own text adds a star rating and 24-hour and same-day
+  // service, on every fixture. hvac-phoenix's owner is open around the clock, so today's page already says
+  // "Open 24 hours" there, and that one is not the design's claim.
+  const starry: Design = {
+    ...BASELINE,
+    footer: (ctx) =>
+      html`${BASELINE.footer(ctx)}\n<p><span aria-hidden="true">\u2605\u2605\u2605\u2605\u2605</span> 5-star service, 4.9 stars on Google</p>\n<p>Open 24 hours. Same-day service.</p>`,
+  };
+  it.each(FIXTURES)("catch a design whose own text states a star rating and 24-hour and same-day service, on %s", (name) => {
+    const doc = SiteDocument.parse(loadFixture(name));
+    const baseline = renderDocument(doc, BASELINE, OPTIONS).html;
+    const claims = ["\u2605", "5-star", "4.9 stars", ...(name === "hvac-phoenix" ? [] : ["24 hours"]), "same-day"];
+    expect(invariantProblems(renderDocument(doc, starry, OPTIONS).html, baseline, doc, starry)).toEqual([`unbacked claims ${JSON.stringify(claims)}`]);
+  });
+
+  it("allow a design to repeat the owner's own 24-hour opening, however it spaces it", () => {
+    const doc = SiteDocument.parse(loadFixture("hvac-phoenix"));
+    const baseline = renderDocument(doc, BASELINE, OPTIONS).html;
+    const edited = baseline.replace("</footer>", "<p>Open 24 hours</p>\n<p>Open 24&nbsp;HOURS</p>\n</footer>");
+    expect(edited).not.toBe(baseline);
+    expect(invariantProblems(edited, baseline, doc, BASELINE)).toEqual([]);
   });
 
   it("allow a design to repeat a claim the owner's facts back, in quotation marks too", () => {
@@ -196,13 +237,15 @@ describe("the invariant checks can fail (RED proof, on edited pages)", () => {
 
   // Why the check is relative: owner words the claim checker never reads (a real review) can hold a claim
   // word, and every design shows them too.
-  it("today's pages state only the claim words of the owner's own reviews", () => {
+  it("today's pages state only the claims of the owner's own reviews and opening hours", () => {
     const claims = FIXTURES.map((name) => {
       const doc = SiteDocument.parse(loadFixture(name));
       return [name, pageClaims(renderDocument(doc, BASELINE, OPTIONS).html, doc.facts)];
     });
-    expect(claims).toEqual(FIXTURES.map((name) => [name, name === "hvac-phoenix" ? ["warranty"] : []]));
-    expect(JSON.stringify(loadFixture("hvac-phoenix").facts.testimonials)).toContain("registered the warranty for us");
+    expect(claims).toEqual(FIXTURES.map((name) => [name, name === "hvac-phoenix" ? ["warranty", "24 hours"] : []]));
+    const hvac = loadFixture("hvac-phoenix").facts;
+    expect(JSON.stringify(hvac.testimonials)).toContain("registered the warranty for us");
+    expect(hvac.hours).toContainEqual(expect.objectContaining({ opens: "00:00", closes: "23:59" })); // shown as "Open 24 hours"
   });
 
   it("allow a design to show today's review in its own quotation marks", () => {
@@ -229,6 +272,16 @@ describe("the invariant checks can fail (RED proof, on edited pages)", () => {
     const without = SiteDocument.parse(loadFixture("electrical-xss")).facts;
     expect([withFact.emergency247, without.emergency247]).toEqual([true, false]);
     expect([pageClaims("<p>Open 24/7</p>", withFact), pageClaims("<p>Open 24/7</p>", without)]).toEqual([[], ["24/7"]]);
+  });
+
+  it("read star ratings, and 24-hour, same-day and next-day service, in symbols, digits and words", () => {
+    const read = (pattern: RegExp, texts: readonly string[]) => texts.map((text) => pattern.exec(text)?.[0] ?? null);
+    const stars = ["\u2605\u2605\u2605\u2605\u2606", "\u2B50 Google", "\u272A", "5-star", "5 Stars", "4.9-star", "4.9 stars", "5 out of 5 stars", "10 \u2013 star", "5\u2011star"];
+    expect(read(STAR_RATING, stars)).toEqual(["\u2605", "\u2B50", "\u272A", "5-star", "5 Stars", "4.9-star", "4.9 stars", "5 out of 5 stars", "10 \u2013 star", "5\u2011star"]);
+    expect(read(STAR_RATING, ["Star Plumbing", "the star of the show", "Superstar crew", "5 starters", "A5 star", "\u2726 New"])).toEqual([null, null, null, null, null, null]);
+    const hours = ["Open 24 hours", "24-hour service", "24 hr line", "24hrs", "24\u2011hour", "Same-day service", "same day", "Next\u2013Day visits"];
+    expect(read(SERVICE_HOURS, hours)).toEqual(["24 hours", "24-hour", "24 hr", "24hrs", "24\u2011hour", "Same-day", "same day", "Next\u2013Day"]);
+    expect(read(SERVICE_HOURS, ["Open 24/7", "124 hours", "Since 2024, hours vary", "some days", "same-daylight", "Monday"])).toEqual([null, null, null, null, null, null]);
   });
 
   it("catch unsafe or misnamed custom properties", () => {

@@ -86,19 +86,48 @@ export const CREDENTIAL_CLAIMS: readonly RegExp[] = [
  */
 export const ROUND_THE_CLOCK = { pattern: /\b24\s*\/\s*7\b/, backedBy: (facts: Facts): boolean => facts.emergency247 } as const;
 
+// The joiners of claims.ts (hyphen, space, figure dash, en dash, em dash, minus sign), plus U+2010 and U+2011,
+// which the page shows as "-" (amendment A2).
+const JOIN = String.raw`[-‐-—− ]`;
+
 /**
- * The credential claims `page` states that the owner's `facts` do not back, lower-cased, each once:
- * site-schema's unbackedClaims on every text a person reads or hears, each word it finds cut down to the
- * unbacked credential claim it holds, and an unbacked "24/7". So a quoted phrase or a web address around a
- * claim counts as that claim, and one around a backed claim counts as nothing. unbackedClaims gives the
- * first word of each pattern in a text, so a text that holds two words of one pattern shows the first.
+ * A star rating, in symbols or digits: "★★★★★", "5-star", "4.9 stars", "5 out of 5 stars". No owner fact backs
+ * one (Plan 1 decision 7: no star ratings); CREDENTIAL_CLAIMS holds the word forms ("five-star", "rated").
+ * site-schema's word lists leave these forms out because copy may hold no digit, but a design's own text can
+ * hold them (A12-0 round-5 rulings, review4 I-1).
+ */
+export const STAR_RATING = new RegExp(String.raw`[★☆⭐✪-✰]|\b\d+(?:\.\d+)?\s*(?:${JOIN}\s*)?(?:out\s+of\s+\d+\s+)?stars?\b`, "i");
+
+/**
+ * 24-hour, same-day and next-day service, in digits or words: "Open 24 hours", "24-hour service", "Same-day
+ * service". Today's page states "Open 24 hours" only from the owner's own opening hours (A12-0 round-5 rulings,
+ * review4 I-1).
+ */
+export const SERVICE_HOURS = new RegExp(String.raw`\b24${JOIN}?(?:hours?|hrs?)\b|\b(?:same|next)${JOIN}day\b`, "i");
+
+/** Every match of `pattern` in `text`, in order. */
+const allMatches = (pattern: RegExp, text: string): string[] => [...text.matchAll(new RegExp(pattern, "gi"))].map((match) => match[0]);
+
+/**
+ * The credential claims `page` states that the owner's `facts` do not back, each once, lower-cased and read as
+ * the page shows them (a run of whitespace as one space, U+2010/U+2011 as "-"): site-schema's unbackedClaims on
+ * every text a person reads or hears, each word it finds cut down to the unbacked credential claim it holds; an
+ * unbacked "24/7"; and every star rating and 24-hour, same-day or next-day service claim. So a quoted phrase or
+ * a web address around a claim counts as that claim, and one around a backed claim counts as nothing.
+ * unbackedClaims gives the first word of each pattern in a text, so a text that holds two words of one of its
+ * patterns shows the first. invariantProblems then drops every claim today's page for the same document states
+ * too, such as an owner's pasted review or the owner's own "Open 24 hours".
+ * KNOWN LIMIT: a star row drawn only as SVG shapes, with no text or label, has no text to read; each build's
+ * review and its judges see the page.
  */
 export function pageClaims(page: string, facts: Facts): string[] {
   const texts = [...new Set(readableTexts(page))];
   const unbacked = CREDENTIAL_CLAIMS.filter((pattern) => !NEEDS_A_FACT.some((claim) => claim.pattern === pattern && claim.backedBy(facts)));
   const words = texts.flatMap((text) => unbackedClaims(text, facts)).flatMap((word) => unbacked.flatMap((pattern) => pattern.exec(word)?.[0] ?? []));
   const digits = ROUND_THE_CLOCK.backedBy(facts) ? [] : texts.flatMap((text) => ROUND_THE_CLOCK.pattern.exec(text)?.[0] ?? []);
-  return [...new Set([...words, ...digits].map((claim) => claim.toLowerCase()))];
+  const ratingsAndHours = texts.flatMap((text) => [STAR_RATING, SERVICE_HOURS].flatMap((pattern) => allMatches(pattern, text)));
+  const asShown = (claim: string) => claim.toLowerCase().replace(/\s+/g, " ").replace(/[‐‑]/g, "-");
+  return [...new Set([...words, ...digits, ...ratingsAndHours].map(asShown))];
 }
 
 /** Every shared invariant `page` (drawn by `design` for `doc`) breaks, compared with today's page; [] when it keeps them all. */
@@ -147,7 +176,7 @@ export function invariantProblems(page: string, baseline: string, doc: SiteDocum
 
   // The honesty rule (design §2.2; Plan 1 decisions 5 and 7): no credential claim the owner's facts do not
   // back, beyond those today's page shows for the same document, which come from the owner's own words, such
-  // as a review (A12-0 round-4 rulings).
+  // as a review, or hours (A12-0 round-4 and round-5 rulings).
   const claims = pageClaims(page, doc.facts);
   if (claims.length > 0) {
     const todays = pageClaims(baseline, doc.facts);
