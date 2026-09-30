@@ -116,8 +116,7 @@ const dollars = (n: string): string => Number(n).toLocaleString("en-US");
 
 /**
  * Fields whose message depends on the issue, not only on the field (approved amendment, task-12-extra.md). The
- * price limits come from the issue, so they follow the schema. At a closing time the order check (code custom)
- * is the one issue that is not about the time itself; answerIssues keeps it only for two valid times.
+ * price limits come from the issue, so they follow the schema.
  */
 const BY_PATH_AND_ISSUE = new Map<string, (issue: Issue) => string | undefined>([
   [
@@ -131,8 +130,17 @@ const BY_PATH_AND_ISSUE = new Map<string, (issue: Issue) => string | undefined>(
       return undefined;
     },
   ],
-  ["facts.hours.#.closes", (issue) => (issue.code === "custom" ? "Closing time must be after opening time." : undefined)],
 ]);
+
+/** The opening-hours entry an issue is on, when the issue is at that entry's opening or closing time. */
+function timeEntry(issue: Issue): number | undefined {
+  const [root, list, entry, field] = issue.path;
+  const atTime = issue.path.length === 4 && root === "facts" && list === "hours" && (field === "opens" || field === "closes");
+  return atTime && typeof entry === "number" ? entry : undefined;
+}
+
+/** The order check ("closes must be later than opens", site-schema facts.ts) is the one custom issue at a closing time. */
+const isOrderCheck = (issue: Issue): boolean => timeEntry(issue) !== undefined && issue.path[3] === "closes" && issue.code === "custom";
 
 function byLengthCode(issue: Issue): string | null {
   const n = limitOf(issue);
@@ -160,6 +168,7 @@ export function ownerMessage(issue: Issue): OwnerMessage {
   }
   if (issue.message.startsWith("AI copy must use Latin script")) return { text: "Please use English letters here." };
   if (/invisible|control/i.test(issue.message)) return { text: "This text has hidden characters. Please delete it and type it again." };
+  if (isOrderCheck(issue)) return { text: "Closing time must be after opening time." };
   const field = key(issue.path);
   const specific = BY_PATH_AND_ISSUE.get(field)?.(issue);
   if (specific !== undefined) return { text: specific };
@@ -172,6 +181,26 @@ export function ownerMessage(issue: Issue): OwnerMessage {
   if (issue.message === "Must be an absolute https:// URL") return { text: "Enter a full web address starting with https://." };
   if (issue.message === "Link must point at that network's own site") return { text: "This link must go to that network's own site." };
   return { text: "Please check this answer." };
+}
+
+/**
+ * The issues to show the owner and to count. Pass every issue list that is shown or counted through it
+ * (answerIssues does; so must the lists the server returns and the editor's preview list).
+ *
+ * The opening-hours order check also runs on an empty or malformed time ("08:00" < "" is false) and then gives
+ * the wrong reason. It is kept only for two valid times: an entry with another issue at either time loses it, so
+ * each time field shows exactly one message (approved amendment, task-12-extra.md; review I-1).
+ */
+export function issuesToShow(issues: readonly Issue[]): Issue[] {
+  const badTimes = new Set<number>();
+  for (const issue of issues) {
+    const entry = timeEntry(issue);
+    if (entry !== undefined && !isOrderCheck(issue)) badTimes.add(entry);
+  }
+  return issues.filter((issue) => {
+    const entry = timeEntry(issue);
+    return !(entry !== undefined && isOrderCheck(issue) && badTimes.has(entry));
+  });
 }
 
 /** Issues at `path` exactly (one field). */

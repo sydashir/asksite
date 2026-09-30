@@ -1,35 +1,11 @@
 import { Brief, type Issue, type SiteView } from "@asksite/core";
 import { Facts } from "@asksite/site-schema";
+import { issuesToShow } from "./messages.ts";
 import { STEPS, type StepId } from "./route.ts";
 import { asArray, asRecord, type Path } from "./values.ts";
 
 const under = (root: string, issues: ReadonlyArray<{ path: PropertyKey[]; code: string; message: string }>): Issue[] =>
   issues.map((i) => ({ path: [root, ...i.path.map((p) => (typeof p === "symbol" ? String(p) : p))], code: i.code, message: i.message }));
-
-/** The opening-hours entry an issue is on, when the issue is at that entry's opening or closing time. */
-function timeEntry(issue: Issue): number | undefined {
-  const [root, list, entry, field] = issue.path;
-  const atTime = issue.path.length === 4 && root === "facts" && list === "hours" && (field === "opens" || field === "closes");
-  return atTime && typeof entry === "number" ? entry : undefined;
-}
-
-/**
- * The opening-hours order check ("closes must be later than opens", code custom at the closing time) also runs
- * on an empty or malformed time ("08:00" < "" is false) and then gives the wrong reason. It is kept only for two
- * valid times: an entry with another issue at either time loses it, so each time field shows exactly one
- * message (approved amendment, task-12-extra.md).
- */
-function withoutFalseOrder(issues: readonly Issue[]): Issue[] {
-  const badTimes = new Set<number>();
-  for (const issue of issues) {
-    const entry = timeEntry(issue);
-    if (entry !== undefined && issue.code !== "custom") badTimes.add(entry);
-  }
-  return issues.filter((issue) => {
-    const entry = timeEntry(issue);
-    return !(entry !== undefined && issue.code === "custom" && badTimes.has(entry));
-  });
-}
 
 /**
  * Everything wrong with the answers right now, checked in the browser with the same schemas the
@@ -40,7 +16,7 @@ export function answerIssues(draft: { facts: unknown; brief: unknown }, view: Pi
   const facts = Facts.safeParse(draft.facts);
   const brief = Brief.safeParse(draft.brief);
   const issues: Issue[] = [
-    ...(facts.success ? [] : withoutFalseOrder(under("facts", facts.error.issues))),
+    ...(facts.success ? [] : issuesToShow(under("facts", facts.error.issues))),
     ...(brief.success ? [] : under("brief", brief.error.issues)),
     ...serverPhotoIssues,
   ];

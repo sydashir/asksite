@@ -1,7 +1,8 @@
 import { SiteDocument, Facts } from "@asksite/site-schema";
 import { EMPTY_EDITS, OwnerEdits, toIssues, type Issue } from "@asksite/core";
 import { describe, expect, it } from "vitest";
-import { issuesAt, issuesUnder, ownerMessage } from "../../src/client/lib/messages.ts";
+import { loadFixture } from "../../../../fixtures/index.ts";
+import { issuesAt, issuesToShow, issuesUnder, ownerMessage } from "../../src/client/lib/messages.ts";
 import { VALID_FACTS } from "../support/facts.ts";
 
 const issue = (path: Issue["path"], code: string, message: string): Issue => ({ path, code, message });
@@ -112,21 +113,50 @@ describe("starting price messages", () => {
 describe("opening time messages", () => {
   const timeIssues = (hours: unknown): string[][] => {
     const parsed = Facts.safeParse({ ...VALID_FACTS, hours: [hours] });
-    return toIssues(parsed.error!).map((i) => [i.path.join("."), i.code, ownerMessage({ ...i, path: ["facts", ...i.path] }).text]);
+    const issues = toIssues(parsed.error!).map((i) => ({ ...i, path: ["facts", ...i.path] }));
+    return issuesToShow(issues).map((i) => [i.path.join("."), i.code, ownerMessage(i).text]);
   };
 
   it("asks for a time when one is empty, malformed or missing", () => {
-    expect(timeIssues({ days: ["Monday"], opens: "", closes: "17:00" })).toEqual([["hours.0.opens", "invalid_format", "Please enter a time."]]);
-    expect(timeIssues({ days: ["Monday"], opens: "08:00", closes: "25:00" })).toEqual([["hours.0.closes", "invalid_format", "Please enter a time."]]);
-    expect(timeIssues({ days: ["Monday"], closes: "17:00" })).toEqual([["hours.0.opens", "invalid_type", "Please enter a time."]]);
+    expect(timeIssues({ days: ["Monday"], opens: "", closes: "17:00" })).toEqual([["facts.hours.0.opens", "invalid_format", "Please enter a time."]]);
+    expect(timeIssues({ days: ["Monday"], opens: "08:00", closes: "25:00" })).toEqual([["facts.hours.0.closes", "invalid_format", "Please enter a time."]]);
+    expect(timeIssues({ days: ["Monday"], closes: "17:00" })).toEqual([["facts.hours.0.opens", "invalid_type", "Please enter a time."]]);
   });
 
-  it("keeps the order message for the order check, which the schema also runs on an empty time (answerIssues drops it then)", () => {
-    expect(timeIssues({ days: ["Monday"], opens: "18:00", closes: "08:00" })).toEqual([["hours.0.closes", "custom", "Closing time must be after opening time."]]);
-    expect(timeIssues({ days: ["Monday"], opens: "08:00", closes: "" })).toEqual([
-      ["hours.0.closes", "invalid_format", "Please enter a time."],
-      ["hours.0.closes", "custom", "Closing time must be after opening time."],
+  it("says the order is wrong only for two valid times in the wrong order, never also for an empty time", () => {
+    expect(timeIssues({ days: ["Monday"], opens: "18:00", closes: "08:00" })).toEqual([["facts.hours.0.closes", "custom", "Closing time must be after opening time."]]);
+    expect(timeIssues({ days: ["Monday"], opens: "08:00", closes: "" })).toEqual([["facts.hours.0.closes", "invalid_format", "Please enter a time."]]);
+  });
+});
+
+// DECIDED (web-maker-d3, review I-1): one list-level helper for every issue list that is shown or counted,
+// including the server's lists (the publish page) and the editor's preview list, not only answerIssues.
+describe("issuesToShow on a real SiteDocument list", () => {
+  const fixture = loadFixture("plumber-austin");
+  const documentIssues = (hours: unknown): Issue[] => {
+    const parsed = SiteDocument.safeParse({ ...fixture, facts: { ...fixture.facts, hours } });
+    return toIssues(parsed.error!);
+  };
+  const closes = ["facts", "hours", 0, "closes"];
+
+  it("gives exactly one issue, and one message, for an empty closing time", () => {
+    const issues = documentIssues([{ days: ["Monday"], opens: "08:00", closes: "" }]);
+    expect(issuesAt(issues, closes).map((i) => i.code)).toEqual(["invalid_format", "custom"]);
+    const shown = issuesToShow(issues);
+    expect(shown.map((i) => [i.path.join("."), ownerMessage(i).text])).toEqual([["facts.hours.0.closes", "Please enter a time."]]);
+  });
+
+  it("keeps the order check for two valid times in the wrong order", () => {
+    const issues = documentIssues([{ days: ["Monday"], opens: "18:00", closes: "08:00" }]);
+    expect(issuesToShow(issues).map((i) => [i.path.join("."), ownerMessage(i).text])).toEqual([
+      ["facts.hours.0.closes", "Closing time must be after opening time."],
     ]);
+  });
+
+  it("leaves a valid document's list and other issues alone", () => {
+    expect(SiteDocument.safeParse(fixture).success).toBe(true);
+    const other = [issue(["facts", "phone"], "invalid_format", "m"), issue(["copy", "heroHeadline"], "too_big", "Too big: expected string to have <=80 characters")];
+    expect(issuesToShow(other)).toEqual(other);
   });
 });
 
