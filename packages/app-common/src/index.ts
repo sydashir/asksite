@@ -34,5 +34,5 @@ export {
   secondsUntilUtcMidnight,
   type RateLimiter,
 } from "./http.ts";
-export { trySend, type EmailTag, type Mailer, type OutgoingEmail } from "./mail.ts";
+export { sendReporting, trySend, type EmailTag, type Mailer, type OutgoingEmail } from "./mail.ts";
 export { BLOCKED_WORDS, BRAND_SLUGS, PHISHING_WORDS, slugFlags, slugProblem, type SlugProblem } from "./slug-policy.ts";
