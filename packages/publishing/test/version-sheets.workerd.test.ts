@@ -1,6 +1,6 @@
 import { formActionUrl, versionKey } from "@asksite/core";
 import { render } from "@asksite/renderer";
-import { DESIGN_CSS, SITE_CSS_SHA256 } from "@asksite/site-css";
+import { DESIGN_CSS } from "@asksite/site-css";
 import { DESIGN_IDS, type SiteDocument } from "@asksite/site-schema";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { createPendingVersion } from "../src/index.ts";
@@ -8,7 +8,8 @@ import { doc, EDITS, publishingHarness, ROOT, seedSite, versionRow, type Publish
 
 // Until the design builds, every design uses the baseline sheet, so the real DESIGN_CSS cannot tell one design's
 // sheet from another's. Here each design gets a sheet of its own, so a version that recorded any other sheet,
-// such as the deprecated SITE_CSS_SHA256 alias, is caught (A12-0 ruling M2). vi.mock is hoisted above the imports.
+// such as a real sheet or the deprecated alias of the impact one, is caught (A12-0 ruling M2). vi.mock is
+// hoisted above the imports.
 vi.mock("@asksite/site-css", async (importOriginal) => {
   const { sha256Hex } = await import("@asksite/core");
   const { DESIGN_IDS: ids } = await import("@asksite/site-schema");
@@ -30,10 +31,11 @@ afterAll(async () => {
 });
 
 describe("createPendingVersion with a different stylesheet per design", () => {
-  it("has a sheet per design that no other design and not the deprecated alias shares", () => {
+  it("has a sheet per design that no other design and no real sheet shares", async () => {
+    const real = await vi.importActual<typeof import("@asksite/site-css")>("@asksite/site-css");
     const hashes = DESIGN_IDS.map((design) => DESIGN_CSS[design].sha256);
     expect(new Set(hashes).size).toBe(DESIGN_IDS.length);
-    expect(hashes).not.toContain(SITE_CSS_SHA256);
+    for (const design of DESIGN_IDS) expect(hashes).not.toContain(real.DESIGN_CSS[design].sha256);
   });
 
   it.each(DESIGN_IDS)("stores the %s page with its own design's sheet and records that sheet", async (design) => {
