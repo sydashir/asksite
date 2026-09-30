@@ -35,7 +35,7 @@ interface Expected {
   hostname: string;
   /** The configured secret is one of the documented dummy secrets. */
   testSecret: boolean;
-  /** Dummy secrets belong to local development on a *.localhost host only. */
+  /** Dummy secrets belong to local development only: ENVIRONMENT development and a local CONFIGURED origin. */
   testSecretAllowed: boolean;
 }
 
@@ -53,9 +53,14 @@ async function siteverifyOnce(send: Siteverify, body: string, timeoutMs: number)
   }
 }
 
+/** Whether a host name (from `new URL().hostname`) is this machine: localhost, any *.localhost (RFC 6761), 127.0.0.1 or [::1]. */
+function isLocalHostname(hostname: string): boolean {
+  return hostname === "localhost" || hostname.endsWith(".localhost") || hostname === "127.0.0.1" || hostname === "[::1]";
+}
+
 /**
- * D1 (moderator): a dummy secret's result passes only where dummy secrets belong, local development on a
- * *.localhost host; anywhere else it is refused even with success true, so a test secret that reaches
+ * D1 (moderator): a dummy secret's result passes only where dummy secrets belong, local development with a
+ * local configured APP_ORIGIN (never the request's Host header, which the caller controls); anywhere else it is refused even with success true, so a test secret that reaches
  * production can never let a request through. There success true is enough: the real service answers a dummy
  * secret with no action and the host name example.com (measured 2026-09-30, unlike its docs page), so neither
  * is checked (P4-22 M1 re-ruling). Any other secret needs action "login" and this app's host name; an
@@ -96,14 +101,15 @@ async function turnstileRefusal(
  * `timeoutMs` is only ever shortened by the test Worker, so a test of a siteverify that never answers stays fast.
  */
 export async function requireTurnstile(c: Context<AppEnv>, send: Siteverify, timeoutMs = SITEVERIFY_TIMEOUT_MS): Promise<void> {
+  const appHostname = new URL(c.env.APP_ORIGIN).hostname;
   const refusal = await turnstileRefusal(send, {
     secret: c.env.TURNSTILE_SECRET_KEY,
     token: c.req.header(TURNSTILE_HEADER),
     remoteIp: c.req.header("CF-Connecting-IP"),
     expected: {
-      hostname: new URL(c.env.APP_ORIGIN).hostname,
+      hostname: appHostname,
       testSecret: isDocumentedTestSecret(c.env.TURNSTILE_SECRET_KEY),
-      testSecretAllowed: c.env.ENVIRONMENT === "development" && new URL(c.req.url).hostname.endsWith(".localhost"),
+      testSecretAllowed: c.env.ENVIRONMENT === "development" && isLocalHostname(appHostname),
     },
     timeoutMs,
   });

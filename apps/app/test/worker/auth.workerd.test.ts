@@ -603,18 +603,16 @@ describe("Turnstile on sign-in (A11)", () => {
     await waitForEmail("test-key@example.com");
   });
 
-  it("refuses the test-key result in development on a host that is not *.localhost, and logs why", async () => {
-    h.server.clearLogs();
+  it("accepts the test-key result when the CONFIGURED host is local even if the request Host is not: the request Host is never used", async () => {
+    await h.signIn("forged@example.com");
     for (const host of ["https://example.com", "https://localhost:8787", "https://app.localhost.example"]) {
       const res = await h.server.fetch(`${host}/api/auth/login`, {
         method: "POST",
         headers: { Origin: APP_ORIGIN, "Content-Type": "application/json", "CF-Connecting-IP": nextIp(), "x-turnstile-token": TURNSTILE_DUMMY_TOKEN },
-        body: JSON.stringify({ email: "elsewhere@example.com" }),
+        body: JSON.stringify({ email: "forged@example.com" }),
       });
-      await refused(res);
+      expect(res.status).toBe(202);
     }
-    const reasons = h.logLines().filter((line) => line["route"] === "POST /api/auth/login").map((line) => line["turnstile"]);
-    expect(reasons).toEqual(["testing_key", "testing_key", "testing_key"]);
   });
 });
 

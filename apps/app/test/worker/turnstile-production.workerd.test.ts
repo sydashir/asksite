@@ -11,6 +11,10 @@ const h = useAppHarness({ vars: { ENVIRONMENT: "production", APP_ORIGIN: ORIGIN 
 // The same Worker with a production-style secret (not a documented dummy one).
 const live = useAppHarness({ vars: { ENVIRONMENT: "production", APP_ORIGIN: ORIGIN, TURNSTILE_SECRET_KEY: TURNSTILE_LIVE_SECRET } });
 
+// The same Worker as production with a LOCAL configured origin: production never takes the dummy secret.
+const LOCAL_ORIGIN = "https://app.localhost:8787";
+const prodLocal = useAppHarness({ vars: { ENVIRONMENT: "production", APP_ORIGIN: LOCAL_ORIGIN } });
+
 const REFUSED = { error: { code: "forbidden", message: "Please complete the security check and try again." } };
 
 /** POST /api/auth/login to `base` (the host name the Worker sees), from this app's origin. */
@@ -41,6 +45,19 @@ describe("Turnstile in production (D1)", () => {
     expect(res.status).toBe(403);
     expect(await res.json()).toEqual(REFUSED);
     expect(reasons()).toEqual(["testing_key"]);
+  });
+
+  it("refuses the test-key result in production even when the configured host is local", async () => {
+    prodLocal.server.clearLogs();
+    const res = await prodLocal.server.fetch(`${LOCAL_ORIGIN}/api/auth/login`, {
+      method: "POST",
+      headers: { Origin: LOCAL_ORIGIN, "Content-Type": "application/json", "CF-Connecting-IP": nextIp(), "x-turnstile-token": TURNSTILE_DUMMY_TOKEN },
+      body: JSON.stringify({ email: "owner@example.com" }),
+    });
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual(REFUSED);
+    const lines = prodLocal.logLines().filter((line) => line["route"] === "POST /api/auth/login").map((line) => line["turnstile"]);
+    expect(lines).toEqual(["testing_key"]);
   });
 
   it("accepts a production key's result only when it names this app's host and the login action", async () => {
