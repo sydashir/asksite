@@ -347,6 +347,8 @@ describe("runGenerationJob", () => {
       attemptOutcomes: [], usageMissing: false, inputBoundRefused: false, costUnknown: false, durationMs: 0, provider: null, model: null,
     };
     const FAKE = { provider: "fake", model: "fake-template" };
+    /** Item 3: a costUnknown ending stores the configured provider and the requested model, not the scripted answer's. */
+    const REQUESTED = { provider: "anthropic", model: "claude-opus-5-5" };
     const ANTHROPIC = { MODEL_PROVIDER: "anthropic", MODEL_ID: "claude-opus-5-5" };
     const TIMEOUTS: JobReport["attemptOutcomes"] = ["timeout", "timeout", "timeout"];
     /** The test's D1 binding, whose prepare throws for the statements `failing` picks. */
@@ -390,8 +392,8 @@ describe("runGenerationJob", () => {
       ["provider failure: no key, a first build gets the template", { env: () => ANTHROPIC, report: { outcome: "fallback", usedFallback: true, fallbackReason: "provider_error", providerErrorKind: "auth", provider: "anthropic" } }],
       ["provider failure: no key, a regeneration fails", { kind: "regenerate", env: () => ANTHROPIC, report: { outcome: "failed", errorCode: "provider_unavailable", providerErrorKind: "auth", provider: "anthropic" } }],
       ["provider failure: the input guard refused attempt 1, a regeneration fails", { kind: "regenerate", input: JSON.stringify(OVER_BOUND), jobDeps: () => deps(scriptedProvider([])), report: { outcome: "failed", errorCode: "provider_unavailable", providerErrorKind: "bad_request", attemptOutcomes: ["bad_request"], inputBoundRefused: true, ...FAKE } }],
-      ["catch-all: our own code threw after a call (costUnknown), a first build gets the template", { env: () => ANTHROPIC, jobDeps: () => deps(scriptedProvider([answerOurCodeCannotCheck()])), report: { outcome: "fallback", usedFallback: true, fallbackReason: "provider_error", costUnknown: true } }],
-      ["catch-all: our own code threw after a call (costUnknown), a regeneration fails", { kind: "regenerate", env: () => ANTHROPIC, jobDeps: () => deps(scriptedProvider([answerOurCodeCannotCheck()])), report: { outcome: "failed", errorCode: "internal", costUnknown: true } }],
+      ["catch-all: our own code threw after a call (costUnknown), a first build gets the template", { env: () => ANTHROPIC, jobDeps: () => deps(scriptedProvider([answerOurCodeCannotCheck()])), report: { outcome: "fallback", usedFallback: true, fallbackReason: "provider_error", costUnknown: true, ...REQUESTED } }],
+      ["catch-all: our own code threw after a call (costUnknown), a regeneration fails", { kind: "regenerate", env: () => ANTHROPIC, jobDeps: () => deps(scriptedProvider([answerOurCodeCannotCheck()])), report: { outcome: "failed", errorCode: "internal", costUnknown: true, ...REQUESTED } }],
       ["catch-all: our own code threw before any call, a first build gets the template", { jobDeps: () => ({ ...deps(), createProvider: () => { throw new TypeError("bug"); } }), report: { outcome: "fallback", usedFallback: true, fallbackReason: "provider_error" } }],
       ["the stored input is not a valid snapshot", { input: '{"facts":{}}', report: { outcome: "failed", errorCode: "internal" } }],
       ["not claimed: no queued job", { notQueued: true, report: { outcome: "not_claimed" } }],
@@ -482,17 +484,19 @@ describe("runGenerationJob", () => {
 
   // task-9-additions C: generateDraft rejects only when our own code throws (a bug), and paid calls may have been sent by
   // then. Decision 24 still holds (a first build gets the template, a regeneration fails with internal), but the job
-  // keeps the model slot, records tokens and cost as 0 (unknown) and flags costUnknown.
+  // keeps the model slot, records attempts, tokens and cost as 0 (unknown) and flags costUnknown. It stores the
+  // configured provider and the requested model, so the row says which model got the calls (Task 9 follow-up item 3).
   it("keeps the model slot and flags the cost as unknown when our own code throws after a call was sent", async () => {
     await queued("f");
     await queued("r", "regenerate", "s2");
     const first = scriptedProvider([answerOurCodeCannotCheck()]);
     const regeneration = scriptedProvider([answerOurCodeCannotCheck()]);
-    const unknown = { attempts: 0, costUnknown: true, usageMissing: false, providerErrorKind: null, attemptOutcomes: [] };
+    const requested = { provider: "fake", model: "fake-template" };
+    const unknown = { attempts: 0, costUnknown: true, usageMissing: false, providerErrorKind: null, attemptOutcomes: [], ...requested };
     expect(await runGenerationJob(envWith(), "f", deps(first))).toMatchObject({ outcome: "fallback", fallbackReason: "provider_error", ...unknown });
     expect(await runGenerationJob(envWith(), "r", deps(regeneration))).toMatchObject({ outcome: "failed", errorCode: "internal", ...unknown });
     expect([first.requests.length, regeneration.requests.length]).toEqual([1, 1]);
-    const kept = { model_slot: 1, attempts: 0, input_tokens: 0, output_tokens: 0, cost_microusd: 0, provider: null, model: null };
+    const kept = { model_slot: 1, attempts: 0, input_tokens: 0, output_tokens: 0, cost_microusd: 0, ...requested };
     const firstRow = await getGeneration(db, "f");
     expect(firstRow).toMatchObject({ status: "succeeded", used_fallback: 1, fallback_reason: "provider_error", error_code: null, ...kept });
     expect(AiDraft.parse(JSON.parse(firstRow.output_json!))).toEqual(TEMPLATE);
@@ -542,7 +546,7 @@ describe("the job's end-states and the owner's lifetime total, end to end (task-
     ["refused at claim time: today's model calls are used up", { setting: ["generation.daily_model_limit", "0"], row: { status: "failed", error_code: "budget_exhausted", attempts: 0, model_slot: 0 }, counted: false }],
     ["refused at claim time: no key", { env: { MODEL_PROVIDER: "anthropic", MODEL_ID: "claude-opus-5-5" }, row: { status: "failed", error_code: "provider_unavailable", attempts: 0, model_slot: 0 }, counted: false }],
     ["the input guard refused attempt 1", { snapshot: OVER_BOUND, provider: () => scriptedProvider([]), row: { status: "failed", error_code: "provider_unavailable", attempts: 0, model_slot: 0 }, counted: false }],
-    ["our own code threw after a call was sent (costUnknown)", { provider: () => scriptedProvider([answerOurCodeCannotCheck()]), row: { status: "failed", error_code: "internal", attempts: 0, model_slot: 1 }, counted: false }],
+    ["our own code threw after a call was sent (costUnknown)", { provider: () => scriptedProvider([answerOurCodeCannotCheck()]), row: { status: "failed", error_code: "internal", attempts: 0, model_slot: 1, provider: "fake", model: "fake-template" }, counted: false }],
     ["three invalid answers", { env: { FAKE_MODE: "invalid-always" }, row: { status: "failed", error_code: "invalid_output", attempts: 3, model_slot: 1 }, counted: true }],
     ["a valid answer", { row: { status: "succeeded", error_code: null, attempts: 1, model_slot: 1 }, counted: true }],
   ])("%s", async (_name, end) => {

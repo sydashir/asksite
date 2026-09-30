@@ -104,9 +104,16 @@ const noTrace = (): Trace => ({ providerErrorKind: null, attemptOutcomes: [], us
 
 /**
  * generateDraft rejected: our own code threw (a bug; it rejects for nothing else), maybe after paid calls were sent.
- * How many were sent, and their tokens and cost, are unknown (task-9-additions C).
+ * How many were sent, and their tokens and cost, are unknown (task-9-additions C). `spend` is what the job stores for
+ * them: the configured provider and the requested model, with attempts, tokens and cost 0 (Task 9 follow-up item 3).
  */
-class DraftRejected extends Error {}
+class DraftRejected extends Error {
+  readonly spend: Spend;
+  constructor(spend: Spend, options: ErrorOptions) {
+    super("generateDraft rejected", options);
+    this.spend = spend;
+  }
+}
 
 type Ending =
   | { status: "succeeded"; draft: AiDraft; fallbackReason: FallbackReason | null }
@@ -130,7 +137,7 @@ async function callModel(env: JobEnv, snapshot: GenerationInputSnapshot, hasSlot
   try {
     result = await generateDraft(provider, snapshot, deps.generate);
   } catch (error) {
-    throw new DraftRejected("generateDraft rejected", { cause: error });
+    throw new DraftRejected({ ...NO_SPEND, provider: env.MODEL_PROVIDER, model: env.MODEL_ID }, { cause: error });
   }
   const spend: Spend = {
     provider: env.MODEL_PROVIDER,
@@ -214,6 +221,7 @@ export async function runGenerationJob(env: JobEnv, generationId: string, deps: 
       // Something unexpected (a bug, not a provider answer): a first build still gets its draft (Decision 24). When
       // generateDraft itself rejected, calls may have been sent: their cost is unknown (task-9-additions C). Anything
       // else threw before any call.
+      if (error instanceof DraftRejected) spend = error.spend;
       trace = { ...noTrace(), costUnknown: error instanceof DraftRejected };
       ending = kind === "first" ? templateEnding(snapshot, "provider_error") : { status: "failed", errorCode: "internal" };
     }
