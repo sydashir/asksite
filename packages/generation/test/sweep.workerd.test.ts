@@ -1,6 +1,6 @@
 import { AiDraft, type GenerationJob, type GenerationRow } from "@asksite/core";
 import type { D1Database, Queue } from "@cloudflare/workers-types";
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { JOB_DEPS, runGenerationJob, type JobEnv } from "../src/job.ts";
 import { generationAllowance, requestGeneration } from "../src/request.ts";
 import { modelCallsToday } from "../src/settings.ts";
@@ -8,6 +8,10 @@ import { JOB_STUCK_AFTER_MS, SWEEP_BATCH, SWEEP_MAX_PER_RUN, sweepStuckJobs } fr
 import { templateDraft } from "../src/template.ts";
 import { clearTables, getGeneration, insertGeneration, seedOwnerSite, startLocalD1, type LocalD1 } from "./support/d1.ts";
 import { FULL_SNAPSHOT } from "./support/samples.ts";
+
+// Every export of template.ts is a spy that calls the real function (vi.mock is hoisted and also applies to sweep.ts's
+// import), so one test can make templateDraft throw once (Task 10 follow-up item 2).
+vi.mock("../src/template.ts", { spy: true });
 
 const NOW = Date.UTC(2026, 8, 24, 15);
 const OLD = NOW - JOB_STUCK_AFTER_MS - 1;
@@ -142,9 +146,9 @@ describe("sweepStuckJobs", () => {
     expect((await getGeneration(db, "running")).status).toBe("running");
   });
 
-  it("reads SWEEP_BATCH rows a query and ends at most 400 a run: 16 reads and 400 writes stay under D1's 1,000 queries per invocation (Decision 27)", async () => {
+  it("reads SWEEP_BATCH rows a query and at most 400 a run: 16 reads and at most 800 writes (a second one when a row's first write throws) stay under D1's 1,000 queries per invocation (Decision 27)", async () => {
     expect([SWEEP_BATCH, SWEEP_MAX_PER_RUN]).toEqual([25, 400]);
-    expect(Math.ceil(SWEEP_MAX_PER_RUN / SWEEP_BATCH) + SWEEP_MAX_PER_RUN).toBeLessThanOrEqual(1_000);
+    expect(Math.ceil(SWEEP_MAX_PER_RUN / SWEEP_BATCH) + 2 * SWEEP_MAX_PER_RUN).toBeLessThanOrEqual(1_000);
     // 51 stuck jobs and a limit of 50: two full reads and 50 writes; the newest is left for the next run.
     await db.batch(
       Array.from({ length: 51 }, (_, i) => [
@@ -199,6 +203,101 @@ describe("sweepStuckJobs", () => {
     expect(await sweepStuckJobs({ DB: recorded }, NOW)).toEqual({ fallback: 3, failed: 0 });
     expect(rowsRead).toHaveLength(1);
     expect(rowsRead[0]).toBeLessThanOrEqual(10);
+  });
+
+  describe("one row whose ending throws never stops the others (Task 10 follow-up item 2)", () => {
+    const LATER = NOW + 5 * 60_000;
+    /** The oldest stuck job, a first build, then a running first build and a queued regeneration. */
+    const seedStuck = async (): Promise<void> => {
+      await insertGeneration(db, { id: "poison", site_id: "s1", owner_id: "o1", kind: "first", status: "queued", input_json: INPUT, created_at: OLD - 3 });
+      await insertGeneration(db, { id: "first", site_id: "s2", owner_id: "o1", kind: "first", status: "running", input_json: INPUT, created_at: 0, started_at: OLD - 2 });
+      await insertGeneration(db, { id: "regen", site_id: "s3", owner_id: "o1", kind: "regenerate", status: "queued", input_json: INPUT, created_at: OLD - 1 });
+    };
+    const endedNormally = async (): Promise<void> => {
+      expect(await getGeneration(db, "first")).toMatchObject({ status: "succeeded", used_fallback: 1, fallback_reason: "provider_error", error_code: null, finished_at: NOW });
+      expect(await getGeneration(db, "regen")).toMatchObject({ status: "failed", error_code: "internal", output_json: null, finished_at: NOW });
+    };
+    /**
+     * The test's D1, which logs every UPDATE the sweeper runs as "<id> template" or "<id> failed". The first `failures`
+     * UPDATEs of row `id` throw instead of writing; `first` runs before the first of them (another writer's step).
+     */
+    const failingWrites = (id: string, failures: number, log: string[], first?: () => Promise<unknown>): D1Database => {
+      let failed = 0;
+      return new Proxy(db, {
+        get(target, prop, receiver) {
+          if (prop !== "prepare") return Reflect.get(target, prop, receiver);
+          return (sql: string) => {
+            if (!sql.startsWith("UPDATE")) return target.prepare(sql);
+            return {
+              bind: (...values: unknown[]) => ({
+                run: async () => {
+                  log.push(`${String(values[0])} ${sql.includes("status = 'succeeded'") ? "template" : "failed"}`);
+                  if (values[0] !== id || failed >= failures) return target.prepare(sql).bind(...values).run();
+                  if (failed++ === 0) await first?.();
+                  throw new Error("D1 down");
+                },
+              }),
+            };
+          };
+        },
+      });
+    };
+
+    it("ends the oldest stuck first build failed/internal when its template throws, as the job does, and ends every other stuck job in the same run", async () => {
+      await seedStuck();
+      vi.mocked(templateDraft).mockImplementationOnce(() => {
+        throw new Error("the template cannot be made");
+      });
+      expect(await sweepStuckJobs({ DB: db }, NOW)).toEqual({ fallback: 1, failed: 2 });
+      expect(await getGeneration(db, "poison")).toMatchObject({ status: "failed", error_code: "internal", output_json: null, used_fallback: 0, fallback_reason: null, finished_at: NOW });
+      await endedNormally();
+      // The next run is not blocked: it ends a job that got stuck since.
+      await insertGeneration(db, { id: "new", site_id: "s4", owner_id: "o1", kind: "regenerate", status: "queued", input_json: INPUT, created_at: LATER - JOB_STUCK_AFTER_MS - 1 });
+      expect(await sweepStuckJobs({ DB: db }, LATER)).toEqual({ fallback: 0, failed: 1 });
+      expect(await getGeneration(db, "new")).toMatchObject({ status: "failed", error_code: "internal", finished_at: LATER });
+    });
+
+    it.each<[string, "first" | "regenerate", number, string[]]>([
+      ["a first build whose template write throws", "first", 1, ["poison template", "poison failed"]],
+      ["a regeneration whose failed write throws once", "regenerate", 1, ["poison failed", "poison failed"]],
+    ])("ends %s failed/internal with a second, conditional write, and ends every other stuck job in the same run", async (_case, kind, failures, poisonWrites) => {
+      await seedStuck();
+      await db.prepare("UPDATE generations SET kind = ?2 WHERE id = ?1").bind("poison", kind).run();
+      const log: string[] = [];
+      expect(await sweepStuckJobs({ DB: failingWrites("poison", failures, log) }, NOW)).toEqual({ fallback: 1, failed: 2 });
+      expect(log).toEqual([...poisonWrites, "first template", "regen failed"]);
+      expect(await getGeneration(db, "poison")).toMatchObject({ status: "failed", error_code: "internal", output_json: null, used_fallback: 0, finished_at: NOW });
+      await endedNormally();
+    });
+
+    it("keeps its second write conditional on the status it read: a job that claimed the row first keeps it", async () => {
+      await seedStuck();
+      const log: string[] = [];
+      const claim = () => db.prepare("UPDATE generations SET status = 'running', started_at = ?2 WHERE id = ?1").bind("poison", NOW).run();
+      expect(await sweepStuckJobs({ DB: failingWrites("poison", 1, log, claim) }, NOW)).toEqual({ fallback: 1, failed: 1 });
+      expect(log).toEqual(["poison template", "poison failed", "first template", "regen failed"]);
+      expect(await getGeneration(db, "poison")).toMatchObject({ status: "running", started_at: NOW, error_code: null, output_json: null, finished_at: null });
+      await endedNormally();
+    });
+
+    it("goes on to the next row when both writes of a row throw: that row stays stuck, and it never blocks a later run", async () => {
+      await seedStuck();
+      const log: string[] = [];
+      const broken = failingWrites("poison", Infinity, log);
+      expect(await sweepStuckJobs({ DB: broken }, NOW)).toEqual({ fallback: 1, failed: 1 });
+      expect(log).toEqual(["poison template", "poison failed", "first template", "regen failed"]);
+      expect(await getGeneration(db, "poison")).toMatchObject({ status: "queued", finished_at: null });
+      await endedNormally();
+      // Still the oldest stuck job, it is read first in every later run, and each run still ends the jobs behind it.
+      for (const [at, site] of [[LATER, "s4"], [LATER + 5 * 60_000, "s5"]] as const) {
+        await insertGeneration(db, { id: `new-${site}`, site_id: site, owner_id: "o1", kind: "regenerate", status: "queued", input_json: INPUT, created_at: at - JOB_STUCK_AFTER_MS - 1 });
+        log.length = 0;
+        expect(await sweepStuckJobs({ DB: broken }, at)).toEqual({ fallback: 0, failed: 1 });
+        expect(log).toEqual(["poison template", "poison failed", `new-${site} failed`]);
+        expect(await getGeneration(db, `new-${site}`)).toMatchObject({ status: "failed", error_code: "internal", finished_at: at });
+      }
+      expect((await getGeneration(db, "poison")).status).toBe("queued");
+    });
   });
 });
 
