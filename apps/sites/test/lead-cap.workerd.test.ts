@@ -27,10 +27,17 @@ const sleep = (ms: number) => new Promise((done) => setTimeout(done, ms));
 /** 00:00 UTC of the day `now` falls in, worked out here rather than with the code's own helper. */
 const dayStart = (now: number) => now - (now % DAY_MS);
 
-/** The cap counts leads since 00:00 UTC: start well clear of midnight, so the test and the Worker see the same day. */
+/** The longest a test here may run (the flood's timeout). */
+const LONGEST_TEST_MS = 120_000;
+/** A beforeEach timeout above clearOfMidnight's longest wait (LONGEST_TEST_MS + 50 ms), with room for the hook's own work. */
+const MIDNIGHT_HOOK_MS = LONGEST_TEST_MS + 30_000;
+
+/** The cap counts leads since 00:00 UTC: start each test at least LONGEST_TEST_MS before midnight, so the test and the
+ *  Worker see the same day. It can wait up to LONGEST_TEST_MS + 50 ms, so it runs only in a beforeEach given
+ *  MIDNIGHT_HOOK_MS, never inside a test (30 s by default). */
 async function clearOfMidnight(): Promise<void> {
   const left = DAY_MS - (Date.now() % DAY_MS);
-  if (left < 120_000) await sleep(left + 50);
+  if (left < LONGEST_TEST_MS) await sleep(left + 50);
 }
 
 let ipCounter = 0;
@@ -84,7 +91,7 @@ describe(`LEAD_EMAILS_PER_DAY = ${CAP}, the production value`, () => {
     await tools.DB.batch([tools.DB.prepare("DELETE FROM leads"), tools.DB.prepare("DELETE FROM dev_outbox")]);
     await clearOfMidnight();
     h.server.clearLogs();
-  });
+  }, MIDNIGHT_HOOK_MS);
 
   it(`sends the ${CAP}th lead email of the UTC day across all sites, then saves the next lead unemailed and still thanks its visitor`, async () => {
     expect(CAP).toBe(40);
@@ -246,7 +253,7 @@ describe(`LEAD_EMAILS_PER_DAY = ${CAP}, the production value`, () => {
     expect(outcomes).toEqual({ "sent/null": CAP, "failed/daily_cap": 101 - CAP });
     expect(await leadEmails(tools)).toHaveLength(CAP);
     expect(await linesWith(h, "code", "lead_email_cap_reached", 101 - CAP)).toHaveLength(101 - CAP);
-  }, 120_000);
+  }, LONGEST_TEST_MS);
 });
 
 describe("a valid LEAD_EMAILS_PER_DAY other than the default", () => {
@@ -258,9 +265,9 @@ describe("a valid LEAD_EMAILS_PER_DAY other than the default", () => {
   afterAll(async () => {
     await h.server.close();
   });
+  beforeEach(clearOfMidnight, MIDNIGHT_HOOK_MS);
 
   it("is the day's cap for all sites, with nothing logged about the value", async () => {
-    await clearOfMidnight();
     const a = await seedSite(tools);
     const b = await seedSite(tools);
     h.server.clearLogs();
@@ -286,9 +293,9 @@ describe("an invalid LEAD_EMAILS_PER_DAY", () => {
   afterAll(async () => {
     await h.server.close();
   });
+  beforeEach(clearOfMidnight, MIDNIGHT_HOOK_MS);
 
   it("is logged as config_invalid, never its value, and the default of 40 a day applies", async () => {
-    await clearOfMidnight();
     const a = await seedSite(tools);
     const c = await seedSite(tools);
     await fill(tools, a.siteId, 39, { createdAt: dayStart(Date.now()), status: "sent" });

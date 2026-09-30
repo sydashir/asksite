@@ -30,6 +30,12 @@ async function pageOf(response: { status: number; text(): Promise<string> }): Pr
   return `429 ${/<h1>([^<]*)<\/h1>/.exec(await response.text())?.[1] ?? "?"}`;
 }
 
+/** Miniflare's rate-limit windows are wall-clock minutes: start a burst early in one so it never spans two. */
+async function earlyInAMinute(): Promise<void> {
+  const left = 60_000 - (Date.now() % 60_000);
+  if (left < 15_000) await new Promise((resolve) => setTimeout(resolve, left + 50));
+}
+
 async function leads(siteId: string) {
   const { results } = await tools.DB.prepare("SELECT * FROM leads WHERE site_id = ? ORDER BY created_at").bind(siteId).all<Record<string, unknown>>();
   return results;
@@ -140,6 +146,7 @@ describe("POST /_f/<siteId>", () => {
   // Each post is its own request: the same one twice is one lead (QA-2 RU(1)).
   it("rate-limits one visitor to 5 posts a minute per site", async () => {
     const busy = await seedSite(tools);
+    await earlyInAMinute();
     const pages: string[] = [];
     for (let i = 0; i < 6; i++) pages.push(await pageOf(await post(busy, { ...GOOD, name: `Dana ${i}` }, { ip: "192.0.2.44" })));
     expect(pages).toEqual(["303", "303", "303", "429 Please call instead", "429 Please call instead", "429 Please wait"]);
@@ -151,6 +158,7 @@ describe("POST /_f/<siteId>", () => {
 
   it("rate-limits an IPv6 visitor by the /64 network, not the full address", async () => {
     const busy = await seedSite(tools);
+    await earlyInAMinute();
     const pages: string[] = [];
     for (let i = 1; i <= 6; i++) pages.push(await pageOf(await post(busy, { ...GOOD, name: `Dana ${i}` }, { ip: `2001:db8:4:7::${i}` })));
     expect(pages).toEqual(["303", "303", "303", "429 Please call instead", "429 Please call instead", "429 Please wait"]);
@@ -276,12 +284,6 @@ describe("without IP_HASH_KEY", () => {
 
 // Pins added after the brief (test-only). Each one goes red on a mutant that the tests above let through.
 describe("form edges", () => {
-  /** Miniflare's rate-limit windows are wall-clock minutes: start a burst early in one so it never spans two. */
-  async function earlyInAMinute(): Promise<void> {
-    const left = 60_000 - (Date.now() % 60_000);
-    if (left < 15_000) await new Promise((resolve) => setTimeout(resolve, left + 50));
-  }
-
   it("keys the rate limit per site: a visitor stopped on one site can still use another site's form", async () => {
     const busy = await seedSite(tools);
     const other = await seedSite(tools);
@@ -464,12 +466,6 @@ describe("what the thank-you and rate-limit pages say about the business", () =>
     expect(body).toContain('<a href="/">Back to &lt;img src=x onerror="alert(1)"&gt; &amp; Co.</a>');
     expect(body).not.toContain("<img");
   });
-
-  /** Miniflare's rate-limit windows are wall-clock minutes: start a burst early in one so it never spans two. */
-  async function earlyInAMinute(): Promise<void> {
-    const left = 60_000 - (Date.now() % 60_000);
-    if (left < 15_000) await new Promise((resolve) => setTimeout(resolve, left + 50));
-  }
 
   /** The 6th post a minute from one network to `formId` on `site`'s host, which the rate limit refuses: its Retry-After and page. */
   async function rateLimited(site: { slug: string }, formId: string, ip: string): Promise<{ retryAfter: string | null; body: string }> {
