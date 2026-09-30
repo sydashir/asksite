@@ -1,6 +1,7 @@
+import type { Mailer } from "@asksite/app-common";
 import { liveKey, sha256Hex, siteUrl, versionKey, type SiteVersionRow } from "@asksite/core";
 import { FakePublishError, fakeCreateMailer, toGenerationView } from "../../../app/test/support/fakes.ts";
-import type { AdminDeps, AdminGenerationDeps, AdminPublishingDeps } from "../../src/worker/deps.ts";
+import type { AdminDeps, AdminGenerationDeps, AdminPublishingDeps, MailerEnv } from "../../src/worker/deps.ts";
 
 // Test stand-ins for the Plan 2 functions the admin calls (§7.2), following the documented steps
 // closely enough for this Worker's tests. The integration task swaps in @asksite/publishing.
@@ -105,4 +106,19 @@ export const fakeAdminGeneration: AdminGenerationDeps = {
   toGenerationView,
 };
 
-export const fakeAdminDeps: AdminDeps = { publishing: fakeAdminPublishing, generation: fakeAdminGeneration, createMailer: fakeCreateMailer };
+/**
+ * The app's fake mailer (an address at @mail-fails.example fails as Plan 2's MailerError "rejected"), plus
+ * the admin's own case: an address at @mail-rate-limited.example fails as "rate_limited", the shared daily
+ * Resend limit (§7.6), which the invite route explains to the admin in its own words.
+ */
+export function fakeAdminCreateMailer(env: MailerEnv): Mailer {
+  const mailer = fakeCreateMailer(env);
+  return {
+    async send(email) {
+      if (email.to.endsWith("@mail-rate-limited.example")) throw Object.assign(new Error("rate_limited"), { name: "MailerError", code: "rate_limited" });
+      return mailer.send(email);
+    },
+  };
+}
+
+export const fakeAdminDeps: AdminDeps = { publishing: fakeAdminPublishing, generation: fakeAdminGeneration, createMailer: fakeAdminCreateMailer };

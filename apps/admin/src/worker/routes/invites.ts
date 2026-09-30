@@ -1,9 +1,8 @@
-import { ApiError, auditStatement, inviteEmail, noteLog, readJson } from "@asksite/app-common";
+import { ApiError, auditStatement, inviteEmail, noteLog, readJson, sendReporting, type AuditAction } from "@asksite/app-common";
 import { CreateInviteBody, newId, newToken, sha256Hex, TTL, type InviteRow, type InviteView } from "@asksite/core";
 import { Hono } from "hono";
 import { mailerEnv } from "../db.ts";
 import type { AdminDeps } from "../deps.ts";
-import { mailFailure } from "../mail-failure.ts";
 import type { AdminEnv } from "../types.ts";
 
 const toInviteView = (row: InviteRow): InviteView => ({
@@ -16,6 +15,19 @@ const toInviteView = (row: InviteRow): InviteView => ({
   revokedAt: row.revoked_at,
   siteId: row.site_id,
 });
+
+/** What the admin reads when the invite email fails. Resend's shared daily limit (§7.6) gets its own words: retrying will not help today. */
+const SEND_FAILED = "Email could not be sent, try again";
+const DAILY_LIMIT_REACHED = "Invite emails are paused for today because the daily email limit was reached. Try again after 00:00 UTC.";
+
+/**
+ * auditStatement's row (§2.6), but written only when the invite's revoked_at is this request's own `at`:
+ * a revoke that changed nothing leaves no row. Runs inside the revoke's batch, after its UPDATE.
+ */
+const revokeAuditStatement = (db: D1Database, entry: { at: number; actor: string; action: AuditAction; inviteId: string }): D1PreparedStatement =>
+  db
+    .prepare("INSERT INTO audit_log (at, actor, action, site_id, detail_json) SELECT ?, ?, ?, NULL, ? WHERE EXISTS (SELECT 1 FROM invites WHERE id = ? AND revoked_at = ?)")
+    .bind(entry.at, entry.actor, entry.action, JSON.stringify({ inviteId: entry.inviteId }), entry.inviteId, entry.at);
 
 /** Invites are always emailed and never shown to the admin (§3.2 step 2, §5.2). */
 export function inviteRoutes(deps: AdminDeps): Hono<AdminEnv> {
@@ -36,13 +48,12 @@ export function inviteRoutes(deps: AdminDeps): Hono<AdminEnv> {
       .prepare("INSERT INTO invites (id, token_hash, email, created_by, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?)")
       .bind(id, await sha256Hex(token), email, admin, now, now + TTL.inviteMs)
       .run();
-    try {
-      await mailer.send({ to: email, ...content, tag: "invite", idempotencyKey: `invite:${id}` });
-    } catch (err) {
-      // No email, no invite: nothing is left for anyone to use or revoke. The log says why, never to whom.
-      noteLog(c, { error: mailFailure(err) });
+    const failure = await sendReporting(mailer, { to: email, ...content, tag: "invite", idempotencyKey: `invite:${id}` });
+    if (failure !== null) {
+      // No email, no invite: nothing is left for anyone to use or revoke. The request's line says why, never to whom.
+      noteLog(c, { error: failure });
       await db.prepare("DELETE FROM invites WHERE id = ?").bind(id).run();
-      throw new ApiError("email_failed", "Email could not be sent, try again");
+      throw new ApiError("email_failed", failure === "rate_limited" ? DAILY_LIMIT_REACHED : SEND_FAILED);
     }
     await auditStatement(db, { at: now, actor: `admin:${admin}`, action: "invite.created", siteId: null, detail: { inviteId: id } }).run();
     const row = await db.prepare("SELECT * FROM invites WHERE id = ?").bind(id).first<InviteRow>();
@@ -56,11 +67,20 @@ export function inviteRoutes(deps: AdminDeps): Hono<AdminEnv> {
   });
 
   invites.delete("/invites/:inviteId", async (c) => {
-    const admin = c.get("admin");
+    const inviteId = c.req.param("inviteId");
     const now = Date.now();
-    const result = await c.env.DB.prepare("UPDATE invites SET revoked_at = COALESCE(revoked_at, ?) WHERE id = ?").bind(now, c.req.param("inviteId")).run();
-    if (result.meta.changes !== 1) throw new ApiError("not_found", "Not found");
-    await auditStatement(c.env.DB, { at: now, actor: `admin:${admin}`, action: "invite.revoked", siteId: null, detail: { inviteId: c.req.param("inviteId") } }).run();
+    const db = c.env.DB;
+    // One transaction (A10: no RETURNING). Only an invite that is still open is revoked: a repeat, or a
+    // revoke after the owner's accept finished (site_id set), changes nothing and is not audited. An
+    // accept that has claimed the token but not finished (used_at set, site_id NULL) is still revoked,
+    // so its rollback cannot reopen the invite. The last statement tells an unknown id (404) from one
+    // that needed nothing (204).
+    const results = await db.batch([
+      db.prepare("UPDATE invites SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL AND site_id IS NULL").bind(now, inviteId),
+      revokeAuditStatement(db, { at: now, actor: `admin:${c.get("admin")}`, action: "invite.revoked", inviteId }),
+      db.prepare("SELECT id FROM invites WHERE id = ?").bind(inviteId),
+    ]);
+    if (results[2]?.results.length !== 1) throw new ApiError("not_found", "Not found");
     return c.body(null, 204);
   });
 
