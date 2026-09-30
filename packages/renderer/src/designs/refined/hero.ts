@@ -7,14 +7,11 @@ import type { RenderContext } from "../../context.ts";
 import { formatPhone, mailtoUrl, telUrl, TRADE_LABEL } from "../../format.ts";
 import { fragment, html, safeUrl, type SafeHtml } from "../../html.ts";
 import { DOM_ID } from "../../sections/ids.ts";
-import { callButton, ctaLong, dots, email, groupedHours, hoursTitle, icon, lic, type ClassicIcon } from "./parts.ts";
+import { callButton, ctaLong, dots, email, groupedHours, hoursTitle, icon, lic, reviewer, townSummary, type ClassicIcon } from "./parts.ts";
 import { plan } from "./plan.ts";
 
 /** A headline longer than this gets the smaller hero size. */
 const LONG_HEADLINE = 60;
-
-/** The business card and the Contact band name at most this many towns before "and N more". */
-const TOWNS_SHOWN = 3;
 
 /** One short review: the caption plate of the print, or under the buttons in the card hero. */
 function heroQuote(ctx: RenderContext, plate: boolean): SafeHtml | false {
@@ -23,23 +20,8 @@ function heroQuote(ctx: RenderContext, plate: boolean): SafeHtml | false {
   return html`<figure class="${plate ? "hq plate" : "hq"}"><blockquote><p>${review.quote}</p></blockquote><figcaption>${reviewer(review)}</figcaption></figure>`;
 }
 
-/** A review's name and town. */
-export const reviewer = (review: Facts["testimonials"][number]): SafeHtml =>
-  html`<span class="qn">${review.name}</span>${review.location !== undefined && html`<span class="qp">${review.location}</span>`}`;
-
 const seal = (facts: Facts): SafeHtml | false =>
   facts.yearFounded !== undefined && html`<p class="seal"><span class="seal-l">Since</span> <span class="seal-y">${facts.yearFounded}</span></p>`;
-
-/** The towns in a sentence: at most three, then a link to the Service area section for the rest. */
-export function townSummary(ctx: RenderContext): SafeHtml {
-  const places = ctx.doc.facts.serviceArea.places;
-  const shown = places.slice(0, TOWNS_SHOWN);
-  const more = places.length - shown.length;
-  if (more > 0) {
-    return html`${shown.join(", ")} <span class="whitespace-nowrap">and ${more} more.</span> <a class="whitespace-nowrap" href="${fragment(DOM_ID.serviceArea)}">See all areas</a>`;
-  }
-  return html`${shown.length === 1 ? shown[0] : `${shown.slice(0, -1).join(", ")} and ${shown.at(-1)}`}`;
-}
 
 /** The credential rows the hero shows when the credentials section comes straight after it. */
 function ledger(facts: Facts): SafeHtml {

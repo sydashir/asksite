@@ -4,8 +4,7 @@
 import type { RenderContext } from "../../context.ts";
 import { html, type SafeHtml } from "../../html.ts";
 import { DOM_ID } from "../../sections/ids.ts";
-import { reviewer } from "./hero.ts";
-import { ctaRow, sectionHead } from "./parts.ts";
+import { ctaRow, reviewer, sectionHead } from "./parts.ts";
 import { plan } from "./plan.ts";
 
 /** A pull quote longer than this gets the smaller size. */

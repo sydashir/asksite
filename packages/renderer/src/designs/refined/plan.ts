@@ -15,6 +15,12 @@ export interface Plan {
    */
   readonly areaShown: boolean;
   readonly trustShown: boolean;
+  /**
+   * One town, no area note and no hours to show there (none, or the business card lists them): the approved
+   * mockup folds the Service area section away. The shared contract keeps the section and its menu link (A12
+   * section 7), so it is one short line instead, and nothing leads to the form just before it.
+   */
+  readonly areaFold: boolean;
   /** The business card lists the hours, so the Service area section shows the owner's base instead. */
   readonly cardHours: boolean;
   /** The review the hero shows (never shown again below), or -1. */
@@ -27,6 +33,8 @@ export interface Plan {
   readonly band: Readonly<Partial<Record<SectionId, Band>>>;
   /** The section that ends with a Call-or-quote row (tablets and wider), if any. */
   readonly ctaAfter: SectionId | undefined;
+  /** The section the contact form follows, at once or with only the one-line Service area between, if any. */
+  readonly beforeForm: SectionId | undefined;
 }
 
 /** The longest review the hero may show. */
@@ -60,18 +68,26 @@ function makePlan(ctx: RenderContext): Plan {
     else band[id] = previous = previous === "paper" ? "white" : "paper";
   }
 
-  const after = (["testimonials", "gallery"] as const).find((id) => ids.includes(id));
   const areaShown = isVisible(ctx, "serviceArea");
+  const cardHours = !photo && areaShown && facts.hours.length > 0;
+  const { places, note } = facts.serviceArea;
+  const areaFold = areaShown && places.length === 1 && note === undefined && (facts.hours.length === 0 || cardHours);
+  let form = ids.indexOf("contact") - 1;
+  if (areaFold && ids[form] === "serviceArea") form -= 1;
+  const beforeForm = ids[form];
+  const after = (["testimonials", "gallery"] as const).find((id) => ids.includes(id));
   return {
     photo,
     areaShown,
     trustShown: isVisible(ctx, "trust"),
-    cardHours: !photo && areaShown && facts.hours.length > 0,
+    areaFold,
+    cardHours,
     heroQuote: isVisible(ctx, "testimonials") ? heroQuoteIndex(facts.testimonials) : -1,
     lift,
     liftSwap: lift && liftFacts <= 4,
     band,
-    ctaAfter: after !== undefined && ids[ids.indexOf(after) + 1] !== "contact" ? after : undefined,
+    ctaAfter: after !== beforeForm ? after : undefined,
+    beforeForm,
   };
 }
 
@@ -82,9 +98,4 @@ export function plan(ctx: RenderContext): Plan {
   let found = plans.get(ctx);
   if (found === undefined) plans.set(ctx, (found = makePlan(ctx)));
   return found;
-}
-
-/** The section that renders right after `id`, if any. */
-export function nextSection(ctx: RenderContext, id: SectionId): SectionId | undefined {
-  return ctx.sections[ctx.sections.findIndex((s) => s.id === id) + 1]?.id;
 }

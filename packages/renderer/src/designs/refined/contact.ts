@@ -7,8 +7,7 @@ import type { RenderContext } from "../../context.ts";
 import { formatPhone, mailtoUrl, telUrl } from "../../format.ts";
 import { html, type SafeHtml } from "../../html.ts";
 import { DOM_ID } from "../../sections/ids.ts";
-import { townSummary } from "./hero.ts";
-import { ctaLong, dots, email, groupedHours, hoursList, hoursTitle, icon, lic, sectionHead } from "./parts.ts";
+import { ctaLong, dots, email, groupedHours, hoursList, hoursTitle, icon, lic, sectionHead, townSummary } from "./parts.ts";
 import { plan } from "./plan.ts";
 
 /** Fewer rows than this beside the form cannot balance it, so the band stacks (from 60rem). */
@@ -18,7 +17,9 @@ export function renderContact(ctx: RenderContext): SafeHtml {
   const { doc } = ctx;
   const { facts, copy } = doc;
   const { location } = facts;
-  const { cardHours, areaShown, trustShown } = plan(ctx);
+  const { cardHours, areaShown, areaFold, trustShown } = plan(ctx);
+  // From 60rem the column recaps the towns, unless the one-line Service area already says the one town.
+  const recapTowns = areaShown && !areaFold;
   // "Based in {city}" is said once: here only when no Service area section says it.
   const showWhere = location.streetAddress !== undefined || !areaShown;
   const where = location.streetAddress
@@ -34,7 +35,7 @@ export function renderContact(ctx: RenderContext): SafeHtml {
     (copy.sectionIntros.contact ? 2 : 0) +
     (facts.emergency247 ? 1 : 0) +
     (showWhere ? 1 : 0) +
-    (areaShown ? (facts.serviceArea.places.length > 3 ? 2 : 1) : 0) +
+    (recapTowns ? (facts.serviceArea.places.length > 3 ? 2 : 1) : 0) +
     (credentials.length > 0 ? 1 : 0) +
     (cardHours ? 2 + groupedHours(facts.hours).length : 0);
 
@@ -46,7 +47,7 @@ ${sectionHead(DOM_ID.contact, ctaLong(doc), copy.sectionIntros.contact)}
 <li>${icon("phone", "i i-lg")}<span><a class="c-ph whitespace-nowrap" href="${telUrl(facts.phone)}">${formatPhone(facts.phone)}</a>${facts.emergency247 && html`<span class="c-note">24/7 emergency service</span>`}</span></li>
 <li>${icon("mail")}<a href="${mailtoUrl(facts.email)}">${email(facts.email)}</a></li>
 ${showWhere && html`<li>${icon("store")}<span>${where}</span></li>`}
-${areaShown && html`<li class="c-more">${icon("map-pin")}<span>Serving ${townSummary(ctx)}</span></li>`}
+${recapTowns && html`<li class="c-more">${icon("map-pin")}<span>Serving ${townSummary(ctx)}</span></li>`}
 ${credentials.length > 0 && html`<li class="c-more">${icon("shield-check")}${dots(credentials)}</li>`}
 </ul>
 ${cardHours && html`<div class="c-hours c-more"><p class="c-ht">${hoursTitle(facts)}</p><dl>${hoursList(facts.hours)}</dl></div>`}

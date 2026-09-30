@@ -1,11 +1,12 @@
 // Classic's service area: the owner's towns in balanced columns beside a paper card with the hours (or,
 // when the hero's business card already lists them, the owner's base) and the 24/7 note. Everything
-// here is an owner fact; the intro is the owner's own area note.
+// here is an owner fact; the intro is the owner's own area note. One town with nothing else to show is
+// one line (Plan.areaFold).
 import type { RenderContext } from "../../context.ts";
 import { formatPhone, telUrl } from "../../format.ts";
 import { html, type SafeHtml } from "../../html.ts";
 import { DOM_ID } from "../../sections/ids.ts";
-import { hoursList, hoursTitle, icon, sectionHead } from "./parts.ts";
+import { dots, hoursList, hoursTitle, icon, sectionHead } from "./parts.ts";
 import { plan } from "./plan.ts";
 
 /**
@@ -28,7 +29,33 @@ function placesClass(n: number): string {
   return `places${phone}${wide === 3 ? "" : ` pw-${wide}`}`;
 }
 
+/**
+ * The one town, and the owner's base when it is another town or a street address, as one line under a small
+ * heading, so the section does not repeat the hero's card in a two-column block (the approved mockup's fold).
+ */
+function areaLine(ctx: RenderContext): SafeHtml {
+  const { location, serviceArea } = ctx.doc.facts;
+  const place = serviceArea.places[0] ?? location.city;
+  const home = place.trim().toLowerCase() === location.city.trim().toLowerCase();
+  const cityLine = `${location.city}, ${location.state}`;
+  const items = [
+    { text: `Serving ${home ? cityLine : place}` },
+    ...(location.streetAddress
+      ? [{ text: `${location.streetAddress}, ${cityLine}${location.postalCode ? ` ${location.postalCode}` : ""}` }]
+      : home
+        ? []
+        : [{ text: `Based in ${cityLine}` }]),
+  ];
+  return html`<section id="${DOM_ID.serviceArea}" class="${plan(ctx).band.serviceArea === "white" ? "af bw" : "af bp"}" aria-labelledby="${DOM_ID.serviceArea}-title">
+<div class="wr">
+<h2 id="${DOM_ID.serviceArea}-title" class="h3r">${icon("map-pin")}Service area</h2>
+<p class="af-l">${dots(items)}</p>
+</div>
+</section>`;
+}
+
 export function renderServiceArea(ctx: RenderContext): SafeHtml {
+  if (plan(ctx).areaFold) return areaLine(ctx);
   const { facts } = ctx.doc;
   const { location, serviceArea } = facts;
   const hasHours = facts.hours.length > 0 && !plan(ctx).cardHours;

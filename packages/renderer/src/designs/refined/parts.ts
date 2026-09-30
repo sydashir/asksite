@@ -1,9 +1,11 @@
 // Small pieces every Classic section shares. Owner text is always escaped by the html template; only
 // literal markup from this file is marked as trusted.
 import type { Facts, OpeningHours, SiteDocument, Trade } from "@asksite/site-schema";
+import type { RenderContext } from "../../context.ts";
 import { formatPhone, telUrl, weeklyHours } from "../../format.ts";
 import { fragment, html, trusted, type SafeHtml, type Value } from "../../html.ts";
 import { icon as sharedIcon, type IconName } from "../../icons.ts";
+import { DOM_ID } from "../../sections/ids.ts";
 
 // Tabler Icons 3.x (MIT, see NOTICES.md): the Classic icons the shared set lacks, bodies copied
 // from @iconify-json/tabler (receipt-2, calendar, building-store, mail, plus, arrow-up-right).
@@ -34,6 +36,24 @@ export function dots(items: ReadonlyArray<{ text: Value; phone?: boolean }>): Sa
   const item = ({ text, phone }: { text: Value; phone?: boolean }) =>
     phone === true ? html`<span class="eb-y"><span>${text}</span></span>` : html`<span><span>${text}</span></span>`;
   return html`<span class="dots"><span class="dots-r">${items.map((each, i) => html`${i > 0 ? " " : ""}${item(each)}`)}</span></span>`;
+}
+
+/** A review's name and town. */
+export const reviewer = (review: Facts["testimonials"][number]): SafeHtml =>
+  html`<span class="qn">${review.name}</span>${review.location !== undefined && html`<span class="qp">${review.location}</span>`}`;
+
+/** The business card and the Contact band name at most this many towns before "and N more". */
+const TOWNS_SHOWN = 3;
+
+/** The towns in a sentence: at most three, then a link to the Service area section for the rest. */
+export function townSummary(ctx: RenderContext): SafeHtml {
+  const places = ctx.doc.facts.serviceArea.places;
+  const shown = places.slice(0, TOWNS_SHOWN);
+  const more = places.length - shown.length;
+  if (more > 0) {
+    return html`${shown.join(", ")} <span class="whitespace-nowrap">and ${more} more.</span> <a class="whitespace-nowrap" href="${fragment(DOM_ID.serviceArea)}">See all areas</a>`;
+  }
+  return html`${shown.length === 1 ? shown[0] : `${shown.slice(0, -1).join(", ")} and ${shown.at(-1)}`}`;
 }
 
 /** A licence number that never splits while it fits on a line. */

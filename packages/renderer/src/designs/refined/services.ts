@@ -8,12 +8,13 @@ import { formatPrice } from "../../format.ts";
 import { fragment, html, type SafeHtml } from "../../html.ts";
 import { DOM_ID } from "../../sections/ids.ts";
 import { booksVisits, ctaLong, sectionHead, TRADE_WORD } from "./parts.ts";
-import { nextSection, plan } from "./plan.ts";
+import { plan } from "./plan.ts";
 
 export function renderServices(ctx: RenderContext): SafeHtml {
   const { doc } = ctx;
   const { facts, copy } = doc;
-  const band = plan(ctx).band.services === "white" ? "sec bw" : "sec bp";
+  const { band: bands, beforeForm } = plan(ctx);
+  const band = bands.services === "white" ? "sec bw" : "sec bp";
   // SiteDocument guarantees serviceDescriptions[i] names facts.services[i].
   const items = facts.services.map((service, i) => {
     const description = copy.serviceDescriptions[i]?.description;
@@ -23,9 +24,9 @@ export function renderServices(ctx: RenderContext): SafeHtml {
   });
   const unpriced = facts.services.some((service) => service.startingPrice === undefined);
   const title = booksVisits(doc) ? "Ready to book?" : unpriced ? "Need a price?" : "Need something else?";
-  // The box is left out when the contact band follows at once: its form is the next thing on the page.
+  // The box is left out when the contact form is the next thing on the page.
   const more =
-    nextSection(ctx, "services") !== "contact" &&
+    beforeForm !== "services" &&
     html`<li class="svc-more"><div><p class="svc-mt">${title}</p><p>Ask us about any ${TRADE_WORD[facts.trade]} job.</p></div><a class="bt bt-act" href="${fragment("contact-form")}">${ctaLong(doc)}</a></li>`;
 
   return html`<section id="${DOM_ID.services}" class="${band}" aria-labelledby="${DOM_ID.services}-title">
