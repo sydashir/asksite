@@ -3,7 +3,7 @@ import { Brief, type GenerationInputSnapshot, type Issue } from "@asksite/core";
 import { Facts } from "@asksite/site-schema";
 import { describe, expect, it, vi } from "vitest";
 import { CAPS_REPAIR, CAPS_SNAPSHOT, capsRepair, capsSnapshot } from "../eval/caps.ts";
-import { ATTEMPT_TIMEOUT_MS, capIssues, generateDraft, inputBound, MAX_INPUT_TOKENS, MAX_OUTPUT_TOKENS, PROMPT_OVERHEAD_TOKENS } from "../src/generate.ts";
+import { ATTEMPT_TIMEOUT_MS, capIssues, generateDraft, inputBound, MAX_INPUT_TOKENS, MAX_OUTPUT_TOKENS, PROMPT_OVERHEAD_TOKENS, type AttemptOutcome } from "../src/generate.ts";
 import { buildPrompt, MAX_ISSUE_MESSAGE, MAX_ISSUE_PATH, MAX_REPAIR_ISSUES } from "../src/prompt.ts";
 import type { ModelProvider, ModelRequest, ModelResponse } from "../src/provider.ts";
 import { FakeProvider } from "../src/providers/fake.ts";
@@ -643,12 +643,12 @@ describe("the input bound (P3-8)", () => {
     expect(provider.requests[1]!.user.split("\n").filter((line) => line.startsWith('- "copy.faq.')).length).toBe(20);
   });
 
-  it("refuses attempt 2 when the real repair lines of attempt 1 push it over: attempts 1, inputBoundRefused, no retry", async () => {
+  it("refuses attempt 2 when the real repair lines of attempt 1 push it over: attempts 1, inputBoundRefused, no retry, and the model's answer failed (invalid_output, P3-18)", async () => {
     const { deps, sleeps } = testDeps();
     const provider = scriptedProvider([answer(withUnknownKeys(good, "\uFDFA")), answer(good)]);
     const result = await generateDraft(provider, FULL_SNAPSHOT, deps);
     expect(provider.requests).toHaveLength(1);
-    expect(result).toMatchObject({ ok: false, failure: "provider_error", providerErrorKind: "bad_request", attempts: 1, inputBoundRefused: true });
+    expect(result).toMatchObject({ ok: false, failure: "invalid_output", providerErrorKind: "bad_request", attempts: 1, inputBoundRefused: true });
     expect(result.log.map((a) => [a.outcome, a.usageMissing])).toEqual([["invalid", false], ["bad_request", false]]);
     expect(sleeps).toEqual([]);
     const issues = result.ok ? [] : result.issues;
@@ -701,11 +701,12 @@ describe("the input bound (P3-8)", () => {
     for (const snapshot of [at, over]) {
       const provider = scriptedProvider([answer(wrong), answer(good)]);
       const result = await generateDraft(provider, snapshot, testDeps().deps);
-      runs.push({ ok: result.ok, attempts: result.attempts, inputBoundRefused: result.inputBoundRefused, sent: provider.requests.map((req) => inputBound(req)), outcomes: result.log.map((a) => a.outcome) });
+      const failure = result.ok ? null : result.failure;
+      runs.push({ ok: result.ok, failure, attempts: result.attempts, inputBoundRefused: result.inputBoundRefused, sent: provider.requests.map((req) => inputBound(req)), outcomes: result.log.map((a) => a.outcome) });
     }
     expect(runs).toEqual([
-      { ok: true, attempts: 2, inputBoundRefused: false, sent: [boundOf(at), MAX_INPUT_TOKENS], outcomes: ["invalid", "valid"] },
-      { ok: false, attempts: 1, inputBoundRefused: true, sent: [boundOf(over)], outcomes: ["invalid", "bad_request"] },
+      { ok: true, failure: null, attempts: 2, inputBoundRefused: false, sent: [boundOf(at), MAX_INPUT_TOKENS], outcomes: ["invalid", "valid"] },
+      { ok: false, failure: "invalid_output", attempts: 1, inputBoundRefused: true, sent: [boundOf(over)], outcomes: ["invalid", "bad_request"] },
     ]);
   });
 
@@ -738,12 +739,49 @@ describe("the input bound (P3-8)", () => {
     for (const snapshot of [at, over]) {
       const provider = scriptedProvider([answer(bad), answer(wrong), answer(good)]);
       const result = await generateDraft(provider, snapshot, testDeps().deps);
-      runs.push({ ok: result.ok, attempts: result.attempts, inputBoundRefused: result.inputBoundRefused, sent: provider.requests.map((req) => inputBound(req)), outcomes: result.log.map((a) => a.outcome) });
+      const failure = result.ok ? null : result.failure;
+      runs.push({ ok: result.ok, failure, attempts: result.attempts, inputBoundRefused: result.inputBoundRefused, sent: provider.requests.map((req) => inputBound(req)), outcomes: result.log.map((a) => a.outcome) });
     }
     expect(runs).toEqual([
-      { ok: true, attempts: 3, inputBoundRefused: false, sent: [boundOf(at), boundWith(at, secondIssues), MAX_INPUT_TOKENS], outcomes: ["invalid", "invalid", "valid"] },
-      { ok: false, attempts: 2, inputBoundRefused: true, sent: [boundOf(over), boundWith(over, secondIssues)], outcomes: ["invalid", "invalid", "bad_request"] },
+      { ok: true, failure: null, attempts: 3, inputBoundRefused: false, sent: [boundOf(at), boundWith(at, secondIssues), MAX_INPUT_TOKENS], outcomes: ["invalid", "invalid", "valid"] },
+      { ok: false, failure: "invalid_output", attempts: 2, inputBoundRefused: true, sent: [boundOf(over), boundWith(over, secondIssues)], outcomes: ["invalid", "invalid", "bad_request"] },
     ]);
+  });
+
+  /** FULL_SNAPSHOT with notes sized so the first attempt's bound is exactly MAX_INPUT_TOKENS (as in the attempt-1 edge test). */
+  const notesAtBound = (): GenerationInputSnapshot => {
+    const withNotes = (notes: string): GenerationInputSnapshot => ({ facts: FULL_SNAPSHOT.facts, brief: Brief.parse({ ...BRIEF, notes }) });
+    const fdfa = "\uFDFA".repeat(Math.floor((MAX_INPUT_TOKENS - boundOf(withNotes("n")) - 40) / 33));
+    return withNotes(fdfa + "n".repeat(MAX_INPUT_TOKENS - boundOf(withNotes(fdfa))));
+  };
+
+  // P3-18 (the moderator's M1): an owner sizes the notes so attempt 1 just fits the bound. Any answer that is not valid
+  // adds repair lines, so the guard refuses attempt 2. The model's answer failed, not the provider: the failure is
+  // invalid_output (a regeneration then counts toward the owner's total, P3-16 (B)); the refusal stays recorded.
+  it.each<[string, () => ModelResponse, AttemptOutcome]>([
+    ["an invalid answer", () => answer(bad), "invalid"],
+    ["a cut-off answer", () => stopped("max_tokens"), "max_tokens"],
+    ["a refusal", () => stopped("refusal"), "refusal"],
+  ])("fails with invalid_output, not a provider error, when %s makes the guard refuse attempt 2 of a prompt at the bound (P3-18)", async (_case, first, outcome) => {
+    const snapshot = notesAtBound();
+    expect(snapshot.brief.notes!.length).toBeLessThanOrEqual(2_000);
+    const { deps, sleeps } = testDeps();
+    const provider = scriptedProvider([first(), answer(good)]);
+    const result = await generateDraft(provider, snapshot, deps);
+    expect(provider.requests.map((req) => inputBound(req))).toEqual([MAX_INPUT_TOKENS]);
+    expect(result).toMatchObject({ ok: false, failure: "invalid_output", providerErrorKind: "bad_request", attempts: 1, inputBoundRefused: true });
+    expect(result.log.map((a) => a.outcome)).toEqual([outcome, "bad_request"]);
+    expect(sleeps).toEqual([]);
+  });
+
+  // Only the guard's refusal of a prompt that an answer grew is the model's failure. A provider that refuses the request
+  // itself (a 400) after an invalid answer is still a provider error, as is a refusal of attempt 1 (the test above that
+  // fills the snapshot with U+FDFA) and a timeout or a 5xx after invalid answers (P3-16 (B): the provider's fault).
+  it("keeps a provider's own bad request after an invalid answer a provider error (P3-18)", async () => {
+    const provider = scriptedProvider([answer(bad), new ProviderError("bad_request", "400")]);
+    const result = await generateDraft(provider, FULL_SNAPSHOT, testDeps().deps);
+    expect(result).toMatchObject({ ok: false, failure: "provider_error", providerErrorKind: "bad_request", attempts: 2, inputBoundRefused: false });
+    expect(result.log.map((a) => a.outcome)).toEqual(["invalid", "bad_request"]);
   });
 });
 

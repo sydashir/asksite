@@ -1,17 +1,20 @@
-import { AiDraft, type GenerationInputSnapshot, type GenerationJob, type GenerationRow } from "@asksite/core";
+import { AiDraft, Brief, type GenerationInputSnapshot, type GenerationJob, type GenerationRow } from "@asksite/core";
 import { SiteDocument } from "@asksite/site-schema";
 import type { D1Database, Queue } from "@cloudflare/workers-types";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { capsSnapshot } from "../eval/caps.ts";
+import { inputBound, MAX_INPUT_TOKENS } from "../src/generate.ts";
 import { runGenerationJob, type JobDeps, type JobEnv, type JobReport } from "../src/job.ts";
 import { createProvider } from "../src/providers/create.ts";
 import type { ModelProvider } from "../src/provider.ts";
+import { buildPrompt } from "../src/prompt.ts";
 import { generationAllowance, requestGeneration } from "../src/request.ts";
 import { modelCallsToday } from "../src/settings.ts";
 import { templateDraft } from "../src/template.ts";
+import { AI_DRAFT_JSON_SCHEMA } from "../src/wire-schema.ts";
 import { clearTables, getGeneration, insertGeneration, seedOwnerSite, setSetting, startLocalD1, type LocalD1 } from "./support/d1.ts";
 import { FULL_SNAPSHOT } from "./support/samples.ts";
-import { answer, scriptedProvider } from "./support/scripted.ts";
+import { answer, ProviderError, scriptedProvider } from "./support/scripted.ts";
 
 const NOW = Date.UTC(2026, 8, 24, 15);
 const INPUT = JSON.stringify(FULL_SNAPSHOT);
@@ -63,6 +66,18 @@ const FDFA = String.fromCharCode(0xfdfa);
 const EMOJI = String.fromCodePoint(0x1f600);
 /** Schema-valid owner text over the input bound: every capped field filled with U+FDFA (the P3-8 tests in generate.test.ts). */
 const OVER_BOUND = capsSnapshot(FDFA);
+/** The input bound of a snapshot's first attempt, as generateDraft measures it (no repair lines yet). */
+const firstBound = (snapshot: GenerationInputSnapshot): number => inputBound({ ...buildPrompt(snapshot), jsonSchema: AI_DRAFT_JSON_SCHEMA });
+/**
+ * P3-18's attack, built as generate.test.ts builds its edge cases: owner notes sized so attempt 1's bound is exactly
+ * MAX_INPUT_TOKENS (each U+FDFA adds 33 NFKC bytes, each "n" 1; the notes stay under their 2,000 cap). Attempt 1 is
+ * sent; any answer that is not valid adds repair lines, and the input guard refuses attempt 2.
+ */
+const AT_BOUND: GenerationInputSnapshot = (() => {
+  const withNotes = (notes: string): GenerationInputSnapshot => ({ facts: FULL_SNAPSHOT.facts, brief: Brief.parse({ ...FULL_SNAPSHOT.brief, notes }) });
+  const fdfa = FDFA.repeat(Math.floor((MAX_INPUT_TOKENS - firstBound(withNotes("n")) - 40) / 33));
+  return withNotes(fdfa + "n".repeat(MAX_INPUT_TOKENS - firstBound(withNotes(fdfa))));
+})();
 /**
  * The P3-8 attempt-2 construction (generate.test.ts): 20 faq entries whose unknown keys repeat `fill`. Zod's
  * "Unrecognized key" message repeats each key, so the model's own text reaches attempt 2's repair lines.
@@ -484,19 +499,21 @@ describe("runGenerationJob", () => {
     expect(await getGeneration(db, "r")).toMatchObject({ status: "failed", error_code: "provider_timeout", attempts: 0, model_slot: 0 });
   });
 
-  it("keeps the model slot when the input guard refuses attempt 2 after attempt 1 was sent", async () => {
+  // P3-18: attempt 1's invalid answer grew attempt 2's prompt (its repair lines), so the model's answer failed, not the
+  // provider: the fallback reason is invalid_output. The refusal stays recorded (bad_request, inputBoundRefused).
+  it("keeps the model slot when the input guard refuses attempt 2 after attempt 1 was sent, and gives a first build the template with fallback reason invalid_output", async () => {
     await queued("g1");
     const provider = scriptedProvider([answer(withUnknownKeys(TEMPLATE, FDFA)), answer(TEMPLATE)]);
     expect(await runGenerationJob(envWith(), "g1", deps(provider))).toMatchObject({
       outcome: "fallback",
-      fallbackReason: "provider_error",
+      fallbackReason: "invalid_output",
       attempts: 1,
       providerErrorKind: "bad_request",
       attemptOutcomes: ["invalid", "bad_request"],
       inputBoundRefused: true,
     });
     expect(provider.requests).toHaveLength(1);
-    expect(await getGeneration(db, "g1")).toMatchObject({ status: "succeeded", used_fallback: 1, fallback_reason: "provider_error", attempts: 1, model_slot: 1, input_tokens: 100, output_tokens: 50 });
+    expect(await getGeneration(db, "g1")).toMatchObject({ status: "succeeded", used_fallback: 1, fallback_reason: "invalid_output", attempts: 1, model_slot: 1, input_tokens: 100, output_tokens: 50 });
   });
 
   // task-9-additions C: generateDraft rejects only when our own code throws (a bug), and paid calls may have been sent by
@@ -591,6 +608,12 @@ describe("the job's end-states and the owner's lifetime total, end to end (task-
     ["the input guard refused attempt 1", { snapshot: OVER_BOUND, provider: () => scriptedProvider([]), row: { status: "failed", error_code: "provider_unavailable", attempts: 0, model_slot: 0 }, counted: false }],
     ["our own code threw after a call was sent (costUnknown)", { provider: () => scriptedProvider([answerOurCodeCannotCheck()]), row: { status: "failed", error_code: "internal", attempts: 0, model_slot: 1, provider: "fake", model: "fake-template" }, counted: false }],
     ["three invalid answers", { env: { FAKE_MODE: "invalid-always" }, row: { status: "failed", error_code: "invalid_output", attempts: 3, model_slot: 1 }, counted: true }],
+    // P3-18: the owner's notes fill attempt 1 to the input bound; its invalid answer's repair lines make the guard refuse
+    // attempt 2. One billed call, and the model's answer failed: it counts, as three invalid answers do.
+    ["notes at the input bound, an invalid answer, then the input guard refused attempt 2 (P3-18)", { snapshot: AT_BOUND, provider: () => scriptedProvider([answer({}), answer(TEMPLATE)]), row: { status: "failed", error_code: "invalid_output", attempts: 1, model_slot: 1 }, counted: true }],
+    // P3-18 changes only that refusal: a timeout or a 5xx after billed invalid answers is still the provider's fault.
+    ["an invalid answer, then two timeouts", { provider: () => scriptedProvider([answer({}), new ProviderError("timeout", "timed out"), new ProviderError("timeout", "timed out")]), row: { status: "failed", error_code: "provider_timeout", attempts: 3, model_slot: 1 }, counted: false }],
+    ["an invalid answer, then two 5xx answers", { provider: () => scriptedProvider([answer({}), new ProviderError("unavailable", "503"), new ProviderError("unavailable", "503")]), row: { status: "failed", error_code: "provider_unavailable", attempts: 3, model_slot: 1 }, counted: false }],
     ["a valid answer", { row: { status: "succeeded", error_code: null, attempts: 1, model_slot: 1 }, counted: true }],
   ])("%s", async (_name, end) => {
     // The site's first build succeeded long ago, so the next request is a regeneration.
@@ -606,5 +629,26 @@ describe("the job's end-states and the owner's lifetime total, end to end (task-
     expect(await getGeneration(db, request.generation.id)).toMatchObject({ kind: "regenerate", ...end.row });
     expect(await modelCallsToday(db, NOW)).toBe(end.row.model_slot);
     expect(await allowance()).toEqual({ generationsLeftToday: 4, generationsLeftTotal: end.counted ? 19 : 20 });
+  });
+
+  // P3-18 for a first build (web-maker-d3): the same attack ends with the template, stored with fallback reason
+  // invalid_output (one classification in one place), and a first build never counts toward the owner's total.
+  it("P3-18: a first build whose attempt 2 the input guard refused after an invalid answer gets the template with fallback reason invalid_output, and the owner's total is untouched", async () => {
+    expect(await allowance()).toEqual({ generationsLeftToday: 5, generationsLeftTotal: 20 });
+    const request = await requestGeneration({ DB: db, GEN_QUEUE, GENERATION_ENABLED: "true", DAILY_MODEL_LIMIT: "30" }, { siteId: "s1", ownerId: "o1", snapshot: AT_BOUND, now: NOW });
+    if (!request.ok) throw new Error(`the request was refused: ${request.code}`);
+    expect(request.generation.kind).toBe("first");
+    const provider = scriptedProvider([answer({}), answer(TEMPLATE)]);
+    expect(await runGenerationJob(envWith(), request.generation.id, deps(provider))).toMatchObject({
+      outcome: "fallback", usedFallback: true, fallbackReason: "invalid_output", errorCode: null, attempts: 1,
+      providerErrorKind: "bad_request", attemptOutcomes: ["invalid", "bad_request"], inputBoundRefused: true,
+    });
+    // Attempt 1 was sent at exactly the bound; attempt 2 was never sent.
+    expect(provider.requests.map((req) => inputBound(req))).toEqual([MAX_INPUT_TOKENS]);
+    const row = await getGeneration(db, request.generation.id);
+    expect(row).toMatchObject({ kind: "first", status: "succeeded", used_fallback: 1, fallback_reason: "invalid_output", error_code: null, attempts: 1, model_slot: 1 });
+    expect(AiDraft.parse(JSON.parse(row.output_json!))).toEqual(templateDraft(AT_BOUND.facts, AT_BOUND.brief));
+    expect(await modelCallsToday(db, NOW)).toBe(1);
+    expect(await allowance()).toEqual({ generationsLeftToday: 4, generationsLeftTotal: 20 });
   });
 });

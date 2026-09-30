@@ -181,7 +181,8 @@ async function answerWithinLimit(provider: ModelProvider, req: ModelRequest): Pr
  * Up to MAX_ATTEMPTS model calls (design §6.3). Each answer is validated with checkDraft; a failed
  * check sends its issues back as repair feedback. An attempt that outlasts ATTEMPT_TIMEOUT_MS is a
  * timeout, and so is one whose deadline passed before its call (nothing is sent). A prompt over the
- * input bound (inputBound) is refused before its call as a bad request. Transient provider errors
+ * input bound (inputBound) is refused before its call as a bad request; when an earlier answer's repair
+ * lines grew it, the failure is invalid_output (P3-18). Transient provider errors
  * pause 2 s then 6 s; auth and bad-request errors stop at once. Only these are recorded as provider
  * errors: the provider call's own errors, our timeouts and the input-bound refusal. An exception from
  * our own code (buildPrompt, timeoutSignal, the bound's measurement, usage accounting, checkDraft) is
@@ -199,12 +200,15 @@ export async function generateDraft(provider: ModelProvider, snapshot: Generatio
   let transientErrors = 0;
   let calls = 0;
   let inputBoundRefused = false;
+  /** An earlier attempt was sent and answered; not validly, since a valid answer returns at once. */
+  let answered = false;
 
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     const { system, user } = buildPrompt(snapshot, repair);
     const req: ModelRequest = { system, user, jsonSchema: AI_DRAFT_JSON_SCHEMA, maxOutputTokens: MAX_OUTPUT_TOKENS, signal: deps.timeoutSignal(ATTEMPT_TIMEOUT_MS) };
     const started = deps.now();
     let sent = false;
+    let refused = false;
     let res: ModelResponse;
     try {
       // Checked on exactly what this call would send. On attempt 1 an overflow can come only from owner text; on
@@ -213,6 +217,7 @@ export async function generateDraft(provider: ModelProvider, snapshot: Generatio
       // it is a bad request.
       if (inputBound(req) > MAX_INPUT_TOKENS) {
         inputBoundRefused = true;
+        refused = true;
         throw new ProviderError("bad_request", "prompt over the input bound");
       }
       // A request sent after the deadline is a paid call whose answer would be thrown away.
@@ -230,7 +235,10 @@ export async function generateDraft(provider: ModelProvider, snapshot: Generatio
       // cost nothing). A non-2xx status stays a refusal, treated as not billed (P3-14).
       const unknown = kind === "timeout" || error.afterHeaders === true || error.noResponse === true;
       log.push({ outcome: kind, issues: [], latencyMs: deps.now() - started, usageMissing: sent && unknown });
-      failure = "provider_error";
+      // P3-18: once an answer was not valid, its repair lines grew this prompt, so a refusal by the guard is the model's
+      // failure (invalid_output: a regeneration then counts toward the owner's total, P3-16 (B)), not the provider's.
+      // The refusal stays recorded: this attempt's outcome and providerErrorKind are bad_request, inputBoundRefused true.
+      failure = refused && answered ? "invalid_output" : "provider_error";
       providerErrorKind = kind;
       if (!TRANSIENT_KINDS.has(kind)) return { ok: false, failure, providerErrorKind, issues: capIssues(repair), attempts: calls, model, usage, log, inputBoundRefused };
       if (attempt < MAX_ATTEMPTS) await deps.sleep(RETRY_DELAYS_MS[Math.min(transientErrors, RETRY_DELAYS_MS.length - 1)]!);
@@ -241,6 +249,7 @@ export async function generateDraft(provider: ModelProvider, snapshot: Generatio
     usage.inputTokens += res.usage.inputTokens;
     usage.outputTokens += res.usage.outputTokens;
     model = res.model;
+    answered = true;
     failure = "invalid_output";
     providerErrorKind = null;
     const usageMissing = res.usageMissing === true;
