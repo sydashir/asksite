@@ -88,10 +88,11 @@ describe("ownerMessage", () => {
 
 // PROPOSED AMENDMENT (approved by web-maker-99, task-12-extra.md): the price and time messages.
 describe("starting price messages", () => {
-  const priceTexts = (startingPrice: unknown): string[] => {
-    const parsed = Facts.safeParse({ ...VALID_FACTS, services: [{ name: "Drains", startingPrice }] });
-    return toIssues(parsed.error!).map((i) => ownerMessage({ ...i, path: ["facts", ...i.path] }).text);
+  const serviceTexts = (service: object): string[] => {
+    const parsed = Facts.safeParse({ ...VALID_FACTS, services: [service] });
+    return issuesToShow(toIssues(parsed.error!).map((i) => ({ ...i, path: ["facts", ...i.path] }))).map((i) => ownerMessage(i).text);
   };
+  const priceTexts = (startingPrice: unknown): string[] => serviceTexts({ name: "Drains", startingPrice });
 
   it.each([
     [150_000, "Please enter a price of $100,000 or less."],
@@ -99,8 +100,18 @@ describe("starting price messages", () => {
     [0, "Please enter a price of at least $1."],
     [89.5, "Please enter whole dollars, no cents."],
     ["abc", "Enter a whole number of dollars, like 89, or leave it empty."],
+    // DECIDED (web-maker-d3, review I-2): past 2^53 z.int() adds its own safe-integer limit; only $100,000 shows, once.
+    [2 ** 53, "Please enter a price of $100,000 or less."],
+    [1e20, "Please enter a price of $100,000 or less."],
   ])("%j", (startingPrice, text) => {
     expect(priceTexts(startingPrice)).toEqual([text]);
+  });
+
+  it("keeps each field's own tightest limit, not one limit across fields", () => {
+    expect(serviceTexts({ name: "x".repeat(41), startingPrice: 150_000 })).toEqual([
+      "Please use 40 characters or fewer.",
+      "Please enter a price of $100,000 or less.",
+    ]);
   });
 
   it("takes the limits from the issue, not from fixed numbers", () => {
@@ -133,21 +144,31 @@ describe("opening time messages", () => {
 // including the server's lists (the publish page) and the editor's preview list, not only answerIssues.
 describe("issuesToShow on a real SiteDocument list", () => {
   const fixture = loadFixture("plumber-austin");
-  const documentIssues = (hours: unknown): Issue[] => {
-    const parsed = SiteDocument.safeParse({ ...fixture, facts: { ...fixture.facts, hours } });
+  const documentIssues = (facts: object): Issue[] => {
+    const parsed = SiteDocument.safeParse({ ...fixture, facts: { ...fixture.facts, ...facts } });
     return toIssues(parsed.error!);
   };
   const closes = ["facts", "hours", 0, "closes"];
 
   it("gives exactly one issue, and one message, for an empty closing time", () => {
-    const issues = documentIssues([{ days: ["Monday"], opens: "08:00", closes: "" }]);
+    const issues = documentIssues({ hours: [{ days: ["Monday"], opens: "08:00", closes: "" }] });
     expect(issuesAt(issues, closes).map((i) => i.code)).toEqual(["invalid_format", "custom"]);
     const shown = issuesToShow(issues);
     expect(shown.map((i) => [i.path.join("."), ownerMessage(i).text])).toEqual([["facts.hours.0.closes", "Please enter a time."]]);
   });
 
+  it("gives exactly one issue, the $100,000 one, for a price past the safe-integer range (review I-2)", () => {
+    const [first, ...rest] = fixture.facts.services;
+    const issues = documentIssues({ services: [{ ...first, startingPrice: 2 ** 53 }, ...rest] });
+    const price = ["facts", "services", 0, "startingPrice"];
+    expect(issuesAt(issues, price).map((i) => i.code)).toEqual(["too_big", "too_big"]);
+    expect(issuesToShow(issues).map((i) => [i.path.join("."), ownerMessage(i).text])).toEqual([
+      ["facts.services.0.startingPrice", "Please enter a price of $100,000 or less."],
+    ]);
+  });
+
   it("keeps the order check for two valid times in the wrong order", () => {
-    const issues = documentIssues([{ days: ["Monday"], opens: "18:00", closes: "08:00" }]);
+    const issues = documentIssues({ hours: [{ days: ["Monday"], opens: "18:00", closes: "08:00" }] });
     expect(issuesToShow(issues).map((i) => [i.path.join("."), ownerMessage(i).text])).toEqual([
       ["facts.hours.0.closes", "Closing time must be after opening time."],
     ]);

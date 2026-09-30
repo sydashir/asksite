@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { answerIssues, issuesForStep, stepOf } from "../../src/client/lib/draft-issues.ts";
+import { priceToFacts } from "../../src/client/lib/facts-form.ts";
 import { ownerMessage } from "../../src/client/lib/messages.ts";
 import { VALID_BRIEF, VALID_FACTS } from "../support/facts.ts";
 
@@ -70,6 +71,17 @@ describe("answerIssues on opening hours", () => {
     expect(issues.map((i) => [i.path.join("."), ownerMessage(i).text])).toEqual([
       ["facts.hours.0.closes", "Please enter a time."],
       ["facts.hours.1.closes", "Closing time must be after opening time."],
+    ]);
+  });
+});
+
+// DECIDED (web-maker-d3, review I-2): a price typed with 16 or more digits shows only the $100,000 message, once.
+describe("answerIssues on a very long price", () => {
+  it("gives one message, the $100,000 one, for a typed 20-digit price", () => {
+    const services = [{ name: "Drains", startingPrice: priceToFacts("99999999999999999999") }];
+    const issues = answerIssues({ facts: { ...VALID_FACTS, services }, brief: VALID_BRIEF }, { slug: "joes" }, []);
+    expect(issues.map((i) => [i.path.join("."), ownerMessage(i).text])).toEqual([
+      ["facts.services.0.startingPrice", "Please enter a price of $100,000 or less."],
     ]);
   });
 });

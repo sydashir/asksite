@@ -183,23 +183,38 @@ export function ownerMessage(issue: Issue): OwnerMessage {
   return { text: "Please check this answer." };
 }
 
+/** A too_big issue's limit, or undefined for any other issue. */
+function maximumOf(issue: Issue): number | undefined {
+  const n = issue.code === "too_big" ? limitOf(issue) : undefined;
+  return n === undefined ? undefined : Number(n);
+}
+
 /**
  * The issues to show the owner and to count. Pass every issue list that is shown or counted through it
  * (answerIssues does; so must the lists the server returns and the editor's preview list).
  *
- * The opening-hours order check also runs on an empty or malformed time ("08:00" < "" is false) and then gives
- * the wrong reason. It is kept only for two valid times: an entry with another issue at either time loses it, so
- * each time field shows exactly one message (approved amendment, task-12-extra.md; review I-1).
+ * - The opening-hours order check also runs on an empty or malformed time ("08:00" < "" is false) and then gives
+ *   the wrong reason. It is kept only for two valid times: an entry with another issue at either time loses it,
+ *   so each time field shows exactly one message (approved amendment, task-12-extra.md; review I-1).
+ * - From 2^53 up, z.int() adds its own safe-integer limit (<=9007199254740991) next to the field's own maximum.
+ *   Of several too_big issues at one field only the tightest is kept, so a very long price shows only the
+ *   "$100,000 or less" message, once (review I-2).
  */
 export function issuesToShow(issues: readonly Issue[]): Issue[] {
   const badTimes = new Set<number>();
+  const tightest = new Map<string, number>();
   for (const issue of issues) {
     const entry = timeEntry(issue);
     if (entry !== undefined && !isOrderCheck(issue)) badTimes.add(entry);
+    const max = maximumOf(issue);
+    const at = JSON.stringify(issue.path);
+    if (max !== undefined) tightest.set(at, Math.min(max, tightest.get(at) ?? max));
   }
   return issues.filter((issue) => {
     const entry = timeEntry(issue);
-    return !(entry !== undefined && isOrderCheck(issue) && badTimes.has(entry));
+    if (entry !== undefined && isOrderCheck(issue)) return !badTimes.has(entry);
+    const max = maximumOf(issue);
+    return max === undefined || max === tightest.get(JSON.stringify(issue.path));
   });
 }
 
