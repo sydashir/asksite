@@ -334,6 +334,21 @@ describe("runGenerationJob", () => {
     });
   });
 
+  // Task 9 follow-up item 2: the Worker hands each report to its log line, and a caller may edit it. Each path below
+  // made no attempt, so its report's attemptOutcomes is empty: it must be a new array every time.
+  it.each<[string, Partial<JobEnv>, (() => JobDeps) | undefined]>([
+    ["no model slot (switched off)", { GENERATION_ENABLED: "false" }, undefined],
+    ["a provider it cannot build (no key)", { MODEL_PROVIDER: "anthropic", MODEL_ID: "claude-opus-5-5" }, undefined],
+    ["our own code threw before any call", {}, () => ({ ...deps(), createProvider: () => { throw new TypeError("bug"); } })],
+  ])("gives each report its own attemptOutcomes, so editing one never changes a later job's report: %s", async (_path, over, jobDeps) => {
+    await queued("a");
+    await queued("b", "first", "s2");
+    const first = await runGenerationJob(envWith(over), "a", jobDeps?.() ?? deps());
+    expect(first.attemptOutcomes).toEqual([]);
+    first.attemptOutcomes.push("valid");
+    expect((await runGenerationJob(envWith(over), "b", jobDeps?.() ?? deps())).attemptOutcomes).toEqual([]);
+  });
+
   // P3-4a: an attempt whose usage is unknown (the provider sent none, or a sent call timed out) flags the report.
   it.each([
     ["an answer came without usage", true, {}, () => scriptedProvider([{ ...answer({}), usageMissing: true }, answer(TEMPLATE)])],

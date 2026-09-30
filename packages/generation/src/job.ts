@@ -93,7 +93,8 @@ interface Trace {
   inputBoundRefused: boolean;
   costUnknown: boolean;
 }
-const NO_TRACE: Trace = { providerErrorKind: null, attemptOutcomes: [], usageMissing: false, inputBoundRefused: false, costUnknown: false };
+/** A new trace on every call: a caller may edit a report's attemptOutcomes, and a later job's report must not see that. */
+const noTrace = (): Trace => ({ providerErrorKind: null, attemptOutcomes: [], usageMissing: false, inputBoundRefused: false, costUnknown: false });
 
 /**
  * generateDraft rejected: our own code threw (a bug; it rejects for nothing else), maybe after paid calls were sent.
@@ -111,13 +112,13 @@ type ModelOutcome =
 
 /** §6.3 steps 2 and 3: no model call without a slot; otherwise up to MAX_ATTEMPTS validated attempts. */
 async function callModel(env: JobEnv, snapshot: GenerationInputSnapshot, hasSlot: boolean, enabled: boolean, deps: JobDeps): Promise<ModelOutcome> {
-  if (!hasSlot) return { ok: false, reason: enabled ? "budget" : "disabled", timedOut: false, spend: NO_SPEND, trace: NO_TRACE };
+  if (!hasSlot) return { ok: false, reason: enabled ? "budget" : "disabled", timedOut: false, spend: NO_SPEND, trace: noTrace() };
   let provider: ModelProvider;
   try {
     provider = deps.createProvider(env, snapshot);
   } catch (error) {
     if (!(error instanceof ProviderError)) throw error;
-    return { ok: false, reason: "provider_error", timedOut: false, spend: { ...NO_SPEND, provider: env.MODEL_PROVIDER }, trace: { ...NO_TRACE, providerErrorKind: error.kind } };
+    return { ok: false, reason: "provider_error", timedOut: false, spend: { ...NO_SPEND, provider: env.MODEL_PROVIDER }, trace: { ...noTrace(), providerErrorKind: error.kind } };
   }
   let result: GenerateResult;
   try {
@@ -191,7 +192,7 @@ export async function runGenerationJob(env: JobEnv, generationId: string, deps: 
 
   let ending: Ending;
   let spend = NO_SPEND;
-  let trace = NO_TRACE;
+  let trace = noTrace();
   if (row === null || snapshot === null) {
     ending = { status: "failed", errorCode: "internal" };
   } else {
@@ -207,7 +208,7 @@ export async function runGenerationJob(env: JobEnv, generationId: string, deps: 
       // Something unexpected (a bug, not a provider answer): a first build still gets its draft (Decision 24). When
       // generateDraft itself rejected, calls may have been sent: their cost is unknown (task-9-additions C). Anything
       // else threw before any call.
-      trace = { ...NO_TRACE, costUnknown: error instanceof DraftRejected };
+      trace = { ...noTrace(), costUnknown: error instanceof DraftRejected };
       ending = kind === "first" ? templateEnding(snapshot, "provider_error") : { status: "failed", errorCode: "internal" };
     }
   }
