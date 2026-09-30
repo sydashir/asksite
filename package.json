@@ -8,13 +8,17 @@
   },
   "scripts": {
     "build:css": "pnpm --filter @asksite/renderer run build:css && pnpm --filter @asksite/site-css run build",
-    "typecheck": "pnpm build:css && tsc -p . && tsc -p e2e",
+    "typecheck": "pnpm build:css && tsc -p . && tsc -p e2e && tsc -p tsconfig.workers.json && tsc -p apps/sites/e2e",
     "test": "pnpm build:css && vitest run --project unit && vitest run --project workerd",
     "test:e2e": "pnpm build:css && playwright test",
     "e2e:install": "playwright install --only-shell chromium webkit",
     "render": "pnpm build:css && node scripts/render-fixture.ts",
     "check:floor": "pnpm --filter @asksite/app check:floor",
-    "check": "pnpm typecheck && pnpm test && pnpm test:e2e"
+    "check": "pnpm typecheck && pnpm test && pnpm test:e2e && pnpm test:e2e:sites",
+    "dev": "node scripts/dev.ts",
+    "dev:seed": "pnpm build:css && node apps/sites/dev/seed.ts",
+    "test:e2e:sites": "pnpm build:css && playwright test -c apps/sites/e2e/playwright.config.ts",
+    "deploy:check": "node scripts/deploy-check.ts"
   },
   "devDependencies": {
     "@asksite/core": "workspace:*",

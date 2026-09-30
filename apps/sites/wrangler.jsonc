@@ -1,0 +1,36 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "asksite-sites",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-09-21",
+  "compatibility_flags": ["no_nodejs_compat", "no_nodejs_compat_v2"],
+  "workers_dev": false,
+  "preview_urls": false,
+  "observability": { "enabled": true, "logs": { "invocation_logs": false } },
+  "routes": [
+    { "pattern": "*.asksite.example/*", "zone_name": "asksite.example" },
+    { "pattern": "asksite.example/*", "zone_name": "asksite.example" }
+  ],
+  "vars": {
+    "ENVIRONMENT": "production",
+    "ROOT_DOMAIN": "asksite.example",
+    "MAILER": "resend",
+    "MAIL_FROM": "asksite <leads@mail.asksite.example>",
+    "SECURITY_TXT_EXPIRES": "2027-09-24T00:00:00.000Z",
+    "LEAD_EMAILS_PER_DAY": "40"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "asksite",
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "../../packages/core/migrations"
+    }
+  ],
+  "r2_buckets": [
+    { "binding": "LIVE", "bucket_name": "asksite-live" },
+    { "binding": "MEDIA", "bucket_name": "asksite-media" }
+  ],
+  "ratelimits": [{ "name": "FORM_RL", "namespace_id": "1004", "simple": { "limit": 5, "period": 60 } }],
+  "triggers": { "crons": ["0 7 * * *"] }
+}

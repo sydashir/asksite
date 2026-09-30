@@ -1,0 +1,9 @@
+# Local development values for asksite-sites. `pnpm dev` copies this file to .dev.vars (gitignored)
+# when .dev.vars is missing. They override the production values in wrangler.jsonc "vars".
+# Never put a real key here: this file is committed.
+ENVIRONMENT=development
+ROOT_DOMAIN=localhost:8789
+MAILER=log
+MAIL_FROM="asksite dev <dev@localhost>"
+RESEND_API_KEY=
+IP_HASH_KEY=local-development-only-not-a-secret

@@ -2,6 +2,15 @@
 
 Last updated: 2026-09-25 (written at the user's context-limit signal)
 
+## NOW (2026-09-30 11:5x) — moderator web-maker-d3 (read this first)
+- main = f44026e (A12-0 merged). Governor 78060 alive; limit watcher b9yr8kift (re-arm every 30 min).
+- Running (mine):
+  - Plan 2B flake fix wb25s9ujk (run wf_f4e25c67-219): test-only fix of lead-cap :263/:291 and form :141/:152, then one review. After it: my verification via run.sh (typecheck, unit, workerd, both e2e), identity checks, then fast-forward main to plan2b-serve and push (gh switch sydashir, then dev778d). Then tell Plan 3, Plan 4 and the design builds to sync.
+  - Design builds (round 1 review/attack/judges): impact wklreg6xw, refined wytsoh03r, modern wjskdat4t. Bold needs `font-src` in the page CSP when it and 2B meet (plan-decisions P2B-SYNC).
+- Plan 3 (asksite-plan3-2b): BLOCKED ON THE USER: allow `git merge` in the Plan 3 tab (its permission guard blocks it; I must not do it for them). Meanwhile told to do the Task 10 follow-up 2 and the licence-credit fix.
+- Plan 4 (asksite-plan4-53): busy on lanes A (P4-21), B (Task 21 fixes then 22), C (step 4a then Task 13).
+- Open for the user: the Plan 3 git merge permission.
+
 ## NOW (2026-09-30 06:1x) — moderator web-maker-d3 on the asksite login (read this first)
 - Launch the asksite tabs ONLY with ~/Documents/workk2/asksite-claude.sh moderator|plan3|plan4 (CLAUDE_CONFIG_DIR=~/.claude-asksite, a separate keychain login, API key unset). Never /login in a normal tab for asksite.
 - Sessions: Plan 3 = asksite-plan3-2b, Plan 4 = asksite-plan4-53.
