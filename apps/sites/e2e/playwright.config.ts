@@ -9,7 +9,8 @@ const REPO = resolve(import.meta.dirname, "../../..");
 // Each project posts as its own visitor network (A15 limits each network to 3 stored leads a UTC day per
 // site and 5 across all sites). Local wrangler keeps a CF-Connecting-IP the browser sends and sets it from
 // the socket only when it is missing, so without this every project would count as the same loopback
-// visitor. A project stores one lead per run, so up to 3 attempts of it (a retry or --repeat-each) fit.
+// visitor. A project posts one lead per design, each from its own network (sites.spec.ts, designVisitor), so
+// every network stores one lead per run, and up to 3 attempts of it (a retry or --repeat-each) fit.
 const visitor = (ip: string) => ({ extraHTTPHeaders: { "cf-connecting-ip": ip } });
 
 export default defineConfig({
