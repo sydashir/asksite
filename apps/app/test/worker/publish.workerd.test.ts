@@ -55,6 +55,55 @@ async function versionCount(siteId: string): Promise<number | undefined> {
   return (await (await h.db()).prepare("SELECT COUNT(*) AS n FROM site_versions WHERE site_id = ?").bind(siteId).first<{ n: number }>())?.n;
 }
 
+/** Decision 32's quiet time: a site's requests alert the reviewers at most once an hour. */
+const HOUR_MS = 3_600_000;
+
+/** A stored version of the site with this number, asked for at this time (all the review-alert rule reads). */
+async function seedVersion(site: { siteId: string; ownerId: string }, number: number, requestedAt: number): Promise<void> {
+  await (await h.db())
+    .prepare(
+      `INSERT INTO site_versions (id, site_id, number, status, document_json, document_sha256, edits_json, html_key, html_sha256,
+         stylesheet_sha256, requested_by, requested_at)
+       VALUES (?, ?, ?, 'superseded', '{}', 'x', '{}', 'x', 'x', 'x', ?, ?)`,
+    )
+    .bind(crypto.randomUUID(), site.siteId, number, site.ownerId, requestedAt)
+    .run();
+}
+
+/**
+ * Starts today's review-alert count again from nothing: every version asked for today moves two days back, keeping
+ * its order and spacing. For a test that needs the day's alert allowance to itself.
+ */
+async function startAlertDayAfresh(): Promise<void> {
+  await (await h.db()).prepare("UPDATE site_versions SET requested_at = requested_at - ? WHERE requested_at >= ?").bind(2 * 86_400_000, utcDayStart(Date.now())).run();
+}
+
+/**
+ * A request A of a new site that an earlier-timed request B of the same site overtakes, near the hour mark of the
+ * site's alerted request x (security review r3, I1): x was asked just over an hour before A; B was asked just before
+ * x's hour ended, so before A, yet commits after A. B commits after A's alert check (ordering O1), or before it (O2;
+ * O3 only adds B's own check before A's, a read that finds x and sends nothing either way). By version number A is
+ * the site's first request in an hour: it alerts.
+ */
+async function overtakenRequest(slug: string, bCommits: "after A's alert check" | "before A's alert check"): Promise<void> {
+  const owner = await withSlug(await builtOwner(h, VALID_FACTS, VALID_BRIEF), slug);
+  const now = Date.now();
+  await seedVersion(owner, 1, now - HOUR_MS - 1_000);
+  const bAskedAt = now - 2_000;
+  if (bCommits === "before A's alert check") {
+    expect((await h.call("POST", "/__test/twin-after-batch", { body: { siteId: owner.siteId, requestedAt: bAskedAt } })).status).toBe(200);
+  }
+  expect((await publishAndSettle(owner)).number).toBe(2);
+  if (bCommits === "after A's alert check") await seedVersion(owner, 3, bAskedAt);
+  const rows = (await (await h.db()).prepare("SELECT number, requested_at FROM site_versions WHERE site_id = ? ORDER BY number").bind(owner.siteId).all<{ number: number; requested_at: number }>()).results;
+  expect(rows.map((row) => row.number)).toEqual([1, 2, 3]);
+  const [x, a, b] = rows.map((row) => row.requested_at) as [number, number, number];
+  expect(a - x).toBeGreaterThan(HOUR_MS); // A: past x's hour
+  expect(b - x).toBeLessThan(HOUR_MS); // B: within x's hour,
+  expect(b).toBeLessThan(a); // and asked before A
+  expect(await sentAlerts(slug)).toEqual([{ subject: `Website waiting for review: ${slug} (version 2)` }]);
+}
+
 // Before the publish requests below: its rows are dated 1970, so they count toward no cap and no review alert.
 describe("GET /api/sites/:siteId/versions", () => {
   it("lists the owner's versions newest first, with a reviewer's note only on a rejected one (P4-12)", async () => {
@@ -83,6 +132,15 @@ describe("GET /api/sites/:siteId/versions", () => {
       [1, "approved", 1, 2, null],
     ]);
     expect(text.match(/Reviewer note/g)).toHaveLength(1);
+  });
+
+  it("lists only the newest 50 versions (moderator decision (1))", async () => {
+    const owner = await h.signIn();
+    for (let number = 1; number <= 51; number += 1) await seedVersion(owner, number, number);
+    const res = await h.call("GET", `/api/sites/${owner.siteId}/versions`, { cookie: owner.cookie });
+    expect(res.status).toBe(200);
+    const { versions } = await json<{ versions: VersionSummary[] }>(res);
+    expect(versions.map((v) => v.number)).toEqual(Array.from({ length: 50 }, (_, i) => 51 - i));
   });
 });
 
@@ -275,32 +333,35 @@ describe("POST /api/sites/:siteId/publish-requests", () => {
     expect((await view(owner)).draftDiffersFromLive).toBe(true);
   });
 
+  it("alerts a site's request when the site's request before it was asked 61 minutes ago: the quiet time is one hour (decision 32)", async () => {
+    await startAlertDayAfresh();
+    const owner = await withSlug(await builtOwner(h, VALID_FACTS, VALID_BRIEF), "quiet-hour-plumbing");
+    await seedVersion(owner, 1, Date.now() - 61 * 60_000);
+    expect((await publishAndSettle(owner)).number).toBe(2);
+    expect(await sentAlerts("quiet-hour-plumbing")).toEqual([{ subject: "Website waiting for review: quiet-hour-plumbing (version 2)" }]);
+  });
+
   // Last in this file: it fills the day's alert allowance for every test after it.
-  it("sends the 10th review alert of a UTC day but not the 11th, however many sites ask (decision 32)", async () => {
+  it("sends the 10th review alert of a UTC day but not the 11th, however many sites ask, counting each request that alerted though a later-committed one of its site was asked earlier (decision 32)", async () => {
+    // The day's allowance to this test alone, so the overtaken requests below alert.
+    await startAlertDayAfresh();
+    await overtakenRequest("overtaken-late-plumbing", "after A's alert check");
+    await overtakenRequest("overtaken-early-plumbing", "before A's alert check");
     await awayFromUtcHourEnd();
     const db = await h.db();
-    // Today's alert-worthy requests so far, by the route's rule: a site's first request in an hour (the rows
-    // dated 1970 above count for nothing). The tests before this one make fewer than nine.
+    // Today's alert-worthy requests so far, by the route's rule: a site's first request in an hour, by version number.
+    // The two overtaken requests count (they alerted); their Bs do not. Ordered by time instead, each B would come
+    // before its A, so the day's count would miss two alerts that went out and let an 11th go out.
     const soFar = (await db
       .prepare(
         `SELECT COUNT(*) AS n FROM site_versions v WHERE v.requested_at >= ? AND NOT EXISTS (
-           SELECT 1 FROM site_versions w WHERE w.site_id = v.site_id AND w.requested_at < v.requested_at AND w.requested_at > v.requested_at - 3600000)`,
+           SELECT 1 FROM site_versions w WHERE w.site_id = v.site_id AND w.number < v.number AND w.requested_at > v.requested_at - ?)`,
       )
-      .bind(utcDayStart(Date.now()))
+      .bind(utcDayStart(Date.now()), HOUR_MS)
       .first<{ n: number }>())!.n;
     expect(soFar).toBeLessThanOrEqual(9);
     // Other sites whose first request today already alerted the reviewers, until the day holds nine.
-    for (let i = soFar; i < 9; i += 1) {
-      const other = await h.signIn();
-      await db
-        .prepare(
-          `INSERT INTO site_versions (id, site_id, number, status, document_json, document_sha256, edits_json, html_key, html_sha256,
-             stylesheet_sha256, requested_by, requested_at)
-           VALUES (?, ?, 1, 'superseded', '{}', 'x', '{}', 'x', 'x', 'x', ?, ?)`,
-        )
-        .bind(crypto.randomUUID(), other.siteId, other.ownerId, Date.now())
-        .run();
-    }
+    for (let i = soFar; i < 9; i += 1) await seedVersion(await h.signIn(), 1, Date.now());
     const tenth = await withSlug(await builtOwner(h, VALID_FACTS, VALID_BRIEF), "tenth-plumbing");
     await publishAndSettle(tenth);
     expect(await sentAlerts("tenth-plumbing")).toEqual([{ subject: "Website waiting for review: tenth-plumbing (version 1)" }]);

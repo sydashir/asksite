@@ -23,6 +23,9 @@ const ALERTS_PER_DAY = 10;
  * assigns MAX + 1 inside its batch, under UNIQUE(site_id, number)), so when two requests of one site both
  * commit before either check runs, the lower-numbered one counts only itself and alerts, and the other
  * sees it and stays quiet, whichever check runs first. Counting every recent row would let both see two.
+ * The day's count judges each request by the same rule, so a request that alerted always counts, even when a
+ * request of its site that was asked earlier commits after it; by time, that request would drop out of the
+ * count and let an 11th alert go out (moderator decision (1), 2026-09-27).
  */
 async function shouldAlert(db: D1Database, siteId: string, number: number, now: number): Promise<boolean> {
   const counts = await db
@@ -31,7 +34,7 @@ async function shouldAlert(db: D1Database, siteId: string, number: number, now: 
          (SELECT COUNT(*) FROM site_versions WHERE site_id = ?1 AND number <= ?5 AND requested_at > ?2 - ?3) AS recent,
          (SELECT COUNT(*) FROM site_versions v WHERE v.requested_at >= ?4 AND NOT EXISTS (
             SELECT 1 FROM site_versions w
-            WHERE w.site_id = v.site_id AND w.requested_at < v.requested_at AND w.requested_at > v.requested_at - ?3)) AS alerts`,
+            WHERE w.site_id = v.site_id AND w.number < v.number AND w.requested_at > v.requested_at - ?3)) AS alerts`,
     )
     .bind(siteId, now, ALERT_QUIET_MS, now - (now % 86_400_000), number)
     .first<{ recent: number; alerts: number }>();
@@ -122,7 +125,8 @@ export function publishRoutes(deps: AppDeps): Hono<AppEnv> {
 
   publish.get("/sites/:siteId/versions", requireOwner, async (c) => {
     const site = await ownedSite(c.env.DB, c.req.param("siteId"), c.get("owner").id);
-    const { results } = await c.env.DB.prepare("SELECT * FROM site_versions WHERE site_id = ? ORDER BY number DESC")
+    // The newest 50 only (moderator decision (1)).
+    const { results } = await c.env.DB.prepare("SELECT * FROM site_versions WHERE site_id = ? ORDER BY number DESC LIMIT 50")
       .bind(site.id)
       .all<SiteVersionRow>();
     return c.json({ versions: results.map(toVersionSummary) });
