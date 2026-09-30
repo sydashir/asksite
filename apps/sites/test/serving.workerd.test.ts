@@ -1,6 +1,6 @@
 import { liveKey, mediaKey, newId } from "@asksite/core";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { at, putLive, ROOT, seedSite, seedUpload, sitesHarness, type ToolsEnv } from "./support/harness.ts";
+import { at, BUSINESS_METADATA, PHONE_METADATA, putLive, ROOT, seedSite, seedUpload, sitesHarness, type ToolsEnv } from "./support/harness.ts";
 
 const harness = sitesHarness();
 let tools: ToolsEnv;
@@ -238,5 +238,66 @@ describe("pinned edges", () => {
       await tools.DB.prepare("ALTER TABLE uploads_offline RENAME TO uploads").run();
     }
     expect((await get(media(site.siteId, uploadId))).status).toBe(200);
+  });
+});
+
+// QA-2 RU(3): a wrong or old address on a live site's host links to the site's page, named from the LIVE
+// object's metadata. Hosts with no live page (unknown, never approved, taken down) keep the plain 404,
+// whose "/" would be the same page, and so does any other method or a failed read.
+describe("the 404 page on a site host", () => {
+  const PLAIN = "<p>There is no page at this address. Please check the address and try again.</p>\n</main>";
+  const LINK = '<p>There is no page at this address. Please check the address and try again.</p>\n<p><a href="/">Go to Reliable Rooter Plumbing\'s page</a></p>\n</main>';
+
+  async function notFoundPage(url: string, init: Init = {}): Promise<string> {
+    const response = await get(url, init);
+    expect(response.status, url).toBe(404);
+    expect(response.headers.get("x-robots-tag"), url).toBe("noindex");
+    expect(response.headers.get("cache-control"), url).toBe("no-store");
+    return response.text();
+  }
+
+  it("links a wrong path on a live site to the site's page, by the business name", async () => {
+    const site = await seedSite(tools, { metadata: BUSINESS_METADATA });
+    for (const path of ["/contact", "/index.html", "/_f/not-an-id/sent", "/a/b?c=d"]) expect(await notFoundPage(at(site.slug, path))).toContain(LINK);
+    expect((await get(at(site.slug))).status).toBe(200); // where the link goes
+  });
+
+  it.each([
+    ["a host with no approved page", { live: false, withObject: false }],
+    ["a site D1 does not call live, even with a LIVE object", { live: false, withObject: true }],
+    ["a taken-down site whose LIVE object is still there", { takenDown: true }],
+  ])("keeps the plain 404 on %s", async (_, options) => {
+    const site = await seedSite(tools, { ...options, metadata: BUSINESS_METADATA });
+    expect(await notFoundPage(at(site.slug, "/contact"))).toContain(PLAIN);
+  });
+
+  it("keeps the plain 404 for a page stored before the name was, and on an unknown host", async () => {
+    const legacy = await seedSite(tools, { metadata: PHONE_METADATA });
+    expect(await notFoundPage(at(legacy.slug, "/contact"))).toContain(PLAIN);
+    expect(await notFoundPage(at("no-such-shop", "/contact"))).toContain(PLAIN);
+  });
+
+  it("keeps the plain 404 for methods other than GET and HEAD", async () => {
+    const site = await seedSite(tools, { metadata: BUSINESS_METADATA });
+    for (const method of ["POST", "PUT", "DELETE"]) expect(await notFoundPage(at(site.slug, "/contact"), { method, body: "x" })).toContain(PLAIN);
+    const head = await get(at(site.slug, "/contact"), { method: "HEAD" });
+    expect(head.status).toBe(404);
+  });
+
+  it("keeps the plain 404, not a 503, when D1 fails", async () => {
+    const site = await seedSite(tools, { metadata: BUSINESS_METADATA });
+    await tools.DB.prepare("ALTER TABLE sites RENAME TO sites_offline").run();
+    try {
+      expect(await notFoundPage(at(site.slug, "/contact"))).toContain(PLAIN);
+    } finally {
+      await tools.DB.prepare("ALTER TABLE sites_offline RENAME TO sites").run();
+    }
+  });
+
+  it("escapes the name", async () => {
+    const site = await seedSite(tools, { metadata: { ...BUSINESS_METADATA, businessName: '<img src=x onerror="alert(1)"> & Co' } });
+    const body = await notFoundPage(at(site.slug, "/contact"));
+    expect(body).toContain('<a href="/">Go to &lt;img src=x onerror="alert(1)"&gt; &amp; Co\'s page</a>');
+    expect(body).not.toContain("<img");
   });
 });

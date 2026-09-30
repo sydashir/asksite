@@ -1,12 +1,13 @@
 import { hashIp, ipRateKey, isId, LIMITS, liveKey, newId, siteUrl, utcDayStart } from "@asksite/core";
 import { createMailer, MailerError } from "@asksite/mailer";
+import { businessOf, formBusiness } from "./business.ts";
 import { leadEmailsPerDay } from "./config.ts";
 import type { Env } from "./env.ts";
 import { plainHeaders } from "./headers.ts";
 import { leadEmail } from "./lead-email.ts";
 import { looksLikeSpam, PROBLEM_TEXT, readLead, type Lead } from "./lead.ts";
 import { logLine } from "./log.ts";
-import { formProblems, messageTooLong, notFound, siteBusy, tooManyRequests, unavailable, unreadableForm, type BusinessPhone } from "./pages.ts";
+import { formProblems, messageTooLong, notFound, siteBusy, tooManyRequests, unavailable, unreadableForm } from "./pages.ts";
 
 // 24 KiB (A15). The real form cannot send more than about 20,100 bytes: maxlength 80/30/254/2,000, a
 // service from the list, and 9 bytes a character for a 3-byte script once form-encoded. form.workerd.test.ts
@@ -43,19 +44,6 @@ async function readLimited(request: Request, max: number): Promise<string | null
 
 const seeOther = (location: string) => new Response(null, { status: 303, headers: plainHeaders({ Location: location }) });
 
-/** A global number as a tel: link carries it (E.164: "+", then at most 15 digits, the first not 0). */
-const E164 = /^\+[1-9]\d{1,14}$/;
-
-/**
- * The business phone approveVersion stores in the LIVE object's metadata (A15), or null when the object has
- * none (one approved before it did), so the "Please call instead" page points to the website instead.
- */
-function businessPhone(metadata: Record<string, string> | undefined): BusinessPhone | null {
-  const text = metadata?.["phoneText"] ?? "";
-  const tel = metadata?.["phoneTel"] ?? "";
-  return text !== "" && E164.test(tel) ? { text, tel } : null;
-}
-
 interface SiteForForm { slug: string | null; live_version_id: string | null; taken_down_at: number | null; email: string }
 
 /** POST /_f/<siteId> on a site host (design §7.5). */
@@ -82,7 +70,8 @@ export async function handleForm(
   // limits, and it is the ip_hash stored with the lead (A15).
   const ipHash = await hashIp(key, ipRateKey(request.headers.get("cf-connecting-ip") ?? "unknown"));
   const { success } = await env.FORM_RL.limit({ key: `${siteId}:${ipHash}` });
-  if (!success) return { response: tooManyRequests(root), code: "rate_limited" };
+  // The page prints the business phone (QA-2 RU(4)); only a refused post pays for this LIVE.head.
+  if (!success) return { response: tooManyRequests(root, (await formBusiness(env.LIVE, hostSlug, siteId)).phone), code: "rate_limited" };
 
   const fields = new URLSearchParams(body);
   const sent = `/_f/${siteId}/sent`;
@@ -107,7 +96,7 @@ export async function handleForm(
   const emailsPerDay = leadEmailsPerDay(env.LEAD_EMAILS_PER_DAY);
   const status = await insertLead(env.DB, { leadId, siteId, now, lead: read.lead, spam, ipHash, emailsPerDay });
   // Nothing was stored, so nothing is emailed or counted; the page gives the visitor the phone number.
-  if (status === "site_daily_cap" || status === "network_daily_limit") return { response: siteBusy(root, now, businessPhone(page.customMetadata)), code: status };
+  if (status === "site_daily_cap" || status === "network_daily_limit") return { response: siteBusy(root, now, businessOf(page.customMetadata).phone), code: status };
   // The same request again (a second tap on Send): stored and emailed once already, so only thanked.
   if (status === "duplicate") return { response: seeOther(sent), code: "duplicate" };
   if (status === "skipped") return { response: seeOther(sent), code: "spam" };

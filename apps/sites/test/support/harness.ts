@@ -100,6 +100,8 @@ export interface SeededSite { ownerId: string; ownerEmail: string; siteId: strin
 
 /** The business phone approveVersion adds to the LIVE object's metadata (A15), here plumber-austin's. */
 export const PHONE_METADATA = { phoneText: "(512) 555-0142", phoneTel: "+15125550142" };
+/** Everything approveVersion adds about the business: the phone and the name (QA-2 RU(2)), plumber-austin's. */
+export const BUSINESS_METADATA = { businessName: "Reliable Rooter Plumbing", ...PHONE_METADATA };
 
 /** An owner and a site. By default the site is live (a live version id and a LIVE object) and indexable.
  *  The LIVE object carries the metadata approveVersion writes, which the Worker checks (Decision 24), plus

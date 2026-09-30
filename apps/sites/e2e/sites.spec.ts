@@ -66,9 +66,13 @@ test.describe("contact form in a real browser", () => {
     await page.getByLabel("How can we help? (optional)").fill("Leaking tap");
     await page.getByRole("button", { name: "Send request" }).click();
     await expect(page).toHaveURL(`${site?.url}_f/${site?.siteId}/sent`);
-    await expect(page.getByRole("heading", { level: 1 })).toHaveText("Thanks! Your message was sent.");
+    // QA-2 RU(2): the page names the business the visitor wrote to, and links back to it.
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText("Thanks! Your message was sent to Reliable Rooter Plumbing.");
     expect(await violations()).toEqual([]);
     expect(await axeProblems(page)).toEqual([]);
+    await page.getByRole("link", { name: "Back to Reliable Rooter Plumbing" }).click();
+    await expect(page).toHaveURL(site?.url ?? "");
+    await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
   });
 
   test("shows plain-words problems for a bad phone number, without the typed text", async ({ page }) => {
@@ -84,20 +88,52 @@ test.describe("contact form in a real browser", () => {
   });
 });
 
+// QA-2 RU(3): a wrong or old address on a live site is no longer a dead end.
+test.describe("a wrong path on a live site", () => {
+  for (const [fixture, name] of [["plumber-austin", "Reliable Rooter Plumbing"], ["electrical-xss", "<img src=x onerror=alert(1)>"]] as const) {
+    test(`links to the page of ${fixture}`, async ({ page }) => {
+      const site = sites()[fixture];
+      const dialogs: string[] = [];
+      page.on("dialog", (dialog) => {
+        dialogs.push(dialog.message());
+        void dialog.dismiss();
+      });
+      const response = await page.goto(`${site?.url}contact`);
+      expect(response?.status()).toBe(404);
+      expect(response?.headers()["x-robots-tag"]).toBe("noindex");
+      const link = page.getByRole("link", { name: `Go to ${name}'s page` });
+      await expect(link).toHaveAttribute("href", "/");
+      expect(await axeProblems(page)).toEqual([]);
+      await link.click();
+      await expect(page).toHaveURL(site?.url ?? "");
+      expect(dialogs).toEqual([]);
+    });
+  }
+});
+
 test.describe("fixed pages", () => {
   // Two fixed pages hold variable text: the business phone on the site-busy page (A15), and abuse@<root>
   // on the apex page. The latter has no break opportunity (UAX #14: LB15d, LB28, LB29), so the longest
   // legal root name must reflow too.
   const LONGEST_ROOT = ["w".repeat(63), "w".repeat(63), "w".repeat(63), "w".repeat(61)].join("."); // 253 characters
+  // Business names are at most 60 characters (site-schema): a real one, and one with no break opportunity.
+  const LONG_NAME = "Longhorn Storm Restoration Roofing, Gutters, Siding & Window";
+  const UNBROKEN_NAME = "W".repeat(60);
+  const PHONE = { text: "(512) 555-0142", tel: "+15125550142" };
   const PAGES: Array<[string, () => Response]> = [
     ["apex placeholder", () => apexPlaceholder(ROOT)],
     ["apex placeholder for the longest root domain", () => apexPlaceholder(LONGEST_ROOT)],
     ["404", () => notFound(ROOT)],
+    ["404 on a live site with a long name", () => notFound(ROOT, LONG_NAME)],
+    ["404 on a live site with an unbroken name", () => notFound(ROOT, UNBROKEN_NAME)],
     ["503", () => unavailable(ROOT)],
-    ["thank-you", () => thankYou(ROOT)],
-    ["rate limited", () => tooManyRequests(ROOT)],
+    ["thank-you", () => thankYou(ROOT, null)],
+    ["thank-you naming a long name", () => thankYou(ROOT, LONG_NAME)],
+    ["thank-you naming an unbroken name", () => thankYou(ROOT, UNBROKEN_NAME)],
+    ["rate limited", () => tooManyRequests(ROOT, null)],
+    ["rate limited with the business phone", () => tooManyRequests(ROOT, PHONE)],
     ["site busy", () => siteBusy(ROOT, Date.now(), null)],
-    ["site busy with the business phone", () => siteBusy(ROOT, Date.now(), { text: "(512) 555-0142", tel: "+15125550142" })],
+    ["site busy with the business phone", () => siteBusy(ROOT, Date.now(), PHONE)],
     ["unreadable form", () => unreadableForm(ROOT)],
     ["message too long", () => messageTooLong(ROOT)],
     ["form problems", () => formProblems(ROOT, ["Please enter your name (up to 80 characters).", "Please check your email address, or leave it empty."])],

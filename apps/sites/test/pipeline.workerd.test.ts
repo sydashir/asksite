@@ -73,6 +73,36 @@ describe("publish, approve, serve, contact", () => {
     expect(await response.text()).toContain('<p><a href="tel:+15125550142">Call (512) 555-0142</a></p>');
   });
 
+  // QA-2 RU(2), RU(3): approveVersion stores the business name with the LIVE object, so the thank-you page
+  // names the business and a wrong path links to its page. A takedown removes both; a restore brings them back.
+  it("names the approved page's business on the thank-you and 404 pages until a takedown, and again after a restore", async () => {
+    const site = await publishAndApprove("plumber-austin");
+    const pages = async () => ({
+      sent: await (await harness.server.fetch(at(site.slug, `/_f/${site.siteId}/sent`))).text(),
+      missing: await (await harness.server.fetch(at(site.slug, "/contact"))).text(),
+    });
+    const live = await pages();
+    expect(live.sent).toContain('<h1>Thanks! Your message was sent to Reliable Rooter Plumbing.</h1>\n<p>They will get back to you soon.</p>\n<p><a href="/">Back to Reliable Rooter Plumbing</a></p>');
+    expect(live.missing).toContain('<p><a href="/">Go to Reliable Rooter Plumbing\'s page</a></p>');
+
+    await takeDown(tools, { siteId: site.siteId, reviewer: "admin@example.com", reason: "Test", purgeMedia: false, now: Date.now() });
+    const down = await pages();
+    expect(down.sent).toContain("<h1>Thanks! Your message was sent.</h1>");
+    expect(down.missing).not.toContain("<a ");
+
+    await restore({ ...tools, ROOT_DOMAIN: ROOT }, { siteId: site.siteId, reviewer: "admin@example.com", now: Date.now() });
+    expect(await pages()).toEqual(live);
+  });
+
+  it("escapes the XSS fixture's business name on the thank-you and 404 pages", async () => {
+    const site = await publishAndApprove("electrical-xss");
+    const sent = await (await harness.server.fetch(at(site.slug, `/_f/${site.siteId}/sent`))).text();
+    const missing = await (await harness.server.fetch(at(site.slug, "/contact"))).text();
+    expect(sent).toContain("<h1>Thanks! Your message was sent to &lt;img src=x onerror=alert(1)&gt;.</h1>");
+    expect(missing).toContain("Go to &lt;img src=x onerror=alert(1)&gt;'s page");
+    for (const body of [sent, missing]) expect(body).not.toContain("<img");
+  });
+
   it("a takedown stops a page that no data centre has cached; restore brings it back", async () => {
     const site = await publishAndApprove("cleaning-minimal");
     await takeDown(tools, { siteId: site.siteId, reviewer: "admin@example.com", reason: "Test", purgeMedia: false, now: Date.now() });

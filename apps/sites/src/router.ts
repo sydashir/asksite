@@ -1,10 +1,11 @@
 import { isId, parseHost } from "@asksite/core";
 import { securityTxt } from "./apex.ts";
+import { formBusiness } from "./business.ts";
 import type { Env } from "./env.ts";
 import { handleForm } from "./form.ts";
 import { plainHeaders } from "./headers.ts";
 import { serveMedia } from "./media.ts";
-import { servePage } from "./page.ts";
+import { liveSiteName, servePage } from "./page.ts";
 import { apexPlaceholder, notFound, thankYou } from "./pages.ts";
 
 export interface Routed {
@@ -49,8 +50,12 @@ export async function route(request: Request, env: Env, ctx: ExecutionContext, n
         const { response, code } = await handleForm(request, env, ctx, host.slug, siteId, now);
         return { route: "form", response, ...(isId(siteId) ? { siteId } : {}), ...(code === undefined ? {} : { code }) };
       }
-      const sent = SENT.exec(path);
-      if (sent !== null && read && isId(sent[1] ?? "")) return { route: "form_sent", response: thankYou(root) };
+      const sentId = SENT.exec(path)?.[1] ?? "";
+      if (read && isId(sentId)) {
+        return { route: "form_sent", response: thankYou(root, (await formBusiness(env.LIVE, host.slug, sentId)).name) };
+      }
+      // A browser's wrong path on a live site links to the site's page (QA-2 RU(3)); other methods get the plain 404.
+      if (read) return { route: "not_found", response: notFound(root, await liveSiteName(env, host.slug)) };
       break;
     }
     case "unknown":

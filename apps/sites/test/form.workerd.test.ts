@@ -1,6 +1,6 @@
 import { hashIp, LIMITS, newId } from "@asksite/core";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { at, linesWith, PHONE_METADATA, putLive, seedSite, settledLeads, sitesHarness, TEST_SECRETS, type SeededSite, type ToolsEnv } from "./support/harness.ts";
+import { at, BUSINESS_METADATA, linesWith, PHONE_METADATA, putLive, seedSite, settledLeads, sitesHarness, TEST_SECRETS, type SeededSite, type ToolsEnv } from "./support/harness.ts";
 
 const harness = sitesHarness();
 let tools: ToolsEnv;
@@ -136,13 +136,13 @@ describe("POST /_f/<siteId>", () => {
   });
 
   // A15: the 4th and 5th posts from one network on one site are refused by its daily limit ("Please call
-  // instead"); they still count toward the rate limit, which refuses the 6th ("Please wait a minute").
+  // instead"); they still count toward the rate limit, which refuses the 6th ("Please wait"; QA-2 QS(3)).
   // Each post is its own request: the same one twice is one lead (QA-2 RU(1)).
   it("rate-limits one visitor to 5 posts a minute per site", async () => {
     const busy = await seedSite(tools);
     const pages: string[] = [];
     for (let i = 0; i < 6; i++) pages.push(await pageOf(await post(busy, { ...GOOD, name: `Dana ${i}` }, { ip: "192.0.2.44" })));
-    expect(pages).toEqual(["303", "303", "303", "429 Please call instead", "429 Please call instead", "429 Please wait a minute"]);
+    expect(pages).toEqual(["303", "303", "303", "429 Please call instead", "429 Please call instead", "429 Please wait"]);
     const limited = await post(busy, GOOD, { ip: "192.0.2.44" });
     expect(limited.headers.get("retry-after")).toBe("60");
     expect((await post(busy, GOOD, { ip: "192.0.2.45" })).status).toBe(303);
@@ -153,7 +153,7 @@ describe("POST /_f/<siteId>", () => {
     const busy = await seedSite(tools);
     const pages: string[] = [];
     for (let i = 1; i <= 6; i++) pages.push(await pageOf(await post(busy, { ...GOOD, name: `Dana ${i}` }, { ip: `2001:db8:4:7::${i}` })));
-    expect(pages).toEqual(["303", "303", "303", "429 Please call instead", "429 Please call instead", "429 Please wait a minute"]);
+    expect(pages).toEqual(["303", "303", "303", "429 Please call instead", "429 Please call instead", "429 Please wait"]);
     expect((await post(busy, GOOD, { ip: "2001:db8:4:8::1" })).status).toBe(303);
   });
 
@@ -288,7 +288,7 @@ describe("form edges", () => {
     await earlyInAMinute();
     const pages: string[] = [];
     for (let i = 0; i < 6; i++) pages.push(await pageOf(await post(busy, { ...GOOD, name: `Dana ${i}` }, { ip: "192.0.2.60" })));
-    expect(pages).toEqual(["303", "303", "303", "429 Please call instead", "429 Please call instead", "429 Please wait a minute"]);
+    expect(pages).toEqual(["303", "303", "303", "429 Please call instead", "429 Please call instead", "429 Please wait"]);
     expect((await post(other, GOOD, { ip: "192.0.2.60" })).status).toBe(303);
   });
 
@@ -424,6 +424,80 @@ describe("the 'Please call instead' page and the business phone", () => {
       await putLive(tools, site, metadata);
       const body = await (await post(site, GOOD)).text();
       expect({ metadata, fallback: body.includes(ON_THE_WEBSITE), link: body.includes("tel:") }).toEqual({ metadata, fallback: true, link: false });
+    }
+  });
+});
+
+// QA-2 RU(2), QS(3) and RU(4): the thank-you page names the business, and the rate-limit page prints its
+// phone. Both read the LIVE object's metadata (approveVersion stores the name and phone) for the form's own
+// site only; without it (an object stored before, another site's form id, a host with no live page) each
+// page keeps its words without the name or number.
+describe("what the thank-you and rate-limit pages say about the business", () => {
+  const sentPage = (site: { slug: string; siteId: string }) => harness.server.fetch(at(site.slug, `/_f/${site.siteId}/sent`));
+
+  it("the thank-you page names the business of the live page whose form was sent, and links back to it", async () => {
+    const site = await seedSite(tools, { metadata: BUSINESS_METADATA });
+    const response = await sentPage(site);
+    expect(response.status).toBe(200);
+    expect(response.headers.get("x-robots-tag")).toBe("noindex");
+    const body = await response.text();
+    expect(body).toContain("<h1>Thanks! Your message was sent to Reliable Rooter Plumbing.</h1>\n<p>They will get back to you soon.</p>\n<p><a href=\"/\">Back to Reliable Rooter Plumbing</a></p>");
+  });
+
+  it("the thank-you page keeps today's words for a page stored before the name, another site's form id, or a host with no live page", async () => {
+    const TODAY = '<h1>Thanks! Your message was sent.</h1>\n<p>The business will get back to you soon.</p>\n<p><a href="/">Back to the website</a></p>';
+    const legacy = await seedSite(tools, { metadata: PHONE_METADATA });
+    const named = await seedSite(tools, { metadata: BUSINESS_METADATA });
+    const pages = [
+      await sentPage(legacy),
+      await sentPage({ slug: named.slug, siteId: newId() }),
+      await sentPage({ slug: "no-such-shop", siteId: named.siteId }),
+    ];
+    expect(pages.map((page) => page.status)).toEqual([200, 200, 200]);
+    for (const page of pages) expect(await page.text()).toContain(TODAY);
+  });
+
+  it("the thank-you page escapes the name", async () => {
+    const site = await seedSite(tools, { metadata: { ...BUSINESS_METADATA, businessName: '<img src=x onerror="alert(1)"> & Co.' } });
+    const body = await (await sentPage(site)).text();
+    expect(body).toContain('<h1>Thanks! Your message was sent to &lt;img src=x onerror="alert(1)"&gt; &amp; Co.</h1>');
+    expect(body).toContain('<a href="/">Back to &lt;img src=x onerror="alert(1)"&gt; &amp; Co.</a>');
+    expect(body).not.toContain("<img");
+  });
+
+  /** Miniflare's rate-limit windows are wall-clock minutes: start a burst early in one so it never spans two. */
+  async function earlyInAMinute(): Promise<void> {
+    const left = 60_000 - (Date.now() % 60_000);
+    if (left < 15_000) await new Promise((resolve) => setTimeout(resolve, left + 50));
+  }
+
+  /** The 6th post a minute from one network to `formId` on `site`'s host, which the rate limit refuses: its Retry-After and page. */
+  async function rateLimited(site: { slug: string }, formId: string, ip: string): Promise<{ retryAfter: string | null; body: string }> {
+    await earlyInAMinute();
+    for (let i = 0; i < 5; i++) expect(await pageOf(await post({ slug: site.slug, siteId: formId }, { ...GOOD, name: `Dana ${i}` }, { ip }))).not.toBe("429 Please wait");
+    const response = await post({ slug: site.slug, siteId: formId }, GOOD, { ip });
+    expect(response.status).toBe(429);
+    const body = await response.text();
+    expect(body).toContain("<h1>Please wait</h1>");
+    return { retryAfter: response.headers.get("retry-after"), body };
+  }
+
+  it("the rate-limit page prints the business phone as a tel: link and promises no time", async () => {
+    const site = await seedSite(tools, { metadata: BUSINESS_METADATA });
+    const { retryAfter, body } = await rateLimited(site, site.siteId, "192.0.2.80");
+    expect(retryAfter).toBe("60");
+    expect(body).toContain('<p>We got several messages from you just now. Please call instead, or try again later.</p>\n<p><a href="tel:+15125550142">Call (512) 555-0142</a></p>');
+    expect(body).not.toMatch(/minute/i);
+    expect(await linesWith(harness, "code", "rate_limited", 1)).not.toEqual([]);
+  });
+
+  it("the rate-limit page points to the website's number for a page stored before the phone, or another site's form id", async () => {
+    const WEBSITE = "<p>We got several messages from you just now. Please call instead, or try again later. The business's phone number is on the website.</p>";
+    const legacy = await seedSite(tools);
+    const named = await seedSite(tools, { metadata: BUSINESS_METADATA });
+    for (const { body } of [await rateLimited(legacy, legacy.siteId, "192.0.2.81"), await rateLimited(named, newId(), "192.0.2.82")]) {
+      expect(body).toContain(WEBSITE);
+      expect(body).not.toContain("tel:");
     }
   });
 });
