@@ -1,0 +1,17 @@
+# Local development values (copied to .dev.vars, which is gitignored). They override "vars" in
+# wrangler.jsonc when running locally. No real secrets: the log mailer never sends email.
+ENVIRONMENT=development
+ROOT_DOMAIN=localhost:8789
+APP_ORIGIN=https://app.localhost:8787
+MAILER=log
+MAIL_FROM=Local test <test@mail.localhost>
+SUPPORT_EMAIL=help@example.com
+ADMIN_NOTIFY_EMAILS=admin@example.com
+GENERATION_ENABLED=true
+DAILY_MODEL_LIMIT=8
+RESEND_API_KEY=unused-in-development
+IP_HASH_KEY=local-development-only
+# Cloudflare's documented always-pass Turnstile test keys (developers.cloudflare.com/turnstile/troubleshooting/testing/).
+TURNSTILE_SITE_KEY=1x00000000000000000000AA
+TURNSTILE_SECRET_KEY=1x0000000000000000000000000000000AA
+LOGIN_EMAILS_PER_DAY=40

@@ -1,6 +1,7 @@
 import { ApiError, noteLog } from "@asksite/app-common";
 import type { Context } from "hono";
 import type { Siteverify } from "./deps.ts";
+import { isDocumentedTestSecret } from "./turnstile-secrets.ts";
 import type { AppEnv } from "./types.ts";
 
 // Cloudflare Turnstile on POST /api/auth/login (A11), checked with siteverify
@@ -18,22 +19,24 @@ const ATTEMPTS = 2; // the first call and exactly one retry
 const MAX_TOKEN_LENGTH = 2_048; // siteverify's documented maximum
 
 /** Why a request's token does not let it through; its log line names it. */
-type Refusal = "missing" | "rejected" | "hostname" | "testing_key" | "unavailable";
+type Refusal = "missing" | "rejected" | "action" | "hostname" | "testing_key" | "unavailable";
+
+/** The action the sign-in widget sets (data-action) and siteverify echoes back. */
+export const LOGIN_ACTION = "login";
 
 interface SiteverifyResult {
   success: boolean;
+  action: unknown;
   hostname: unknown;
-  /**
-   * `metadata.result_with_testing_key`: the real siteverify sets it for Cloudflare's test secret keys, whose
-   * result names "example.com", never this app's host (measured 2026-09-26; not in the docs' field list).
-   */
-  testingKey: boolean;
 }
 
-/** Where the widget must have been solved, and whether a test key's result may stand in for that. */
+/** What this request must have been solved for, and whether the secret is a dummy one whose answer may stand in for that. */
 interface Expected {
   hostname: string;
-  testingKeyAllowed: boolean;
+  /** The configured secret is one of the documented dummy secrets. */
+  testSecret: boolean;
+  /** Dummy secrets belong to local development only: ENVIRONMENT development and a local CONFIGURED origin. */
+  testSecretAllowed: boolean;
 }
 
 /** One siteverify call; null when it is worth one retry: a timeout, a network error, a non-2xx answer, an unreadable body or `internal-error`. */
@@ -41,23 +44,35 @@ async function siteverifyOnce(send: Siteverify, body: string, timeoutMs: number)
   try {
     const res = await send(SITEVERIFY_URL, { method: "POST", headers: { "Content-Type": "application/json" }, body, signal: AbortSignal.timeout(timeoutMs) });
     if (!res.ok) return null;
-    const result = (await res.json()) as { success?: unknown; hostname?: unknown; "error-codes"?: unknown; metadata?: { result_with_testing_key?: unknown } | null };
+    const result = (await res.json()) as { success?: unknown; action?: unknown; hostname?: unknown; "error-codes"?: unknown };
     if (typeof result.success !== "boolean") return null;
     if (Array.isArray(result["error-codes"]) && result["error-codes"].includes("internal-error")) return null;
-    return { success: result.success, hostname: result.hostname, testingKey: result.metadata?.result_with_testing_key === true };
+    return { success: result.success, action: result.action, hostname: result.hostname };
   } catch {
     return null;
   }
 }
 
+/** Whether a host name (from `new URL().hostname`) is this machine: localhost, any *.localhost (RFC 6761), 127.0.0.1 or [::1]. */
+function isLocalHostname(hostname: string): boolean {
+  return hostname === "localhost" || hostname.endsWith(".localhost") || hostname === "127.0.0.1" || hostname === "[::1]";
+}
+
 /**
- * D1 (moderator): a test key's result passes only where test keys belong, local development on a
- * *.localhost host; anywhere else it is refused even with success true, so a test secret that reaches
- * production can never let a request through. Any other result must name this app's host.
+ * D1 (moderator): a dummy secret's result passes only where dummy secrets belong, local development with a
+ * local configured APP_ORIGIN (never the request's Host header, which the caller controls); anywhere else it is refused even with success true, so a test secret that reaches
+ * production can never let a request through. There success true is enough: the real service answers a dummy
+ * secret with no action and the host name example.com (measured 2026-09-30, unlike its docs page), so neither
+ * is checked (P4-22 M1 re-ruling). Any other secret needs action "login" and this app's host name; an
+ * answer with no host name is refused. Docs: "Check if action / hostname matches expected value".
  */
 function judge(result: SiteverifyResult, expected: Expected): Refusal | null {
   if (!result.success) return "rejected";
-  if (result.testingKey) return expected.testingKeyAllowed ? null : "testing_key";
+  if (expected.testSecret) {
+    if (!expected.testSecretAllowed) return "testing_key";
+    return null;
+  }
+  if (result.action !== LOGIN_ACTION) return "action";
   return result.hostname === expected.hostname ? null : "hostname";
 }
 
@@ -82,17 +97,19 @@ async function turnstileRefusal(
 }
 
 /**
- * 403 forbidden unless the request carries a Turnstile token that siteverify accepts for this app's host name.
+ * 403 forbidden unless the request carries a Turnstile token that siteverify accepts for this app's host name and the login action.
  * `timeoutMs` is only ever shortened by the test Worker, so a test of a siteverify that never answers stays fast.
  */
 export async function requireTurnstile(c: Context<AppEnv>, send: Siteverify, timeoutMs = SITEVERIFY_TIMEOUT_MS): Promise<void> {
+  const appHostname = new URL(c.env.APP_ORIGIN).hostname;
   const refusal = await turnstileRefusal(send, {
     secret: c.env.TURNSTILE_SECRET_KEY,
     token: c.req.header(TURNSTILE_HEADER),
     remoteIp: c.req.header("CF-Connecting-IP"),
     expected: {
-      hostname: new URL(c.env.APP_ORIGIN).hostname,
-      testingKeyAllowed: c.env.ENVIRONMENT === "development" && new URL(c.req.url).hostname.endsWith(".localhost"),
+      hostname: appHostname,
+      testSecret: isDocumentedTestSecret(c.env.TURNSTILE_SECRET_KEY),
+      testSecretAllowed: c.env.ENVIRONMENT === "development" && isLocalHostname(appHostname),
     },
     timeoutMs,
   });
