@@ -112,23 +112,45 @@ const BY_CODE: Record<string, OwnerMessage> = {
 /** The limit in zod's size message ("Too big: expected number to be <=100000"), which zod writes from the issue's maximum or minimum. */
 const limitOf = (issue: Issue): string | undefined => /(<=|>=)\s*(\d+)/.exec(issue.message)?.[2];
 
-const dollars = (n: string): string => Number(n).toLocaleString("en-US");
+const grouped = (n: string): string => Number(n).toLocaleString("en-US");
+
+/** The words for a number's too_big and too_small issues, given the limit. */
+type LimitWords = Record<"too_big" | "too_small", (n: string) => string>;
+
+/** Number fields with their own words (the price's are the approved amendment, task-12-extra.md). */
+const NUMBER_WORDS: Record<string, LimitWords> = {
+  "facts.services.#.startingPrice": {
+    too_big: (n) => `Please enter a price of $${grouped(n)} or less.`,
+    too_small: (n) => `Please enter a price of at least $${grouped(n)}.`,
+  },
+  "facts.yearFounded": {
+    too_big: (n) => `Please enter a year of ${n} or earlier.`,
+    too_small: (n) => `Please enter a year of ${n} or later.`,
+  },
+};
+
+const ANY_NUMBER: LimitWords = {
+  too_big: (n) => `Please enter a number of ${grouped(n)} or less.`,
+  too_small: (n) => `Please enter a number of ${grouped(n)} or more.`,
+};
 
 /**
- * Fields whose message depends on the issue, not only on the field (approved amendment, task-12-extra.md). The
- * price limits come from the issue, so they follow the schema.
+ * A number's limit in number words, never as a count of characters (DECIDED ~07:05). zod words a number's limit
+ * "expected number to be <=N" and a length "expected string to have <=N characters" (zod v4 locales/en.js). The
+ * limit comes from the issue, so the words follow the schema.
  */
+function byNumberLimit(issue: Issue, field: string): string | undefined {
+  const n = / to be [<>]=/.test(issue.message) ? limitOf(issue) : undefined;
+  if (n === undefined || (issue.code !== "too_big" && issue.code !== "too_small")) return undefined;
+  return (NUMBER_WORDS[field] ?? ANY_NUMBER)[issue.code](n);
+}
+
+/** Fields whose message depends on the issue, not only on the field (approved amendment, task-12-extra.md). */
 const BY_PATH_AND_ISSUE = new Map<string, (issue: Issue) => string | undefined>([
   [
     "facts.services.#.startingPrice",
-    (issue) => {
-      const n = limitOf(issue);
-      if (issue.code === "too_big" && n !== undefined) return `Please enter a price of $${dollars(n)} or less.`;
-      if (issue.code === "too_small" && n !== undefined) return `Please enter a price of at least $${dollars(n)}.`;
-      // z.int() on a number with cents: "Invalid input: expected int, received number".
-      if (issue.code === "invalid_type" && /\bexpected int\b/.test(issue.message)) return "Please enter whole dollars, no cents.";
-      return undefined;
-    },
+    // z.int() on a number with cents: "Invalid input: expected int, received number".
+    (issue) => (issue.code === "invalid_type" && /\bexpected int\b/.test(issue.message) ? "Please enter whole dollars, no cents." : undefined),
   ],
 ]);
 
@@ -170,7 +192,7 @@ export function ownerMessage(issue: Issue): OwnerMessage {
   if (/invisible|control/i.test(issue.message)) return { text: "This text has hidden characters. Please delete it and type it again." };
   if (isOrderCheck(issue)) return { text: "Closing time must be after opening time." };
   const field = key(issue.path);
-  const specific = BY_PATH_AND_ISSUE.get(field)?.(issue);
+  const specific = byNumberLimit(issue, field) ?? BY_PATH_AND_ISSUE.get(field)?.(issue);
   if (specific !== undefined) return { text: specific };
   const pathText = BY_PATH[field];
   if (pathText !== undefined && issue.code !== "too_big") return { text: pathText };

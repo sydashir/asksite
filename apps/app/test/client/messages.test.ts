@@ -122,6 +122,36 @@ describe("starting price messages", () => {
   });
 });
 
+// DECIDED (web-maker-d3, ~07:05): a number's too_big or too_small issue gets number wording, never a character count.
+describe("number limit messages", () => {
+  const photo = (size: object): object => ({ url: "https://media.example/p.jpg", alt: "A new water heater", width: 800, height: 600, ...size });
+  const factsTexts = (facts: object): string[][] => {
+    const parsed = Facts.safeParse({ ...VALID_FACTS, ...facts });
+    const issues = toIssues(parsed.error!).map((i) => ({ ...i, path: ["facts", ...i.path] }));
+    return issuesToShow(issues).map((i) => [i.path.join("."), ownerMessage(i).text]);
+  };
+
+  it.each([
+    [{ yearFounded: 2101 }, "facts.yearFounded", "Please enter a year of 2100 or earlier."],
+    [{ yearFounded: 1e20 }, "facts.yearFounded", "Please enter a year of 2100 or earlier."],
+    [{ yearFounded: 1849 }, "facts.yearFounded", "Please enter a year of 1850 or later."],
+    [{ heroPhoto: photo({ width: 10_001 }) }, "facts.heroPhoto.width", "Please enter a number of 10,000 or less."],
+    [{ photos: [photo({ height: 1e20 })] }, "facts.photos.0.height", "Please enter a number of 10,000 or less."],
+    [{ heroPhoto: photo({ width: 0 }) }, "facts.heroPhoto.width", "Please enter a number of 1 or more."],
+  ])("%j", (facts, path, text) => {
+    expect(factsTexts(facts)).toEqual([[path, text]]);
+  });
+
+  it("takes the limits from the issue, not from fixed numbers", () => {
+    const year = ["facts", "yearFounded"];
+    const height = ["facts", "photos", 3, "height"];
+    expect(ownerMessage(issue(year, "too_big", "Too big: expected number to be <=2200")).text).toBe("Please enter a year of 2200 or earlier.");
+    expect(ownerMessage(issue(year, "too_small", "Too small: expected number to be >=1900")).text).toBe("Please enter a year of 1900 or later.");
+    expect(ownerMessage(issue(height, "too_big", "Too big: expected number to be <=12000")).text).toBe("Please enter a number of 12,000 or less.");
+    expect(ownerMessage(issue(height, "too_small", "Too small: expected number to be >=5")).text).toBe("Please enter a number of 5 or more.");
+  });
+});
+
 describe("opening time messages", () => {
   const timeIssues = (hours: unknown): string[][] => {
     const parsed = Facts.safeParse({ ...VALID_FACTS, hours: [hours] });
