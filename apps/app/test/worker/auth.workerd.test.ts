@@ -505,10 +505,10 @@ describe("Turnstile on sign-in (A11)", () => {
     expect(await tokenRows(owner.ownerId)).toEqual([]);
   });
 
-  it("refuses a token siteverify rejects, and one solved on another host name, with no link written or sent", async () => {
+  it("refuses a token siteverify rejects, with no link written or sent (other hosts and actions: turnstile-live.workerd.test.ts)", async () => {
     const owner = await h.signIn("bad-token@example.com");
     const background = await h.waitUntilCount("/api/auth/login");
-    for (const token of ["always-fails", "live:evil.example"]) await refused(await h.login("bad-token@example.com", { turnstile: token }));
+    await refused(await h.login("bad-token@example.com", { turnstile: "always-fails" }));
     expect(await h.waitUntilCount("/api/auth/login")).toBe(background);
     expect(await tokenRows(owner.ownerId)).toEqual([]);
     expect(await outbox("bad-token@example.com")).toEqual([]);
@@ -588,26 +588,19 @@ describe("Turnstile on sign-in (A11)", () => {
 
   it("writes one log line per refusal, naming the reason and never the token, email or address", async () => {
     h.server.clearLogs();
-    for (const turnstile of [null, "always-fails", "live:evil.example", "down"]) await refused(await h.login("quiet@example.com", { turnstile, ip: "192.0.2.77" }));
+    for (const turnstile of [null, "always-fails", "down"]) await refused(await h.login("quiet@example.com", { turnstile, ip: "192.0.2.77" }));
     const lines = h.logLines().filter((line) => line["route"] === "POST /api/auth/login");
     expect(lines).toEqual(
-      ["missing", "rejected", "hostname", "unavailable"].map((reason) => ({ route: "POST /api/auth/login", status: 403, ms: expect.any(Number), code: "forbidden", turnstile: reason })),
+      ["missing", "rejected", "unavailable"].map((reason) => ({ route: "POST /api/auth/login", status: 403, ms: expect.any(Number), code: "forbidden", turnstile: reason })),
     );
-    expect(h.server.getLogs().map((entry) => entry.message).join("\n")).not.toMatch(/quiet@|192\.0\.2\.77|always-fails|evil\.example/);
+    expect(h.server.getLogs().map((entry) => entry.message).join("\n")).not.toMatch(/quiet@|192\.0\.2\.77|always-fails/);
   });
 
-  it("accepts Cloudflare's test-key result (host name example.com, as the real siteverify answers) in development on a *.localhost host", async () => {
+  it("accepts Cloudflare's test-key result (action test, host name localhost, as its docs show) in development on a *.localhost host", async () => {
     await h.signIn("test-key@example.com");
     expect(new URL(APP_ORIGIN).hostname).not.toBe(TURNSTILE_TEST_HOSTNAME);
     expect((await h.login("test-key@example.com")).status).toBe(202);
     await waitForEmail("test-key@example.com");
-  });
-
-  it("still requires this host name for a production key's result in development", async () => {
-    await h.signIn("live-key@example.com");
-    expect((await h.login("live-key@example.com", { turnstile: `live:${new URL(APP_ORIGIN).hostname}` })).status).toBe(202);
-    await waitForEmail("live-key@example.com");
-    await refused(await h.login("live-key@example.com", { turnstile: `live:${TURNSTILE_TEST_HOSTNAME}` }));
   });
 
   it("refuses the test-key result in development on a host that is not *.localhost, and logs why", async () => {

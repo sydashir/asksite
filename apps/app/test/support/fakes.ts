@@ -21,7 +21,7 @@ import { DESIGN_CSS } from "@asksite/site-css";
 import { factSections, SECTION_VARIANTS, type Facts, type LayoutSection, type SectionId } from "@asksite/site-schema";
 import type { AppDeps, GenerationDeps, MailerEnv, PublishErrorCode, PublishingDeps, RequestGenerationResult } from "../../src/worker/deps.ts";
 import { FAKE_PUBLISH_CAP } from "./limits.ts";
-import { TURNSTILE_DUMMY_TOKEN, TURNSTILE_TEST_HOSTNAME, TURNSTILE_TEST_SECRET, type SiteverifyCall } from "./turnstile.ts";
+import { LIVE_TOKEN_NO_HOSTNAME, TURNSTILE_DUMMY_TOKEN, TURNSTILE_TEST_ACTION, TURNSTILE_TEST_HOSTNAME, TURNSTILE_TEST_SECRET, type SiteverifyCall } from "./turnstile.ts";
 
 // Test stand-ins for Plan 2 (@asksite/publishing, @asksite/mailer) and Plan 3 (@asksite/generation).
 // Each follows the design's contract (§6.4, §7.2, §7.6) closely enough for this Worker's tests;
@@ -272,20 +272,23 @@ const siteverifyCalls: SiteverifyCall[] = [];
 
 export const siteverifyCallsSoFar = (): readonly SiteverifyCall[] => siteverifyCalls;
 
-/** What the real siteverify answers for the test secret and the dummy token, key for key (measured 2026-09-26). */
+/** What siteverify answers for a documented test secret and the dummy token (developers.cloudflare.com/turnstile/troubleshooting/testing/). */
 const TEST_KEY_PASSED = {
-  challenge_ts: "2026-09-26T00:00:00.000Z",
-  "error-codes": [],
-  hostname: TURNSTILE_TEST_HOSTNAME,
-  metadata: { result_with_testing_key: true },
   success: true,
+  challenge_ts: "2026-09-26T00:00:00.000Z",
+  hostname: TURNSTILE_TEST_HOSTNAME,
+  "error-codes": [],
+  action: TURNSTILE_TEST_ACTION,
+  cdata: "test-data",
 };
 
-/** What the real siteverify answers for a token it refuses under a test secret (measured 2026-09-26, always-fail secret). */
-const TEST_KEY_REFUSED = { "error-codes": ["invalid-input-response"], success: false, messages: [], metadata: { result_with_testing_key: true } };
+/** What siteverify answers for a token it refuses. */
+const TOKEN_REFUSED = { "error-codes": ["invalid-input-response"], success: false, messages: [] };
 
-/** Stands in for a production secret key's pass: the host name where the widget was solved, and no testing-key flag. */
+/** With a non-test secret, "live:<host>|<action>" stands in for a production key's pass for a widget solved on <host>. */
 const LIVE_KEY_PREFIX = "live:";
+/** A production key's pass whose answer carries no host name. */
+const LIVE_NO_HOSTNAME = LIVE_TOKEN_NO_HOSTNAME;
 
 const answer = (body: Record<string, unknown>, status = 200): Response => Response.json(body, { status });
 
@@ -293,9 +296,9 @@ const text = (value: unknown): string | null => (typeof value === "string" ? val
 
 /**
  * Turnstile's siteverify without the network. Cloudflare's dummy token gets exactly the real service's
- * answer for the test secret: success, host name "example.com" and `metadata.result_with_testing_key`.
- * Other tokens act out what the tests need: "live:<host>" (a production key's pass for a widget solved
- * on <host>), "slow-once" (hangs until the caller gives up, then passes on the retry with the same
+ * documented answer for a test secret: success, host name "localhost" and action "test".
+ * Other tokens act out what the tests need: "live:<host>|<action>" (with a non-test secret: a production key's pass
+ * for a widget solved on <host>), "slow-once" (hangs until the caller gives up, then passes on the retry with the same
  * idempotency key), "busy-once" (internal-error, then passes on the retry), "down" (a network error,
  * then a 503); anything else is an invalid token. Any other address is a 404.
  */
@@ -310,7 +313,7 @@ export const fakeSiteverify: AppDeps["siteverify"] = async (url, init) => {
   };
   const retry = siteverifyCalls.some((earlier) => earlier.idempotencyKey !== null && earlier.idempotencyKey === call.idempotencyKey);
   siteverifyCalls.push(call);
-  if (!call.testSecret) return answer({ success: false, "error-codes": ["invalid-input-secret"] });
+  if (!call.testSecret) return answer(liveAnswer(call.response));
   switch (call.response) {
     case TURNSTILE_DUMMY_TOKEN:
       return answer(TEST_KEY_PASSED);
@@ -323,9 +326,17 @@ export const fakeSiteverify: AppDeps["siteverify"] = async (url, init) => {
       if (!retry) throw new TypeError("Network connection lost.");
       return answer({}, 503);
     default:
-      if (call.response?.startsWith(LIVE_KEY_PREFIX)) {
-        return answer({ challenge_ts: TEST_KEY_PASSED.challenge_ts, "error-codes": [], hostname: call.response.slice(LIVE_KEY_PREFIX.length), success: true });
-      }
-      return answer(TEST_KEY_REFUSED);
+      return answer(TOKEN_REFUSED);
   }
 };
+
+/** A production-style secret: it passes only a "live:<host>|<action>" token and refuses the dummy token, as the docs say. */
+function liveAnswer(token: string | null): Record<string, unknown> {
+  const solved = { challenge_ts: TEST_KEY_PASSED.challenge_ts, "error-codes": [], success: true };
+  if (token === LIVE_NO_HOSTNAME) return { ...solved, action: "login" };
+  if (token?.startsWith(LIVE_KEY_PREFIX)) {
+    const [hostname, action = "login"] = token.slice(LIVE_KEY_PREFIX.length).split("|");
+    return { ...solved, hostname, action };
+  }
+  return TOKEN_REFUSED;
+}
