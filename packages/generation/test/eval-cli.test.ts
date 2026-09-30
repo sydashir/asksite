@@ -5,14 +5,17 @@ import { pathToFileURL } from "node:url";
 import type { GenerationInputSnapshot } from "@asksite/core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CAPS_PROBE_OUTPUT_TOKENS, formatUsd, requestWorstCaseMicrousd } from "../eval/budget.ts";
+import { CAPS_REPAIR, CAPS_SNAPSHOT } from "../eval/caps.ts";
 import { CANDIDATES, type Candidate } from "../eval/candidates.ts";
 import { main, type CliDeps } from "../eval/cli.ts";
 import { EVAL_PROFILES } from "../eval/profiles.ts";
-import { MAX_OUTPUT_TOKENS } from "../src/generate.ts";
+import { ATTEMPT_TIMEOUT_MS, MAX_OUTPUT_TOKENS } from "../src/generate.ts";
 import { worstCaseJobMicrousd } from "../src/models.ts";
-import { ProviderError, type ModelResponse } from "../src/provider.ts";
+import { buildPrompt } from "../src/prompt.ts";
+import { ProviderError, type ModelRequest, type ModelResponse } from "../src/provider.ts";
 import type { ProviderEnv } from "../src/providers/create.ts";
 import { templateDraft } from "../src/template.ts";
+import { AI_DRAFT_JSON_SCHEMA } from "../src/wire-schema.ts";
 import { fakeFetch } from "./support/http.ts";
 
 // Amendment P3-17: `pnpm eval:generation` is a dry run unless both --live and --max-usd are given. Every provider here
@@ -59,6 +62,8 @@ function harness(options: { env?: Record<string, string>; candidates?: readonly 
   const out: string[] = [];
   const err: string[] = [];
   const progress: string[] = [];
+  /** Each request a fake provider got, with the snapshot its provider was built for. */
+  const sent: Array<{ snapshot: GenerationInputSnapshot; request: ModelRequest }> = [];
   const answer = options.answer ?? validDraft;
   const deps: CliDeps = {
     env: options.env ?? KEYS,
@@ -67,8 +72,9 @@ function harness(options: { env?: Record<string, string>; candidates?: readonly 
       built.push(env.MODEL_ID);
       return {
         id: "fake",
-        generate: async () => {
+        generate: async (request) => {
           requests.push(env.MODEL_ID);
+          sent.push({ snapshot, request });
           return answer(env, snapshot, fetchImpl);
         },
       };
@@ -81,7 +87,7 @@ function harness(options: { env?: Record<string, string>; candidates?: readonly 
     progress: (text) => void progress.push(text),
     warn: (line) => void err.push(line),
   };
-  return { deps, dir, built, requests, out, err, progress, text: () => [...out, ...err].join("\n") };
+  return { deps, dir, built, requests, sent, out, err, progress, text: () => [...out, ...err].join("\n") };
 }
 
 const modelIds = (labels: readonly string[]): string[] => labels.map((label) => byLabel(label).modelId);
@@ -429,6 +435,48 @@ describe("a live --record (P3-17 D3)", () => {
     expect(h.out).toContain(`${GEMMA}: it cost $0.009459, more than its worst case of $0.009458 (70010 input and 8192 output tokens); nothing more goes to this model, and the other models go on.`);
     expect(h.out).toContain("groq/gpt-oss-120b: recorded test/fixtures/groq__gpt-oss-120b.json");
     expect(h.out).toContain("The budget did not stop the run.");
+  });
+});
+
+describe("what a live --caps-probe and --record send (fix round #11)", () => {
+  /** The attempt time limits main() asked for, and the one signal it got back for each. */
+  function timeLimits(h: ReturnType<typeof harness>) {
+    const limits: number[] = [];
+    const signal = new AbortController().signal;
+    h.deps.generateDeps = {
+      ...FAST,
+      timeoutSignal: (ms) => {
+        limits.push(ms);
+        return signal;
+      },
+    };
+    return { limits, signal };
+  }
+
+  it("--caps-probe: the largest prompt (the caps snapshot with the repair lines), at most 256 output tokens, the attempt's time limit", async () => {
+    const h = harness({ answer: async () => ({ json: undefined, model: "fake", usage: { inputTokens: 51_234, outputTokens: 256 }, stop: "max_tokens" }) });
+    const { limits, signal } = timeLimits(h);
+    expect(await main(["--caps-probe", "--live", "--max-usd", "1", "--only", GEMMA], h.deps)).toBe(0);
+    expect(h.sent).toHaveLength(1);
+    const { snapshot, request } = h.sent[0]!;
+    expect(snapshot).toBe(CAPS_SNAPSHOT);
+    expect(request).toEqual({ ...buildPrompt(CAPS_SNAPSHOT, CAPS_REPAIR), jsonSchema: AI_DRAFT_JSON_SCHEMA, maxOutputTokens: 256, signal });
+    expect(request.signal).toBe(signal);
+    expect(limits).toEqual([ATTEMPT_TIMEOUT_MS]);
+    expect(ATTEMPT_TIMEOUT_MS).toBe(90_000);
+  });
+
+  it("--record: the ord-plumb prompt, at most MAX_OUTPUT_TOKENS output tokens, the attempt's time limit", async () => {
+    const h = harness();
+    const { limits, signal } = timeLimits(h);
+    const ordPlumb = EVAL_PROFILES.find((p) => p.id === "ord-plumb")!.snapshot;
+    expect(await main(["--record", "--live", "--max-usd", "1", "--only", GEMMA], h.deps)).toBe(0);
+    expect(h.sent).toHaveLength(1);
+    const { snapshot, request } = h.sent[0]!;
+    expect(snapshot).toBe(ordPlumb);
+    expect(request).toEqual({ ...buildPrompt(ordPlumb), jsonSchema: AI_DRAFT_JSON_SCHEMA, maxOutputTokens: MAX_OUTPUT_TOKENS, signal });
+    expect(request.signal).toBe(signal);
+    expect(limits).toEqual([ATTEMPT_TIMEOUT_MS]);
   });
 });
 
