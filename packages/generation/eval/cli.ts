@@ -150,7 +150,10 @@ const NO_PRICE = "no recorded price: cannot be run live";
  */
 const SDK_VARIABLES = ["ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_LOG", "ANTHROPIC_CUSTOM_HEADERS"] as const;
 
-/** Runs the command; returns its exit code: 0, 1 when --caps-probe could not measure every model, 2 for refused flags. */
+/**
+ * Runs the command; returns its exit code: 0, 1 when --caps-probe could not measure every model, 2 for refused flags.
+ * An exception that ends a live evaluation early is passed on once what completed is written (main.ts then exits 1).
+ */
 export async function main(argv: readonly string[], deps: CliDeps = REAL): Promise<number> {
   for (const name of SDK_VARIABLES) delete process.env[name];
   const flags = parseFlags(argv, deps.candidates.map((candidate) => candidate.label));
