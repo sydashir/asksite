@@ -2,7 +2,7 @@
 export const LIMITS = {
   generationsPerSitePerDay: 5,
   generationsPerOwnerTotal: 20,
-  defaultDailyModelLimit: 30, // model-calling jobs per UTC day, all owners (overridden by settings / env)
+  defaultDailyModelLimit: 8, // model-calling jobs per UTC day, all owners: the money-safe fallback when no valid setting or env value exists (Decision 4)
   uploadsPerSite: 40, // non-deleted
   uploadsPerSiteTotal: 150, // every upload ever, soft-deleted included: bounds R2 and Images spend
   uploadMaxBytes: 10 * 1024 * 1024,
