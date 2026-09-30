@@ -81,6 +81,35 @@ describe("the contact form without IP_HASH_KEY", () => {
   });
 });
 
+// QA-2 RU(3) review I-1: live slugs are public, so a script can send a live host any number of wrong
+// paths. The 404 names the business from the LIVE object's metadata alone and never asks D1, the one
+// single-threaded database every Worker shares (Decision 24). Only here can a test count the reads.
+describe("the 404 page on a live host", () => {
+  it("answers a burst of wrong paths with the link, one R2 head each and no D1 query", async () => {
+    const heads: string[] = [];
+    const LIVE = {
+      head: async (key: string) => {
+        heads.push(key);
+        return { customMetadata: { siteId: "7c9e6679-7425-40de-944b-e07fc1f90ae7", versionId: "v", businessName: "Joe's Plumbing" } };
+      },
+    };
+    // A D1 that would call the site live, recording every use of the binding.
+    const d1: string[] = [];
+    const statement = { bind: () => statement, first: async () => ({ indexable: 1, live_version_id: "v" }) };
+    const DB = new Proxy({}, { get: (_, key) => (d1.push(String(key)), () => statement) });
+    const liveEnv = { ...env(), LIVE, DB } as unknown as Env;
+    const paths = ["/robots.txt", "/wp-login.php", "/contact", "/_f/not-an-id/sent", ...Array.from({ length: 196 }, (_, i) => `/x${i}`)];
+    for (const [i, path] of paths.entries()) {
+      const method = i % 2 === 0 ? "GET" : "HEAD";
+      const response = await worker.fetch(new Request(`https://joes.${ROOT}${path}`, { method }) as IncomingRequest, liveEnv, ctx);
+      expect(response.status, path).toBe(404);
+      if (method === "GET") expect(await response.text(), path).toContain('<p><a href="/">Go to Joe\'s Plumbing\'s page</a></p>');
+    }
+    expect(d1).toEqual([]);
+    expect(heads).toEqual(paths.map(() => "joes.html"));
+  });
+});
+
 // Pin added after Task 14's brief (test-only): the workerd cron test proves which leads are deleted;
 // only here can a test read the run's log line (design §7.3 item 5; one line with the count).
 describe("the scheduled handler", () => {

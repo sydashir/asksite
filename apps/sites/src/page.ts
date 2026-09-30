@@ -1,5 +1,4 @@
 import { liveKey, siteUrl } from "@asksite/core";
-import { businessOf } from "./business.ts";
 import type { Env } from "./env.ts";
 import { livePageHeaders } from "./headers.ts";
 import { notFound, unavailable } from "./pages.ts";
@@ -42,22 +41,4 @@ export async function servePage(env: Env, ctx: ExecutionContext, slug: string): 
   const response = new Response(body, { headers: livePageHeaders(root, site.indexable === 1) });
   ctx.waitUntil(cache.put(cacheKey, response.clone()));
   return response;
-}
-
-/**
- * The business name for the 404 page on a site host (QA-2 RU(3)), so a wrong path links to the site's page;
- * null keeps the plain 404. As for the page, R2 is read first: a host with no LIVE object (unknown or
- * never approved), or one whose object holds no name (stored before the name was), never reaches D1
- * (Decision 24). D1 then decides, so a taken-down site's host keeps the plain 404 even if LIVE still holds
- * its bytes. A failed read also keeps the plain 404, which is right without the link.
- */
-export async function liveSiteName(env: Pick<Env, "DB" | "LIVE">, slug: string): Promise<string | null> {
-  try {
-    const object = await env.LIVE.head(liveKey(slug));
-    const name = object === null ? null : businessOf(object.customMetadata).name;
-    if (name === null) return null;
-    return (await env.DB.prepare(LIVE_SITE).bind(slug).first()) === null ? null : name;
-  } catch {
-    return null;
-  }
 }

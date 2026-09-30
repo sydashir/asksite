@@ -1,11 +1,11 @@
 import { isId, parseHost } from "@asksite/core";
 import { securityTxt } from "./apex.ts";
-import { formBusiness } from "./business.ts";
+import { formBusiness, liveSiteName } from "./business.ts";
 import type { Env } from "./env.ts";
 import { handleForm } from "./form.ts";
 import { plainHeaders } from "./headers.ts";
 import { serveMedia } from "./media.ts";
-import { liveSiteName, servePage } from "./page.ts";
+import { servePage } from "./page.ts";
 import { apexPlaceholder, notFound, thankYou } from "./pages.ts";
 
 export interface Routed {
@@ -54,8 +54,9 @@ export async function route(request: Request, env: Env, ctx: ExecutionContext, n
       if (read && isId(sentId)) {
         return { route: "form_sent", response: thankYou(root, (await formBusiness(env.LIVE, host.slug, sentId)).name) };
       }
-      // A browser's wrong path on a live site links to the site's page (QA-2 RU(3)); other methods get the plain 404.
-      if (read) return { route: "not_found", response: notFound(root, await liveSiteName(env, host.slug)) };
+      // A browser's wrong path on a live site links to the site's page (QA-2 RU(3)), named from the LIVE object
+      // alone, never D1 (Decision 24); other methods get the plain 404.
+      if (read) return { route: "not_found", response: notFound(root, await liveSiteName(env.LIVE, host.slug)) };
       break;
     }
     case "unknown":

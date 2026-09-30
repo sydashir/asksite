@@ -1,10 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { businessOf, formBusiness } from "../src/business.ts";
-import { liveSiteName } from "../src/page.ts";
+import { businessOf, formBusiness, liveSiteName } from "../src/business.ts";
 
 // What the fixed pages read from the LIVE object's metadata (A15; QA-2 RU(2), RU(3), RU(4)). The Worker
-// tests cover the real bindings; these fakes cover what the local harness cannot do: an R2 or D1 read that
-// throws, and proof that a host with no name never asks D1.
+// tests cover the real bindings; these fakes cover what the local harness cannot do: an R2 read that throws.
 
 const SITE_ID = "7c9e6679-7425-40de-944b-e07fc1f90ae7";
 const METADATA = { siteId: SITE_ID, versionId: "v", businessName: "Reliable Rooter Plumbing", phoneText: "(512) 555-0142", phoneTel: "+15125550142" };
@@ -20,23 +18,6 @@ function liveBucket(object: { customMetadata?: Record<string, string> } | null |
     },
   } as unknown as R2Bucket;
   return { live, calls };
-}
-
-/** A D1 whose first() answers `row` (or throws it), counting the queries. */
-function database(row: object | null | Error) {
-  const queries: string[] = [];
-  const db = {
-    prepare: (sql: string) => ({
-      bind: () => ({
-        first: async () => {
-          queries.push(sql);
-          if (row instanceof Error) throw row;
-          return row;
-        },
-      }),
-    }),
-  } as unknown as D1Database;
-  return { db, queries };
 }
 
 describe("businessOf", () => {
@@ -68,27 +49,18 @@ describe("formBusiness (the thank-you and rate-limit pages)", () => {
 });
 
 describe("liveSiteName (the 404 page)", () => {
-  it("names the business when the host's LIVE object has a name and D1 calls the site live", async () => {
-    const { db, queries } = database({ indexable: 1, live_version_id: "v" });
-    expect(await liveSiteName({ LIVE: liveBucket({ customMetadata: METADATA }).live, DB: db }, "joes")).toBe("Reliable Rooter Plumbing");
-    expect(queries).toHaveLength(1);
-    expect(queries[0]).toContain("taken_down_at IS NULL");
+  it("names the business from the host's LIVE object alone", async () => {
+    const { live, calls } = liveBucket({ customMetadata: METADATA });
+    expect(await liveSiteName(live, "joes")).toBe("Reliable Rooter Plumbing");
+    expect(calls).toEqual(["joes.html"]);
   });
 
   it.each([
-    ["no LIVE object (an unknown or never-approved host)", null],
+    ["no LIVE object (an unknown, never-approved or taken-down host)", null],
     ["an object stored before the name was", { customMetadata: { ...METADATA, businessName: "" } }],
+    ["an object with no metadata", {}],
     ["an R2 failure", new Error("R2 is unavailable")],
-  ])("gives no name and never asks D1 with %s", async (_, object) => {
-    const { db, queries } = database({ indexable: 1, live_version_id: "v" });
-    expect(await liveSiteName({ LIVE: liveBucket(object).live, DB: db }, "joes")).toBeNull();
-    expect(queries).toEqual([]);
-  });
-
-  it.each([
-    ["D1 does not call the site live (taken down or not approved)", null],
-    ["D1 fails", new Error("D1 is unavailable")],
-  ])("gives no name when %s", async (_, row) => {
-    expect(await liveSiteName({ LIVE: liveBucket({ customMetadata: METADATA }).live, DB: database(row).db }, "joes")).toBeNull();
+  ])("gives no name with %s", async (_, object) => {
+    expect(await liveSiteName(liveBucket(object).live, "joes")).toBeNull();
   });
 });

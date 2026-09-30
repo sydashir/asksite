@@ -242,8 +242,8 @@ describe("pinned edges", () => {
 });
 
 // QA-2 RU(3): a wrong or old address on a live site's host links to the site's page, named from the LIVE
-// object's metadata. Hosts with no live page (unknown, never approved, taken down) keep the plain 404,
-// whose "/" would be the same page, and so does any other method or a failed read.
+// object's metadata alone. Hosts with no LIVE object (unknown, never approved, taken down) keep the plain
+// 404, whose "/" would be the same page, and so does any other method or a failed read.
 describe("the 404 page on a site host", () => {
   const PLAIN = "<p>There is no page at this address. Please check the address and try again.</p>\n</main>";
   const LINK = '<p>There is no page at this address. Please check the address and try again.</p>\n<p><a href="/">Go to Reliable Rooter Plumbing\'s page</a></p>\n</main>';
@@ -262,16 +262,9 @@ describe("the 404 page on a site host", () => {
     expect((await get(at(site.slug))).status).toBe(200); // where the link goes
   });
 
-  it.each([
-    ["a host with no approved page", { live: false, withObject: false }],
-    ["a site D1 does not call live, even with a LIVE object", { live: false, withObject: true }],
-    ["a taken-down site whose LIVE object is still there", { takenDown: true }],
-  ])("keeps the plain 404 on %s", async (_, options) => {
-    const site = await seedSite(tools, { ...options, metadata: BUSINESS_METADATA });
-    expect(await notFoundPage(at(site.slug, "/contact"))).toContain(PLAIN);
-  });
-
-  it("keeps the plain 404 for a page stored before the name was, and on an unknown host", async () => {
+  it("keeps the plain 404 on a host with no approved page, for a page stored before the name was, and on an unknown host", async () => {
+    const pending = await seedSite(tools, { live: false, metadata: BUSINESS_METADATA });
+    expect(await notFoundPage(at(pending.slug, "/contact"))).toContain(PLAIN);
     const legacy = await seedSite(tools, { metadata: PHONE_METADATA });
     expect(await notFoundPage(at(legacy.slug, "/contact"))).toContain(PLAIN);
     expect(await notFoundPage(at("no-such-shop", "/contact"))).toContain(PLAIN);
@@ -284,14 +277,20 @@ describe("the 404 page on a site host", () => {
     expect(head.status).toBe(404);
   });
 
-  it("keeps the plain 404, not a 503, when D1 fails", async () => {
+  // Review I-1: live slugs are public, so the link must not cost a D1 query (Decision 24; worker.test counts
+  // a burst). A takedown deletes the LIVE object; until a failed delete is retried, the link stays, and its
+  // "/" answers the plain 404.
+  it("takes the name from the LIVE object alone: no D1 needed, even while a failed takedown delete leaves the object", async () => {
     const site = await seedSite(tools, { metadata: BUSINESS_METADATA });
+    const down = await seedSite(tools, { takenDown: true, metadata: BUSINESS_METADATA });
     await tools.DB.prepare("ALTER TABLE sites RENAME TO sites_offline").run();
     try {
-      expect(await notFoundPage(at(site.slug, "/contact"))).toContain(PLAIN);
+      for (const path of ["/x1", "/x1", "/x2", "/robots.txt", "/wp-login.php"]) expect(await notFoundPage(at(site.slug, path))).toContain(LINK);
     } finally {
       await tools.DB.prepare("ALTER TABLE sites_offline RENAME TO sites").run();
     }
+    expect(await notFoundPage(at(down.slug, "/contact"))).toContain(LINK);
+    expect(await notFoundPage(at(down.slug))).toContain(PLAIN);
   });
 
   it("escapes the name", async () => {

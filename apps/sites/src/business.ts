@@ -25,15 +25,31 @@ export function businessOf(metadata: Record<string, string> | undefined): Busine
 }
 
 /**
- * The business behind the form `siteId` on the host `slug`: nothing when the host has no LIVE object, the
- * object is another site's, or R2 fails. It only adds words to a page that is right without them (the
- * thank-you and rate-limit pages), so a failure never turns that page into an error.
+ * The customMetadata of the LIVE object on the host `slug`, from one R2 head; undefined when there is no
+ * object or R2 fails. It only adds words to pages that are right without them, so a failure never turns
+ * such a page into an error.
  */
-export async function formBusiness(live: Pick<R2Bucket, "head">, slug: string, siteId: string): Promise<Business> {
+async function liveMetadataOf(live: Pick<R2Bucket, "head">, slug: string): Promise<Record<string, string> | undefined> {
   try {
-    const object = await live.head(liveKey(slug));
-    return object !== null && object.customMetadata?.["siteId"] === siteId ? businessOf(object.customMetadata) : NO_BUSINESS;
+    return (await live.head(liveKey(slug)))?.customMetadata;
   } catch {
-    return NO_BUSINESS;
+    return undefined;
   }
+}
+
+/** The business behind the form `siteId` on the host `slug`, for the thank-you and rate-limit pages; nothing for another site's object. */
+export async function formBusiness(live: Pick<R2Bucket, "head">, slug: string, siteId: string): Promise<Business> {
+  const metadata = await liveMetadataOf(live, slug);
+  return metadata?.["siteId"] === siteId ? businessOf(metadata) : NO_BUSINESS;
+}
+
+/**
+ * The name for the 404 page on the host `slug` (QA-2 RU(3)), so a wrong path links to the site's page; null
+ * keeps the plain 404. Live slugs are public and a script can send any number of wrong paths, so this reads
+ * the LIVE object alone and never D1, the one single-threaded database every Worker shares (Decision 24;
+ * review I-1). A takedown deletes the object; until a failed delete is retried the link stays, and its "/"
+ * answers the plain 404 (D1 decides the page).
+ */
+export async function liveSiteName(live: Pick<R2Bucket, "head">, slug: string): Promise<string | null> {
+  return businessOf(await liveMetadataOf(live, slug)).name;
 }
