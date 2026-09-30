@@ -2,6 +2,7 @@ import { ApiError, apiHeaders, handleError, handleNotFound, rateLimit, requireOr
 import { Hono, type MiddlewareHandler } from "hono";
 import { adminEmail, type AccessKeys } from "./access.ts";
 import type { AdminDeps } from "./deps.ts";
+import { inviteRoutes } from "./routes/invites.ts";
 import type { AdminEnv } from "./types.ts";
 
 /**
@@ -18,7 +19,7 @@ const sameOriginOnly: MiddlewareHandler<AdminEnv> = async (c, next) => {
 };
 
 /** The admin API. Every route needs Access plus the allowlist, and every change is audited (§4.5). */
-export function createAdminApp(_deps: AdminDeps, keys: AccessKeys): Hono<AdminEnv> {
+export function createAdminApp(deps: AdminDeps, keys: AccessKeys): Hono<AdminEnv> {
   const app = new Hono<AdminEnv>();
   app.use("/api/*", apiHeaders());
   // In this order (moderator ruling, 2026-09-29): Fetch Metadata, the Origin check, Access and the allowlist,
@@ -33,6 +34,7 @@ export function createAdminApp(_deps: AdminDeps, keys: AccessKeys): Hono<AdminEn
     await next();
   });
   app.get("/api/admin/me", (c) => c.json({ email: c.get("admin") }));
+  app.route("/api/admin", inviteRoutes(deps));
   app.notFound(handleNotFound);
   app.onError(handleError);
   return app;
