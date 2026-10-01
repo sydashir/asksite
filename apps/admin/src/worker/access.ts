@@ -32,7 +32,7 @@ export const allowlist = (list: string): string[] => list.split(",").map(normali
 const isLocalhost = (hostname: string): boolean => hostname === "localhost" || hostname.endsWith(".localhost");
 
 /** Why the gate refused, as a log token (never the token, an email or a key). */
-export type RefusalReason = "no_token" | "invalid_token" | "not_on_list" | "keys_unavailable";
+export type RefusalReason = "no_token" | "invalid_token" | "not_on_list" | "keys_unavailable" | "config_mismatch";
 
 export type AdminAccess = { email: string } | { refused: RefusalReason };
 
@@ -42,8 +42,12 @@ const TOKEN_FAULTS = new Set(["ERR_JOSE_ALG_NOT_ALLOWED", "ERR_JOSE_NOT_SUPPORTE
 /**
  * jose's own error code (documented stable): a JWT_* or JWS_* error, or one of TOKEN_FAULTS, is the token's fault.
  * Anything else (a JWKS timeout, a non-200 or unparseable key response, a network failure) means the keys could not be had.
+ * A token whose signature verified but whose audience or issuer is not ours (JWTClaimValidationFailed, whose `claim`
+ * names it; jose validates claims only after the signature, so the token is genuine) is "config_mismatch": most
+ * likely a mistyped ACCESS_AUD or ACCESS_TEAM_DOMAIN here, which the log must tell from an attack. Only the claim's name is used, never its value.
  */
 function refusalFor(error: unknown): RefusalReason {
+  if (error instanceof errors.JWTClaimValidationFailed && (error.claim === "aud" || error.claim === "iss")) return "config_mismatch";
   const code = error instanceof errors.JOSEError ? error.code : "";
   return code.startsWith("ERR_JWT_") || code.startsWith("ERR_JWS_") || TOKEN_FAULTS.has(code) ? "invalid_token" : "keys_unavailable";
 }

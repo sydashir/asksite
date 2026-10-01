@@ -93,8 +93,9 @@ function PublishScreen({ siteId, site, view, facts }: { siteId: string; site: Si
   }
 
   // A takedown also rejects the waiting version, with Plan 2's own note: that is not a request for a change (the takedown notice explains it).
-  const lastReviewed = versions.find((v) => v.status !== "pending" && v.status !== "superseded" && v.status !== "withdrawn" && v.reviewNote !== TAKEDOWN_REVIEW_NOTE);
-  const rejected = !view.takenDown && !view.inReview && lastReviewed?.status === "rejected" ? lastReviewed : null;
+  // It is still the newest review, so it ends the search: an older real rejection must not come back after a restore.
+  const lastReviewed = versions.find((v) => v.status !== "pending" && v.status !== "superseded" && v.status !== "withdrawn");
+  const rejected = !view.takenDown && !view.inReview && lastReviewed?.status === "rejected" && lastReviewed.reviewNote !== TAKEDOWN_REVIEW_NOTE ? lastReviewed : null;
   return (
     <section className="mx-auto max-w-2xl">
       <h1 ref={heading} tabIndex={-1} className="text-2xl font-bold">

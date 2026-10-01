@@ -11,6 +11,10 @@ const h = useAppHarness();
 
 type ErrorJson = { error: { code: string; message?: string } };
 
+/** What the owner reads at each cap (F23): at the 150 total, removing a photo never helps, so it must not be advised. */
+const KEPT_CAP_MESSAGE = "This site has reached its photo limit. Remove a photo to add another.";
+const TOTAL_CAP_MESSAGE = `This site has used all ${LIMITS.uploadsPerSiteTotal} of its photo uploads, including photos that were removed or could not be read. Removing a photo will not free up another.`;
+
 /** The answer to every upload refused as multipart (P4-17 Condition 3, P4-15 follow-up 2): one plain sentence, never the reason. */
 const didNotWork = { code: "bad_request", message: "That upload didn't work. Please try again." };
 
@@ -388,7 +392,7 @@ describe("POST /api/sites/:siteId/uploads", () => {
     const before = (await imagesCalls()).length;
     const full = await h.call("POST", `/api/sites/${kept.siteId}/uploads`, { cookie: kept.cookie, body: upload(await png(400, 300), "x.png") });
     expect(full.status).toBe(429);
-    expect((await json<ErrorJson>(full)).error.code).toBe("upload_limit_reached");
+    expect((await json<ErrorJson>(full)).error).toMatchObject({ code: "upload_limit_reached", message: KEPT_CAP_MESSAGE });
     expect(full.headers.get("Retry-After")).toBe("86400");
 
     const churned = await h.signIn();
@@ -397,6 +401,7 @@ describe("POST /api/sites/:siteId/uploads", () => {
     }
     const res = await h.call("POST", `/api/sites/${churned.siteId}/uploads`, { cookie: churned.cookie, body: upload(await png(400, 300), "x.png") });
     expect(res.status).toBe(429);
+    expect((await json<ErrorJson>(res)).error.message).toBe(TOTAL_CAP_MESSAGE);
     // Both were refused by the pre-check, before any transform: a refused upload costs nothing (§8 step 2).
     expect((await imagesCalls()).length).toBe(before);
   });
@@ -427,7 +432,7 @@ describe("POST /api/sites/:siteId/uploads", () => {
       const before = (await imagesCalls()).length;
       const res = await h.call("POST", `/api/sites/${owner.siteId}/uploads`, { cookie: owner.cookie, body: upload(await png(400, 300), "x.png") });
       expect(res.status).toBe(429);
-      expect((await json<ErrorJson>(res)).error.code).toBe("upload_limit_reached");
+      expect((await json<ErrorJson>(res)).error).toMatchObject({ code: "upload_limit_reached", message: cap === "kept" ? KEPT_CAP_MESSAGE : TOTAL_CAP_MESSAGE });
       expect(res.headers.get("Retry-After")).toBe("86400");
       // The pre-check passed, and the INSERT that reserves the upload's row refused it before the billed transform (P4-21).
       expect((await imagesCalls()).slice(before)).toEqual([]);
@@ -942,6 +947,20 @@ describe.each(["info", "output"] as const)("when the Images binding fails in .%s
     expect(res.status).toBe(500);
     expect((await json<ErrorJson>(res)).error.code).toBe("internal");
     expect(rows).toEqual([]);
+  });
+
+  // F1 honest text: a code-less Images 5xx arrives as 9523, so the answer must be true for a corrupt file and for an outage.
+  it("answers Images error 9523 with text that is true for a corrupt photo and for an outage", async () => {
+    const { res } = await uploadWhileImagesFails(9523);
+    expect((await json<ErrorJson>(res)).error.message).toBe(
+      "We couldn't process that photo. If it opens fine on your device, please try again in a few minutes.",
+    );
+  });
+
+  // F1: the code is the only way to tell an outage (a bare 5xx arrives as 9523) or a used-up allowance (9422) from a bad photo.
+  it.each([9523, 9422])("writes Images error %i and the step that met it on the request's line", async (code) => {
+    await uploadWhileImagesFails(code);
+    expect(lastUploadLine()).toMatchObject({ images_step: step, images_code: code });
   });
 
   it("answers a failure that is no Images error as 500 internal, and logs it as one", async () => {

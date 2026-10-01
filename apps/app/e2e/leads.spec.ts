@@ -32,6 +32,8 @@ test("a message shows its line break, its service and the email-failed notice", 
   await expect(maria.getByText("Plumbing repair", { exact: true })).toBeVisible();
   await expect(maria.getByText("We could not email you this message, so it is only here.")).toBeVisible();
   const sam = page.getByRole("listitem").filter({ has: page.getByRole("heading", { name: "Sam T." }) });
+  // Sam's card must be there before its missing notice means anything.
+  await expect(sam.getByRole("heading", { level: 2, name: "Sam T." })).toBeVisible();
   await expect(sam.getByText("We could not email you this message, so it is only here.")).toHaveCount(0);
 });
 
@@ -57,7 +59,8 @@ test("a double-click on Show older messages lists every message exactly once", a
 test("pressing Enter on Show older messages keeps keyboard focus on the button while pages are left, then moves it to the first new message", async ({ page }) => {
   const siteId = await builtSite(page);
   const now = Date.now();
-  for (let i = 0; i < 101; i++) {
+  // 102 leads: the last page holds two, so a focus on the last card instead of the first new one is caught.
+  for (let i = 0; i < 102; i++) {
     await page.request.post(`${APP}/__test/sites/${siteId}/leads`, { data: { name: `Visitor ${i}`, phone: "(512) 555-0100", createdAt: now - i * 1000 } });
   }
   // Each older-page request waits at this gate until the test lets it through.
@@ -93,8 +96,21 @@ test("pressing Enter on Show older messages keeps keyboard focus on the button w
   await expect.poll(() => olderRequests).toBe(2);
   release();
   // The last page: the button is gone and focus moves to the first new message.
-  await expect(cards).toHaveCount(101);
+  await expect(cards).toHaveCount(102);
   await expect(older).toHaveCount(0);
   await expect(page.getByRole("listitem").filter({ hasText: "Visitor 100" })).toBeFocused();
   expect(olderRequests).toBe(2);
+});
+
+test("a failed Show older messages is announced as an alert", async ({ page }) => {
+  const siteId = await builtSite(page);
+  const now = Date.now();
+  for (let i = 0; i < 51; i++) {
+    await page.request.post(`${APP}/__test/sites/${siteId}/leads`, { data: { name: `Visitor ${i}`, phone: "(512) 555-0100", createdAt: now - i * 1000 } });
+  }
+  await page.route("**/leads?*before=*", (route) => route.fulfill({ status: 500, json: { error: { code: "internal", message: "Something went wrong. Please try again." } } }));
+  await page.goto(`/sites/${siteId}/leads`);
+  await expect(page.getByRole("heading", { level: 2 })).toHaveCount(50);
+  await page.getByRole("button", { name: "Show older messages" }).click();
+  await expect(page.getByRole("alert")).toContainText("Something went wrong. Please try again.");
 });

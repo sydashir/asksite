@@ -65,8 +65,12 @@ export function publishRoutes(deps: AppDeps): Hono<AppEnv> {
       if (parsed.success) document = parsed.data;
       else issues.push(...toIssues(parsed.error));
     }
-    const brief = Brief.safeParse(draft.brief);
-    const attested = brief.success && brief.data.reviewsAreReal;
+    // The attestation is read from its own field, never from the whole Brief: another invalid field must not hide a
+    // ticked box (the owner would be told to confirm what they already confirmed). The Brief is not published, and the
+    // setup page already shows its issues, so no other Brief problem blocks here. Only a box that is true counts.
+    const ticked = typeof draft.brief === "object" && draft.brief !== null ? (draft.brief as Record<string, unknown>)["reviewsAreReal"] : undefined;
+    const attestation = Brief.shape.reviewsAreReal.safeParse(ticked);
+    const attested = attestation.success && attestation.data;
     if (document !== null && document.facts.testimonials.length > 0 && !attested) {
       issues.push({ path: ["brief", "reviewsAreReal"], code: "attestation_required", message: "Confirm that your reviews are from real customers" });
     }

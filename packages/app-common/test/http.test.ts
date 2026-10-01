@@ -213,6 +213,57 @@ describe("requireOrigin", () => {
   });
 });
 
+// F10 (CSRF, the first of the two controls): every method but GET and HEAD must carry exactly our own Origin.
+describe("requireOrigin on every state-changing method (F10)", () => {
+  const METHODS = ["POST", "PUT", "PATCH", "DELETE"] as const;
+  const send = (method: string, headers: Record<string, string>) => makeApp().request("/api/ok", { method, headers });
+
+  it.each(METHODS)("lets a %s with our own origin reach the route", async (method) => {
+    // The route only answers GET, so a request that got past the check ends at 404 (not found), never at 403.
+    expect((await send(method, { Origin: ORIGIN })).status).toBe(404);
+  });
+
+  // Each of these is a lookalike a weaker compare would accept: the wrong scheme or port, a trailing slash or path, a
+  // suffix or subdomain trick, another case, and the opaque origin "null" that sandboxed frames and redirects send.
+  const LOOKALIKES = [
+    "null",
+    "http://app.asksite.example",
+    "https://app.asksite.example:8443",
+    "https://app.asksite.example/",
+    "https://app.asksite.example/path",
+    "https://app.asksite.example.evil.example",
+    "https://evil.example/https://app.asksite.example",
+    "https://sub.app.asksite.example",
+    "https://APP.asksite.example",
+    "app.asksite.example",
+    "*",
+  ];
+
+  for (const method of METHODS) {
+    it(`refuses a ${method} from another origin, a lookalike or none, with 403 forbidden`, async () => {
+      for (const origin of ["https://evil.example", ...LOOKALIKES, undefined]) {
+        const res = await send(method, origin === undefined ? {} : { Origin: origin });
+        expect([origin, res.status, ((await res.json()) as ErrorJson).error.code]).toEqual([origin, 403, "forbidden"]);
+      }
+    });
+  }
+
+  it("lets GET and HEAD through whatever the Origin says", async () => {
+    for (const method of ["GET", "HEAD"]) {
+      for (const headers of [{}, { Origin: "https://evil.example" }, { Origin: "null" }]) {
+        expect([method, (await send(method, headers)).status]).toEqual([method, 200]);
+      }
+    }
+  });
+
+  it("refuses a form post whatever its body encoding says, before the route reads it", async () => {
+    for (const contentType of ["application/x-www-form-urlencoded", "multipart/form-data; boundary=x", "text/plain"]) {
+      const res = await makeApp().request("/api/echo", { method: "POST", body: "name=a", headers: { "Content-Type": contentType, Origin: "https://evil.example" } });
+      expect([contentType, res.status]).toEqual([contentType, 403]);
+    }
+  });
+});
+
 describe("requireOrigin when the expected origin is not configured (fails closed)", () => {
   function appReading(env: Record<string, string>) {
     const app = new Hono();
@@ -253,6 +304,43 @@ describe("readJson", () => {
 
   it("refuses a body that is not declared as JSON (403, like a cross-site form)", async () => {
     const res = await post("/api/echo", '{"name":"Joe"}', { "Content-Type": "text/plain" });
+    expect(res.status).toBe(403);
+  });
+
+  // F10 (CSRF, the second control): a body is read only when it is declared as JSON, which a cross-site <form> cannot send.
+  it.each([
+    "application/json",
+    "application/json; charset=utf-8",
+    "application/json ;charset=utf-8",
+    "APPLICATION/JSON",
+    "Application/Json;charset=UTF-8",
+  ])("reads a body declared as %s", async (contentType) => {
+    const res = await post("/api/echo", '{"name":"Joe"}', { "Content-Type": contentType });
+    expect([res.status, await res.json()]).toEqual([200, { name: "Joe" }]);
+  });
+
+  it.each([
+    "application/x-www-form-urlencoded",
+    "application/x-www-form-urlencoded; charset=utf-8",
+    "multipart/form-data; boundary=x",
+    "text/plain",
+    "text/plain;charset=UTF-8",
+    "text/json",
+    "application/jsonp",
+    "application/json-patch+json",
+    "application/vnd.api+json",
+    "x-application/json",
+    "text/plain; application/json",
+    "application/json,text/plain",
+    "",
+  ])("refuses a body declared as %j with 403 forbidden, even though it holds valid JSON", async (contentType) => {
+    const res = await post("/api/echo", '{"name":"Joe"}', { "Content-Type": contentType });
+    expect([res.status, ((await res.json()) as ErrorJson).error.code]).toEqual([403, "forbidden"]);
+  });
+
+  it("refuses a request with no Content-Type at all", async () => {
+    const res = await makeApp().request("/api/echo", { method: "POST", body: '{"name":"Joe"}', headers: { Origin: ORIGIN } });
+    // A string body makes the runtime add text/plain; either way it is not JSON.
     expect(res.status).toBe(403);
   });
 

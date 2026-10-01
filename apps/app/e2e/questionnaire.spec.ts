@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { acceptInvite, apiCall, APP, BRIEF, builtSite, expectAccessible, expectNoSidewaysScroll, FACTS, uniqueEmail, uniqueSlug } from "./support.ts";
+import { acceptInvite, apiCall, APP, BRIEF, builtSite, expectAccessible, expectNoSidewaysScroll, FACTS, finishGeneration, uniqueEmail, uniqueSlug } from "./support.ts";
 
 test("invite, then the seven questionnaire steps, then Build starts writing the website", async ({ page }) => {
   const email = uniqueEmail("journey");
@@ -227,4 +227,99 @@ test("with a draft already written, the last step says Go to the editor and star
   expect(generationPosts).toEqual([]);
   const view = await apiCall(page, "GET", `/api/sites/${siteId}`);
   expect(view.json?.["activeGeneration"]).toBeNull();
+});
+
+// STRICT (customer data): typing while the web address is being saved must never be lost.
+test("typing and Enter are blocked while the web address saves, and typing after it is kept", async ({ page }) => {
+  const siteId = await acceptInvite(page);
+  await page.goto(`/sites/${siteId}/setup/address`);
+  // The server takes the address at once, but its answer is slow: the window in which the saver's rev is stale.
+  await page.route(`**/api/sites/${siteId}/slug`, async (route) => {
+    const response = await route.fetch();
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    await route.fulfill({ response });
+  });
+  await page.getByLabel("Web address").fill(uniqueSlug("typing"));
+  await expect(page.getByText("This address is free. Save it to keep it.")).toBeVisible();
+  const comments = page.getByLabel("Anything we should know about this?");
+  await comments.fill("Before saving");
+  await expect(page.getByRole("status").filter({ hasText: "All changes saved." })).toBeVisible();
+  await page.getByRole("button", { name: "Save this web address" }).click();
+  // While the save runs the step is busy but keeps keyboard focus: the field is read-only, not disabled.
+  await expect(page.locator("form")).toHaveAttribute("aria-busy", "true");
+  await comments.focus();
+  await expect(comments).toBeFocused();
+  await page.keyboard.type(" typed while saving");
+  await expect(comments).toBeFocused();
+  // Read once, not polled: a typed character that was accepted and then dropped by the reload must not pass.
+  expect(await comments.inputValue()).toBe("Before saving");
+  // Enter inside a read-only field must not submit the step while the save runs.
+  await page.getByLabel("Web address").focus();
+  await page.keyboard.press("Enter");
+  await expect(page).toHaveURL(`${APP}/sites/${siteId}/setup/address`);
+  await expect(page.locator("form")).not.toHaveAttribute("aria-busy", "true");
+  // A submit on this unfilled step would draw the error summary: none may appear.
+  await expect(page.getByRole("heading", { name: /things? to fix/ })).toHaveCount(0);
+  await comments.focus();
+  await page.keyboard.type(" and after");
+  await expect(comments).toHaveValue("Before saving and after");
+  await expect(page.getByRole("status").filter({ hasText: "All changes saved." })).toBeVisible();
+  const view = await apiCall(page, "GET", `/api/sites/${siteId}`);
+  expect(view.json?.["slug"]).toMatch(/^typing-/);
+  expect(view.json?.["brief"]).toMatchObject({ comments: { address: "Before saving and after" } });
+});
+
+test("the web address is not saved while the owner's latest answers are unsaved", async ({ page }) => {
+  const siteId = await acceptInvite(page);
+  await page.goto(`/sites/${siteId}/setup/address`);
+  const puts: string[] = [];
+  page.on("request", (req) => req.method() === "PUT" && req.url().endsWith("/slug") && puts.push(req.url()));
+  await page.route(`**/api/sites/${siteId}/draft`, (route) =>
+    route.request().method() === "PATCH" ? route.fulfill({ status: 500, json: { error: { code: "internal", message: "Something went wrong. Please try again." } } }) : route.continue(),
+  );
+  await page.getByLabel("Web address").fill(uniqueSlug("unsaved"));
+  await expect(page.getByText("This address is free. Save it to keep it.")).toBeVisible();
+  await page.getByLabel("Anything we should know about this?").fill("Not saved yet");
+  await page.getByRole("button", { name: "Save this web address" }).click();
+  await expect(page.getByText("Your latest answers are not saved yet. Please try again in a moment.")).toBeVisible();
+  expect(puts).toEqual([]);
+  expect((await apiCall(page, "GET", `/api/sites/${siteId}`)).json?.["slug"]).toBeNull();
+  // The owner can act on it: once the answers save (SaveStatus "Try again"), the message goes and Save stores the address.
+  await page.unroute(`**/api/sites/${siteId}/draft`);
+  await page.getByRole("button", { name: "Try again" }).click();
+  await expect(page.getByRole("status").filter({ hasText: "All changes saved." })).toBeVisible();
+  await expect(page.getByText("Your latest answers are not saved yet.")).toHaveCount(0);
+  await page.getByRole("button", { name: "Save this web address" }).click();
+  await expect.poll(async () => (await apiCall(page, "GET", `/api/sites/${siteId}`)).json?.["slug"]).toMatch(/^unsaved-/);
+  expect((await apiCall(page, "GET", `/api/sites/${siteId}`)).json?.["brief"]).toMatchObject({ comments: { address: "Not saved yet" } });
+});
+
+test("after a failed first build, opening the build page again goes to the last step, not the first", async ({ page }) => {
+  const siteId = await acceptInvite(page);
+  await apiCall(page, "PATCH", `/api/sites/${siteId}/draft`, { rev: 1, facts: FACTS, brief: BRIEF });
+  await apiCall(page, "PUT", `/api/sites/${siteId}/slug`, { rev: 2, slug: uniqueSlug("failed") });
+  const started = await apiCall(page, "POST", `/api/sites/${siteId}/generations`, {});
+  await finishGeneration(page.request, (started.json?.["generation"] as { id: string }).id, "failed");
+  await page.goto(`/sites/${siteId}/build`);
+  await page.waitForURL(`${APP}/sites/${siteId}/setup/address`);
+  await expect(page.getByRole("heading", { level: 1, name: "Your web address" })).toBeFocused();
+});
+
+test("a service name of 40 characters with an emoji counts 40, not 41", async ({ page }) => {
+  const siteId = await acceptInvite(page);
+  await page.goto(`/sites/${siteId}/setup/services`);
+  await page.getByLabel("Service 1", { exact: true }).fill(`${"a".repeat(39)}😀`);
+  await expect(page.getByText("40 of 40 characters")).toBeVisible();
+});
+
+test("the move service buttons hand keyboard focus to the opposite button at either end", async ({ page }) => {
+  const siteId = await builtSite(page);
+  await page.goto(`/sites/${siteId}/setup/services`);
+  await page.getByRole("button", { name: "Move service 1 down" }).focus();
+  await page.keyboard.press("Enter");
+  await expect(page.getByLabel("Service 2", { exact: true })).toHaveValue("Drain cleaning");
+  await expect(page.getByRole("button", { name: "Move service 2 up" })).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(page.getByLabel("Service 1", { exact: true })).toHaveValue("Drain cleaning");
+  await expect(page.getByRole("button", { name: "Move service 1 down" })).toBeFocused();
 });

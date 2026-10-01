@@ -234,12 +234,15 @@ export async function fakeApprove(env: { DB: D1Database; WORK: R2Bucket; ROOT_DO
   return { siteId: version.site_id, liveUrl: siteUrl(env.ROOT_DOMAIN, version.slug) };
 }
 
-/** Writes to dev_outbox like Plan 2's log mailer. Addresses at mail-fails.example fail like a rejected send. */
+/** Writes to dev_outbox like Plan 2's log mailer. Addresses at mail-fails.example fail like a rejected send, and those at mail-unavailable.example like a 5xx after which the provider may have delivered. */
 export function fakeCreateMailer(env: MailerEnv): Mailer {
   return {
     async send(email) {
       if (email.to.endsWith("@mail-fails.example")) {
         throw Object.assign(new Error("rejected"), { name: "MailerError", code: "rejected" });
+      }
+      if (email.to.endsWith("@mail-unavailable.example")) {
+        throw Object.assign(new Error("unavailable"), { name: "MailerError", code: "unavailable" });
       }
       await env.DB.prepare("INSERT INTO dev_outbox (at, to_addr, subject, text, tag) VALUES (?, ?, ?, ?, ?)")
         .bind(Date.now(), email.to, email.subject, email.text, email.tag)

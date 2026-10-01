@@ -1,10 +1,13 @@
+import { readFileSync, writeFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { BROWSER_FLOOR_BUILD_TARGET } from "@asksite/app-common";
 import { cloudflare } from "@cloudflare/vite-plugin";
 import tailwindcss from "@tailwindcss/vite";
 import basicSsl from "@vitejs/plugin-basic-ssl";
 import react from "@vitejs/plugin-react";
 import { defineConfig, type Plugin } from "vite";
-import { buildVars, headersFile, workerConfigPath } from "./build-config.ts";
+import { buildVars, headersFile, undeployableLocalConfig, workerConfigPath } from "./build-config.ts";
 
 /** Writes _headers into the client build output only. */
 function staticHeaders(rootDomain: string, production: boolean): Plugin {
@@ -14,6 +17,28 @@ function staticHeaders(rootDomain: string, production: boolean): Plugin {
     applyToEnvironment: (environment) => environment.name === "client",
     generateBundle() {
       this.emitFile({ type: "asset", fileName: "_headers", source: headersFile(rootDomain, production) });
+    },
+  };
+}
+
+/**
+ * After the Cloudflare plugin has written the build's output config (its buildApp hook is also "post", and runs first
+ * because it is listed first), makes a development build undeployable to production (F5; undeployableLocalConfig).
+ * The config is found as `wrangler deploy` finds it, through .wrangler/deploy/config.json.
+ */
+function localBuildNotDeployable(root: string): Plugin {
+  return {
+    name: "asksite-local-build-not-deployable",
+    apply: "build",
+    buildApp: {
+      order: "post",
+      async handler() {
+        const redirect = resolve(root, ".wrangler/deploy/config.json");
+        const { configPath } = JSON.parse(readFileSync(redirect, "utf8")) as { configPath: string };
+        const output = resolve(dirname(redirect), configPath);
+        const config = JSON.parse(readFileSync(output, "utf8")) as Record<string, unknown>;
+        writeFileSync(output, JSON.stringify(undeployableLocalConfig(config)));
+      },
     },
   };
 }
@@ -42,6 +67,7 @@ export default defineConfig(({ mode }) => {
         configPath: workerConfigPath(mode),
         ...(mode === "e2e" ? { persistState: { path: ".wrangler/e2e-state" } } : {}),
       }),
+      ...(mode === "development" ? [localBuildNotDeployable(fileURLToPath(new URL(".", import.meta.url)))] : []),
     ],
     define: { __ROOT_DOMAIN__: JSON.stringify(rootDomain), __SUPPORT_EMAIL__: JSON.stringify(supportEmail), __TURNSTILE_SITE_KEY__: JSON.stringify(siteKey) },
     build: { outDir: mode === "e2e" ? "dist-e2e" : "dist", target: BUILD_TARGET },

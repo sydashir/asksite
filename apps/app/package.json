@@ -11,7 +11,7 @@
     "build:production": "vite build --mode production",
     "build:e2e": "vite build --mode e2e",
     "test:e2e": "playwright test",
-    "release": "vite build --mode production && wrangler deploy",
+    "release": "node release-guard.ts && vite build --mode production && wrangler deploy",
     "check:floor": "tsc -p tsconfig.floor.json && node ../../packages/app-common/scripts/check-browser-floor.ts tsconfig.floor.json"
   },
   "dependencies": {

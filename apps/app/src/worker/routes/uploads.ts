@@ -2,7 +2,7 @@ import { ApiError, logLine, noteLog, rateLimit, readBytes, runToEnd } from "@ask
 import { LIMITS, mediaKey, mediaUrl, newId, type UploadView } from "@asksite/core";
 import { type Context, Hono } from "hono";
 import { assertNotTakenDown, ownedSite, siteTakenDown } from "../db.ts";
-import { imageInfo, sizeProblem, sniffImage, toStillWebp } from "../images.ts";
+import { type ImagesReport, imageInfo, sizeProblem, sniffImage, toStillWebp } from "../images.ts";
 import { multipartBoundary, multipartShapeProblem } from "../multipart.ts";
 import { requireOwner } from "../session.ts";
 import type { AppEnv } from "../types.ts";
@@ -12,15 +12,34 @@ import { ageOutSiteReservations, finishPhoto, isTakenDown, markFailed, release, 
 const MULTIPART_OVERHEAD_BYTES = 16 * 1024;
 const UPLOAD_CAP_RETRY_SECONDS = 86_400;
 
-function limitReached(): ApiError {
-  return new ApiError("upload_limit_reached", "This site has reached its photo limit. Remove a photo to add another.", {
-    retryAfter: UPLOAD_CAP_RETRY_SECONDS,
-  });
+/** Which upload cap refused: the 40 photos kept, or the 150 uploads in total (removed and unreadable ones included). */
+type CapReached = "kept" | "total";
+
+interface UploadCounts {
+  total: number;
+  kept: number;
+}
+
+/** The cap the counts have reached, or null when both have room. The total wins: removing a photo never helps once it is reached. */
+function capReached(counts: UploadCounts | null | undefined): CapReached | null {
+  if (counts === null || counts === undefined) return null;
+  if (counts.total >= LIMITS.uploadsPerSiteTotal) return "total";
+  return counts.kept >= LIMITS.uploadsPerSite ? "kept" : null;
+}
+
+const COUNTS_SQL = "SELECT COUNT(*) AS total, COUNT(*) FILTER (WHERE deleted_at IS NULL) AS kept FROM uploads WHERE site_id = ?";
+
+function limitReached(cap: CapReached): ApiError {
+  const message =
+    cap === "total"
+      ? `This site has used all ${LIMITS.uploadsPerSiteTotal} of its photo uploads, including photos that were removed or could not be read. Removing a photo will not free up another.`
+      : "This site has reached its photo limit. Remove a photo to add another.";
+  return new ApiError("upload_limit_reached", message, { retryAfter: UPLOAD_CAP_RETRY_SECONDS });
 }
 
 /** The file is a real JPEG, PNG or WebP by its first bytes, but the image service cannot decode it. */
 function unreadablePhoto(): ApiError {
-  return new ApiError("image_rejected", "We could not read that photo. Please choose a JPG or PNG photo.");
+  return new ApiError("image_rejected", "We couldn't process that photo. If it opens fine on your device, please try again in a few minutes.");
 }
 
 /**
@@ -49,17 +68,13 @@ async function readForm(c: Context<AppEnv>, contentType: string, body: Uint8Arra
 }
 
 /**
- * The pre-check: whether both caps have room. Its batch (one transaction) first ages out the site's stale
+ * The pre-check: which cap, if any, is reached. Its batch (one transaction) first ages out the site's stale
  * reservations (P4-21), so one a request that died left behind holds a slot for at most 10 minutes; a live
  * reservation counts as kept, as it does in the INSERT that reserves.
  */
-async function underCaps(db: D1Database, siteId: string, now: number): Promise<boolean> {
-  const [, read] = await db.batch([
-    ageOutSiteReservations(db, siteId, now),
-    db.prepare("SELECT COUNT(*) AS total, COUNT(*) FILTER (WHERE deleted_at IS NULL) AS kept FROM uploads WHERE site_id = ?").bind(siteId),
-  ]);
-  const counts = read?.results[0] as { total: number; kept: number } | undefined;
-  return counts !== undefined && counts.kept < LIMITS.uploadsPerSite && counts.total < LIMITS.uploadsPerSiteTotal;
+async function capReachedBeforeUpload(db: D1Database, siteId: string, now: number): Promise<CapReached | null> {
+  const [, read] = await db.batch([ageOutSiteReservations(db, siteId, now), db.prepare(COUNTS_SQL).bind(siteId)]);
+  return capReached(read?.results[0] as UploadCounts | undefined);
 }
 
 /** A stored photo's row, as the answer shows it. */
@@ -103,17 +118,22 @@ async function cleanUp(step: CleanUpStep, ids: UploadIds, write: Promise<unknown
  * site_taken_down when the site was taken down and upload_limit_reached when the caps refuse the reservation (no
  * billed call ran in either case), and image_rejected once a failure is counted.
  */
-async function reserveTransformAndStore(env: Env, siteId: string, bytes: Uint8Array): Promise<StoredPhoto> {
+async function reserveTransformAndStore(env: Env, siteId: string, bytes: Uint8Array, report: ImagesReport): Promise<StoredPhoto> {
   const id = newId();
   const ids: UploadIds = { uploadId: id, siteId };
   const reservedAt = Date.now();
   const reservation = await reserve(env.DB, id, siteId, reservedAt);
   // Decision 39: the route checked the site before reading the body, whose pace the owner sets; it may be down now.
   if (reservation === "taken_down") throw siteTakenDown();
-  if (reservation === "full") throw limitReached();
+  if (reservation === "full") {
+    // The INSERT refused one cap or the other (or both); the counts now say which, so the owner is told what is true.
+    // A slot freed since is possible: the kept message then, as before.
+    const counts = await env.DB.prepare(COUNTS_SQL).bind(siteId).first<UploadCounts>();
+    throw limitReached(capReached(counts) ?? "kept");
+  }
   let still: Awaited<ReturnType<typeof toStillWebp>>;
   try {
-    still = await toStillWebp(env.IMAGES, bytes);
+    still = await toStillWebp(env.IMAGES, bytes, report);
   } catch (err) {
     // A failure that does not blame the file (images.ts) is ours: the row is released, as P4-14 rules.
     await cleanUp("release", ids, release(env.DB, id));
@@ -167,7 +187,8 @@ export function uploadRoutes(): Hono<AppEnv> {
     // Pre-check, before the body is read, so an upload the caps refuse costs no body read and no image work. It does
     // not keep the caps exact: uploads whose bodies arrive late all pass it together (the attack P4-21 fixes). The
     // INSERT that reserves the upload's row does, before any billed call (reserveTransformAndStore).
-    if (!(await underCaps(db, site.id, Date.now()))) throw limitReached();
+    const preCheck = await capReachedBeforeUpload(db, site.id, Date.now());
+    if (preCheck !== null) throw limitReached(preCheck);
 
     const body = await readBytes(c.req.raw, LIMITS.uploadMaxBytes + MULTIPART_OVERHEAD_BYTES);
     // Before the parse, which walks every part and every header byte (P4-15 d): a Content-Type other than the
@@ -187,7 +208,10 @@ export function uploadRoutes(): Hono<AppEnv> {
     const bytes = new Uint8Array(await file.arrayBuffer());
     if (sniffImage(bytes) === null) throw new ApiError("unsupported_media_type", "Please choose a JPG, PNG or WebP photo");
 
-    const info = await imageInfo(c.env.IMAGES, bytes);
+    // The Images code and step go on the request's line: a bare 5xx from the service arrives as 9523, which counts as the
+    // photo's fault, and only the code shows an outage or a used-up allowance (9422) apart from a bad photo.
+    const reportImagesError: ImagesReport = (step, code) => noteLog(c, { images_step: step, images_code: code });
+    const info = await imageInfo(c.env.IMAGES, bytes, reportImagesError);
     if (info === null) throw unreadablePhoto();
     const problem = sizeProblem(info.width, info.height);
     if (problem === "too_small") throw new ApiError("image_rejected", "That photo is too small. Please choose one at least 200 pixels wide and tall.");
@@ -199,7 +223,7 @@ export function uploadRoutes(): Hono<AppEnv> {
     // execution for up to 30 seconds after the response is sent or the client disconnects",
     // developers.cloudflare.com/workers/platform/limits/). Work that outlasts them leaves its reservation counted
     // until it is aged out into a counted failure (Task 27 measures it).
-    const photo = await runToEnd(c.executionCtx, reserveTransformAndStore(c.env, site.id, bytes));
+    const photo = await runToEnd(c.executionCtx, reserveTransformAndStore(c.env, site.id, bytes, reportImagesError));
     const view: UploadView = {
       id: photo.id,
       url: mediaUrl(c.env.ROOT_DOMAIN, site.id, photo.id),

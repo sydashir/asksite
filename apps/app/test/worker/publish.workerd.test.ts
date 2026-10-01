@@ -1,5 +1,5 @@
 import { MAX_ISSUES } from "@asksite/app-common";
-import { composeDocument, photoRefIssues, toIssues, utcDayStart, versionPageKey, type SiteView, type VersionSummary } from "@asksite/core";
+import { Brief, composeDocument, photoRefIssues, toIssues, utcDayStart, versionPageKey, type SiteView, type VersionSummary } from "@asksite/core";
 import { PAGE_IDS, SiteDocument, type PageId } from "@asksite/site-schema";
 import { describe, expect, it } from "vitest";
 import { VALID_BRIEF, VALID_FACTS } from "../support/facts.ts";
@@ -247,6 +247,23 @@ describe("POST /api/sites/:siteId/publish-requests", () => {
     const { version } = await json<{ version: VersionSummary }>(res);
     expect(version).toMatchObject({ number: 1, status: "pending" });
     expect((await view(owner)).pendingVersion?.id).toBe(version.id);
+  });
+
+  // F22 (honesty): the attestation is read from its own field. Another invalid Brief field must neither hide a ticked box
+  // (the owner would be told to confirm what they confirmed) nor let an unticked one through; no other Brief issue blocks.
+  it.each([
+    [true, 201],
+    [false, 422],
+  ])("reads the review attestation on its own: ticked %s with another Brief field invalid answers %i", async (ticked, status) => {
+    const facts = { ...VALID_FACTS, testimonials: [{ quote: "Fixed our leak fast.", name: "Ana" }] };
+    const built = await withSlug(await builtOwner(h, facts, { ...VALID_BRIEF, reviewsAreReal: ticked }), `own-field-${ticked}-plumbing`);
+    const invalid = { ...VALID_BRIEF, reviewsAreReal: ticked, differentiator: "x".repeat(141) };
+    expect(Brief.safeParse(invalid).success).toBe(false);
+    const saved = await h.call("PATCH", `/api/sites/${built.siteId}/draft`, { cookie: built.cookie, body: { rev: built.rev, brief: invalid } });
+    expect(saved.status).toBe(200);
+    const res = await h.call("POST", `/api/sites/${built.siteId}/publish-requests`, { cookie: built.cookie, body: { rev: ((await saved.json()) as { rev: number }).rev } });
+    expect(res.status).toBe(status);
+    if (!ticked) expect((await json<ErrorJson>(res)).error.issues?.map((i) => i.code)).toEqual(["attestation_required"]);
   });
 
   it("publishing again supersedes the pending version; withdraw clears it", async () => {
