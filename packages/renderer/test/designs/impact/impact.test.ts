@@ -502,6 +502,10 @@ describe("the Bold pages", () => {
     expect(heroOf(bold(roofing))).toContain('and <a href="/contact#service-area">27 more</a>');
   });
 
+  it("words a fixed line under the Contact heading when the owner's copy has no intro (a lone \"Book\" never stands alone)", () => {
+    expect(bold(fixture("cleaning-minimal"), "contact")).toMatch(/<h1 id="contact-title" class="pt display">Book<\/h1><p class="sec-intro">Send a quick request, or call us\.<\/p>/);
+  });
+
   it("gives the form the quote id, and puts the number before the form, where a phone shows it first", () => {
     const contact = bold(plumber, "contact");
     // Today's opening tag exactly, with no class: the sites Worker's pipeline test reads the form action from it.

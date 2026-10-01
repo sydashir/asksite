@@ -20,7 +20,8 @@ import { contactHeading } from "./rules.ts";
 
 export function renderContact(ctx: RenderContext, _variant: VariantOf<"contact">): SafeHtml {
   const { facts, copy } = ctx.doc;
-  const intro = copy.sectionIntros.contact;
+  // The AI's intro, or a fixed house line, so a short call to action ("Book") never stands alone as the page's title.
+  const intro = copy.sectionIntros.contact ?? "Send a quick request, or call us.";
   const head =
     headingLevel(ctx, "contact") === 1
       ? contactPageHeading(ctx, DOM_ID.contact, intro)
