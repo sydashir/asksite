@@ -425,6 +425,16 @@ describe("every fenced statement and every pointer re-check", () => {
         expect(await siteRow(env.DB, p.siteId)).toMatchObject({ taken_down_at: null });
       });
 
+      it("the lease lost during a put that lands and rejects: the pointer is still taken back out", async () => {
+        const p = await downSite();
+        const put = (...args: Parameters<R2Bucket["put"]>) =>
+          args[0] === livePointerKey(p.slug) ? env.LIVE.put(...args).then(() => steal(p.siteId)).then(() => Promise.reject(new Error("R2 timed out"))) : env.LIVE.put(...args);
+        const error = await failure(back(p.siteId, 50, T0, { ...env, LIVE: { ...watchBucket(env.LIVE), put } as unknown as R2Bucket }));
+        expect(await env.LIVE.head(livePointerKey(p.slug))).toBeNull(); // the take-back is deliberately not lease-checked
+        expect(detailOf(error)).toEqual({ code: "live_copy_failed", detail: { versionId: p.versionId } });
+        expect(await siteRow(env.DB, p.siteId)).toMatchObject({ taken_down_at: 50 });
+      });
+
       it("answers live_copy_failed, never the delete's error, and logs the pointer left when the take-back fails too", async () => {
         const p = await downSite();
         const logged = vi.spyOn(console, "error").mockImplementation(() => {});
