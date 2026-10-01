@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import { APP, apiCall, builtSite, expectAccessible, FACTS } from "./support.ts";
 
 test("send for review, see what is reviewed, withdraw, send again, then see it live", async ({ page }) => {
@@ -120,6 +120,18 @@ test("a taken-down site shows the notice and no way to send for review", async (
   await expect(page.getByRole("button", { name: "Send for review" })).toBeHidden();
 });
 
+/**
+ * Reloads the Publish page and returns once its version list has been fetched AND drawn. The list starts
+ * empty and fills after mount, so an absence check made earlier would pass for the wrong reason.
+ */
+async function reloadWithVersions(page: Page, siteId: string) {
+  const loaded = page.waitForResponse((res) => res.request().method() === "GET" && new URL(res.url()).pathname === `/api/sites/${siteId}/versions`);
+  await page.reload();
+  await loaded;
+  // The response is in; let React draw it before anything is asserted to be absent.
+  await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+}
+
 test("a takedown never shows as a requested change, and neither does the restore", async ({ page }) => {
   const siteId = await builtSite(page);
   const pendingId = async () => ((await apiCall(page, "GET", `/api/sites/${siteId}`)).json?.["pendingVersion"] as { id: string }).id;
@@ -133,12 +145,56 @@ test("a takedown never shows as a requested change, and neither does the restore
   await page.getByRole("button", { name: "Send for review" }).click();
   await expect(page.getByRole("heading", { name: "Waiting for approval" })).toBeVisible();
   await page.request.post(`${APP}/__test/sites/${siteId}/take-down`, { data: {} });
-  await page.reload();
+  // A slow list must not let the absence check pass before the versions have arrived.
+  await page.route(`**/api/sites/${siteId}/versions`, async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    await route.continue();
+  });
+  await reloadWithVersions(page, siteId);
   await expect(page.getByText("Your website has been taken offline, so visitors cannot see it.")).toBeVisible();
   await expect(page.getByText("We asked for a change")).toBeHidden();
 
   await page.request.post(`${APP}/__test/sites/${siteId}/restore`, { data: {} });
-  await page.reload();
+  await reloadWithVersions(page, siteId);
   await expect(page.getByText("Your website is live at")).toBeVisible();
   await expect(page.getByText("We asked for a change")).toBeHidden();
+});
+
+test("a real rejection is not shown as a requested change once the site is taken down", async ({ page }) => {
+  const siteId = await builtSite(page);
+  await page.goto(`/sites/${siteId}/publish`);
+  await page.getByRole("button", { name: "Send for review" }).click();
+  await expect(page.getByRole("heading", { name: "Waiting for approval" })).toBeVisible();
+  const pending = (await apiCall(page, "GET", `/api/sites/${siteId}`)).json?.["pendingVersion"] as { id: string };
+  await page.request.post(`${APP}/__test/versions/${pending.id}/reject`, { data: { note: "Please add your license number." } });
+  // Control: before the takedown this real note is shown.
+  await reloadWithVersions(page, siteId);
+  await expect(page.getByText("We asked for a change before your website goes live:")).toBeVisible();
+
+  await page.request.post(`${APP}/__test/sites/${siteId}/take-down`, { data: {} });
+  await reloadWithVersions(page, siteId);
+  await expect(page.getByText("Your website has been taken offline, so visitors cannot see it.")).toBeVisible();
+  await expect(page.getByText("We asked for a change")).toBeHidden();
+});
+
+test("after a restore, an older rejection does not come back as a requested change", async ({ page }) => {
+  const siteId = await builtSite(page);
+  const pendingId = async () => ((await apiCall(page, "GET", `/api/sites/${siteId}`)).json?.["pendingVersion"] as { id: string }).id;
+  await page.goto(`/sites/${siteId}/publish`);
+  await page.getByRole("button", { name: "Send for review" }).click();
+  await expect(page.getByRole("heading", { name: "Waiting for approval" })).toBeVisible();
+  await page.request.post(`${APP}/__test/versions/${await pendingId()}/reject`, { data: { note: "Fix X" } });
+  await reloadWithVersions(page, siteId);
+  await expect(page.getByText("Fix X")).toBeVisible();
+
+  // Version 2 is sent, then the site is taken down and restored: version 2 was never reviewed.
+  await page.getByRole("button", { name: "Send for review" }).click();
+  await expect(page.getByText(/^Version 2, sent/)).toBeVisible();
+  await page.request.post(`${APP}/__test/sites/${siteId}/take-down`, { data: {} });
+  await page.request.post(`${APP}/__test/sites/${siteId}/restore`, { data: {} });
+  await reloadWithVersions(page, siteId);
+  await expect(page.getByRole("heading", { name: "Publish your website" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Send for review" })).toBeVisible();
+  await expect(page.getByText("We asked for a change")).toBeHidden();
+  await expect(page.getByText("Fix X")).toBeHidden();
 });
