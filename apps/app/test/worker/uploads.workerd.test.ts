@@ -949,6 +949,14 @@ describe.each(["info", "output"] as const)("when the Images binding fails in .%s
     expect(rows).toEqual([]);
   });
 
+  // F1 honest text: a code-less Images 5xx arrives as 9523, so the answer must be true for a corrupt file and for an outage.
+  it("answers Images error 9523 with text that is true for a corrupt photo and for an outage", async () => {
+    const { res } = await uploadWhileImagesFails(9523);
+    expect((await json<ErrorJson>(res)).error.message).toBe(
+      "We couldn't process that photo. If it opens fine on your device, please try again in a few minutes.",
+    );
+  });
+
   // F1: the code is the only way to tell an outage (a bare 5xx arrives as 9523) or a used-up allowance (9422) from a bad photo.
   it.each([9523, 9422])("writes Images error %i and the step that met it on the request's line", async (code) => {
     await uploadWhileImagesFails(code);

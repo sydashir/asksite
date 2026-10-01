@@ -39,7 +39,7 @@ function limitReached(cap: CapReached): ApiError {
 
 /** The file is a real JPEG, PNG or WebP by its first bytes, but the image service cannot decode it. */
 function unreadablePhoto(): ApiError {
-  return new ApiError("image_rejected", "We could not read that photo. Please choose a JPG or PNG photo.");
+  return new ApiError("image_rejected", "We couldn't process that photo. If it opens fine on your device, please try again in a few minutes.");
 }
 
 /**
