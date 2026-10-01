@@ -301,10 +301,6 @@ for (const design of DESIGN_IDS) {
 
             test("passes axe (every WCAG 2.2 A/AA violation, landmarks, heading order) with every <details> closed, then open", MOBILE, async ({ page }) => {
               test.slow(); // four axe runs: triple the 30 s timeout (31.7 s once on a busy machine, Plan 2 Task 6)
-              // On /contact the form's Send button stacks above the sticky call bar (Plan 2B QA), so wherever the page's
-              // geometry puts Send behind the bar at the top (390 x 900 on hvac, cleaning, electrical) axe reports the bar's
-              // two buttons as partly obscured. Axe runs at the page's end, where the bar sits in its natural place.
-              if (id === "contact") await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
               const closed = await axeProblems(page);
               // Content inside a closed <details> is not rendered, so axe skips it: open them all and scan again.
               await page.evaluate(() => {
@@ -440,10 +436,9 @@ for (const design of DESIGN_IDS) {
         expect(await page.locator("img[src='x']").count()).toBe(0);
         expect(await page.title()).toBe(id === "home" ? payload : `${PAGES[id].label} | ${payload}`);
         await expect(page.locator('link[rel="canonical"]')).toHaveAttribute("href", ORIGIN + PAGES[id].path);
-        for (const ld of await page.locator('script[type="application/ld+json"]').allTextContents()) {
-          const data = JSON.parse(ld) as { "@type": string; name?: string };
-          if (data["@type"] === "LocalBusiness") expect(data.name).toBe(payload);
-        }
+        // The business (the block with a name; its @type is the trade's schema.org type, Electrician here) is on Home only, and holds the payload as text.
+        const blocks = (await page.locator('script[type="application/ld+json"]').allTextContents()).map((ld) => JSON.parse(ld) as { name?: string });
+        expect(blocks.flatMap((block) => block.name ?? [])).toEqual(id === "home" ? [payload] : []);
       });
     }
 
@@ -460,7 +455,9 @@ test.describe("the harness", () => {
     test.skip(!["chromium-1200", "webkit-390"].includes(testInfo.project.name), "proved once in Chromium and once in WebKit");
     const requested: string[] = [];
     const addresses: unknown[] = [];
+    const failures = new Map<string, string>();
     page.on("request", (request) => requested.push(request.url()));
+    page.on("requestfailed", (request) => failures.set(request.url(), request.failure()?.errorText ?? ""));
     page.on("response", async (response) => addresses.push(await response.serverAddr()));
     const handled = await open(page, "plumber-austin");
     // Reaches for the outside world: an image and a fetch from another host, a form post, a stylesheet.
@@ -480,6 +477,10 @@ test.describe("the harness", () => {
     expect(requested.filter((url) => /^https?:/.test(url)).sort()).toEqual(handled.map((h) => h.url).sort());
     expect(handled.filter((h) => h.how === "aborted").map((h) => h.url)).toEqual(["https://api.example.net/data", "https://forms.example.com/submit"]);
     expect(handled.filter((h) => h.how === "page").map((h) => h.url)).toEqual([`${ORIGIN}/`]);
+    // Each abort failed with route.abort()'s own reason (Chromium and WebKit word it differently), not with a name lookup or
+    // a connection error, which is what a request that was let out (route.continue()) would have failed with.
+    const aborted = ["https://api.example.net/data", "https://forms.example.com/submit"];
+    await expect.poll(() => aborted.map((url) => failures.get(url))).toEqual(aborted.map(() => (testInfo.project.name.startsWith("webkit") ? "Blocked by Web Inspector" : "net::ERR_FAILED")));
     // A fulfilled response has no server behind it.
     expect(addresses.every((address) => address === null)).toBe(true);
   });
