@@ -1,7 +1,7 @@
 // What Classic decides once per page, from the sections that render: which band each section sits on,
 // whether the credentials lift into the hero, which review the hero shows. Every section reads it.
 import type { Facts, SectionId } from "@asksite/site-schema";
-import { isVisible, type RenderContext } from "../../context.ts";
+import { onPage, onSite, type RenderContext } from "../../context.ts";
 
 export type Band = "paper" | "white";
 
@@ -54,8 +54,8 @@ export function heroQuoteIndex(reviews: Facts["testimonials"]): number {
 
 function makePlan(ctx: RenderContext): Plan {
   const { facts } = ctx.doc;
-  const ids = ctx.sections.map((s) => s.id);
-  const hero = ctx.sections.find((s) => s.id === "hero");
+  const ids = ctx.page.sections.map((s) => s.id);
+  const hero = ctx.page.sections.find((s) => s.id === "hero");
   const photo = hero?.variant === "photo" && facts.heroPhoto !== undefined;
   const liftFacts = facts.licences.length + (facts.insured ? 1 : 0) + (facts.freeEstimates ? 1 : 0);
   const lift = ids[1] === "trust" && liftFacts > 0;
@@ -68,7 +68,7 @@ function makePlan(ctx: RenderContext): Plan {
     else band[id] = previous = previous === "paper" ? "white" : "paper";
   }
 
-  const areaShown = isVisible(ctx, "serviceArea");
+  const areaShown = onSite(ctx, "serviceArea");
   const cardHours = !photo && areaShown && facts.hours.length > 0;
   const { places, note } = facts.serviceArea;
   const areaFold = areaShown && places.length === 1 && note === undefined && (facts.hours.length === 0 || cardHours);
@@ -79,10 +79,10 @@ function makePlan(ctx: RenderContext): Plan {
   return {
     photo,
     areaShown,
-    trustShown: isVisible(ctx, "trust"),
+    trustShown: onSite(ctx, "trust"),
     areaFold,
     cardHours,
-    heroQuote: isVisible(ctx, "testimonials") ? heroQuoteIndex(facts.testimonials) : -1,
+    heroQuote: onPage(ctx, "testimonials") ? heroQuoteIndex(facts.testimonials) : -1,
     lift,
     liftSwap: lift && liftFacts <= 4,
     band,

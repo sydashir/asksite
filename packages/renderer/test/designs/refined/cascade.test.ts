@@ -4,10 +4,10 @@
 // Playwright Chromium and WebKit with the real Classic sheet. Each check has a RED proof: a style override that puts
 // the flaw back is caught. No check waits on the clock: transitions are off where a state is read.
 import { chromium, webkit, type Browser, type Page } from "@playwright/test";
-import { FONT_IDS, PALETTE_IDS, type SiteDocumentInput } from "@asksite/site-schema";
+import { FONT_IDS, PALETTE_IDS, type PageId, type SiteDocumentInput } from "@asksite/site-schema";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { DESIGN_CSS, FIXTURE_FORM_ACTION, loadFixture } from "../../../../../fixtures/index.ts";
-import { render } from "../../../src/render.ts";
+import { loadFixture } from "../../../../../fixtures/index.ts";
+import { classicPage } from "./site.ts";
 
 const refined = (doc: SiteDocumentInput, theme: Partial<SiteDocumentInput["theme"]> = {}): SiteDocumentInput => ({
   ...doc,
@@ -135,9 +135,9 @@ describe.each(Object.keys(ENGINES) as Array<keyof typeof ENGINES>)("Classic's ca
     await browser?.close();
   }, 60_000);
 
-  async function open(doc: SiteDocumentInput, width: number, css = ""): Promise<void> {
+  async function open(doc: SiteDocumentInput, width: number, css = "", id: PageId = "home"): Promise<void> {
     await page.setViewportSize({ width, height: 900 });
-    await page.setContent(render(doc, { stylesheets: DESIGN_CSS, formAction: FIXTURE_FORM_ACTION }).html, { waitUntil: "load" });
+    await page.setContent(classicPage(doc, id), { waitUntil: "load" });
     if (css) await page.addStyleTag({ content: css });
   }
 
@@ -252,7 +252,7 @@ describe.each(Object.keys(ENGINES) as Array<keyof typeof ENGINES>)("Classic's ca
       for (const font of FONT_IDS) {
         for (const [width, height] of [[390, 844], [1024, 768], [1280, 800]] as const) {
           await sharp.setViewportSize({ width, height });
-          await sharp.setContent(render(refined(hollis, { font }), { stylesheets: DESIGN_CSS, formAction: FIXTURE_FORM_ACTION }).html, { waitUntil: "load" });
+          await sharp.setContent(classicPage(refined(hollis, { font })), { waitUntil: "load" });
           if (css) await sharp.addStyleTag({ content: css });
           const box = (await sharp.evaluate(BRAND_BOX)) as { x: number; y: number; width: number; height: number; centre: number };
           const png = await sharp.screenshot({ clip: { x: box.x, y: box.y, width: box.width, height: box.height } });

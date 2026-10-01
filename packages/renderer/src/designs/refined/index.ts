@@ -7,12 +7,14 @@ import type { Design } from "../../design.ts";
 import type { SafeHtml } from "../../html.ts";
 import { renderAbout } from "./about.ts";
 import { renderServiceArea } from "./area.ts";
+import { renderClosingBand } from "./closing.ts";
 import { renderContact } from "./contact.ts";
 import { renderFaq } from "./faq.ts";
 import { renderCallBar, renderFooter } from "./footer.ts";
 import { renderGallery } from "./gallery.ts";
 import { renderHeader } from "./header.ts";
 import { renderHero } from "./hero.ts";
+import { renderServicesPreview } from "./preview.ts";
 import { renderReviews } from "./reviews.ts";
 import { renderServices } from "./services.ts";
 import { variables } from "./tokens.ts";
@@ -52,6 +54,8 @@ export const design: Design = Object.freeze({
   variables,
   header: renderHeader,
   section: renderSection,
+  servicesTeaser: renderServicesPreview,
+  closingBand: renderClosingBand,
   footer: renderFooter,
   callBar: renderCallBar,
 });

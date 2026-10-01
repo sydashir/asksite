@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { FONT_IDS, PALETTE_IDS, SiteDocument, Theme, type SiteDocumentInput } from "@asksite/site-schema";
 import { describe, expect, it } from "vitest";
-import { FIXTURE_FORM_ACTION, inDesign, loadFixture, stubStylesheets } from "../../../../../fixtures/index.ts";
+import { inDesign, loadFixture, stubStylesheets } from "../../../../../fixtures/index.ts";
 import { BASELINE } from "../../../src/baseline.ts";
 import { contrastRatio, hexToRgb } from "../../../src/contrast.ts";
 import { escapeText } from "../../../src/escape.ts";
@@ -13,9 +13,11 @@ import { PALETTES, variables } from "../../../src/designs/refined/tokens.ts";
 import { render, renderDocument } from "../../../src/render.ts";
 import { invariantProblems } from "../../support/design-invariants.ts";
 import { squashedText } from "../../support/page-text.ts";
+import { classicPages, options } from "./site.ts";
 
-const OPTIONS = { stylesheets: stubStylesheets(), formAction: FIXTURE_FORM_ACTION };
-const page = (input: SiteDocumentInput) => render(inDesign(input, "refined"), OPTIONS).html;
+const OPTIONS = options(stubStylesheets());
+/** Every page of the site, one after another: each section is on one page, and site-wide text is checked over all. */
+const page = (input: SiteDocumentInput) => classicPages(input, OPTIONS.stylesheets);
 const plumber = loadFixture("plumber-austin");
 const hvac = loadFixture("hvac-phoenix");
 const cleaning = loadFixture("cleaning-minimal");
@@ -123,11 +125,11 @@ describe("Classic pages", () => {
     expect(hidden).not.toContain(squashedText("Regular hours"));
   });
 
-  it("keeps license lines out of the hero and contact band once the owner hides the Credentials section", () => {
-    const html = page({ ...loadFixture("hvac-phoenix"), hidden: ["trust"] });
-    const body = html.slice(html.indexOf("<main"), html.indexOf("</main>"));
-    expect(body).not.toContain("ROC 999001");
-    expect(html.slice(html.indexOf("<footer"))).toContain("ROC 999001");
+  it("keeps license lines out of every page's main content once the owner hides the Credentials section", () => {
+    for (const { html } of render(inDesign({ ...loadFixture("hvac-phoenix"), hidden: ["trust"] }, "refined"), OPTIONS).pages) {
+      expect(html.slice(html.indexOf("<main"), html.indexOf("</main>"))).not.toContain("ROC 999001");
+      expect(html.slice(html.indexOf("<footer"))).toContain("ROC 999001");
+    }
   });
 
   it("offers free estimates only with the owner's fact", () => {
@@ -168,10 +170,10 @@ describe("Classic states no credential the owner does not have", () => {
 
   it.each(DOCS)("%s without Insured, 24/7 service or free estimates", (_, input) => {
     const doc = SiteDocument.parse(inDesign(input, "refined"));
-    const shown = render(doc, OPTIONS).html;
-    expect(invariantProblems(shown, renderDocument(doc, BASELINE, OPTIONS).html, doc, DESIGNS.refined)).toEqual([]);
+    const shown = render(doc, OPTIONS);
+    expect(invariantProblems(shown, renderDocument(doc, BASELINE, OPTIONS), doc, DESIGNS.refined)).toEqual([]);
     // squashedText drops the spaces, so the words are matched without word edges.
-    expect(text(shown)).not.toMatch(/insured|24\/7|emergency|free/i);
+    expect(shown.pages.map((p) => text(p.html)).join(" ")).not.toMatch(/insured|24\/7|emergency|free/i);
   });
 });
 
@@ -197,9 +199,9 @@ describe("a one-town owner's Service area", () => {
     ];
     for (const facts of forms) {
       const doc = SiteDocument.parse(inDesign({ ...cleaning, facts: { ...cleaning.facts, ...facts } }, "refined"));
-      const shown = render(doc, OPTIONS).html;
-      expect(section(shown, "service-area"), JSON.stringify(facts)).not.toContain('class="area"');
-      expect(invariantProblems(shown, renderDocument(doc, BASELINE, OPTIONS).html, doc, DESIGNS.refined), JSON.stringify(facts)).toEqual([]);
+      const shown = render(doc, OPTIONS);
+      expect(section(shown.pages.map((p) => p.html).join("\n"), "service-area"), JSON.stringify(facts)).not.toContain('class="area"');
+      expect(invariantProblems(shown, renderDocument(doc, BASELINE, OPTIONS), doc, DESIGNS.refined), JSON.stringify(facts)).toEqual([]);
     }
   });
 

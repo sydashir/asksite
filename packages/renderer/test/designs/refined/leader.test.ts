@@ -7,8 +7,8 @@
 import { chromium, webkit, type Browser, type Page } from "@playwright/test";
 import { FONT_IDS, type FontId, type SiteDocumentInput } from "@asksite/site-schema";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { DESIGN_CSS, FIXTURE_FORM_ACTION, loadFixture } from "../../../../../fixtures/index.ts";
-import { render } from "../../../src/render.ts";
+import { loadFixture } from "../../../../../fixtures/index.ts";
+import { classicPage } from "./site.ts";
 
 const WIDTHS = [576, 640, 768, 900, 1024, 1280, 1440];
 /** Phones, below 36rem (576 px). */
@@ -88,7 +88,7 @@ describe.each(Object.keys(ENGINES) as Array<keyof typeof ENGINES>)("the Classic 
 
   async function open(font: FontId, width: number, css = ""): Promise<void> {
     await page.setViewportSize({ width, height: 900 });
-    await page.setContent(render(doc(font), { stylesheets: DESIGN_CSS, formAction: FIXTURE_FORM_ACTION }).html, { waitUntil: "load" });
+    await page.setContent(classicPage(doc(font), "services"), { waitUntil: "load" });
     if (css) await page.addStyleTag({ content: css });
   }
 

@@ -4,8 +4,8 @@
 import { chromium, webkit, type Browser, type Page } from "@playwright/test";
 import type { SiteDocumentInput } from "@asksite/site-schema";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { DESIGN_CSS, FIXTURE_FORM_ACTION, loadFixture } from "../../../../../fixtures/index.ts";
-import { render } from "../../../src/render.ts";
+import { loadFixture } from "../../../../../fixtures/index.ts";
+import { classicPage } from "./site.ts";
 
 /** Desktop windows, short ones first: laptops are often only 540-800 px tall. */
 const WINDOWS = [
@@ -53,7 +53,7 @@ describe.each(Object.keys(ENGINES) as Array<keyof typeof ENGINES>)("the Classic 
   /** Every window where the seal comes closer than CLEAR px to the hero's top edge, as "WxH: clearance". */
   async function tooHigh(doc: SiteDocumentInput, css = ""): Promise<string[]> {
     await page.setViewportSize({ width: 1280, height: 800 });
-    await page.setContent(render(doc, { stylesheets: DESIGN_CSS, formAction: FIXTURE_FORM_ACTION }).html, { waitUntil: "load" });
+    await page.setContent(classicPage(doc), { waitUntil: "load" });
     if (css) await page.addStyleTag({ content: css });
     const found: string[] = [];
     for (const [width, height] of WINDOWS) {
