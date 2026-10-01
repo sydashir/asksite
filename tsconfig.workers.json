@@ -1,0 +1,18 @@
+{
+  // Worker-side code and its tests: the Workers runtime types next to Node's. They cannot join the
+  // root program: there the Workers global URL type breaks Plan 1's node:fs calls (verified).
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "types": ["node", "@cloudflare/workers-types"]
+  },
+  "include": [
+    "packages/mailer/src",
+    "packages/mailer/test",
+    "packages/publishing/src",
+    "packages/publishing/test",
+    "apps/sites/src",
+    "apps/sites/test",
+    "apps/sites/dev"
+  ],
+  "exclude": []
+}

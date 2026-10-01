@@ -149,3 +149,29 @@ describe("0001_init.sql", () => {
     expect(results.map((r) => r.meta.changes).sort()).toEqual([0, 0, 1]);
   });
 });
+
+// A16: a version's pages. Numbered 0005 because Plan 4 holds 0003 and 0004 on its branches; the files are
+// independent, and wrangler applies them by name, so a fresh database gets 0001 to 0005 in order.
+describe("0005_version_pages.sql", () => {
+  const insertVersion = (site: string, owner: string, pagesJson?: string | null) => {
+    const id = fresh();
+    const columns = "id, site_id, number, status, document_json, document_sha256, edits_json, html_key, html_sha256, stylesheet_sha256, requested_by, requested_at";
+    return pagesJson === undefined
+      ? db.prepare(`INSERT INTO site_versions (${columns}) VALUES (?, ?, 1, 'pending', '{}', 'd', '{}', 'k', 'h', 's', ?, 1)`).bind(id, site, owner).run().then(() => id)
+      : db.prepare(`INSERT INTO site_versions (${columns}, pages_json) VALUES (?, ?, 1, 'pending', '{}', 'd', '{}', 'k', 'h', 's', ?, 1, ?)`).bind(id, site, owner, pagesJson).run().then(() => id);
+  };
+
+  it("gives a version written without pages the empty list", async () => {
+    const { owner, site } = await newSite();
+    const id = await insertVersion(site, owner);
+    expect(await db.prepare("SELECT pages_json FROM site_versions WHERE id = ?").bind(id).first<{ pages_json: string }>()).toEqual({ pages_json: "[]" });
+  });
+
+  it("stores a page list and refuses a missing one", async () => {
+    const { owner, site } = await newSite();
+    const id = await insertVersion(site, owner, '[{"page":"home","sha256":"a"}]');
+    expect((await db.prepare("SELECT pages_json FROM site_versions WHERE id = ?").bind(id).first<{ pages_json: string }>())?.pages_json).toBe('[{"page":"home","sha256":"a"}]');
+    const other = await newSite();
+    await expect(insertVersion(other.site, other.owner, null)).rejects.toThrow(/NOT NULL constraint failed: site_versions.pages_json/);
+  });
+});

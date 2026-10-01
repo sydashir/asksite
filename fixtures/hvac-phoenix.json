@@ -67,13 +67,13 @@
   },
   "layout": [
     { "id": "hero", "variant": "centered" },
-    { "id": "services", "variant": "compact" },
     { "id": "trust", "variant": "light" },
     { "id": "testimonials", "variant": "masonry" },
-    { "id": "gallery", "variant": "grid" },
-    { "id": "serviceArea", "variant": "split" },
+    { "id": "services", "variant": "compact" },
     { "id": "faq", "variant": "open" },
-    { "id": "contact", "variant": "card" }
+    { "id": "gallery", "variant": "grid" },
+    { "id": "contact", "variant": "card" },
+    { "id": "serviceArea", "variant": "split" }
   ],
   "theme": { "palette": "blue-yellow", "font": "sturdy", "design": "impact" }
 }

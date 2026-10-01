@@ -49,13 +49,13 @@
   "layout": [
     { "id": "hero", "variant": "photo" },
     { "id": "trust", "variant": "band" },
-    { "id": "services", "variant": "compact" },
     { "id": "testimonials", "variant": "grid" },
-    { "id": "gallery", "variant": "grid" },
-    { "id": "about", "variant": "plain" },
-    { "id": "serviceArea", "variant": "split" },
+    { "id": "services", "variant": "compact" },
     { "id": "faq", "variant": "accordion" },
-    { "id": "contact", "variant": "card" }
+    { "id": "about", "variant": "plain" },
+    { "id": "gallery", "variant": "grid" },
+    { "id": "contact", "variant": "card" },
+    { "id": "serviceArea", "variant": "split" }
   ],
   "theme": { "palette": "blue-yellow", "font": "sturdy" }
 }

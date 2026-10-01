@@ -1,0 +1,18 @@
+{
+  "name": "@asksite/publishing",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@asksite/core": "workspace:*",
+    "@asksite/renderer": "workspace:*",
+    "@asksite/site-css": "workspace:*",
+    "@asksite/site-schema": "workspace:*"
+  },
+  "devDependencies": {
+    "wrangler": "4.138.0"
+  }
+}

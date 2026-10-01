@@ -1,9 +1,50 @@
+import type { SectionId } from "@asksite/site-schema";
 import { describe, expect, it } from "vitest";
 import { renderAbout } from "../src/sections/about.ts";
 import { renderContact } from "../src/sections/contact.ts";
 import { renderFaq } from "../src/sections/faq.ts";
 import { renderServiceArea } from "../src/sections/service-area.ts";
 import { FULL, makeContext, MINIMAL } from "./support/doc.ts";
+
+/** FULL with `id` ahead of every other section but the hero, so it leads its page. */
+const leading = (id: SectionId): typeof FULL => ({ ...FULL, layout: [...FULL.layout.filter((s) => s.id === "hero"), ...FULL.layout.filter((s) => s.id === id), ...FULL.layout.filter((s) => s.id !== "hero" && s.id !== id)] });
+
+// A16: the first section of an inner page draws the page's one <h1>, and its item headings go one level up.
+describe("heading levels on an inner page", () => {
+  it("about: the page's h1", () => {
+    const out = String(renderAbout(makeContext(FULL, "about"), "plain"));
+    expect(out).toContain('<h1 id="about-title"');
+    expect(out).not.toContain("<h2");
+  });
+
+  it("service area and hours: an h1 with h2 items when first on the page, an h2 with h3 items otherwise", () => {
+    const first = String(renderServiceArea(makeContext(leading("serviceArea"), "contact"), "split"));
+    expect(first).toContain('<h1 id="service-area-title"');
+    expect(first).toMatch(/<h2 class="[^"]*">.*Areas we serve<\/h2>/);
+    expect(first).toMatch(/<h2 class="[^"]*">.*Hours<\/h2>/);
+    expect(first).not.toContain("<h3");
+    const second = String(renderServiceArea(makeContext(FULL, "contact"), "split"));
+    expect(second).toContain('<h2 id="service-area-title"');
+    expect(second).toMatch(/<h3 class="[^"]*">.*Areas we serve<\/h3>/);
+  });
+
+  it("faq: questions are h3 under an h2, h2 under the h1", () => {
+    for (const variant of ["accordion", "open"] as const) {
+      const under = String(renderFaq(makeContext(FULL, "services"), variant));
+      expect(under).toContain('<h2 id="faq-title"');
+      expect(under).toContain(">Do you charge for estimates?</h3>");
+      const first = String(renderFaq(makeContext(leading("faq"), "services"), variant));
+      expect(first).toContain('<h1 id="faq-title"');
+      expect(first).toContain(">Do you charge for estimates?</h2>");
+      expect(first).not.toContain("<h3");
+    }
+  });
+
+  it("contact: the heading is the h1 when the form leads the page", () => {
+    expect(String(renderContact(makeContext(FULL, "contact"), "card"))).toContain('<h1 id="contact-title"');
+    expect(String(renderContact(makeContext(FULL), "card"))).toContain('<h2 id="contact-title"');
+  });
+});
 
 describe("about", () => {
   it("uses the owner's name in the heading and the AI paragraph as text", () => {
@@ -56,7 +97,8 @@ describe("contact", () => {
   const out = String(renderContact(makeContext(FULL), "card"));
 
   it("posts to the configured https action", () => {
-    expect(out).toContain('<form action="https://forms.example.com/submit" method="post">');
+    expect(out).toContain('<form id="quote" action="https://forms.example.com/submit" method="post">');
+    expect(out).toContain('<section id="contact" aria-labelledby="contact-title">');
   });
 
   it("labels every field, marks the optional ones and requires name and phone", () => {

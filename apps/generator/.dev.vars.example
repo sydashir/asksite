@@ -1,0 +1,13 @@
+# Copy to .dev.vars (gitignored) for local development. Values here override wrangler.jsonc vars.
+ENVIRONMENT=development
+GENERATION_ENABLED=true
+# Local only: the fake model costs nothing. Production ships 8 (wrangler.jsonc, Decision 4).
+DAILY_MODEL_LIMIT=8
+MODEL_PROVIDER=fake
+MODEL_ID=fake-template
+FAKE_MODE=ok
+# Only for MODEL_PROVIDER=openai-compatible, e.g. https://api.cloudflare.com/client/v4/accounts/<account_id>/ai/v1
+OPENAI_COMPAT_BASE_URL=
+# Secrets: names only. Never commit a value. In production use `wrangler secret put <NAME>`.
+ANTHROPIC_API_KEY=
+OPENAI_COMPAT_API_KEY=

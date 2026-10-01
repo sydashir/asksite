@@ -12,6 +12,7 @@ export * from "./issues.ts";
 export * from "./keys.ts";
 export * from "./limits.ts";
 export * from "./looks.ts";
+export * from "./pages.ts";
 export * from "./rows.ts";
 export * from "./slug.ts";
 export * from "./time.ts";
