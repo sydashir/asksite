@@ -73,7 +73,7 @@ export async function expectNoSidewaysScroll(page: Page) {
 export async function watchCsp(page: Page): Promise<() => Promise<string[]>> {
   const seen: string[] = [];
   page.on("console", (message) => {
-    if (/Content Security Policy/i.test(message.text())) seen.push(`console ${message.text()}`);
+    if (/Content[- ]Security[- ]Policy/i.test(message.text())) seen.push(`console ${message.text()}`);
   });
   await page.exposeBinding("__reportCspViolation", (_source, entry: string) => {
     seen.push(`event ${entry}`);

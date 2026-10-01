@@ -47,3 +47,19 @@ test("watchCsp keeps violations across navigations and from a sandboxed srcdoc f
   // which Playwright delivers from every frame. Either way it is collected.
   await expect.poll(violations).toContainEqual(expect.stringMatching(/^(event img-src https:\/\/blocked\.example\/x\.png|console [\s\S]*blocked\.example\/x\.png[\s\S]*)$/));
 });
+
+// STRICT (CSP): a SAME-ORIGIN child frame (a plain srcdoc, not sandboxed) with a blocked image. Firefox words its console
+// line "Content-Security-Policy" (hyphens), so the console channel must match that spelling too, not only the event channel.
+test("watchCsp reads Firefox's hyphenated console line from a same-origin srcdoc frame @firefox", async ({ page }) => {
+  const policy = (await page.request.get(`${APP}/`)).headers()["content-security-policy"] ?? "";
+  await page.route(`${APP}/__csp-same`, (route) =>
+    route.fulfill({
+      contentType: "text/html",
+      headers: { "content-security-policy": policy },
+      body: `<!doctype html><title>same</title><iframe srcdoc='<img src="https://blocked.example/same.png">'></iframe>`,
+    }),
+  );
+  const violations = await watchCsp(page);
+  await page.goto(`${APP}/__csp-same`);
+  await expect.poll(violations).toContainEqual(expect.stringMatching(/^console [\s\S]*blocked\.example\/same\.png/));
+});
