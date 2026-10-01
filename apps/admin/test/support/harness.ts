@@ -10,14 +10,14 @@ export const AUD = "test-aud";
 const { publicKey, privateKey } = await generateKeyPair("RS256", { extractable: true });
 export const ACCESS_JWKS = { keys: [{ ...(await exportJWK(publicKey)), kid: "test-key", alg: "RS256" }] };
 
-export async function accessToken(claims: { email?: string; aud?: string; iss?: string; expiresIn?: string } = {}): Promise<string> {
-  return new SignJWT({ email: claims.email ?? "admin@example.com" })
+export async function accessToken(claims: { email?: string; aud?: string; iss?: string; expiresIn?: string; noExpiry?: boolean; noEmail?: boolean } = {}): Promise<string> {
+  const jwt = new SignJWT(claims.noEmail === true ? {} : { email: claims.email ?? "admin@example.com" })
     .setProtectedHeader({ alg: "RS256", kid: "test-key" })
     .setIssuer(claims.iss ?? TEAM)
     .setAudience(claims.aud ?? AUD)
-    .setIssuedAt()
-    .setExpirationTime(claims.expiresIn ?? "5m")
-    .sign(privateKey);
+    .setIssuedAt();
+  if (claims.noExpiry !== true) jwt.setExpirationTime(claims.expiresIn ?? "5m");
+  return jwt.sign(privateKey);
 }
 
 export interface CallOptions {

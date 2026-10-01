@@ -1,4 +1,4 @@
-import { newId, sha256Hex, type InviteView } from "@asksite/core";
+import { newId, sha256Hex, TTL, type InviteView } from "@asksite/core";
 import { describe, expect, it } from "vitest";
 import { useAdminHarness } from "../support/harness.ts";
 
@@ -54,6 +54,13 @@ async function refusedSend(email: string, code: string, message: string): Promis
 }
 
 describe("invites", () => {
+  it("lets an invite live for TTL.inviteMs (7 days), not the sign-in link's 15 minutes", async () => {
+    const res = await h.call("POST", "/api/admin/invites", { body: { email: "ttl@example.com" } });
+    const { invite } = (await res.json()) as { invite: InviteView };
+    expect(invite.expiresAt - invite.createdAt).toBe(TTL.inviteMs);
+    expect(TTL.inviteMs).not.toBe(TTL.loginTokenMs);
+  });
+
   it("emails the invite link, never returns it, stores only its hash, and lists and revokes invites with audit rows", async () => {
     const res = await h.call("POST", "/api/admin/invites", { body: { email: "New.Owner@Example.com" } });
     expect(res.status).toBe(201);

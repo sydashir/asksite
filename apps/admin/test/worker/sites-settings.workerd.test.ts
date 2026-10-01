@@ -102,3 +102,25 @@ describe("settings when the configured model has no recorded price", () => {
     expect(await saved.json()).toMatchObject({ dailyModelLimit: 4, worstCaseDailyMicrousd: null });
   });
 });
+
+describe("settings usage figures (the admin's spend against the cap)", () => {
+  const usage = useAdminHarness();
+
+  it("counts only today's model-slot calls, and sums today's cost of every generation", async () => {
+    const site = await usage.pendingSite();
+    const db = await usage.db();
+    const today = Math.floor(Date.now() / 86_400_000) * 86_400_000;
+    const insert = (id: string, slot: number, startedAt: number, cost: number) =>
+      db
+        .prepare("INSERT INTO generations (id, site_id, owner_id, kind, status, input_json, model_slot, cost_microusd, created_at, started_at) VALUES (?, ?, ?, 'regenerate', 'succeeded', '{}', ?, ?, ?, ?)")
+        .bind(id, site.siteId, site.ownerId, slot, cost, startedAt, startedAt)
+        .run();
+    await insert("11111111-1111-4111-8111-111111111111", 1, Date.now(), 100);
+    await insert("22222222-2222-4222-8222-222222222222", 1, Date.now(), 200);
+    await insert("33333333-3333-4333-8333-333333333333", 0, Date.now(), 400); // a fallback job: costs money, takes no model call
+    await insert("44444444-4444-4444-8444-444444444444", 1, today - 1, 1_000); // yesterday, last millisecond
+    await insert("55555555-5555-4555-8555-555555555555", 0, today - 1, 2_000);
+    const view = await json<SettingsView>(await usage.call("GET", "/api/admin/settings"));
+    expect(view).toMatchObject({ modelCallsToday: 2, spentTodayMicrousd: 700 });
+  });
+});
