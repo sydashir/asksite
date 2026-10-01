@@ -14,10 +14,10 @@ const ALLOWED_TAGS = new Set(
   ).split(" "),
 );
 
-// The links a page may hold, one anchored pattern: an absolute https:, tel: or mailto: URL, a fragment of this page,
+// The links a page may hold, one anchored pattern: an absolute https://, tel: or mailto: URL ("https:x" is a relative path), a fragment of this page,
 // or exactly one of the site's own page paths (built from PAGES), optionally with a fragment: "/services", "/contact#quote".
 const PAGE_PATHS = PAGE_IDS.map((id) => PAGES[id].path.replace(/[/.]/g, "\\$&")).join("|");
-const ALLOWED_URL = new RegExp(String.raw`^(?:(?:https:|tel:|mailto:|#)|(?:${PAGE_PATHS})(?:#[a-z][a-z0-9-]*)?$)`);
+const ALLOWED_URL = new RegExp(String.raw`^(?:(?:https://|tel:|mailto:|#)|(?:${PAGE_PATHS})(?:#[a-z][a-z0-9-]*)?$)`);
 
 // Attributes the browser fetches or navigates to.
 const URL_ATTRIBUTES = new Set(["href", "src", "action", "formaction", "poster", "cite", "data", "ping", "background", "xlink:href", "srcset"]);

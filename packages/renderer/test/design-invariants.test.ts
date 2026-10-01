@@ -23,7 +23,7 @@ import { FIXTURE_FORM_ACTION, FIXTURE_SITE_URL, FIXTURES, inDesign, loadFixture,
 import { BASELINE } from "../src/baseline.ts";
 import type { Design } from "../src/design.ts";
 import { DESIGNS } from "../src/designs/index.ts";
-import { html } from "../src/html.ts";
+import { html, trusted } from "../src/html.ts";
 import { render, renderDocument, type RenderedSite } from "../src/render.ts";
 import {
   CREDENTIAL_CLAIMS,
@@ -321,6 +321,14 @@ describe("the invariant checks can fail (RED proof, on edited pages)", () => {
     const aboutOnly: Design = { ...BASELINE, section: (ctx, section) => (section.id === "about" ? html`${BASELINE.section(ctx, section)}\n<p>${extra}</p>` : BASELINE.section(ctx, section)) };
     expect(problemsOf(unbacked(loadFixture("plumber-austin")), aboutOnly)).toEqual([`/about: unbacked claims ${JSON.stringify(claims)}`]);
     expect(problemsOf(loadFixture("plumber-austin"), aboutOnly)).toEqual([]); // the owner's facts back both, so the same words are fine
+  });
+
+  // "https:" with no "//" is a relative URL on an https page (WHATWG URL parsing: "https:pricing" is /pricing), so it is no absolute link.
+  it.each(["https:pricing", "https:services/../x", "https:/services"])("catch a design whose closing band links to %s", (href) => {
+    const probe: Design = { ...BASELINE, closingBand: (ctx) => html`${BASELINE.closingBand(ctx)}\n${trusted(`<p><a href="${href}">Pricing</a></p>`)}` };
+    const found = problemsOf(loadFixture("plumber-austin"), probe);
+    expect(found.length).toBeGreaterThan(0);
+    expect(found.every((line) => line.includes(`links to nowhere ["${href}"]`))).toBe(true);
   });
 
   it("catch a claim added to the closing band, the teaser or the call bar of one page", () => {

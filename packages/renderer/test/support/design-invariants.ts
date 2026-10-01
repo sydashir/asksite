@@ -31,9 +31,9 @@ const idsOf = (page: string) => startTags(page).flatMap((t) => t.attributes.filt
 /** The element id of every section, and of the two blocks render.ts adds (DOM_ID's values, the services preview, the closing band). */
 const SECTION_DOM_IDS: readonly string[] = [...Object.values(DOM_ID), SERVICES_PREVIEW_ID, CLOSING_BAND_ID];
 
-/** Every href on the page that is not an absolute https:, tel: or mailto: URL, in page order. */
+/** Every href on the page that is not an absolute https://, tel: or mailto: URL, in page order. */
 const internalHrefs = (page: string): string[] =>
-  startTags(page).flatMap((t) => t.attributes.filter((a) => a.name === "href" && !/^(https:|tel:|mailto:)/.test(a.value)).map((a) => a.value));
+  startTags(page).flatMap((t) => t.attributes.filter((a) => a.name === "href" && !/^(https:\/\/|tel:|mailto:)/.test(a.value)).map((a) => a.value));
 
 /**
  * Each internal link that leads nowhere, once, in page order: "#frag" must be an id on this page ("#" alone leads to
