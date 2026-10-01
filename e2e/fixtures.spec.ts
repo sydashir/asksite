@@ -703,9 +703,11 @@ test.describe("the harness", () => {
     expect(addresses.every((address) => address === null)).toBe(true);
   });
 
-  test("the inner-page and call bar projects are projects of the config", async ({}, testInfo) => {
+  test("the inner-page, call bar and desktop projects are projects of the config", async ({}, testInfo) => {
     const names = testInfo.config.projects.map((project) => project.name);
     expect([...INNER_PAGE_PROJECTS, ...CALL_BAR_PROJECTS].filter((name) => !names.includes(name))).toEqual([]);
+    // The screenshot matrix's desktop list is exactly the config's non-phone projects: a rename or an added project fails here.
+    expect([...DESKTOP_PROJECTS]).toEqual(testInfo.config.projects.filter((project) => project.metadata["phone"] !== true).map((project) => project.name));
   });
 });
 
