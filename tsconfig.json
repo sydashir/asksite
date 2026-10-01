@@ -16,5 +16,6 @@
     "noEmit": true,
     "skipLibCheck": true
   },
-  "include": ["packages/*/src", "packages/*/test", "packages/renderer/scripts", "packages/site-css/scripts", "fixtures", "scripts", "vitest.config.ts"]
+  "include": ["packages/*/src", "packages/*/test", "packages/renderer/scripts", "packages/site-css/scripts", "packages/generation/eval", "apps/generator/src", "apps/generator/test", "fixtures", "scripts", "vitest.config.ts"],
+  "exclude": ["packages/mailer", "packages/publishing", "apps/sites"]
 }

@@ -1,0 +1,17 @@
+{
+  "name": "@asksite/sites",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@asksite/core": "workspace:*",
+    "@asksite/mailer": "workspace:*",
+    "@asksite/renderer": "workspace:*",
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "@asksite/publishing": "workspace:*",
+    "@asksite/site-schema": "workspace:*",
+    "wrangler": "4.138.0"
+  }
+}
