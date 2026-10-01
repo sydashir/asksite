@@ -713,9 +713,21 @@ describe("pagePath (A16)", () => {
   });
 });
 
+// A value that passes the id pattern on its first coercion and says something else on its second.
+const shapeShifter = () => {
+  let calls = 0;
+  return { toString: () => (calls++ === 0 ? "quote" : "x/../y") };
+};
+
 describe("fragment", () => {
   it("builds an in-page link to one of our ids", () => {
     expect(String(html`<a href="${fragment("service-area")}">x</a>`)).toBe(`<a href="#service-area">x</a>`);
+  });
+  it("refuses a fragment that is not a string, even one that passes the id pattern once", () => {
+    for (const id of [7, null, {}, ["quote"], shapeShifter()]) {
+      expect(() => fragment(id as never)).toThrow("Invalid fragment id");
+      expect(() => pagePath("contact", id as never)).toThrow("Invalid fragment id");
+    }
   });
   it("rejects anything that is not a plain id", () => {
     expect(() => fragment(`x" onclick="y`)).toThrow("Invalid fragment id");
