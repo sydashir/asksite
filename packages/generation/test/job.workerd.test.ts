@@ -162,6 +162,7 @@ describe("runGenerationJob", () => {
     it.each([
       ["the variable is off", { GENERATION_ENABLED: "false" }, null, "disabled", "generation_disabled"],
       ["the setting is off", {}, ["generation.enabled", "false"], "disabled", "generation_disabled"],
+      ["the setting is malformed", {}, ["generation.enabled", "False"], "disabled", "generation_disabled"],
       ["today's limit is used up", {}, ["generation.daily_model_limit", "0"], "budget", "budget_exhausted"],
     ] as const)("when %s: a first build gets the template, a regeneration fails", async (_, over, setting, reason, code) => {
       if (setting) await setSetting(db, setting[0], setting[1]);

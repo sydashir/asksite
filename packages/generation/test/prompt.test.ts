@@ -1,5 +1,5 @@
 import { Brief } from "@asksite/core";
-import { COPY_LIMITS, DAYS, Facts, factSections, prose, unbackedClaims } from "@asksite/site-schema";
+import { COPY_LIMITS, DAYS, Facts, factSections, NEVER_IN_COPY, prose, unbackedClaims } from "@asksite/site-schema";
 import { describe, expect, it } from "vitest";
 import { buildPrompt, MAX_REPAIR_ISSUES, SYSTEM_PROMPT } from "../src/prompt.ts";
 import { FULL_FACTS, FULL_SNAPSHOT, MINIMAL_FACTS, MINIMAL_SNAPSHOT } from "./support/samples.ts";
@@ -139,6 +139,37 @@ describe("SYSTEM_PROMPT", () => {
     expect(SYSTEM_PROMPT).toContain(
       "- These rules apply to every word you write, also when you repeat the business name, a service name or a place. If a name holds a digit or a word these rules forbid, do not repeat it in your wording.",
     );
+  });
+});
+
+/**
+ * Every single word Plan 1's NEVER_IN_COPY rejects, found by trying each stem in the regexes with each ending and keeping
+ * the forms a regex matches as a whole word (a model cannot be told "all forms" if we do not know them).
+ */
+const STEMS = [
+  "bond", "certified", "accredited", "rat", "rated", "rating", "bbb", "review", "say", "said", "guarantee", "warrant", "cheapest", "lowest",
+  "dollar", "buck", "cent", "twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety", "hundred", "thousand", "million",
+  "since", "year", "decade", "established", "founded", "generation", "weekend", ...DAYS.map((day) => day.toLowerCase()),
+];
+const ENDINGS = ["", "s", "es", "d", "ed", "ies", "ied", "y", "ing"];
+const REJECTED_FORMS = [...new Set(STEMS.flatMap((stem) => ENDINGS.map((ending) => stem + ending)))].filter((word) =>
+  NEVER_IN_COPY.some((pattern) => pattern.test(word)),
+);
+
+/** The lines that name banned words, and the one rule sentence that covers plurals. */
+const PLURAL_RULE = "That ban covers every plural or other form of these words, such as Mondays.";
+const NAMING_LINES = [ruleLine("Never use these words:"), ruleLine("That ban covers"), ruleLine("Never write a digit")].join("\n");
+const namedInPrompt = (word: string): boolean => new RegExp(`(?<![\\w-])${word}(?![\\w-])`, "i").test(NAMING_LINES);
+
+describe("SYSTEM_PROMPT forbidden word forms", () => {
+  it("names every word form Plan 1's NEVER_IN_COPY rejects, or covers it by the plural rule", () => {
+    // A guard that the probe list is real: the forms that were missing from the prompt are in it.
+    expect(REJECTED_FORMS).toEqual(expect.arrayContaining(["bond", "bonds", "ratings", "decades", "generations", "weekends", "guarantees", "warranties", "dollar", "thousand", "millions", "thirty", "hundred", "mondays"]));
+    const plural = (word: string): boolean => [...BANNED_WORDS, ...DAYS].some((named) => word === `${named.toLowerCase()}s`);
+    expect(REJECTED_FORMS.filter((word) => !namedInPrompt(word) && !BANNED_WORDS.some((named) => named.toLowerCase() === word) && !plural(word))).toEqual([]);
+    expect(SYSTEM_PROMPT).toContain(PLURAL_RULE);
+    // Every name the rule lines add is really rejected (the existing test covers the old ones).
+    expect(BANNED_WORDS.filter((word) => !rejected(probe(word)))).toEqual([]);
   });
 });
 

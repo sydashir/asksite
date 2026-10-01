@@ -50,6 +50,34 @@ describe("createProvider", () => {
     expect(() => createProvider({ ...base, ...env }, FULL_SNAPSHOT)).toThrow(expect.objectContaining({ name: "ProviderError", kind }));
   });
 
+  // The fake provider needs no key and costs nothing, so it must fail closed: only the exact, case-sensitive values
+  // "development" and "test" build it; anything else, a typo included, refuses it without echoing the value.
+  it.each(["development", "test"])("builds the fake provider when ENVIRONMENT is %j", (environment) => {
+    expect(createProvider({ ...base, ENVIRONMENT: environment, MODEL_PROVIDER: "fake" }, FULL_SNAPSHOT).id).toBe("fake");
+  });
+
+  it.each(["production", "Production", " production", "prod", "", "Development", "TEST", "development ", "staging"])(
+    "refuses the fake provider when ENVIRONMENT is %j",
+    (environment) => {
+      expect(() => createProvider({ ...base, ENVIRONMENT: environment, MODEL_PROVIDER: "fake" }, FULL_SNAPSHOT)).toThrow(
+        expect.objectContaining({ name: "ProviderError", kind: "bad_request" }),
+      );
+    },
+  );
+
+  it("does not echo the ENVIRONMENT value in the refusal", () => {
+    expect(() => createProvider({ ...base, ENVIRONMENT: "env-marker-7", MODEL_PROVIDER: "fake" }, FULL_SNAPSHOT)).toThrow(
+      expect.objectContaining({ kind: "bad_request", message: expect.not.stringContaining("env-marker-7") }),
+    );
+  });
+
+  it("refuses the fake provider when ENVIRONMENT is missing", () => {
+    const { ENVIRONMENT: _omitted, ...withoutEnvironment } = base;
+    expect(() => createProvider({ ...withoutEnvironment, MODEL_PROVIDER: "fake" } as unknown as Parameters<typeof createProvider>[0], FULL_SNAPSHOT)).toThrow(
+      expect.objectContaining({ name: "ProviderError", kind: "bad_request" }),
+    );
+  });
+
   // Review survivor C4: a missing or empty base URL is named as not set, not as a URL that is not https.
   it.each([
     ["a missing", {}],
