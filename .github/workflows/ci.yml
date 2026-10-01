@@ -67,6 +67,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm build:css
       - run: pnpm exec playwright install --with-deps --only-shell chromium webkit
+      - run: pnpm exec playwright install --with-deps firefox
       # The apps are served from app.localhost and admin.localhost (the e2e Worker configs also name
       # media.localhost and mail.localhost); make sure every engine resolves them on Linux.
       - run: echo "127.0.0.1 app.localhost admin.localhost media.localhost mail.localhost" | sudo tee -a /etc/hosts
