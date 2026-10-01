@@ -186,7 +186,7 @@ function byLengthCode(issue: Issue): string | null {
  * message and no questionnaire fix (the editor's goToIssue sends it to the Look tab, Task 17).
  */
 const THEME_MESSAGE: OwnerMessage = { text: "Choose your page design and colors again." };
-const isThemeIssue = ({ path: [root, part] }: Issue): boolean => root === "theme" || (root === "edits" && part === "theme");
+export const isThemeIssue = ({ path: [root, part] }: Issue): boolean => root === "theme" || (root === "edits" && part === "theme");
 
 export function ownerMessage(issue: Issue): OwnerMessage {
   if (isThemeIssue(issue)) return THEME_MESSAGE;

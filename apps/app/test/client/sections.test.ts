@@ -1,12 +1,12 @@
 import { composeDocument, EMPTY_EDITS, OwnerEdits, OwnerEditsBody, SECTION_IDS } from "@asksite/core";
 import { render, sitePages, type DesignStylesheets } from "@asksite/renderer";
-import { SiteDocument, type SectionId } from "@asksite/site-schema";
+import { DEFAULT_SECTION_ORDER, SiteDocument, type SectionId } from "@asksite/site-schema";
 import { describe, expect, it } from "vitest";
 import { DESIGN_CSS, FIXTURES, loadFixture, stubStylesheets } from "../../../../fixtures/index.ts";
-import { editsForAi, withCopy, withServiceDescription } from "../../src/client/lib/edits.ts";
+import { editsForAi, isAllowedKey, withCopy, withServiceDescription } from "../../src/client/lib/edits.ts";
 import { issuesAt } from "../../src/client/lib/messages.ts";
-import { buildPreview, previewDesign, stylesheetLoader } from "../../src/client/lib/preview.ts";
-import { listedSections, moveSection, sectionHasContent, setHidden } from "../../src/client/lib/sections.ts";
+import { buildPreview, checkDraft, previewDesign, stylesheetLoader } from "../../src/client/lib/preview.ts";
+import { canMove, listedSections, moveSection, pageRemovedByHiding, sectionHasContent, sectionOfCopy, sectionsByPage, setHidden } from "../../src/client/lib/sections.ts";
 
 // The renderer's DOM ids for each section (Plan 1 Task 10 DOM_ID).
 const DOM_ID: Record<SectionId, string> = {
@@ -27,18 +27,81 @@ describe("sectionHasContent", () => {
   });
 });
 
-describe("moving and hiding", () => {
-  const order: SectionId[] = ["hero", "trust", "services", "testimonials", "gallery", "about", "serviceArea", "faq", "contact"];
-  const listed: SectionId[] = ["hero", "services", "about", "serviceArea", "contact"];
+describe("moving and hiding (U1: owners reorder within a page, never across pages)", () => {
+  // The default order: Home (hero, trust, testimonials), Services (services, faq), About, Gallery, Contact (contact, serviceArea).
+  const order = [...DEFAULT_SECTION_ORDER];
+  const all = [...DEFAULT_SECTION_ORDER];
 
-  it("swaps with the listed neighbour and leaves empty sections in place", () => {
-    expect(moveSection(order, listed, "about", -1)).toEqual(["hero", "trust", "about", "testimonials", "gallery", "services", "serviceArea", "faq", "contact"]);
-    expect(moveSection(order, listed, "contact", 1)).toEqual(order);
+  it("is the page map's order until the owner reorders", () => {
+    expect(order).toEqual(["hero", "trust", "testimonials", "services", "faq", "about", "gallery", "contact", "serviceArea"]);
+  });
+
+  it("moves the FAQ up on the Services page by swapping it with services", () => {
+    expect(moveSection(order, all, "faq", -1)).toEqual(["hero", "trust", "testimonials", "faq", "services", "about", "gallery", "contact", "serviceArea"]);
+    expect(moveSection(order, all, "serviceArea", -1)).toEqual(["hero", "trust", "testimonials", "services", "faq", "about", "gallery", "serviceArea", "contact"]);
+  });
+
+  it("refuses to move the last section of a page down, and the first of a page up: it never leaves its page", () => {
+    expect(moveSection(order, all, "testimonials", 1)).toEqual(order); // last on Home: Services' first section is next in the order
+    expect(moveSection(order, all, "services", -1)).toEqual(order); // first on Services: Home's last section is before it
+    expect(moveSection(order, all, "faq", 1)).toEqual(order);
+    expect(moveSection(order, all, "about", -1)).toEqual(order); // alone on its page
+    expect(moveSection(order, all, "about", 1)).toEqual(order);
+    expect(canMove(order, all, "faq", -1)).toBe(true);
+    expect(canMove(order, all, "faq", 1)).toBe(false);
+    expect(canMove(order, all, "about", 1)).toBe(false);
+  });
+
+  it("skips sections that have no content: the neighbour is the next listed section of the same page", () => {
+    const listed: SectionId[] = ["hero", "services", "faq", "about", "contact", "serviceArea"]; // no trust, testimonials, gallery
+    expect(moveSection(order, listed, "serviceArea", -1)).toEqual(["hero", "trust", "testimonials", "services", "faq", "about", "gallery", "serviceArea", "contact"]);
+    expect(moveSection(order, listed, "services", -1)).toEqual(order);
+    expect(canMove(["hero", "services"], ["hero", "services"], "hero", 1)).toBe(false);
   });
 
   it("never moves the hero or anything above it", () => {
-    expect(moveSection(order, listed, "services", -1)).toEqual(order);
-    expect(moveSection(order, listed, "hero", 1)).toEqual(order);
+    expect(moveSection(order, all, "trust", -1)).toEqual(order);
+    expect(moveSection(order, all, "hero", 1)).toEqual(order);
+    expect(canMove(order, all, "trust", -1)).toBe(false);
+    expect(canMove(order, all, "hero", 1)).toBe(false);
+  });
+
+  it("keeps a saved order a full SectionOrder, with the other pages' sections where they were", () => {
+    const moved = moveSection(["hero", "testimonials", "trust", "services", "faq", "gallery", "about", "contact", "serviceArea"], all, "serviceArea", -1);
+    expect(moved).toEqual(["hero", "testimonials", "trust", "services", "faq", "gallery", "about", "serviceArea", "contact"]);
+    expect([...moved].sort()).toEqual([...SECTION_IDS].sort());
+    expect(moved[0]).toBe("hero");
+  });
+
+  it("groups the listed sections by page in the page map's order, leaving out a page with none", () => {
+    expect(sectionsByPage(order, ["hero", "services", "faq", "contact", "serviceArea"])).toEqual([
+      { page: "home", sections: ["hero"] },
+      { page: "services", sections: ["services", "faq"] },
+      { page: "contact", sections: ["contact", "serviceArea"] },
+    ]);
+    // Within a page the owner's order decides.
+    expect(sectionsByPage(["hero", "trust", "testimonials", "faq", "services", "about", "gallery", "serviceArea", "contact"], all)[1]).toEqual({ page: "services", sections: ["faq", "services"] });
+  });
+
+  it("says which page hiding a section takes out of the menu", () => {
+    expect(pageRemovedByHiding(all, [], "about")).toBe("about");
+    expect(pageRemovedByHiding(all, [], "gallery")).toBe("gallery");
+    expect(pageRemovedByHiding(all, [], "faq")).toBeNull(); // Services still has its services
+    expect(pageRemovedByHiding(all, [], "trust")).toBeNull(); // Home always stays
+    expect(pageRemovedByHiding(all, [], "serviceArea")).toBeNull(); // Contact always stays
+    expect(pageRemovedByHiding(["hero", "services", "contact", "serviceArea"], [], "about")).toBeNull(); // no About content: nothing to remove
+  });
+
+  it("knows which section each wording field belongs to, so the preview can follow the owner", () => {
+    expect(sectionOfCopy(["copy", "heroHeadline"])).toBe("hero");
+    expect(sectionOfCopy(["copy", "ctaText"])).toBe("hero");
+    expect(sectionOfCopy(["copy", "serviceDescriptions", 0, "description"])).toBe("services");
+    expect(sectionOfCopy(["copy", "sectionIntros", "services"])).toBe("services");
+    expect(sectionOfCopy(["copy", "faq", 2, "answer"])).toBe("faq");
+    expect(sectionOfCopy(["copy", "sectionIntros", "faq"])).toBe("faq");
+    expect(sectionOfCopy(["copy", "about"])).toBe("about");
+    expect(sectionOfCopy(["copy", "sectionIntros", "gallery"])).toBe("gallery");
+    expect(sectionOfCopy(["copy", "sectionIntros", "contact"])).toBe("contact");
   });
 
   it("hides and shows a section once", () => {
@@ -118,6 +181,28 @@ describe("edits and preview", () => {
       expect(Object.keys(refused.serviceDescriptions ?? {})).toEqual([]);
       expect(accepted(refused)).toBe(true);
     });
+  });
+
+  it("asks OwnerEdits itself whether a service name can be a description key: 40 code points yes, 41 no, however many UTF-16 units", () => {
+    expect(isAllowedKey("\u{1F527}".repeat(40))).toBe(true);
+    expect(isAllowedKey("\u{1F527}".repeat(41))).toBe(false);
+    expect(isAllowedKey("a".repeat(39) + "\u{1F527}")).toBe(true); // 40 code points, 41 UTF-16 units
+    expect(isAllowedKey("a".repeat(41))).toBe(false);
+  });
+
+  it("checks the draft on its own (no sheets needed), with the same issues buildPreview returns", () => {
+    const good = checkDraft(ai, { facts: fixture.facts, brief: {}, edits: EMPTY_EDITS });
+    expect(good.ok).toBe(true);
+    if (good.ok) expect(good.doc.copy.heroHeadline).toBe(fixture.copy.heroHeadline);
+    const edits = withCopy(ai, EMPTY_EDITS, (c) => ({ ...c, heroHeadline: "Call 555" }));
+    const bad = checkDraft(ai, { facts: fixture.facts, brief: {}, edits });
+    const viaBuild = buildPreview(ai, { facts: fixture.facts, brief: {}, edits }, site, "localhost:8789", DESIGN_CSS);
+    expect(bad.ok).toBe(false);
+    expect(viaBuild.ok).toBe(false);
+    if (!bad.ok && !viaBuild.ok) expect(viaBuild.issues).toEqual(bad.issues);
+    const hours = checkDraft(ai, { facts: { ...fixture.facts, hours: [{ days: ["Monday"], opens: "08:00", closes: "" }] }, brief: {}, edits: EMPTY_EDITS });
+    expect(hours.ok).toBe(false);
+    if (!hours.ok) expect(issuesAt(hours.issues, ["facts", "hours", 0, "closes"])).toHaveLength(1);
   });
 
   it("renders the draft exactly as composeDocument + render would, or returns the issues", () => {

@@ -37,10 +37,15 @@ describe("build-config", () => {
   // data: URI, so font-src allows 'self' and data:, and nothing else about the policy widens (moderator, task-17-extra B).
   it("lets the preview's embedded font (a data: URI) load, and widens nothing else", () => {
     const csp = contentSecurityPolicy("asksite.example");
-    const directives = Object.fromEntries(csp.split("; ").map((d) => [d.split(" ")[0], d.split(" ").slice(1)]));
+    const directives: Record<string, string[]> = Object.fromEntries(
+      csp.split("; ").map((d) => {
+        const [name = "", ...sources] = d.split(" ");
+        return [name, sources];
+      }),
+    );
     expect(directives["font-src"]).toEqual(["'self'", "data:"]);
     // data: is allowed for images and fonts only: never for scripts, styles, frames, connections or the default.
-    const withData = Object.entries(directives).filter(([, sources]) => sources?.includes("data:")).map(([name]) => name);
+    const withData = Object.entries(directives).filter(([, sources]) => sources.includes("data:")).map(([name]) => name);
     expect(withData.sort()).toEqual(["font-src", "img-src"]);
     expect(Object.keys(directives)).toEqual(["default-src", "script-src", "style-src", "img-src", "font-src", "connect-src", "frame-src", "form-action", "base-uri", "object-src", "frame-ancestors"]);
     expect(directives["default-src"]).toEqual(["'self'"]);
