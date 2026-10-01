@@ -1,18 +1,20 @@
 // Classic's contact band: the owner's call to action, word for word, as the heading (the Contact page's <h1> when the
-// band opens it, A16), the phone large, then the other facts beside the form; from 60rem the column also recaps the towns (the
-// Service area section on this page lists them all, with the hours) and the license and Insured, so it is not half
-// empty. An owner with little on file gets one centred column. Every "Get a quote" link lands on the form (id
-// "quote"). The form is today's form field for field (the shared invariants compare it with every class removed):
-// ported from AstroWind (MIT, see NOTICES.md) through sections/contact.ts; only its classes are Classic's.
+// band opens it, A16), the phone large, then the other facts beside the form; from 60rem the column also recaps the
+// towns (the Service area section on this page lists them all, with the hours) and the license and Insured. When the
+// band opens the page the form always sits beside the facts, so the whole form and Send are on a desktop's first
+// screen; lower on the page, an owner with too little on file to balance the form gets one centred column. Every
+// "Get a quote" link lands on the form (id "quote"). The form is today's form field for field (the shared invariants
+// compare it with every class removed): ported from AstroWind (MIT, see NOTICES.md) through sections/contact.ts; only
+// its classes are Classic's.
 import { QUOTE_ID } from "@asksite/site-schema";
-import type { RenderContext } from "../../context.ts";
+import { headingLevel, type RenderContext } from "../../context.ts";
 import { formatPhone, mailtoUrl, telUrl } from "../../format.ts";
 import { html, type SafeHtml } from "../../html.ts";
 import { DOM_ID } from "../../sections/ids.ts";
 import { dots, email, icon, lic, sectionTitle, townSummary } from "./parts.ts";
 import { plan } from "./plan.ts";
 
-/** Fewer rows than this beside the form cannot balance it, so the band stacks (from 60rem). */
+/** Fewer rows than this beside the form cannot balance it, so a band lower on the page stacks (from 60rem). */
 const STACK_BELOW = 8;
 
 export function renderContact(ctx: RenderContext): SafeHtml {
@@ -40,7 +42,7 @@ export function renderContact(ctx: RenderContext): SafeHtml {
     (credentials.length > 0 ? 1 : 0);
 
   return html`<section id="${DOM_ID.contact}" class="sec dark" aria-labelledby="${DOM_ID.contact}-title">
-<div class="${rows < STACK_BELOW ? "wr contact c-stack" : "wr contact"}">
+<div class="${rows < STACK_BELOW && headingLevel(ctx, "contact") === 2 ? "wr contact c-stack" : "wr contact"}">
 <div class="c-info">
 ${sectionTitle(ctx, "contact", copy.ctaText, copy.sectionIntros.contact)}
 <ul class="c-list">

@@ -130,7 +130,7 @@ h1,h2,h3{font-weight:700;line-height:1.15;color:var(--aw-refined-ink);text-wrap:
 .sh{max-width:42rem;margin-bottom:2.25rem}
 .sh::before{content:"";display:block;width:var(--aw-refined-rule-w);height:var(--aw-refined-rule-h);margin-bottom:1rem;border-radius:var(--aw-refined-rule-h);background:var(--aw-refined-accent)}
 .st{font-size:calc(clamp(1.875rem,1.4rem + 1.7vw,2.75rem)*var(--aw-refined-title-scale));letter-spacing:var(--aw-refined-title-track);text-transform:var(--aw-refined-title-case)}
-.sh p{margin-top:.75rem;font-size:1.125rem;line-height:1.5;color:var(--aw-refined-muted);text-wrap:pretty}
+.st+p{margin-top:.75rem;font-size:1.125rem;line-height:1.5;color:var(--aw-refined-muted);text-wrap:pretty}
 /* An inner page opens on its first section (A16): the hero's eyebrow, then the page's <h1>, set larger. */
 main>.sec:first-child{padding-top:2.5rem}
 .sh-pg::before{content:none}
@@ -250,7 +250,7 @@ summary::-webkit-details-marker{display:none}
 .c-info{background:var(--aw-refined-dark)}
 .dark .sh::before{background:var(--aw-refined-accent-on-dark)}
 .dark .st{color:var(--aw-refined-on-dark)}
-.dark .sh p{color:var(--aw-refined-on-dark-muted)}
+.dark .st+p{color:var(--aw-refined-on-dark-muted)}
 .contact{display:grid;grid-template-columns:minmax(0,1fr);gap:2.5rem}
 .c-list{display:grid;gap:1.25rem}
 .c-list li{display:flex;gap:.875rem;min-width:0}

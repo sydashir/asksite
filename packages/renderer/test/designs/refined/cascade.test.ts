@@ -343,6 +343,17 @@ describe.each(Object.keys(ENGINES) as Array<keyof typeof ENGINES>)("Classic's ca
     expect([...(await currentMarks(390)), ...(await currentMarks(1280))]).toEqual([]);
   }, 60_000);
 
+  it("puts the whole form, Send included, on a desktop's first screen of /contact when the contact band opens the page", async () => {
+    const below: string[] = [];
+    for (const [name, doc] of Object.entries({ plumber, hvac, cleaning, electrical: loadFixture("electrical-xss") })) {
+      await page.setViewportSize({ width: 1280, height: 800 });
+      await page.setContent(classicPage(refined(doc), "contact"), { waitUntil: "load" });
+      const bottom = (await page.evaluate(`document.querySelector("form button[type=submit]").getBoundingClientRect().bottom`)) as number;
+      if (bottom > 800) below.push(`${name}: Send ends at ${Math.round(bottom)} px`);
+    }
+    expect(below).toEqual([]);
+  }, 60_000);
+
   it("shows the opening hours on the Contact page at every width, for an owner with no photo too (Home's card lists them there)", async () => {
     for (const width of [320, 390, 768, 1024, 1280, 1920]) {
       await open(refined(hvac), width, "", "contact");

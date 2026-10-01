@@ -266,6 +266,13 @@ describe("Classic's pages (A16)", () => {
     }
   });
 
+  it("keeps the form beside the facts when the contact band opens /contact, and stacks a thin owner's band lower on the page", () => {
+    const band = (input: SiteDocumentInput) => section(classicPage(input, "contact", OPTIONS.stylesheets), "contact");
+    for (const input of [hvac, cleaning]) expect(band(input)).toContain('<div class="wr contact">');
+    const areaFirst = { ...cleaning, layout: [...cleaning.layout.filter((s) => s.id !== "contact"), ...cleaning.layout.filter((s) => s.id === "contact")] };
+    expect(band(areaFirst)).toContain('<div class="wr contact c-stack">');
+  });
+
   it("opens each inner page with the hero's eyebrow and the page's h1, and closes every page but Contact with the closing band", () => {
     for (const { page: id, html } of classicSite(plumber, OPTIONS.stylesheets).pages) {
       const first = html.slice(html.indexOf("<main"), html.indexOf("</section>", html.indexOf("<main")));
