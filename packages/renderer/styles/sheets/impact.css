@@ -589,9 +589,28 @@
     color: var(--fg-t);
     text-wrap: pretty;
   }
-  /* Below 64rem the call bar carries Call and the call to action, so the hero shows no buttons. */
+  /* The hero ends with its buttons. Below 64rem the call bar carries Call with the number, so there the hero ends with
+     the owner's call to action only, under the subheadline (full width on phones, as in the closing band). */
   .hero-actions {
-    display: none;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    margin-top: 1.5rem;
+  }
+  @media (max-width: 63.99rem) {
+    .hero-actions .bt-action {
+      display: none;
+    }
+  }
+  @media (max-width: 39.99rem) {
+    .hero-actions {
+      align-self: stretch;
+    }
+    .hero-actions .bt {
+      width: 100%;
+      padding-inline: 0.75rem;
+      font-size: 1.0625rem;
+    }
   }
   /* Phones: the photo hero reaches the call bar exactly (header 3.75rem + 1px, call bar 3.25rem + 2 x .625rem
      + 1px), so the first screen never ends on a thin strip of the next section. */
@@ -726,9 +745,6 @@
       font-size: 1.25rem;
     }
     .hero-actions {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 0.75rem;
       margin-top: 2rem;
     }
     /* The credentials card on the photo: a solid light card, so it reads on any photo. */

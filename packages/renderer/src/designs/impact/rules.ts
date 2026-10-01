@@ -61,7 +61,8 @@ const FIT_MARGIN = 1.03; // kerning and rounding
 // size in px (impact.css): the hero pair at 64rem, the header button, the services card from 64rem, and at 320 px
 // the services card and the closing band (A16; Home's closing panel is the narrower: 288 px less its 1rem padding,
 // the button's 0.75rem padding and its border). Wider ones need no slot: the closing band's from 64rem (a 26rem
-// column), the inner page head's from 64rem, the phone menu's and Contact's head button at 320 px.
+// column), the inner page head's from 64rem, the phone menu's, Contact's head button and the hero's (260 px at 17 px)
+// at 320 px.
 const LABEL_SLOTS = [
   { width: 455, size: 20 },
   { width: 240, size: 17 },

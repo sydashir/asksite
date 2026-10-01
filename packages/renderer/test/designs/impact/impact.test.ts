@@ -719,4 +719,14 @@ describe("the Bold sheet carries the round-4 must-fixes", () => {
   it("breaks a call-to-action word too long for the services card's button inside the button", () => {
     expect(rule(".cta-actions .bt")).toContain("overflow-wrap:anywhere");
   });
+
+  // Round 3 (A16-4's journey "Get a quote on Home" clicks the hero's quote link in a 390 px window too): below 64rem
+  // the hero ends with the owner's call to action under the subheadline, full width on phones as in the closing band;
+  // Call stays the call bar's (it shows the number there), so the hero never repeats the bar's pair.
+  it("ends the hero with the owner's call to action below 64rem, and leaves Call to the call bar there", () => {
+    expect(css).not.toMatch(/\.hero-actions\{display:none\}/);
+    expect(rule(".hero-actions")).toContain("display:flex");
+    expect(rule(".hero-actions .bt-action", "@media (max-width:63.99rem)")).toContain("display:none");
+    expect(rule(".hero-actions .bt", "@media (max-width:39.99rem)")).toContain("width:100%");
+  });
 });
