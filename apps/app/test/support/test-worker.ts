@@ -470,12 +470,12 @@ helpers.post("/__test/generations/:generationId/finish", async (c) => {
 
 /** What the sites Worker's contact form stores (Plan 2): one lead per call. */
 helpers.post("/__test/sites/:siteId/leads", async (c) => {
-  const lead = await c.req.json<{ name: string; phone: string; email?: string; message?: string; createdAt?: number }>();
+  const lead = await c.req.json<{ name: string; phone: string; email?: string; service?: string; message?: string; emailStatus?: "pending" | "sent" | "failed" | "skipped"; createdAt?: number }>();
   await c.env.DB.prepare(
     `INSERT INTO leads (id, site_id, created_at, name, phone, email, service, message, spam, email_status, ip_hash)
-     VALUES (?, ?, ?, ?, ?, ?, NULL, ?, 0, 'sent', 'test')`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, 'test')`,
   )
-    .bind(newId(), c.req.param("siteId"), lead.createdAt ?? Date.now(), lead.name, lead.phone, lead.email ?? null, lead.message ?? null)
+    .bind(newId(), c.req.param("siteId"), lead.createdAt ?? Date.now(), lead.name, lead.phone, lead.email ?? null, lead.service ?? null, lead.message ?? null, lead.emailStatus ?? "sent")
     .run();
   return c.json({ ok: true });
 });
