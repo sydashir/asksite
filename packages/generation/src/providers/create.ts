@@ -32,7 +32,8 @@ export function createProvider(env: ProviderEnv, snapshot: GenerationInputSnapsh
       if (!env.OPENAI_COMPAT_BASE_URL) throw new ProviderError("bad_request", "OPENAI_COMPAT_BASE_URL is not set");
       return new OpenAICompatibleProvider({ baseUrl: env.OPENAI_COMPAT_BASE_URL, apiKey: env.OPENAI_COMPAT_API_KEY, model: env.MODEL_ID, ...withFetch });
     case "fake": {
-      if (env.ENVIRONMENT === "production") throw new ProviderError("bad_request", "The fake provider is not allowed in production");
+      // Fails closed: the fake needs no key, so only the exact values "development" and "test" may build it.
+      if (env.ENVIRONMENT !== "development" && env.ENVIRONMENT !== "test") throw new ProviderError("bad_request", "The fake provider is allowed only in development and test");
       const mode = env.FAKE_MODE ?? "ok";
       if (!isFakeMode(mode)) throw new ProviderError("bad_request", "Unknown FAKE_MODE");
       return new FakeProvider(mode, snapshot);

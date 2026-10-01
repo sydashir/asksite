@@ -58,6 +58,13 @@ describe("checkDraft", () => {
     expect(result.ok && result.draft.copy.serviceDescriptions.map((d) => d.service)).toEqual(OWNER_NAMES);
   });
 
+  it("binds an owner service name with an emoji selector or a joiner when the model retypes it without them", () => {
+    const owner = ["Heart \u2764\uFE0F care", "Family \u{1F468}\u200D\u{1F469} care"];
+    const facts = Facts.parse({ ...MINIMAL_FACTS, services: owner.map((name) => ({ name })) });
+    const result = checkDraft(facts, withServices(facts, ["Heart \u2764 care", "Family \u{1F468}\u{1F469} care"]));
+    expect(result.ok && result.draft.copy.serviceDescriptions.map((d) => d.service)).toEqual(owner);
+  });
+
   it("leaves a different, missing or reordered name for SiteDocument to report", () => {
     const facts = Facts.parse({ ...MINIMAL_FACTS, services: [{ name: "Drain cleaning" }, { name: "Leak repair" }] });
     for (const names of [["Drain cleaning", "Leak repairs"], ["Leak repair", "Drain cleaning"], ["Drain cleaning"]]) {

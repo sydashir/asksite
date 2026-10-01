@@ -641,6 +641,22 @@ describe("a live --record (P3-17 D3)", () => {
     expect(h.out).toContain("Spent: $0.001150 counted against the $0.030000 budget.");
   });
 
+  it("ends with one line naming every model that was not recorded (errored or budget-cut), or saying every model was", async () => {
+    const body = { model: "m", choices: [{ message: { content: "{}" }, finish_reason: "stop" }], usage: { prompt_tokens: 5, completion_tokens: 6 } };
+    const answer = (failing: readonly string[]): Answer => async (env, snapshot, fetchImpl) => {
+      if (failing.includes(env.MODEL_ID!)) throw new Error("provider down");
+      await fetchImpl!("https://record.example.invalid/v1/chat/completions", { method: "POST", body: "{}" });
+      return validDraft(env, snapshot, fetchImpl);
+    };
+    const partial = harness({ answer: answer([byLabel(GEMMA).modelId]), fetch: fakeFetch([{ status: 200, body }]).fetch });
+    // gemma errors, groq is recorded, opus does not fit the budget (as in the first test): the exit code stays 0.
+    expect(await main(["--record", "--live", "--max-usd", "0.03", "--only", `${OPUS},${GROQ},${GEMMA}`], partial.deps)).toBe(0);
+    expect(partial.out.at(-1)).toBe(`Not recorded: ${GEMMA}, ${OPUS}.`);
+    const all = harness({ answer: answer([]), fetch: fakeFetch([{ status: 200, body }, { status: 200, body }]).fetch });
+    expect(await main(["--record", "--live", "--max-usd", "1", "--only", `${GROQ},${GEMMA}`], all.deps)).toBe(0);
+    expect(all.out.at(-1)).toBe("Every model was recorded.");
+  });
+
   it("reports a model that cost more than its worst case and still records the others (fix round #1)", async () => {
     const body = { model: "m", choices: [{ message: { content: "{}" }, finish_reason: "stop" }], usage: { prompt_tokens: 5, completion_tokens: 6 } };
     const http = fakeFetch([
