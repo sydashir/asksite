@@ -20,6 +20,8 @@ interface Props {
   /** The fact that makes an error at this path go away, e.g. "Add a license" for "licensed" (§2.2). */
   fixFor: (path: Path) => Fix | undefined;
   openFix: (fix: Fix) => void;
+  /** The AI's wording is not fresh: nothing here may change (aria-disabled and typing blocked, so keyboard focus stays; the editor also drops the edit). */
+  readOnly: boolean;
   /** The owner is at (or changed) this section's wording: the preview shows its page. */
   onSection: (section: SectionId) => void;
 }
@@ -32,7 +34,7 @@ const INTRO_LABEL: Record<Intro, string> = {
 };
 
 /** Every wording field, grouped by section, with the limits from Plan 1's COPY_LIMITS (§3.1 step 5). */
-export function WordsTab({ ai, edits, composed, facts, setEdits, errors, fixFor, openFix, onSection }: Props) {
+export function WordsTab({ ai, edits, composed, facts, setEdits, errors, fixFor, openFix, readOnly, onSection }: Props) {
   const copy = asRecord(composed.copy);
   const intros = asRecord(copy["sectionIntros"]);
   const faq = asArray(copy["faq"]).map(asRecord);
@@ -59,6 +61,7 @@ export function WordsTab({ ai, edits, composed, facts, setEdits, errors, fixFor,
     const fix = fixFor(["copy", ...path]);
     return {
       id: fieldId(["copy", ...path]),
+      readOnly,
       errors: errors(["copy", ...path]),
       onFocus: () => onSection(sectionOfCopy(["copy", ...path])),
       after:
@@ -106,13 +109,13 @@ export function WordsTab({ ai, edits, composed, facts, setEdits, errors, fixFor,
 
       <Group id="words-about" legend="About you">
         {copy["about"] === undefined ? (
-          <button type="button" className="btn-secondary mt-3" onClick={() => change("about", (c) => ({ ...c, about: "" }))}>
+          <button type="button" className="btn-secondary mt-3" aria-disabled={readOnly} onClick={() => change("about", (c) => ({ ...c, about: "" }))}>
             Add an About section
           </button>
         ) : (
           <>
             <TextArea {...field("about")} label="About text" rows={5} max={COPY_LIMITS.about} value={asString(copy["about"])} onChange={(v) => change("about", (c) => ({ ...c, about: v }))} />
-            <button type="button" className="btn-small mt-3" onClick={() => change("about", (c) => ({ ...c, about: null }))}>
+            <button type="button" className="btn-small mt-3" aria-disabled={readOnly} onClick={() => change("about", (c) => ({ ...c, about: null }))}>
               Remove the About text
             </button>
           </>
@@ -126,15 +129,16 @@ export function WordsTab({ ai, edits, composed, facts, setEdits, errors, fixFor,
             <TextInput {...field("faq", i, "question")} label={`Question ${i + 1}`} max={COPY_LIMITS.faqQuestion} value={item.question} onChange={(v) => setFaq(faqItems.map((f, n) => (n === i ? { ...f, question: v } : f)))} />
             <TextArea {...field("faq", i, "answer")} label={`Answer ${i + 1}`} max={COPY_LIMITS.faqAnswer} value={item.answer} onChange={(v) => setFaq(faqItems.map((f, n) => (n === i ? { ...f, answer: v } : f)))} />
             <div className="mt-3 flex flex-wrap gap-2">
-              <button id={faqMoveId(i, "up")} type="button" className="btn-small" disabled={i === 0} onClick={() => moveFaq(i, -1)}>
+              <button id={faqMoveId(i, "up")} type="button" className="btn-small" disabled={i === 0} aria-disabled={readOnly} onClick={() => moveFaq(i, -1)}>
                 Move question {i + 1} up
               </button>
-              <button id={faqMoveId(i, "down")} type="button" className="btn-small" disabled={i === faqItems.length - 1} onClick={() => moveFaq(i, 1)}>
+              <button id={faqMoveId(i, "down")} type="button" className="btn-small" disabled={i === faqItems.length - 1} aria-disabled={readOnly} onClick={() => moveFaq(i, 1)}>
                 Move question {i + 1} down
               </button>
               <button
                 type="button"
                 className="btn-small"
+                aria-disabled={readOnly}
                 onClick={() => {
                   setFaq(faqItems.filter((_, n) => n !== i));
                   focusSoon(fieldId(["copy", "faq"]));
@@ -149,6 +153,7 @@ export function WordsTab({ ai, edits, composed, facts, setEdits, errors, fixFor,
           <button
             type="button"
             className="btn-secondary mt-4"
+            aria-disabled={readOnly}
             onClick={() => {
               setFaq([...faqItems, { question: "", answer: "" }]);
               focusSoon(fieldId(["copy", "faq", faqItems.length, "question"]));

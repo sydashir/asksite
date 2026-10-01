@@ -10,6 +10,8 @@ interface Props {
   composed: ComposedDocument;
   edits: OwnerEdits;
   setEdits: (edits: OwnerEdits) => void;
+  /** The AI's wording is not fresh: nothing here may change (aria-disabled, so keyboard focus stays; the editor also drops the edit). */
+  readOnly: boolean;
   /** The owner changed this section: the preview shows its page. */
   onSection: (section: SectionId) => void;
 }
@@ -20,7 +22,7 @@ const moveId = (id: SectionId, direction: "up" | "down") => `section-move-${id}-
  * Order and hide sections with buttons, never drag (WCAG 2.5.7). Grouped by the page each section lives on: a section
  * moves up and down only within its own page (U1). Hero, services and contact always show.
  */
-export function SectionsTab({ ai, composed, edits, setEdits, onSection }: Props) {
+export function SectionsTab({ ai, composed, edits, setEdits, readOnly, onSection }: Props) {
   const listed = listedSections(composed);
   const order = composed.layout.map((s) => s.id);
   const move = (id: SectionId, by: -1 | 1) => {
@@ -50,10 +52,10 @@ export function SectionsTab({ ai, composed, edits, setEdits, onSection }: Props)
                   </p>
                   {id === "hero" ? null : (
                     <div className="mt-2 flex flex-wrap gap-2">
-                      <button id={moveId(id, "up")} type="button" className="btn-small" disabled={!canMove(order, listed, id, -1)} onClick={() => move(id, -1)}>
+                      <button id={moveId(id, "up")} type="button" className="btn-small" disabled={!canMove(order, listed, id, -1)} aria-disabled={readOnly} onClick={() => move(id, -1)}>
                         Move {SECTION_LABEL[id]} up
                       </button>
-                      <button id={moveId(id, "down")} type="button" className="btn-small" disabled={!canMove(order, listed, id, 1)} onClick={() => move(id, 1)}>
+                      <button id={moveId(id, "down")} type="button" className="btn-small" disabled={!canMove(order, listed, id, 1)} aria-disabled={readOnly} onClick={() => move(id, 1)}>
                         Move {SECTION_LABEL[id]} down
                       </button>
                     </div>
@@ -66,6 +68,7 @@ export function SectionsTab({ ai, composed, edits, setEdits, onSection }: Props)
                           type="checkbox"
                           className="size-6 accent-blue-700"
                           checked={hidden}
+                          aria-disabled={readOnly}
                           aria-describedby={removes === null ? undefined : `hide-${id}-note`}
                           onChange={(e) => {
                             // Hiding a section that takes its page away leaves nothing to show there: the preview says so itself.

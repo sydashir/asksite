@@ -14,6 +14,17 @@ export type SiteLoad = { state: "loading" } | { state: "error"; message: string;
 /** Saves a page started as it closed, by site: the next page's first load waits for them (decision 37). */
 const leaving = new Map<string, Promise<unknown>>();
 
+const AI_RETRY_MS = 1_000;
+
+/** The site's newest view, or null when it could not be fetched or read (it has no AI wording, or the answer is not a view). */
+async function fetchAi(siteId: string): Promise<SiteView | null> {
+  const res = await api<SiteView>("GET", `/api/sites/${siteId}`);
+  if (!res.ok) return null;
+  const view = res.data as Partial<SiteView> | null;
+  const readable = typeof view === "object" && view !== null && view.ai != null && typeof view.edits === "object" && view.edits !== null && view.limits != null;
+  return readable ? (res.data as SiteView) : null;
+}
+
 /**
  * One site's server view plus the owner's local draft. Every change is shown at once and saved
  * in the background (AutoSaver); `issues` are the server's answer to the last save. Nothing typed is
@@ -97,17 +108,23 @@ export function useSite(siteId: string) {
    * saver stay exactly as they are, so nothing typed or still unsaved is replaced and the saver's rev is never touched. The one
    * thing taken from the server's edits is the look it pinned before the rewrite (the owner never chose one): while the owner
    * has none, the page would otherwise jump to the new draft's look. That look is already the server's, so nothing is saved.
+   * Resolves true once the wording is refreshed. A failed GET or an unreadable answer is tried once more, then it resolves false
+   * (never throws): the caller must not treat the wording as new, because an edit built on the old draft is ignored by the server.
    */
-  const refreshAi = useCallback(async () => {
-    const res = await api<SiteView>("GET", `/api/sites/${siteId}`);
-    if (!res.ok || res.data.ai === null) return;
-    const fresh = res.data;
+  const refreshAi = useCallback(async (): Promise<boolean> => {
+    let fresh = await fetchAi(siteId);
+    if (fresh === null) {
+      await new Promise((resolve) => setTimeout(resolve, AI_RETRY_MS));
+      fresh = await fetchAi(siteId);
+    }
+    if (fresh === null) return false;
     const current = draftRef.current;
     if (current !== null && current.edits.theme === null && fresh.edits.theme !== null) {
       draftRef.current = { ...current, edits: { ...current.edits, theme: fresh.edits.theme } };
       setDraft(draftRef.current);
     }
     setLoad((last) => (last.state === "ready" ? { state: "ready", view: { ...last.view, ai: fresh.ai, limits: fresh.limits, activeGeneration: fresh.activeGeneration } } : last));
+    return true;
   }, [siteId]);
 
   const flush = useCallback(async () => (saverRef.current === null ? true : saverRef.current.flush()), []);

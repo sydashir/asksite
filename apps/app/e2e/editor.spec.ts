@@ -547,3 +547,112 @@ test("the preview's alert keeps the same text through a save cycle; 'saved' is p
   // The note is plain text: not inside the alert, and not a live region itself.
   expect(await note.evaluate((el) => el.closest('[role="alert"], [role="status"], [aria-live]') === null)).toBe(true);
 });
+
+// STRICT (customer data): new wording is "ready" only once it is on screen; if it cannot be loaded, wording and order are
+// read-only, so nothing is ever saved against the old generation (task-17 fix round 4, I-1).
+const headlineField = (page: Page) => page.getByLabel("Headline", { exact: true });
+const siteView = async (page: Page, siteId: string) => (await apiCall(page, "GET", `/api/sites/${siteId}`)).json!;
+const aiGenerationId = async (page: Page, siteId: string) => ((await siteView(page, siteId))["ai"] as { generationId: string }).generationId;
+const UNREADABLE = "The new wording is ready, but we couldn't load it. Reload the page to see it.";
+
+/** Records the edits.baseGenerationId of every draft save the page sends. */
+function watchDraftSaves(page: Page, siteId: string) {
+  const bases: Array<string | null> = [];
+  page.on("request", (request) => {
+    if (request.method() !== "PATCH" || !request.url().endsWith(`/api/sites/${siteId}/draft`)) return;
+    const body = request.postDataJSON() as { edits?: { baseGenerationId: string | null } };
+    if (body.edits !== undefined) bases.push(body.edits.baseGenerationId);
+  });
+  return bases;
+}
+
+/** Answers the next `count` GETs of the site (or every one, with Infinity) with a 503, once armed. Returns how many it failed. */
+async function failSiteGets(page: Page, siteId: string, count: number) {
+  const gate = { armed: false, failed: 0 };
+  await page.route(`**/api/sites/${siteId}`, (route) => {
+    if (!gate.armed || route.request().method() !== "GET" || gate.failed >= count) return route.fallback();
+    gate.failed += 1;
+    return route.fulfill({ status: 503, json: { error: { code: "internal", message: "Something went wrong. Please try again." } } });
+  });
+  return gate;
+}
+
+test("when the new wording cannot be fetched at first, it is fetched again and later edits apply to it", async ({ page }) => {
+  const siteId = await openEditor(page);
+  const bases = watchDraftSaves(page, siteId);
+  const before = await aiGenerationId(page, siteId);
+  const gate = await failSiteGets(page, siteId, 1);
+  const id = await askNewWording(page, siteId);
+  gate.armed = true;
+  await finishGeneration(page.request, id);
+  await expect(page.getByText("New wording is ready.")).toBeVisible({ timeout: 15_000 });
+  expect(gate.failed).toBe(1);
+  await expect(page.getByText(UNREADABLE)).toHaveCount(0);
+
+  const after = await aiGenerationId(page, siteId);
+  expect(after).not.toBe(before);
+  await headlineField(page).fill("Typed after the retry");
+  await expect(savedStatus(page)).toBeVisible();
+  expect(bases).toEqual([after]);
+  expect(((await savedEdits(page, siteId)) as { copy: { heroHeadline?: string } }).copy.heroHeadline).toBe("Typed after the retry");
+});
+
+test("when the new wording cannot be loaded at all, it says so and wording and sections stay read-only; nothing is saved against the old wording", async ({ page }) => {
+  const siteId = await openEditor(page);
+  const bases = watchDraftSaves(page, siteId);
+  const gate = await failSiteGets(page, siteId, Infinity);
+  const id = await askNewWording(page, siteId);
+  gate.armed = true;
+  await finishGeneration(page.request, id);
+  await expect(page.getByText(UNREADABLE)).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByText("New wording is ready.")).toHaveCount(0);
+  expect(gate.failed).toBe(2); // one try and one retry, never more
+  await expect(page.getByRole("button", { name: "Reload the page" })).toBeVisible();
+
+  // Words: focus stays, typing changes nothing.
+  const headline = headlineField(page);
+  const shown = await headline.inputValue();
+  await headline.focus();
+  await page.keyboard.type("Lost");
+  await expect(headline).toHaveValue(shown);
+  await expect(headline).toBeFocused();
+  await expect(page.getByRole("button", { name: "Add a question" })).toHaveAttribute("aria-disabled", "true");
+  await page.getByRole("button", { name: "Add a question" }).click({ force: true }); // Playwright counts aria-disabled as not enabled
+  await expect(page.getByLabel("Question 2")).toHaveCount(0);
+
+  // Sections: a click changes nothing.
+  await page.getByRole("tab", { name: "Sections" }).click();
+  const move = page.getByRole("button", { name: "Move Questions and answers up" });
+  await expect(move).toHaveAttribute("aria-disabled", "true");
+  await move.click({ force: true });
+  await page.getByLabel("Hide About you").click({ force: true });
+  await expect(page.getByLabel("Hide About you")).not.toBeChecked();
+
+  await page.waitForTimeout(1500); // longer than the autosave delay
+  expect(bases).toEqual([]);
+  expect((await savedEdits(page, siteId)).order).toBeNull();
+
+  // The look does not depend on the AI's wording, so it stays editable.
+  await page.getByRole("tab", { name: "Look" }).click();
+  await green(page).check();
+  await expect.poll(() => savedTheme(page, siteId)).toBe("green-amber");
+});
+
+test("new wording keeps the look the server pinned for an owner who chose none", async ({ page }) => {
+  const siteId = await builtSite(page);
+  const rev = (await siteView(page, siteId))["rev"] as number;
+  expect((await apiCall(page, "PATCH", `/api/sites/${siteId}/draft`, { rev, facts: { ...FACTS, trade: "roofing" } })).status).toBe(200);
+  await page.goto(`/sites/${siteId}/edit`);
+  await expect(page.getByRole("heading", { level: 1, name: "Edit your website" })).toBeFocused();
+  await expect(headlineField(page)).toHaveValue("Plumbing done right");
+
+  const id = await askNewWording(page, siteId);
+  await finishGeneration(page.request, id);
+  await expect(page.getByText("New wording is ready.")).toBeVisible({ timeout: 15_000 });
+  await expect(headlineField(page)).toHaveValue("Roofing done right");
+
+  const pinned = ((await siteView(page, siteId))["edits"] as { theme: { design: string } | null }).theme;
+  expect(pinned?.design).toBe("impact");
+  await page.getByRole("tab", { name: "Look" }).click();
+  await expect(page.locator("#design-impact")).toBeChecked();
+});
