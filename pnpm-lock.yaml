@@ -53,6 +53,15 @@ importers:
       '@asksite/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@asksite/generation':
+        specifier: workspace:*
+        version: link:../../packages/generation
+      '@asksite/mailer':
+        specifier: workspace:*
+        version: link:../../packages/mailer
+      '@asksite/publishing':
+        specifier: workspace:*
+        version: link:../../packages/publishing
       '@asksite/renderer':
         specifier: workspace:*
         version: link:../../packages/renderer
@@ -129,6 +138,15 @@ importers:
       '@asksite/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@asksite/generation':
+        specifier: workspace:*
+        version: link:../../packages/generation
+      '@asksite/mailer':
+        specifier: workspace:*
+        version: link:../../packages/mailer
+      '@asksite/publishing':
+        specifier: workspace:*
+        version: link:../../packages/publishing
       '@asksite/renderer':
         specifier: workspace:*
         version: link:../../packages/renderer
