@@ -6,7 +6,7 @@ import { requireTurnstile, SITEVERIFY_TIMEOUT_MS } from "../../src/worker/turnst
 import type { AppEnv } from "../../src/worker/types.ts";
 import { createWorker } from "../../src/worker/worker.ts";
 import { calledLikeFetch, errorName, fakeApprove, fakeCreateMailer, fakeGeneration, fakePublishing, fakeReject, fakeSiteverify, fetchCalledOn, finishGeneration, refuseNextGeneration, siteverifyCallsSoFar } from "./fakes.ts";
-import { PURGE_UPLOADS_SQL, TAKE_DOWN_SITE_SQL } from "./plan2b-statements.ts";
+import { PURGE_UPLOADS_SQL, RESTORE_SITE_SQL, TAKE_DOWN_SITE_SQL, TAKE_DOWN_VERSIONS_SQL } from "./plan2b-statements.ts";
 
 // The app Worker wired to the fakes, plus /__test/* helpers that stand in for the admin and the
 // generator in tests. Used by the Worker tests (test/wrangler.test.jsonc) and the browser tests
@@ -144,6 +144,9 @@ const loseReservationBeforeRowWrite = new Map<string, LoseReservation>();
 /** The reason the "taken_down" arm stores, as the admin's Take down would. */
 const TEST_TAKEDOWN_REASON = "Taken down by the test Worker";
 
+/** Runs one pinned statement with its bound values (shared by loseReservations and the takedown seams). */
+const run = (db: D1Database, sql: string, ...values: unknown[]) => db.prepare(sql).bind(...values).run();
+
 async function loseReservations(db: D1Database): Promise<void> {
   const sites = [...loseReservationBeforeRowWrite];
   loseReservationBeforeRowWrite.clear();
@@ -151,17 +154,14 @@ async function loseReservations(db: D1Database): Promise<void> {
     const now = Date.now();
     if (how === "taken_down") {
       // Pinned to Plan 2B's statements by test/worker/plan2b-statements.test.ts.
-      await db
-        .prepare(TAKE_DOWN_SITE_SQL)
-        .bind(now, TEST_TAKEDOWN_REASON, now, siteId)
-        .run();
+      await run(db, TAKE_DOWN_SITE_SQL, now, TEST_TAKEDOWN_REASON, now, siteId);
       continue;
     }
     const sql =
       how === "aged_out"
         ? "UPDATE uploads SET deleted_at = ?, reserved_at = NULL WHERE site_id = ? AND reserved_at IS NOT NULL"
         : PURGE_UPLOADS_SQL;
-    await db.prepare(sql).bind(now, siteId).run();
+    await run(db, sql, now, siteId);
   }
 }
 
@@ -599,10 +599,18 @@ helpers.post("/__test/versions/:versionId/reject", async (c) => {
   return c.json(await fakeReject(c.env, c.req.param("versionId"), note, Date.now()));
 });
 
-/** What the admin's Take down does to the site row (Plan 2B's own statement). */
+/** What the admin's Take down does to D1: Plan 2B's two statements in its order, versions then site. */
 helpers.post("/__test/sites/:siteId/take-down", async (c) => {
   const now = Date.now();
-  await c.env.DB.prepare(TAKE_DOWN_SITE_SQL).bind(now, TEST_TAKEDOWN_REASON, now, c.req.param("siteId")).run();
+  const siteId = c.req.param("siteId");
+  await run(c.env.DB, TAKE_DOWN_VERSIONS_SQL, "test-admin", now, siteId);
+  await run(c.env.DB, TAKE_DOWN_SITE_SQL, now, TEST_TAKEDOWN_REASON, now, siteId);
+  return c.json({ ok: true });
+});
+
+/** What the admin's Restore does to the site row (Plan 2B's own statement). */
+helpers.post("/__test/sites/:siteId/restore", async (c) => {
+  await run(c.env.DB, RESTORE_SITE_SQL, Date.now(), c.req.param("siteId"));
   return c.json({ ok: true });
 });
 

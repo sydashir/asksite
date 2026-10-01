@@ -68,7 +68,7 @@ test("a request approved in another tab is not reported as withdrawn", async ({ 
   await page.getByRole("button", { name: "Withdraw this request" }).click();
   await page.getByRole("dialog", { name: "Withdraw your request?" }).getByRole("button", { name: "Withdraw" }).click();
   await expect(page.getByText("Your website is live at")).toBeVisible();
-  await expect(page.getByText("There was no request waiting to withdraw. Its latest status is below.")).toBeVisible();
+  await expect(page.getByText("There was no request waiting to withdraw. Its latest status is shown above.")).toBeVisible();
   await expect(page.getByText(/Nothing was published/)).toBeHidden();
 });
 
@@ -118,4 +118,27 @@ test("a taken-down site shows the notice and no way to send for review", async (
   await page.goto(`/sites/${siteId}/publish`);
   await expect(page.getByText("Your website has been taken offline, so visitors cannot see it.")).toBeVisible();
   await expect(page.getByRole("button", { name: "Send for review" })).toBeHidden();
+});
+
+test("a takedown never shows as a requested change, and neither does the restore", async ({ page }) => {
+  const siteId = await builtSite(page);
+  const pendingId = async () => ((await apiCall(page, "GET", `/api/sites/${siteId}`)).json?.["pendingVersion"] as { id: string }).id;
+  await page.goto(`/sites/${siteId}/publish`);
+  await page.getByRole("button", { name: "Send for review" }).click();
+  await expect(page.getByRole("heading", { name: "Waiting for approval" })).toBeVisible();
+  await page.request.post(`${APP}/__test/versions/${await pendingId()}/approve`, { data: {} });
+  await page.reload();
+  await expect(page.getByText("Your website is live at")).toBeVisible();
+
+  await page.getByRole("button", { name: "Send for review" }).click();
+  await expect(page.getByRole("heading", { name: "Waiting for approval" })).toBeVisible();
+  await page.request.post(`${APP}/__test/sites/${siteId}/take-down`, { data: {} });
+  await page.reload();
+  await expect(page.getByText("Your website has been taken offline, so visitors cannot see it.")).toBeVisible();
+  await expect(page.getByText("We asked for a change")).toBeHidden();
+
+  await page.request.post(`${APP}/__test/sites/${siteId}/restore`, { data: {} });
+  await page.reload();
+  await expect(page.getByText("Your website is live at")).toBeVisible();
+  await expect(page.getByText("We asked for a change")).toBeHidden();
 });

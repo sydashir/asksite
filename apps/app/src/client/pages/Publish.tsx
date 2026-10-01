@@ -12,6 +12,7 @@ import { stepOf } from "../lib/draft-issues.ts";
 import { STEP_TITLE } from "../lib/labels.ts";
 import { issuesToShow, ownerMessage } from "../lib/messages.ts";
 import { paths } from "../lib/route.ts";
+import { TAKEDOWN_REVIEW_NOTE } from "../lib/takedown-note.ts";
 import { issueTarget } from "../lib/values.ts";
 
 const when = (ms: number) => new Date(ms).toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" });
@@ -86,13 +87,14 @@ function PublishScreen({ siteId, site, view, facts }: { siteId: string; site: Si
     const res = await api("DELETE", `/api/sites/${siteId}/publish-requests/pending`);
     if (res.ok || res.status === 409) {
       await Promise.all([site.reload(), loadVersions()]);
-      // 409 means nothing was pending any more (another tab withdrew it, or it was decided): never claim which, the status below says.
-      showResult(res.ok ? "Your request was withdrawn. Nothing was published." : "There was no request waiting to withdraw. Its latest status is below.");
+      // 409 means nothing was pending any more (another tab withdrew it, or it was decided): never claim which, the status above says.
+      showResult(res.ok ? "Your request was withdrawn. Nothing was published." : "There was no request waiting to withdraw. Its latest status is shown above.");
     } else showResult(res.error.message);
   }
 
-  const lastReviewed = versions.find((v) => v.status !== "pending" && v.status !== "superseded" && v.status !== "withdrawn");
-  const rejected = !view.inReview && lastReviewed?.status === "rejected" ? lastReviewed : null;
+  // A takedown also rejects the waiting version, with Plan 2's own note: that is not a request for a change (the takedown notice explains it).
+  const lastReviewed = versions.find((v) => v.status !== "pending" && v.status !== "superseded" && v.status !== "withdrawn" && v.reviewNote !== TAKEDOWN_REVIEW_NOTE);
+  const rejected = !view.takenDown && !view.inReview && lastReviewed?.status === "rejected" ? lastReviewed : null;
   return (
     <section className="mx-auto max-w-2xl">
       <h1 ref={heading} tabIndex={-1} className="text-2xl font-bold">
