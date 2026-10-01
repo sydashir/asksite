@@ -39,6 +39,19 @@ const imagesErrorCode = (err: unknown): number | undefined => {
   return typeof code === "number" ? code : undefined;
 };
 
+/** Which of the two Images calls failed: .info() measures a photo, .output() re-encodes it. */
+export type ImagesStep = "info" | "output";
+
+/** Told the step and the code of every Images error (an Error with a numeric code), whether it blames the file or not. */
+export type ImagesReport = (step: ImagesStep, code: number) => void;
+
+/** Reports an Images error's code, then says whether it blames the file (one of UNREADABLE_IMAGE_CODES) rather than the service or us. */
+function unreadableAfterReport(err: unknown, step: ImagesStep, report: ImagesReport): boolean {
+  const code = imagesErrorCode(err);
+  if (code !== undefined) report(step, code);
+  return unreadableImage(err);
+}
+
 /** Whether an Images failure blames the file (one of UNREADABLE_IMAGE_CODES) rather than the service or us. */
 function unreadableImage(err: unknown): boolean {
   const code = imagesErrorCode(err);
@@ -49,12 +62,12 @@ function unreadableImage(err: unknown): boolean {
  * Width and height as the Images binding reads them, or null when it cannot decode the file. Any other
  * failure (the service unreachable, timed out or out of allowance) is thrown: it is ours, not the photo's.
  */
-export async function imageInfo(images: ImagesBinding, bytes: Uint8Array): Promise<{ width: number; height: number } | null> {
+export async function imageInfo(images: ImagesBinding, bytes: Uint8Array, report: ImagesReport): Promise<{ width: number; height: number } | null> {
   try {
     const info = await images.info(stream(bytes));
     return "width" in info ? { width: info.width, height: info.height } : null;
   } catch (err) {
-    if (unreadableImage(err)) return null;
+    if (unreadableAfterReport(err, "info", report)) return null;
     throw err;
   }
 }
@@ -67,7 +80,7 @@ export async function imageInfo(images: ImagesBinding, bytes: Uint8Array): Promi
  * would promise, or when the WebP it gave back cannot be measured (the route counts all three as a
  * failed upload: P4-21 item 2); any other failure is thrown, as in imageInfo.
  */
-export async function toStillWebp(images: ImagesBinding, bytes: Uint8Array): Promise<{ webp: Uint8Array; width: number; height: number } | null> {
+export async function toStillWebp(images: ImagesBinding, bytes: Uint8Array, report: ImagesReport): Promise<{ webp: Uint8Array; width: number; height: number } | null> {
   let webp: Uint8Array;
   try {
     const result = await images
@@ -76,10 +89,10 @@ export async function toStillWebp(images: ImagesBinding, bytes: Uint8Array): Pro
       .output({ format: "image/webp", quality: 82, anim: false });
     webp = new Uint8Array(await new Response(result.image()).arrayBuffer());
   } catch (err) {
-    if (unreadableImage(err)) return null;
+    if (unreadableAfterReport(err, "output", report)) return null;
     throw err;
   }
   if (sniffImage(webp) !== "webp") return null;
-  const info = await imageInfo(images, webp);
+  const info = await imageInfo(images, webp, report);
   return info === null ? null : { webp, ...info };
 }
