@@ -181,12 +181,35 @@ test("changing a review clears the confirmation that the reviews are real", asyn
   }
 });
 
+// STRICT (customer data): leaving a step saves what was just typed first, and a failed save keeps the owner on the step.
 test("an answer typed just before leaving a step is saved first; if saving fails, the owner stays", async ({ page }) => {
   const siteId = await acceptInvite(page);
   const steps = page.getByRole("navigation", { name: "Questionnaire steps" });
+  const carriesName = (body: string | null) => (body ?? "").includes("Quick Exit Plumbing");
+  // The order of two events decides this test: the server's answer to the save that carries the name, recorded before
+  // the page can receive it, and the page changing step. So the order is cause and effect, never a timing guess.
+  const order: string[] = [];
+  await page.route(`**/api/sites/${siteId}/draft`, async (route) => {
+    const response = await route.fetch();
+    if (carriesName(route.request().postData())) order.push(`saved ${response.status()}`);
+    await route.fulfill({ response });
+  });
+  page.on("framenavigated", (frame) => {
+    if (frame === page.mainFrame() && new URL(frame.url()).pathname.endsWith("/setup/services")) order.push("left the step");
+  });
+  const nameSaved = page.waitForResponse(
+    (res) => res.request().method() === "PATCH" && res.url().endsWith(`/api/sites/${siteId}/draft`) && carriesName(res.request().postData()),
+  );
   await page.getByLabel("Business name").fill("Quick Exit Plumbing");
+  // The name reached the page's answers (the counter is drawn from them), so a failure below is about saving, not typing.
+  await expect(page.getByText("19 of 60 characters", { exact: true })).toBeVisible();
   await steps.getByRole("link", { name: "2. Your services" }).click();
+  expect((await nameSaved).status()).toBe(200);
   await expect(page.getByRole("heading", { level: 1, name: "Your services" })).toBeFocused();
+  // A later save may carry the name too (the sign-in email fills in as well): the first one must come before the step change.
+  expect(order).toContain("left the step");
+  expect(order.indexOf("saved 200"), JSON.stringify(order)).toBeGreaterThan(-1);
+  expect(order.indexOf("saved 200"), JSON.stringify(order)).toBeLessThan(order.indexOf("left the step"));
   const view = await apiCall(page, "GET", `/api/sites/${siteId}`);
   expect((view.json?.["facts"] as { businessName?: string }).businessName).toBe("Quick Exit Plumbing");
 
