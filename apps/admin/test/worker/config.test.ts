@@ -102,6 +102,22 @@ describe("production wrangler.jsonc", () => {
   it("serves the single-page app for every path except /api/*, which goes to the Worker first", () => {
     expect(config.assets).toEqual({ directory: "./dist/client", not_found_handling: "single-page-application", run_worker_first: ["/api/*"] });
   });
+
+  it("builds for this machine with `build` and deploys only a production build", () => {
+    const { scripts } = JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8")) as { scripts: Record<string, string> };
+    expect(scripts["build"]).toBe("vite build --mode development");
+    expect(scripts["build:production"]).toBe("vite build --mode production");
+    // Named "release", not "deploy": `pnpm deploy` is a built-in pnpm command and would never run this script.
+    expect(scripts["release"]).toBe("vite build --mode production && wrangler deploy");
+    expect(scripts["deploy"]).toBeUndefined();
+  });
+
+  it("never gives a test Worker the production name, so a test build can never replace production", () => {
+    for (const path of ["../wrangler.test.jsonc", "../e2e/wrangler.e2e.jsonc"]) {
+      const { name } = JSON.parse(readFileSync(new URL(path, import.meta.url), "utf8")) as { name: string };
+      expect(name).toMatch(/^asksite-admin-(test|e2e)$/);
+    }
+  });
 });
 
 describe("test wrangler.test.jsonc", () => {
@@ -109,5 +125,24 @@ describe("test wrangler.test.jsonc", () => {
 
   it("turns Node.js compatibility off like production (A13)", () => {
     expectNodeCompatOff(testConfig.compatibility_flags);
+  });
+});
+
+describe("browser-test wrangler.e2e.jsonc", () => {
+  const e2e = JSON.parse(readFileSync(new URL("../e2e/wrangler.e2e.jsonc", import.meta.url), "utf8")) as {
+    compatibility_flags?: string[];
+    vars: Record<string, string>;
+    assets: unknown;
+  };
+
+  it("turns Node.js compatibility off like production (A13)", () => {
+    expectNodeCompatOff(e2e.compatibility_flags);
+  });
+
+  it("signs in through the dev mode that only works on *.localhost, and sends the app's sign-in email cap", () => {
+    expect(e2e.vars["ENVIRONMENT"]).toBe("development");
+    expect(e2e.vars["ADMIN_AUTH_MODE"]).toBe("dev");
+    expect(e2e.vars["LOGIN_EMAILS_PER_DAY"]).toBe("40");
+    expect(e2e.assets).toEqual({ not_found_handling: "single-page-application", run_worker_first: ["/api/*", "/__test/*"] });
   });
 });
