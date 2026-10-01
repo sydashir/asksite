@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } fr
 import { securityTxt } from "../src/apex.ts";
 import type { Env } from "../src/env.ts";
 import worker from "../src/index.ts";
-import { liveKeys } from "@asksite/core";
+import { livePageKey, livePointerKey, pageCacheUrl } from "@asksite/core";
 import { PAGE_IDS, PAGES } from "@asksite/site-schema";
 
 // The handler run directly in Node: what the workerd harness cannot show. workerd itself drops a HEAD
@@ -84,7 +84,7 @@ describe("the contact form without IP_HASH_KEY", () => {
 });
 
 // QA-2 RU(3) review I-1: live slugs are public, so a script can send a live host any number of wrong
-// paths. The 404 names the business from the LIVE object's metadata alone and never asks D1, the one
+// paths. The 404 names the business from the LIVE pointer's metadata alone and never asks D1, the one
 // single-threaded database every Worker shares (Decision 24). Only here can a test count the reads.
 describe("the 404 page on a live host", () => {
   it("answers a burst of wrong paths with the link, one R2 head each and no D1 query", async () => {
@@ -108,49 +108,166 @@ describe("the 404 page on a live host", () => {
       if (method === "GET") expect(await response.text(), path).toContain('<p><a href="/">Go to Joe\'s Plumbing\'s page</a></p>');
     }
     expect(d1).toEqual([]);
-    expect(heads).toEqual(paths.map(() => "joes.html"));
+    expect(heads).toEqual(paths.map(() => livePointerKey("joes")));
   });
 });
 
-// A16 routing is security: the Worker never builds an R2 key from the request path. Whatever the path,
-// every LIVE read is one of the site's 5 page keys, and an unknown slug never reaches D1.
+// A16 routing is security: the Worker never builds an R2 key from the request path. Whatever the path, every LIVE
+// read is the site's pointer or one of the 5 page keys of the version the pointer names, and a slug with no pointer
+// never reaches D1.
 describe("page routing on a site host", () => {
   const slug = "joes";
+  const SITE_ID = "7c9e6679-7425-40de-944b-e07fc1f90ae7";
+  const VERSION = "0b0c2d3e-4f50-4a6b-8c7d-8e9fa0b1c2d3";
+  const POINTER = { siteId: SITE_ID, versionId: VERSION, businessName: "Joe's Plumbing" };
   const hostile = ["/../x", "/%2e%2e/x", "/services/../about", "/services%2F..%2Fabout", "//services", "/SERVICES", "/services.html", "/index.html", "/contact#x", "/services/", "/services//", "/__proto__", "/constructor"];
+  const cache = new Map<string, Response>();
 
   beforeEach(() => {
-    vi.stubGlobal("caches", { default: { match: async () => undefined, put: async () => {} } });
+    cache.clear();
+    vi.stubGlobal("caches", { default: { match: async (request: Request) => cache.get(request.url)?.clone(), put: async (request: Request, response: Response) => void cache.set(request.url, response) } });
   });
   afterEach(() => {
     vi.unstubAllGlobals();
   });
 
-  async function readsFor(paths: readonly string[]) {
-    const keys: string[] = [];
+  /** LIVE and D1 that record every read. `pointer` null = no pointer; `pages` are the page objects that exist. */
+  function recording(pointer: Record<string, string> | null, pages: Partial<Record<string, string>> = {}, live: Record<string, unknown> | null = { indexable: 1, live_version_id: VERSION }) {
+    const heads: string[] = [];
+    const gets: string[] = [];
     const d1: string[] = [];
     const LIVE = {
-      get: async (key: string) => (keys.push(key), null),
-      head: async (key: string) => (keys.push(key), null),
+      head: async (key: string) => (heads.push(key), pointer === null ? null : { customMetadata: pointer }),
+      get: async (key: string) => (gets.push(key), key in pages ? { arrayBuffer: async () => new TextEncoder().encode(pages[key]).buffer } : null),
     };
-    const DB = new Proxy({}, { get: (_, key) => (d1.push(String(key)), () => { throw new Error("D1 must not be read"); }) });
-    const siteEnv = { ...env(), LIVE, DB } as unknown as Env;
-    for (const path of paths) {
-      for (const method of ["GET", "HEAD"]) await worker.fetch(new Request(`https://${slug}.${ROOT}${path}`, { method }) as IncomingRequest, siteEnv, ctx);
-    }
-    return { keys, d1 };
+    const statement = { bind: () => statement, first: async () => (d1.push("first"), live) };
+    const DB = { prepare: () => statement };
+    return { heads, gets, d1, env: { ...env(), LIVE, DB } as unknown as Env };
   }
+  const waiting: Promise<unknown>[] = [];
+  const request = async (siteEnv: Env, path: string, method = "GET") => {
+    const response = await worker.fetch(new Request(`https://${slug}.${ROOT}${path}`, { method }) as IncomingRequest, siteEnv, { waitUntil: (p: Promise<unknown>) => waiting.push(p) } as unknown as ExecutionContext);
+    await Promise.all(waiting.splice(0));
+    return response;
+  };
 
-  it("reads only the site's 5 page keys from LIVE, whatever the path", async () => {
-    const { keys } = await readsFor(hostile);
-    expect(keys.length).toBeGreaterThan(0);
-    const allowed = new Set(liveKeys(slug));
-    for (const key of keys) expect(allowed.has(key), key).toBe(true);
+  it("reads only the pointer or a page of the pointer's version from LIVE, whatever the path", async () => {
+    const { heads, gets, env: siteEnv } = recording(POINTER);
+    for (const path of [...hostile, ...PAGE_IDS.map((page) => PAGES[page].path)]) for (const method of ["GET", "HEAD"]) await request(siteEnv, path, method);
+    expect(heads.length + gets.length).toBeGreaterThan(0);
+    const allowed = new Set([livePointerKey(slug), ...PAGE_IDS.map((page) => livePageKey(slug, VERSION, page))]);
+    for (const key of [...heads, ...gets]) expect(allowed.has(key), key).toBe(true);
+    expect(heads.every((key) => key === livePointerKey(slug))).toBe(true);
   });
 
-  it("never reaches D1 for a slug with no LIVE object, on any page path", async () => {
-    const { keys, d1 } = await readsFor(PAGE_IDS.map((page) => PAGES[page].path));
-    expect(keys).toContain("joes/about.html");
+  // The pointer and the version-scoped keys are in LIVE's namespace, not the site's URL space.
+  it.each([`/${slug}`, `/${slug}/${VERSION}/home.html`, `/${slug}/${VERSION}/`, `/__v/${VERSION}/`, `/__v/${VERSION}/services`, `/${VERSION}/home.html`])(
+    "never serves %s, answers the named 404, and reads no page",
+    async (path) => {
+      const { heads, gets, d1, env: siteEnv } = recording(POINTER, { [livePageKey(slug, VERSION, "home")]: "<p>home</p>" });
+      const response = await request(siteEnv, path);
+      expect(response.status).toBe(404);
+      expect(await response.text()).toContain("Go to Joe's Plumbing's page");
+      expect({ heads, gets, d1 }).toEqual({ heads: [livePointerKey(slug)], gets: [], d1: [] });
+    },
+  );
+
+  it("answers 503 and reads no page when the pointer's version is not an id", async () => {
+    for (const versionId of ["", "../x", "not-an-id", `${VERSION}/../other`, VERSION.toUpperCase()]) {
+      const { gets, d1, env: siteEnv } = recording({ ...POINTER, versionId });
+      for (const page of PAGE_IDS) expect((await request(siteEnv, PAGES[page].path)).status, `${versionId} ${page}`).toBe(503);
+      expect({ gets, d1 }, versionId).toEqual({ gets: [], d1: [] });
+    }
+    const { gets, env: siteEnv } = recording({ siteId: SITE_ID });
+    expect((await request(siteEnv, "/")).status).toBe(503);
+    expect(gets).toEqual([]);
+  });
+
+  it("answers 503 when the pointer read fails, and never reaches D1", async () => {
+    const d1: string[] = [];
+    const LIVE = { head: async () => { throw new Error("R2 is unavailable"); } };
+    const DB = new Proxy({}, { get: (_, key) => (d1.push(String(key)), () => { throw new Error("D1 must not be read"); }) });
+    for (const page of PAGE_IDS) expect((await request({ ...env(), LIVE, DB } as unknown as Env, PAGES[page].path)).status, page).toBe(503);
     expect(d1).toEqual([]);
+  });
+
+  describe("what a request costs (Decision 24)", () => {
+    it("a wrong path is one LIVE head and no D1", async () => {
+      const { heads, gets, d1, env: siteEnv } = recording(POINTER);
+      expect((await request(siteEnv, "/old-page")).status).toBe(404);
+      expect({ heads: heads.length, gets: gets.length, d1 }).toEqual({ heads: 1, gets: 0, d1: [] });
+    });
+
+    it("a missing optional page is one head and one get, and no D1", async () => {
+      const { heads, gets, d1, env: siteEnv } = recording(POINTER, { [livePageKey(slug, VERSION, "home")]: "<p>home</p>" });
+      const response = await request(siteEnv, "/gallery");
+      expect(response.status).toBe(404);
+      expect(await response.text()).toContain("Go to Joe's Plumbing's page");
+      expect({ heads: heads.length, gets, d1 }).toEqual({ heads: 1, gets: [livePageKey(slug, VERSION, "gallery")], d1: [] });
+    });
+
+    it("a missing Home page behind a pointer is a 503, with no D1", async () => {
+      const { d1, env: siteEnv } = recording(POINTER);
+      expect((await request(siteEnv, "/")).status).toBe(503);
+      expect(d1).toEqual([]);
+    });
+
+    it("an unknown slug on any page path is one head and no D1", async () => {
+      for (const page of PAGE_IDS) {
+        const { heads, gets, d1, env: siteEnv } = recording(null);
+        expect((await request(siteEnv, PAGES[page].path)).status, page).toBe(404);
+        expect({ heads: heads.length, gets: gets.length, d1 }, page).toEqual({ heads: 1, gets: 0, d1: [] });
+      }
+    });
+
+    it("an existing page is at most one D1 read per cache fill, none while it is cached", async () => {
+      const { d1, env: siteEnv } = recording(POINTER, { [livePageKey(slug, VERSION, "services")]: "<p>services</p>" });
+      expect((await request(siteEnv, "/services")).status).toBe(200);
+      expect(d1).toHaveLength(1);
+      expect((await request(siteEnv, "/services")).status).toBe(200);
+      expect((await request(siteEnv, "/services", "HEAD")).status).toBe(200);
+      expect(d1).toHaveLength(1);
+    });
+  });
+
+  describe("the cache", () => {
+    const pages = { [livePageKey(slug, VERSION, "services")]: "<p>services</p>" };
+
+    it("answers browsers with no-cache and keeps an edge copy for 60 s under a key that carries the version", async () => {
+      const { env: siteEnv } = recording(POINTER, pages);
+      const response = await request(siteEnv, "/services");
+      expect(response.headers.get("cache-control")).toBe("no-cache");
+      expect([...cache.keys()]).toEqual([pageCacheUrl(ROOT, slug, VERSION, "services")]);
+      const edge = cache.get(pageCacheUrl(ROOT, slug, VERSION, "services"));
+      expect(edge?.headers.get("cache-control")).toBe("public, s-maxage=60");
+      expect(await edge?.text()).toBe("<p>services</p>");
+      // The edge copy differs from the response in its Cache-Control alone.
+      const others = (headers: Headers) => [...headers].filter(([name]) => name !== "cache-control");
+      expect(others(edge?.headers ?? new Headers())).toEqual(others(response.headers));
+    });
+
+    it("answers a cache hit with no-cache too, and never serves it for another version", async () => {
+      const first = recording(POINTER, pages);
+      await request(first.env, "/services");
+      const second = recording(POINTER, pages);
+      const hit = await request(second.env, "/services");
+      expect(hit.status).toBe(200);
+      expect(hit.headers.get("cache-control")).toBe("no-cache");
+      expect(await hit.text()).toBe("<p>services</p>");
+      expect(second.gets).toEqual([]);
+      expect(second.d1).toEqual([]);
+      // The pointer now names another version: the old entry is not in its key, so it is a miss.
+      const next = "1b2c3d4e-5f60-4a7b-8c8d-9e0fa1b2c3d4";
+      const moved = recording({ ...POINTER, versionId: next }, { [livePageKey(slug, next, "services")]: "<p>new services</p>" }, { indexable: 1, live_version_id: next });
+      expect(await (await request(moved.env, "/services")).text()).toBe("<p>new services</p>");
+    });
+
+    it("answers 404 for a cached page once the pointer is gone", async () => {
+      await request(recording(POINTER, pages).env, "/services");
+      expect(cache.size).toBe(1);
+      const gone = recording(null);
+      expect((await request(gone.env, "/services")).status).toBe(404);
+    });
   });
 });
 

@@ -1,4 +1,4 @@
-import { isId, pageUrl, parseHost } from "@asksite/core";
+import { isId, parseHost, publicPageUrl } from "@asksite/core";
 import { pageForPath } from "@asksite/site-schema";
 import { securityTxt } from "./apex.ts";
 import { formBusiness, liveSiteName } from "./business.ts";
@@ -49,7 +49,7 @@ export async function route(request: Request, env: Env, ctx: ExecutionContext, n
       // "/services/" is the page's one canonical address; Home has none (its path is "/" itself).
       const slashed = read && path.endsWith("/") ? pageForPath(path.slice(0, -1)) : null;
       if (slashed !== null && slashed !== "home") {
-        return { route: "page_redirect", response: new Response(null, { status: 301, headers: plainHeaders({ Location: pageUrl(root, host.slug, slashed) }) }) };
+        return { route: "page_redirect", response: new Response(null, { status: 301, headers: plainHeaders({ Location: publicPageUrl(root, host.slug, slashed) }) }) };
       }
       const form = FORM.exec(path);
       if (form !== null && request.method === "POST") {
@@ -61,7 +61,7 @@ export async function route(request: Request, env: Env, ctx: ExecutionContext, n
       if (read && isId(sentId)) {
         return { route: "form_sent", response: thankYou(root, (await formBusiness(env.LIVE, host.slug, sentId)).name) };
       }
-      // A browser's wrong path on a live site links to the site's page (QA-2 RU(3)), named from the LIVE object
+      // A browser's wrong path on a live site links to the site's page (QA-2 RU(3)), named from the LIVE pointer
       // alone, never D1 (Decision 24); other methods get the plain 404.
       if (read) return { route: "not_found", response: notFound(root, await liveSiteName(env.LIVE, host.slug)) };
       break;

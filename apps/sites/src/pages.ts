@@ -5,7 +5,7 @@ import { fixedPageHeaders, rootHostname } from "./headers.ts";
 
 // Fixed pages. Every word is a constant from this file, except escaped values that are never submitted
 // ones: the root domain on the apex page, and the business name and phone its approved page shows (from
-// the LIVE object's metadata) on the thank-you, 404 and "Please call instead" or "Please wait" pages.
+// the LIVE pointer's metadata) on the thank-you, 404 and "Please call instead" or "Please wait" pages.
 // Each has lang, a title, one h1 inside <main>, and reads well at 320 px (checked by axe in e2e).
 // overflow-wrap:break-word (Plan 1's body rule too): abuse@<root> on the apex page has no break
 // opportunity, so without it a long root domain scrolls sideways at 320 px (WCAG 1.4.10).

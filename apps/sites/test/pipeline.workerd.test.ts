@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { EMPTY_EDITS, LIMITS, newId, versionKey } from "@asksite/core";
 import { approveVersion, createPendingVersion, restore, takeDown } from "@asksite/publishing";
-import { SiteDocument } from "@asksite/site-schema";
+import { PAGE_IDS, PAGES, SiteDocument } from "@asksite/site-schema";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { at, ROOT, seedSite, settledLeads, sitesHarness, type ToolsEnv } from "./support/harness.ts";
 
@@ -50,7 +50,7 @@ describe("publish, approve, serve, contact", () => {
     expect(lead).toMatchObject({ name: "Pat", service: "Drain cleaning", email_status: "sent" });
   });
 
-  // A15: approveVersion stores the business phone with the LIVE object, and the form's "Please call instead"
+  // A15: approveVersion stores the business phone with the LIVE pointer, and the form's "Please call instead"
   // page prints it: the same number and text the approved page already shows.
   it("prints the approved page's own phone link when the form is closed for the day", async () => {
     const site = await publishAndApprove("plumber-austin");
@@ -73,7 +73,7 @@ describe("publish, approve, serve, contact", () => {
     expect(await response.text()).toContain('<p><a href="tel:+15125550142">Call (512) 555-0142</a></p>');
   });
 
-  // QA-2 RU(2), RU(3): approveVersion stores the business name with the LIVE object, so the thank-you page
+  // QA-2 RU(2), RU(3): approveVersion stores the business name with the LIVE pointer, so the thank-you page
   // names the business and a wrong path links to its page. A takedown removes both; a restore brings them back.
   it("names the approved page's business on the thank-you and 404 pages until a takedown, and again after a restore", async () => {
     const site = await publishAndApprove("plumber-austin");
@@ -103,12 +103,21 @@ describe("publish, approve, serve, contact", () => {
     for (const body of [sent, missing]) expect(body).not.toContain("<img");
   });
 
-  it("a takedown stops a page that no data centre has cached; restore brings it back", async () => {
+  // A16 + U2: the pointer names the live version, so a takedown (which deletes it first) stops every page at once,
+  // the ones already in the data centre's cache included; a restore writes it back.
+  it("a takedown makes every page answer 404, even a cached one; restore brings the site back", async () => {
     const site = await publishAndApprove("cleaning-minimal");
+    const answers = async () => Promise.all(PAGE_IDS.map(async (page) => (await harness.server.fetch(at(site.slug, PAGES[page].path))).status));
+    expect(await answers()).toEqual([200, 404, 404, 404, 404]); // one page for now; Home is now cached
+    expect(await answers()).toEqual([200, 404, 404, 404, 404]);
+
     await takeDown(tools, { siteId: site.siteId, reviewer: "admin@example.com", reason: "Test", purgeMedia: false, now: Date.now() });
-    expect((await harness.server.fetch(at(site.slug))).status).toBe(404);
+    expect(await answers()).toEqual([404, 404, 404, 404, 404]);
+    expect((await tools.LIVE.list({ prefix: site.slug })).objects.map((o) => o.key)).toEqual([]);
+
     await restore({ ...tools, ROOT_DOMAIN: ROOT }, { siteId: site.siteId, reviewer: "admin@example.com", now: Date.now() });
-    expect((await harness.server.fetch(at(site.slug))).status).toBe(200);
+    expect(await answers()).toEqual([200, 404, 404, 404, 404]);
+    expect(await (await harness.server.fetch(at(site.slug))).text()).toBe(await (await tools.WORK.get(versionKey(site.siteId, site.versionId)))?.text());
   });
 });
 

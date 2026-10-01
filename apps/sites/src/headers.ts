@@ -25,10 +25,34 @@ function securityHeaders(root: string): Record<string, string> {
 
 const HTML = "text/html; charset=utf-8";
 
-/** An approved page. The only response without X-Robots-Tag, and only while the site is indexable. */
+const BROWSER_CACHE = "no-cache";
+
+/**
+ * An approved page. The only response without X-Robots-Tag, and only while the site is indexable. Browsers must
+ * revalidate on every view ("no-cache"): a page cached by a browser could otherwise sit next to a newer one (U2),
+ * and the revalidation goes through the pointer, which names the live version.
+ */
 export function livePageHeaders(root: string, indexable: boolean): Headers {
-  const headers = new Headers({ "Content-Type": HTML, "Cache-Control": "public, max-age=60", ...securityHeaders(root) });
+  const headers = new Headers({ "Content-Type": HTML, "Cache-Control": BROWSER_CACHE, ...securityHeaders(root) });
   if (!indexable) headers.set("X-Robots-Tag", "noindex");
+  return headers;
+}
+
+/**
+ * The same headers for the copy kept in this data centre's cache: Cloudflare does not cache a response marked
+ * no-cache, and s-maxage sets the edge's TTL (developers.cloudflare.com/workers/runtime-apis/cache/ and
+ * /cache/concepts/cache-control/). The copy is only ever read back through a key that carries the version id.
+ */
+export function edgeCopyHeaders(live: Headers): Headers {
+  const headers = new Headers(live);
+  headers.set("Cache-Control", "public, s-maxage=60");
+  return headers;
+}
+
+/** A cached copy's headers as the browser gets them: the same as a fresh page's. */
+export function browserCopyHeaders(edge: Headers): Headers {
+  const headers = new Headers(edge);
+  headers.set("Cache-Control", BROWSER_CACHE);
   return headers;
 }
 
