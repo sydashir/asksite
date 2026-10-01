@@ -402,7 +402,7 @@
   .teaser-list > li > .i { box-sizing: content-box; padding: 6px; border-radius: var(--r); background: #fff; color: var(--brand); }
   .teaser-list .h3 { overflow-wrap: anywhere; }
   .teaser-list .price { margin: 0; white-space: nowrap; }
-  .tint .teaser-list .price { background: #fff; }
+  .tint .teaser-list .price:not(.price--ask) { background: #fff; }
   .teaser-more { width: 100%; margin-top: 24px; }
   @media (min-width: 768px) {
     .teaser-sec.sec { padding-block: 72px; }
@@ -414,16 +414,17 @@
     .teaser-list > li { grid-template-columns: auto minmax(0, 1fr); align-items: start; row-gap: 10px; padding: 22px 0 0; border-top: 2px solid var(--ink); border-bottom: 0; }
     .teaser-list > li > .i { grid-row: span 2; margin-top: -4px; }
     .teaser-list .price { justify-self: start; }
-    /* one service: its line across the row, the price beside the name */
+    /* one service: one line under the heading, the price beside the name */
     .teaser-list--1 { grid-template-columns: minmax(0, 1fr); }
-    .teaser-list--1 > li { grid-template-columns: auto auto 1fr; align-items: center; padding-block: 18px; border-bottom: 1px solid var(--line); }
+    .teaser-list--1 > li { grid-template-columns: auto auto 1fr; align-items: center; padding: 0; border: 0; }
     .teaser-list--1 > li > .i { grid-row: auto; margin: 0; }
   }
 
-  /* the closing band: a card on the brand colour, "Get in touch" and the owner's reasons, then Call and the call to
-     action (beside them from 1024 px) */
+  /* the closing band: a card on the brand colour (white with the brand rule after a brand band), "Get in touch" and
+     the owner's reasons, then Call and the call to action (beside them from 1024 px) */
   .sec.close { padding-block: 40px; }
   .close-card { padding: 30px 22px; border-radius: var(--r); box-shadow: var(--lift); }
+  .close-card--light { border: 1px solid var(--line); border-top: 4px solid var(--brand); background: #fff; }
   .close-card .head { margin-bottom: 24px; }
   .close-cta { display: grid; gap: 12px; }
   @media (max-width: 599px) {

@@ -7,7 +7,7 @@ import { headingLevel, onSite, quoteLink, type RenderContext } from "../../conte
 import { html, safeUrl, type SafeHtml } from "../../html.ts";
 import { DOM_ID } from "../../sections/ids.ts";
 import { itemHeading } from "../../ui.ts";
-import { credentialLine, credentialList, head, pageBand, pageCredentials, price } from "./parts.ts";
+import { credentialLine, credentialList, head, pageBand, pageCredentials, priceLine } from "./parts.ts";
 
 /**
  * The column count for `count` service cards, at most `most`: the most columns, up to one more than the services.
@@ -37,11 +37,10 @@ const CARD = ["card", "card card--t2", "card card--t3", "card card--t2 card--t3"
 export function renderServices(ctx: RenderContext, variant: VariantOf<"services">, tone: string): SafeHtml {
   const { facts, copy } = ctx.doc;
   const level = headingLevel(ctx, "services");
-  const anyPrice = facts.services.some((s) => s.startingPrice !== undefined);
   // SiteDocument guarantees serviceDescriptions[i] names facts.services[i].
   const items = facts.services.map((service, i) => ({ ...service, description: copy.serviceDescriptions[i]?.description }));
   const columns = cardColumns(items.length, variant === "compact" ? 4 : 3) as keyof typeof CARD_COLUMNS;
-  const priceLine = (dollars: number | undefined) => price(dollars) || (anyPrice && html`<p class="price price--ask">Price on request</p>`);
+  const anyPrice = facts.services.some((s) => s.startingPrice !== undefined);
   const askCard = html`<li class="card ask on-brand"><div><p class="ask-q">${anyPrice ? "Not sure which service you need?" : "Ask us for a price."}</p><p>${anyPrice ? "Tell us about the job." : "Tell us what you need."}</p></div><a class="button button-act" href="${quoteLink()}">${copy.ctaText}</a></li>`;
 
   const cardClass = (i: number) => CARD[(sharesCardRow(i, items.length, 2) ? 1 : 0) + (sharesCardRow(i, items.length, columns) ? 2 : 0)];
@@ -50,7 +49,7 @@ ${pageBand(ctx, "services")}
 <div class="wrap">
 ${head(DOM_ID.services, "Our services", copy.sectionIntros.services, level, credentialLine(pageCredentials(ctx)))}
 <ul class="cards ${CARD_COLUMNS[columns]}${variant === "compact" ? " cards--compact" : ""}">
-${items.map((s, i) => html`<li class="${cardClass(i)}">${itemHeading(level, "h3", s.name)}${priceLine(s.startingPrice)}${s.description && html`<p class="card-desc">${s.description}</p>`}</li>`)}
+${items.map((s, i) => html`<li class="${cardClass(i)}">${itemHeading(level, "h3", s.name)}${priceLine(facts, s.startingPrice)}${s.description && html`<p class="card-desc">${s.description}</p>`}</li>`)}
 ${askCard}
 </ul>
 </div>

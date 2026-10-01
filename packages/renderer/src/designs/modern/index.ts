@@ -1,10 +1,10 @@
 // Modern (modern): a clean, contemporary site for a local trade, page by page (A16). On Home the owner's photo and
 // the headline share the first screen and the credentials sit under the headline (or in a brand band where the owner
 // places them); every other page opens with Home's brand strip, then its own heading; every page but Contact ends
-// with a brand card to call or ask for a quote, and from 1200 px the header offers both on every page. The design's
-// livery (the action colour over the brand colour) marks the header, the current page in the menu, the hero seam,
-// each section heading and the footer. System fonts only (zero font bytes), zero JavaScript. Its stylesheet is
-// styles/sheets/modern.css; its notices are in NOTICES.md.
+// with a card to call or ask for a quote (on the brand colour, or white after a brand band), and from 1200 px the
+// header offers both on every page. The design's livery (the action colour over the brand colour) marks the header,
+// the current page in the menu, the hero seam, each section heading and the footer. System fonts only (zero font
+// bytes), zero JavaScript. Its stylesheet is styles/sheets/modern.css; its notices are in NOTICES.md.
 import type { LayoutSection } from "@asksite/site-schema";
 import type { RenderContext } from "../../context.ts";
 import type { Design } from "../../design.ts";
@@ -35,14 +35,19 @@ function blockIds(ctx: RenderContext): string[] {
   return ids;
 }
 
+/** The blocks on the brand colour: About and the trust band (the hero is never one of the blocks this decides on). */
+const ON_BRAND: readonly string[] = [DOM_ID.hero, DOM_ID.about, DOM_ID.trust];
+
 /**
  * The background of a block below the hero, in the order the page shows them: About and the trust band are on the
  * brand colour, the others alternate tint and white, starting with tint.
  */
 function tone(ctx: RenderContext, domId: string): string {
-  const onBrand: readonly string[] = [DOM_ID.hero, DOM_ID.about, DOM_ID.trust];
-  return blockIds(ctx).filter((id) => !onBrand.includes(id)).indexOf(domId) % 2 === 0 ? "tint" : "white";
+  return blockIds(ctx).filter((id) => !ON_BRAND.includes(id)).indexOf(domId) % 2 === 0 ? "tint" : "white";
 }
+
+/** True when the closing band comes right after a block on the brand colour (About, the trust band). */
+const afterBrand = (ctx: RenderContext): boolean => ON_BRAND.includes(blockIds(ctx).at(-2) ?? "");
 
 function renderSection(ctx: RenderContext, section: LayoutSection): SafeHtml {
   switch (section.id) {
@@ -75,7 +80,7 @@ export const design: Design = Object.freeze({
   header: renderHeader,
   section: renderSection,
   servicesTeaser: (ctx: RenderContext) => renderServicesPreview(ctx, tone(ctx, SERVICES_PREVIEW_ID)),
-  closingBand: (ctx: RenderContext) => renderClosingBand(ctx, tone(ctx, CLOSING_BAND_ID)),
+  closingBand: (ctx: RenderContext) => renderClosingBand(ctx, tone(ctx, CLOSING_BAND_ID), afterBrand(ctx)),
   footer: renderFooter,
   callBar: renderCallBar,
 });

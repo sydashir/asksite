@@ -74,7 +74,7 @@ describe("Modern: every page can call or ask for a quote (A16)", () => {
     }
   });
 
-  it("every page but Contact ends with the closing band: a brand card with Call (the number) and the call to action to the form", () => {
+  it("every page but Contact ends with the closing band: a card with Call (the number) and the call to action to the form", () => {
     for (const { page, html } of pages) {
       const band = element(html, '<section id="get-in-touch"');
       if (page === "contact") {
@@ -82,7 +82,7 @@ describe("Modern: every page can call or ask for a quote (A16)", () => {
         continue;
       }
       expect(html.indexOf("</main>") - html.indexOf("</section>", html.indexOf('<section id="get-in-touch"'))).toBe("</section>\n".length);
-      const card = element(band, '<div class="close-card on-brand"');
+      const card = element(band, '<div class="close-card');
       expect(card).toContain('<h2 id="get-in-touch-title" class="display h2">Get in touch</h2>');
       expect(card).toContain('href="tel:+15125550142"><svg class="i" viewBox="0 0 24 24" aria-hidden="true">');
       expect(card).toContain("Call (512) 555-0142</a>");
@@ -90,13 +90,29 @@ describe("Modern: every page can call or ask for a quote (A16)", () => {
     }
   });
 
-  it("the closing band gives a reason to act from the owner's own facts only: 24/7 service and free estimates, each with its fact", () => {
+  // A16 round 1's judges (/about): the About band, the closing card and the footer were three brand slabs in a row.
+  it("draws the closing card on the brand colour, or white with the brand rule right after a band on the brand colour (About, Home's credentials band)", () => {
+    const card = (input: SiteDocumentInput, id: PageId) => /<div class="(close-card[^"]*)">/.exec(pageOf(input, id))?.[1];
+    const plumber = loadFixture("plumber-austin");
+    expect(["home", "services", "gallery"].map((id) => card(plumber, id as PageId))).toEqual(Array(3).fill("close-card on-brand"));
+    expect(card(plumber, "about")).toBe("close-card close-card--light");
+    expect(card(trustLater(plumber), "home")).toBe("close-card close-card--light");
+    expect(card(withHidden(trustLater(plumber), ["trust"]), "home")).toBe("close-card on-brand");
+  });
+
+  it("the closing band gives a reason to act from the owner's own facts only: 24/7 service and free estimates, each with its fact, else the towns it serves", () => {
     const line = (input: SiteDocumentInput) => element(element(pageOf(input, "home"), '<section id="get-in-touch"'), '<ul class="proof-line"').replace(/<[^>]*>/g, "");
     expect(line(loadFixture("plumber-austin"))).toBe("24/7 emergency serviceFree estimates");
     expect(line(loadFixture("hvac-phoenix"))).toBe("24/7 emergency service");
     // Free estimates is one of the credentials: an owner who hides them hides it here too; 24/7 stays, as in the hero.
     expect(line(withHidden(loadFixture("plumber-austin"), ["trust"]))).toBe("24/7 emergency service");
-    expect(line(loadFixture("cleaning-minimal"))).toBe("");
+    // Neither fact: the towns the business serves, summed up as in the no-photo hero; nothing when the owner hides them.
+    expect(line(loadFixture("cleaning-minimal"))).toBe("Serving Boise, ID");
+    // (Copy that claims nothing, so the schema accepts both facts turned off.)
+    const plumber = loadFixture("plumber-austin");
+    const plain = withFacts({ ...plumber, copy: { ...plumber.copy, ctaText: "Get a quote", heroSubheadline: "Clear prices and tidy work.", faq: [] } }, { emergency247: false, freeEstimates: false });
+    expect(line(plain)).toBe("Serving Austin, Round Rock and 5 more");
+    expect(line(withHidden(plain, ["serviceArea"]))).toBe("");
   });
 
   it("from 1200 px the header carries a quote button on every page, Contact included (moderator ruling (f))", () => {
@@ -140,15 +156,17 @@ describe("Modern: the header names every page and marks the one on screen (A16)"
 });
 
 describe("Modern: Home previews the first three services (A16)", () => {
-  it("in the owner's order, each a ticked line with its From price or its name only (no box: not a link), and one link to the Services page", () => {
+  it("in the owner's order, each a ticked line with its From price, or 'Price on request' as on the Services page (no box: not a link), and one link to the Services page", () => {
     const preview = element(pageOf(loadFixture("plumber-austin"), "home"), '<section id="services-preview"');
     expect(preview).toContain('<ul class="teaser-list">');
-    expect([...preview.matchAll(/<li><svg class="i" [^>]*>[^]*?<\/svg><h3 class="h3">([^<]*)<\/h3>(<p class="price"><small>From<\/small> ([^<]*)<\/p>)?<\/li>/g)].map((m) => [m[1], m[3]])).toEqual([
+    expect([...preview.matchAll(/<li><svg class="i" [^>]*>[^]*?<\/svg><h3 class="h3">([^<]*)<\/h3><p class="price[^"]*">(?:<small>From<\/small> )?([^<]*)<\/p><\/li>/g)].map((m) => [m[1], m[2]])).toEqual([
       ["Drain cleaning", "$89"],
       ["Water heater repair &amp; install", "$149"],
-      ["Leak detection", undefined],
+      ["Leak detection", "Price on request"],
     ]);
-    expect(preview).not.toContain("Price on request");
+    expect(preview).toContain('<p class="price price--ask">Price on request</p>');
+    // As on the Services page: an owner who prices no service is never told "Price on request".
+    expect(element(pageOf(loadFixture("cleaning-minimal"), "home"), '<section id="services-preview"')).not.toContain("<p class=\"price");
     expect(preview).not.toContain('class="card');
     expect([...preview.matchAll(/href="([^"]*)"/g)].map((m) => m[1])).toEqual(["/services"]);
     expect(preview).toContain('<a class="button button-line teaser-more" href="/services">More about our services<svg');

@@ -8,7 +8,7 @@ import { formatPhone, formatPrice, telUrl } from "../../format.ts";
 import { fragment, html, type SafeHtml } from "../../html.ts";
 import { icon } from "../../icons.ts";
 import { ARROW_DOWN, CALENDAR } from "./icons.ts";
-import { groupedHours, tradeAndCity } from "./text.ts";
+import { areaSummary, groupedHours, tradeAndCity } from "./text.ts";
 
 /** Where the full list of licenses is: the footer's credentials (every license, exactly as entered). */
 export const LICENSES_ID = "licenses";
@@ -60,8 +60,12 @@ export function callButton(facts: Facts, className: string): SafeHtml {
 }
 
 /** "From $89" as a pill under a service's name; nothing for a service without a price (none is ever invented). */
-export const price = (dollars: number | undefined): SafeHtml | false =>
+const price = (dollars: number | undefined): SafeHtml | false =>
   dollars !== undefined && html`<p class="price"><small>From</small> ${formatPrice(dollars)}</p>`;
+
+/** A service's price line: its "From" pill, or "Price on request" while another of the owner's services has a price. */
+export const priceLine = (facts: Facts, dollars: number | undefined): SafeHtml | false =>
+  price(dollars) || (facts.services.some((s) => s.startingPrice !== undefined) && html`<p class="price price--ask">Price on request</p>`);
 
 /** The owner's call to action, leading to the quote form on the Contact page, which every site has (A16). */
 export function quoteButton(ctx: RenderContext, className: string): SafeHtml {
@@ -137,6 +141,9 @@ export const emergencyItem = (): Credential => ({ mark: icon("clock", "i"), text
 
 /** Free estimates as a credential. */
 export const freeEstimatesItem = (): Credential => ({ mark: icon("circle-check", "i"), text: "Free estimates" });
+
+/** The towns the business serves, summed up as in the no-photo hero: "Serving Austin, Round Rock and 5 more". */
+export const areaItem = (facts: Facts): Credential => ({ mark: icon("map-pin", "i"), text: `Serving ${areaSummary(facts)}` });
 
 /** The founding year and free estimates, each exactly as given. */
 export function businessCredentials(facts: Facts): Credential[] {
