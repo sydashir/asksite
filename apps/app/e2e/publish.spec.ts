@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { expectFrameTitle, expectLinksStayInFrame, JOES_TITLE } from "./frame-links.ts";
+import { expectFrameTitle, expectLinksStayInFrame, JOES_TITLE, LINKS_OFF } from "./frame-links.ts";
 import { APP, apiCall, builtSite, expectAccessible, expectNoSidewaysScroll, FACTS } from "./support.ts";
 
 const PREVIEW_FRAME = 'iframe[title="Preview of the pages we are reviewing"]';
@@ -58,6 +58,45 @@ test("links in the preview frame go nowhere: the frame stays on the shown page a
     await page.reload();
     await expect(page.getByRole("heading", { name: "Waiting for approval" })).toBeVisible();
   });
+});
+
+test("moving Home, Services, Home in the preview says nothing about links, and one real link click says it once", async ({ page }) => {
+  const siteId = await builtSite(page);
+  await page.goto(`/sites/${siteId}/publish`);
+  await page.getByRole("button", { name: "Send for review" }).click();
+  await expect(page.getByRole("heading", { name: "Waiting for approval" })).toBeVisible();
+  const group = page.getByRole("group", { name: "Page", exact: true });
+  const frame = page.frameLocator(PREVIEW_FRAME);
+  await expectFrameTitle(frame, JOES_TITLE.home);
+
+  // Count every "Links are turned off" the preview's status line ever inserts. The line is found by structure (the role="status"
+  // right after the buttons' row), not by text. Counting starts before the first switch.
+  await page.evaluate((text) => {
+    const box = document.querySelector('[role="group"][aria-label="Page"]')?.parentElement?.nextElementSibling;
+    if (box?.getAttribute("role") !== "status") throw new Error("the preview's status line is not where it was");
+    const seen = { count: 0 };
+    (window as unknown as { linksOffSeen: typeof seen }).linksOffSeen = seen;
+    new MutationObserver((records) => {
+      for (const record of records) for (const node of record.addedNodes) if (node.textContent === text) seen.count += 1;
+    }).observe(box, { childList: true, subtree: true });
+  }, LINKS_OFF);
+
+  for (const [name, title] of [["Home", JOES_TITLE.home], ["Services", JOES_TITLE.services], ["Home", JOES_TITLE.home]] as const) {
+    await group.getByRole("button", { name }).click();
+    await expect(group.getByRole("button", { name })).toHaveAttribute("aria-pressed", "true");
+    await expectFrameTitle(frame, title, `the frame shows ${name}`);
+  }
+
+  // The barrier: this real click makes a later load event than any switch above, and React renders the updates of one lane
+  // together and in order (react-dom 19.3.0: "load" has no case in getEventPriority, cjs/react-dom-client.development.js:26252-26340,
+  // so every load's update is DefaultEventPriority). When its announcement is visible, any earlier one is committed too.
+  const target = frame.getByRole("link", { name: "Get a quote", exact: true }).first();
+  // Below 1024 px the renderer's menu is a <details>: its links are hidden until the menu is opened.
+  if ((await target.count()) === 0) await frame.locator("details > summary").click();
+  await target.click();
+  await expect(page.getByText(LINKS_OFF)).toBeVisible();
+  await expectFrameTitle(frame, JOES_TITLE.home, "the frame stays on Home");
+  expect(await page.evaluate(() => (window as unknown as { linksOffSeen: { count: number } }).linksOffSeen.count)).toBe(1);
 });
 
 test("publishing with reviews but no attestation lists the fix, with a link to it", async ({ page }) => {
