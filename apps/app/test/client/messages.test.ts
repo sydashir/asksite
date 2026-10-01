@@ -1,4 +1,5 @@
 import { readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { SiteDocument, Facts } from "@asksite/site-schema";
 import { EMPTY_EDITS, OwnerEdits, PatchDraftBody, toIssues, type Issue } from "@asksite/core";
 import { describe, expect, it } from "vitest";
@@ -283,11 +284,12 @@ describe("US wording", () => {
     expect(ownerMessage(issue(["copy", "about"], "custom", 'Copy states something the owner\'s facts do not back: "insured"')).text).toBe("To say “insured”, check “We are insured”.");
   });
 
-  it("no client lib file says “tick”, so a new one fails here", () => {
-    const dir = new URL("../../src/client/lib/", import.meta.url);
-    const files = readdirSync(dir).filter((name) => name.endsWith(".ts"));
-    expect(files).toContain("messages.ts");
-    expect(files.filter((name) => TICK.test(readFileSync(new URL(name, dir), "utf8")))).toEqual([]);
+  it("no client source file says “tick”, so a new one fails here", () => {
+    const root = new URL("../../src/client/", import.meta.url).pathname;
+    const files = readdirSync(root, { recursive: true, encoding: "utf8" }).filter((name) => /\.tsx?$/.test(name));
+    expect(files).toContain("lib/messages.ts");
+    expect(files).toContain("App.tsx");
+    expect(files.filter((name) => TICK.test(readFileSync(join(root, name), "utf8")))).toEqual([]);
   });
 
   it("the check itself catches the word and nothing else", () => {

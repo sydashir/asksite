@@ -1,4 +1,5 @@
 import type { OwnerEdits, SiteView } from "@asksite/core";
+import { GENERIC_ERROR_MESSAGE } from "./api.ts";
 
 // Draft autosave (§3.1 step 5): changes are saved 800 ms after the last one, one request at a
 // time, always with the newest values and the last rev the server gave. A 409 stops saving until
@@ -46,11 +47,6 @@ export class AutoSaver {
     return this.rev;
   }
 
-  /** Another request (a web-address change) moved the rev on. */
-  setRev(rev: number): void {
-    this.rev = rev;
-  }
-
   change(patch: DraftPatch): void {
     this.pending = { ...this.pending, ...patch };
     if (this.status === "conflict") return;
@@ -82,7 +78,7 @@ export class AutoSaver {
       const patch = this.pending;
       this.pending = {};
       this.update({ status: "saving", rev: this.rev });
-      const result = await this.send(this.rev, patch);
+      const result = await this.sendSafely(patch);
       if (result.ok) {
         this.rev = result.rev;
         this.update({ status: Object.keys(this.pending).length > 0 ? "saving" : "saved", rev: this.rev, issues: result.issues });
@@ -92,6 +88,15 @@ export class AutoSaver {
       this.pending = { ...patch, ...this.pending };
       this.update({ status: result.conflict ? "conflict" : "error", rev: this.rev, message: result.message });
       return;
+    }
+  }
+
+  /** A send that throws (a dropped connection, an unreadable answer) is an error, never a lost patch. */
+  private async sendSafely(patch: DraftPatch): Promise<SaveResult> {
+    try {
+      return await this.send(this.rev, patch);
+    } catch {
+      return { ok: false, conflict: false, message: GENERIC_ERROR_MESSAGE };
     }
   }
 

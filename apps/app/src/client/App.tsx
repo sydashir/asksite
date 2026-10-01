@@ -3,8 +3,10 @@ import { onLinkClick, useRoute } from "./hooks/use-route.ts";
 import { api } from "./lib/api.ts";
 import type { Route } from "./lib/route.ts";
 import { AcceptInvite } from "./pages/AcceptInvite.tsx";
+import { Build } from "./pages/Build.tsx";
 import { Home } from "./pages/Home.tsx";
 import { NotFound } from "./pages/NotFound.tsx";
+import { Questionnaire } from "./pages/Questionnaire.tsx";
 import { VerifyLogin } from "./pages/VerifyLogin.tsx";
 
 function page(route: Route) {
@@ -16,7 +18,9 @@ function page(route: Route) {
     case "login":
       return <VerifyLogin />;
     case "setup":
+      return <Questionnaire key={`${route.siteId}-${route.step}`} siteId={route.siteId} step={route.step} />;
     case "build":
+      return <Build key={route.siteId} siteId={route.siteId} />;
     case "edit":
     case "publish":
     case "leads":

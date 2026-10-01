@@ -36,6 +36,14 @@ export function setIn(value: unknown, path: Path, next: unknown): unknown {
 /** A dotted id for a field, used for <label for> and error-summary links: ["services", 0, "name"] -> "f-services-0-name". */
 export const fieldId = (path: Path): string => `f-${path.join("-")}`;
 
+/**
+ * The id a "fix this" link or hash focuses for an issue. Opening hours are stored in entries (days sharing times), but
+ * the form shows one row per day, so an issue anywhere under facts.hours targets the "Opening hours" group.
+ */
+export function issueTarget(path: Path): string {
+  return path[0] === "facts" && path[1] === "hours" ? fieldId(["facts", "hours"]) : fieldId(path);
+}
+
 export function moveItem<T>(items: readonly T[], index: number, by: -1 | 1): T[] {
   const target = index + by;
   if (target < 0 || target >= items.length) return [...items];

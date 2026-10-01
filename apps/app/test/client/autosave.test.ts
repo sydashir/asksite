@@ -88,4 +88,45 @@ describe("AutoSaver", () => {
     expect(await saver.flush()).toBe(true);
     expect(sent.at(-1)).toEqual({ rev: 1, patch: { facts: { businessName: "Newer name" } } });
   });
+
+  it("a send that rejects is an error: the patch stays, flush says false, and the next change sends it again", async () => {
+    let calls = 0;
+    const { saver, sent, states } = setup((rev) => {
+      if (++calls === 1) throw new Error("socket closed");
+      return { ok: true, rev: rev + 1, issues: NO_ISSUES };
+    });
+    saver.change({ facts: { a: 1 } });
+    await vi.advanceTimersByTimeAsync(800);
+    expect(states.at(-1)).toEqual({ status: "error", rev: 1, message: "Something went wrong. Please try again." });
+    saver.change({ brief: { b: 2 } });
+    await vi.advanceTimersByTimeAsync(800);
+    expect(sent.at(-1)).toEqual({ rev: 1, patch: { facts: { a: 1 }, brief: { b: 2 } } });
+    expect(states.at(-1)).toMatchObject({ status: "saved", rev: 2 });
+  });
+
+  it("flush after a rejected send resolves false, and true once a retry saves", async () => {
+    let fail = true;
+    const { saver } = setup((rev) => {
+      if (fail) throw new Error("socket closed");
+      return { ok: true, rev: rev + 1, issues: NO_ISSUES };
+    });
+    saver.change({ facts: { a: 1 } });
+    expect(await saver.flush()).toBe(false);
+    fail = false;
+    expect(await saver.flush()).toBe(true);
+  });
+
+  it("flush with nothing pending resolves true", async () => {
+    const { saver, sent } = setup();
+    expect(await saver.flush()).toBe(true);
+    expect(sent).toEqual([]);
+  });
+
+  it("dispose drops the timer: a change made before it is never sent", async () => {
+    const { saver, sent } = setup();
+    saver.change({ facts: { a: 1 } });
+    saver.dispose();
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(sent).toEqual([]);
+  });
 });
