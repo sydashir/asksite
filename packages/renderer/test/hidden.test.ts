@@ -33,6 +33,16 @@ describe("owner-hidden sections (A6)", () => {
     }
   });
 
+  it("removes a hidden About page, its nav link, every link to it and its section id from every page", () => {
+    const site = renderSite(withHidden(["about"]), OPTIONS);
+    expect(site.pages.map((p) => p.page)).toEqual(["home", "services", "gallery", "contact"]);
+    for (const { html } of site.pages) {
+      for (const gone of ['href="/about"', "#about", 'id="about"', 'id="about-title"']) expect(html).not.toContain(gone);
+      expect(html).toContain('href="/gallery"');
+    }
+    expect(renderSite(FULL, OPTIONS).pages.every((p) => p.html.includes('href="/about"'))).toBe(true);
+  });
+
   it("drops FAQPage JSON-LD with a hidden FAQ but keeps LocalBusiness JSON-LD", () => {
     const site = renderSite(withHidden(["faq"]), OPTIONS);
     const all = site.pages.map((p) => p.html).join("");
