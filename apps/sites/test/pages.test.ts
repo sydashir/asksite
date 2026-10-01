@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { notFound, siteBusy, thankYou, tooManyRequests } from "../src/pages.ts";
+import { formProblems, messageTooLong, notFound, siteBusy, thankYou, tooManyRequests, unreadableForm } from "../src/pages.ts";
 
 const NOON = Date.parse("2026-09-28T12:00:00.000Z");
 
@@ -133,5 +133,20 @@ describe("the rate-limit page (5 posts a minute)", () => {
     expect(body).toContain(`<a href="tel:+1&quot;&gt;&lt;script&gt;">Call &lt;img src=x onerror="alert(1)"&gt; &amp; 'co'</a>`);
     expect(body).not.toContain("<img");
     expect(body).not.toContain("<script");
+  });
+});
+
+// A16: the form lives on the Contact page, so the fixed pages send a visitor back to "/contact#quote".
+describe("the pages that link back to the form", () => {
+  it("link to /contact#quote", async () => {
+    const bodies = [
+      await unreadableForm("asksite.example").text(),
+      await messageTooLong("asksite.example").text(),
+      await formProblems("asksite.example", ["x"]).text(),
+    ];
+    for (const body of bodies) {
+      expect(body).toContain('href="/contact#quote"');
+      expect(body).not.toContain("/#contact");
+    }
   });
 });

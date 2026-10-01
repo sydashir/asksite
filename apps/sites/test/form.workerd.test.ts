@@ -98,7 +98,7 @@ describe("POST /_f/<siteId>", () => {
     expect(body).toContain("<li>Please shorten your message to 2,000 characters or fewer.</li>");
     expect(body).not.toContain("script");
     expect(body).not.toContain("not-an-email");
-    expect(body).toContain('href="/#contact"');
+    expect(body).toContain('href="/contact#quote"');
     expect(await leads(fresh.siteId)).toEqual([]);
   });
 
@@ -116,7 +116,7 @@ describe("POST /_f/<siteId>", () => {
     const body = await response.text();
     expect(body).toContain("<h1>Your message is too long</h1>");
     expect(body).toContain("Please shorten your message and send it again, or call the business instead.");
-    expect(body).toContain('href="/#contact"');
+    expect(body).toContain('href="/contact#quote"');
   });
 
   // A15 minor 1: the form allows 2,000 characters (maxlength and lead.ts). A character of a 3-byte

@@ -79,7 +79,7 @@ describe("publish, approve, serve, contact", () => {
     const site = await publishAndApprove("plumber-austin");
     const pages = async () => ({
       sent: await (await harness.server.fetch(at(site.slug, `/_f/${site.siteId}/sent`))).text(),
-      missing: await (await harness.server.fetch(at(site.slug, "/contact"))).text(),
+      missing: await (await harness.server.fetch(at(site.slug, "/old-page"))).text(),
     });
     const live = await pages();
     expect(live.sent).toContain('<h1>Thanks! Your message was sent to Reliable Rooter Plumbing.</h1>\n<p>They will get back to you soon.</p>\n<p><a href="/">Back to Reliable Rooter Plumbing</a></p>');
@@ -97,7 +97,7 @@ describe("publish, approve, serve, contact", () => {
   it("escapes the XSS fixture's business name on the thank-you and 404 pages", async () => {
     const site = await publishAndApprove("electrical-xss");
     const sent = await (await harness.server.fetch(at(site.slug, `/_f/${site.siteId}/sent`))).text();
-    const missing = await (await harness.server.fetch(at(site.slug, "/contact"))).text();
+    const missing = await (await harness.server.fetch(at(site.slug, "/old-page"))).text();
     expect(sent).toContain("<h1>Thanks! Your message was sent to &lt;img src=x onerror=alert(1)&gt;.</h1>");
     expect(missing).toContain("Go to &lt;img src=x onerror=alert(1)&gt;'s page");
     for (const body of [sent, missing]) expect(body).not.toContain("<img");

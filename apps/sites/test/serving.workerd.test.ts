@@ -1,4 +1,5 @@
-import { liveKey, mediaKey, newId } from "@asksite/core";
+import { liveKey, livePageKey, mediaKey, newId } from "@asksite/core";
+import { PAGE_IDS, PAGES, type PageId } from "@asksite/site-schema";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { at, BUSINESS_METADATA, PHONE_METADATA, putLive, ROOT, seedSite, seedUpload, sitesHarness, type ToolsEnv } from "./support/harness.ts";
 
@@ -112,6 +113,102 @@ describe("live pages", () => {
       await tools.DB.prepare("ALTER TABLE sites_offline RENAME TO sites").run();
     }
     expect((await get(at(site.slug))).status).toBe(200);
+  });
+});
+
+// A16: a site has up to 5 pages, each its own LIVE object. Each page is checked and cached on its own.
+describe("a site's pages", () => {
+  const PAGE_NAMES = PAGE_IDS.filter((page) => page !== "home");
+  const pageHtml = (site: { slug: string }, page: PageId) => `<!DOCTYPE html><html lang="en"><head><title>${site.slug} ${page}</title></head><body><main><h1>${page}</h1></main></body></html>`;
+
+  async function seedPages(options: Parameters<typeof seedSite>[1] = {}, only: readonly PageId[] = PAGE_IDS) {
+    const site = await seedSite(tools, { metadata: BUSINESS_METADATA, ...options });
+    for (const page of only) await putLive(tools, { ...site, html: pageHtml(site, page) }, BUSINESS_METADATA, page);
+    return site;
+  }
+
+  it("serves each of the 5 pages with its own bytes and the live headers, to GET and HEAD", async () => {
+    const site = await seedPages();
+    for (const page of PAGE_IDS) {
+      const url = at(site.slug, PAGES[page].path);
+      const response = await get(url);
+      expect(response.status, page).toBe(200);
+      expect(await response.text(), page).toBe(pageHtml(site, page));
+      expect(Object.fromEntries(response.headers), page).toMatchObject({ "content-type": "text/html; charset=utf-8", "cache-control": "public, max-age=60", "content-security-policy": CSP });
+      expect(response.headers.get("x-robots-tag"), page).toBeNull();
+      const head = await get(url, { method: "HEAD" });
+      expect(head.status, page).toBe(200);
+      expect(head.headers.get("content-security-policy"), page).toBe(CSP);
+      expect(await head.text(), page).toBe("");
+    }
+  });
+
+  it("ignores the query string on a page", async () => {
+    const site = await seedPages();
+    expect(await (await get(at(site.slug, "/services?x=1"))).text()).toBe(pageHtml(site, "services"));
+  });
+
+  it("keeps each page in its own cache entry for 60 s", async () => {
+    const site = await seedPages();
+    expect((await get(at(site.slug, "/services"))).status).toBe(200);
+    await tools.LIVE.delete(livePageKey(site.slug, "services"));
+    const cached = await get(at(site.slug, "/services"));
+    expect(cached.status).toBe(200);
+    expect(await cached.text()).toBe(pageHtml(site, "services"));
+    // Services' entry is not About's: About was never fetched, so its deleted object is a miss.
+    await tools.LIVE.delete(livePageKey(site.slug, "about"));
+    expect((await get(at(site.slug, "/about"))).status).toBe(404);
+  });
+
+  it("answers the named 404 that links Home for a missing optional page, and does not cache it", async () => {
+    const site = await seedPages({}, ["home", "services", "contact"]);
+    const response = await get(at(site.slug, "/gallery"));
+    expect(response.status).toBe(404);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(await response.text()).toContain('<p><a href="/">Go to Reliable Rooter Plumbing\'s page</a></p>');
+    await putLive(tools, { ...site, html: pageHtml(site, "gallery") }, BUSINESS_METADATA, "gallery");
+    expect(await (await get(at(site.slug, "/gallery"))).text()).toBe(pageHtml(site, "gallery"));
+  });
+
+  it("answers 503, uncached, for a page whose object is not D1's live version", async () => {
+    const site = await seedPages();
+    await putLive(tools, { ...site, versionId: newId(), html: "<p>older</p>" }, BUSINESS_METADATA, "about");
+    const stale = await get(at(site.slug, "/about"));
+    expect(stale.status).toBe(503);
+    expect(stale.headers.get("retry-after")).toBe("60");
+    expect((await get(at(site.slug, "/services"))).status).toBe(200);
+  });
+
+  it("answers 404 on every page once the site is taken down", async () => {
+    const site = await seedPages();
+    await tools.DB.prepare("UPDATE sites SET taken_down_at = 99 WHERE id = ?").bind(site.siteId).run();
+    for (const page of PAGE_IDS) expect((await get(at(site.slug, PAGES[page].path))).status, page).toBe(404);
+  });
+
+  it("redirects a trailing slash on a page path to the page, with no R2 or D1 read", async () => {
+    const site = await seedPages();
+    await tools.DB.prepare("ALTER TABLE sites RENAME TO sites_offline").run();
+    try {
+      for (const page of PAGE_NAMES) {
+        for (const method of ["GET", "HEAD"]) {
+          const response = await get(at(site.slug, `${PAGES[page].path}/?x=1`), { method });
+          expect(response.status, page).toBe(301);
+          expect(response.headers.get("location"), page).toBe(at(site.slug, PAGES[page].path));
+          expect(response.headers.get("cache-control"), page).toBe("no-store");
+        }
+      }
+    } finally {
+      await tools.DB.prepare("ALTER TABLE sites_offline RENAME TO sites").run();
+    }
+  });
+
+  it("never asks D1 about an unknown slug on any page path", async () => {
+    await tools.DB.prepare("ALTER TABLE sites RENAME TO sites_offline").run();
+    try {
+      for (const page of PAGE_IDS) expect((await get(at("no-such-shop", PAGES[page].path))).status, page).toBe(404);
+    } finally {
+      await tools.DB.prepare("ALTER TABLE sites_offline RENAME TO sites").run();
+    }
   });
 });
 
@@ -258,22 +355,22 @@ describe("the 404 page on a site host", () => {
 
   it("links a wrong path on a live site to the site's page, by the business name", async () => {
     const site = await seedSite(tools, { metadata: BUSINESS_METADATA });
-    for (const path of ["/contact", "/index.html", "/_f/not-an-id/sent", "/a/b?c=d"]) expect(await notFoundPage(at(site.slug, path))).toContain(LINK);
+    for (const path of ["/old-page", "/index.html", "/_f/not-an-id/sent", "/a/b?c=d"]) expect(await notFoundPage(at(site.slug, path))).toContain(LINK);
     expect((await get(at(site.slug))).status).toBe(200); // where the link goes
   });
 
   it("keeps the plain 404 on a host with no approved page, for a page stored before the name was, and on an unknown host", async () => {
     const pending = await seedSite(tools, { live: false, metadata: BUSINESS_METADATA });
-    expect(await notFoundPage(at(pending.slug, "/contact"))).toContain(PLAIN);
+    expect(await notFoundPage(at(pending.slug, "/old-page"))).toContain(PLAIN);
     const legacy = await seedSite(tools, { metadata: PHONE_METADATA });
-    expect(await notFoundPage(at(legacy.slug, "/contact"))).toContain(PLAIN);
-    expect(await notFoundPage(at("no-such-shop", "/contact"))).toContain(PLAIN);
+    expect(await notFoundPage(at(legacy.slug, "/old-page"))).toContain(PLAIN);
+    expect(await notFoundPage(at("no-such-shop", "/old-page"))).toContain(PLAIN);
   });
 
   it("keeps the plain 404 for methods other than GET and HEAD", async () => {
     const site = await seedSite(tools, { metadata: BUSINESS_METADATA });
-    for (const method of ["POST", "PUT", "DELETE"]) expect(await notFoundPage(at(site.slug, "/contact"), { method, body: "x" })).toContain(PLAIN);
-    const head = await get(at(site.slug, "/contact"), { method: "HEAD" });
+    for (const method of ["POST", "PUT", "DELETE"]) expect(await notFoundPage(at(site.slug, "/old-page"), { method, body: "x" })).toContain(PLAIN);
+    const head = await get(at(site.slug, "/old-page"), { method: "HEAD" });
     expect(head.status).toBe(404);
   });
 
@@ -289,13 +386,13 @@ describe("the 404 page on a site host", () => {
     } finally {
       await tools.DB.prepare("ALTER TABLE sites_offline RENAME TO sites").run();
     }
-    expect(await notFoundPage(at(down.slug, "/contact"))).toContain(LINK);
+    expect(await notFoundPage(at(down.slug, "/old-page"))).toContain(LINK);
     expect(await notFoundPage(at(down.slug))).toContain(PLAIN);
   });
 
   it("escapes the name", async () => {
     const site = await seedSite(tools, { metadata: { ...BUSINESS_METADATA, businessName: '<img src=x onerror="alert(1)"> & Co' } });
-    const body = await notFoundPage(at(site.slug, "/contact"));
+    const body = await notFoundPage(at(site.slug, "/old-page"));
     expect(body).toContain('<a href="/">Go to &lt;img src=x onerror="alert(1)"&gt; &amp; Co\'s page</a>');
     expect(body).not.toContain("<img");
   });

@@ -1,4 +1,5 @@
-import { isId, parseHost } from "@asksite/core";
+import { isId, pageUrl, parseHost } from "@asksite/core";
+import { pageForPath } from "@asksite/site-schema";
 import { securityTxt } from "./apex.ts";
 import { formBusiness, liveSiteName } from "./business.ts";
 import type { Env } from "./env.ts";
@@ -43,7 +44,13 @@ export async function route(request: Request, env: Env, ctx: ExecutionContext, n
       if (read) return { route: "media", response: await serveMedia(env, ctx, path) };
       break;
     case "site": {
-      if (read && path === "/") return { route: "page", response: await servePage(env, ctx, host.slug) };
+      const page = read ? pageForPath(path) : null;
+      if (page !== null) return { route: "page", response: await servePage(env, ctx, host.slug, page) };
+      // "/services/" is the page's one canonical address; Home has none (its path is "/" itself).
+      const slashed = read && path.endsWith("/") ? pageForPath(path.slice(0, -1)) : null;
+      if (slashed !== null && slashed !== "home") {
+        return { route: "page_redirect", response: new Response(null, { status: 301, headers: plainHeaders({ Location: pageUrl(root, host.slug, slashed) }) }) };
+      }
       const form = FORM.exec(path);
       if (form !== null && request.method === "POST") {
         const siteId = form[1] ?? "";
