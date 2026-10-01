@@ -1,10 +1,15 @@
 import { AxeBuilder } from "@axe-core/playwright";
-import { DESIGN_IDS, PAGES, type DesignId, type PageId } from "@asksite/site-schema";
+import { execFile } from "node:child_process";
+import { mkdir, rmdir, stat } from "node:fs/promises";
+import { promisify } from "node:util";
+import { fileURLToPath } from "node:url";
+import { DESIGN_IDS, PAGE_IDS, PAGES, type DesignId, type PageId } from "@asksite/site-schema";
 import { expect, test, type Page, type TestInfo } from "@playwright/test";
-import { renderFixture } from "../../../fixtures/index.ts";
+import { loadFixture, renderFixture } from "../../../fixtures/index.ts";
 import { apexPlaceholder, formProblems, messageTooLong, notFound, siteBusy, thankYou, tooManyRequests, unavailable, unreadableForm } from "../src/pages.ts";
 import { watchCsp } from "./csp.ts";
 import { E2E_FIXTURES, e2eSlug, type E2eFixture } from "./global-setup.ts";
+import { LIFECYCLE_ENGINES, lifecycleSlug, V2_COPY, type LifecycleEngine } from "./lifecycle.ts";
 
 const ROOT = "localhost:8789";
 /** The published site of a fixture in a design (global-setup.ts seeds every design x fixture). */
@@ -84,6 +89,39 @@ function designVisitor(testInfo: TestInfo, design: DesignId): string {
   return `${({ impact: "192.0.2", refined: "198.51.100", modern: "203.0.113" } as const)[design]}.${host}`;
 }
 
+const isLifecycleEngine = (name: string): boolean => (LIFECYCLE_ENGINES as readonly string[]).includes(name);
+
+const REPO = fileURLToPath(new URL("../../..", import.meta.url));
+/** Held while one operate.ts runs: a directory, because mkdir fails for all but one caller. */
+const OPERATE_LOCK = `${REPO}.wrangler/e2e-operate.lock`;
+const OPERATE_LOCK_STALE_MS = 120_000;
+
+/**
+ * Changes the running server's state (operate.ts): approve a second version, take down or restore the site.
+ * One at a time across the workers: each run opens its own copy of the state wrangler dev is serving, and two
+ * at once fail with D1 and R2 "internal error"s.
+ */
+async function operate(command: "approve-v2" | "take-down" | "restore", slug: string): Promise<void> {
+  await mkdir(`${REPO}.wrangler`, { recursive: true });
+  for (;;) {
+    try {
+      await mkdir(OPERATE_LOCK);
+      break;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      // A worker killed at its test timeout never reaches the finally below: a lock older than any run takes is stale.
+      const held = await stat(OPERATE_LOCK).then((info) => Date.now() - info.mtimeMs, () => 0);
+      if (held > OPERATE_LOCK_STALE_MS) await rmdir(OPERATE_LOCK).catch(() => undefined);
+      await new Promise((done) => setTimeout(done, 200));
+    }
+  }
+  try {
+    await promisify(execFile)("node", [fileURLToPath(new URL("./operate.ts", import.meta.url)), command, slug], { cwd: REPO });
+  } finally {
+    await rmdir(OPERATE_LOCK);
+  }
+}
+
 // Every published page in every design (A12).
 for (const design of DESIGN_IDS) {
   test.describe(design, () => {
@@ -115,6 +153,32 @@ for (const design of DESIGN_IDS) {
           test(`passes axe on ${id} (every WCAG 2.2 A/AA violation, plus the structure rules)`, async ({ page }) => {
             await page.goto(pageUrl(design, fixture, id));
             expect(await axeProblems(page)).toEqual([]);
+          });
+
+          test(`links every page of the site from ${id}'s header, each answering 200, and HEAD answers as GET does`, async ({ page }) => {
+            await page.goto(pageUrl(design, fixture, id));
+            // Every rendered page is in the header's nav (a design may list it twice: inline links and a menu), and nothing else.
+            const listed = await page.locator('nav[aria-label="Main"] a').evaluateAll((links) => links.map((link) => (link as HTMLAnchorElement).href));
+            const hrefs = [...new Set(listed)];
+            expect(hrefs).toEqual(pagesOf(fixture).map((other) => pageUrl(design, fixture, other)));
+            for (const href of hrefs) {
+              const get = await page.request.get(href);
+              expect({ href, status: get.status() }).toEqual({ href, status: 200 });
+              const head = await page.request.head(href);
+              expect({ href, status: head.status() }).toEqual({ href, status: get.status() });
+            }
+          });
+        }
+
+        // A page a site does not have (a fixture without About or Gallery) answers 404 to GET and to HEAD alike.
+        const missing = PAGE_IDS.filter((id) => !pagesOf(fixture).includes(id));
+        if (missing.length > 0) {
+          test(`answers GET and HEAD with 404 for ${missing.join(" and ")}, which it does not have`, async ({ page }) => {
+            for (const id of missing) {
+              const get = await page.request.get(pageUrl(design, fixture, id));
+              const head = await page.request.head(pageUrl(design, fixture, id));
+              expect({ id, get: get.status(), head: head.status() }).toEqual({ id, get: 404, head: 404 });
+            }
           });
         }
       });
@@ -154,6 +218,70 @@ for (const design of DESIGN_IDS) {
         const ids = await focusedIds(page, browserName);
         expect(ids).toContain("contact-message");
         expect(ids).not.toContain("contact-website");
+      });
+    });
+
+    // The lifecycle of a live site, on the design's own site per engine (global-setup.ts), one test after the other:
+    // the second approval (U2) first, then the takedown and the restore of what is live by then.
+    test.describe("a live site's lifecycle", () => {
+      test.describe.configure({ mode: "serial" });
+      test.beforeEach(async ({ browserName }, testInfo) => {
+        test.skip(!isLifecycleEngine(browserName) || testInfo.project.name === "chromium-390", "run in chromium-1280 and webkit-390 only: one site per engine");
+        // operate() takes its turn behind the other workers' runs (the lock), and each run takes seconds on a busy machine:
+        // the wait must not eat the default 30 s of the test.
+        test.setTimeout(150_000);
+      });
+      const live = (engine: string, id: PageId): string => `https://${lifecycleSlug(design, engine as LifecycleEngine)}.${ROOT}${PAGES[id].path}`;
+      const v1 = { headline: loadFixture("plumber-austin").copy?.heroHeadline ?? "", intro: loadFixture("plumber-austin").copy?.sectionIntros?.services ?? "" };
+
+      test("shows no page of the first version, next to the second, after a second approval (U2)", async ({ page, browserName }) => {
+        const home = page.getByRole("heading", { level: 1 });
+        await page.goto(live(browserName, "home"));
+        await expect(home).toHaveText(v1.headline);
+        await page.locator('a[href="/services"]:visible').first().click();
+        await expect(page.getByText(v1.intro)).toBeVisible();
+
+        await operate("approve-v2", lifecycleSlug(design, browserName as LifecycleEngine));
+
+        // Each view after the switch must be the second version: a reload, then links to the pages the browser has seen.
+        // Cache-Control: no-cache is what makes a browser ask again, so every document answer must carry it. (The
+        // browser cache is not used over the local self-signed certificate, so the views alone cannot show a stale copy.)
+        const cacheControls: string[] = [];
+        page.on("response", (response) => {
+          if (response.request().resourceType() === "document") cacheControls.push(`${response.url()} ${response.headers()["cache-control"] ?? ""}`);
+        });
+        const seen: string[] = [];
+        await page.reload();
+        await expect(page.getByText(V2_COPY.servicesIntro)).toBeVisible();
+        seen.push(await page.locator("body").innerText());
+        await page.locator('a[href="/"]:visible').first().click();
+        await expect(home).toHaveText(V2_COPY.heroHeadline);
+        seen.push(await page.locator("body").innerText());
+        await page.locator('a[href="/services"]:visible').first().click();
+        await expect(page.getByText(V2_COPY.servicesIntro)).toBeVisible();
+        seen.push(await page.locator("body").innerText());
+        await page.goto(live(browserName, "home"));
+        await expect(home).toHaveText(V2_COPY.heroHeadline);
+        seen.push(await page.locator("body").innerText());
+        expect(seen.filter((text) => text.includes(v1.headline) || text.includes(v1.intro))).toEqual([]);
+        expect(cacheControls.length).toBeGreaterThanOrEqual(4);
+        expect(cacheControls.filter((line) => !line.endsWith(" no-cache"))).toEqual([]);
+      });
+
+      test("answers 404 on every page after a takedown and serves every page again after the restore", async ({ page, browserName }) => {
+        const slug = lifecycleSlug(design, browserName as LifecycleEngine);
+        const ids = pagesOf("plumber-austin");
+        const statuses = async () => {
+          const found: Array<{ id: PageId; status: number | undefined }> = [];
+          for (const id of ids) found.push({ id, status: (await page.goto(live(browserName, id)))?.status() });
+          return found;
+        };
+        await operate("take-down", slug);
+        expect(await statuses()).toEqual(ids.map((id) => ({ id, status: 404 })));
+        await operate("restore", slug);
+        expect(await statuses()).toEqual(ids.map((id) => ({ id, status: 200 })));
+        await page.goto(live(browserName, "home"));
+        await expect(page.getByRole("heading", { level: 1 })).toHaveText(V2_COPY.heroHeadline);
       });
     });
   });

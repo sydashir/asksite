@@ -1,12 +1,14 @@
 import { AxeBuilder } from "@axe-core/playwright";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 import { render, type RenderedSitePage } from "@asksite/renderer";
 import { DESIGN_IDS, FONT_IDS, PAGES, SiteDocument, type DesignId, type FontId, type PageId, type SiteDocumentInput } from "@asksite/site-schema";
 import { DESIGN_CSS, FIXTURE_FORM_ACTION, FIXTURE_SITE_URL, FIXTURES, inDesign, loadFixture, renderFixture, stubStylesheets, type FixtureName } from "../fixtures/index.ts";
 import { BASELINE } from "../packages/renderer/src/baseline.ts";
+import { weeklyHours } from "../packages/renderer/src/format.ts";
 import { renderDocument } from "../packages/renderer/src/render.ts";
+import { DOM_ID } from "../packages/renderer/src/sections/ids.ts";
 
 const WCAG_TAGS = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"];
 // Best-practice rules for page structure: all content inside landmarks, headings in order,
@@ -101,8 +103,18 @@ function openToday(page: Page, name: FixtureName, font?: FontId, id?: PageId): P
 const INNER_PAGE_PROJECTS: readonly string[] = ["chromium-390", "chromium-1200"];
 const runsPage = (id: PageId, project: string): boolean => id === "home" || id === "contact" || INNER_PAGE_PROJECTS.includes(project);
 
-/** The pages that get a screenshot baseline on main: the desktop projects take these two (inner pages are the design lanes' job). */
-const SCREENSHOT_PAGES: readonly PageId[] = ["home", "contact"];
+/**
+ * The screenshot matrix, page by project: Home and /contact on the four desktop projects, the inner pages on the
+ * INNER_PAGE_PROJECTS. A missing baseline fails ("A snapshot doesn't exist") unless run with --update-snapshots; nothing skips it.
+ */
+const DESKTOP_PROJECTS: readonly string[] = ["chromium-390", "chromium-1200", "chromium-1920", "webkit-390"];
+const SCREENSHOT_MATRIX: Readonly<Record<PageId, readonly string[]>> = {
+  home: DESKTOP_PROJECTS,
+  contact: DESKTOP_PROJECTS,
+  services: INNER_PAGE_PROJECTS,
+  about: INNER_PAGE_PROJECTS,
+  gallery: INNER_PAGE_PROJECTS,
+};
 
 /**
  * Every WCAG 2.2 A/AA violation, whatever axe's impact rating (impact is severity, not the WCAG level:
@@ -274,6 +286,52 @@ async function tapSend(page: Page, input: "mouse" | "touch", offset: number): Pr
   return { clicked: clicks.join(", "), posts };
 }
 
+/** Today's sticky call bar, put back on /contact (its bar is static there now) for the RED proofs that need one that sticks. */
+const STICKY_BAR_CSS = 'aside[aria-label="Call us"]{position:sticky!important;bottom:0!important;z-index:10!important}';
+
+/** The phone windows the /contact call bar check runs at (heights around 915-1040 px were where Send covered a sticky bar). */
+const CALL_BAR_HEIGHTS = [844, 900, 932, 1024] as const;
+/** The projects that run it: both engines at 390 px, where the call bar shows. One list, checked against the config below. */
+const CALL_BAR_PROJECTS: readonly string[] = ["chromium-390", "webkit-390"];
+
+/**
+ * Lists where the call bar and Send get in each other's way on /contact, in three views: at load, after Send is
+ * scrolled to the middle of the window, and after the bar itself is scrolled to the bottom. In each view a bar
+ * link that is in the window must be wholly inside it, must answer elementFromPoint at its centre and corners,
+ * and Send's box must not meet the bar's. (The bar may sit below the fold at load: it is static on /contact.)
+ */
+async function callBarProblems(page: Page): Promise<string[]> {
+  const send = page.getByRole("button", { name: "Send request" });
+  const bar = page.locator('aside[aria-label="Call us"]');
+  const look = (view: string) =>
+    page.evaluate((view) => {
+      const sendBox = document.querySelector("button[type=submit]")?.getBoundingClientRect();
+      const barBox = document.querySelector('aside[aria-label="Call us"]')?.getBoundingClientRect();
+      if (!sendBox || !barBox) return [`${view}: no Send button or call bar`];
+      const problems: string[] = [];
+      if (sendBox.top < barBox.bottom && sendBox.bottom > barBox.top) problems.push(`${view}: Send's box meets the bar's`);
+      for (const link of document.querySelectorAll<HTMLAnchorElement>('aside[aria-label="Call us"] a')) {
+        const box = link.getBoundingClientRect();
+        if (box.bottom <= 0 || box.top >= window.innerHeight) continue; // below the fold: not in this view
+        if (box.top < 0 || box.bottom > window.innerHeight) problems.push(`${view}: "${link.textContent?.trim()}" is cut off by the window`);
+        // The corners, pulled in along the diagonal to where a rounded button's own edge is (a pill has no corner at the box's).
+        const radius = Math.min(parseFloat(getComputedStyle(link).borderTopLeftRadius) || 0, box.height / 2, box.width / 2);
+        const inset = radius * (1 - Math.SQRT1_2) + 2;
+        const points = [[0.5, 0.5], [0, 0], [1, 0], [0, 1], [1, 1]].map(([x, y]) => [box.left + inset + (box.width - 2 * inset) * x!, box.top + inset + (box.height - 2 * inset) * y!] as const);
+        for (const [x, y] of points) {
+          if (document.elementFromPoint(x, y)?.closest("a") !== link) problems.push(`${view}: "${link.textContent?.trim()}" is covered at ${Math.round(x)},${Math.round(y)}`);
+        }
+      }
+      return problems;
+    }, view);
+  const problems = await look("at load");
+  await send.evaluate((el) => el.scrollIntoView({ block: "center" }));
+  problems.push(...(await look("with Send in view")));
+  await bar.evaluate((el) => el.scrollIntoView({ block: "end" }));
+  problems.push(...(await look("with the bar in view")));
+  return problems;
+}
+
 /** The id of each element keyboard focus lands on, over `steps` presses ("" for one without an id). */
 async function focusedIds(page: Page, browserName: string, steps = 80): Promise<string[]> {
   const ids: string[] = [];
@@ -283,6 +341,93 @@ async function focusedIds(page: Page, browserName: string, steps = 80): Promise<
   }
   return ids;
 }
+
+
+/** The one visible control that opens the header's phone menu (a <summary>, link or button named "Menu"); none above the menu's breakpoint. */
+const menuToggle = (page: Page): Locator =>
+  page.getByRole("navigation", { name: "Main" }).locator("summary, a, button").filter({ hasText: /menu/i, visible: true });
+
+/** The visible links in the header's nav to a page. */
+const headerLinks = (page: Page, id: PageId): Locator =>
+  page.getByRole("navigation", { name: "Main" }).locator(`a[href="${PAGES[id].path}"]`).filter({ visible: true });
+
+/**
+ * Follows the header's link to a page, opening the phone menu first when no link shows (WCAG 2.4.5: a visitor
+ * reaches every page from any page, whatever the width). Works with JavaScript off.
+ */
+async function followHeader(page: Page, id: PageId): Promise<void> {
+  if ((await headerLinks(page, id).count()) === 0) await menuToggle(page).click();
+  await headerLinks(page, id).first().click();
+  await page.waitForURL(ORIGIN + PAGES[id].path, { timeout: 5_000 });
+}
+
+/**
+ * The pages with no header link a visitor can use here. When none shows at all the nav is behind a menu, so the
+ * menu is opened once and looked at again (a nav with some inline links is never behind one).
+ */
+async function unreachablePages(page: Page, ids: readonly PageId[]): Promise<string[]> {
+  const missing = async (): Promise<PageId[]> => {
+    const counts = await Promise.all(ids.map(async (id) => ({ id, shown: await headerLinks(page, id).count() })));
+    return counts.filter(({ shown }) => shown === 0).map(({ id }) => id);
+  };
+  let lacking = await missing();
+  if (lacking.length === ids.length && (await menuToggle(page).count()) === 1) {
+    await menuToggle(page).click();
+    lacking = await missing();
+  }
+  return lacking.map((id) => `no header link to ${PAGES[id].path}`);
+}
+
+/** How many links to "/contact#quote" show on the page at this width (the call bar below its breakpoint, the closing band above it). */
+const visibleQuoteLinks = (page: Page): Promise<number> => page.locator('a[href="/contact#quote"]').filter({ visible: true }).count();
+
+/**
+ * Lists what is wrong with the quote form's Name field where a visitor has landed: missing, not wholly in the
+ * window, or covered (by a sticky bar or header). Works with JavaScript off. The field is judged where it is:
+ * elementFromPoint at its centre and corners must return the field itself. (A trial click would not do: when
+ * something covers the target Playwright scrolls on its retries, so a covered field passes once it is scrolled clear.)
+ */
+async function nameFieldProblems(page: Page): Promise<string[]> {
+  return page.evaluate(() => {
+    const name = document.querySelector<HTMLElement>("#contact-name");
+    if (!name) return ["no Name field on the page"];
+    const box = name.getBoundingClientRect();
+    if (box.top < 0 || box.left < 0 || box.bottom > window.innerHeight || box.right > document.documentElement.clientWidth) return ["the Name field is not wholly in the window"];
+    // The corners, pulled in along the diagonal to where a rounded field's own edge is.
+    const radius = Math.min(parseFloat(getComputedStyle(name).borderTopLeftRadius) || 0, box.height / 2, box.width / 2);
+    const inset = radius * (1 - Math.SQRT1_2) + 2;
+    const points = [[0.5, 0.5], [0, 0], [1, 0], [0, 1], [1, 1]].map(([x, y]) => [box.left + inset + (box.width - 2 * inset) * x!, box.top + inset + (box.height - 2 * inset) * y!] as const);
+    return points.some(([x, y]) => document.elementFromPoint(x, y) !== name) ? ["the Name field is covered"] : [];
+  });
+}
+
+/** Follows a link that should lead to the quote form and lists what is wrong where it lands: another address, or a Name field problem. */
+async function quoteLandingProblems(page: Page, link: Locator): Promise<string[]> {
+  await link.click();
+  await page.waitForLoadState("load");
+  const problems = page.url() === `${ORIGIN}${PAGES.contact.path}#quote` ? [] : [`landed on ${page.url()}`];
+  return [...problems, ...(await nameFieldProblems(page))];
+}
+
+/** The vertical order of a page's sections, by the DOM ids given: those present, top first. */
+const sectionOrder = (page: Page, ids: readonly string[]): Promise<string[]> =>
+  page.evaluate(
+    (ids) =>
+      ids
+        .flatMap((id) => {
+          const el = document.getElementById(id);
+          return el === null ? [] : [{ id, top: el.getBoundingClientRect().top + window.scrollY }];
+        })
+        .sort((a, b) => a.top - b.top)
+        .map((section) => section.id),
+    [...ids],
+  );
+
+/** The opening hours of a fixture as its page writes them ("7:30 AM – 6:00 PM", "Open 24 hours"), each once; none when it has no hours. */
+const hoursTimes = (name: FixtureName): string[] => {
+  const hours = loadFixture(name).facts.hours ?? [];
+  return hours.length === 0 ? [] : [...new Set(weeklyHours(hours).map((row) => row.time))];
+};
 
 /** The ids of a fixture's rendered pages, Home first (the same in every design). */
 const pagesOf = (name: FixtureName): PageId[] => renderFixture(name).map((p) => p.page);
@@ -351,11 +496,27 @@ for (const design of DESIGN_IDS) {
               expect(handlers).toEqual([]);
             });
 
-            if (SCREENSHOT_PAGES.includes(id)) {
-              test("matches the screenshot baseline", async ({ page }) => {
-                await expect(page).toHaveScreenshot([design, name, `${id}.png`], { fullPage: true, stylePath: SCREENSHOT_CSS });
+            test("reaches every page of the site from the header (WCAG 2.4.5)", MOBILE, async ({ page }) => {
+              expect(await unreachablePages(page, pagesOf(name))).toEqual([]);
+            });
+
+            // Below its breakpoint the call bar carries the link, above it the closing band; Contact is the form itself.
+            if (id !== "contact") {
+              test("shows a link to the quote form", MOBILE, async ({ page }) => {
+                expect(await visibleQuoteLinks(page)).toBeGreaterThan(0);
               });
             }
+
+            if (id === "contact" && hoursTimes(name).length > 0) {
+              test("shows the opening hours", MOBILE, async ({ page }) => {
+                for (const time of hoursTimes(name)) await expect(page.getByText(time).filter({ visible: true }).first()).toBeVisible();
+              });
+            }
+
+            test("matches the screenshot baseline", async ({ page }, testInfo) => {
+              test.skip(!SCREENSHOT_MATRIX[id].includes(testInfo.project.name), "not in the SCREENSHOT_MATRIX");
+              await expect(page).toHaveScreenshot([design, name, `${id}.png`], { fullPage: true, stylePath: SCREENSHOT_CSS });
+            });
           });
         }
       });
@@ -400,6 +561,20 @@ for (const design of DESIGN_IDS) {
       });
     }
 
+    // On /contact the form sits near the first screen and Send stacks above the call bar, so a sticky bar there
+    // let Send cover its buttons on phones about 915-1040 px tall (WCAG 2.5.8); the bar is static on that page.
+    for (const height of CALL_BAR_HEIGHTS) {
+      test.describe(`at 390 x ${height}`, () => {
+        test.use({ viewport: { width: 390, height } });
+
+        test("the /contact call bar never overlaps Send", async ({ page }, testInfo) => {
+          test.skip(!CALL_BAR_PROJECTS.includes(testInfo.project.name), "checked in CALL_BAR_PROJECTS");
+          await open(page, "plumber-austin", design, "contact");
+          expect(await callBarProblems(page)).toEqual([]);
+        });
+      });
+    }
+
     test.describe("with JavaScript disabled", () => {
       test.use({ javaScriptEnabled: false });
 
@@ -439,6 +614,49 @@ for (const design of DESIGN_IDS) {
         // The business (the block with a name; its @type is the trade's schema.org type, Electrician here) is on Home only, and holds the payload as text.
         const blocks = (await page.locator('script[type="application/ld+json"]').allTextContents()).map((ld) => JSON.parse(ld) as { name?: string });
         expect(blocks.flatMap((block) => block.name ?? [])).toEqual(id === "home" ? [payload] : []);
+      });
+    }
+
+    // The owner's order inside a page (U1): roofing-extreme puts reviews before credentials on Home and the service
+    // area before the form on /contact. plumber-austin has the default order, which shows the check tells them apart.
+    test("draws the sections in the owner's order inside a page (U1)", MOBILE, async ({ page }) => {
+      const home = [DOM_ID.trust, DOM_ID.testimonials];
+      const contact = [DOM_ID.contact, DOM_ID.serviceArea];
+      await open(page, "roofing-extreme", design);
+      expect(await sectionOrder(page, home)).toEqual([DOM_ID.testimonials, DOM_ID.trust]);
+      await open(page, "roofing-extreme", design, "contact");
+      expect(await sectionOrder(page, contact)).toEqual([DOM_ID.serviceArea, DOM_ID.contact]);
+      await open(page, "plumber-austin", design);
+      expect(await sectionOrder(page, home)).toEqual([DOM_ID.trust, DOM_ID.testimonials]);
+      await open(page, "plumber-austin", design, "contact");
+      expect(await sectionOrder(page, contact)).toEqual([DOM_ID.contact, DOM_ID.serviceArea]);
+    });
+
+    // The journeys of a visitor on plumber-austin (the fixture with every page), with JavaScript on and off.
+    for (const javaScriptEnabled of [true, false]) {
+      test.describe(`journeys with JavaScript ${javaScriptEnabled ? "on" : "off"}`, () => {
+        test.use({ javaScriptEnabled });
+
+        test("every page is reached from Home through the header, and the brand link returns Home", async ({ page }) => {
+          await open(page, "plumber-austin", design);
+          for (const id of pagesOf("plumber-austin").filter((other) => other !== "home")) {
+            await followHeader(page, id);
+            await expect(page.locator("h1")).toHaveCount(1);
+            await page.locator('header a[href="/"]:not(nav a)').first().click();
+            await page.waitForURL(`${ORIGIN}/`, { timeout: 5_000 });
+          }
+        });
+
+        test("Get a quote on Home lands on the form with the Name field in view", async ({ page }) => {
+          await open(page, "plumber-austin", design);
+          expect(await quoteLandingProblems(page, page.locator('#top a[href="/contact#quote"]').first())).toEqual([]);
+        });
+
+        test("Get a quote on an inner page (the call bar on a phone, the closing band above it) lands on the form with the Name field in view", async ({ page }) => {
+          await open(page, "plumber-austin", design, "services");
+          const link = isPhoneProject(page) ? page.locator('aside[aria-label="Call us"] a[href="/contact#quote"]') : page.locator('#get-in-touch a[href="/contact#quote"]');
+          expect(await quoteLandingProblems(page, link)).toEqual([]);
+        });
       });
     }
 
@@ -485,10 +703,26 @@ test.describe("the harness", () => {
     expect(addresses.every((address) => address === null)).toBe(true);
   });
 
-  test("the inner-page projects are projects of the config", async ({}, testInfo) => {
+  test("the inner-page, call bar and desktop projects are projects of the config", async ({}, testInfo) => {
     const names = testInfo.config.projects.map((project) => project.name);
-    expect(INNER_PAGE_PROJECTS.filter((name) => !names.includes(name))).toEqual([]);
+    expect([...INNER_PAGE_PROJECTS, ...CALL_BAR_PROJECTS].filter((name) => !names.includes(name))).toEqual([]);
+    // The screenshot matrix's desktop list is exactly the config's non-phone projects: a rename or an added project fails here.
+    expect([...DESKTOP_PROJECTS]).toEqual(testInfo.config.projects.filter((project) => project.metadata["phone"] !== true).map((project) => project.name));
   });
+});
+
+test("holds exactly the screenshot baselines of the SCREENSHOT_MATRIX, and no other file", async ({}, testInfo) => {
+  test.skip(testInfo.project.name !== "chromium-1200", "reads the baseline folder once");
+  const folder = fileURLToPath(new URL("./fixtures.spec.ts-snapshots/", import.meta.url));
+  expect(readdirSync(folder).sort()).toEqual([...DESIGN_IDS].sort());
+  for (const design of DESIGN_IDS) {
+    const expected = FIXTURES.flatMap((name) => pagesOf(name).flatMap((id) => SCREENSHOT_MATRIX[id].map((project) => `${name}/${id}-${project}-darwin.png`))).sort();
+    const found = readdirSync(`${folder}${design}`, { recursive: true, withFileTypes: true })
+      .filter((entry) => entry.isFile())
+      .map((entry) => `${entry.parentPath.slice(`${folder}${design}`.length + 1)}/${entry.name}`)
+      .sort();
+    expect({ design, found }).toEqual({ design, found: expected });
+  }
 });
 
 test.describe("the gates can fail (RED proof)", () => {
@@ -561,7 +795,7 @@ test.describe("the gates can fail (RED proof)", () => {
     test.skip(!isPhoneProject(page), "the call bar only shows below 768 px");
     await openToday(page, "plumber-austin", undefined, "contact");
     await page.setViewportSize({ width: 390, height: 500 }); // the form's fields lie below the fold, so Tab scrolls them to the bottom edge
-    await page.addStyleTag({ content: "aside{position:sticky!important}" });
+    await page.addStyleTag({ content: STICKY_BAR_CSS });
     expect(await focusHiddenByCallBar(page, browserName)).not.toEqual([]);
   });
 
@@ -614,9 +848,24 @@ test.describe("the gates can fail (RED proof)", () => {
   test("the Send check sees a tap that the call bar takes", async ({ page }) => {
     test.skip(page.viewportSize()?.width !== 390, "checked in the 390 px projects, where the call bar shows");
     await openToday(page, "plumber-austin", undefined, "contact");
-    // Today's page without the fix in styles/shared.css: Send no longer stacks above the call bar.
-    await page.addStyleTag({ content: 'form button[type="submit"]{position:static!important;z-index:auto!important}' });
+    // Today's page without the fix in styles/shared.css: Send no longer stacks above the call bar, which sticks again once focus leaves the field (as it did on /contact before the bar became static there).
+    await page.addStyleTag({ content: STICKY_BAR_CSS + "html:has(:focus-visible:not(aside *)) aside{position:static!important}" + 'form button[type="submit"]{position:static!important;z-index:auto!important}' });
     expect(await tapSend(page, "mouse", 40)).toEqual({ clicked: "BODY", posts: 0 });
+  });
+
+  test("the call bar check sees Send over a sticky bar's buttons", async ({ page }, testInfo) => {
+    test.skip(!CALL_BAR_PROJECTS.includes(testInfo.project.name), "checked in CALL_BAR_PROJECTS");
+    // Today's page with the bar sticking on /contact, as it did before it became static there. Where Send sits in the band
+    // depends on the engine's layout, so the proof looks at every window height the real check runs at: all must be
+    // clean on the static bar (above), and the sticky bar must be caught at one or more.
+    const caught: number[] = [];
+    for (const height of CALL_BAR_HEIGHTS) {
+      await page.setViewportSize({ width: 390, height });
+      await openToday(page, "plumber-austin", undefined, "contact");
+      await page.addStyleTag({ content: STICKY_BAR_CSS });
+      if ((await callBarProblems(page)).length > 0) caught.push(height);
+    }
+    expect(caught.length).toBeGreaterThan(0);
   });
 
   test("the focus check sees a link hidden under a call bar that sticks while a link has focus", async ({ page, browserName }) => {
@@ -643,6 +892,46 @@ test.describe("the gates can fail (RED proof)", () => {
       before.focus({ preventScroll: true });
     });
     expect((await focusHiddenByCallBar(page, browserName)).filter((stop) => stop.startsWith("A "))).not.toEqual([]);
+  });
+
+  test("the reachability check sees a page whose header lacks a link to an existing page", MOBILE, async ({ page }) => {
+    await openToday(page, "plumber-austin");
+    expect(await unreachablePages(page, pagesOf("plumber-austin"))).toEqual([]);
+    await page.locator('nav[aria-label="Main"] a[href="/gallery"]').evaluateAll((links) => links.forEach((link) => link.closest("li")?.remove()));
+    expect(await unreachablePages(page, pagesOf("plumber-austin"))).toEqual(["no header link to /gallery"]);
+  });
+
+  test("the quote-landing check sees a link that lands on a page without the form", async ({ page }) => {
+    await openToday(page, "plumber-austin");
+    const hero = page.getByRole("link", { name: "Get a free quote" }).first();
+    await hero.evaluate((link) => link.setAttribute("href", "/services#quote"));
+    expect(await quoteLandingProblems(page, hero)).toEqual([`landed on ${ORIGIN}/services#quote`, "no Name field on the page"]);
+  });
+
+  test("the quote-landing check sees a Name field that something covers", async ({ page }) => {
+    await openToday(page, "plumber-austin", undefined, "contact");
+    await page.locator("#contact-name").scrollIntoViewIfNeeded();
+    expect(await nameFieldProblems(page)).toEqual([]);
+    await page.addStyleTag({ content: 'body::after{content:"";position:fixed;inset:0;z-index:50}' });
+    expect(await nameFieldProblems(page)).toEqual(["the Name field is covered"]);
+  });
+
+  test("the quote-landing check sees a sticky header that covers the Name field where the visitor lands", async ({ page }) => {
+    await openToday(page, "plumber-austin", undefined, "contact");
+    await page.addStyleTag({ content: "header{position:sticky!important;top:0!important;z-index:50!important;min-height:120px!important}" });
+    await page.locator("#contact-name").evaluate((el) => window.scrollTo(0, el.getBoundingClientRect().top + window.scrollY - 24));
+    expect(await nameFieldProblems(page)).toEqual(["the Name field is covered"]);
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await page.locator("#contact-name").evaluate((el) => window.scrollTo(0, el.getBoundingClientRect().top + window.scrollY - 200));
+    expect(await nameFieldProblems(page)).toEqual([]);
+  });
+
+  test("the visible-quote check sees a page whose only quote link is hidden at 1200", async ({ page }, testInfo) => {
+    test.skip(testInfo.project.name !== "chromium-1200", "the window is set here, so one run proves it");
+    await openToday(page, "plumber-austin", undefined, "services");
+    expect(await visibleQuoteLinks(page)).toBeGreaterThan(0); // the closing band's link; the call bar hides from 768 px
+    await page.addStyleTag({ content: "#get-in-touch a[href='/contact#quote']{display:none!important}" });
+    expect(await visibleQuoteLinks(page)).toBe(0);
   });
 });
 
