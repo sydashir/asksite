@@ -82,12 +82,16 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm exec playwright install --with-deps --only-shell chromium webkit
       # Customer hostnames are <slug>.localhost; make sure every engine resolves the e2e ones on Linux
-      # (apps/sites/e2e/global-setup.ts seeds e2e-<design>-<fixture> for every design and fixture).
+      # (apps/sites/e2e/global-setup.ts seeds e2e-<design>-<fixture> for every design and fixture, and
+      # e2e-life-<design>-<engine> for the lifecycle tests).
       - run: |
           hosts="media.localhost www.localhost"
           for design in impact refined modern; do
             for fixture in plumber-austin hvac-phoenix roofing-extreme cleaning-minimal electrical-xss; do
               hosts="$hosts e2e-$design-$fixture.localhost"
+            done
+            for engine in chromium webkit; do
+              hosts="$hosts e2e-life-$design-$engine.localhost"
             done
           done
           echo "127.0.0.1 $hosts" | sudo tee -a /etc/hosts
