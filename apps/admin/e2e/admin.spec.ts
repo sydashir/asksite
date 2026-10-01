@@ -247,12 +247,28 @@ test("a takedown that errors AFTER the site went down offers Finish the takedown
   await takeDown(page, site.siteId);
   await expect(page.getByText("The takedown may have partly happened, and the owner may not have been emailed. Finish it to make sure, and contact the owner:")).toBeVisible();
   await expect(page.getByRole("button", { name: "Restore the site" })).toBeVisible(); // the reload shows it down
+  await expect(page.getByRole("status").filter({ hasText: "The takedown may have partly happened" })).toBeFocused(); // keyboard focus stays on the result
   await page.getByRole("button", { name: "Finish the takedown" }).click();
   await expect(page.getByText("Owner not emailed — contact them.", { exact: false })).toBeVisible();
   await expect(page.getByText("Clean-up finished.", { exact: false })).toBeVisible();
   await expect(page.getByRole("button", { name: "Finish the takedown" })).toHaveCount(0);
   expect(bodies).toHaveLength(2);
   expect(bodies[1]).toEqual(bodies[0]);
+});
+
+test("a Finish that fails after an emailed takedown never claims the owner was not emailed", async ({ page }) => {
+  const site = await liveSite(page);
+  const faults = ["live-delete", "live-delete-reread", null];
+  await page.route("**/api/admin/sites/*/takedown", (route, request) => {
+    const fault = faults.shift();
+    return route.continue(fault ? { headers: { ...request.headers(), "x-test-takedown-fault": fault } } : undefined);
+  });
+  await takeDown(page, site.siteId); // 200, owner emailed, clean-up failed
+  await page.getByRole("button", { name: "Finish the takedown" }).click(); // 500
+  await expect(page.getByText("The takedown may have partly happened", { exact: false })).toBeVisible();
+  await page.getByRole("button", { name: "Finish the takedown" }).click(); // 200
+  await expect(page.getByText("Clean-up finished.", { exact: false })).toBeVisible();
+  await expect(page.locator("body")).not.toContainText("Owner not emailed");
 });
 
 test("send an owner a sign-in link from their site; a disabled owner has no such button", async ({ page }) => {

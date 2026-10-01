@@ -72,14 +72,17 @@ function SiteScreen({ data, reload }: { data: SiteDetailData; reload: () => Prom
     const res = await api<TakedownView>("POST", `/api/admin/sites/${site.id}/takedown`, body);
     if (!res.ok) {
       // A 500 can come after the takedown committed: say so rather than a plain error, and let the reload show the truth. Keep the
-      // body: if the reload shows the site down, "Finish the takedown" re-sends it. That call never emails the owner (its own answer is
-      // always null) and the failed one sent no notice, so the owner is marked as not emailed.
-      if (res.status >= 500) setTakedown({ body, result: { tone: "warning", text: "", cleanupFailed: true, ownerNotEmailed: true } });
+      // body: if the reload shows the site down, "Finish the takedown" re-sends it. The owner notice is the route's last step and never
+      // throws, so a call that answered 5xx sent none itself: keep the earlier result's owner-notice state, and with no earlier result
+      // (this call may be the one that took the site down) mark the owner as not emailed.
       if (res.status >= 500) {
+        setTakedown({ body, result: { tone: "warning", text: "", cleanupFailed: true, ownerNotEmailed: previous?.ownerNotEmailed ?? true } });
         // Wait for the reload, so the text below is chosen from the site's real state, not the one from before the takedown.
         await reload();
         setMessage(null);
         setTakedownUnsure(true);
+        // The status region exists in both cases (site down or up): keep keyboard focus on the result, as show() does.
+        requestAnimationFrame(() => messageRef.current?.focus());
         return;
       }
       show({ tone: "error", text: res.error.message });
