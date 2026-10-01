@@ -158,6 +158,18 @@ test("changing a review clears the confirmation that the reviews are real", asyn
   await page.getByLabel("Review 1", { exact: true }).fill("Fixed our leak the same afternoon. Great work!");
   await expect(confirm).not.toBeChecked();
   await expect.poll(confirmed).toBe(false);
+
+  // Adding and removing a review clear it too (decision 38: no server-side reset).
+  await confirm.check();
+  await expect.poll(confirmed).toBe(true);
+  await page.getByRole("button", { name: "Add a review" }).click();
+  await expect(confirm).not.toBeChecked();
+  await expect.poll(confirmed).toBe(false);
+  await confirm.check();
+  await expect.poll(confirmed).toBe(true);
+  await page.getByRole("button", { name: "Remove review 1" }).click();
+  await expect(confirm).not.toBeChecked();
+  await expect.poll(confirmed).toBe(false);
 });
 
 test("an answer typed just before leaving a step is saved first; if saving fails, the owner stays", async ({ page }) => {
