@@ -7,12 +7,14 @@ import { api } from "../lib/api.ts";
 import { NETWORK_OPTIONS } from "../lib/labels.ts";
 import { altTextWarning } from "../lib/facts-form.ts";
 import { preparePhoto } from "../lib/prepare-photo.ts";
-import { asArray, asRecord, asString, fieldId, moveItem, type Json } from "../lib/values.ts";
+import { asArray, asRecord, asString, fieldId, moveItem, setIn, type Json } from "../lib/values.ts";
 import { focusSoon, type StepProps } from "./types.ts";
 
 const MAX_WORK_PHOTOS = 12;
 const MAX_LINKS = 7;
 const ALT_HINT = "Say what the photo shows, for someone who cannot see it. For example “New water heater installed in a garage”. Do not write “photo of”.";
+
+const moveId = (index: number, direction: "up" | "down") => `photo-move-${direction}-${index}`;
 
 const asPhoto = (upload: UploadView): Json => ({ url: upload.url, alt: "", width: upload.width, height: upload.height });
 
@@ -99,11 +101,26 @@ export function PhotoManager(props: StepProps) {
       return;
     }
     setUploads((current) => current.filter((u) => u.id !== upload.id));
-    if (asString(hero?.["url"]) === upload.url) setFacts(["heroPhoto"], undefined);
-    setFacts(["photos"], photos.filter((p) => p["url"] !== upload.url));
+    // The owner kept editing while the delete ran: change only what the newest draft still holds.
+    props.site.update((d) => {
+      let next = d.facts;
+      const current = asRecord(next);
+      if (current["heroPhoto"] !== undefined && asString(asRecord(current["heroPhoto"])["url"]) === upload.url) next = setIn(next, ["heroPhoto"], undefined);
+      const list = asArray(current["photos"]);
+      if (list.some((p) => asString(asRecord(p)["url"]) === upload.url)) next = setIn(next, ["photos"], list.filter((p) => asString(asRecord(p)["url"]) !== upload.url));
+      return { facts: next };
+    });
     setStatus("Photo deleted.");
     // The Delete button went with the photo: keep keyboard focus on the result.
     focusSoon("photo-status");
+  }
+
+  /** Moves a work photo; a button that just reached the end of the list is disabled, so focus goes to the opposite one. */
+  function move(index: number, by: -1 | 1) {
+    setFacts(["photos"], moveItem(photos, index, by));
+    const target = index + by;
+    const atEnd = by === -1 ? target === 0 : target === photos.length - 1;
+    focusSoon(moveId(target, (by === -1) !== atEnd ? "up" : "down"));
   }
 
   const used = new Set([asString(hero?.["url"]), ...photos.map((p) => asString(p["url"]))]);
@@ -121,12 +138,13 @@ export function PhotoManager(props: StepProps) {
           type="file"
           accept="image/jpeg,image/png,image/webp"
           aria-describedby="photo-upload-hint"
-          disabled={busy}
+          aria-disabled={busy}
           className="mt-2 block w-full max-w-full text-base"
           onChange={(e) => {
             const file = e.target.files?.[0];
             e.target.value = "";
-            if (file !== undefined) void upload(file);
+            // aria-disabled, not disabled: a disabled input would drop the keyboard focus it holds.
+            if (file !== undefined && !busy) void upload(file);
           }}
         />
         <p id="photo-status" role="status" tabIndex={-1} className="mt-2 text-slate-800">
@@ -142,7 +160,11 @@ export function PhotoManager(props: StepProps) {
                 <Thumbnail url={upload.url} />
                 <div className="flex flex-col gap-2">
                   <span className="text-sm text-slate-700">Uploaded photo {i + 1}</span>
-                  <button type="button" className="btn-small" disabled={asString(hero?.["url"]) === upload.url} onClick={() => setFacts(["heroPhoto"], asPhoto(upload))}>
+                  <button type="button" className="btn-small" disabled={asString(hero?.["url"]) === upload.url} onClick={() => {
+                      setFacts(["heroPhoto"], asPhoto(upload));
+                      focusSoon(fieldId(["facts", "heroPhoto", "alt"]));
+                    }}
+                  >
                     Use uploaded photo {i + 1} as the main photo
                   </button>
                   <button
@@ -173,7 +195,14 @@ export function PhotoManager(props: StepProps) {
           <div className="mt-2">
             <Thumbnail url={asString(hero["url"])} />
             <PhotoFields {...props} photo={hero} path={["heroPhoto"]} name="the main photo" />
-            <button type="button" className="btn-small mt-3" onClick={() => setFacts(["heroPhoto"], undefined)}>
+            <button
+              type="button"
+              className="btn-small mt-3"
+              onClick={() => {
+                setFacts(["heroPhoto"], undefined);
+                focusSoon(fieldId(["facts", "heroPhoto"]));
+              }}
+            >
               Stop using this main photo
             </button>
           </div>
@@ -187,10 +216,10 @@ export function PhotoManager(props: StepProps) {
             <Thumbnail url={asString(photo["url"])} />
             <PhotoFields {...props} photo={photo} path={["photos", i]} name={`work photo ${i + 1}`} />
             <div className="mt-3 flex flex-wrap gap-2">
-              <button type="button" className="btn-small" disabled={i === 0} onClick={() => setFacts(["photos"], moveItem(photos, i, -1))}>
+              <button id={moveId(i, "up")} type="button" className="btn-small" disabled={i === 0} onClick={() => move(i, -1)}>
                 Move work photo {i + 1} up
               </button>
-              <button type="button" className="btn-small" disabled={i === photos.length - 1} onClick={() => setFacts(["photos"], moveItem(photos, i, 1))}>
+              <button id={moveId(i, "down")} type="button" className="btn-small" disabled={i === photos.length - 1} onClick={() => move(i, 1)}>
                 Move work photo {i + 1} down
               </button>
               <button

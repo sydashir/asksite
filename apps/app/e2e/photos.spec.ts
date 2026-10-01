@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import sharp from "sharp";
 import { acceptInvite, apiCall, expectAccessible, expectNoSidewaysScroll } from "./support.ts";
 
@@ -9,6 +9,22 @@ async function rotatedJpeg(): Promise<Buffer> {
     .withMetadata({ orientation: 6 })
     .toBuffer();
 }
+
+/** Playwright cannot read a multipart file part from the request, so record the file the page sends. */
+async function recordSentFiles(page: Page) {
+  await page.addInitScript(() => {
+    const w = window as unknown as { __sent: number[][] };
+    w.__sent = [];
+    const original = window.fetch;
+    window.fetch = async (input, init) => {
+      const file = init?.body instanceof FormData ? init.body.get("file") : null;
+      if (file instanceof Blob) w.__sent.push(Array.from(new Uint8Array(await file.arrayBuffer())));
+      return original(input, init);
+    };
+  });
+}
+
+const sentFiles = (page: Page) => page.evaluate(() => (window as unknown as { __sent: number[][] }).__sent);
 
 const CAMERA_MARKER = "ASKSITE-CAMERA-MARKER";
 const GPS_MARKER = "ASKSITE-GPS-MARKER";
@@ -109,22 +125,12 @@ test("the uploaded copy carries none of the original's GPS data", async ({ page 
   // Control: both markers (one in the GPS block, one in the camera block) really are in the original.
   expect(original.includes(Buffer.from(GPS_MARKER))).toBe(true);
   expect(original.includes(Buffer.from(CAMERA_MARKER))).toBe(true);
-  // Playwright cannot read a multipart file part from the request, so record the file the page sends.
-  await page.addInitScript(() => {
-    const w = window as unknown as { __sent: number[][] };
-    w.__sent = [];
-    const original = window.fetch;
-    window.fetch = async (input, init) => {
-      const file = init?.body instanceof FormData ? init.body.get("file") : null;
-      if (file instanceof Blob) w.__sent.push(Array.from(new Uint8Array(await file.arrayBuffer())));
-      return original(input, init);
-    };
-  });
+  await recordSentFiles(page);
   const siteId = await acceptInvite(page);
   await page.goto(`/sites/${siteId}/setup/photos`);
   await page.getByLabel("Upload a photo").setInputFiles({ name: "IMG_0005.jpg", mimeType: "image/jpeg", buffer: original });
   await expect(page.getByText("Photo uploaded. Choose where to use it below.")).toBeVisible();
-  const sent = await page.evaluate(() => (window as unknown as { __sent: number[][] }).__sent);
+  const sent = await sentFiles(page);
   expect(sent).toHaveLength(1);
   const body = Buffer.from(sent[0]!);
   expect(body.length).toBeGreaterThan(1000); // a real image went out
@@ -158,4 +164,99 @@ test("only https photo addresses are shown", async ({ page }) => {
   const srcs = await page.locator("main img").evaluateAll((imgs) => imgs.map((i) => i.getAttribute("src")));
   expect(srcs).toEqual(["https://secure.example/work.jpg"]);
   expect(requested.some((u) => u.startsWith("http://insecure.example"))).toBe(false);
+});
+
+// Decision 21 and the 3,000 px cap: the redraw is what leaves the browser, so check the file that was sent.
+test("a large transparent photo is redrawn at 3,000 px with a white background", async ({ page }) => {
+  const red = await sharp({ create: { width: 2000, height: 1000, channels: 4, background: { r: 220, g: 20, b: 20, alpha: 1 } } }).png().toBuffer();
+  const wide = await sharp({ create: { width: 4000, height: 1000, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } } })
+    .composite([{ input: red, left: 0, top: 0 }])
+    .png()
+    .toBuffer();
+  await recordSentFiles(page);
+  const siteId = await acceptInvite(page);
+  await page.goto(`/sites/${siteId}/setup/photos`);
+  await page.getByLabel("Upload a photo").setInputFiles({ name: "logo.png", mimeType: "image/png", buffer: wide });
+  await expect(page.getByText("Photo uploaded. Choose where to use it below.")).toBeVisible();
+  const sent = await sentFiles(page);
+  expect(sent).toHaveLength(1);
+  const { data, info } = await sharp(Buffer.from(sent[0]!)).raw().toBuffer({ resolveWithObject: true });
+  expect([info.width, info.height]).toEqual([3000, 750]);
+  expect((await sharp(Buffer.from(sent[0]!)).metadata()).format).toBe("jpeg");
+  const at = (x: number, y: number) => Array.from(data.subarray((y * info.width + x) * info.channels, (y * info.width + x) * info.channels + 3));
+  // The transparent right half is white, not black; the opaque left half is still red.
+  for (const channel of at(2990, 10)) expect(channel).toBeGreaterThan(245);
+  const [r, g, b] = at(100, 375);
+  expect(r).toBeGreaterThan(190);
+  expect(g).toBeLessThan(70);
+  expect(b).toBeLessThan(70);
+});
+
+test("deleting a photo keeps edits made while the delete runs", async ({ page }) => {
+  const siteId = await acceptInvite(page);
+  await page.goto(`/sites/${siteId}/setup/photos`);
+  for (const name of ["a.jpg", "b.jpg", "c.jpg"]) {
+    await page.getByLabel("Upload a photo").setInputFiles({ name, mimeType: "image/jpeg", buffer: await rotatedJpeg() });
+    await expect(page.getByText("Photo uploaded. Choose where to use it below.")).toBeVisible();
+  }
+  await page.getByRole("button", { name: "Add uploaded photo 1 to your work photos" }).click();
+  await expect(page.getByLabel("Describe work photo 1")).toBeFocused();
+
+  let release: () => void = () => undefined;
+  const gate = new Promise<void>((resolve) => (release = resolve));
+  await page.route(`**/api/sites/${siteId}/uploads/*`, async (route) => {
+    if (route.request().method() !== "DELETE") return route.fallback();
+    await gate;
+    return route.fallback();
+  });
+  await page.getByRole("button", { name: "Delete uploaded photo 3" }).click();
+  await page.getByRole("dialog", { name: "Delete this photo?" }).getByRole("button", { name: "Delete photo" }).click();
+  // While the delete is waiting: type a description and add another work photo.
+  await page.getByLabel("Describe work photo 1").fill("Typed while deleting");
+  await page.getByRole("button", { name: "Add uploaded photo 2 to your work photos" }).click();
+  await expect(page.getByLabel("Describe work photo 2")).toBeVisible();
+  release();
+  await expect(page.getByText("Photo deleted.")).toBeVisible();
+
+  await expect(page.getByLabel("Describe work photo 1")).toHaveValue("Typed while deleting");
+  await expect(page.getByLabel("Describe work photo 2")).toBeVisible();
+  await expect
+    .poll(async () => {
+      const facts = (await apiCall(page, "GET", `/api/sites/${siteId}`)).json?.["facts"] as { photos?: Array<{ alt: string }> };
+      return (facts.photos ?? []).map((p) => p.alt);
+    })
+    .toEqual(["Typed while deleting", ""]);
+});
+
+test("the photo buttons keep keyboard focus when they change or disappear", async ({ page }) => {
+  const siteId = await acceptInvite(page);
+  await page.goto(`/sites/${siteId}/setup/photos`);
+  const input = page.getByLabel("Upload a photo");
+  // A native file input keeps focus while it uploads (it is not disabled).
+  await input.focus();
+  await input.setInputFiles({ name: "a.jpg", mimeType: "image/jpeg", buffer: await rotatedJpeg() });
+  await expect(page.getByText("Photo uploaded. Choose where to use it below.")).toBeVisible();
+  await expect(input).toBeFocused();
+  await input.setInputFiles({ name: "b.jpg", mimeType: "image/jpeg", buffer: await rotatedJpeg() });
+  await expect(page.getByRole("button", { name: "Add uploaded photo 2 to your work photos" })).toBeVisible();
+  await expect(input).toBeFocused();
+
+  // Main photo: choosing it moves focus to its description; removing it moves focus to the group.
+  await page.getByRole("button", { name: "Use uploaded photo 1 as the main photo" }).focus();
+  await page.keyboard.press("Enter");
+  await expect(page.getByLabel("Describe the main photo")).toBeFocused();
+  await page.getByRole("button", { name: "Stop using this main photo" }).focus();
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("group", { name: "Main photo" })).toBeFocused();
+
+  // Work photos: a button that reaches the end of the list hands focus to the opposite move button.
+  for (const n of [1, 2]) {
+    await page.getByRole("button", { name: `Add uploaded photo ${n} to your work photos` }).click();
+    await expect(page.getByLabel(`Describe work photo ${n}`)).toBeFocused();
+  }
+  await page.getByRole("button", { name: "Move work photo 2 up" }).focus();
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("button", { name: "Move work photo 1 down" })).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("button", { name: "Move work photo 2 up" })).toBeFocused();
 });
