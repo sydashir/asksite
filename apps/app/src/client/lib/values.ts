@@ -1,6 +1,8 @@
 // The draft's facts and brief are unvalidated JSON while the owner types (§2.5), so the forms
 // read and write them through these small, total helpers instead of trusting their shape.
 
+import { daysOfEntry } from "./facts-form.ts";
+
 export type Path = ReadonlyArray<string | number>;
 export type Json = Record<string, unknown>;
 
@@ -37,11 +39,18 @@ export function setIn(value: unknown, path: Path, next: unknown): unknown {
 export const fieldId = (path: Path): string => `f-${path.join("-")}`;
 
 /**
- * The id a "fix this" link or hash focuses for an issue. Opening hours are stored in entries (days sharing times), but
- * the form shows one row per day, so an issue anywhere under facts.hours targets the "Opening hours" group.
+ * The id a "fix this" link or hash focuses for an issue. Opening hours are stored in entries (days sharing times) but the
+ * form shows one row per day: a time error on entry i targets that entry's first day's field, and every other hours
+ * issue (the list, an entry, its days, an entry with no days) targets the "Opening hours" group. `facts` must be the
+ * current draft's, not a loaded copy: entries regroup whenever a day's times change.
  */
-export function issueTarget(path: Path): string {
-  return path[0] === "facts" && path[1] === "hours" ? fieldId(["facts", "hours"]) : fieldId(path);
+export function issueTarget(path: Path, facts: unknown): string {
+  const [root, key, index, field] = path;
+  if (root === "facts" && key === "hours") {
+    const day = typeof index === "number" && (field === "opens" || field === "closes") ? daysOfEntry(asRecord(facts)["hours"], index)[0] : undefined;
+    return day === undefined ? fieldId(["facts", "hours"]) : `hours-${day}-${field}`;
+  }
+  return fieldId(path);
 }
 
 export function moveItem<T>(items: readonly T[], index: number, by: -1 | 1): T[] {

@@ -22,10 +22,10 @@ export function Questionnaire({ siteId, step }: { siteId: string; step: StepId }
   return <StepPage siteId={siteId} step={step} site={site} view={site.load.view} draft={site.draft} />;
 }
 
-function summaryItem(siteId: string, current: StepId, issue: Issue): SummaryItem {
+function summaryItem(siteId: string, current: StepId, issue: Issue, facts: unknown): SummaryItem {
   const step = stepOf(issue) ?? current;
   const text = ownerMessage(issue).text;
-  const id = issueTarget(issue.path);
+  const id = issueTarget(issue.path, facts);
   return step === current ? { id, text } : { id, text: `${STEP_TITLE[step]}: ${text}`, href: `${paths.setup(siteId, step)}#${id}` };
 }
 
@@ -64,7 +64,7 @@ function StepPage({ siteId, step, site, view, draft }: { siteId: string; step: S
     }
     const first = res.error.issues?.[0];
     if (res.error.code === "not_ready" && first !== undefined) {
-      navigate(`${paths.setup(siteId, stepOf(first) ?? "business")}#${issueTarget(first.path)}`);
+      navigate(`${paths.setup(siteId, stepOf(first) ?? "business")}#${issueTarget(first.path, draft.facts)}`);
       return;
     }
     setMessage(res.error.message);
@@ -109,7 +109,7 @@ function StepPage({ siteId, step, site, view, draft }: { siteId: string; step: S
           ))}
         </ol>
       </nav>
-      <ErrorSummary items={showErrors ? blocking.map((i) => summaryItem(siteId, step, i)) : []} focusSignal={focusSignal} />
+      <ErrorSummary items={showErrors ? blocking.map((i) => summaryItem(siteId, step, i, draft.facts)) : []} focusSignal={focusSignal} />
       <div className="card mt-6">
         <Body {...props} />
         <TextArea

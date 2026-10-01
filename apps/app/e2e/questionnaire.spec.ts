@@ -167,9 +167,18 @@ test("changing a review clears the confirmation that the reviews are real", asyn
   await expect.poll(confirmed).toBe(false);
   await confirm.check();
   await expect.poll(confirmed).toBe(true);
-  await page.getByRole("button", { name: "Remove review 1" }).click();
+  await page.getByRole("button", { name: "Remove review 2" }).click();
   await expect(confirm).not.toBeChecked();
   await expect.poll(confirmed).toBe(false);
+
+  // Changing who a review is attributed to clears it too (the name and the town are part of the review).
+  for (const field of ["Review 1: customer's name", "Review 1: customer's town"]) {
+    await confirm.check();
+    await expect.poll(confirmed).toBe(true);
+    await page.getByLabel(field).fill("Changed after confirming");
+    await expect(confirm).not.toBeChecked();
+    await expect.poll(confirmed).toBe(false);
+  }
 });
 
 test("an answer typed just before leaving a step is saved first; if saving fails, the owner stays", async ({ page }) => {
@@ -190,7 +199,7 @@ test("an answer typed just before leaving a step is saved first; if saving fails
   await expect(page).toHaveURL(`${APP}/sites/${siteId}/setup/services`);
 });
 
-test("an opening-time error links to the Opening hours group and shows on that day's field", async ({ page }) => {
+test("an opening-time error links to that day's opens field and shows its message there", async ({ page }) => {
   const siteId = await acceptInvite(page);
   await page.goto(`/sites/${siteId}/setup/area`);
   await page.getByLabel("Open on Monday").check();
@@ -199,7 +208,7 @@ test("an opening-time error links to the Opening hours group and shows on that d
   const summary = page.getByRole("heading", { name: /things? to fix/ }).locator("..");
   await expect(summary).toBeFocused();
   await summary.getByRole("link", { name: "Please enter a time." }).click();
-  await expect(page.getByRole("group", { name: "Opening hours" })).toBeFocused();
+  await expect(page.getByLabel("Monday opens at")).toBeFocused();
   await expect(page.getByLabel("Monday opens at")).toHaveAttribute("aria-invalid", "true");
   await expect(page.getByLabel("Monday opens at")).toHaveAccessibleDescription(/Please enter a time\./);
 });
