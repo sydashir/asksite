@@ -265,6 +265,14 @@ test("the web address is not saved while the owner's latest answers are unsaved"
   await expect(page.getByText("Your latest answers are not saved yet. Please try again in a moment.")).toBeVisible();
   expect(puts).toEqual([]);
   expect((await apiCall(page, "GET", `/api/sites/${siteId}`)).json?.["slug"]).toBeNull();
+  // The owner can act on it: once the answers save (SaveStatus "Try again"), the message goes and Save stores the address.
+  await page.unroute(`**/api/sites/${siteId}/draft`);
+  await page.getByRole("button", { name: "Try again" }).click();
+  await expect(page.getByRole("status").filter({ hasText: "All changes saved." })).toBeVisible();
+  await expect(page.getByText("Your latest answers are not saved yet.")).toHaveCount(0);
+  await page.getByRole("button", { name: "Save this web address" }).click();
+  await expect.poll(async () => (await apiCall(page, "GET", `/api/sites/${siteId}`)).json?.["slug"]).toMatch(/^unsaved-/);
+  expect((await apiCall(page, "GET", `/api/sites/${siteId}`)).json?.["brief"]).toMatchObject({ comments: { address: "Not saved yet" } });
 });
 
 test("after a failed first build, opening the build page again goes to the last step, not the first", async ({ page }) => {

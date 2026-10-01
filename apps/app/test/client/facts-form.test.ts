@@ -46,6 +46,7 @@ describe("price", () => {
     ["1,2500", "1,2500"],
     [",250", ",250"],
     ["1,250,", "1,250,"],
+    ["1,2,500", "1,2,500"],
   ])("%j -> %j", (input, facts) => {
     expect(priceToFacts(input)).toBe(facts);
   });

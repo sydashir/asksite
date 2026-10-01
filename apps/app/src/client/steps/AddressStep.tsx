@@ -20,7 +20,14 @@ export function AddressStep({ siteId, view, site, facts, errors }: StepProps) {
   const locked = view.live || view.inReview || view.liveVersion !== null;
   const [value, setValue] = useState(view.slug ?? suggestSlug(facts["businessName"]));
   const [check, setCheck] = useState<{ ok: boolean; text: string } | null>(null);
+  const [unsaved, setUnsaved] = useState(false);
   const [saving, setSaving] = useState(false);
+  const saveStatus = site.saver.status;
+
+  // The "answers not saved" notice is about the autosave, not the address: it goes as soon as the autosave tries again.
+  useEffect(() => {
+    if (saveStatus !== "error") setUnsaved(false);
+  }, [saveStatus]);
 
   useEffect(() => {
     if (locked) return;
@@ -47,7 +54,7 @@ export function AddressStep({ siteId, view, site, facts, errors }: StepProps) {
     await site.exclusive(async () => {
       // The address is saved against the newest rev: if the owner's latest answers did not save, say so and stop.
       if (!(await site.flush())) {
-        setCheck({ ok: false, text: "Your latest answers are not saved yet. Please try again in a moment." });
+        setUnsaved(true);
         return;
       }
       const res = await api<{ rev: number; slug: string }>("PUT", `/api/sites/${siteId}/slug`, { rev: site.rev(), slug: value });
@@ -81,8 +88,8 @@ export function AddressStep({ siteId, view, site, facts, errors }: StepProps) {
       <p className="mt-2 break-all text-slate-800">
         Your website will be at <strong>{siteUrl(__ROOT_DOMAIN__, value === "" ? "your-name" : value)}</strong>
       </p>
-      <p role="status" className={check?.ok === false ? "mt-2 font-medium text-red-700" : "mt-2 text-green-800"}>
-        {check?.text ?? ""}
+      <p role="status" className={unsaved || check?.ok === false ? "mt-2 font-medium text-red-700" : "mt-2 text-green-800"}>
+        {unsaved ? "Your latest answers are not saved yet. Please try again in a moment." : (check?.text ?? "")}
       </p>
       <button type="button" className="btn-secondary mt-4" disabled={saving || value === view.slug || check?.ok !== true} onClick={() => void save()}>
         {saving ? "Saving…" : "Save this web address"}
