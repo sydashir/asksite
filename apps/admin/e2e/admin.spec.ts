@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { expectFrameTitle, expectLinksStayInFrame, JOES_TITLE } from "../../app/e2e/frame-links.ts";
 import { ADMIN, expectAccessible, expectNoSidewaysScroll, FACTS, pendingSite, tabTo, watchCsp } from "./support.ts";
 
 const FRAME = 'iframe[title="Page under review"]';
@@ -46,32 +47,30 @@ test("review a site: the stored page shows in a sandboxed frame, flags are liste
   expect(csp).toEqual([]);
 });
 
-test("the preview shows the stored page without leaving it: its links are off, and the stored bytes are untouched", async ({ page }) => {
+test("the review shows every page of the version, as stored, and its links go nowhere (click and Enter)", async ({ page }) => {
   const site = await pendingSite(page.request);
-  const adminRequests: string[] = [];
-  page.on("request", (request) => {
-    if (new URL(request.url()).pathname.startsWith("/api/admin/")) adminRequests.push(request.url());
-  });
   await page.goto(`/reviews/${site.versionId}`);
-  const cta = page.frameLocator(FRAME).getByRole("link", { name: "Call Joe today" }).first();
-  await expect(cta).toBeAttached();
-  const stored = await (await page.request.get(`${ADMIN}/api/admin/versions/${site.versionId}/page`)).text();
-  expect(stored).not.toContain("a[href]{pointer-events:none;cursor:default}");
-  await expect(cta).toHaveCSS("pointer-events", "none");
-  const before = adminRequests.length;
-  await cta.click({ force: true });
-  const frame = page.frames().find((f) => f.parentFrame() !== null);
-  expect(frame?.url()).toBe("about:srcdoc");
-  await expect(cta).toBeAttached();
-  expect(adminRequests.length).toBe(before);
+  const pageButtons = page.getByRole("group", { name: "Page", exact: true }).getByRole("button");
+  await expect(pageButtons).toHaveText(["Home", "Services", "About", "Contact"]);
+  const frame = page.frameLocator(FRAME);
+  await expectFrameTitle(frame, JOES_TITLE.home);
+  // What the frame shows is what is stored: the page's own bytes, with no style or other edit added.
+  const detail = (await (await page.request.get(`${ADMIN}/api/admin/versions/${site.versionId}`)).json()) as { pages: Array<{ page: string; url: string }> };
+  expect(detail.pages.map((p) => p.page)).toEqual(["home", "services", "about", "contact"]);
+  const stored = await (await page.request.get(`${ADMIN}${detail.pages[0]?.url}`)).text();
+  await expect(page.locator(FRAME)).toHaveAttribute("srcdoc", stored);
+  await expectLinksStayInFrame(page, FRAME, async () => {
+    await page.goto(`/reviews/${site.versionId}`);
+    await expect(page.getByRole("group", { name: "Page", exact: true })).toBeVisible();
+  });
 });
 
 test("the review page says when the stored page could not load, and loads it on Try again", async ({ page }) => {
   const site = await pendingSite(page.request);
-  await page.route("**/api/admin/versions/*/page", (route) => route.fulfill({ status: 500, json: { error: { code: "internal", message: "Something went wrong." } } }));
+  await page.route("**/api/admin/versions/*/pages/*", (route) => route.fulfill({ status: 500, json: { error: { code: "internal", message: "Something went wrong." } } }));
   await page.goto(`/reviews/${site.versionId}`);
   await expect(page.getByText("The page couldn't load.")).toBeVisible();
-  await page.unroute("**/api/admin/versions/*/page");
+  await page.unroute("**/api/admin/versions/*/pages/*");
   await page.getByRole("button", { name: "Try again" }).click();
   await expect(page.frameLocator(FRAME).getByRole("link", { name: "Call Joe today" }).first()).toBeAttached();
 });
@@ -190,10 +189,10 @@ test("a takedown whose clean-up failed says so, and Finish the takedown finishes
   await page.route("**/api/admin/sites/*/takedown", (route, request) => {
     if (faulted) return route.continue();
     faulted = true;
-    return route.continue({ headers: { ...request.headers(), "x-test-takedown-fault": "live-delete" } });
+    return route.continue({ headers: { ...request.headers(), "x-test-takedown-fault": "prefix-delete" } });
   });
   await takeDown(page, site.siteId);
-  await expect(page.getByText("Clean-up did not finish. The business name and phone may still show at its address until you finish it.")).toBeVisible();
+  await expect(page.getByText("Clean-up did not finish. The site is offline; old page files stay in storage until you finish it.")).toBeVisible();
   await expect(page.locator("body")).not.toContainText("nothing from it is shown");
   await page.getByRole("button", { name: "Finish the takedown" }).click();
   await expect(page.getByText("Clean-up finished.")).toBeVisible();
@@ -242,7 +241,7 @@ test("a takedown that errors AFTER the site went down offers Finish the takedown
     if (faulted) return route.continue();
     faulted = true;
     // The server commits the takedown in D1, then fails on LIVE (and on its re-read): a real 500, and no owner notice.
-    return route.continue({ headers: { ...request.headers(), "x-test-takedown-fault": "live-delete-reread" } });
+    return route.continue({ headers: { ...request.headers(), "x-test-takedown-fault": "prefix-delete-reread" } });
   });
   await takeDown(page, site.siteId);
   await expect(page.getByText("The takedown may have partly happened, and the owner may not have been emailed. Finish it to make sure, and contact the owner:")).toBeVisible();
@@ -258,7 +257,7 @@ test("a takedown that errors AFTER the site went down offers Finish the takedown
 
 test("a Finish that fails after an emailed takedown never claims the owner was not emailed", async ({ page }) => {
   const site = await liveSite(page);
-  const faults = ["live-delete", "live-delete-reread", null];
+  const faults = ["prefix-delete", "prefix-delete-reread", null];
   await page.route("**/api/admin/sites/*/takedown", (route, request) => {
     const fault = faults.shift();
     return route.continue(fault ? { headers: { ...request.headers(), "x-test-takedown-fault": fault } } : undefined);

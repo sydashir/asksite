@@ -1,5 +1,5 @@
 import { composeDocument, EMPTY_EDITS, OwnerEdits, OwnerEditsBody, SECTION_IDS } from "@asksite/core";
-import { render, type DesignStylesheets } from "@asksite/renderer";
+import { render, sitePages, type DesignStylesheets } from "@asksite/renderer";
 import { SiteDocument, type SectionId } from "@asksite/site-schema";
 import { describe, expect, it } from "vitest";
 import { DESIGN_CSS, FIXTURES, loadFixture, stubStylesheets } from "../../../../fixtures/index.ts";
@@ -15,11 +15,13 @@ const DOM_ID: Record<SectionId, string> = {
 };
 
 describe("sectionHasContent", () => {
-  it.each(FIXTURES)("matches the sections the renderer actually shows for %s", (name) => {
+  it.each(FIXTURES)("matches the sections the renderer shows across its pages for %s", (name) => {
     const doc = SiteDocument.parse(loadFixture(name));
-    const html = render(doc, { stylesheets: stubStylesheets(""), formAction: "https://x.example/f" }).html;
+    const site = render(doc, { stylesheets: stubStylesheets(""), formAction: "https://x.example/f", siteUrl: "https://x.example/" });
+    const planned = new Set(sitePages(doc).flatMap((page) => page.sections.map((section) => section.id)));
     for (const id of SECTION_IDS) {
-      const shown = html.includes(`<section id="${DOM_ID[id]}"`);
+      const shown = site.pages.some((page) => page.html.includes(`<section id="${DOM_ID[id]}"`));
+      expect([id, shown]).toEqual([id, planned.has(id)]);
       expect([id, sectionHasContent(doc, id)]).toEqual([id, shown]);
     }
   });
@@ -123,14 +125,24 @@ describe("edits and preview", () => {
     const preview = buildPreview(ai, { facts: fixture.facts, brief: {}, edits }, site, "localhost:8789", DESIGN_CSS);
     expect(preview.ok).toBe(true);
     if (preview.ok) {
-      expect(preview.html).toContain("Drains cleared fast");
-      expect(preview.html).toContain('action="https://preview.localhost:8789/_f/1b9d6bcd-bbfd-4b2d-9b5d-ab8dfbbd4bed"');
+      const html = (page: string) => preview.pages.find((p) => p.page === page)?.html ?? "";
+      expect(preview.pages.map((p) => p.page)).toEqual(sitePages(preview.doc).map((p) => p.id));
+      expect(html("home")).toContain("Drains cleared fast");
+      // The form is on the Contact page, and its action is the site's own (the reserved "preview" host before a slug is chosen).
+      expect(html("contact")).toContain('action="https://preview.localhost:8789/_f/1b9d6bcd-bbfd-4b2d-9b5d-ab8dfbbd4bed"');
+      expect(html("contact")).toContain('<link rel="canonical" href="https://preview.localhost:8789/contact">');
       const expected = SiteDocument.parse(composeDocument(fixture.facts, ai, edits));
       expect(listedSections(preview.doc)).toEqual(listedSections(expected));
     }
     const bad = buildPreview(ai, { facts: fixture.facts, brief: {}, edits: withCopy(ai, EMPTY_EDITS, (c) => ({ ...c, heroHeadline: "Call 555" })) }, { id: "x", slug: null }, "localhost:8789", DESIGN_CSS);
     expect(bad.ok).toBe(false);
     if (!bad.ok) expect(bad.issues[0]?.path).toEqual(["copy", "heroHeadline"]);
+  });
+
+  it("renders the canonical addresses of the site's own host once a web address is chosen", () => {
+    const preview = buildPreview(ai, { facts: fixture.facts, brief: {}, edits: EMPTY_EDITS }, { id: site.id, slug: "joes-plumbing" }, "localhost:8789", DESIGN_CSS);
+    expect(preview.ok).toBe(true);
+    if (preview.ok) expect(preview.pages[0]?.html).toContain('<link rel="canonical" href="https://joes-plumbing.localhost:8789/">');
   });
 
   it("counts an empty closing time once (issuesToShow, Task 12 I-1 ruling (a))", () => {
@@ -154,8 +166,10 @@ describe("edits and preview", () => {
       expect(preview.ok).toBe(true);
       if (preview.ok) {
         expect(preview.doc.theme.design).toBe(design);
-        expect(preview.html).toContain(`/* sheet of ${design} */`);
-        expect(preview.html).not.toContain(`/* sheet of ${other} */`);
+        for (const { html } of preview.pages) {
+          expect(html).toContain(`/* sheet of ${design} */`);
+          expect(html).not.toContain(`/* sheet of ${other} */`);
+        }
       }
     }
   });
