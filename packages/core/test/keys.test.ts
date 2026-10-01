@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
   formActionUrl,
-  liveKey,
   livePageKey,
   livePointerKey,
   liveSitePrefix,
   mediaKey,
   mediaUrl,
+  pageCacheUrl,
   parseHost,
   previewFormActionUrl,
   previewSiteUrl,
@@ -24,7 +24,6 @@ const VERSION = "0b0c2d3e-4f50-4a6b-8c7d-8e9fa0b1c2d3";
 
 describe("keys", () => {
   it("builds every R2 key and URL from ids and slugs only", () => {
-    expect(liveKey("joes")).toBe("joes.html");
     expect(versionKey(SITE, VERSION)).toBe(`versions/${SITE}/${VERSION}.html`);
     expect(mediaKey(SITE, VERSION)).toBe(`${SITE}/${VERSION}.webp`);
     expect(siteUrl("asksite.example", "joes")).toBe("https://joes.asksite.example/");
@@ -80,6 +79,18 @@ describe("page keys (A16)", () => {
     expect(previewSiteUrl("asksite.example", "joes")).toBe("https://joes.asksite.example/");
   });
 
+  // The sites Worker's edge-cache key: the version id is in the PATH (a zone's cache-key settings can strip a query).
+  it("builds each page's edge-cache URL with the version id in the path", () => {
+    expect(PAGE_IDS.map((page) => pageCacheUrl("asksite.example", "joes", VERSION, page))).toEqual([
+      `https://joes.asksite.example/__v/${VERSION}/`,
+      `https://joes.asksite.example/__v/${VERSION}/services`,
+      `https://joes.asksite.example/__v/${VERSION}/about`,
+      `https://joes.asksite.example/__v/${VERSION}/gallery`,
+      `https://joes.asksite.example/__v/${VERSION}/contact`,
+    ]);
+    expect(pageCacheUrl("localhost:8789", "joes", VERSION, "contact")).toBe(`https://joes.localhost:8789/__v/${VERSION}/contact`);
+  });
+
   it.each(["", "Home", "SERVICES", "../joes", "services/../../x", "/services", "services.html", "index", "__proto__", "constructor", "toString", "hasOwnProperty"])(
     "refuses %j as a page id in every builder",
     (value) => {
@@ -87,12 +98,14 @@ describe("page keys (A16)", () => {
       expect(() => livePageKey("joes", VERSION, page)).toThrow(/page/);
       expect(() => versionPageKey(SITE, VERSION, page)).toThrow(/page/);
       expect(() => publicPageUrl("asksite.example", "joes", page)).toThrow(/page/);
+      expect(() => pageCacheUrl("asksite.example", "joes", VERSION, page)).toThrow(/page/);
     },
   );
 
   // The sites Worker reads the version id from the pointer's metadata: a damaged pointer must not choose the key.
   it.each(["", "../x", "x/../../y", `${VERSION}/../other`, VERSION.toUpperCase(), "not-an-id"])("refuses %j as a LIVE version id", (versionId) => {
     expect(() => livePageKey("joes", versionId, "home")).toThrow(/version/);
+    expect(() => pageCacheUrl("asksite.example", "joes", versionId, "home")).toThrow(/version/);
   });
 });
 

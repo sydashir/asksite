@@ -4,8 +4,6 @@ import { slugIssue } from "./slug.ts";
 
 // The only place R2 keys and public URLs are built. `root` is ROOT_DOMAIN: host[:port].
 
-// Today's single-page LIVE key. A16-2 moves its callers to livePointerKey and livePageKey, then removes it.
-export const liveKey = (slug: string) => `${slug}.html`;
 export const versionKey = (siteId: string, versionId: string) => `versions/${siteId}/${versionId}.html`;
 export const mediaKey = (siteId: string, uploadId: string) => `${siteId}/${uploadId}.webp`; // in MEDIA
 export const siteUrl = (root: string, slug: string) => `https://${slug}.${root}/`;
@@ -38,6 +36,12 @@ export const versionPageKey = (siteId: string, versionId: string, page: PageId) 
   knownPage(page) === "home" ? versionKey(siteId, versionId) : `versions/${siteId}/${versionId}/${page}.html`;
 /** A page's public URL, also its canonical URL: siteUrl for Home, else https://<slug>.<root>/<page>. */
 export const publicPageUrl = (root: string, slug: string, page: PageId) => `https://${slug}.${root}${PAGES[knownPage(page)].path}`;
+/** The sites Worker's edge-cache key for a page of a version: the version id is in the PATH, not a query (a zone's
+ *  cache-key settings can strip a query string), so a cached page can never be served for another version. */
+export function pageCacheUrl(root: string, slug: string, versionId: string, page: PageId): string {
+  if (!isId(versionId)) throw new Error("Unknown version id");
+  return `https://${slug}.${root}/__v/${versionId}${PAGES[knownPage(page)].path}`;
+}
 /** The site URL the owner app's preview renders with before a slug is chosen (as previewFormActionUrl). */
 export const previewSiteUrl = (root: string, slug: string | null) => siteUrl(root, slug ?? "preview");
 
