@@ -728,5 +728,12 @@ describe("the Bold sheet carries the round-4 must-fixes", () => {
     expect(rule(".hero-actions")).toContain("display:flex");
     expect(rule(".hero-actions .bt-action", "@media (max-width:63.99rem)")).toContain("display:none");
     expect(rule(".hero-actions .bt", "@media (max-width:39.99rem)")).toContain("width:100%");
+    // The phone photo hero is the first screen above the call bar plus the button's 5.25rem, and any room the capped
+    // photo leaves goes above the button, so the button starts at the bar and the first screen never ends on a strip
+    // of it (measured at 320x568 to 430x932 in WebKit and Chromium).
+    const phone = "@media (max-width:47.99rem)";
+    expect(rule(".hero--photo .hero-grid", phone)).toContain("min-height:calc(100svh - 3.125rem - env(safe-area-inset-bottom))");
+    expect(rule(".hero--photo .hero-copy", phone)).toContain("flex:1 0 auto");
+    expect(rule(".hero--photo .hero-actions", phone)).toContain("margin-top:auto");
   });
 });

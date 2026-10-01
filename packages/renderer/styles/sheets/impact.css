@@ -612,18 +612,27 @@
       font-size: 1.0625rem;
     }
   }
-  /* Phones: the photo hero reaches the call bar exactly (header 3.75rem + 1px, call bar 3.25rem + 2 x .625rem
-     + 1px), so the first screen never ends on a thin strip of the next section. */
+  /* Phones: the photo hero's text reaches the call bar (header 3.75rem + 1px, call bar 3.25rem + 2 x .625rem + 1px)
+     and its button starts there (5.25rem more: the 1.5rem gap, the 3.5rem button, the 1.75rem padding, less the
+     1.5rem left above the bar), so the first screen never ends on a thin strip of the button or the next section.
+     The photo takes any spare room first, up to its cap; the rest goes above the button. */
   @media (max-width: 47.99rem) {
     .hero--photo .hero-grid {
       display: flex;
       flex-direction: column;
-      min-height: calc(100vh - 8.375rem - env(safe-area-inset-bottom));
-      min-height: calc(100svh - 8.375rem - env(safe-area-inset-bottom));
+      min-height: calc(100vh - 3.125rem - env(safe-area-inset-bottom));
+      min-height: calc(100svh - 3.125rem - env(safe-area-inset-bottom));
     }
     .hero--photo .hero-media {
-      flex: 1 0 auto;
+      flex: 100 0 auto;
       max-height: 24rem;
+    }
+    .hero--photo .hero-copy {
+      flex: 1 0 auto;
+    }
+    .hero--photo .hero-actions {
+      margin-top: auto;
+      padding-top: 1.5rem;
     }
   }
 
