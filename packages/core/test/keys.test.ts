@@ -103,9 +103,32 @@ describe("page keys (A16)", () => {
   );
 
   // The sites Worker reads the version id from the pointer's metadata: a damaged pointer must not choose the key.
-  it.each(["", "../x", "x/../../y", `${VERSION}/../other`, VERSION.toUpperCase(), "not-an-id"])("refuses %j as a LIVE version id", (versionId) => {
-    expect(() => livePageKey("joes", versionId, "home")).toThrow(/version/);
-    expect(() => pageCacheUrl("asksite.example", "joes", versionId, "home")).toThrow(/version/);
+  // Each value has a version id's length or contains a whole one, so a looser id check (no anchors, any character)
+  // would let it through; a non-string never reaches the key, so it cannot read one way and print another.
+  const SLASHED = `${VERSION.slice(0, 34)}/.`;
+  const DOTTED = `${VERSION.slice(0, 8)}.${VERSION.slice(9)}`;
+  const BAD_IDS: readonly unknown[] = ["", "../x", "x/../../y", `${VERSION}/../other`, `../${VERSION}`, `${VERSION}/x`, `x/${VERSION}`, SLASHED, DOTTED, VERSION.toUpperCase(), "not-an-id", new String(VERSION), [VERSION], null];
+  it.each(BAD_IDS)("refuses %j as a version id in every builder that takes one", (value) => {
+    const id = value as string;
+    expect(() => livePageKey("joes", id, "home")).toThrow(/version/);
+    expect(() => pageCacheUrl("asksite.example", "joes", id, "home")).toThrow(/version/);
+    expect(() => versionPageKey(SITE, id, "services")).toThrow(/version/);
+    expect(() => versionPageKey(id, VERSION, "services")).toThrow(/site/);
+  });
+
+  // A LIVE key or prefix starts with the slug, and a takedown deletes everything under the prefix: a slug of the
+  // wrong shape must never shape one (a slug that later became reserved is still a real site, so it is accepted).
+  it.each(["", "a/b", "joe.s", "../x", "-x", "Joes", "jo", "joes/", "x".repeat(41), new String("joes"), null])("refuses %j as a slug in every LIVE builder", (value) => {
+    const slug = value as string;
+    expect(() => livePointerKey(slug)).toThrow(/slug/);
+    expect(() => liveSitePrefix(slug)).toThrow(/slug/);
+    expect(() => livePageKey(slug, VERSION, "home")).toThrow(/slug/);
+    expect(() => pageCacheUrl("asksite.example", slug, VERSION, "home")).toThrow(/slug/);
+  });
+
+  it("accepts a reserved word as a slug, so a site whose slug became reserved can still be served and taken down", () => {
+    expect(livePointerKey("preview")).toBe("preview");
+    expect(liveSitePrefix("preview")).toBe("preview/");
   });
 });
 
