@@ -44,11 +44,17 @@ export function AddressStep({ siteId, view, site, facts, errors }: StepProps) {
 
   async function save() {
     setSaving(true);
-    await site.flush();
-    const res = await api<{ rev: number; slug: string }>("PUT", `/api/sites/${siteId}/slug`, { rev: site.rev(), slug: value });
+    await site.exclusive(async () => {
+      // The address is saved against the newest rev: if the owner's latest answers did not save, say so and stop.
+      if (!(await site.flush())) {
+        setCheck({ ok: false, text: "Your latest answers are not saved yet. Please try again in a moment." });
+        return;
+      }
+      const res = await api<{ rev: number; slug: string }>("PUT", `/api/sites/${siteId}/slug`, { rev: site.rev(), slug: value });
+      if (res.ok) await site.reload();
+      else setCheck({ ok: false, text: res.error.issues?.[0] !== undefined ? REASON_TEXT[res.error.issues[0].code as Reason] ?? res.error.message : res.error.message });
+    });
     setSaving(false);
-    if (res.ok) await site.reload();
-    else setCheck({ ok: false, text: res.error.issues?.[0] !== undefined ? REASON_TEXT[res.error.issues[0].code as Reason] ?? res.error.message : res.error.message });
   }
 
   if (locked) {

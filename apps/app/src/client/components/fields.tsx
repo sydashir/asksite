@@ -84,7 +84,7 @@ export function TextInput(
         aria-invalid={errors.length > 0 ? true : undefined}
         aria-describedby={describedBy(props.id, props.hint, errors, counted)}
       />
-      {counted ? <Counter id={props.id} length={props.value.length} max={props.max!} /> : null}
+      {counted ? <Counter id={props.id} length={[...props.value].length} max={props.max!} /> : null}
       <Errors id={props.id} errors={errors} />
       {props.after}
     </div>
@@ -107,7 +107,7 @@ export function TextArea(props: Common & { value: string; onChange: (value: stri
         aria-invalid={errors.length > 0 ? true : undefined}
         aria-describedby={describedBy(props.id, props.hint, errors, counted)}
       />
-      {counted ? <Counter id={props.id} length={props.value.length} max={props.max!} /> : null}
+      {counted ? <Counter id={props.id} length={[...props.value].length} max={props.max!} /> : null}
       <Errors id={props.id} errors={errors} />
       {props.after}
     </div>

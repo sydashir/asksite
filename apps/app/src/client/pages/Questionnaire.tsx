@@ -117,16 +117,19 @@ function StepPage({ siteId, step, site, view, draft }: { siteId: string; step: S
       </nav>
       <ErrorSummary items={showErrors ? blocking.map((i) => summaryItem(siteId, step, i, draft.facts)) : []} focusSignal={focusSignal} />
       <div className="card mt-6">
-        <Body {...props} />
-        <TextArea
-          id={fieldId(["brief", "comments", step])}
-          label="Anything we should know about this?"
-          optional
-          max={500}
-          value={asString(comments[step])}
-          errors={props.errors(["brief", "comments", step])}
-          onChange={(v) => props.setBrief(["comments", step], v === "" ? undefined : v)}
-        />
+        {/* Locked while a change that bypasses the autosaver runs (the web address): see useSite.exclusive. */}
+        <fieldset disabled={site.locked} className="m-0 min-w-0 border-0 p-0">
+          <Body {...props} />
+          <TextArea
+            id={fieldId(["brief", "comments", step])}
+            label="Anything we should know about this?"
+            optional
+            max={500}
+            value={asString(comments[step])}
+            errors={props.errors(["brief", "comments", step])}
+            onChange={(v) => props.setBrief(["comments", step], v === "" ? undefined : v)}
+          />
+        </fieldset>
       </div>
       {message !== null ? (
         <div role="alert">
@@ -141,7 +144,7 @@ function StepPage({ siteId, step, site, view, draft }: { siteId: string; step: S
               Back
             </a>
           ) : null}
-          <button type="submit" className="btn-primary" disabled={busy}>
+          <button type="submit" className="btn-primary" disabled={busy || site.locked}>
             {last ? (view.ai !== null ? "Go to the editor" : busy ? "Starting…" : "Build my website") : "Save and continue"}
           </button>
         </div>

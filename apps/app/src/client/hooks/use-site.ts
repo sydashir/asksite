@@ -25,6 +25,7 @@ export function useSite(siteId: string) {
   const [saver, setSaverState] = useState<SaverState>({ status: "idle", rev: 0 });
   const saverRef = useRef<AutoSaver | null>(null);
   const draftRef = useRef<Draft | null>(null);
+  const [locked, setLocked] = useState(false);
 
   const reload = useCallback(async () => {
     // Save what is typed first (after a conflict this does nothing: the reload shows the newer
@@ -76,10 +77,23 @@ export function useSite(siteId: string) {
     saverRef.current?.change(patch);
   }, []);
 
+  /**
+   * Runs a change that bumps the site's rev outside the autosaver (the web address), with the answer fields
+   * locked meanwhile: anything typed during it would be saved with the old rev, refused, and dropped by the reload.
+   */
+  const exclusive = useCallback(async <T,>(work: () => Promise<T>): Promise<T> => {
+    setLocked(true);
+    try {
+      return await work();
+    } finally {
+      setLocked(false);
+    }
+  }, []);
+
   const flush = useCallback(async () => (saverRef.current === null ? true : saverRef.current.flush()), []);
   const rev = () => saverRef.current?.currentRev ?? 0;
 
-  return { load, draft, saver, update, flush, reload, rev };
+  return { load, draft, saver, locked, update, exclusive, flush, reload, rev };
 }
 
 export type SiteState = ReturnType<typeof useSite>;
