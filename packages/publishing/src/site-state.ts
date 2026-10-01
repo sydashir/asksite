@@ -1,10 +1,6 @@
-import { canonicalJson, livePointerKey, liveSitePrefix, siteUrl } from "@asksite/core";
+import { TAKEDOWN_REVIEW_NOTE, canonicalJson, livePointerKey, liveSitePrefix, siteUrl } from "@asksite/core";
 import { PublishError } from "./errors.ts";
 import { type AuditAction, auditIfChanged, copyLivePages, deletePrefix, liveMetadata, removeOtherVersions, verifiedPages, writeLivePointer } from "./shared.ts";
-
-/** The review note a takedown gives the version it rejects. Plan 4 tells this automatic rejection from a real
- *  review by it, so an owner is never told the reviewer asked for a change. Its bytes never change. */
-export const TAKEDOWN_REVIEW_NOTE = "Site taken down";
 
 /**
  * The admin's Take down, in this order:

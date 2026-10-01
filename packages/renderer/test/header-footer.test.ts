@@ -84,4 +84,15 @@ describe("call bar", () => {
     expect(out).toContain('<a class="btn-secondary" href="/contact#quote">Get a quote</a>');
     expect(out.match(/<aside/g)).toHaveLength(1);
   });
+
+  it("is static, at the end of the page, on /contact only (Send never sits under it)", () => {
+    const out = String(renderCallBar(makeContext(FULL, "contact")));
+    expect(out).toMatch(/^<aside aria-label="Call us" class="border-t /);
+    expect(out).not.toMatch(/sticky|bottom-0|z-10/);
+    expect(out).toContain("md:hidden");
+    expect(out).toContain("focus-outside:static");
+    expect(out).toContain('href="tel:+15125550142"');
+    expect(out).toContain('<a class="btn-secondary" href="/contact#quote">Get a quote</a>');
+    for (const page of ["services", "about", "gallery"] as const) expect(String(renderCallBar(makeContext(FULL, page)))).toContain("sticky bottom-0");
+  });
 });

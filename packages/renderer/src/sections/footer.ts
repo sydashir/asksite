@@ -63,9 +63,18 @@ ${facts.socialLinks.map((s) => html`<li><a class="inline-block py-1 text-muted h
  * An <aside> landmark, so screen-reader users can find it and no content sits outside a landmark.
  * It stops sticking while keyboard focus is elsewhere, so it never hides the focused element.
  */
+// Whole class strings, so the stylesheet scan sees them. /contact is the quote form, so its bar sits
+// at the end of the page instead of sticking: Send, stacked above a sticky bar, covered its buttons
+// on phone windows about 915-1040 px tall (WCAG 2.5.8).
+const CALL_BAR_CLASS = {
+  sticky: "sticky bottom-0 z-10 border-t border-gray-200 bg-page px-4 pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] focus-outside:static md:hidden",
+  static: "border-t border-gray-200 bg-page px-4 pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] focus-outside:static md:hidden",
+} as const;
+
 export function renderCallBar(ctx: RenderContext): SafeHtml {
   const { phone } = ctx.doc.facts;
-  return html`<aside aria-label="Call us" class="sticky bottom-0 z-10 border-t border-gray-200 bg-page px-4 pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] focus-outside:static md:hidden">
+  const barClass = CALL_BAR_CLASS[ctx.page.id === "contact" ? "static" : "sticky"];
+  return html`<aside aria-label="Call us" class="${barClass}">
 <div class="grid grid-cols-2 gap-2">
 <a class="btn-primary whitespace-nowrap" href="${telUrl(phone)}" aria-label="Call ${formatPhone(phone)}">${icon("phone", "h-5 w-5")}Call</a>
 <a class="btn-secondary" href="${quoteLink()}">Get a quote</a>
