@@ -2,13 +2,19 @@
 // buttons, the hours table and the credentials list. Every value goes through html``, which escapes it for
 // where it lands; class strings are whole literals from this folder, so the sheet (styles/sheets/modern.css)
 // defines each one.
-import type { Facts } from "@asksite/site-schema";
-import { quoteLink, type RenderContext } from "../../context.ts";
+import type { Facts, SectionId } from "@asksite/site-schema";
+import { headingLevel, onSite, quoteLink, type RenderContext } from "../../context.ts";
 import { formatPhone, formatPrice, telUrl } from "../../format.ts";
-import { html, type SafeHtml } from "../../html.ts";
+import { fragment, html, type SafeHtml } from "../../html.ts";
 import { icon } from "../../icons.ts";
-import { CALENDAR } from "./icons.ts";
-import { groupedHours } from "./text.ts";
+import { ARROW_DOWN, CALENDAR } from "./icons.ts";
+import { groupedHours, tradeAndCity } from "./text.ts";
+
+/** Where the full list of licenses is: the footer's credentials (every license, exactly as entered). */
+export const LICENSES_ID = "licenses";
+
+/** Licenses a list of credentials shows; the rest are one link away (the footer lists them all). */
+export const SHOWN_LICENSES = 2;
 
 /** An email address with a break chance before the @ and each dot, so a long one wraps only there. */
 export function emailText(email: string): SafeHtml {
@@ -16,17 +22,36 @@ export function emailText(email: string): SafeHtml {
 }
 
 /**
- * A block's heading: the livery mark, the heading (labels the block, whose element id is `domId`) and an optional
- * intro. `level` 1 is an inner page's one <h1>, in its first section (A16, headingLevel); otherwise an h2. Two literal
- * branches, because a template cannot interpolate a tag name.
+ * A block's heading: the livery mark, the heading (labels the block, whose element id is `domId`), an optional intro
+ * and an optional `extra` under it (the owner's credentials, or the buttons). `level` 1 is an inner page's one <h1>,
+ * in its first section (A16, headingLevel); otherwise an h2. Two literal branches, because a template cannot
+ * interpolate a tag name.
  */
-export function head(domId: string, title: string, intro?: string, level: 1 | 2 = 2): SafeHtml {
+export function head(domId: string, title: string, intro?: string, level: 1 | 2 = 2, extra: SafeHtml | false = false): SafeHtml {
   const heading =
     level === 1 ? html`<h1 id="${domId}-title" class="display h1">${title}</h1>` : html`<h2 id="${domId}-title" class="display h2">${title}</h2>`;
   return html`<div class="head">
 ${heading}
 ${intro && html`<p class="lede">${intro}</p>`}
+${extra}
 </div>`;
+}
+
+/** The 24/7 fact and `tag` (the trade and the town) as one line of flat text; nothing when there is neither. */
+export function brandLine(facts: Facts, tag: string | undefined, className: string): SafeHtml | false {
+  return (
+    (facts.emergency247 || tag !== undefined) &&
+    html`<p class="${className}">${facts.emergency247 && html`<span class="line-247">${icon("clock", "i")}24/7 emergency service</span>`}${tag !== undefined && html`<span class="line-tag">${tag}</span>`}</p>`
+  );
+}
+
+/**
+ * An inner page's opening (A16, moderator ruling (e)): Home's brand strip, with the 24/7 fact and the trade and the
+ * town, and its livery seam, at the top of the page's first section, above its h1. Nothing on Home or in a later
+ * section.
+ */
+export function pageBand(ctx: RenderContext, id: SectionId): SafeHtml | false {
+  return headingLevel(ctx, id) === 1 && html`<div class="band band--brand"><div class="wrap band-in">${brandLine(ctx.doc.facts, tradeAndCity(ctx.doc.facts, ""), "band-line")}</div></div>`;
 }
 
 /** The Call button. `className` adds a whole literal class string (size or place). */
@@ -110,13 +135,38 @@ export const insuredItem = (): Credential => ({ mark: icon("shield-check", "i"),
 /** 24/7 service as a credential. */
 export const emergencyItem = (): Credential => ({ mark: icon("clock", "i"), text: "24/7 emergency service" });
 
+/** Free estimates as a credential. */
+export const freeEstimatesItem = (): Credential => ({ mark: icon("circle-check", "i"), text: "Free estimates" });
+
 /** The founding year and free estimates, each exactly as given. */
 export function businessCredentials(facts: Facts): Credential[] {
   const items: Credential[] = [];
   if (facts.yearFounded !== undefined) items.push({ mark: CALENDAR, text: `Since ${facts.yearFounded}` });
-  if (facts.freeEstimates) items.push({ mark: icon("circle-check", "i"), text: "Free estimates" });
+  if (facts.freeEstimates) items.push(freeEstimatesItem());
   return items;
 }
 
 /** The owner's other trust facts, each exactly as given: insured, the founding year and free estimates. */
 export const otherCredentials = (facts: Facts): Credential[] => [...(facts.insured ? [insuredItem()] : []), ...businessCredentials(facts)];
+
+/**
+ * The owner's credentials on a page other than Home, each exactly as given: at most two licenses, insured, the
+ * founding year and free estimates. Only while the site shows the trust section: an owner who hides it there hides
+ * them on every page (the footer keeps the licenses, which several states require in all advertising).
+ */
+export const pageCredentials = (ctx: RenderContext): Credential[] =>
+  onSite(ctx, "trust") ? [...ctx.doc.facts.licences.slice(0, SHOWN_LICENSES).map((licence) => licenseItem(licence, false)), ...otherCredentials(ctx.doc.facts)] : [];
+
+/** "See all 5 licenses", a link down to the footer's full list, when the owner has more licenses than a list shows. */
+export const allLicensesLink = (facts: Facts): SafeHtml | false =>
+  facts.licences.length > SHOWN_LICENSES && html`<li class="more"><a href="${fragment(LICENSES_ID)}">See all ${facts.licences.length} licenses${ARROW_DOWN}</a></li>`;
+
+/** Credentials as one short line of icons and words (the hero's line, under the Services heading, in the closing band). */
+export const credentialLine = (items: readonly Credential[]): SafeHtml | false =>
+  items.length > 0 && html`<ul class="proof-line">${items.map((item) => html`<li>${item.mark}<span>${item.shown ?? item.text}</span></li>`)}</ul>`;
+
+/** Credentials as a list, each with its label under it, and the link to every license (About, Contact). */
+export const credentialList = (ctx: RenderContext): SafeHtml | false => {
+  const items = pageCredentials(ctx);
+  return items.length > 0 && html`<ul class="facts">${items.map(credential)}${allLicensesLink(ctx.doc.facts)}</ul>`;
+};

@@ -22,6 +22,7 @@ export function modernTextPairs(c: ModernColors): Pair[] {
     ["body text on white", c.text, WHITE],
     ["secondary text on white", c.muted, WHITE],
     ["brand links on white (the more-licenses link)", c.brand, WHITE],
+    ["brand links on the tint (the more-licenses link on the Contact page's credentials card)", c.brand, c.tint],
     ["headings on the tint", c.ink, c.tint],
     ["body text on the tint", c.text, c.tint],
     ["secondary text on the tint (prices, captions, cards)", c.muted, c.tint],

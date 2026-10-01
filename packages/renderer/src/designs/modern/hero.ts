@@ -11,31 +11,34 @@
 import type { Facts, VariantOf } from "@asksite/site-schema";
 import { onPage, onSite, type RenderContext } from "../../context.ts";
 import { mailtoUrl } from "../../format.ts";
-import { fragment, html, safeUrl, type SafeHtml } from "../../html.ts";
+import { html, safeUrl, type SafeHtml } from "../../html.ts";
 import { icon } from "../../icons.ts";
 import { DOM_ID } from "../../sections/ids.ts";
-import { ARROW_DOWN } from "./icons.ts";
-import { businessCredentials, callButton, credential, emailText, head, emergencyItem, emergencyNote, hoursTable, insuredItem, licenseItem, licenseText, otherCredentials, quoteButton } from "./parts.ts";
+import {
+  allLicensesLink,
+  brandLine,
+  businessCredentials,
+  callButton,
+  credential,
+  credentialLine,
+  emailText,
+  emergencyItem,
+  emergencyNote,
+  head,
+  hoursTable,
+  insuredItem,
+  licenseItem,
+  otherCredentials,
+  quoteButton,
+  SHOWN_LICENSES,
+} from "./parts.ts";
 import { areaSummary, tradeAndCity } from "./text.ts";
-
-/** Where the full list of licenses is: the footer's credentials (every license, exactly as entered). */
-export const LICENSES_ID = "licenses";
-
-/** Licenses the hero shows; the rest are one link away (the footer lists them all). */
-const HERO_LICENSES = 2;
 
 /** True when the trust section comes straight after the hero on Home (the owner's order, A16 U1), so the hero holds it. */
 export const trustInHero = (ctx: RenderContext): boolean => ctx.page.sections[1]?.id === "trust";
 
-/** The 24/7 fact and the trade and city, as one line of flat text; nothing when the owner has neither. */
-function heroLine(ctx: RenderContext, className: string): SafeHtml | false {
-  const { facts, copy } = ctx.doc;
-  const tag = tradeAndCity(facts, copy.heroHeadline);
-  return (
-    (facts.emergency247 || tag !== undefined) &&
-    html`<p class="${className}">${facts.emergency247 && html`<span class="line-247">${icon("clock", "i")}24/7 emergency service</span>`}${tag !== undefined && html`<span class="line-tag">${tag}</span>`}</p>`
-  );
-}
+/** The 24/7 fact and the trade and city (unless the headline names the city), as one line; nothing when there is neither. */
+const heroLine = (ctx: RenderContext, className: string): SafeHtml | false => brandLine(ctx.doc.facts, tradeAndCity(ctx.doc.facts, ctx.doc.copy.heroHeadline), className);
 
 /** Two licenses in the hero, a license number too long for one line, or more licenses than the hero shows. */
 const isDense = (facts: Facts): boolean =>
@@ -46,7 +49,7 @@ const LONG_CREDENTIAL = 16;
 
 /** The credentials inside the hero: at most two licenses, then insured, founded and free estimates (24/7 when that is all). */
 function heroCredentials(facts: Facts): SafeHtml {
-  const shown = facts.licences.slice(0, HERO_LICENSES);
+  const shown = facts.licences.slice(0, SHOWN_LICENSES);
   const more = facts.licences.length > shown.length;
   // Two licenses, a long one, or a "see all" link take whole rows, so the licenses always sit together, first.
   const wideLicense = (text: string) => shown.length > 1 || more || text.length > LONG_CREDENTIAL;
@@ -54,7 +57,7 @@ function heroCredentials(facts: Facts): SafeHtml {
   // The 24/7 line above the headline says it too, but a trust section never shows an empty list.
   if (items.length === 0) items.push(emergencyItem());
   return html`<section id="${DOM_ID.trust}" class="proof" aria-label="Credentials">
-<ul class="proof-list">${items.map((item) => credential({ ...item, wide: item.wide === true || item.text.length > LONG_CREDENTIAL }))}${more && html`<li class="more"><a href="${fragment(LICENSES_ID)}">See all ${facts.licences.length} licenses${ARROW_DOWN}</a></li>`}</ul>
+<ul class="proof-list">${items.map((item) => credential({ ...item, wide: item.wide === true || item.text.length > LONG_CREDENTIAL }))}${allLicensesLink(facts)}</ul>
 </section>`;
 }
 
@@ -86,11 +89,8 @@ ${head(DOM_ID.trust, "Credentials")}
  */
 function proofLine(ctx: RenderContext): SafeHtml | false {
   const { facts } = ctx.doc;
-  const items = [
-    ...facts.licences.slice(0, HERO_LICENSES).map((licence) => html`<li>${icon("certificate", "i")}<span>${licenseText(licence.number)}</span></li>`),
-    ...(facts.insured ? [html`<li>${insuredItem().mark}<span>Insured</span></li>`] : []),
-  ];
-  return onPage(ctx, "trust") && !trustInHero(ctx) && items.length > 0 && html`<ul class="proof-line">${items}</ul>`;
+  const items = [...facts.licences.slice(0, SHOWN_LICENSES).map((licence) => licenseItem(licence, false)), ...(facts.insured ? [insuredItem()] : [])];
+  return onPage(ctx, "trust") && !trustInHero(ctx) && credentialLine(items);
 }
 
 /** The headline, subheadline and the Call and quote buttons (the buttons show from 768 px; phones have the call bar). */

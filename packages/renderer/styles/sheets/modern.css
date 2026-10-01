@@ -106,7 +106,6 @@
   .nav { order: 3; }
   .nav-links { display: none; }
   .nav-links a { display: inline-flex; align-items: center; min-height: 44px; padding: 0 9px; border-radius: var(--r); font-size: 0.9375rem; font-weight: 600; white-space: nowrap; }
-  .menu { position: relative; }
   .menu summary {
     display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 12px; border: 2px solid var(--ink); border-radius: var(--r);
     color: var(--ink); font-size: 0.9375rem; font-weight: 700; list-style: none; cursor: pointer;
@@ -114,11 +113,13 @@
   .menu summary::-webkit-details-marker { display: none; }
   .i-close, .menu[open] .i-open { display: none; }
   .menu[open] .i-close { display: block; }
-  .menu-list {
-    position: absolute; right: 0; top: calc(100% + 8px); width: min(260px, calc(100vw - 2 * var(--gut))); padding: 8px;
-    border: 1px solid var(--line); border-radius: var(--r); background: #fff; box-shadow: 0 18px 40px -18px rgb(0 0 0 / 0.35);
+  /* Phones: the open menu is a sheet across the screen, under the header (the header box places it); the page behind
+     it dims, and a tap there closes it (the summary draws that shade) */
+  .menu-list { position: absolute; left: 0; right: 0; top: 100%; padding: 4px var(--gut) 12px; border-top: 1px solid var(--line); background: #fff; box-shadow: 0 24px 40px -24px rgb(0 0 0 / 0.45); }
+  .menu-list a { display: flex; align-items: center; min-height: 52px; padding: 0 14px; border-bottom: 1px solid var(--line); color: var(--ink); font-size: 1.0625rem; font-weight: 600; white-space: nowrap; }
+  @media (max-width: 767px) {
+    .menu[open] > summary::before { content: ""; position: absolute; top: 100%; left: 0; right: 0; height: 100vh; background: rgb(0 0 0 / 0.45); cursor: default; }
   }
-  .menu-list a { display: flex; align-items: center; min-height: 48px; padding: 0 14px; border-radius: 4px; color: var(--ink); font-weight: 600; white-space: nowrap; }
   @media (hover: hover) {
     .nav-links a:hover { color: var(--ink); text-decoration: underline 2px; text-underline-offset: 0.35em; }
     .menu-list a:hover { background: var(--tint); }
@@ -129,10 +130,11 @@
   @media (min-width: 768px) {
     .nav [aria-current] { box-shadow: inset 0 -3px var(--brand), inset 0 -6px var(--act); }
   }
-  .hdr-call { display: none; }
-  /* the Contact page on phones: the phone icon alone (its name is "Call" and the number), beside the menu */
-  .hdr-call--contact { display: inline-flex; min-height: 44px; padding: 0 12px; }
-  .hdr-call--contact span { display: none; }
+  /* Forced colours (Windows high contrast) drop box shadows: an underline marks the page there (MDN forced-colors) */
+  @media (forced-colors: active) {
+    .nav [aria-current] { text-decoration: underline 3px; text-underline-offset: 0.3em; }
+  }
+  .hdr-call, .hdr-quote { display: none; }
   @media (min-width: 768px) {
     html { scroll-padding-top: calc(var(--hdr) + var(--menu-row) + 12px); }
     .hdr { position: sticky; top: 0; }
@@ -144,25 +146,27 @@
     .brand { font-size: 1.25rem; }
     .brand--long { max-width: 20rem; font-size: 1.0625rem; }
     .hdr-call { display: inline-flex; min-height: 46px; padding: 0 18px; font-size: 1rem; }
-    .hdr-call--contact span { display: inline; }
   }
   /* 768-1023 px: the open menu is one row of the pages across the sticky header. It stays open after a tap on a jump
      within the page (no JavaScript closes it), so scroll-padding grows by its height and a jump lands below the row. */
   @media (min-width: 768px) and (max-width: 1023px) {
     html:has(.menu[open]) { --menu-row: 57px; }
-    .menu { position: static; }
     .menu-list {
       display: flex; align-items: center; gap: 2px; left: 0; right: 0; top: 100%; width: auto; height: 57px;
       padding: 0 max(var(--gut), (100% - 1200px) / 2); border: 0; border-top: 1px solid var(--line); border-radius: 0;
       box-shadow: 0 1px 0 var(--line); overflow-x: auto;
     }
-    .menu-list a { min-height: 44px; padding: 0 12px; font-size: 0.9375rem; }
+    .menu-list a { min-height: 44px; padding: 0 12px; border: 0; font-size: 0.9375rem; }
   }
   @media (min-width: 1024px) {
     .bar { gap: 20px; }
     .nav { order: 0; }
     .nav-links { display: flex; }
     .menu { display: none; }
+  }
+  /* "Get a quote" beside Call, where the row has room for it beside every page link and the longest name */
+  @media (min-width: 1200px) {
+    .hdr-quote { display: inline-flex; min-height: 46px; padding: 0 18px; font-size: 1rem; }
   }
 
   /* ---------- hero ---------- */
@@ -232,7 +236,7 @@
   .cred small { display: block; margin-top: 3px; font-size: 0.8125rem; color: var(--muted); overflow-wrap: anywhere; }
   /* "3 more licenses": the arrow sits on the text's centre line in every hero */
   .more a { display: inline-flex; align-items: center; gap: 6px; min-height: 44px; margin-block: -12px; color: var(--brand); font-weight: 700; text-decoration: underline; text-underline-offset: 0.2em; }
-  .proof-list .more .i { width: 16px; height: 16px; margin: 0; }
+  .more .i { width: 16px; height: 16px; margin: 0; }
   @media (min-width: 600px) {
     .proof-list { font-size: 1rem; }
     .proof-list small { font-size: 0.875rem; }
@@ -325,11 +329,12 @@
   .white { background: #fff; }
   .on-brand { background: var(--brand); color: #fff; }
   .on-brand .display { color: #fff; }
-  /* an inner page's first section: its heading is the page's h1 (the hero's size), close under the header */
-  main > .sec:first-child { padding-top: 40px; }
+  /* an inner page's first section opens with Home's brand strip and livery seam, then its h1 (the hero's size) */
+  main > .sec:first-child { padding-top: 0; }
+  .sec > .band { margin-bottom: 40px; }
   @media (min-width: 768px) {
     .sec { padding-block: 96px; }
-    main > .sec:first-child { padding-top: 64px; }
+    .sec > .band { margin-bottom: 56px; }
   }
 
   /* the trust section as a band of its own on the brand colour (when the layout does not put it straight after the
@@ -340,9 +345,11 @@
   .trust .head { margin-bottom: 28px; }
   .trust .h2 { font-size: clamp(1.5rem, 1.3rem + 0.8vw, 2rem); }
   .creds, .creds > ul { display: grid; gap: 20px; }
-  .trust .cred { color: #fff; font-size: 1.0625rem; }
-  .trust .cred .i { color: var(--band-accent); }
-  .trust .cred small { color: var(--on-brand-muted); }
+  .trust .cred { font-size: 1.0625rem; }
+  /* credentials, and their links, on the brand colour (the trust band, About, the closing band) */
+  .on-brand .cred, .on-brand .proof-line, .on-brand .more a { color: #fff; }
+  .on-brand .cred .i, .on-brand .proof-line .i { color: var(--band-accent); }
+  .on-brand .cred small { color: var(--on-brand-muted); }
   @media (min-width: 768px) {
     .trust { padding-block: 64px; }
     .creds, .creds > ul { display: flex; flex-wrap: wrap; column-gap: 32px; }
@@ -368,15 +375,56 @@
   .ask .button { flex: 1 1 auto; }
   .ask-q { font: 700 1.3125rem/1.25 var(--display); letter-spacing: calc(var(--trk) * -0.01em); color: #fff; text-wrap: balance; }
   .ask p + p { margin-top: 6px; color: var(--on-brand-muted); }
-  /* Home's services preview: one row per service, its price pill at the end; from 1024 px the rows beside the
-     heading and the link to the Services page */
-  .preview { display: grid; gap: 12px; }
-  .preview .card { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; min-height: 76px; padding-block: 14px; }
-  .preview .price { margin: 0; }
-  .preview .h3 { min-width: 0; overflow-wrap: anywhere; }
-  .more { margin-top: 24px; }
-  /* the closing band: the heading, then Call and the call to action (beside the heading from 1024 px) */
-  .sec.close { padding-block: 56px; }
+  @media (min-width: 640px) {
+    .cards--c2, .cards--c3, .cards--c4 { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
+    .ask:nth-child(odd) { grid-column: 1 / -1; }
+  }
+  /* a service card on the call-to-action card's row keeps its own height (src/designs/modern/sections.ts marks it) */
+  @media (min-width: 640px) and (max-width: 1023px) {
+    .card--t2 { align-self: start; }
+  }
+  @media (min-width: 1024px) {
+    .cards--c3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .cards.cards--c4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    .cards--c3 > .ask, .cards--c4 > .ask { grid-column: auto; }
+    .cards--c3 > .ask:nth-child(3n + 1), .cards--c4 > .ask:nth-child(4n + 1) { grid-column: 1 / -1; }
+    .cards--c3 > .ask:nth-child(3n + 2), .cards--c4 > .ask:nth-child(4n + 3) { grid-column: span 2; }
+    .cards--c4 > .ask:nth-child(4n + 2) { grid-column: span 3; }
+    .card { padding: 28px 28px 30px; }
+    .card--t3 { align-self: start; }
+  }
+
+  /* Home's services preview: each service a ticked line, no box (none is a link), its price at the end on phones;
+     from 768 px one row of columns under the heading, and the one link, to the Services page, level with it */
+  .teaser-sec.sec { padding-block: 56px; }
+  .teaser-list { border-top: 2px solid var(--ink); }
+  .teaser-list > li { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; column-gap: 14px; padding-block: 14px; border-bottom: 1px solid var(--line); }
+  .teaser-list > li > .i { box-sizing: content-box; padding: 6px; border-radius: var(--r); background: #fff; color: var(--brand); }
+  .teaser-list .h3 { overflow-wrap: anywhere; }
+  .teaser-list .price { margin: 0; white-space: nowrap; }
+  .tint .teaser-list .price { background: #fff; }
+  .teaser-more { width: 100%; margin-top: 24px; }
+  @media (min-width: 768px) {
+    .teaser-sec.sec { padding-block: 72px; }
+    .teaser { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 32px; }
+    .teaser .head { margin-bottom: 36px; }
+    .teaser-more { grid-column: 2; grid-row: 1; align-self: end; width: auto; margin: 0 0 36px; }
+    .teaser-list { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); column-gap: 32px; border: 0; }
+    .teaser-list--2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .teaser-list > li { grid-template-columns: auto minmax(0, 1fr); align-items: start; row-gap: 10px; padding: 22px 0 0; border-top: 2px solid var(--ink); border-bottom: 0; }
+    .teaser-list > li > .i { grid-row: span 2; margin-top: -4px; }
+    .teaser-list .price { justify-self: start; }
+    /* one service: its line across the row, the price beside the name */
+    .teaser-list--1 { grid-template-columns: minmax(0, 1fr); }
+    .teaser-list--1 > li { grid-template-columns: auto auto 1fr; align-items: center; padding-block: 18px; border-bottom: 1px solid var(--line); }
+    .teaser-list--1 > li > .i { grid-row: auto; margin: 0; }
+  }
+
+  /* the closing band: a card on the brand colour, "Get in touch" and the owner's reasons, then Call and the call to
+     action (beside them from 1024 px) */
+  .sec.close { padding-block: 40px; }
+  .close-card { padding: 30px 22px; border-radius: var(--r); box-shadow: var(--lift); }
+  .close-card .head { margin-bottom: 24px; }
   .close-cta { display: grid; gap: 12px; }
   @media (max-width: 599px) {
     .faq-more .button { width: 100%; }
@@ -387,29 +435,12 @@
     .close-cta { display: flex; flex-wrap: wrap; }
   }
   @media (min-width: 768px) {
-    .sec.close { padding-block: 72px; }
+    .sec.close { padding-block: 64px; }
+    .close-card { padding: 44px 48px; }
   }
   @media (min-width: 1024px) {
-    .teaser { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); grid-template-rows: auto 1fr; column-gap: 64px; }
-    .preview { grid-column: 2; grid-row: 1 / 3; }
-    /* a lone service keeps its row's own height, centred on the heading's column, instead of stretching to it */
-    .preview > :only-child { align-self: center; }
-    .more { grid-column: 1; justify-self: start; align-self: start; margin: 0; }
-    .close-in { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 24px 48px; }
-    .close .head { margin: 0; }
-  }
-  @media (min-width: 640px) {
-    .cards--c2, .cards--c3, .cards--c4 { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
-    .ask:nth-child(odd) { grid-column: 1 / -1; }
-  }
-  @media (min-width: 1024px) {
-    .cards--c3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-    .cards.cards--c4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-    .cards--c3 > .ask, .cards--c4 > .ask { grid-column: auto; }
-    .cards--c3 > .ask:nth-child(3n + 1), .cards--c4 > .ask:nth-child(4n + 1) { grid-column: 1 / -1; }
-    .cards--c3 > .ask:nth-child(3n + 2), .cards--c4 > .ask:nth-child(4n + 3) { grid-column: span 2; }
-    .cards--c4 > .ask:nth-child(4n + 2) { grid-column: span 3; }
-    .card { padding: 28px 28px 30px; }
+    .close-card { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; column-gap: 48px; }
+    .close-card .head { margin: 0; }
   }
 
   /* reviews: the lead quote featured, the others as cards in balanced rows; no card is stretched past its text */
@@ -458,7 +489,7 @@
   }
 
   /* gallery: every photo once, in an even grid, with its caption under it (never over the photo) */
-  .shots { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 12px; }
+  .shots { display: grid; grid-template-columns: minmax(0, 1fr); gap: 20px; }
   .shots > li { min-width: 0; }
   /* Phones and tablets: an odd first photo takes the whole row. Only below 1024 px: this selector outweighs the
      desktop spans below (MDN :not() takes its argument's specificity), which would leave a hole beside the next row. */
@@ -467,9 +498,10 @@
   }
   .shots img { width: 100%; aspect-ratio: 4 / 3; object-fit: cover; border-radius: 4px; background: var(--line); }
   .shots figcaption { margin-top: 8px; color: var(--text); font-size: 0.875rem; line-height: 1.4; text-wrap: pretty; }
-  /* one photo: a large frame aligned with the page's heading, as every other block is */
-  .shots.shots--one { grid-template-columns: minmax(0, 1fr); max-width: 56rem; }
+  /* from 640 px two photos to a row; one photo across the whole content width, wide */
   @media (min-width: 640px) {
+    .shots { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 12px; }
+    .shots.shots--one { grid-template-columns: minmax(0, 1fr); }
     .shots--one img { aspect-ratio: 16 / 9; }
     .shots figcaption { font-size: 0.9375rem; }
   }
@@ -481,21 +513,35 @@
     .shots:not(.shots--one, .shots--two) > li:nth-last-child(2):nth-child(3n + 1) { grid-column: 2 / 4; }
     .shots:not(.shots--one, .shots--two) > li:last-child:nth-child(3n + 2) { grid-column: 4 / 6; }
     .shots--two { gap: 28px 24px; }
-    .shots--four { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 24px 20px; }
-    .shots--four > :first-child { grid-row: span 2; }
-    .shots--four > :first-child, .shots--four > :last-child { grid-column: span 2; }
+    /* Four: each photo and its caption take rows of their own (subgrid), so the captions of the large and the wide
+       photo share a row and the two photos end level, whatever the captions say. The large photo's own size counts
+       for nothing (contain: size): it fills the rows the others set. */
+    .shots--four { grid-template-columns: repeat(4, minmax(0, 1fr)); grid-template-rows: auto minmax(24px, auto) auto auto; gap: 0 20px; }
+    .shots--four > li, .shots--four figure { display: grid; grid-template-rows: subgrid; grid-row: span 2; }
+    .shots--four figure { grid-row: 1 / -1; }
+    .shots--four > :first-child { grid-row: 1 / -1; grid-column: span 2; }
+    .shots--four > :last-child { grid-row: 3 / -1; grid-column: 3 / -1; }
+    .shots--four > :first-child img { grid-row: 1 / 4; height: 100%; aspect-ratio: auto; contain: size; }
+    .shots--four > :first-child figcaption { grid-row: 4; }
     .shots--four > :last-child img { aspect-ratio: 8 / 3; }
-    .shots--four > :first-child figure { display: flex; flex-direction: column; height: 100%; }
-    .shots--four > :first-child img { flex: 1 1 0; min-height: 0; aspect-ratio: auto; }
+    .shots--four figcaption { padding-bottom: 24px; }
   }
 
-  /* about: the owner's statement as type on the brand band, with Call and the call to action beside it */
+  /* about: the owner's statement as type on the brand band, the owner's credentials under it, a photo beside them */
   .about-text { max-width: 44rem; font: 500 clamp(1.1875rem, 1.05rem + 0.7vw, 1.5rem)/1.5 var(--body); color: #fff; text-wrap: pretty; }
   .about-text--short { font-size: clamp(1.375rem, 1.1rem + 1.1vw, 1.75rem); line-height: 1.4; }
   .about-img { width: 100%; margin-top: 32px; aspect-ratio: 4 / 3; object-fit: cover; border-radius: var(--r); background: var(--brand-line); }
+  .facts { display: grid; gap: 16px 32px; font-size: 1rem; }
+  .facts .more { grid-column: 1 / -1; }
+  .about-text + .facts { margin-top: 32px; padding-top: 28px; border-top: 1px solid var(--brand-line); }
+  @media (min-width: 600px) {
+    .about-text + .facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  }
   @media (min-width: 1024px) {
-    .about--photo { display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); grid-template-rows: auto 1fr; column-gap: 64px; }
-    .about-img { grid-column: 2; grid-row: 1 / 3; margin: 0; }
+    .about--photo, .about--facts { display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); grid-template-rows: auto auto 1fr; column-gap: 64px; }
+    .about-img { grid-column: 2; grid-row: 1 / -1; margin: 0; }
+    /* no photo: the credentials take its place, as a panel beside the statement */
+    .about--facts .facts { grid-column: 2; grid-row: 1 / -1; align-self: start; grid-template-columns: minmax(0, 1fr); gap: 22px; margin: 0; padding: 36px; border: 1px solid var(--brand-line); border-radius: var(--r); font-size: 1.125rem; }
     .about-text { font-size: clamp(1.375rem, 0.9rem + 0.9vw, 1.75rem); }
     .about-text--long { font-size: 1.25rem; line-height: 1.55; }
     .about-text.about-text--short { font-size: clamp(1.875rem, 1rem + 1.6vw, 2.375rem); line-height: 1.3; }
@@ -563,6 +609,8 @@
     /* the hours board never narrower than its table, whose day ranges and times keep their lines: the places give way */
     .area { grid-template-columns: minmax(0, 7fr) minmax(min-content, 5fr); gap: 20px; align-items: start; }
     .area.area--solo { grid-template-columns: minmax(0, 1fr); }
+    /* a short list of places ends level with the hours beside it; a long one keeps its own height */
+    .area > .board:first-child { align-self: stretch; }
   }
 
   /* questions: a ruled list with a square key, a call panel beside it */
@@ -601,6 +649,9 @@
       padding: 26px 26px 28px; border-top: 4px solid var(--brand); border-radius: var(--r); background: #fff;
     }
     .white .faq-more { background: var(--tint); }
+    /* the FAQ that ends its page has no call card (the closing band follows): the heading beside the list */
+    .faq.faq--solo { grid-template-columns: minmax(0, 4fr) minmax(0, 8fr); }
+    .faq--solo .head { grid-column: 1; margin: 0; }
     .faq-more-q { margin-bottom: 16px; font: 700 1.375rem/1.2 var(--display); letter-spacing: calc(var(--trk) * -0.01em); }
     .faq-more .button { width: 100%; }
   }
@@ -609,6 +660,13 @@
   .contact { display: grid; grid-template-columns: minmax(0, 1fr); gap: 28px; }
   .contact > * { min-width: 0; }
   .contact .head { margin: 0; }
+  /* Call and the call to action under the heading, when the service area opens the Contact page */
+  .head-cta { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 24px; }
+  .head-cta .button { flex: 1 1 auto; }
+  /* the owner's credentials beside the form: the shared credential rows on a card */
+  .cred-card { padding: 24px 22px; border: 1px solid var(--line); border-top: 4px solid var(--brand); border-radius: var(--r); background: #fff; }
+  .white .cred-card { border-color: transparent; border-top-color: var(--brand); background: var(--tint); }
+  .cred-card .lbl { margin-bottom: 16px; color: var(--ink); }
   .form-card { position: relative; padding: 26px 20px 22px; border: 1px solid var(--line); border-top: 4px solid var(--brand); border-radius: var(--r); background: #fff; box-shadow: var(--lift); color: var(--text); }
   /* "/contact#quote" lands on the form with the card's top edge in view (under the sticky header from 768 px) */
   .form { display: grid; grid-template-columns: minmax(0, 1fr); gap: 18px; scroll-margin-top: 48px; }
@@ -653,11 +711,17 @@
   @media (hover: hover) {
     .big:hover { text-decoration: underline 2px; }
   }
+  @media (min-width: 768px) {
+    .head-cta .button { flex: none; }
+  }
   @media (min-width: 1024px) {
-    /* 3:2, so the call card keeps a 34-character email on one line from 1024 px (judges' round 3) */
-    .contact { grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); column-gap: 56px; }
-    .form-card { grid-row: 2; }
+    /* 3:2, so the call card keeps a 34-character email on one line from 1024 px (judges' round 3); the call card and
+       the credentials beside the form */
+    .contact { grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); grid-template-rows: auto auto 1fr; gap: 28px 56px; }
+    .contact .head { margin-bottom: 16px; }
+    .form-card { grid-row: 2 / 4; }
     .call-card { grid-column: 2; grid-row: 2; align-self: start; padding: 34px 32px; }
+    .cred-card { grid-column: 2; grid-row: 3; align-self: start; padding: 28px 32px; }
   }
 
   /* ---------- footer ---------- */
@@ -691,6 +755,8 @@
   /* 12 px or more between the buttons and the bar's top edge and the screen's bottom edge, as on today's page: axe's
      target-size check then passes any button the bar half-covers, wherever the page puts it (layout.test.ts) */
   .callbar { bottom: 0; z-index: 10; display: flex; gap: 8px; padding: 12px var(--gut) calc(12px + env(safe-area-inset-bottom)); border-top: 1px solid var(--line); background: #fff; }
+  /* the Contact page's bar, at the end of the page: the footer's last row, on its brand colour */
+  .callbar.on-brand { border-top-color: var(--brand-line); background: var(--brand); }
   /* Call and "Get a quote" in equal halves */
   .callbar .button { flex: 1 1 0; min-width: 0; min-height: 54px; padding: 0 12px; gap: 8px; font-size: 1rem; }
   @media (min-width: 768px) {

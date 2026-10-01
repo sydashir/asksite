@@ -65,16 +65,16 @@ const imageSources = (markup: string) => startTags(markup).filter((t) => t.name 
 describe("Modern: every page can call or ask for a quote (A16)", () => {
   const pages = site(loadFixture("plumber-austin")).pages;
 
-  it("the call bar says Call (its name carries the number) and Get a quote, sticky on every page but Contact", () => {
+  it("the call bar says Call (its name carries the number) and Get a quote: sticky on every page but Contact, where it closes the footer on the brand colour", () => {
     for (const { page, html } of pages) {
       const bar = element(html, "<aside");
       expect(bar).toContain('<a class="button button-act whitespace-nowrap" href="tel:+15125550142" aria-label="Call (512) 555-0142">');
       expect(bar).toMatch(/<\/svg>Call<\/a>\n<a class="button button-line" href="\/contact#quote">Get a quote<\/a>/);
-      expect(bar.startsWith(page === "contact" ? '<aside aria-label="Call us" class="callbar focus-outside:static">' : '<aside aria-label="Call us" class="callbar sticky focus-outside:static">')).toBe(true);
+      expect(bar.startsWith(page === "contact" ? '<aside aria-label="Call us" class="callbar on-brand focus-outside:static">' : '<aside aria-label="Call us" class="callbar sticky focus-outside:static">')).toBe(true);
     }
   });
 
-  it("every page but Contact ends with the closing band: Call with the number, and the call to action to the form", () => {
+  it("every page but Contact ends with the closing band: a brand card with Call (the number) and the call to action to the form", () => {
     for (const { page, html } of pages) {
       const band = element(html, '<section id="get-in-touch"');
       if (page === "contact") {
@@ -82,11 +82,48 @@ describe("Modern: every page can call or ask for a quote (A16)", () => {
         continue;
       }
       expect(html.indexOf("</main>") - html.indexOf("</section>", html.indexOf('<section id="get-in-touch"'))).toBe("</section>\n".length);
-      expect(band).toContain('<h2 id="get-in-touch-title" class="display h2">Get in touch</h2>');
-      expect(band).toContain('href="tel:+15125550142"><svg class="i" viewBox="0 0 24 24" aria-hidden="true">');
-      expect(band).toContain("Call (512) 555-0142</a>");
-      expect(band).toContain('<a class="button button-line button-lg" href="/contact#quote">Get a free quote</a>');
+      const card = element(band, '<div class="close-card on-brand"');
+      expect(card).toContain('<h2 id="get-in-touch-title" class="display h2">Get in touch</h2>');
+      expect(card).toContain('href="tel:+15125550142"><svg class="i" viewBox="0 0 24 24" aria-hidden="true">');
+      expect(card).toContain("Call (512) 555-0142</a>");
+      expect(card).toContain('<a class="button button-line button-lg" href="/contact#quote">Get a free quote</a>');
     }
+  });
+
+  it("the closing band gives a reason to act from the owner's own facts only: 24/7 service and free estimates, each with its fact", () => {
+    const line = (input: SiteDocumentInput) => element(element(pageOf(input, "home"), '<section id="get-in-touch"'), '<ul class="proof-line"').replace(/<[^>]*>/g, "");
+    expect(line(loadFixture("plumber-austin"))).toBe("24/7 emergency serviceFree estimates");
+    expect(line(loadFixture("hvac-phoenix"))).toBe("24/7 emergency service");
+    // Free estimates is one of the credentials: an owner who hides them hides it here too; 24/7 stays, as in the hero.
+    expect(line(withHidden(loadFixture("plumber-austin"), ["trust"]))).toBe("24/7 emergency service");
+    expect(line(loadFixture("cleaning-minimal"))).toBe("");
+  });
+
+  it("from 1200 px the header carries a quote button on every page, Contact included (moderator ruling (f))", () => {
+    for (const { html } of pages) {
+      const header = element(html, "<header");
+      expect(header).toContain('<a class="button button-line hdr-quote" href="/contact#quote">Get a quote</a>');
+      expect(header).toContain('<a class="button button-act hdr-call whitespace-nowrap" href="tel:+15125550142" aria-label="Call (512) 555-0142">');
+    }
+  });
+});
+
+describe("Modern: every inner page opens like Home (A16, ruling (e))", () => {
+  const strip = (markup: string) => element(markup, '<div class="band band--brand"').replace(/<[^>]*>/g, "");
+  const firstSection = (html: string) => element(html, /<section [^>]*>/.exec(html.slice(html.indexOf("<main")))?.[0] ?? "<section");
+
+  it("its first section starts with Home's brand strip (24/7 service, the trade and the town) and livery seam, above the h1", () => {
+    for (const { page, html } of site(loadFixture("plumber-austin")).pages) {
+      if (page === "home") continue;
+      const first = firstSection(html);
+      expect(first.indexOf('<div class="band band--brand">')).toBeGreaterThan(0);
+      expect(first.indexOf('<div class="band band--brand">')).toBeLessThan(first.indexOf("<h1 "));
+      expect(strip(first)).toBe("24/7 emergency servicePlumbing · Austin, TX");
+      // Only the opening section has it.
+      expect(html.split('<div class="band band--brand">')).toHaveLength(2);
+    }
+    expect(strip(pageOf(loadFixture("hvac-phoenix"), "services"))).toBe("24/7 emergency serviceHeating &amp; Cooling · Phoenix, AZ");
+    expect(strip(pageOf(loadFixture("electrical-xss"), "gallery"))).not.toContain("24/7");
   });
 });
 
@@ -103,16 +140,27 @@ describe("Modern: the header names every page and marks the one on screen (A16)"
 });
 
 describe("Modern: Home previews the first three services (A16)", () => {
-  it("in the owner's order, each with its From price or its name only, and one link to the Services page", () => {
+  it("in the owner's order, each a ticked line with its From price or its name only (no box: not a link), and one link to the Services page", () => {
     const preview = element(pageOf(loadFixture("plumber-austin"), "home"), '<section id="services-preview"');
-    expect([...preview.matchAll(/<li class="card"><h3 class="h3">([^<]*)<\/h3>(<p class="price"><small>From<\/small> ([^<]*)<\/p>)?<\/li>/g)].map((m) => [m[1], m[3]])).toEqual([
+    expect(preview).toContain('<ul class="teaser-list">');
+    expect([...preview.matchAll(/<li><svg class="i" [^>]*>[^]*?<\/svg><h3 class="h3">([^<]*)<\/h3>(<p class="price"><small>From<\/small> ([^<]*)<\/p>)?<\/li>/g)].map((m) => [m[1], m[3]])).toEqual([
       ["Drain cleaning", "$89"],
       ["Water heater repair &amp; install", "$149"],
       ["Leak detection", undefined],
     ]);
     expect(preview).not.toContain("Price on request");
+    expect(preview).not.toContain('class="card');
     expect([...preview.matchAll(/href="([^"]*)"/g)].map((m) => m[1])).toEqual(["/services"]);
-    expect(preview).toContain(">More about our services<");
+    expect(preview).toContain('<a class="button button-line teaser-more" href="/services">More about our services<svg');
+  });
+
+  it("names its column count for one or two services, so they fill the row", () => {
+    const plumber = loadFixture("plumber-austin");
+    const list = (count: number) => {
+      const one = withFacts(plumber, { services: plumber.facts.services.slice(0, count) });
+      return /<ul class="(teaser-list[^"]*)">/.exec(pageOf({ ...one, copy: { ...one.copy, serviceDescriptions: plumber.copy.serviceDescriptions.slice(0, count) } }, "home"))?.[1];
+    };
+    expect([1, 2, 3].map(list)).toEqual(["teaser-list teaser-list--1", "teaser-list teaser-list--2", "teaser-list"]);
   });
 });
 
@@ -130,15 +178,65 @@ describe("Modern: inner pages open with their own heading (A16)", () => {
   });
 });
 
+/** `input` with the FAQ moved before the services (the owner's order on the Services page, A16 U1). */
+function faqFirst(input: SiteDocumentInput): SiteDocumentInput {
+  const [hero, ...rest] = input.layout;
+  return { ...input, layout: [hero!, ...rest.filter((s) => s.id === "faq"), ...rest.filter((s) => s.id !== "faq")] };
+}
+/** The text of the owner's credentials list (a line, or a list with labels) that starts at `start`. */
+const credentialsIn = (markup: string, start: string) => [...element(markup, start).matchAll(/<li[^>]*>([\s\S]*?)<\/li>/g)].map((m) => (m[1] ?? "").replace(/<small>[^<]*<\/small>/g, "").replace(/<[^>]*>/g, ""));
+
+describe("Modern: the Services page (A16)", () => {
+  const plumber = loadFixture("plumber-austin");
+
+  it("names the owner's credentials under its heading, next to the prices; none when the owner hides them", () => {
+    const head = element(element(pageOf(plumber, "services"), '<section id="services"'), '<div class="head"');
+    expect(credentialsIn(head, '<ul class="proof-line"')).toEqual(["License M-40123", "Insured", "Since 1998", "Free estimates"]);
+    expect(element(pageOf(withHidden(plumber, ["trust"]), "services"), '<section id="services"')).not.toContain("proof-line");
+  });
+
+  it("keeps the FAQ's call card only where the closing band does not follow straight after it (judges: three Call buttons in a row)", () => {
+    expect(element(pageOf(plumber, "services"), '<section id="faq"')).not.toContain("Still have a question?");
+    expect(element(pageOf(plumber, "services"), '<section id="faq"')).toContain('<div class="wrap faq faq--solo">');
+    expect(element(pageOf(faqFirst(plumber), "services"), '<section id="faq"')).toContain("Still have a question?");
+  });
+
+  it("marks the service cards that share a row with the call-to-action card (2 columns below 1024 px, the grid's own from there), so they keep their own height", () => {
+    const classes = (input: SiteDocumentInput) => [...element(pageOf(input, "services"), '<ul class="cards').matchAll(/<li class="(card[^"]*)"/g)].map((m) => m[1]);
+    // 5 services in 3 columns: the last two share the card's row from 1024 px, the last one below it.
+    expect(classes(plumber)).toEqual(["card", "card", "card", "card card--t3", "card card--t2 card--t3", "card ask on-brand"]);
+    // 2 services in 3 columns: both share it from 1024 px; in 2 columns the card has a row of its own.
+    expect(classes(loadFixture("cleaning-minimal"))).toEqual(["card card--t3", "card card--t3", "card ask on-brand"]);
+  });
+});
+
 describe("Modern: the Contact page (A16)", () => {
-  it("shows its heading, the call card, then the form, and the opening hours, with or without a hero photo", () => {
+  it("shows its heading, the call card, the form, then the owner's credentials, and the opening hours, with or without a hero photo", () => {
     for (const input of [loadFixture("plumber-austin"), withoutHeroPhoto(loadFixture("plumber-austin"))]) {
       const contact = pageOf(input, "contact");
       const at = (text: string) => contact.indexOf(text);
       expect(at('<h1 id="contact-title"')).toBeLessThan(at('<div class="call-card">'));
       expect(at('<div class="call-card">')).toBeLessThan(at('<form id="quote" class="form"'));
+      expect(at("</form>")).toBeLessThan(at('<div class="cred-card">'));
+      expect(credentialsIn(contact, '<div class="cred-card"')).toEqual(["License M-40123", "Insured", "Since 1998", "Free estimates"]);
       expect(element(contact, '<section id="service-area"').replace(/<[^>]*>/g, "")).toContain("7:30 AM – 6:00 PM");
     }
+    expect(pageOf(withHidden(loadFixture("plumber-austin"), ["trust"]), "contact")).not.toContain("cred-card");
+    // More licenses than the card shows: the rest are one link away, in the footer.
+    expect(element(pageOf(loadFixture("roofing-extreme"), "contact"), '<div class="cred-card"')).toContain('<a href="#licenses">See all 5 licenses');
+  });
+
+  it("puts Call and the call to action under the heading when the owner puts the service area before the form", () => {
+    const head = (input: SiteDocumentInput) => element(element(pageOf(input, "contact"), '<section id="service-area"'), '<div class="head"');
+    const roofing = head(loadFixture("roofing-extreme"));
+    expect(roofing).toContain('<h1 id="service-area-title"');
+    expect(roofing).toMatch(/<div class="head-cta"><a class="button button-act whitespace-nowrap button-lg" href="tel:\+12145550163">[^]*<\/a><a class="button button-line button-lg" href="\/contact#quote">Schedule a free estimate<\/a><\/div>/);
+    expect(head(loadFixture("plumber-austin"))).not.toContain("head-cta");
+  });
+
+  it("keeps the header the same as on every other page: no extra phone button on phones", () => {
+    const headers = site(loadFixture("plumber-austin")).pages.map((p) => element(p.html, "<header").replace(/ aria-current="page"/g, ""));
+    expect(new Set(headers).size).toBe(1);
   });
 });
 
@@ -152,10 +250,19 @@ describe("Modern: About (A16)", () => {
     expect(photoOf(withFacts(withoutHeroPhoto(plumber), { photos: [] }))).toEqual([]);
   });
 
-  it("carries the owner's statement under its h1, and no buttons of its own (the closing band follows)", () => {
+  it("carries the owner's statement under its h1 and the owner's credentials after it, and no buttons of its own (the closing band follows)", () => {
     const about = element(pageOf(plumber, "about"), '<section id="about"');
     expect(about).toContain('<h1 id="about-title" class="display h1">About Reliable Rooter Plumbing</h1>');
+    expect(about.indexOf('<p class="about-text')).toBeLessThan(about.indexOf('<ul class="facts">'));
+    expect(credentialsIn(about, '<ul class="facts"')).toEqual(["License M-40123", "Insured", "Since 1998", "Free estimates"]);
     expect(about).not.toContain("<a ");
+    expect(element(pageOf(withHidden(plumber, ["trust"]), "about"), '<section id="about"')).not.toContain('class="facts"');
+  });
+
+  it("without a photo, the credentials take the photo's place beside the statement", () => {
+    const wrap = (input: SiteDocumentInput) => /<section id="about"[^>]*>[^]*?<div class="(wrap(?! band-in)[^"]*)">/.exec(pageOf(input, "about"))?.[1];
+    const noPhotos = withFacts(withoutHeroPhoto(plumber), { photos: [] });
+    expect([wrap(plumber), wrap(noPhotos), wrap(withHidden(noPhotos, ["trust"]))]).toEqual(["wrap about--photo", "wrap about--facts", "wrap"]);
   });
 });
 
@@ -219,7 +326,7 @@ describe("Modern: the credentials", () => {
     expect(band).toContain('<h2 id="credentials-title" class="display h2">Credentials</h2>');
     expect(page.indexOf('<section id="credentials"')).toBeGreaterThan(page.indexOf('<section id="reviews"'));
     // The band is not one of the tint and white sections, which keep alternating around it.
-    expect([...page.matchAll(/<section id="([a-z-]+)" class="sec (?:close )?([a-z]+)"/g)].map((m) => `${m[1]} ${m[2]}`)).toEqual([
+    expect([...page.matchAll(/<section id="([a-z-]+)" class="sec (?:close |teaser-sec )?([a-z]+)"/g)].map((m) => `${m[1]} ${m[2]}`)).toEqual([
       "services-preview tint", "reviews white", "get-in-touch tint",
     ]);
     const text = band.replace(/<[^>]*>/g, "");

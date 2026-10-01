@@ -39,6 +39,18 @@ function trustLater(input: SiteDocumentInput): SiteDocumentInput {
   const reviews = rest.findIndex((section) => section.id === "testimonials");
   return { ...input, layout: [...rest.slice(0, reviews + 1), ...trust, ...rest.slice(reviews + 1)] };
 }
+/** `input` with the trust section straight after the hero (the default Home order): the hero holds the credentials. */
+function trustFirst(input: SiteDocumentInput): SiteDocumentInput {
+  const trust = input.layout.filter((section) => section.id === "trust");
+  const [first, ...rest] = input.layout.filter((section) => section.id !== "trust");
+  return { ...input, layout: [first!, ...trust, ...rest] };
+}
+/** `input` with only its first `count` services (the copy describes exactly the owner's services, so both are cut). */
+const withServices = (input: SiteDocumentInput, count: number): SiteDocumentInput => ({
+  ...input,
+  facts: { ...input.facts, services: input.facts.services.slice(0, count) },
+  copy: { ...input.copy, serviceDescriptions: input.copy.serviceDescriptions.slice(0, count) },
+});
 /** One word of `length` letters: no break chance in it. */
 const word = (length: number, first: string): string => (first + "ordwithoutabreak".repeat(6)).slice(0, length);
 
@@ -284,7 +296,7 @@ describe.each(ENGINES)("Modern in %s", (_engine, engine) => {
         });
         const cells = rows.rows.flat();
         if (width < 1024) {
-          // Phones and tablets keep two columns, an odd first photo across the row.
+          // Phones show one photo to a row; tablets two, an odd first photo across the row.
           if (Math.abs((cells[0]?.width ?? 0) - rows.list.width) > 1) found.push(`${count} photos ${width}: the first photo is not across the row`);
           continue;
         }
@@ -531,24 +543,190 @@ describe.each(ENGINES)("Modern in %s", (_engine, engine) => {
     expect(found).toEqual([]);
   }, 60_000);
 
-  // A16: an owner with one service gets one row in Home's preview, beside a taller column (the heading and the link to
-  // the Services page). The row keeps its own height, centred on that column, instead of stretching into a tall, empty
-  // card; two or more rows still fill the column, as before.
-  it("keeps a lone service in Home's preview its own height, centred beside the heading, from 1024 px", async () => {
+  // A16 round 1's judges: the preview's rows were bordered white boxes (they looked tappable but are not links), a long
+  // name pushed its price onto a second line on phones, and from 1024 px the heading's column stood empty beside them.
+  // On phones each service is one ruled line, its price on the name's line; from 768 px the services are one row of
+  // columns under the heading, with the link to the Services page level with the heading.
+  it("previews the services as one line each on phones, the price on the name's line, and as one row of columns from 768 px with the link beside the heading", async () => {
     const found: string[] = [];
-    const plumber = loadFixture("plumber-austin");
-    // The copy describes exactly the owner's services, in order (SiteDocument), so both lists are cut together.
-    const one = withFacts(plumber, { services: plumber.facts.services.slice(0, 1) });
-    await open(pageOf({ ...one, copy: { ...one.copy, serviceDescriptions: plumber.copy.serviceDescriptions.slice(0, 1) } }), 1024);
-    const row = () => {
-      const list = document.querySelector(".preview").getBoundingClientRect();
-      const card = document.querySelector(".preview .card").getBoundingClientRect();
-      return { height: Math.round(card.height), above: Math.round(card.top - list.top), below: Math.round(list.bottom - card.bottom) };
+    const measure = () => {
+      const list = document.querySelector(".teaser-list").getBoundingClientRect();
+      const link = document.querySelector(".teaser-more").getBoundingClientRect();
+      const title = document.querySelector("#services-preview-title").getBoundingClientRect();
+      const rows = [...document.querySelectorAll(".teaser-list > li")].map((li) => {
+        const name = li.querySelector("h3").getBoundingClientRect();
+        const price = li.querySelector(".price")?.getBoundingClientRect();
+        const box = li.getBoundingClientRect();
+        return { top: Math.round(box.top), width: Math.round(box.width), sameLine: price === undefined || (price.left >= name.right - 1 && price.top < name.bottom && price.bottom > name.top) };
+      });
+      return { rows, list: { top: list.top, right: list.right, width: Math.round(list.width) }, link: { bottom: link.bottom, right: link.right, top: link.top }, title: { top: title.top, bottom: title.bottom } };
     };
+    const plumber = loadFixture("plumber-austin");
+    for (const count of [1, 2, 3]) {
+      await open(pageOf(withServices(plumber, count)), 320);
+      for (const width of [320, 390, 768, 1024, 1280, 1920]) {
+        await tab.setViewportSize({ width, height: 800 });
+        const got = await tab.evaluate(measure);
+        const where = `${count} services ${width}`;
+        if (width < 768) {
+          for (const [i, row] of got.rows.entries()) if (!row.sameLine) found.push(`${where}: row ${i + 1}'s price is not on its name's line`);
+          if (got.link.top < got.list.top) found.push(`${where}: the link is above the list`);
+          continue;
+        }
+        if (new Set(got.rows.map((row) => row.top)).size !== 1) found.push(`${where}: rows at ${got.rows.map((row) => row.top).join(",")}`);
+        if (count > 1 && new Set(got.rows.map((row) => row.width)).size !== 1) found.push(`${where}: widths ${got.rows.map((row) => row.width).join(",")}`);
+        if (got.link.bottom > got.list.top || Math.abs(got.link.right - got.list.right) > 1 || got.link.top > got.title.bottom) found.push(`${where}: the link is not beside the heading ${JSON.stringify(got)}`);
+      }
+    }
+    expect(found).toEqual([]);
+  }, 60_000);
+
+  // review1 I-1: the preview's link took the class "more", which is the hero's "See all N licenses" item too, and its
+  // top margin moved that item 24 px below the credential beside it on phones and tablets.
+  it("keeps the hero's 'See all N licenses' item without a top margin at every width (review1 I-1)", async () => {
+    const found: string[] = [];
+    await open(pageOf(trustFirst(loadFixture("roofing-extreme"))), 390);
+    for (const width of [320, 390, 768, 1023, 1280]) {
+      await tab.setViewportSize({ width, height: 800 });
+      const margin = await tab.evaluate(() => getComputedStyle(document.querySelector("#credentials .more")).marginTop);
+      if (margin !== "0px") found.push(`${width}: ${margin}`);
+    }
+    expect(found).toEqual([]);
+  }, 60_000);
+
+  // A16 round 1's judges: the closing band was a heading on a pale band with its buttons ~500 px away at the far right.
+  // It is a brand card: the buttons beside the heading from 1024 px, under it at the card's width on phones.
+  it("sets the closing band's buttons inside its brand card: beside the heading from 1024 px, under it at full width on phones", async () => {
+    const found: string[] = [];
+    const measure = () => {
+      const card = document.querySelector(".close-card").getBoundingClientRect();
+      const head = document.querySelector(".close-card .head").getBoundingClientRect();
+      const cta = document.querySelector(".close-cta").getBoundingClientRect();
+      const buttons = [...document.querySelectorAll(".close-cta .button")].map((b) => b.getBoundingClientRect().toJSON());
+      return { card: card.toJSON(), head: head.toJSON(), cta: cta.toJSON(), buttons };
+    };
+    for (const name of ["plumber-austin", "cleaning-minimal"] as const) {
+      await open(page(name), 390);
+      for (const width of [320, 390, 1024, 1280, 1920]) {
+        await tab.setViewportSize({ width, height: 800 });
+        const got = await tab.evaluate(measure);
+        const inside = got.buttons.every((b: { left: number; right: number; top: number; bottom: number }) => b.left >= got.card.left && b.right <= got.card.right && b.top >= got.card.top && b.bottom <= got.card.bottom);
+        if (!inside) found.push(`${name} ${width}: a button outside the card`);
+        if (width < 768) {
+          if (got.buttons.some((b: { top: number; width: number }) => b.top < got.head.bottom || Math.abs(b.width - got.cta.width) > 1)) found.push(`${name} ${width}: buttons not under the heading at full width`);
+        } else if (got.buttons.some((b: { left: number; top: number }) => b.left < got.head.right || b.top > got.head.bottom)) found.push(`${name} ${width}: buttons not beside the heading`);
+      }
+    }
+    expect(found).toEqual([]);
+  }, 60_000);
+
+  // A16 round 1's judges: a service card that shares the call-to-action card's row was stretched to that card's height,
+  // a half-empty box (cleaning-minimal's two services). It keeps its own height.
+  it("keeps the service cards in the call-to-action card's row at their own height", async () => {
+    const found: string[] = [];
+    // Each service card on the call-to-action card's row (the same top) ends where its own content ends.
+    const stretched = () => {
+      const ask = document.querySelector("#services .ask").getBoundingClientRect();
+      return [...document.querySelectorAll("#services .card:not(.ask)")].flatMap((card) => {
+        const box = card.getBoundingClientRect();
+        const style = getComputedStyle(card);
+        const content = card.lastElementChild.getBoundingClientRect().bottom + parseFloat(style.paddingBottom) + parseFloat(style.borderBottomWidth);
+        return Math.abs(box.top - ask.top) <= 1 && Math.abs(box.bottom - content) > 1 ? [card.querySelector("h2, h3").textContent] : [];
+      });
+    };
+    for (const [name, html] of [["cleaning-minimal", page("cleaning-minimal", undefined, "services")], ["plumber-austin", page("plumber-austin", undefined, "services")]] as const) {
+      await open(html, 700);
+      for (const width of [700, 1024, 1280, 1920]) {
+        await tab.setViewportSize({ width, height: 800 });
+        for (const title of await tab.evaluate(stretched)) found.push(`${name} ${width}: "${title}" is stretched`);
+      }
+    }
+    expect(found).toEqual([]);
+  }, 60_000);
+
+  // A16 round 1's judges: on phones the photos were 2-up thumbnails (~165 px) that cannot be enlarged, and a lone photo
+  // was a 56rem frame with an empty third beside it at 1280 px.
+  it("shows the owner's photos one to a row on phones, and a lone photo across the whole content width", async () => {
+    const found: string[] = [];
+    const roofing = loadFixture("roofing-extreme");
+    const widths = () => {
+      const list = document.querySelector("#our-work .shots").getBoundingClientRect();
+      const wrap = document.querySelector("#our-work .wrap");
+      const pad = parseFloat(getComputedStyle(wrap).paddingLeft) + parseFloat(getComputedStyle(wrap).paddingRight);
+      return { list: list.width, content: wrap.getBoundingClientRect().width - pad, cells: [...document.querySelectorAll("#our-work .shots > li")].map((li) => li.getBoundingClientRect().width) };
+    };
+    await open(page("roofing-extreme", undefined, "gallery"), 390);
+    for (const width of [320, 390, 600]) {
+      await tab.setViewportSize({ width, height: 800 });
+      const got = await tab.evaluate(widths);
+      if (got.cells.some((cell: number) => Math.abs(cell - got.list) > 1)) found.push(`12 photos ${width}: cells ${got.cells.map(Math.round).join(",")} in ${Math.round(got.list)}`);
+    }
+    await open(pageOf(withFacts(roofing, { photos: (roofing.facts.photos ?? []).slice(0, 1) }), undefined, "gallery"), 1280);
+    for (const width of [768, 1024, 1280, 1920]) {
+      await tab.setViewportSize({ width, height: 800 });
+      const got = await tab.evaluate(widths);
+      if (Math.abs((got.cells[0] ?? 0) - got.content) > 1) found.push(`1 photo ${width}: ${Math.round(got.cells[0] ?? 0)} of ${Math.round(got.content)} px`);
+    }
+    expect(found).toEqual([]);
+  }, 60_000);
+
+  // A16 round 1's judges: in the 4-photo mosaic the large photo ended ~30 px above the wide one, because a caption sat
+  // inside the large photo's cell and the wide photo had none. The captions share one row, so the photos end level.
+  it("ends the large and the wide photo of four on one line from 1024 px, whatever their captions", async () => {
+    const found: string[] = [];
+    const roofing = loadFixture("roofing-extreme");
+    const four = (roofing.facts.photos ?? []).slice(0, 4);
+    const captions: ReadonlyArray<readonly [string, ReadonlyArray<string | undefined>]> = [
+      ["the fixture's", four.map((p) => p.caption)],
+      ["first only", [four[0]?.caption, undefined, undefined, undefined]],
+      ["last only", [undefined, "Short", undefined, "A caption for the wide photo only"]],
+      ["none", [undefined, undefined, undefined, undefined]],
+    ];
+    for (const [label, texts] of captions) {
+      const photos = four.map(({ caption: _caption, ...photo }, i) => (texts[i] === undefined ? photo : { ...photo, caption: texts[i] }));
+      await open(pageOf(withFacts(roofing, { photos }), undefined, "gallery"), 1024);
+      for (const width of [1024, 1280, 1920]) {
+        await tab.setViewportSize({ width, height: 800 });
+        const [large, wide] = await tab.evaluate(() => ["first", "last"].map((which) => document.querySelector(`#our-work .shots > li:${which}-child img`).getBoundingClientRect().bottom));
+        if (Math.abs(large! - wide!) > 1) found.push(`${label} ${width}: ${Math.round(large!)} vs ${Math.round(wide!)}`);
+      }
+    }
+    expect(found).toEqual([]);
+  }, 60_000);
+
+  // A16 round 1's judges: on Contact the right column ended ~240 px above the form and the areas and hours boards ended
+  // at different heights. The owner's credentials sit under the call card, and the two boards end level.
+  it("lines the Contact page up from 1024 px: the credentials under the call card, the areas and hours boards ending level", async () => {
+    const found: string[] = [];
+    const measure = () => {
+      const box = (selector: string) => document.querySelector(selector).getBoundingClientRect().toJSON();
+      const boards = [...document.querySelectorAll("#service-area .board")].map((b) => b.getBoundingClientRect().bottom);
+      return { call: box(".call-card"), creds: box(".cred-card"), boards };
+    };
+    await open(page("plumber-austin", undefined, "contact"), 1024);
     for (const width of [1024, 1280, 1920]) {
       await tab.setViewportSize({ width, height: 800 });
-      const got = await tab.evaluate(row);
-      if (got.height > 80 || got.above < 8 || Math.abs(got.above - got.below) > 1) found.push(`${width}: ${JSON.stringify(got)}`);
+      const got = await tab.evaluate(measure);
+      if (got.creds.top < got.call.bottom || Math.abs(got.creds.left - got.call.left) > 1 || Math.abs(got.creds.width - got.call.width) > 1) found.push(`${width}: credentials ${JSON.stringify(got.creds)} vs call card ${JSON.stringify(got.call)}`);
+      if (got.boards.length !== 2 || Math.abs(got.boards[0]! - got.boards[1]!) > 1) found.push(`${width}: boards end at ${got.boards.map(Math.round).join(",")}`);
+    }
+    expect(found).toEqual([]);
+  }, 60_000);
+
+  // A16 round 1's judges: the phone menu was a 200 px panel floating over the page. It is a sheet across the screen.
+  it("opens the phone menu as a sheet across the whole screen, right under the header", async () => {
+    const found: string[] = [];
+    await open(page("plumber-austin", undefined, "services"), 390);
+    for (const width of [320, 390, 767]) {
+      await tab.setViewportSize({ width, height: 800 });
+      const got = await tab.evaluate(() => {
+        document.querySelector(".menu").open = true;
+        const list = document.querySelector(".menu-list").getBoundingClientRect();
+        const header = document.querySelector("header").getBoundingClientRect();
+        document.querySelector(".menu").open = false;
+        return { left: list.left, right: list.right, top: list.top, header: header.bottom, width: document.documentElement.clientWidth };
+      });
+      if (Math.abs(got.left) > 1 || Math.abs(got.right - got.width) > 1 || Math.abs(got.top - got.header) > 1) found.push(`${width}: ${JSON.stringify(got)}`);
     }
     expect(found).toEqual([]);
   }, 60_000);
@@ -576,8 +754,9 @@ describe.each(ENGINES)("Modern in %s", (_engine, engine) => {
   }, 60_000);
 
   // A16: every page is reachable from the header at every width (WCAG 2.4.5): inline from 1024 px, beside the name and
-  // the Call button without touching them, also for the longest business name; below that through the menu.
-  it("shows every page link in the header from 1024 px without touching the name or the Call button, in every lettering", async () => {
+  // the Call button without touching them, also for the longest business name; below that through the menu. From
+  // 1200 px a quote button sits beside Call (A16 round 1's judges: no quote action on a desktop's first screen).
+  it("shows every page link in the header from 1024 px, and the quote button from 1200 px, without touching the name or the Call button, in every lettering", async () => {
     const found: string[] = [];
     const header = () => {
       const box = (el: any) => el.getBoundingClientRect();
@@ -585,7 +764,16 @@ describe.each(ENGINES)("Modern in %s", (_engine, engine) => {
       const brand = box(document.querySelector(".brand"));
       const call = box(document.querySelector(".hdr-call"));
       const nav = box(document.querySelector(".nav-links"));
-      return { shown: links.length, total: document.querySelectorAll(".nav-links a").length, clear: brand.right <= nav.left && nav.right <= call.left, menu: document.querySelector(".menu").getClientRects().length };
+      const quote = document.querySelector(".hdr-quote");
+      const shownQuote = quote.getClientRects().length > 0;
+      const quoteBox = box(quote);
+      return {
+        shown: links.length,
+        total: document.querySelectorAll(".nav-links a").length,
+        clear: brand.right <= nav.left && nav.right <= (shownQuote ? quoteBox.left : call.left) && (!shownQuote || quoteBox.right <= call.left),
+        quote: shownQuote,
+        menu: document.querySelector(".menu").getClientRects().length,
+      };
     };
     for (const name of ["plumber-austin", "roofing-extreme"] as const) {
       for (const font of FONT_IDS) {
@@ -593,7 +781,7 @@ describe.each(ENGINES)("Modern in %s", (_engine, engine) => {
         for (const width of [1024, 1100, 1199, 1280, 1920]) {
           await tab.setViewportSize({ width, height: 800 });
           const got = await tab.evaluate(header);
-          if (got.shown !== got.total || !got.clear || got.menu !== 0) found.push(`${name} ${font} ${width}: ${JSON.stringify(got)}`);
+          if (got.shown !== got.total || !got.clear || got.menu !== 0 || got.quote !== width >= 1200) found.push(`${name} ${font} ${width}: ${JSON.stringify(got)}`);
         }
       }
     }

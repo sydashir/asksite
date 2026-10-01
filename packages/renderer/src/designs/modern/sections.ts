@@ -7,7 +7,7 @@ import { headingLevel, onSite, quoteLink, type RenderContext } from "../../conte
 import { html, safeUrl, type SafeHtml } from "../../html.ts";
 import { DOM_ID } from "../../sections/ids.ts";
 import { itemHeading } from "../../ui.ts";
-import { head, price } from "./parts.ts";
+import { credentialLine, credentialList, head, pageBand, pageCredentials, price } from "./parts.ts";
 
 /**
  * The column count for `count` service cards, at most `most`: the most columns, up to one more than the services.
@@ -20,8 +20,19 @@ export const cardColumns = (count: number, most: number): number => Math.min(mos
 const CARD_COLUMNS = { 2: "cards--c2", 3: "cards--c3", 4: "cards--c4" } as const;
 
 /**
- * Services as cards, each price on its own line under the service's name. The owner's call to action closes the
- * grid as a brand card that fills its last row (judges' must-fix: no empty cell beside the last service).
+ * True when service `i` of `count` shares the last row with the call-to-action card in rows of `columns`: the card
+ * fills the places the last row leaves.
+ */
+const sharesCardRow = (i: number, count: number, columns: number): boolean => count % columns !== 0 && i >= count - (count % columns);
+
+// A service card's classes: card--t2 when it shares the call-to-action card's row in the two columns below 1024 px,
+// card--t3 when it does in the grid's own columns from there; such a card keeps its own height (judges, A16 round 1).
+const CARD = ["card", "card card--t2", "card card--t3", "card card--t2 card--t3"] as const;
+
+/**
+ * Services as cards, each price on its own line under the service's name, and the owner's credentials under the
+ * heading, beside the prices where a visitor checks who the business is. The owner's call to action closes the grid
+ * as a brand card that fills its last row (judges' must-fix: no empty cell beside the last service).
  */
 export function renderServices(ctx: RenderContext, variant: VariantOf<"services">, tone: string): SafeHtml {
   const { facts, copy } = ctx.doc;
@@ -33,11 +44,13 @@ export function renderServices(ctx: RenderContext, variant: VariantOf<"services"
   const priceLine = (dollars: number | undefined) => price(dollars) || (anyPrice && html`<p class="price price--ask">Price on request</p>`);
   const askCard = html`<li class="card ask on-brand"><div><p class="ask-q">${anyPrice ? "Not sure which service you need?" : "Ask us for a price."}</p><p>${anyPrice ? "Tell us about the job." : "Tell us what you need."}</p></div><a class="button button-act" href="${quoteLink()}">${copy.ctaText}</a></li>`;
 
+  const cardClass = (i: number) => CARD[(sharesCardRow(i, items.length, 2) ? 1 : 0) + (sharesCardRow(i, items.length, columns) ? 2 : 0)];
   return html`<section id="${DOM_ID.services}" class="sec ${tone}" aria-labelledby="${DOM_ID.services}-title">
+${pageBand(ctx, "services")}
 <div class="wrap">
-${head(DOM_ID.services, "Our services", copy.sectionIntros.services, level)}
+${head(DOM_ID.services, "Our services", copy.sectionIntros.services, level, credentialLine(pageCredentials(ctx)))}
 <ul class="cards ${CARD_COLUMNS[columns]}${variant === "compact" ? " cards--compact" : ""}">
-${items.map((s) => html`<li class="card">${itemHeading(level, "h3", s.name)}${priceLine(s.startingPrice)}${s.description && html`<p class="card-desc">${s.description}</p>`}</li>`)}
+${items.map((s, i) => html`<li class="${cardClass(i)}">${itemHeading(level, "h3", s.name)}${priceLine(s.startingPrice)}${s.description && html`<p class="card-desc">${s.description}</p>`}</li>`)}
 ${askCard}
 </ul>
 </div>
@@ -70,8 +83,9 @@ ${rest.length > 0 && html`<ul class="quotes">${rest.map((t, i) => html`<li class
 </section>`;
 }
 
-// Two photos side by side; four as two rows of two below 1024 px, and from there as one large photo beside three
-// (the approved mockup's mosaic, judges' round 3), so four photos never take more height than six.
+// Phones show one photo to a row, at the screen's width (judges, A16 round 1). From 640 px: two photos side by side;
+// four as two rows of two below 1024 px, and from there as one large photo beside three (the approved mockup's
+// mosaic, judges' round 3), so four photos never take more height than six; one photo across the content width.
 const SHOTS = { 1: "shots shots--one", 2: "shots shots--two", 4: "shots shots--two shots--four", many: "shots" } as const;
 
 export function renderGallery(ctx: RenderContext, _variant: VariantOf<"gallery">, tone: string): SafeHtml {
@@ -79,6 +93,7 @@ export function renderGallery(ctx: RenderContext, _variant: VariantOf<"gallery">
   const count = facts.photos.length;
   const shots = count === 1 || count === 2 || count === 4 ? SHOTS[count] : SHOTS.many;
   return html`<section id="${DOM_ID.gallery}" class="sec ${tone}" aria-labelledby="${DOM_ID.gallery}-title">
+${pageBand(ctx, "gallery")}
 <div class="wrap">
 ${head(DOM_ID.gallery, "Our work", copy.sectionIntros.gallery, headingLevel(ctx, "gallery"))}
 <ul class="${shots}">
@@ -96,18 +111,23 @@ ${facts.photos.map((p) => html`<li><figure><img src="${safeUrl(p.url, ["https:"]
 const aboutPhoto = (ctx: RenderContext): Photo | undefined => (onSite(ctx, "gallery") ? ctx.doc.facts.photos[0] : undefined) ?? ctx.doc.facts.heroPhoto;
 
 /**
- * The owner's statement set as type on the brand band, with a photo beside it from 1024 px (under it on phones). The
- * band ends its page, before the closing band with the Call and quote buttons, so it carries no buttons of its own.
+ * The owner's statement set as type on the brand band, then the owner's credentials (who a homeowner lets into the
+ * house), with a photo beside them from 1024 px (under them on phones); without a photo the credentials take its
+ * place. The band ends its page, before the closing band with the Call and quote buttons, so it carries no buttons of
+ * its own.
  */
 export function renderAbout(ctx: RenderContext, _variant: VariantOf<"about">): SafeHtml {
   const { facts, copy } = ctx.doc;
   const about = copy.about ?? "";
   const size = about.length > 300 ? " about-text--long" : about.length <= 140 ? " about-text--short" : "";
   const photo = aboutPhoto(ctx);
+  const credentials = credentialList(ctx);
   return html`<section id="${DOM_ID.about}" class="sec on-brand" aria-labelledby="${DOM_ID.about}-title">
-<div class="${photo === undefined ? "wrap" : "wrap about--photo"}">
+${pageBand(ctx, "about")}
+<div class="${photo !== undefined ? "wrap about--photo" : credentials ? "wrap about--facts" : "wrap"}">
 ${head(DOM_ID.about, `About ${facts.businessName}`, undefined, headingLevel(ctx, "about"))}
 <p class="about-text${size}">${about}</p>
+${credentials}
 ${photo !== undefined && html`<img class="about-img" src="${safeUrl(photo.url, ["https:"])}" width="${photo.width}" height="${photo.height}" alt="${photo.alt}" decoding="async">`}
 </div>
 </section>`;
