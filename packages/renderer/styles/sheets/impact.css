@@ -1233,9 +1233,10 @@
   /* The narrowest phones: a smaller line, so the three facts still share one. */
   @media (max-width: 22.49rem) {
     .ph-chips {
-      column-gap: 0.625rem;
+      column-gap: 0.5rem;
     }
     .ph-chips .chip {
+      gap: 0.25rem;
       font-size: 0.75rem;
     }
   }
