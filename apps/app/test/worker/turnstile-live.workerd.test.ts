@@ -11,11 +11,20 @@ const REFUSED = { error: { code: "forbidden", message: "Please complete the secu
 
 const reasons = (): unknown[] => h.logLines().filter((line) => line["route"] === "POST /api/auth/login").map((line) => line["turnstile"]);
 
-async function refused(token: string): Promise<Response> {
-  const res = await h.login("owner@example.com", { turnstile: token });
+async function refused(token: string, ip?: string): Promise<Response> {
+  const res = await h.login("owner@example.com", { turnstile: token, ...(ip === undefined ? {} : { ip }) });
   expect(res.status).toBe(403);
   expect(await res.json()).toEqual(REFUSED);
   return res;
+}
+
+/** Everything the Worker has written to its log since the last clearLogs, as raw text (also lines that are not JSON). */
+const rawLog = (): string => h.server.getLogs().map((entry) => entry.message).join("\n");
+
+/** The secrets-in-logs rule (F15): a refusal's log holds none of these, whatever the reason it names. */
+function expectLogHolds(...secrets: string[]): void {
+  const log = rawLog();
+  for (const secret of secrets) expect(log, `the log must not hold ${secret.slice(0, 6)}...`).not.toContain(secret);
 }
 
 describe("Turnstile with a production-style secret key", () => {
@@ -25,14 +34,21 @@ describe("Turnstile with a production-style secret key", () => {
 
   it("refuses a result for another action, and says why only on the log line", async () => {
     h.server.clearLogs();
-    await refused(liveToken(HOST, "contact"));
+    const token = liveToken(HOST, "contact");
+    await refused(token, "192.0.2.81");
     expect(reasons()).toEqual(["action"]);
+    // Positive anchor: the raw log does hold the reason word, so the checks below read the real output.
+    expect(rawLog()).toContain('"turnstile":"action"');
+    expectLogHolds(token, "owner@example.com", "192.0.2.81", "contact");
   });
 
   it("refuses a result for another host name, and says why only on the log line", async () => {
     h.server.clearLogs();
-    await refused(liveToken("evil.example"));
+    const token = liveToken("evil.example");
+    await refused(token, "192.0.2.82");
     expect(reasons()).toEqual(["hostname"]);
+    expect(rawLog()).toContain('"turnstile":"hostname"');
+    expectLogHolds(token, "owner@example.com", "192.0.2.82", "evil.example");
   });
 
   it("refuses a result that names no host name", async () => {
