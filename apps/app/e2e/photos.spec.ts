@@ -304,7 +304,7 @@ test("a photo picked while another uploads is told to wait, and the first still 
   await expect.poll(() => posts).toBe(1);
   await expect(input).toHaveCSS("opacity", "0.6");
   await input.setInputFiles({ name: "b.jpg", mimeType: "image/jpeg", buffer: await rotatedJpeg() });
-  await expect(page.getByText("Another photo is still uploading. Choose this one again when it finishes.")).toBeVisible();
+  await expect(page.getByText("One photo at a time. Wait for this one to finish, then choose the next.")).toBeVisible();
   release();
   await expect(page.getByText("Photo uploaded. Choose where to use it below.")).toBeVisible();
   await expect(input).not.toHaveCSS("opacity", "0.6");

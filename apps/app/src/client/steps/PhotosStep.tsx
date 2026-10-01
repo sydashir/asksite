@@ -145,7 +145,7 @@ export function PhotoManager(props: StepProps) {
             e.target.value = "";
             // aria-disabled, not disabled: a disabled input would drop the keyboard focus it holds.
             if (file === undefined) return;
-            if (busy) setStatus("Another photo is still uploading. Choose this one again when it finishes.");
+            if (busy) setStatus("One photo at a time. Wait for this one to finish, then choose the next.");
             else void upload(file);
           }}
         />
