@@ -49,6 +49,10 @@ describe("release-guard.ts", () => {
     ["no auth mode", { ADMIN_AUTH_MODE: "" }, "ADMIN_AUTH_MODE"],
     ["an empty audience", { ACCESS_AUD: "" }, "ACCESS_AUD"],
     ["a blank audience", { ACCESS_AUD: " " }, "ACCESS_AUD"],
+    // Decided 2026-10-01: a value with surrounding whitespace is refused, never trimmed.
+    ["an audience with a leading space", { ACCESS_AUD: " fake-padded-audience-0123" }, "ACCESS_AUD"],
+    ["an audience with a trailing space", { ACCESS_AUD: "fake-padded-audience-0123 " }, "ACCESS_AUD"],
+    ["admin emails with a trailing space", { ADMIN_EMAILS: "boss@fake.example " }, "ADMIN_EMAILS"],
     ["an audience that is an object", { ACCESS_AUD: { aud: "fake-object-audience-0123" } }, "ACCESS_AUD"],
     ["admin emails that are an object", { ADMIN_EMAILS: { list: "boss@fake.example" } }, "ADMIN_EMAILS"],
     ["an empty team domain", { ACCESS_TEAM_DOMAIN: "" }, "ACCESS_TEAM_DOMAIN"],

@@ -32,11 +32,14 @@ describe("release-guard.ts", () => {
     ["a sitekey that is an object", { TURNSTILE_SITE_KEY: { key: "0x4AAAAAAAfakefakefake" } }],
     ["a dummy sitekey that always passes", { TURNSTILE_SITE_KEY: "1x00000000000000000000AA" }],
     ["a dummy sitekey that always fails", { TURNSTILE_SITE_KEY: "2x00000000000000000000AB" }],
+    // Decided 2026-10-01: a value with surrounding whitespace is refused, so a padded dummy key cannot slip past the shape check.
+    ["a dummy sitekey with a leading space", { TURNSTILE_SITE_KEY: " 1x00000000000000000000AA" }],
+    ["a real-looking sitekey with a trailing space", { TURNSTILE_SITE_KEY: "0x4AAAAAAApaddedKeyExample " }],
   ])("stops the release on %s, saying which variable", (_what, vars) => {
     const { status, stderr } = guard(vars);
     expect(status).toBe(1);
     expect(stderr).toMatch(/TURNSTILE_SITE_KEY must be the real Turnstile sitekey/);
-    expect(stderr).not.toMatch(/0x4AAAAAAAfake|\[object/);
+    expect(stderr).not.toMatch(/0x4AAAAAAAfake|0x4AAAAAAApadded|1x0000|2x0000|\[object/);
   });
 
   // A config that is not plain JSON (a `//` comment) makes the parser quote the offending line, which holds config

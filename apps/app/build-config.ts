@@ -59,13 +59,18 @@ export function isFilledString(value: unknown): value is string {
   return typeof value === "string" && value.trim() !== "";
 }
 
+/** True when a string has whitespace around it. A release guard refuses such a value instead of trimming it (decided 2026-10-01). */
+export function isPadded(value: unknown): boolean {
+  return typeof value === "string" && value !== value.trim();
+}
+
 /**
  * Throws unless `key` is a real Turnstile sitekey: an empty one leaves the sign-in form without a widget
- * and a dummy one is accepted from any domain. Task 27's deploy step runs this on the production
+ * and a dummy one is accepted from any domain; a padded one is refused, never trimmed. Task 27's deploy step runs this on the production
  * TURNSTILE_SITE_KEY; builds do not, because the e2e and size builds use the dummy key (M3).
  */
 export function assertDeployableSiteKey(key: unknown): void {
-  if (!isFilledString(key) || DUMMY_SITE_KEY.test(key)) throw new Error("TURNSTILE_SITE_KEY must be the real Turnstile sitekey, not empty or one of Cloudflare's dummy keys");
+  if (!isFilledString(key) || isPadded(key) || DUMMY_SITE_KEY.test(key)) throw new Error("TURNSTILE_SITE_KEY must be the real Turnstile sitekey, not empty, padded with spaces or one of Cloudflare's dummy keys");
 }
 
 /** The §9.1 app policy, with this build's media host. */

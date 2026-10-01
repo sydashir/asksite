@@ -3,7 +3,7 @@
 // it never loads Turnstile, and its review screen shows the stored page in a srcdoc iframe, which inherits this
 // policy, so the page's Bold font (a data: URI) needs font-src data:.
 
-import { isFilledString, undeployableLocalConfig as withoutRoutes } from "../app/build-config.ts";
+import { isFilledString, isPadded, undeployableLocalConfig as withoutRoutes } from "../app/build-config.ts";
 import { allowlist } from "./src/worker/access.ts";
 
 /** The Worker name a development-mode build gets in its generated output config (F5). */
@@ -24,18 +24,21 @@ const ACCESS_TEAM_DOMAIN = /^https:\/\/[a-z0-9-]+\.cloudflareaccess\.com$/;
 
 /**
  * Throws unless the production Worker vars let an admin sign in (F5): Access mode (never "dev"), an audience, a team
- * domain of the shape the issuer pin expects (F6), at least one allowed email as the worker reads the list, and no dev
- * admin. The production config ships the Access values empty until Task 27, and an admin deployed that way refuses
- * everyone (F9), so `release` runs this first. The messages name a field and never carry a value.
+ * domain of the shape the issuer pin expects (F6), at least one allowed email as the worker reads the list, no dev
+ * admin, and no value with whitespace around it (refused, never trimmed). The production config ships the Access
+ * values empty until Task 27, and an admin deployed that way refuses everyone (F9), so `release` runs this first.
+ * The messages name a field and never carry a value.
  */
 export function assertDeployableAccess(vars: Record<string, unknown> | undefined): void {
   const v = vars ?? {};
   if (v["ADMIN_AUTH_MODE"] !== "access") throw new Error('ADMIN_AUTH_MODE must be "access" before a release');
   if (!isFilledString(v["ACCESS_AUD"])) throw new Error("ACCESS_AUD must be set before a release");
+  if (isPadded(v["ACCESS_AUD"])) throw new Error("ACCESS_AUD must not have spaces around it");
   const teamDomain = v["ACCESS_TEAM_DOMAIN"];
   if (typeof teamDomain !== "string" || !ACCESS_TEAM_DOMAIN.test(teamDomain)) throw new Error("ACCESS_TEAM_DOMAIN must be set before a release, as https://<team>.cloudflareaccess.com");
   const emails = v["ADMIN_EMAILS"];
   if (typeof emails !== "string" || allowlist(emails).length === 0) throw new Error("ADMIN_EMAILS must be set before a release, with at least one email");
+  if (isPadded(emails)) throw new Error("ADMIN_EMAILS must not have spaces around it");
   const devAdmin = v["DEV_ADMIN_EMAIL"];
   if ((devAdmin ?? "") !== "") throw new Error("DEV_ADMIN_EMAIL must be empty before a release");
 }
