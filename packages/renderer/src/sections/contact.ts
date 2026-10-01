@@ -4,8 +4,8 @@
 // so it sent a GET to the same page); required name and phone; every field has a label and a
 // unique id; autocomplete tokens (WCAG 1.3.5); an off-screen honeypot field; text-md (no CSS in
 // Tailwind 4.3.3) replaced by text-base; 48px inputs; borders that meet 3:1 non-text contrast.
-import type { VariantOf } from "@asksite/site-schema";
-import type { RenderContext } from "../context.ts";
+import { QUOTE_ID, type VariantOf } from "@asksite/site-schema";
+import { headingLevel, type RenderContext } from "../context.ts";
 import { formatPhone, mailtoUrl, telUrl } from "../format.ts";
 import { html, type SafeHtml } from "../html.ts";
 import { icon } from "../icons.ts";
@@ -29,10 +29,10 @@ export function renderContact(ctx: RenderContext, _variant: VariantOf<"contact">
 
   // The email moves to the next line whole and is split only when longer than a line
   // (wrap-anywhere); break-all split addresses that fit ("s / ervice@…").
-  return sectionShell(DOM_ID.contact, "7xl", html`${headline(DOM_ID.contact, copy.ctaText, copy.sectionIntros.contact)}
+  return sectionShell(DOM_ID.contact, "7xl", html`${headline(DOM_ID.contact, copy.ctaText, copy.sectionIntros.contact, headingLevel(ctx, "contact"))}
 <div class="relative mx-auto flex w-full max-w-xl flex-col rounded-lg border border-gray-200 bg-white p-4 shadow sm:p-6 lg:p-8">
 <p class="mb-6 text-default">Prefer to talk? Call <a class="font-semibold whitespace-nowrap text-link underline" href="${telUrl(facts.phone)}">${formatPhone(facts.phone)}</a> or email <a class="font-semibold wrap-anywhere text-link underline" href="${mailtoUrl(facts.email)}">${facts.email}</a>.</p>
-<form action="${ctx.formAction}" method="post">
+<form id="${QUOTE_ID}" action="${ctx.formAction}" method="post">
 <div class="mb-6"><label for="contact-name" class="${LABEL}">Name</label><input id="contact-name" name="name" type="text" autocomplete="name" required maxlength="80" class="${FIELD}"></div>
 <div class="mb-6"><label for="contact-phone" class="${LABEL}">Phone</label><input id="contact-phone" name="phone" type="tel" autocomplete="tel" required maxlength="30" class="${FIELD}"></div>
 <div class="mb-6"><label for="contact-email" class="${LABEL}">Email (optional)</label><input id="contact-email" name="email" type="email" autocomplete="email" maxlength="254" class="${FIELD}"></div>

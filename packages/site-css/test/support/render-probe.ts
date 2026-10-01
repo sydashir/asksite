@@ -1,6 +1,6 @@
 // A throwaway Worker for tests: renders the POSTed SiteDocument with DESIGN_CSS, so a test can prove
 // zod + render() bundle and run inside workerd exactly as they do in Node, and that the page's own
-// design picks its sheet (A12). GET /process answers whether Node.js's `process` exists inside it (A13:
+// design picks its sheet (A12). The body is the site's pages as JSON (A16). GET /process answers whether Node.js's `process` exists inside it (A13:
 // it must not).
 import { render } from "@asksite/renderer";
 import type { SiteDocumentInput } from "@asksite/site-schema";
@@ -13,8 +13,8 @@ export default {
     const doc = (await request.json()) as SiteDocumentInput;
     try {
       const site = render(doc, { stylesheets: DESIGN_CSS, formAction: PROBE_FORM_ACTION, siteUrl: PROBE_SITE_URL });
-      const headers = { "content-type": "text/html; charset=utf-8", "x-design": site.design, "x-stylesheet-sha256": site.stylesheetSha256 };
-      return new Response(site.pages[0]!.html, { headers });
+      const headers = { "x-design": site.design, "x-stylesheet-sha256": site.stylesheetSha256 };
+      return Response.json(site.pages, { headers });
     } catch (error) {
       return new Response(error instanceof Error ? error.name : "Error", { status: 422 });
     }

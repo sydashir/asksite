@@ -5,3 +5,6 @@ export { serializeJsonLd } from "./json-ld.ts";
 export type { Design } from "./design.ts";
 export { pageTitle, render, type DesignStylesheets, type RenderedSite, type RenderedSitePage, type RenderOptions, type Stylesheet } from "./render.ts";
 export { FONTS, PALETTES, themeVariables, type FontPreset, type Palette } from "./theme.ts";
+export { headingLevel, navItems, onPage, onSite, pageLink, quoteLink, sectionLink, type RenderContext } from "./context.ts";
+export { pagePath } from "./html.ts";
+export { sitePages, type SitePage } from "./visibility.ts";

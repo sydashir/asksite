@@ -27,16 +27,16 @@ describe("hero", () => {
     );
   });
 
-  it("offers a call button from facts and a quote button to #contact", () => {
+  it("offers a call button from facts and a quote button to the form on the Contact page", () => {
     const out = String(renderHero(full, "centered"));
     expect(out).toContain('href="tel:+15125550142"');
     expect(out).toContain("Call (512) 555-0142</a>");
-    expect(out).toContain('href="#contact">Get a free quote</a>');
+    expect(out).toContain('href="/contact#quote">Get a free quote</a>');
   });
 
-  it("drops the quote button when there is no contact section", () => {
-    const noContact = { ...full, sections: full.sections.filter((s) => s.id !== "contact") };
-    expect(String(renderHero(noContact, "centered"))).not.toContain('href="#contact"');
+  it("always links the quote button to /contact#quote, even when the Contact section is not on the page", () => {
+    expect(String(renderHero(makeContext(MINIMAL), "centered"))).toContain('href="/contact#quote">Book a clean</a>');
+    expect(String(renderHero(full, "centered"))).not.toContain('href="#');
   });
 
   it("shows the hero photo only in the photo variant", () => {

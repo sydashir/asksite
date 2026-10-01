@@ -5,7 +5,7 @@
 // social links are text links; column titles are real <h2> headings; dark:, intersect-* and
 // fade classes dropped.
 import type { SocialLink } from "@asksite/site-schema";
-import type { RenderContext } from "../context.ts";
+import { quoteLink, type RenderContext } from "../context.ts";
 import { formatPhone, mailtoUrl, telUrl, TRADE_LABEL } from "../format.ts";
 import { html, safeUrl, type SafeHtml } from "../html.ts";
 import { icon } from "../icons.ts";
@@ -58,13 +58,17 @@ ${facts.socialLinks.map((s) => html`<li><a class="inline-block py-1 text-muted h
 }
 
 /**
- * Phone-only call bar that stays at the bottom of the screen. position: sticky needs no JavaScript.
+ * Phone-only call bar that stays at the bottom of the screen: Call (its accessible name starts with the visible
+ * word, WCAG 2.5.3) and Get a quote, which goes to the form on the Contact page. position: sticky needs no JavaScript.
  * An <aside> landmark, so screen-reader users can find it and no content sits outside a landmark.
  * It stops sticking while keyboard focus is elsewhere, so it never hides the focused element.
  */
 export function renderCallBar(ctx: RenderContext): SafeHtml {
   const { phone } = ctx.doc.facts;
   return html`<aside aria-label="Call us" class="sticky bottom-0 z-10 border-t border-gray-200 bg-page px-4 pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] focus-outside:static md:hidden">
-<a class="btn-primary w-full whitespace-nowrap" href="${telUrl(phone)}">${icon("phone", "h-5 w-5")}Call ${formatPhone(phone)}</a>
+<div class="grid grid-cols-2 gap-2">
+<a class="btn-primary whitespace-nowrap" href="${telUrl(phone)}" aria-label="Call ${formatPhone(phone)}">${icon("phone", "h-5 w-5")}Call</a>
+<a class="btn-secondary" href="${quoteLink()}">Get a quote</a>
+</div>
 </aside>`;
 }

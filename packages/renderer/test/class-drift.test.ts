@@ -33,9 +33,9 @@ function withCount(count: number, variantIndex: number): SiteDocumentInput {
 
 describe.each(DESIGN_IDS)("class drift in the %s design", (design) => {
   it("every class in every variant and item count exists in the design's compiled CSS", () => {
-    const pages = [render(inDesign(MINIMAL, design), OPTIONS).pages[0]!.html];
+    const pages = render(inDesign(MINIMAL, design), OPTIONS).pages.map((p) => p.html);
     for (const variantIndex of VARIANT_INDEXES) {
-      for (const count of COUNTS) pages.push(render(inDesign(withCount(count, variantIndex), design), OPTIONS).pages[0]!.html);
+      for (const count of COUNTS) pages.push(...render(inDesign(withCount(count, variantIndex), design), OPTIONS).pages.map((p) => p.html));
     }
     expect(VARIANT_INDEXES.length).toBeGreaterThan(1);
     expect(pages.flatMap((page) => missingClasses(page, loadCompiledCss(design)))).toEqual([]);

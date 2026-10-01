@@ -1,8 +1,8 @@
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { render, type DesignStylesheets } from "@asksite/renderer";
+import { render, type DesignStylesheets, type RenderedSitePage } from "@asksite/renderer";
 import { DESIGN_CSS } from "@asksite/site-css";
-import { DESIGN_IDS, type DesignId, type SiteDocumentInput } from "@asksite/site-schema";
+import { DESIGN_IDS, type DesignId, type PageId, type SiteDocumentInput } from "@asksite/site-schema";
 
 /** Every design's real compiled stylesheet (@asksite/site-css), for tests that check the real sheets. */
 export { DESIGN_CSS };
@@ -32,7 +32,14 @@ export function stubStylesheets(css: string | ((design: DesignId) => string) = "
   return Object.freeze(Object.fromEntries(DESIGN_IDS.map((id) => [id, sheet(typeof css === "string" ? css : css(id))]))) as DesignStylesheets;
 }
 
-/** The fixture's page, in its own design or the one given, with the real stylesheets unless others are given. */
-export function renderFixture(name: FixtureName, stylesheets: DesignStylesheets = DESIGN_CSS, design?: DesignId): string {
-  return render(inDesign(loadFixture(name), design), { stylesheets, formAction: FIXTURE_FORM_ACTION, siteUrl: FIXTURE_SITE_URL }).pages[0]!.html;
+/** The fixture's pages (Home first), in its own design or the one given, with the real stylesheets unless others are given. */
+export function renderFixture(name: FixtureName, stylesheets: DesignStylesheets = DESIGN_CSS, design?: DesignId): readonly RenderedSitePage[] {
+  return render(inDesign(loadFixture(name), design), { stylesheets, formAction: FIXTURE_FORM_ACTION, siteUrl: FIXTURE_SITE_URL }).pages;
+}
+
+/** One page of the fixture as HTML; throws when the fixture has no such page. */
+export function renderFixturePage(name: FixtureName, page: PageId, stylesheets: DesignStylesheets = DESIGN_CSS, design?: DesignId): string {
+  const found = renderFixture(name, stylesheets, design).find((p) => p.page === page);
+  if (found === undefined) throw new Error(`Fixture ${name} has no ${page} page`);
+  return found.html;
 }

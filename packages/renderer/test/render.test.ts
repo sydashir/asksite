@@ -1,4 +1,4 @@
-import { DESIGN_IDS, SiteDocument, type DesignId, type SiteDocumentInput } from "@asksite/site-schema";
+import { DESIGN_IDS, PAGE_IDS, PAGES, SiteDocument, type DesignId, type PageId, type SiteDocumentInput } from "@asksite/site-schema";
 import { describe, expect, it } from "vitest";
 import { FIXTURE_SITE_URL, inDesign, stubStylesheets } from "../../../fixtures/index.ts";
 import { DESIGNS } from "../src/designs/index.ts";
@@ -8,6 +8,7 @@ import { squash, squashedText } from "./support/page-text.ts";
 
 const OPTIONS: RenderOptions = { stylesheets: stubStylesheets("/* compiled css */"), formAction: "https://forms.example.com/submit", siteUrl: FIXTURE_SITE_URL };
 const renderHtml = (input: SiteDocumentInput, options: RenderOptions = OPTIONS) => render(input, options).pages[0]!.html;
+const pageHtml = (input: SiteDocumentInput, page: PageId) => render(input, OPTIONS).pages.find((p) => p.page === page)!.html;
 const scriptTags = (html: string) => [...html.matchAll(/<script\b[^>]*>/gi)].map((m) => m[0]);
 
 describe("render", () => {
@@ -28,31 +29,59 @@ describe("render", () => {
     expect(page.match(/<style>:root\{/g)).toHaveLength(1);
   });
 
-  it("ships zero JavaScript: the only scripts are JSON-LD", () => {
-    const scripts = scriptTags(page);
-    expect(scripts).toEqual(['<script type="application/ld+json">', '<script type="application/ld+json">']);
-    expect(page).not.toMatch(/\son[a-z]+=/i);
-    expect(page).not.toMatch(/javascript:/i);
-    expect(page).not.toMatch(/http-equiv/i);
+  it("ships zero JavaScript on every page: the only scripts are JSON-LD", () => {
+    for (const { html: text } of render(FULL, OPTIONS).pages) {
+      expect(scriptTags(text).every((tag) => tag === '<script type="application/ld+json">')).toBe(true);
+      expect(text).not.toMatch(/\son[a-z]+=/i);
+      expect(text).not.toMatch(/javascript:/i);
+      expect(text).not.toMatch(/http-equiv/i);
+    }
+    expect(scriptTags(page)).toHaveLength(1);
   });
 
-  it("carries the MIT copyright notices in one comment, the design's attribution", () => {
-    expect(page.match(/<!--/g)).toHaveLength(1);
-    expect(page).toContain(DESIGNS.impact.attribution);
+  it("carries the MIT copyright notices in one comment on every page, the design's attribution", () => {
+    for (const { html: text } of render(FULL, OPTIONS).pages) {
+      expect(text.match(/<!--/g)).toHaveLength(1);
+      expect(text).toContain(DESIGNS.impact.attribution);
+    }
   });
 
-  it("emits FAQPage JSON-LD only when the FAQ section renders", () => {
-    expect(page).toContain('"@type":"FAQPage"');
-    const minimal = renderHtml(MINIMAL);
-    expect(minimal).not.toContain("FAQPage");
-    expect(scriptTags(minimal)).toHaveLength(1);
+  it("emits FAQPage JSON-LD only on the Services page, and only when the FAQ section renders", () => {
+    expect(pageHtml(FULL, "services")).toContain('"@type":"FAQPage"');
+    expect(page).not.toContain("FAQPage");
+    const minimal = render(MINIMAL, OPTIONS);
+    expect(minimal.pages.map((p) => p.html).join("")).not.toContain("FAQPage");
+    expect(scriptTags(pageHtml(MINIMAL, "services"))).toHaveLength(0);
+    expect(scriptTags(minimal.pages[0]!.html)).toHaveLength(1);
   });
 
-  it("renders sections in layout order, hiding empty ones", () => {
-    const ids = [...page.matchAll(/<section id="([a-z-]+)"/g)].map((m) => m[1]);
-    expect(ids).toEqual(["top", "credentials", "services", "reviews", "our-work", "about", "service-area", "faq", "contact"]);
-    const minimalIds = [...renderHtml(MINIMAL).matchAll(/<section id="([a-z-]+)"/g)].map((m) => m[1]);
-    expect(minimalIds).toEqual(["top", "services", "service-area", "contact"]);
+  const sectionIds = (text: string) => [...text.matchAll(/<section id="([a-z-]+)"/g)].map((m) => m[1]);
+
+  it("renders each page's sections in layout order, hiding empty ones, with the services preview and the closing band", () => {
+    expect(PAGE_IDS.map((p) => [p, sectionIds(pageHtml(FULL, p))])).toEqual([
+      ["home", ["top", "credentials", "services-preview", "reviews", "get-in-touch"]],
+      ["services", ["services", "faq", "get-in-touch"]],
+      ["about", ["about", "get-in-touch"]],
+      ["gallery", ["our-work", "get-in-touch"]],
+      ["contact", ["contact", "service-area"]],
+    ]);
+    const minimal = render(MINIMAL, OPTIONS).pages;
+    expect(minimal.map((p) => [p.page, sectionIds(p.html)])).toEqual([
+      ["home", ["top", "services-preview", "get-in-touch"]],
+      ["services", ["services", "get-in-touch"]],
+      ["contact", ["contact", "service-area"]],
+    ]);
+  });
+
+  it("puts the services preview after Home's last section when Home has no testimonials", () => {
+    const { testimonials: _t, ...facts } = FULL.facts;
+    expect(sectionIds(pageHtml({ ...FULL, facts }, "home"))).toEqual(["top", "credentials", "services-preview", "get-in-touch"]);
+  });
+
+  it("follows the owner's order within a page (U1), the preview still right before testimonials", () => {
+    const pick = (id: string) => FULL.layout.filter((s) => s.id === id);
+    const layout = [...pick("hero"), ...pick("testimonials"), ...pick("trust"), ...FULL.layout.filter((s) => !["hero", "testimonials", "trust"].includes(s.id))];
+    expect(sectionIds(pageHtml({ ...FULL, layout }, "home"))).toEqual(["top", "services-preview", "reviews", "credentials", "get-in-touch"]);
   });
 
   it("is deterministic", () => {
@@ -65,12 +94,13 @@ describe("render", () => {
     expect(() => renderHtml(FULL, { ...OPTIONS, stylesheets: stubStylesheets("</style><script>alert(1)</script>") })).toThrow("</style");
   });
 
-  it("returns the site: its design, its sheet's hash and exactly one page, Home", () => {
+  it("returns the site: its design, its sheet's hash and every page in the page map's order, Home first", () => {
     const site = render(FULL, OPTIONS);
     const parsed = SiteDocument.parse(FULL);
     expect(site.design).toBe(parsed.theme.design);
     expect(site.stylesheetSha256).toBe(OPTIONS.stylesheets[parsed.theme.design].sha256);
-    expect(site.pages).toEqual([{ page: "home", path: "/", html: page }]);
+    expect(site.pages.map(({ page, path }) => ({ page, path }))).toEqual(PAGE_IDS.map((id) => ({ page: id, path: PAGES[id].path })));
+    expect(site.pages[0]?.html).toBe(page);
   });
 
   it.each([
@@ -113,7 +143,7 @@ describe("facts and copy stay separate", () => {
         testimonials: [{ quote: "Changed quote.", name: "Pat" }],
       },
     };
-    const out = renderHtml(changed);
+    const out = render(changed, OPTIONS).pages.map((p) => p.html).join("\n");
     // The new facts are read as page text (any design's markup); the old ones must be gone from the markup.
     const text = squashedText(out);
     expect(squashedText(page)).toContain(squash("(512) 555-0142"));

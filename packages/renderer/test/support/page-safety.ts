@@ -1,17 +1,23 @@
-// Page-wide safety checks, run on every fixture in every design (A12; moved from xss.test.ts). A design's
-// markup is ours, but the owner's facts and the AI's copy fill it, so each page is checked as the HTML
+// Page-wide safety checks, run on every page of every fixture in every design (A12, A16; moved from xss.test.ts).
+// A design's markup is ours, but the owner's facts and the AI's copy fill it, so each page is checked as the HTML
 // tokenizer reads it.
+import { PAGE_IDS, PAGES } from "@asksite/site-schema";
 
 // Elements a page may hold. dl dt dd strong small wbr and the svg shapes were added for the page
 // designs (A12-0 round-2 rulings); the attribute, URL and handler checks below apply to every element.
 const ALLOWED_TAGS = new Set(
   (
-    "html head meta title style script body a header div nav ul li details summary span main section " +
+    "html head meta title link style script body a header div nav ul li details summary span main section " +
     "p h1 h2 h3 img figure figcaption blockquote hr table tbody tr th td address br form label input select option " +
     "textarea button aside footer dl dt dd strong small wbr " +
     "svg g path rect circle line polyline polygon"
   ).split(" "),
 );
+
+// The links a page may hold, one anchored pattern: an absolute https:, tel: or mailto: URL, a fragment of this page,
+// or exactly one of the site's own page paths (built from PAGES), optionally with a fragment: "/services", "/contact#quote".
+const PAGE_PATHS = PAGE_IDS.map((id) => PAGES[id].path.replace(/[/.]/g, "\\$&")).join("|");
+const ALLOWED_URL = new RegExp(String.raw`^(?:(?:https:|tel:|mailto:|#)|(?:${PAGE_PATHS})(?:#[a-z][a-z0-9-]*)?$)`);
 
 // Attributes the browser fetches or navigates to.
 const URL_ATTRIBUTES = new Set(["href", "src", "action", "formaction", "poster", "cite", "data", "ping", "background", "xlink:href", "srcset"]);
@@ -54,8 +60,12 @@ export function startTags(page: string): StartTag[] {
   }));
 }
 
-/** Everything on the page that could run script, fetch or navigate somewhere it should not; [] when safe. */
-export function pageSafetyProblems(page: string): string[] {
+/**
+ * Everything on the page that could run script, fetch or navigate somewhere it should not; [] when safe. The one
+ * <link> a page may hold is its canonical, rel and href only, with an https: href; `canonical`, when given, is the
+ * href it must have.
+ */
+export function pageSafetyProblems(page: string, canonical?: string): string[] {
   const problems: string[] = [];
   const tags = startTags(page);
   const endTags = page.match(/<\/[a-zA-Z][\w-]*>/g) ?? [];
@@ -70,9 +80,18 @@ export function pageSafetyProblems(page: string): string[] {
       if (name.startsWith("on")) problems.push(`handler ${name}`);
       if (FORBIDDEN_ATTRIBUTES.has(name)) problems.push(`attribute ${name}`);
       if (!doubleQuoted) problems.push(`unquoted ${name}`);
-      if (URL_ATTRIBUTES.has(name) && !/^(https:|tel:|mailto:|#)/.test(value)) problems.push(`url ${name}=${value}`);
+      if (URL_ATTRIBUTES.has(name) && !ALLOWED_URL.test(value)) problems.push(`url ${name}=${value}`);
       if (/^\s*(javascript|vbscript|data):/i.test(value)) problems.push(`scheme ${name}=${value}`);
     }
+  }
+  const links = tags.filter((t) => t.name === "link");
+  if (links.length !== 1) problems.push(`${links.length} <link> elements`);
+  for (const link of links) {
+    const names = link.attributes.map((a) => a.name).sort();
+    const rel = link.attributes.find((a) => a.name === "rel")?.value;
+    const href = link.attributes.find((a) => a.name === "href")?.value ?? "";
+    if (names.join() !== "href,rel" || rel !== "canonical" || !href.startsWith("https:")) problems.push(`link ${link.raw}`);
+    else if (canonical !== undefined && href !== canonical) problems.push(`canonical ${href}, expected ${canonical}`);
   }
   const scripts = tags.filter((t) => t.name === "script");
   for (const script of scripts) if (script.raw !== '<script type="application/ld+json">') problems.push(`script ${script.raw}`);
