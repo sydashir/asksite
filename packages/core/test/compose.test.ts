@@ -45,7 +45,7 @@ describe("composeDocument", () => {
     const fixture = loadFixture(name);
     const { facts, ai } = split(fixture);
     const composed = SiteDocument.parse(composeDocument(facts, ai, EMPTY_EDITS));
-    const options = { stylesheets: stubStylesheets(), formAction: "https://joes.asksite.example/_f/x" };
+    const options = { stylesheets: stubStylesheets(), formAction: "https://joes.asksite.example/_f/x", siteUrl: "https://joes.asksite.example/" };
     expect(render(composed, options)).toEqual(render({ ...fixture, layout: inDefaultOrder(fixture.layout) }, options));
   });
 

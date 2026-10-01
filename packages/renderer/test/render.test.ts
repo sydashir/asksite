@@ -1,13 +1,13 @@
 import { DESIGN_IDS, SiteDocument, type DesignId, type SiteDocumentInput } from "@asksite/site-schema";
 import { describe, expect, it } from "vitest";
-import { inDesign, stubStylesheets } from "../../../fixtures/index.ts";
+import { FIXTURE_SITE_URL, inDesign, stubStylesheets } from "../../../fixtures/index.ts";
 import { DESIGNS } from "../src/designs/index.ts";
 import { pageTitle, render, type RenderOptions } from "../src/index.ts";
 import { FULL, MINIMAL } from "./support/doc.ts";
 import { squash, squashedText } from "./support/page-text.ts";
 
-const OPTIONS: RenderOptions = { stylesheets: stubStylesheets("/* compiled css */"), formAction: "https://forms.example.com/submit" };
-const renderHtml = (input: SiteDocumentInput, options: RenderOptions = OPTIONS) => render(input, options).html;
+const OPTIONS: RenderOptions = { stylesheets: stubStylesheets("/* compiled css */"), formAction: "https://forms.example.com/submit", siteUrl: FIXTURE_SITE_URL };
+const renderHtml = (input: SiteDocumentInput, options: RenderOptions = OPTIONS) => render(input, options).pages[0]!.html;
 const scriptTags = (html: string) => [...html.matchAll(/<script\b[^>]*>/gi)].map((m) => m[0]);
 
 describe("render", () => {
@@ -65,6 +65,33 @@ describe("render", () => {
     expect(() => renderHtml(FULL, { ...OPTIONS, stylesheets: stubStylesheets("</style><script>alert(1)</script>") })).toThrow("</style");
   });
 
+  it("returns the site: its design, its sheet's hash and exactly one page, Home", () => {
+    const site = render(FULL, OPTIONS);
+    const parsed = SiteDocument.parse(FULL);
+    expect(site.design).toBe(parsed.theme.design);
+    expect(site.stylesheetSha256).toBe(OPTIONS.stylesheets[parsed.theme.design].sha256);
+    expect(site.pages).toEqual([{ page: "home", path: "/", html: page }]);
+  });
+
+  it.each([
+    ["a path", "https://fixture.asksite.example/shop/"],
+    ["a query", "https://fixture.asksite.example/?a=1"],
+    ["a hash", "https://fixture.asksite.example/#top"],
+    ["userinfo", "https://user@fixture.asksite.example/"],
+    ["http", "http://fixture.asksite.example/"],
+    ["no final slash", "https://fixture.asksite.example"],
+    ["a different spelling of the origin", "https://FIXTURE.asksite.example/"],
+    ["a default port", "https://fixture.asksite.example:443/"],
+    ["not a URL", "fixture.asksite.example"],
+    ["empty", ""],
+  ])("refuses a siteUrl with %s", (_name, siteUrl) => {
+    expect(() => renderHtml(FULL, { ...OPTIONS, siteUrl })).toThrow();
+  });
+
+  it("accepts an https origin with a port and a final slash", () => {
+    expect(() => renderHtml(FULL, { ...OPTIONS, siteUrl: "https://joes.asksite.example:8443/" })).not.toThrow();
+  });
+
   it("falls back to the business name when the title would be too long", () => {
     const long = SiteDocument.parse({ ...FULL, facts: { ...FULL.facts, businessName: "B".repeat(60) } });
     expect(pageTitle(long)).toBe("B".repeat(60));
@@ -112,19 +139,19 @@ describe("page designs (A12)", () => {
   it("renders a stored document without a design in the default design, impact", () => {
     const page = render(FULL, OPTIONS);
     expect(page.design).toBe("impact");
-    expect(page.html).toContain('<body data-design="impact" class="');
+    expect(page.pages[0]!.html).toContain('<body data-design="impact" class="');
   });
 
   it.each(DESIGN_IDS)("%s: names the parsed document's design on <body> and in the result", (design) => {
     const page = render(inDesign(FULL, design), OPTIONS);
     expect(page.design).toBe(design);
-    expect(page.html.match(/<body\b[^>]*>/g)).toEqual([`<body data-design="${design}" class="${DESIGNS[design].bodyClass}">`]);
+    expect(page.pages[0]!.html.match(/<body\b[^>]*>/g)).toEqual([`<body data-design="${design}" class="${DESIGNS[design].bodyClass}">`]);
   });
 
   it.each(DESIGN_IDS)("%s: inlines its own stylesheet, never another design's, and returns that sheet's SHA-256", (design) => {
     const stylesheets = stubStylesheets((id) => `/* the ${id} sheet */`);
     const page = render(inDesign(FULL, design), { ...OPTIONS, stylesheets });
-    for (const id of DESIGN_IDS) expect(page.html.includes(`<style>/* the ${id} sheet */</style>`)).toBe(id === design);
+    for (const id of DESIGN_IDS) expect(page.pages[0]!.html.includes(`<style>/* the ${id} sheet */</style>`)).toBe(id === design);
     expect(page.stylesheetSha256).toBe(stylesheets[design].sha256);
     expect(new Set(DESIGN_IDS.map((id) => stylesheets[id].sha256)).size).toBe(DESIGN_IDS.length); // the stubs differ
   });

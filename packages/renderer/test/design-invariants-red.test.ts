@@ -1,6 +1,6 @@
 import { SiteDocument } from "@asksite/site-schema";
 import { describe, expect, it, vi } from "vitest";
-import { FIXTURE_FORM_ACTION, inDesign, loadFixture, stubStylesheets } from "../../../fixtures/index.ts";
+import { FIXTURE_FORM_ACTION, FIXTURE_SITE_URL, inDesign, loadFixture, stubStylesheets } from "../../../fixtures/index.ts";
 import { BASELINE } from "../src/baseline.ts";
 import { DESIGNS } from "../src/designs/index.ts";
 import { render, renderDocument } from "../src/render.ts";
@@ -27,11 +27,11 @@ vi.mock("../src/designs/index.ts", async () => {
   };
 });
 
-const OPTIONS = { stylesheets: stubStylesheets(), formAction: FIXTURE_FORM_ACTION };
+const OPTIONS = { stylesheets: stubStylesheets(), formAction: FIXTURE_FORM_ACTION, siteUrl: FIXTURE_SITE_URL };
 
 describe("broken designs are caught (RED proof)", () => {
   it("copy written through trusted() fails the page-safety check", () => {
-    const page = render(inDesign(loadFixture("electrical-xss"), "impact"), OPTIONS).html;
+    const page = render(inDesign(loadFixture("electrical-xss"), "impact"), OPTIONS).pages[0]!.html;
     expect(pageSafetyProblems(page)).toEqual(expect.arrayContaining(["url src=x", "handler onerror"]));
   });
 
@@ -41,7 +41,7 @@ describe("broken designs are caught (RED proof)", () => {
   ] as const)("the %s stub with %s fails the shared invariants", (design, _, problem) => {
     const input = inDesign(loadFixture("plumber-austin"), design);
     const doc = SiteDocument.parse(input);
-    const page = render(input, OPTIONS).html;
-    expect(invariantProblems(page, renderDocument(doc, BASELINE, OPTIONS).html, doc, DESIGNS[design])).toContain(problem);
+    const page = render(input, OPTIONS).pages[0]!.html;
+    expect(invariantProblems(page, renderDocument(doc, BASELINE, OPTIONS).pages[0]!.html, doc, DESIGNS[design])).toContain(problem);
   });
 });

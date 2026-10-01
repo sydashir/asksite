@@ -1,14 +1,14 @@
 import { SiteDocument, type SiteDocumentInput } from "@asksite/site-schema";
 import { describe, expect, it } from "vitest";
-import { stubStylesheets } from "../../../fixtures/index.ts";
+import { FIXTURE_SITE_URL, stubStylesheets } from "../../../fixtures/index.ts";
 import { render as renderPage } from "../src/index.ts";
 import { visibleSections } from "../src/visibility.ts";
 import { FULL } from "./support/doc.ts";
 
 // Amendment A6: a section the owner hid is gone from <main>, the header navigation and (for the
 // FAQ) the FAQPage JSON-LD. LocalBusiness JSON-LD is unchanged: hiding hides, it deletes no facts.
-const OPTIONS = { stylesheets: stubStylesheets("/* css */"), formAction: "https://forms.example.com/submit" };
-const render = (input: SiteDocumentInput, options: typeof OPTIONS) => renderPage(input, options).html;
+const OPTIONS = { stylesheets: stubStylesheets("/* css */"), formAction: "https://forms.example.com/submit", siteUrl: FIXTURE_SITE_URL };
+const render = (input: SiteDocumentInput, options: typeof OPTIONS) => renderPage(input, options).pages[0]!.html;
 const sectionIds = (page: string) => [...page.matchAll(/<section id="([a-z-]+)"/g)].map((m) => m[1]);
 const withHidden = (hidden: string[]): SiteDocumentInput => ({ ...FULL, hidden } as SiteDocumentInput);
 

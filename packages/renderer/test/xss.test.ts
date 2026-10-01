@@ -1,6 +1,6 @@
 import { DESIGN_IDS } from "@asksite/site-schema";
 import { describe, expect, it } from "vitest";
-import { FIXTURES, loadFixture, renderFixture, stubStylesheets } from "../../../fixtures/index.ts";
+import { FIXTURE_SITE_URL, FIXTURES, loadFixture, renderFixture, stubStylesheets } from "../../../fixtures/index.ts";
 import { escapeText } from "../src/escape.ts";
 import { render } from "../src/index.ts";
 import { FULL } from "./support/doc.ts";
@@ -81,7 +81,7 @@ describe("the page checks can fail (RED proof)", () => {
 
 describe("the render boundary", () => {
   it("refuses a theme payload", () => {
-    const options = { stylesheets: stubStylesheets(""), formAction: "https://forms.example.com/submit" };
+    const options = { stylesheets: stubStylesheets(""), formAction: "https://forms.example.com/submit", siteUrl: FIXTURE_SITE_URL };
     const payload = "red;}</style><script>alert(1)</script>";
     expect(() => render({ ...FULL, theme: { palette: payload, font: "clean" } } as never, options)).toThrow('"palette"');
     expect(() => render({ ...FULL, theme: { palette: "navy-orange", font: payload } } as never, options)).toThrow('"font"');

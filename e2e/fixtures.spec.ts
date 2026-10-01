@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { expect, test, type Page } from "@playwright/test";
 import { render } from "@asksite/renderer";
 import { DESIGN_IDS, FONT_IDS, SiteDocument, type DesignId, type FontId, type SiteDocumentInput } from "@asksite/site-schema";
-import { DESIGN_CSS, FIXTURE_FORM_ACTION, FIXTURES, inDesign, loadFixture, stubStylesheets, type FixtureName } from "../fixtures/index.ts";
+import { DESIGN_CSS, FIXTURE_FORM_ACTION, FIXTURE_SITE_URL, FIXTURES, inDesign, loadFixture, stubStylesheets, type FixtureName } from "../fixtures/index.ts";
 import { BASELINE } from "../packages/renderer/src/baseline.ts";
 import { renderDocument } from "../packages/renderer/src/render.ts";
 
@@ -39,7 +39,7 @@ async function openHtml(page: Page, html: string): Promise<void> {
 }
 
 const openDocument = (page: Page, doc: SiteDocumentInput): Promise<void> =>
-  openHtml(page, render(doc, { stylesheets: DESIGN_CSS, formAction: FIXTURE_FORM_ACTION }).html);
+  openHtml(page, render(doc, { stylesheets: DESIGN_CSS, formAction: FIXTURE_FORM_ACTION, siteUrl: FIXTURE_SITE_URL }).pages[0]!.html);
 
 /** The fixture's page in the given design (A12), or in its own design when none is given. */
 const open = (page: Page, name: FixtureName, design?: DesignId): Promise<void> => openDocument(page, inDesign(loadFixture(name), design));
@@ -54,10 +54,10 @@ const BASELINE_CSS = readFileSync(new URL("../packages/renderer/styles/out/basel
  * checks (A12-0 round-2 attack, I-1).
  */
 function openToday(page: Page, name: FixtureName, font?: FontId): Promise<void> {
-  const options = { stylesheets: stubStylesheets(BASELINE_CSS), formAction: FIXTURE_FORM_ACTION };
+  const options = { stylesheets: stubStylesheets(BASELINE_CSS), formAction: FIXTURE_FORM_ACTION, siteUrl: FIXTURE_SITE_URL };
   const doc = loadFixture(name);
   const input = font === undefined ? doc : { ...doc, theme: { ...doc.theme, font } };
-  return openHtml(page, renderDocument(SiteDocument.parse(input), BASELINE, options).html);
+  return openHtml(page, renderDocument(SiteDocument.parse(input), BASELINE, options).pages[0]!.html);
 }
 
 /**

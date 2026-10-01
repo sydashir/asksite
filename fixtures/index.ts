@@ -14,6 +14,9 @@ export type FixtureName = (typeof FIXTURES)[number];
 /** Placeholder form endpoint for fixtures; the real one arrives with plan 2. */
 export const FIXTURE_FORM_ACTION = "https://forms.example.com/submit";
 
+/** Placeholder site origin for fixtures (A16: the canonical base the renderer is given). */
+export const FIXTURE_SITE_URL = "https://fixture.asksite.example/";
+
 export function loadFixture(name: FixtureName): SiteDocumentInput {
   return JSON.parse(readFileSync(new URL(`./${name}.json`, import.meta.url), "utf8")) as SiteDocumentInput;
 }
@@ -31,5 +34,5 @@ export function stubStylesheets(css: string | ((design: DesignId) => string) = "
 
 /** The fixture's page, in its own design or the one given, with the real stylesheets unless others are given. */
 export function renderFixture(name: FixtureName, stylesheets: DesignStylesheets = DESIGN_CSS, design?: DesignId): string {
-  return render(inDesign(loadFixture(name), design), { stylesheets, formAction: FIXTURE_FORM_ACTION }).html;
+  return render(inDesign(loadFixture(name), design), { stylesheets, formAction: FIXTURE_FORM_ACTION, siteUrl: FIXTURE_SITE_URL }).pages[0]!.html;
 }

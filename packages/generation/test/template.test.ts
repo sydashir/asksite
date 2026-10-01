@@ -3,7 +3,7 @@ import { DESIGN_IDS, Facts, SiteDocument, TRADES, unbackedClaims, proseIn } from
 import { describe, expect, it } from "vitest";
 import { render } from "@asksite/renderer";
 import { HtmlValidate, StaticConfigLoader } from "html-validate";
-import { FIXTURE_FORM_ACTION, FIXTURES, inDesign, loadFixture, stubStylesheets } from "../../../fixtures/index.ts";
+import { FIXTURE_FORM_ACTION, FIXTURE_SITE_URL, FIXTURES, inDesign, loadFixture, stubStylesheets } from "../../../fixtures/index.ts";
 import { templateAnswer, templateDraft } from "../src/template.ts";
 import { MINIMAL_FACTS } from "./support/samples.ts";
 
@@ -86,8 +86,8 @@ describe("templateDraft", () => {
     const document = { facts, ...templateDraft(facts, Brief.parse({ tone: "friendly", goal: "quote" })), hidden: [] };
     const validator = new HtmlValidate(new StaticConfigLoader({ extends: ["html-validate:recommended"], rules: { "tel-non-breaking": ["error", { ignoreClasses: ["whitespace-nowrap"] }] } }));
     for (const design of DESIGN_IDS) {
-      const page = render(inDesign(document, design), { stylesheets: stubStylesheets(), formAction: FIXTURE_FORM_ACTION });
-      expect({ design: page.design, valid: (await validator.validateString(page.html)).valid }).toEqual({ design, valid: true });
+      const page = render(inDesign(document, design), { stylesheets: stubStylesheets(), formAction: FIXTURE_FORM_ACTION, siteUrl: FIXTURE_SITE_URL });
+      expect({ design: page.design, valid: (await validator.validateString(page.pages[0]!.html)).valid }).toEqual({ design, valid: true });
     }
   });
 

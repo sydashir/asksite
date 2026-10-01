@@ -1,6 +1,6 @@
 import { DESIGN_IDS, SiteDocument } from "@asksite/site-schema";
 import { describe, expect, it, vi } from "vitest";
-import { inDesign, stubStylesheets } from "../../../fixtures/index.ts";
+import { FIXTURE_SITE_URL, inDesign, stubStylesheets } from "../../../fixtures/index.ts";
 import { render } from "../src/index.ts";
 import { FULL } from "./support/doc.ts";
 
@@ -23,12 +23,12 @@ vi.mock("../src/designs/index.ts", async () => {
   return { DESIGNS: Object.fromEntries(DESIGN_IDS.map((id) => [id, stub(id)])) };
 });
 
-const OPTIONS = { stylesheets: stubStylesheets(), formAction: "https://forms.example.com/submit" };
+const OPTIONS = { stylesheets: stubStylesheets(), formAction: "https://forms.example.com/submit", siteUrl: FIXTURE_SITE_URL };
 
 describe("render() dispatches through the design registry (A12)", () => {
   it.each(DESIGN_IDS)("draws a %s page with every part of that design and none of another", (design) => {
     const doc = inDesign(FULL, design);
-    const { html } = render(doc, OPTIONS);
+    const html = render(doc, OPTIONS).pages[0]!.html;
     const palette = SiteDocument.parse(doc).theme.palette;
     expect(html).toContain(`<!-- the ${design} design -->`);
     expect(html).toContain(`<body data-design="${design}" class="page-${design}">`);

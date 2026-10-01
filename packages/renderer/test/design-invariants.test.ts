@@ -12,7 +12,7 @@ import {
   type SiteDocumentInput,
 } from "@asksite/site-schema";
 import { describe, expect, it } from "vitest";
-import { FIXTURE_FORM_ACTION, FIXTURES, inDesign, loadFixture, stubStylesheets } from "../../../fixtures/index.ts";
+import { FIXTURE_FORM_ACTION, FIXTURE_SITE_URL, FIXTURES, inDesign, loadFixture, stubStylesheets } from "../../../fixtures/index.ts";
 import { BASELINE } from "../src/baseline.ts";
 import type { Design } from "../src/design.ts";
 import { DESIGNS } from "../src/designs/index.ts";
@@ -30,12 +30,12 @@ import {
   variableProblems,
 } from "./support/design-invariants.ts";
 
-const OPTIONS = { stylesheets: stubStylesheets(), formAction: FIXTURE_FORM_ACTION };
+const OPTIONS = { stylesheets: stubStylesheets(), formAction: FIXTURE_FORM_ACTION, siteUrl: FIXTURE_SITE_URL };
 
 /** The design's page for `input`, and today's page (BASELINE) for the same document. */
 function pages(input: SiteDocumentInput) {
   const doc = SiteDocument.parse(input);
-  return { doc, page: render(input, OPTIONS).html, baseline: renderDocument(doc, BASELINE, OPTIONS).html };
+  return { doc, page: render(input, OPTIONS).pages[0]!.html, baseline: renderDocument(doc, BASELINE, OPTIONS).pages[0]!.html };
 }
 
 function withoutHeroPhoto(input: SiteDocumentInput): SiteDocumentInput {
@@ -69,7 +69,7 @@ describe.each(DESIGN_IDS)("the %s design", (design) => {
 
   it.each(FIXTURES)("renders the same page with either hero variant when %s has no hero photo", (name) => {
     const input = withoutHeroPhoto(inDesign(loadFixture(name), design));
-    const variants = SECTION_VARIANTS.hero.map((variant) => render(withHeroVariant(input, variant), OPTIONS).html);
+    const variants = SECTION_VARIANTS.hero.map((variant) => render(withHeroVariant(input, variant), OPTIONS).pages[0]!.html);
     expect(variants).toHaveLength(2);
     expect(new Set(variants).size).toBe(1);
   });
@@ -151,13 +151,13 @@ describe("the invariant checks can fail (RED proof, on edited pages)", () => {
     ["that have no content", loadFixture("cleaning-minimal"), ["#reviews", "#our-work", "#about", "#faq"]],
   ])("catch a design whose navigation links sections %s", (_, input, dead) => {
     const doc = SiteDocument.parse(input);
-    const baseline = renderDocument(doc, BASELINE, OPTIONS).html;
-    expect(invariantProblems(renderDocument(doc, leaky, OPTIONS).html, baseline, doc, leaky)).toEqual([`in-page links to missing ids ${JSON.stringify(dead)}`]);
+    const baseline = renderDocument(doc, BASELINE, OPTIONS).pages[0]!.html;
+    expect(invariantProblems(renderDocument(doc, leaky, OPTIONS).pages[0]!.html, baseline, doc, leaky)).toEqual([`in-page links to missing ids ${JSON.stringify(dead)}`]);
   });
 
   it("catch a section the owner hid that is still on the page as another element (with its link)", () => {
     const doc = SiteDocument.parse(withHidden(loadFixture("plumber-austin"), ["testimonials"]));
-    const baseline = renderDocument(doc, BASELINE, OPTIONS).html;
+    const baseline = renderDocument(doc, BASELINE, OPTIONS).pages[0]!.html;
     const edited = baseline.replace("</main>", '<p><a href="#reviews">Read our reviews</a></p>\n<div id="reviews"><p>Great work, fair price.</p></div>\n</main>');
     expect(edited).not.toBe(baseline);
     expect(invariantProblems(edited, baseline, doc, BASELINE)).toEqual(['left-out sections keep ids ["reviews"]']);
@@ -179,8 +179,8 @@ describe("the invariant checks can fail (RED proof, on edited pages)", () => {
     ["electrical-xss", ["bonded", "guaranteed", "emergency", "free"]],
   ] as const)("catch a design whose own text states claims no owner fact backs, on %s", (name, claims) => {
     const doc = SiteDocument.parse(loadFixture(name));
-    const baseline = renderDocument(doc, BASELINE, OPTIONS).html;
-    expect(invariantProblems(renderDocument(doc, boasting, OPTIONS).html, baseline, doc, boasting)).toEqual([`unbacked claims ${JSON.stringify(claims)}`]);
+    const baseline = renderDocument(doc, BASELINE, OPTIONS).pages[0]!.html;
+    expect(invariantProblems(renderDocument(doc, boasting, OPTIONS).pages[0]!.html, baseline, doc, boasting)).toEqual([`unbacked claims ${JSON.stringify(claims)}`]);
   });
 
   it.each([
@@ -201,7 +201,7 @@ describe("the invariant checks can fail (RED proof, on edited pages)", () => {
     ["words joined by a no-break space or a no-break hyphen", "<p>Same&nbsp;day visits, 5&#8209;star crew</p>", ["5-star", "same day"]],
   ])("catch %s on cleaning-minimal", (_, extra, claims) => {
     const doc = SiteDocument.parse(loadFixture("cleaning-minimal"));
-    const baseline = renderDocument(doc, BASELINE, OPTIONS).html;
+    const baseline = renderDocument(doc, BASELINE, OPTIONS).pages[0]!.html;
     const edited = baseline.replace("</footer>", `${extra}\n</footer>`);
     expect(edited).not.toBe(baseline);
     expect(invariantProblems(edited, baseline, doc, BASELINE)).toEqual([`unbacked claims ${JSON.stringify(claims)}`]);
@@ -217,14 +217,14 @@ describe("the invariant checks can fail (RED proof, on edited pages)", () => {
   };
   it.each(FIXTURES)("catch a design whose own text states a star rating and 24-hour and same-day service, on %s", (name) => {
     const doc = SiteDocument.parse(loadFixture(name));
-    const baseline = renderDocument(doc, BASELINE, OPTIONS).html;
+    const baseline = renderDocument(doc, BASELINE, OPTIONS).pages[0]!.html;
     const claims = ["\u2605", "5-star", "4.9 stars", ...(name === "hvac-phoenix" ? [] : ["24 hours"]), "same-day"];
-    expect(invariantProblems(renderDocument(doc, starry, OPTIONS).html, baseline, doc, starry)).toEqual([`unbacked claims ${JSON.stringify(claims)}`]);
+    expect(invariantProblems(renderDocument(doc, starry, OPTIONS).pages[0]!.html, baseline, doc, starry)).toEqual([`unbacked claims ${JSON.stringify(claims)}`]);
   });
 
   it("allow a design to repeat the owner's own 24-hour opening, however it spaces it", () => {
     const doc = SiteDocument.parse(loadFixture("hvac-phoenix"));
-    const baseline = renderDocument(doc, BASELINE, OPTIONS).html;
+    const baseline = renderDocument(doc, BASELINE, OPTIONS).pages[0]!.html;
     const edited = baseline.replace("</footer>", "<p>Open 24 hours</p>\n<p>Open 24&nbsp;HOURS</p>\n</footer>");
     expect(edited).not.toBe(baseline);
     expect(invariantProblems(edited, baseline, doc, BASELINE)).toEqual([]);
@@ -241,7 +241,7 @@ describe("the invariant checks can fail (RED proof, on edited pages)", () => {
   it("today's pages state only the claims of the owner's own reviews and opening hours", () => {
     const claims = FIXTURES.map((name) => {
       const doc = SiteDocument.parse(loadFixture(name));
-      return [name, pageClaims(renderDocument(doc, BASELINE, OPTIONS).html, doc.facts)];
+      return [name, pageClaims(renderDocument(doc, BASELINE, OPTIONS).pages[0]!.html, doc.facts)];
     });
     expect(claims).toEqual(FIXTURES.map((name) => [name, name === "hvac-phoenix" ? ["warranty", "24 hours"] : []]));
     const hvac = loadFixture("hvac-phoenix").facts;
@@ -251,7 +251,7 @@ describe("the invariant checks can fail (RED proof, on edited pages)", () => {
 
   it("allow a design to show today's review in its own quotation marks", () => {
     const doc = SiteDocument.parse(loadFixture("hvac-phoenix"));
-    const baseline = renderDocument(doc, BASELINE, OPTIONS).html;
+    const baseline = renderDocument(doc, BASELINE, OPTIONS).pages[0]!.html;
     const review = "Clean install, great crew, and they registered the warranty for us.";
     const edited = baseline.replace(`>${review}<`, `>"${review}"<`);
     expect(edited).not.toBe(baseline);

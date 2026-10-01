@@ -5,16 +5,16 @@
 import { render } from "@asksite/renderer";
 import type { SiteDocumentInput } from "@asksite/site-schema";
 import { DESIGN_CSS } from "../../src/index.ts";
-import { PROBE_FORM_ACTION } from "./probe-form-action.ts";
+import { PROBE_FORM_ACTION, PROBE_SITE_URL } from "./probe-form-action.ts";
 
 export default {
   async fetch(request: Request): Promise<Response> {
     if (new URL(request.url).pathname === "/process") return new Response(typeof process);
     const doc = (await request.json()) as SiteDocumentInput;
     try {
-      const page = render(doc, { stylesheets: DESIGN_CSS, formAction: PROBE_FORM_ACTION });
-      const headers = { "content-type": "text/html; charset=utf-8", "x-design": page.design, "x-stylesheet-sha256": page.stylesheetSha256 };
-      return new Response(page.html, { headers });
+      const site = render(doc, { stylesheets: DESIGN_CSS, formAction: PROBE_FORM_ACTION, siteUrl: PROBE_SITE_URL });
+      const headers = { "content-type": "text/html; charset=utf-8", "x-design": site.design, "x-stylesheet-sha256": site.stylesheetSha256 };
+      return new Response(site.pages[0]!.html, { headers });
     } catch (error) {
       return new Response(error instanceof Error ? error.name : "Error", { status: 422 });
     }

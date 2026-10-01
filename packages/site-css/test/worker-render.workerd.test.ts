@@ -5,7 +5,7 @@ import { createTestHarness } from "wrangler";
 import { DESIGN_IDS } from "@asksite/site-schema";
 import { FIXTURES, inDesign, loadFixture } from "../../../fixtures/index.ts";
 import { DESIGN_CSS } from "../src/index.ts";
-import { PROBE_FORM_ACTION } from "./support/probe-form-action.ts";
+import { PROBE_FORM_ACTION, PROBE_SITE_URL } from "./support/probe-form-action.ts";
 
 // Proves the Worker bundle: wrangler (esbuild) bundles @asksite/renderer, zod and the generated
 // stylesheets, and workerd renders every fixture in every design byte-for-byte like Node does, with
@@ -46,8 +46,8 @@ describe("render() inside workerd", () => {
       const doc = inDesign(loadFixture(name), design);
       const response = await post(doc);
       expect(response.status).toBe(200);
-      const page = render(doc, { stylesheets: DESIGN_CSS, formAction: PROBE_FORM_ACTION });
-      expect(await response.text()).toBe(page.html);
+      const page = render(doc, { stylesheets: DESIGN_CSS, formAction: PROBE_FORM_ACTION, siteUrl: PROBE_SITE_URL });
+      expect(await response.text()).toBe(page.pages[0]!.html);
       expect([response.headers.get("x-design"), response.headers.get("x-stylesheet-sha256")]).toEqual([design, DESIGN_CSS[design].sha256]);
     });
   });

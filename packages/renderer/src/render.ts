@@ -1,4 +1,4 @@
-import { SiteDocument, type DesignId, type SiteDocumentInput } from "@asksite/site-schema";
+import { SiteDocument, type DesignId, type PageId, type PagePath, type SiteDocumentInput } from "@asksite/site-schema";
 import { isVisible, type RenderContext } from "./context.ts";
 import type { Design } from "./design.ts";
 import { DESIGNS } from "./designs/index.ts";
@@ -23,14 +23,23 @@ export interface RenderOptions {
   readonly stylesheets: DesignStylesheets;
   /** Absolute https URL the contact form posts to. */
   readonly formAction: string;
+  /** The site's origin, absolute https and ending in "/" (https://joes.asksite.example/): nothing but the origin. */
+  readonly siteUrl: string;
 }
 
-export interface RenderedPage {
+export interface RenderedSitePage {
+  readonly page: PageId;
+  readonly path: PagePath;
   readonly html: string;
-  /** The page's design: the parsed document's theme.design. */
+}
+
+export interface RenderedSite {
+  /** The site's design: the parsed document's theme.design. */
   readonly design: DesignId;
-  /** The SHA-256 of the stylesheet the page inlines (stored on each version for audit). */
+  /** The SHA-256 of the stylesheet the pages inline (stored on each version for audit). */
   readonly stylesheetSha256: string;
+  /** Home first. */
+  readonly pages: readonly RenderedSitePage[];
 }
 
 // Search results truncate long titles. Measured on the escaped text ("&" counts as "&amp;"),
@@ -44,27 +53,34 @@ export function pageTitle(doc: SiteDocument): string {
   return escapeText(full).length <= MAX_TITLE_LENGTH ? full : businessName;
 }
 
+/** Throws unless `siteUrl` is an https origin with its final "/" and nothing else (no path, query, hash or userinfo). */
+function checkSiteUrl(siteUrl: string): void {
+  const url = URL.canParse(siteUrl) ? new URL(siteUrl) : null;
+  if (url === null || url.protocol !== "https:" || siteUrl !== `${url.origin}/`) throw new Error("siteUrl must be an https origin ending in /");
+}
+
 function styleTag(css: string): SafeHtml {
   if (/<\/style/i.test(css)) throw new Error("Stylesheet must not contain </style");
   return new SafeHtml(`<style>${css}</style>`);
 }
 
 /**
- * Render one complete, self-contained static HTML page in the document's own design, with that design's
+ * Render the site (for now one complete, self-contained static HTML page, Home) in the document's own design, with that design's
  * stylesheet. Pure: no network, no clock, no randomness. The input is re-validated (a stored theme
  * without a design gets the default), so an unvalidated or tampered document throws instead of rendering.
  */
-export function render(input: SiteDocumentInput, options: RenderOptions): RenderedPage {
+export function render(input: SiteDocumentInput, options: RenderOptions): RenderedSite {
   const doc = SiteDocument.parse(input);
   return renderDocument(doc, DESIGNS[doc.theme.design], options);
 }
 
 /**
- * The page of a parsed document, drawn by `design`, with the stylesheet of the document's own design.
+ * The site of a parsed document, drawn by `design`, with the stylesheet of the document's own design.
  * render() is its only caller outside tests; the tests also use it to draw today's page (BASELINE) for
  * the same document, which every design is compared with. Not exported from the package.
  */
-export function renderDocument(doc: SiteDocument, design: Design, options: RenderOptions): RenderedPage {
+export function renderDocument(doc: SiteDocument, design: Design, options: RenderOptions): RenderedSite {
+  checkSiteUrl(options.siteUrl);
   const id = doc.theme.design;
   const stylesheet = options.stylesheets[id];
   if (stylesheet === undefined) throw new Error(`No stylesheet for the "${id}" design`);
@@ -99,5 +115,5 @@ ${design.callBar(ctx)}
 </body>
 </html>
 `;
-  return { html: String(page), design: id, stylesheetSha256: stylesheet.sha256 };
+  return { design: id, stylesheetSha256: stylesheet.sha256, pages: [{ page: "home", path: "/", html: String(page) }] };
 }
