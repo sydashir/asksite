@@ -40,7 +40,7 @@ async function geotaggedJpeg(): Promise<Buffer> {
     .toBuffer();
 }
 
-test("an uploaded photo is redrawn upright in the browser, then used as the main photo with alt text @mobile", async ({ page }) => {
+test("an uploaded photo is redrawn upright in the browser, then used as the main photo with alt text @mobile @firefox", async ({ page }) => {
   const siteId = await acceptInvite(page);
   await page.goto(`/sites/${siteId}/setup/photos`);
   await page.getByLabel("Upload a photo").setInputFiles({ name: "IMG_0001.jpg", mimeType: "image/jpeg", buffer: await rotatedJpeg() });

@@ -21,6 +21,8 @@ export default defineConfig({
     { name: "webkit-390", use: { ...devices["Desktop Safari"], viewport: { width: 390, height: 844 } } },
     { name: "webkit-iphone", use: { ...devices["iPhone 13"] }, grep: /@mobile/, metadata: { phone: true } },
     { name: "chromium-pixel", use: { ...devices["Pixel 7"] }, grep: /@mobile/, metadata: { phone: true } },
+    // Local-only engine check (CI installs chromium and webkit only): run `--project=firefox` before launch.
+    { name: "firefox", use: { ...devices["Desktop Firefox"] }, grep: /@firefox/ },
   ],
   webServer: {
     // build:css first: the e2e Worker bundles fakes.ts, which imports the generated site stylesheet.

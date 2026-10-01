@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { acceptInvite, APP, expectAccessible, expectNoSidewaysScroll, stubTurnstile, turnstileRenders, uniqueEmail, waitForSecurityCheck, watchCsp } from "./support.ts";
 
-test("sign in with an emailed link; the button, not the page load, uses the token @mobile", async ({ page }) => {
+test("sign in with an emailed link; the button, not the page load, uses the token @mobile @firefox", async ({ page }) => {
   const email = uniqueEmail("signin");
   await acceptInvite(page, email);
 
