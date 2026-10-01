@@ -142,6 +142,8 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 ## What a live page needs
 
 The public page, the admin review page and the owner app's preview must allow `font-src data:` in their
-Content-Security-Policy (nothing else). Until they do, browsers draw the Bold headings in the fallback stack
-(Bahnschrift, the Android condensed face, Nimbus Sans Narrow, then system-ui). Those policies live outside this
-design's files (Plans 2B and 4): contract steps.
+Content-Security-Policy (nothing else). The public page's policy does (`pageCsp`, apps/sites/src/headers.ts); the
+admin review and preview policies are Plan 4's. Where a policy lacks it, browsers draw the Bold headings in the
+fallback stack (Bahnschrift, the Android condensed face, Nimbus Sans Narrow, then system-ui). Those policies live
+outside this design's files: contract steps. Every page inlines the whole sheet, so the font travels with each page
+(A16, accepted).
