@@ -5,7 +5,11 @@ import {
   newId,
   sha256Hex,
   canonicalJson,
+  hashPages,
+  pagesDigest,
   versionKey,
+  versionPageKey,
+  VersionPages,
   type AiDraft,
   type FallbackReason,
   type GenerationErrorCode,
@@ -13,7 +17,6 @@ import {
   type GenerationView,
   type VersionSummary,
   LIMITS,
-  liveKey,
   siteUrl,
 } from "@asksite/core";
 import { render } from "@asksite/renderer";
@@ -170,13 +173,24 @@ export const fakePublishing: PublishingDeps = {
     const dayStart = input.now - (input.now % 86_400_000);
     const today = await env.DB.prepare("SELECT COUNT(*) AS n FROM site_versions WHERE site_id = ? AND requested_at >= ?").bind(input.siteId, dayStart).first<{ n: number }>();
     if ((today?.n ?? 0) >= FAKE_PUBLISH_CAP) throw new FakePublishError("publish_cap_reached", { retryAfter: Math.ceil((dayStart + 86_400_000 - input.now) / 1000) });
-    const page = render(input.document, { stylesheets: DESIGN_CSS, formAction: formActionUrl(env.ROOT_DOMAIN, input.slug, input.siteId) });
-    const id = newId();
-    const htmlSha256 = await sha256Hex(page.html);
-    await env.WORK.put(versionKey(input.siteId, id), page.html, {
-      httpMetadata: { contentType: "text/html; charset=utf-8" },
-      customMetadata: { siteId: input.siteId, versionId: id, sha256: htmlSha256 },
+    // As Plan 2's createPendingVersion: every page rendered, hashed and stored at its own WORK key; the row lists them
+    // (pages_json) and html_sha256 is their digest; html_key is Home's key.
+    const site = render(input.document, {
+      stylesheets: DESIGN_CSS,
+      formAction: formActionUrl(env.ROOT_DOMAIN, input.slug, input.siteId),
+      siteUrl: siteUrl(env.ROOT_DOMAIN, input.slug),
     });
+    const id = newId();
+    const rendered = await hashPages(site.pages);
+    const pages = VersionPages.parse(rendered.map(({ page, sha256 }) => ({ page, sha256 })));
+    await Promise.all(
+      rendered.map((p) =>
+        env.WORK.put(versionPageKey(input.siteId, id, p.page), p.html, {
+          httpMetadata: { contentType: "text/html; charset=utf-8" },
+          customMetadata: { siteId: input.siteId, versionId: id, page: p.page, sha256: p.sha256 },
+        }),
+      ),
+    );
     const documentJson = canonicalJson(input.document);
     const last = await env.DB.prepare("SELECT MAX(number) AS n FROM site_versions WHERE site_id = ?").bind(input.siteId).first<{ n: number | null }>();
     const number = (last?.n ?? 0) + 1;
@@ -184,10 +198,10 @@ export const fakePublishing: PublishingDeps = {
       env.DB.prepare("UPDATE site_versions SET status = 'superseded' WHERE site_id = ? AND status = 'pending'").bind(input.siteId),
       env.DB.prepare(
         `INSERT INTO site_versions (id, site_id, number, status, document_json, document_sha256, edits_json, generation_id,
-           html_key, html_sha256, stylesheet_sha256, requested_by, requested_at)
-         VALUES (?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           pages_json, html_key, html_sha256, stylesheet_sha256, requested_by, requested_at)
+         VALUES (?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).bind(id, input.siteId, number, documentJson, await sha256Hex(documentJson), JSON.stringify(input.edits), input.generationId,
-        versionKey(input.siteId, id), htmlSha256, page.stylesheetSha256, input.ownerId, input.now),
+        canonicalJson(pages), versionKey(input.siteId, id), await pagesDigest(pages), site.stylesheetSha256, input.ownerId, input.now),
       env.DB.prepare("UPDATE sites SET pending_version_id = ?, updated_at = ? WHERE id = ?").bind(id, input.now, input.siteId),
       audit(env.DB, input.now, `owner:${input.ownerId}`, "version.requested", input.siteId, { versionId: id }),
     ]);
@@ -207,7 +221,7 @@ export const fakePublishing: PublishingDeps = {
   },
 };
 
-/** Approve without checks (tests only): make a pending version live, as §7.2 approveVersion would. */
+/** Approve without checks (tests only): D1 only, as §7.2 approveVersion's batch (this app has no LIVE binding, so no pointer is written). */
 export async function fakeApprove(env: { DB: D1Database; WORK: R2Bucket; ROOT_DOMAIN: string }, versionId: string, now: number) {
   const version = await env.DB.prepare("SELECT v.site_id, s.slug FROM site_versions v JOIN sites s ON s.id = v.site_id WHERE v.id = ?")
     .bind(versionId)
@@ -217,7 +231,7 @@ export async function fakeApprove(env: { DB: D1Database; WORK: R2Bucket; ROOT_DO
     env.DB.prepare("UPDATE sites SET live_version_id = ?, pending_version_id = NULL, updated_at = ? WHERE id = ?").bind(versionId, now, version.site_id),
     env.DB.prepare("UPDATE site_versions SET status = 'approved', reviewed_by = 'admin@example.com', reviewed_at = ? WHERE id = ?").bind(now, versionId),
   ]);
-  return { siteId: version.site_id, liveKey: liveKey(version.slug), liveUrl: siteUrl(env.ROOT_DOMAIN, version.slug) };
+  return { siteId: version.site_id, liveUrl: siteUrl(env.ROOT_DOMAIN, version.slug) };
 }
 
 /** Writes to dev_outbox like Plan 2's log mailer. Addresses at mail-fails.example fail like a rejected send. */

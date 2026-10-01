@@ -9,6 +9,10 @@ describe("publishApiError", () => {
     expect(publishApiError("not_live", "restore")).toMatchObject({ code: "conflict" });
   });
 
+  it("tells the admin to press Approve again when the pages were approved but are not live yet (A16)", () => {
+    expect(publishApiError("live_copy_failed", "review")).toMatchObject({ code: "internal", message: "Approved, but the new pages are not live yet. Press Approve again." });
+  });
+
   it("words an integrity failure for the action, and never shows its details", () => {
     expect(publishApiError("integrity", "review")?.message).toBe("The stored page does not match what was reviewed. Reload and review it again.");
     expect(publishApiError("integrity", "restore")?.message).toBe("The stored page does not match its record. It was not restored.");

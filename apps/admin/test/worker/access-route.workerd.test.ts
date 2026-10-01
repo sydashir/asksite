@@ -111,7 +111,7 @@ describe("every admin route is behind the gate", () => {
       ["DELETE", `/api/admin/invites/${invite.id}`, undefined],
       ["GET", "/api/admin/reviews", undefined],
       ["GET", `/api/admin/versions/${site.versionId}`, undefined],
-      ["GET", `/api/admin/versions/${site.versionId}/page`, undefined],
+      ["GET", `/api/admin/versions/${site.versionId}/pages/home`, undefined],
       ["POST", `/api/admin/versions/${site.versionId}/approve`, { htmlSha256: site.htmlSha256 }],
       ["POST", `/api/admin/versions/${site.versionId}/reject`, { note: "No" }],
       ["GET", "/api/admin/sites", undefined],

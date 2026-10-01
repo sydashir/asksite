@@ -1,3 +1,4 @@
+import type { PageId } from "@asksite/site-schema";
 import type { AiDraft, OwnerEdits } from "./draft.ts";
 import type { FallbackReason, GenerationErrorCode } from "./generation.ts";
 import type { Issue } from "./issues.ts";
@@ -42,7 +43,10 @@ export interface ReviewChecks {
 export interface AdminVersionDetail {
   version: VersionSummary & { siteId: string; htmlSha256: string; generationId: string | null; requestedBy: string };
   site: AdminSiteRow; document: unknown; ownerEditedPaths: string[];
-  liveDocument: unknown | null; checks: ReviewChecks; pageUrl: string; // "/api/admin/versions/<id>/page"
+  liveDocument: unknown | null; checks: ReviewChecks;
+  // A16: every page the version has, in page order, from its stored pages_json ([] for a row from before A16). `url` is
+  // "/api/admin/versions/<id>/pages/<page>"; `sha256` is the hash the page's stored bytes must have (the digest of all of them is version.htmlSha256).
+  pages: Array<{ page: PageId; label: string; url: string; sha256: string }>;
 }
 export interface AdminSettings {
   generationEnabled: boolean; envGenerationEnabled: boolean; dailyModelLimit: number;

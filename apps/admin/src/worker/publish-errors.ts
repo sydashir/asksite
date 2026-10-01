@@ -1,6 +1,6 @@
 import { ApiError } from "@asksite/app-common";
 
-/** Plan 2's codes: design §7.2 plus `publish_cap_reached` (its decision 25) and `site_not_found` (decision 28). */
+/** Plan 2's codes: design §7.2 plus `publish_cap_reached` (its decision 25), `site_not_found` (decision 28) and `live_copy_failed` (A16). */
 export type PublishErrorCode =
   | "render_failed"
   | "nothing_pending"
@@ -9,7 +9,8 @@ export type PublishErrorCode =
   | "integrity"
   | "not_live"
   | "publish_cap_reached"
-  | "site_not_found";
+  | "site_not_found"
+  | "live_copy_failed";
 
 /** Which admin action failed: the wording of an integrity failure depends on it. */
 export type PublishAction = "review" | "restore" | "change";
@@ -34,6 +35,8 @@ export function publishApiError(code: PublishErrorCode, action: PublishAction): 
         "internal",
         action === "restore" ? "The stored page does not match its record. It was not restored." : "The stored page does not match what was reviewed. Reload and review it again.",
       );
+    case "live_copy_failed":
+      return new ApiError("internal", "Approved, but the new pages are not live yet. Press Approve again.");
     default:
       return null;
   }
