@@ -284,12 +284,21 @@ describe("approveVersion: all the pages, then the pointer (A16)", () => {
     expect((await versionRow(env.DB, p.versionId))?.reviewed_at).toBe(20);
   });
 
-  // Residual 1 (moderator, 2026-10-01; strict: exposure). Another admin's takedown can commit after this approve's
-  // D1 batch and delete the (old) pointer before this approve writes its own. The pointer must not stay: it would put
-  // the business name back on the site's 404 page. The seam runs the real takedown inside the pointer write.
-  it("takes its pointer back out when a takedown committed between its D1 batch and its pointer write", async () => {
+  // Residual 1 (moderator, 2026-10-01; strict: exposure). An approve and another admin's takedown can interleave, and
+  // the pointer must never stay on a taken-down site: it would put the business name and phone back on the site's
+  // 404, thank-you and "please call" pages. Both orders are tested, for a first approval and for an accepted retry:
+  // (a) the whole takedown commits between this approve's D1 batch and its pointer write (the seam runs the real
+  // takeDown inside the pointer write): approve takes its pointer back out;
+  // (b) this whole approve runs between the takedown's first pointer delete and its D1 batch (the seam runs the
+  // real approveVersion inside that delete): the takedown deletes the pointer again after its D1 batch.
+  const RACES = [
+    ["a first approval", false],
+    ["an accepted retry", true],
+  ] as const;
+
+  it.each(RACES)("takes its pointer back out when a takedown commits before its pointer write (%s)", async (_name, approvedBefore) => {
     const p = await pendingWithPages(env);
-    await approve(p.versionId, p.htmlSha256);
+    if (approvedBefore) await approve(p.versionId, p.htmlSha256);
     const racingTakedown = {
       ...flakyBucket(env.LIVE, () => false),
       put: async (...args: Parameters<R2Bucket["put"]>) => {
@@ -297,11 +306,52 @@ describe("approveVersion: all the pages, then the pointer (A16)", () => {
         return env.LIVE.put(...args);
       },
     } as R2Bucket;
-    const retry = approveVersion({ ...env, LIVE: racingTakedown }, { versionId: p.versionId, htmlSha256: p.htmlSha256, reviewer: "admin@example.com", note: null, indexable: true, now: 41 });
-    expect((await failure(retry)).code).toBe("site_taken_down");
-    expect(await env.LIVE.head(livePointerKey(p.slug))).toBeNull();
+    const racing = approveVersion({ ...env, LIVE: racingTakedown }, { versionId: p.versionId, htmlSha256: p.htmlSha256, reviewer: "admin@example.com", note: null, indexable: true, now: 41 });
+    expect((await failure(racing)).code).toBe("site_taken_down");
     expect(await liveKeysOf(env.LIVE, p.slug)).toEqual([]);
     expect(await siteRow(env.DB, p.siteId)).toMatchObject({ taken_down_at: 40 });
+  });
+
+  it.each(RACES)("leaves no pointer when the whole approve runs inside a takedown, before its D1 batch (%s)", async (_name, approvedBefore) => {
+    const p = await pendingWithPages(env);
+    if (approvedBefore) await approve(p.versionId, p.htmlSha256);
+    let raced = false;
+    const racingApprove = {
+      ...flakyBucket(env.LIVE, () => false),
+      delete: async (keys: string | string[]) => {
+        await env.LIVE.delete(keys);
+        if (keys === livePointerKey(p.slug) && !raced) {
+          raced = true;
+          await approveVersion(env, { versionId: p.versionId, htmlSha256: p.htmlSha256, reviewer: "admin@example.com", note: null, indexable: true, now: 39 });
+        }
+      },
+    } as R2Bucket;
+    await takeDown({ ...env, LIVE: racingApprove }, { siteId: p.siteId, reviewer: "other@example.com", reason: "Phishing", purgeMedia: false, now: 40 });
+    expect(raced).toBe(true);
+    expect(await liveKeysOf(env.LIVE, p.slug)).toEqual([]);
+    expect(await siteRow(env.DB, p.siteId)).toMatchObject({ taken_down_at: 40 });
+  });
+
+  it("logs and refuses when it cannot take its pointer back out, and the takedown's retry removes it", async () => {
+    const p = await pendingWithPages(env);
+    const pointerDeleteFails = {
+      ...flakyBucket(env.LIVE, (call, key) => call === "delete" && key === livePointerKey(p.slug)),
+      put: async (...args: Parameters<R2Bucket["put"]>) => {
+        if (args[0] === livePointerKey(p.slug)) await takeDown(env, { siteId: p.siteId, reviewer: "other@example.com", reason: "Phishing", purgeMedia: false, now: 40 });
+        return env.LIVE.put(...args);
+      },
+    } as R2Bucket;
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const racing = approveVersion({ ...env, LIVE: pointerDeleteFails }, { versionId: p.versionId, htmlSha256: p.htmlSha256, reviewer: "admin@example.com", note: null, indexable: true, now: 41 });
+      expect((await failure(racing)).code).toBe("site_taken_down");
+      expect(logged.mock.calls.map((c) => String(c[0]))).toContainEqual(JSON.stringify({ code: "takedown_pointer_left", siteId: p.siteId, versionId: p.versionId }));
+    } finally {
+      logged.mockRestore();
+    }
+    expect(await env.LIVE.head(livePointerKey(p.slug))).not.toBeNull(); // left behind: ops see the log line
+    await takeDown(env, { siteId: p.siteId, reviewer: "other@example.com", reason: "Phishing", purgeMedia: false, now: 42 });
+    expect(await liveKeysOf(env.LIVE, p.slug)).toEqual([]);
   });
 
   it("changes neither D1 nor the pointer when a page copy fails, and can be retried", async () => {

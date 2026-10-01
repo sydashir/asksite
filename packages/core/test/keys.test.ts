@@ -126,7 +126,7 @@ describe("page keys (A16)", () => {
     expect(() => pageCacheUrl("asksite.example", slug, VERSION, "home")).toThrow(/slug/);
   });
 
-  it("accepts a reserved word as a slug, so a site whose slug became reserved can still be served and taken down", () => {
+  it("accepts a reserved word as a slug, so a site whose slug became reserved can still be taken down", () => {
     expect(livePointerKey("preview")).toBe("preview");
     expect(liveSitePrefix("preview")).toBe("preview/");
   });

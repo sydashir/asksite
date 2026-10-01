@@ -349,14 +349,14 @@ describe("takedown and restore on the pointer (A16)", () => {
     let atPointerDelete: { pointer: R2Object | null; takenDownAt: number | null | undefined } | undefined;
     const watching = {
       delete: async (keys: string | string[]) => {
-        if (keys === livePointerKey(p.slug)) atPointerDelete = { pointer: await env.LIVE.head(keys), takenDownAt: (await siteRow(env.DB, p.siteId))?.taken_down_at };
+        if (keys === livePointerKey(p.slug) && atPointerDelete === undefined) atPointerDelete = { pointer: await env.LIVE.head(keys), takenDownAt: (await siteRow(env.DB, p.siteId))?.taken_down_at };
         return env.LIVE.delete(keys);
       },
       list: (options?: R2ListOptions) => env.LIVE.list(options),
     } as unknown as R2Bucket;
     await takeDown({ ...env, LIVE: watching }, { siteId: p.siteId, reviewer: ADMIN, reason: "Spam", purgeMedia: false, now: 50 });
     expect(atPointerDelete?.pointer).not.toBeNull();
-    expect(atPointerDelete?.takenDownAt).toBeNull(); // D1 was still untouched when the pointer went
+    expect(atPointerDelete?.takenDownAt).toBeNull(); // D1 was still untouched when the pointer first went
   });
 
   it("leaves no pointer and no page of the site, and not another site's, and a second call is a no-op", async () => {

@@ -18,8 +18,8 @@ export const mediaUrl = (root: string, siteId: string, uploadId: string) => `htt
 // LIVE holds one small pointer per site, naming its live version, and the approved pages at immutable keys under
 // the slug and that version id: writing the pointer switches every page at once. WORK keeps Home at today's key.
 // The builders accept only a slug of the right shape (not "/" or "."; a reserved word is accepted, so a site whose
-// slug later became reserved can still be served and taken down), a real id and one of the 5 page ids, each a
-// string. So no key of one site is another site's key, its pointer, or under its prefix, and a request path or a
+// slug later became reserved can still be taken down and its LIVE objects managed, though the Worker no longer
+// serves that host), a real id and one of the 5 page ids, each a string. So no key of one site is another site's key, its pointer, or under its prefix, and a request path or a
 // damaged pointer cannot shape a key or a takedown's prefix delete.
 function knownPage(page: PageId): PageId {
   if (!isPageId(page)) throw new Error("Unknown page id");

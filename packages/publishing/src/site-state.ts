@@ -33,6 +33,10 @@ export async function takeDown(
     auditIfChanged(db, { at: now, actor, action: "site.taken_down", siteId, detail: { reason, purgeMedia } }),
   ]);
 
+  // Again, after the batch: an approve that ran between the first delete and the batch may have written a pointer
+  // (it re-reads taken_down_at after its write, so it sees the batch only if it reads after it). Between this second
+  // delete and approve's re-read, every interleaving ends with no pointer on a taken-down site.
+  if (site.slug !== null) await env.LIVE.delete(livePointerKey(site.slug));
   if (site.slug !== null) await deletePrefix(env.LIVE, liveSitePrefix(site.slug));
   if (purgeMedia) {
     const deletedObjects = await deletePrefix(env.MEDIA, `${siteId}/`);

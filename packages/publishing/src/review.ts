@@ -26,7 +26,9 @@ interface VersionForReview {
  * 6) one write of the site's LIVE pointer, with the ids and the business name and phone as metadata, switches
  *    every page to the new version at once. The sites Worker serves a version only while D1 says it is live.
  *    If that write fails after step 5, live_copy_failed is thrown and approving the same version again finishes it;
- * 7) the other versions' LIVE pages are removed (best effort: nothing refers to them).
+ * 7) taken_down_at is read again: if another admin's takedown committed meanwhile, the pointer is taken back out
+ *    and site_taken_down is thrown (the takedown also deletes the pointer after its own batch, for the other order);
+ * 8) the other versions' LIVE pages are removed (best effort: nothing refers to them).
  */
 export async function approveVersion(
   env: { DB: D1Database; WORK: R2Bucket; LIVE: R2Bucket; ROOT_DOMAIN: string },
@@ -76,11 +78,17 @@ export async function approveVersion(
   } catch {
     throw new PublishError("live_copy_failed", { versionId });
   }
-  // A takedown by another admin can commit after the batch above and delete the pointer before this write lands.
-  // The takedown wins: take the pointer back out, so the site's pages and its business name stay off the web.
+  // A takedown by another admin can commit after the batch above, its pointer deletes done before this write lands.
+  // The takedown wins: take the pointer back out, so the site's pages and its business name stay off the web. (A
+  // takedown that commits after this read deletes the pointer itself, after its own batch.) If the delete fails, the
+  // pointer stays until the takedown is run again: say so in the log (ids only) and refuse.
   const after = await db.prepare("SELECT taken_down_at FROM sites WHERE id = ?").bind(siteId).first<{ taken_down_at: number | null }>();
   if (after === null || after.taken_down_at !== null) {
-    await env.LIVE.delete(livePointerKey(slug));
+    try {
+      await env.LIVE.delete(livePointerKey(slug));
+    } catch {
+      console.error(JSON.stringify({ code: "takedown_pointer_left", siteId, versionId }));
+    }
     throw new PublishError("site_taken_down");
   }
   await removeOtherVersions(env.LIVE, slug, { siteId, versionId });
