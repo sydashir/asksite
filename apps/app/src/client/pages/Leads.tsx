@@ -33,6 +33,7 @@ export function Leads({ siteId }: { siteId: string }) {
   const [next, setNext] = useState<number | null>(null);
   const [state, setState] = useState<"loading" | "ready" | "error">("loading");
   const [error, setError] = useState("");
+  const [loadingOlder, setLoadingOlder] = useState(false);
 
   async function load(before: number | null) {
     const res = await api<{ leads: LeadView[]; nextBefore: number | null }>("GET", `/api/sites/${siteId}/leads?limit=50${before === null ? "" : `&before=${before}`}`);
@@ -41,9 +42,19 @@ export function Leads({ siteId }: { siteId: string }) {
       setError(res.error.message);
       return;
     }
-    setLeads((current) => (before === null ? res.data.leads : [...current, ...res.data.leads]));
+    setLeads((current) => {
+      if (before === null) return res.data.leads;
+      const listed = new Set(current.map((lead) => lead.id));
+      return [...current, ...res.data.leads.filter((lead) => !listed.has(lead.id))];
+    });
     setNext(res.data.nextBefore);
     setState("ready");
+  }
+
+  async function loadOlder(before: number) {
+    setLoadingOlder(true);
+    await load(before);
+    setLoadingOlder(false);
   }
 
   useEffect(() => {
@@ -102,7 +113,7 @@ export function Leads({ siteId }: { siteId: string }) {
         ))}
       </ul>
       {next !== null ? (
-        <button type="button" className="btn-secondary mt-4" onClick={() => void load(next)}>
+        <button type="button" className="btn-secondary mt-4" disabled={loadingOlder} aria-busy={loadingOlder} onClick={() => void loadOlder(next)}>
           Show older messages
         </button>
       ) : null}
