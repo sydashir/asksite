@@ -31,12 +31,35 @@ export async function expectNoSidewaysScroll(page: Page) {
   expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(0);
 }
 
-export function watchCsp(page: Page): string[] {
-  const violations: string[] = [];
+/**
+ * Collects Content-Security-Policy violations from two sources: console text (Chromium and WebKit word them there;
+ * entries start with "console ") and `securitypolicyviolation` events, which every engine fires (Firefox logs nothing
+ * a console match can catch; entries start with "event " and keep the effective directive and the blocked URI). The
+ * event listener is added by Playwright's init script, not by a page script, so the page's own policy cannot block it.
+ * It reports through page.exposeBinding, so events reach Node at once and survive navigations. Awaiting this call
+ * guarantees both are in place before the first navigation. The returned reader throws when the collector is missing
+ * from the page, never an empty list. (Same design as the owner app's watchCsp in lane C, commit 115cbd0.)
+ */
+export async function watchCsp(page: Page): Promise<() => Promise<string[]>> {
+  const seen: string[] = [];
   page.on("console", (message) => {
-    if (/Content Security Policy/i.test(message.text())) violations.push(message.text());
+    if (/Content Security Policy/i.test(message.text())) seen.push(`console ${message.text()}`);
   });
-  return violations;
+  await page.exposeBinding("__reportCspViolation", (_source, entry: string) => {
+    seen.push(`event ${entry}`);
+  });
+  await page.addInitScript(() => {
+    const report = (window as unknown as { __reportCspViolation: (entry: string) => Promise<void> }).__reportCspViolation;
+    (window as unknown as { __cspCollector: boolean }).__cspCollector = true;
+    document.addEventListener("securitypolicyviolation", (event) => {
+      void report(`${event.effectiveDirective} ${event.blockedURI}`);
+    });
+  });
+  return async () => {
+    const installed = await page.evaluate(() => (window as unknown as { __cspCollector?: boolean }).__cspCollector === true);
+    if (!installed) throw new Error("watchCsp: the violation collector is missing from this page");
+    return [...seen];
+  };
 }
 
 /** Tab (Shift+Tab with `back`) until `target` has focus; WebKit presses Option+Tab, which also reaches links, as Safari users do. */

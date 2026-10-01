@@ -1,9 +1,10 @@
-import { ApiError, inBackground, logLine, magicLinkEmail, noteLog, rateLimit, readJson, runToEnd, trySend } from "@asksite/app-common";
+import { ApiError, inBackground, logLine, magicLinkEmail, noteLog, rateLimit, readJson, runToEnd, sendReporting } from "@asksite/app-common";
 import { AcceptInviteBody, hashIp, ipRateKey, LIMITS, LoginBody, newId, newToken, sha256Hex, TTL, utcDayStart, VerifyLoginBody, type OwnerView } from "@asksite/core";
 import { Hono, type MiddlewareHandler } from "hono";
 import { loginEmailsPerDay } from "../config.ts";
 import { clientIp, mailerEnv } from "../db.ts";
 import type { AppDeps } from "../deps.ts";
+import { claimInvite } from "../invite-claim.ts";
 import { endSession, EXPIRED_SESSION_COOKIE, insertSession, sessionCookie } from "../session.ts";
 import { requireTurnstile } from "../turnstile.ts";
 import type { AppEnv } from "../types.ts";
@@ -67,9 +68,12 @@ export function authRoutes(deps: AppDeps): Hono<AppEnv> {
     try {
       await endSession(c);
     } catch (err) {
-      // Even a failed DELETE signs the browser out: its cookie is expired below, and the row expires on
-      // its own. The request's one log line records the failure (the error's class name only).
+      // Even a failed DELETE signs the browser out: its cookie is expired below. But the row is the session: if it
+      // stays, anyone who holds the token keeps access for up to 30 days (TTL.sessionMs), so the DELETE is tried once
+      // more in the background, which logs its own line if that fails too. The request's one log line records the
+      // first failure (the error's class name only).
       noteLog(c, { event: "session_delete_failed", error: err instanceof Error ? err.name : "unknown" });
+      inBackground(c.executionCtx, "session_delete_retry_failed", endSession(c));
     }
     c.header("Set-Cookie", EXPIRED_SESSION_COOKIE);
     return c.body(null, 204);
@@ -81,11 +85,7 @@ export function authRoutes(deps: AppDeps): Hono<AppEnv> {
 /** §5.2 invite steps (1) and (2): claim the token, then create the owner, site, invite links, session and audit row in one batch. */
 async function acceptInvite(db: D1Database, invite: { id: string; email: string }, tokenHash: string, now: number) {
   // (1) Claim the token: exactly one request can win.
-  const claim = await db
-    .prepare("UPDATE invites SET used_at = ? WHERE token_hash = ? AND used_at IS NULL AND revoked_at IS NULL AND expires_at > ?")
-    .bind(now, tokenHash, now)
-    .run();
-  if (claim.meta.changes !== 1) throw new ApiError("invite_invalid", INVITE_INVALID);
+  if (!(await claimInvite(db, tokenHash, now))) throw new ApiError("invite_invalid", INVITE_INVALID);
   // (2) Owner, site, invite links, session and audit row in one transaction.
   const siteId = newId();
   const sessionToken = newToken();
@@ -186,7 +186,9 @@ async function sendLoginLink(env: Env, deps: AppDeps, email: string, now: number
     return;
   }
   const content = magicLinkEmail({ appOrigin: env.APP_ORIGIN, token });
-  const sent = await trySend(mailer, { to: email, ...content, tag: "magic_link", idempotencyKey: `login:${tokenHash}` });
-  // A link that was never sent does not use up one of the owner's links, nor one of the day's.
-  if (!sent) await env.DB.prepare("DELETE FROM login_tokens WHERE token_hash = ?").bind(tokenHash).run();
+  const failure = await sendReporting(mailer, { to: email, ...content, tag: "magic_link", idempotencyKey: `login:${tokenHash}` });
+  // A link that was never sent does not use up one of the owner's links, nor one of the day's. After "unavailable" (a
+  // 5xx) the provider may have delivered it, so that link stays valid and counted: deleting it would leave the owner
+  // a dead "expired or already used" link, and the email uncounted by the caps.
+  if (failure !== null && failure !== "unavailable") await env.DB.prepare("DELETE FROM login_tokens WHERE token_hash = ?").bind(tokenHash).run();
 }

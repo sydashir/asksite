@@ -84,7 +84,7 @@ describe("adminAccess reasons", () => {
     expect(await refusedWith("")).toBe("no_token");
     expect(await refusedWith("not-a-jwt")).toBe("invalid_token");
     expect(await refusedWith(await accessToken({ expiresIn: "-1m" }))).toBe("invalid_token");
-    expect(await refusedWith(await accessToken({ aud: "other-app" }))).toBe("invalid_token");
+    expect(await refusedWith(await accessToken({ aud: "other-app" }))).toBe("config_mismatch"); // M7: was invalid_token
     expect(await refusedWith(await accessToken({ noExpiry: true }))).toBe("invalid_token");
     expect(await refusedWith(await accessToken({ email: "intruder@example.com" }))).toBe("not_on_list");
     expect(await refusedWith(await accessToken({ noEmail: true }))).toBe("not_on_list");
@@ -114,6 +114,44 @@ describe("adminAccess reasons", () => {
     const twoKeys = () => createLocalJWKSet({ keys: [{ ...jwk, alg: "RS256", kid: "a" }, { ...jwk, alg: "RS256", kid: "b" }] });
     const noKid = await claims(new SignJWT({ email: "admin@example.com" }).setProtectedHeader({ alg: "RS256" })).sign(rs256.privateKey);
     expect(await refusedWith(noKid, ENV, twoKeys)).toBe("invalid_token");
+  });
+
+  // M7: a validly signed token for another audience or issuer is most likely a mistyped ACCESS_AUD or ACCESS_TEAM_DOMAIN
+  // (or another Access application's token), not a forged one: the log says so. The answer is still a refusal.
+  it.each([
+    ["audience", () => accessToken({ aud: "mistyped-aud" }), "mistyped-aud"],
+    ["issuer", () => accessToken({ iss: "https://mistyped.cloudflareaccess.com" }), "mistyped.cloudflareaccess"],
+  ])("logs a validly signed token with the wrong %s as config_mismatch, without echoing the claim", async (_claim, makeToken, value) => {
+    const token = await makeToken();
+    const result = await adminAccess(request(token), ENV, keys);
+    expect(result).toEqual({ refused: "config_mismatch" });
+    expect(JSON.stringify(result)).not.toContain(value);
+    expect(await adminEmail(request(token), ENV, keys)).toBeNull();
+  });
+
+  // A token that is not genuine never reaches the claim checks, so a forged one cannot pose as a configuration typo.
+  it("logs a forged token with the wrong audience as invalid_token, not config_mismatch", async () => {
+    const other = await generateKeyPair("RS256");
+    const forged = await new SignJWT({ email: "admin@example.com" }).setProtectedHeader({ alg: "RS256", kid: "test-key" }).setIssuer(TEAM).setAudience("mistyped-aud").setExpirationTime("5m").sign(other.privateKey);
+    expect(await refusedWith(forged)).toBe("invalid_token");
+  });
+
+  // M1: ERR_JOSE_NOT_SUPPORTED is in TOKEN_FAULTS and no other test reaches it. jose raises it for a critical header
+  // parameter ("crit") it does not recognise (RFC 7515 section 4.1.11), from the token itself and before any key is fetched.
+  it("logs a token with a critical header parameter this gate does not know as invalid_token, never keys_unavailable", async () => {
+    const pair = await generateKeyPair("RS256", { extractable: true });
+    const jwk = await exportJWK(pair.publicKey);
+    const critKeys = () => createLocalJWKSet({ keys: [{ ...jwk, kid: "kcrit", alg: "RS256" }] });
+    const token = await new SignJWT({ email: "admin@example.com" })
+      .setProtectedHeader({ alg: "RS256", kid: "kcrit", crit: ["x-unknown"], "x-unknown": 1 })
+      .setIssuer(TEAM)
+      .setAudience(AUD)
+      .setExpirationTime("5m")
+      .sign(pair.privateKey, { crit: { "x-unknown": false } }); // only so jose lets the test sign it; the gate passes no such option
+    // Anchor: the same key and claims without the crit header are accepted, so only the header can be what refuses.
+    const plain = await new SignJWT({ email: "admin@example.com" }).setProtectedHeader({ alg: "RS256", kid: "kcrit" }).setIssuer(TEAM).setAudience(AUD).setExpirationTime("5m").sign(pair.privateKey);
+    expect(await refusedWith(plain, ENV, critKeys)).toBe("admin@example.com");
+    expect(await refusedWith(token, ENV, critKeys)).toBe("invalid_token");
   });
 
   it("never puts the token, an email or the team domain in a reason", async () => {

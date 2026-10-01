@@ -174,12 +174,23 @@ describe("the log line of a refused request", () => {
     expect(await refusalLine({ headers: { "Sec-Fetch-Site": "cross-site" } })).toEqual({ ...base, reason: "fetch_metadata_refused" });
   });
 
-  it("never logs the token, an email or the team domain", async () => {
-    const token = await accessToken({ email: "intruder@example.com" });
+  // M5: logLines() drops every line that is not JSON, so a stray console.log(token) would pass a JSON-only check. These
+  // read the raw log, on every refusal path that has a token, and each first finds the reason word in that same raw text
+  // (the positive anchor), so an empty or wrongly captured log cannot pass.
+  const REFUSALS: Array<[string, string, () => Promise<string | null>]> = [
+    ["a token for an email not on the list", "not_on_list", () => accessToken({ email: "intruder@example.com" })],
+    ["a forged token", "invalid_token", async () => "forged.token.value"],
+    ["a correctly signed token with no expiry", "invalid_token", () => accessToken({ noExpiry: true, email: "intruder@example.com" })],
+    ["a token for another audience", "config_mismatch", () => accessToken({ aud: "other-app", email: "intruder@example.com" })],
+    ["no token", "no_token", async () => null],
+  ];
+  it.each(REFUSALS)("never logs the token, an email or the team domain: %s", async (_name, reason, makeToken) => {
+    const token = await makeToken();
     h.server.clearLogs();
-    await h.call("GET", "/api/admin/me", { token });
+    expect((await h.call("GET", "/api/admin/me", { token })).status).toBe(403);
     const raw = h.server.getLogs().map((entry) => entry.message).join("\n");
-    expect(raw).not.toContain(token);
-    expect(raw).not.toMatch(/intruder|@|cloudflareaccess|test-aud/);
+    expect(raw).toContain(`"reason":"${reason}"`);
+    if (token !== null) expect(raw).not.toContain(token);
+    expect(raw).not.toMatch(/intruder|@|cloudflareaccess|test-aud|other-app|Bearer/);
   });
 });

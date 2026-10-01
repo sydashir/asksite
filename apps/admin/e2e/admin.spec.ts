@@ -13,7 +13,7 @@ async function liveSite(page: Page, options: { emailDomain?: string } = {}) {
 }
 
 test("review a site: the stored page shows in a sandboxed frame, flags are listed, and approving publishes it", async ({ page }) => {
-  const csp = watchCsp(page);
+  const violations = await watchCsp(page);
   const site = await pendingSite(page.request, { ...FACTS, testimonials: [{ quote: "Pay at paypa1-help.com", name: "A" }] });
   await page.goto("/");
   await expect(page.getByRole("heading", { level: 1, name: "Waiting for review" })).toBeFocused();
@@ -43,7 +43,22 @@ test("review a site: the stored page shows in a sandboxed frame, flags are liste
   await page.getByRole("button", { name: "Approve and publish" }).click();
   await expect(page.getByText("Approved. We'll email the owner. The site goes live within about a minute:")).toBeVisible();
   await expect(page.getByRole("link", { name: `https://${site.slug}.localhost:8789/` })).toBeVisible();
-  expect(csp).toEqual([]);
+  expect(await violations()).toEqual([]);
+});
+
+// ADMIN-CSP-COLLECTOR: the collector must see a violation in every engine, so an empty list means "none" and not "not
+// watching". An inline script on the admin's own origin breaks its script-src 'self'; the event line (not the console
+// wording, which differs by engine) is what proves the securitypolicyviolation listener works.
+test("the CSP collector reports an inline script on the admin origin", async ({ page }) => {
+  const violations = await watchCsp(page);
+  await page.goto("/");
+  await page.evaluate(() => {
+    const script = document.createElement("script");
+    script.textContent = "window.__inlineRan = true";
+    document.head.append(script);
+  });
+  expect(await page.evaluate(() => "__inlineRan" in window)).toBe(false);
+  await expect.poll(async () => (await violations()).filter((line) => /^event script-src(-elem)? inline$/.test(line)).length).toBeGreaterThan(0);
 });
 
 test("the preview shows the stored page without leaving it: its links are off, and the stored bytes are untouched", async ({ page }) => {

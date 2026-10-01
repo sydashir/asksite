@@ -2,7 +2,8 @@ import { readFileSync } from "node:fs";
 import { LIMITS, sha256Hex } from "@asksite/core";
 import { Facts } from "@asksite/site-schema";
 import { afterEach, describe, expect, it } from "vitest";
-import { APP_ORIGIN, awayFromMinuteBoundary, json, nextIp, useAppHarness } from "../support/harness.ts";
+import { claimInvite } from "../../src/worker/invite-claim.ts";
+import { APP_ORIGIN, awayFromMinuteBoundary, eventually, json, nextIp, useAppHarness } from "../support/harness.ts";
 import { TURNSTILE_DUMMY_TOKEN } from "../support/turnstile.ts";
 
 const h = useAppHarness();
@@ -221,6 +222,26 @@ describe("invite acceptance", () => {
     const again = await h.call("POST", "/api/auth/invite/accept", { body: { token }, ip: nextIp() });
     expect(again.status).toBe(410);
     expect((await json<{ error: { code: string } }>(again)).error.code).toBe("invite_invalid");
+  });
+
+  // F12: the route's own checks turn later requests away before the claim, so only a direct second claim of the same
+  // hash shows whether the claim itself is single use (§5.1).
+  it("claims an invite once: a second claim of the same hash changes no row", async () => {
+    const token = await h.invite("claim-twice@example.com");
+    const hash = await sha256Hex(token);
+    const db = await h.db();
+    expect(await claimInvite(db, hash, Date.now())).toBe(true);
+    expect(await claimInvite(db, hash, Date.now())).toBe(false);
+    expect(await db.prepare("SELECT used_at FROM invites WHERE token_hash = ?").bind(hash).first()).toEqual({ used_at: expect.any(Number) });
+  });
+
+  it("claims no invite that is revoked or expired", async () => {
+    const db = await h.db();
+    for (const [email, column] of [["claim-revoked@example.com", "revoked_at"], ["claim-expired@example.com", "expires_at"]] as const) {
+      const hash = await sha256Hex(await h.invite(email));
+      await db.prepare(`UPDATE invites SET ${column} = 1 WHERE token_hash = ?`).bind(hash).run();
+      expect([email, await claimInvite(db, hash, Date.now())]).toEqual([email, false]);
+    }
   });
 
   it("two accepts of one token at the same moment give exactly one session", async () => {
@@ -473,6 +494,55 @@ describe("magic-link sign-in", () => {
     expect(await tokenRows(owner.ownerId)).toEqual([]);
   });
 
+  // (The http scheme is covered in packages/app-common/test/http.test.ts: through the local test runtime an Origin of
+  // http://app.localhost:8787 reaches the Worker accepted, measured 2026-10-01, so this file cannot tell it apart.)
+  // F10: the second CSRF test at the auth routes (logout has one in "sessions"): a foreign Origin never reaches login.
+  it("refuses a sign-in request from another site (Origin check) before the security check, any lookup or any email", async () => {
+    const owner = await h.signIn("csrf@example.com");
+    const seen = (await h.siteverifyCalls()).length;
+    h.server.clearLogs();
+    for (const origin of ["https://evil.example", "null", `${APP_ORIGIN}/`, "https://app.localhost:8788"]) {
+      const res = await h.call("POST", "/api/auth/login", { body: { email: "csrf@example.com" }, ip: nextIp(), origin, headers: { "x-turnstile-token": TURNSTILE_DUMMY_TOKEN } });
+      expect([origin, res.status]).toEqual([origin, 403]);
+      expect((await json<ErrorJson>(res)).error.code).toBe("forbidden");
+    }
+    expect((await h.siteverifyCalls()).length).toBe(seen);
+    expect(await tokenRows(owner.ownerId)).toEqual([]);
+    expect(await outbox("csrf@example.com")).toEqual([]);
+  });
+
+  // F11: with one owner, a token-to-owner read that is not keyed on the token still returns that owner. Two owners tell them apart.
+  it("signs each of two owners in as themselves, each with their own link", async () => {
+    const first = await h.signIn("first-link@example.com");
+    const second = await h.signIn("second-link@example.com");
+    await h.login("first-link@example.com");
+    await h.login("second-link@example.com");
+    const firstToken = tokenIn((await waitForEmail("first-link@example.com"))[0]?.text ?? "", "login");
+    const secondToken = tokenIn((await waitForEmail("second-link@example.com"))[0]?.text ?? "", "login");
+    const verified: Array<{ id: string; email: string }> = [];
+    for (const token of [firstToken, secondToken]) {
+      const res = await h.call("POST", "/api/auth/login/verify", { body: { token }, ip: nextIp() });
+      expect(res.status).toBe(200);
+      verified.push((await json<{ owner: { id: string; email: string } }>(res)).owner);
+      const me = await h.call("GET", "/api/me", { cookie: (res.headers.get("Set-Cookie") ?? "").split(";")[0] ?? "" });
+      expect((await json<{ owner: { id: string } }>(me)).owner.id).toBe(verified.at(-1)?.id);
+    }
+    expect(verified).toEqual([
+      { id: first.ownerId, email: "first-link@example.com" },
+      { id: second.ownerId, email: "second-link@example.com" },
+    ]);
+  });
+
+  // F26: after an "unavailable" (a 5xx) the provider may have delivered, so the link must still work and still count.
+  it("keeps the link, and its place in the caps, when the email service was unavailable", async () => {
+    const owner = await h.signIn("flaky@mail-unavailable.example");
+    h.server.clearLogs();
+    await h.login("flaky@mail-unavailable.example");
+    await h.backgroundDone("/api/auth/login");
+    expect(h.logLines().filter((line) => line["event"] === "email_failed")).toEqual([{ event: "email_failed", tag: "magic_link", error: "unavailable" }]);
+    expect(await tokenRows(owner.ownerId)).toHaveLength(1);
+  });
+
   it("logs a sign-in link job that failed as one line, without the address", async () => {
     const owner = await h.signIn("jobfails@example.com");
     h.server.clearLogs();
@@ -677,11 +747,33 @@ describe("sessions", () => {
         await loggedOut(await h.call("POST", "/api/auth/logout", { cookie: owner.cookie, ip: nextIp() }));
       },
     );
-    // The row the DELETE could not remove is still there (it expires on its own); the browser's cookie is gone.
+    // The row neither DELETE could remove is still there (it lives up to 30 days); the browser's cookie is gone.
     expect(await sessionHashes(owner.ownerId)).toEqual([await sha256Hex(cookieValue(owner.cookie))]);
     const lines = h.logLines().filter((line) => line["route"] === "POST /api/auth/logout");
     expect(lines).toEqual([{ route: "POST /api/auth/logout", status: 204, ms: expect.any(Number), event: "session_delete_failed", error: "Error" }]);
     expect(h.server.getLogs().map((entry) => entry.message).join("\n")).not.toContain(cookieValue(owner.cookie));
+  });
+
+  // F4: a session the owner signed out of must not stay valid for 30 days because one DELETE failed.
+  it("logout retries a failed session delete once in the background, so the session is gone", async () => {
+    const owner = await h.signIn();
+    await h.call("POST", "/__test/session-delete-fails", { body: { times: 1 } });
+    await loggedOut(await h.call("POST", "/api/auth/logout", { cookie: owner.cookie, ip: nextIp() }));
+    await eventually(() => sessionHashes(owner.ownerId), (left) => left.length === 0, "the retry to delete the session");
+  });
+
+  it("logout logs the retry's own line when the second delete fails too", async () => {
+    const owner = await h.signIn();
+    h.server.clearLogs();
+    await withTrigger(
+      "fail_logout_twice",
+      `CREATE TRIGGER fail_logout_twice BEFORE DELETE ON sessions WHEN OLD.owner_id = '${owner.ownerId}' BEGIN SELECT RAISE(ABORT, 'test failure'); END`,
+      async () => {
+        await loggedOut(await h.call("POST", "/api/auth/logout", { cookie: owner.cookie, ip: nextIp() }));
+        const lines = await eventually(() => h.logLines().filter((line) => line["event"] === "session_delete_retry_failed"), (found) => found.length > 0, "the retry's log line");
+        expect(lines).toEqual([{ event: "session_delete_retry_failed", error: "Error" }]);
+      },
+    );
   });
 
   it("logout from another site is refused like every change (Origin check), and the session stays", async () => {

@@ -34,6 +34,21 @@ export function buildVars(mode: string, root: string): Record<string, string> {
   return { ...config.vars, ...(devVars === undefined ? {} : parseDevVars(readFileSync(devVars, "utf8"))) };
 }
 
+/** The Worker name a development-mode build gets in its generated output config (F5). */
+export const LOCAL_BUILD_WORKER_NAME = "asksite-app-local";
+
+/**
+ * F5: the development build runs on the production wrangler.jsonc, and `.wrangler/deploy/config.json` points a bare
+ * `wrangler deploy` at the last build's output, so a development client (the dummy sitekey, no HSTS, img-src
+ * media.localhost) could replace the production Worker. The output config of a development build therefore gets another
+ * Worker name and loses its route and cron: such a deploy can only make a stray Worker nobody can reach, never replace
+ * asksite-app. `release` (package.json) is the one deploy path: it guards the sitekey and builds production itself.
+ */
+export function undeployableLocalConfig(config: Record<string, unknown>): Record<string, unknown> {
+  const { routes: _routes, triggers: _triggers, ...rest } = config;
+  return { ...rest, name: LOCAL_BUILD_WORKER_NAME };
+}
+
 const TURNSTILE_ORIGIN = "https://challenges.cloudflare.com";
 
 /** Cloudflare's documented dummy sitekeys: 1x/2x/3x, twenty zeros, then AA, AB, BB or FF (Turnstile "testing" page). */
