@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 
 // §2.2 / §9.1: owner and visitor text reaches the screen only as React text nodes. This test is
 // the lint rule: it fails if any client source file writes raw HTML.
-const RAW_HTML = /\b(inner|outer)HTML\b|insertAdjacentHTML|document\.write|setHTMLUnsafe|createContextualFragment|parseFromString|dangerouslySetInnerHTML/;
+const RAW_HTML = /\b(inner|outer)HTML\b|insertAdjacentHTML|document\.write|setHTMLUnsafe|parseHTMLUnsafe|createContextualFragment|parseFromString|dangerouslySetInnerHTML/;
 
 function files(dir: string): string[] {
   return readdirSync(dir).flatMap((name) => {
@@ -30,6 +30,7 @@ describe("client source", () => {
     "el.insertAdjacentHTML('beforeend', value)",
     "document.write(value)",
     "el.setHTMLUnsafe(value)",
+    "Document.parseHTMLUnsafe(value)",
     "document.createRange().createContextualFragment(value)",
     "new DOMParser().parseFromString(value, 'text/html')",
   ])("the check itself catches a raw-HTML write: %s", (code) => {
