@@ -1,9 +1,9 @@
-import { liveKey, mediaKey, mediaUrl, newId, versionKey } from "@asksite/core";
+import { livePageKey, livePointerKey, mediaKey, mediaUrl, newId, versionKey, versionPageKey } from "@asksite/core";
 import { SiteDocument } from "@asksite/site-schema";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { approveVersion, createPendingVersion, restore, setIndexable, takeDown } from "../src/index.ts";
 import { publishFailure as failure } from "./support/errors.ts";
-import { auditActions, doc, EDITS, publishingHarness, ROOT, seedSite, siteRow, versionRow, type PublishEnv } from "./support/harness.ts";
+import { auditActions, doc, EDITS, flakyBucket, liveKeysOf, pendingWithPages, publishingHarness, ROOT, seedSite, siteRow, versionRow, type PublishEnv } from "./support/harness.ts";
 
 const harness = publishingHarness("publishing-site-state-test");
 let env: PublishEnv;
@@ -34,12 +34,12 @@ async function addUpload(siteId: string): Promise<string> {
 }
 
 describe("takeDown", () => {
-  it("marks the site taken down in D1, rejects the pending version and deletes the live copy", async () => {
+  it("marks the site taken down in D1, rejects the pending version and deletes the pointer and the live pages", async () => {
     const s = await liveSite(true);
     await takeDown(env, { siteId: s.siteId, reviewer: ADMIN, reason: "Phishing", purgeMedia: false, now: 50 });
     expect(await siteRow(env.DB, s.siteId)).toMatchObject({ taken_down_at: 50, takedown_reason: "Phishing", pending_version_id: null, live_version_id: s.liveVersionId });
     expect(await versionRow(env.DB, String(s.pendingVersionId))).toMatchObject({ status: "rejected", review_note: "Site taken down", reviewed_by: ADMIN });
-    expect(await env.LIVE.get(liveKey(s.slug))).toBeNull();
+    expect(await liveKeysOf(env.LIVE, s.slug)).toEqual([]);
     expect(await auditActions(env.DB, s.siteId)).toEqual(["version.requested", "version.approved", "version.requested", "site.taken_down"]);
   });
 
@@ -76,12 +76,13 @@ describe("an unknown site id", () => {
 });
 
 describe("restore", () => {
-  it("puts the live version's bytes back, then clears the takedown", async () => {
+  it("puts the live version's pages and pointer back, then clears the takedown", async () => {
     const s = await liveSite();
     await takeDown(env, { siteId: s.siteId, reviewer: ADMIN, reason: "Mistake", purgeMedia: false, now: 50 });
     expect(await restore(env, { siteId: s.siteId, reviewer: ADMIN, now: 60 })).toEqual({ liveUrl: `https://${s.slug}.asksite.example/`, missingPhotos: 0 });
     const work = await (await env.WORK.get(versionKey(s.siteId, s.liveVersionId)))?.text();
-    expect(await (await env.LIVE.get(liveKey(s.slug)))?.text()).toBe(work);
+    expect(await (await env.LIVE.get(livePageKey(s.slug, s.liveVersionId, "home")))?.text()).toBe(work);
+    expect((await env.LIVE.head(livePointerKey(s.slug)))?.customMetadata?.["versionId"]).toBe(s.liveVersionId);
     expect(await siteRow(env.DB, s.siteId)).toMatchObject({ taken_down_at: null, takedown_reason: null });
     expect((await auditActions(env.DB, s.siteId)).slice(-2)).toEqual(["site.taken_down", "site.restored"]);
   });
@@ -117,7 +118,7 @@ describe("restore", () => {
     await env.WORK.put(versionKey(s.siteId, s.liveVersionId), "tampered");
     expect((await failure(restore(env, { siteId: s.siteId, reviewer: ADMIN, now: 60 }))).code).toBe("integrity");
     expect((await siteRow(env.DB, s.siteId))?.taken_down_at).toBe(50);
-    expect(await env.LIVE.get(liveKey(s.slug))).toBeNull();
+    expect(await liveKeysOf(env.LIVE, s.slug)).toEqual([]);
   });
 });
 
@@ -218,24 +219,28 @@ describe("what takedown, restore and the search switch change and record (design
     expect([deletedAt.get(earlier), deletedAt.get(later)]).toEqual([5, 70]);
   });
 
-  it("puts the page back with the metadata the sites Worker checks (Decision 24)", async () => {
+  it("puts the page and the pointer back with the metadata the sites Worker checks (Decision 24)", async () => {
     const s = await liveSite();
     await takeDown(env, { siteId: s.siteId, reviewer: ADMIN, reason: "x", purgeMedia: false, now: 50 });
     await restore(env, { siteId: s.siteId, reviewer: ADMIN, now: 60 });
-    const live = await env.LIVE.head(liveKey(s.slug));
-    expect(live?.httpMetadata?.contentType).toBe("text/html; charset=utf-8");
+    const page = await env.LIVE.head(livePageKey(s.slug, s.liveVersionId, "home"));
+    expect(page?.httpMetadata?.contentType).toBe("text/html; charset=utf-8");
+    const [home] = JSON.parse(String((await versionRow(env.DB, s.liveVersionId))?.pages_json)) as Array<{ sha256: string }>;
+    expect(page?.customMetadata).toEqual({ siteId: s.siteId, versionId: s.liveVersionId, page: "home", sha256: home?.sha256 });
+    const live = await env.LIVE.head(livePointerKey(s.slug));
     expect(live?.customMetadata).toEqual({
-      siteId: s.siteId, versionId: s.liveVersionId, sha256: (await versionRow(env.DB, s.liveVersionId))?.html_sha256,
+      siteId: s.siteId, versionId: s.liveVersionId,
       businessName: "Reliable Rooter Plumbing", // QA-2 RU(2): the live document's business name (plumber-austin)
       phoneText: "(512) 555-0142", phoneTel: "+15125550142", // A15: the live document's business phone (plumber-austin)
     });
   });
 
-  it("writes the page before clearing the takedown: if the write fails, the site stays down", async () => {
+  it("writes the pages and the pointer before clearing the takedown: if a write fails, the site stays down", async () => {
     const s = await liveSite();
     await takeDown(env, { siteId: s.siteId, reviewer: ADMIN, reason: "x", purgeMedia: false, now: 50 });
-    const failingLive = { put: () => Promise.reject(new Error("R2 is unavailable")) } as unknown as R2Bucket;
-    await expect(restore({ ...env, LIVE: failingLive }, { siteId: s.siteId, reviewer: ADMIN, now: 60 })).rejects.toThrow("R2 is unavailable");
+    for (const failing of [flakyBucket(env.LIVE, (call) => call === "put"), flakyBucket(env.LIVE, (call, key) => call === "put" && key === livePointerKey(s.slug))]) {
+      await expect(restore({ ...env, LIVE: failing }, { siteId: s.siteId, reviewer: ADMIN, now: 60 })).rejects.toThrow("R2 is unavailable");
+    }
     expect(await siteRow(env.DB, s.siteId)).toMatchObject({ taken_down_at: 50, takedown_reason: "x" });
     expect(await auditActions(env.DB, s.siteId)).not.toContain("site.restored");
   });
@@ -316,5 +321,97 @@ describe("a later takedown call that deletes photos is logged too (design §4.5:
     await takeDown(env, { siteId: bare.siteId, reviewer: ADMIN, reason: "x", purgeMedia: false, now: 50 });
     await takeDown(env, { siteId: bare.siteId, reviewer: SECOND, reason: "y", purgeMedia: true, now: 60 });
     expect(await takedownRows(bare.siteId)).toHaveLength(1);
+  });
+});
+
+// A16 + U2: the pointer is what makes a site visible, so a takedown deletes it first and a restore writes it last.
+describe("takedown and restore on the pointer (A16)", () => {
+  /** A live site whose version has several pages (built by hand: the renderer gives one page for now). */
+  async function liveMultiPage(pages: Parameters<typeof pendingWithPages>[1] = ["home", "services", "about", "contact"]) {
+    const p = await pendingWithPages(env, pages);
+    await approveVersion(env, { versionId: p.versionId, htmlSha256: p.htmlSha256, reviewer: ADMIN, note: null, indexable: true, now: 2 });
+    return p;
+  }
+  const taken = (siteId: string) => takeDown(env, { siteId, reviewer: ADMIN, reason: "Spam", purgeMedia: false, now: 50 });
+
+  it("deletes the pointer first: if that fails, the takedown fails with nothing changed in D1", async () => {
+    const p = await liveMultiPage();
+    const before = { site: await siteRow(env.DB, p.siteId), audit: await auditActions(env.DB, p.siteId), keys: await liveKeysOf(env.LIVE, p.slug) };
+    const pointerStays = flakyBucket(env.LIVE, (call, arg) => call === "delete" && arg === livePointerKey(p.slug));
+    await expect(takeDown({ ...env, LIVE: pointerStays }, { siteId: p.siteId, reviewer: ADMIN, reason: "Spam", purgeMedia: false, now: 50 })).rejects.toThrow("R2 is unavailable");
+    expect({ site: await siteRow(env.DB, p.siteId), audit: await auditActions(env.DB, p.siteId), keys: await liveKeysOf(env.LIVE, p.slug) }).toEqual(before);
+    await taken(p.siteId); // the admin's retry
+    expect(await siteRow(env.DB, p.siteId)).toMatchObject({ taken_down_at: 50 });
+  });
+
+  it("stops serving before it changes D1", async () => {
+    const p = await liveMultiPage();
+    let atPointerDelete: { pointer: R2Object | null; takenDownAt: number | null | undefined } | undefined;
+    const watching = {
+      delete: async (keys: string | string[]) => {
+        if (keys === livePointerKey(p.slug)) atPointerDelete = { pointer: await env.LIVE.head(keys), takenDownAt: (await siteRow(env.DB, p.siteId))?.taken_down_at };
+        return env.LIVE.delete(keys);
+      },
+      list: (options?: R2ListOptions) => env.LIVE.list(options),
+    } as unknown as R2Bucket;
+    await takeDown({ ...env, LIVE: watching }, { siteId: p.siteId, reviewer: ADMIN, reason: "Spam", purgeMedia: false, now: 50 });
+    expect(atPointerDelete?.pointer).not.toBeNull();
+    expect(atPointerDelete?.takenDownAt).toBeNull(); // D1 was still untouched when the pointer went
+  });
+
+  it("leaves no pointer and no page of the site, and not another site's, and a second call is a no-op", async () => {
+    const p = await liveMultiPage();
+    const other = await liveMultiPage(["home", "gallery", "contact"]);
+    await taken(p.siteId);
+    expect(await liveKeysOf(env.LIVE, p.slug)).toEqual([]);
+    expect(await liveKeysOf(env.LIVE, other.slug)).toHaveLength(1 + 3);
+    const audit = await auditActions(env.DB, p.siteId);
+    await taken(p.siteId);
+    expect(await liveKeysOf(env.LIVE, p.slug)).toEqual([]);
+    expect(await auditActions(env.DB, p.siteId)).toEqual(audit);
+  });
+
+  it("throws when the pages cannot be deleted after D1 changed, and the retry finishes", async () => {
+    const p = await liveMultiPage();
+    const pagesStay = flakyBucket(env.LIVE, (call, arg) => call === "delete" && Array.isArray(arg));
+    await expect(takeDown({ ...env, LIVE: pagesStay }, { siteId: p.siteId, reviewer: ADMIN, reason: "Spam", purgeMedia: false, now: 50 })).rejects.toThrow("R2 is unavailable");
+    expect(await siteRow(env.DB, p.siteId)).toMatchObject({ taken_down_at: 50 });
+    expect(await env.LIVE.head(livePointerKey(p.slug))).toBeNull();
+    await taken(p.siteId);
+    expect(await liveKeysOf(env.LIVE, p.slug)).toEqual([]);
+  });
+
+  it("restores every page and the pointer", async () => {
+    const p = await liveMultiPage();
+    await taken(p.siteId);
+    await restore(env, { siteId: p.siteId, reviewer: ADMIN, now: 60 });
+    expect(await liveKeysOf(env.LIVE, p.slug)).toEqual([livePointerKey(p.slug), ...p.pages.map((page) => livePageKey(p.slug, p.versionId, page.page))].sort());
+    for (const page of p.pages) expect(await (await env.LIVE.get(livePageKey(p.slug, p.versionId, page.page)))?.text()).toBe(page.html);
+    expect(await siteRow(env.DB, p.siteId)).toMatchObject({ taken_down_at: null });
+  });
+
+  it.each([
+    ["a tampered page", (p: Awaited<ReturnType<typeof liveMultiPage>>) => env.WORK.put(versionPageKey(p.siteId, p.versionId, "about"), "<p>tampered</p>")],
+    ["a missing page", (p: Awaited<ReturnType<typeof liveMultiPage>>) => env.WORK.delete(versionPageKey(p.siteId, p.versionId, "contact"))],
+    ["a pages_json that is not valid", (p: Awaited<ReturnType<typeof liveMultiPage>>) => env.DB.prepare("UPDATE site_versions SET pages_json = '[]' WHERE id = ?").bind(p.versionId).run()],
+  ])("refuses %s and the site stays down", async (_name, damage) => {
+    const p = await liveMultiPage();
+    await taken(p.siteId);
+    await damage(p);
+    expect((await failure(restore(env, { siteId: p.siteId, reviewer: ADMIN, now: 60 }))).code).toBe("integrity");
+    expect(await siteRow(env.DB, p.siteId)).toMatchObject({ taken_down_at: 50 });
+    expect(await liveKeysOf(env.LIVE, p.slug)).toEqual([]);
+    expect(await auditActions(env.DB, p.siteId)).not.toContain("site.restored");
+  });
+
+  it("on a live site it copies the pages again and rewrites the pointer: no D1 change, no audit row", async () => {
+    const p = await liveMultiPage();
+    await env.LIVE.delete([livePointerKey(p.slug), livePageKey(p.slug, p.versionId, "about")]);
+    await env.LIVE.put(livePageKey(p.slug, p.versionId, "services"), "damaged");
+    const before = { site: await siteRow(env.DB, p.siteId), version: await versionRow(env.DB, p.versionId), audit: await auditActions(env.DB, p.siteId) };
+    await restore(env, { siteId: p.siteId, reviewer: ADMIN, now: 99 });
+    expect(await liveKeysOf(env.LIVE, p.slug)).toEqual([livePointerKey(p.slug), ...p.pages.map((page) => livePageKey(p.slug, p.versionId, page.page))].sort());
+    for (const page of p.pages) expect(await (await env.LIVE.get(livePageKey(p.slug, p.versionId, page.page)))?.text()).toBe(page.html);
+    expect({ site: await siteRow(env.DB, p.siteId), version: await versionRow(env.DB, p.versionId), audit: await auditActions(env.DB, p.siteId) }).toEqual(before);
   });
 });
