@@ -31,12 +31,29 @@ export async function expectNoSidewaysScroll(page: Page) {
   expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(0);
 }
 
-export function watchCsp(page: Page): string[] {
-  const violations: string[] = [];
+/**
+ * Collects Content-Security-Policy violations from two sources: console text (Chromium and WebKit word them there)
+ * and `securitypolicyviolation` events, which every engine fires (Firefox logs nothing a console match can catch).
+ * The event listener is added by Playwright's init script, not by a page script, so the page's own policy cannot
+ * block it. Only the directive and the blocked URI are kept. Call the returned function when the page has settled
+ * to read the violations (the owner app's watchCsp works the same way).
+ */
+export function watchCsp(page: Page): () => Promise<string[]> {
+  const consoleViolations: string[] = [];
   page.on("console", (message) => {
-    if (/Content Security Policy/i.test(message.text())) violations.push(message.text());
+    if (/Content Security Policy/i.test(message.text())) consoleViolations.push(message.text());
   });
-  return violations;
+  void page.addInitScript(() => {
+    const seen: string[] = [];
+    (window as unknown as { __cspViolations: string[] }).__cspViolations = seen;
+    document.addEventListener("securitypolicyviolation", (event) => {
+      seen.push(`${event.violatedDirective} blocked ${event.blockedURI}`);
+    });
+  });
+  return async () => {
+    const events = await page.evaluate(() => (window as unknown as { __cspViolations?: string[] }).__cspViolations ?? []);
+    return [...consoleViolations, ...events];
+  };
 }
 
 /** Tab (Shift+Tab with `back`) until `target` has focus; WebKit presses Option+Tab, which also reaches links, as Safari users do. */
