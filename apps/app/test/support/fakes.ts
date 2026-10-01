@@ -337,3 +337,14 @@ function liveAnswer(token: string | null): Record<string, unknown> {
   }
   return TOKEN_REFUSED;
 }
+
+/** Reject without checks (tests only): as §7.2 rejectVersion, the version is "rejected" with the note and nothing is in review. */
+export async function fakeReject(env: { DB: D1Database }, versionId: string, note: string, now: number) {
+  const version = await env.DB.prepare("SELECT site_id FROM site_versions WHERE id = ?").bind(versionId).first<{ site_id: string }>();
+  if (version === null) throw new FakePublishError("version_not_pending");
+  await env.DB.batch([
+    env.DB.prepare("UPDATE site_versions SET status = 'rejected', reviewed_by = 'admin@example.com', reviewed_at = ?, review_note = ? WHERE id = ? AND status = 'pending'").bind(now, note, versionId),
+    env.DB.prepare("UPDATE sites SET pending_version_id = NULL, updated_at = ? WHERE id = ? AND pending_version_id = ?").bind(now, version.site_id, versionId),
+  ]);
+  return { siteId: version.site_id };
+}

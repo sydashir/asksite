@@ -54,6 +54,15 @@ describe("production wrangler.jsonc", () => {
     expect(config.routes).toEqual([{ pattern: `admin.${root}/*`, zone_name: root }]);
   });
 
+  it("pins the origins and the Access team domain: a trailing slash or a typo would break the admin only in production", () => {
+    // Task 27 edits these by hand. ADMIN_ORIGIN with a slash makes every admin change 403 (requireOrigin), APP_ORIGIN
+    // with one makes approve and reject 500 (checkEmailOrigin), and an ACCESS_TEAM_DOMAIN with one makes jose refuse every admin.
+    const root = config.vars["ROOT_DOMAIN"];
+    expect(config.vars["ADMIN_ORIGIN"]).toBe(`https://admin.${root}`);
+    expect(config.vars["APP_ORIGIN"]).toBe(`https://app.${root}`);
+    expect(config.vars["ACCESS_TEAM_DOMAIN"]).toMatch(/^$|^https:\/\/[a-z0-9-]+\.cloudflareaccess\.com$/);
+  });
+
   it("limits each admin to 300 requests a minute (ADMIN_RL, design §4.1)", () => {
     expect(config.ratelimits).toEqual([{ name: "ADMIN_RL", namespace_id: "1005", simple: { limit: 300, period: 60 } }]);
   });

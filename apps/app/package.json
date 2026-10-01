@@ -17,6 +17,9 @@
   "dependencies": {
     "@asksite/app-common": "workspace:*",
     "@asksite/core": "workspace:*",
+    "@asksite/generation": "workspace:*",
+    "@asksite/mailer": "workspace:*",
+    "@asksite/publishing": "workspace:*",
     "@asksite/renderer": "workspace:*",
     "@asksite/site-css": "workspace:*",
     "@asksite/site-schema": "workspace:*",
