@@ -19,7 +19,7 @@ test("sign in with an emailed link; the button, not the page load, uses the toke
   await page.getByRole("button", { name: "Email me a sign-in link" }).click();
   await expect(page.getByText("If that email has an account, we've sent a link. It can take a few minutes. Didn't get it? Email", { exact: false })).toBeVisible();
   await expect(page.getByRole("status").getByRole("link", { name: "help@example.com" })).toHaveAttribute("href", "mailto:help@example.com");
-  expect(violations).toEqual([]);
+  expect(await violations()).toEqual([]);
 
   let text = "";
   await expect
