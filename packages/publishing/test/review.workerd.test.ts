@@ -236,17 +236,41 @@ describe("approveVersion: all the pages, then the pointer (A16)", () => {
 
   it("removes the replaced version's pages after the switch, and only that site's", async () => {
     const first = await pendingWithPages(env);
-    const neighbour = await pendingWithPages(env, ["home", "services"]);
+    const neighbour = await pendingWithPages(env, ["home", "services"], `${first.slug}s`); // its slug starts with the first site's
     await approve(neighbour.versionId, neighbour.htmlSha256);
     await approve(first.versionId, first.htmlSha256);
     const second = await createPendingVersion(env, { siteId: first.siteId, ownerId: first.ownerId, slug: first.slug, document: doc(), edits: EDITS, generationId: null, now: 30 });
     await approve(second.id, String((await versionRow(env.DB, second.id))?.html_sha256), { now: 31 });
     expect(await liveKeysOf(env.LIVE, first.slug)).toEqual([livePointerKey(first.slug), livePageKey(first.slug, second.id, "home")].sort());
-    expect(await liveKeysOf(env.LIVE, neighbour.slug)).toHaveLength(1 + 2);
+    expect(await liveKeysOf(env.LIVE, neighbour.slug)).toEqual([livePointerKey(neighbour.slug), ...neighbour.pages.map((page) => livePageKey(neighbour.slug, neighbour.versionId, page.page))].sort());
+  });
+
+  it("removes the replaced version's pages only after the pointer write", async () => {
+    const first = await pendingWithPages(env, ["home", "services", "about", "contact"]);
+    await approve(first.versionId, first.htmlSha256);
+    const second = await createPendingVersion(env, { siteId: first.siteId, ownerId: first.ownerId, slug: first.slug, document: doc(), edits: EDITS, generationId: null, now: 30 });
+    const calls: Array<{ call: string; arg: unknown }> = [];
+    await approveVersion({ ...env, LIVE: flakyBucket(env.LIVE, () => false, calls) }, { versionId: second.id, htmlSha256: String((await versionRow(env.DB, second.id))?.html_sha256), reviewer: "admin@example.com", note: null, indexable: true, now: 31 });
+    const pointerPut = calls.findIndex((c) => c.call === "put" && c.arg === livePointerKey(first.slug));
+    const deletes = calls.flatMap((c, i) => (c.call === "delete" ? [i] : []));
+    expect(pointerPut).toBeGreaterThan(-1);
+    expect(deletes.length).toBeGreaterThan(0);
+    expect(deletes.every((i) => i > pointerPut)).toBe(true);
   });
 
   it("answers live_copy_failed when only the pointer write fails, and approving again heals it with one audit row", async () => {
     const p = await pendingWithPages(env);
+    const v1 = await pendingWithPages(env, ["home", "services", "about", "contact"]);
+    await approve(v1.versionId, v1.htmlSha256);
+    const v2 = await createPendingVersion(env, { siteId: v1.siteId, ownerId: v1.ownerId, slug: v1.slug, document: doc(), edits: EDITS, generationId: null, now: 30 });
+    const v2Sha = String((await versionRow(env.DB, v2.id))?.html_sha256);
+    const v1Keys = await liveKeysOf(env.LIVE, v1.slug);
+    const v2PointerFails = flakyBucket(env.LIVE, (call, key) => call === "put" && key === livePointerKey(v1.slug));
+    expect((await failure(approveVersion({ ...env, LIVE: v2PointerFails }, { versionId: v2.id, htmlSha256: v2Sha, reviewer: "admin@example.com", note: null, indexable: true, now: 31 }))).code).toBe("live_copy_failed");
+    // The pointer still names v1 and all of v1's pages are still there, so the site keeps being served until the retry.
+    expect((await env.LIVE.head(livePointerKey(v1.slug)))?.customMetadata?.["versionId"]).toBe(v1.versionId);
+    expect(await liveKeysOf(env.LIVE, v1.slug)).toEqual([...v1Keys, livePageKey(v1.slug, v2.id, "home")].sort());
+
     const pointerFails = flakyBucket(env.LIVE, (call, key) => call === "put" && key === livePointerKey(p.slug));
     const error = await failure(approveVersion({ ...env, LIVE: pointerFails }, { versionId: p.versionId, htmlSha256: p.htmlSha256, reviewer: "admin@example.com", note: null, indexable: true, now: 20 }));
     expect({ code: error.code, detail: error.detail }).toEqual({ code: "live_copy_failed", detail: { versionId: p.versionId } });

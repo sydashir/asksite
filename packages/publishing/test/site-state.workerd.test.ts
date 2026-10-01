@@ -327,8 +327,8 @@ describe("a later takedown call that deletes photos is logged too (design §4.5:
 // A16 + U2: the pointer is what makes a site visible, so a takedown deletes it first and a restore writes it last.
 describe("takedown and restore on the pointer (A16)", () => {
   /** A live site whose version has several pages (built by hand: the renderer gives one page for now). */
-  async function liveMultiPage(pages: Parameters<typeof pendingWithPages>[1] = ["home", "services", "about", "contact"]) {
-    const p = await pendingWithPages(env, pages);
+  async function liveMultiPage(pages: Parameters<typeof pendingWithPages>[1] = ["home", "services", "about", "contact"], slug?: string) {
+    const p = await pendingWithPages(env, pages, slug);
     await approveVersion(env, { versionId: p.versionId, htmlSha256: p.htmlSha256, reviewer: ADMIN, note: null, indexable: true, now: 2 });
     return p;
   }
@@ -361,10 +361,10 @@ describe("takedown and restore on the pointer (A16)", () => {
 
   it("leaves no pointer and no page of the site, and not another site's, and a second call is a no-op", async () => {
     const p = await liveMultiPage();
-    const other = await liveMultiPage(["home", "gallery", "contact"]);
+    const other = await liveMultiPage(["home", "gallery", "contact"], `${p.slug}s`); // its slug starts with the first site's
     await taken(p.siteId);
     expect(await liveKeysOf(env.LIVE, p.slug)).toEqual([]);
-    expect(await liveKeysOf(env.LIVE, other.slug)).toHaveLength(1 + 3);
+    expect(await liveKeysOf(env.LIVE, other.slug)).toEqual([livePointerKey(other.slug), ...other.pages.map((page) => livePageKey(other.slug, other.versionId, page.page))].sort());
     const audit = await auditActions(env.DB, p.siteId);
     await taken(p.siteId);
     expect(await liveKeysOf(env.LIVE, p.slug)).toEqual([]);

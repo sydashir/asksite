@@ -51,11 +51,11 @@ export function publishingHarness(name: string) {
 let counter = 0;
 
 /** A fresh owner and site with a slug. Each test gets its own ids and slug, so tests never share rows. */
-export async function seedSite(db: D1Database): Promise<{ ownerId: string; siteId: string; slug: string }> {
+export async function seedSite(db: D1Database, chosenSlug?: string): Promise<{ ownerId: string; siteId: string; slug: string }> {
   counter += 1;
   const ownerId = newId();
   const siteId = newId();
-  const slug = `site-${counter}-${siteId.slice(0, 8)}`;
+  const slug = chosenSlug ?? `site-${counter}-${siteId.slice(0, 8)}`;
   await db.batch([
     db.prepare("INSERT INTO owners (id, email, created_at) VALUES (?, ?, 1)").bind(ownerId, `${ownerId}@example.com`),
     db.prepare("INSERT INTO sites (id, owner_id, slug, created_at, updated_at) VALUES (?, ?, ?, 1, 1)").bind(siteId, ownerId, slug),
@@ -121,8 +121,8 @@ export async function liveKeysOf(live: R2Bucket, slug: string): Promise<string[]
  * A version with several pages, built by hand with the real core helpers (the renderer gives one page for now):
  * a real pending version, then its WORK pages and its row's pages_json, digest and Home key replaced.
  */
-export async function pendingWithPages(env: PublishEnv, pages: readonly PageId[] = ["home", "services", "contact"]) {
-  const site = await seedSite(env.DB);
+export async function pendingWithPages(env: PublishEnv, pages: readonly PageId[] = ["home", "services", "contact"], slug?: string) {
+  const site = await seedSite(env.DB, slug);
   const version = await createPendingVersion(env, { ...site, document: doc(), edits: EDITS, generationId: null, now: 10 });
   const built = await hashPages(pages.map((page) => ({ page, html: `<!DOCTYPE html><title>${page} of ${version.id}</title><p>${page}</p>` })));
   await Promise.all(built.map((p) => env.WORK.put(versionPageKey(site.siteId, version.id, p.page), p.html, { customMetadata: { siteId: site.siteId, versionId: version.id, page: p.page, sha256: p.sha256 } })));
