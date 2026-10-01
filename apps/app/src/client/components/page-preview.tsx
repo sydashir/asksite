@@ -66,12 +66,12 @@ export function PagePreview({ pages, frameTitle }: { pages: readonly PreviewPage
   );
 }
 
-/** One page in its frame. The frame is mounted again (a new key) after every attempt to leave the page. */
+/**
+ * One page in its frame: it fetches a stored page (or takes the html it was given) and hands the document to `LoadedFrame`.
+ */
 function PageFrame({ source, size, frameTitle, onLeftPage }: { source: PreviewPageSource; size: string; frameTitle: string; onLeftPage: () => void }) {
   const [load, setLoad] = useState<Load>("html" in source ? { state: "ready", html: source.html } : { state: "loading" });
   const [attempt, setAttempt] = useState(0);
-  const [mount, setMount] = useState(0);
-  const loads = useRef(0);
   const url = "url" in source ? source.url : null;
   const html = "html" in source ? source.html : null;
 
@@ -115,12 +115,26 @@ function PageFrame({ source, size, frameTitle, onLeftPage }: { source: PreviewPa
       </div>
     );
   }
+  return <LoadedFrame html={load.html} size={size} frameTitle={frameTitle} onLeftPage={onLeftPage} />;
+}
+
+/**
+ * One document in an iframe. Any `load` after the first of that document is the frame leaving the page: it is mounted again
+ * and the parent says so. Giving the inserted iframe a NEW srcdoc fires `load` too, but that is the new document arriving, so
+ * the count starts again whenever `html` changes (the effect runs before that load can arrive).
+ */
+function LoadedFrame({ html, size, frameTitle, onLeftPage }: { html: string; size: string; frameTitle: string; onLeftPage: () => void }) {
+  const [mount, setMount] = useState(0);
+  const loads = useRef(0);
+  useEffect(() => {
+    loads.current = 0;
+  }, [html]);
   return (
     <iframe
       key={mount}
       title={frameTitle}
       sandbox=""
-      srcDoc={load.html}
+      srcDoc={html}
       className={`mt-3 rounded-lg border border-slate-400 bg-white ${size}`}
       onLoad={() => {
         loads.current += 1;
