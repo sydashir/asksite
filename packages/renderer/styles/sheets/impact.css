@@ -1164,6 +1164,11 @@
   .page-head {
     padding-block: 1.5rem calc(1.75rem + var(--slant));
   }
+  /* The content under the head starts close under the seam (less than a band's usual top space), so the first
+     service row or photo shows high on the first screen. */
+  .page-open > .sec.seam-up {
+    padding-top: calc(2.5rem + var(--slant));
+  }
   .page-title {
     max-width: 54rem;
   }
@@ -1222,6 +1227,9 @@
   @media (min-width: 64rem) {
     .page-head {
       padding-block: 2.75rem calc(2.75rem + var(--slant));
+    }
+    .page-open > .sec.seam-up {
+      padding-top: calc(3.5rem + var(--slant));
     }
     .ph {
       display: grid;
