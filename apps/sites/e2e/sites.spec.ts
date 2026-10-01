@@ -1,6 +1,6 @@
 import { AxeBuilder } from "@axe-core/playwright";
 import { execFile } from "node:child_process";
-import { mkdir, rmdir } from "node:fs/promises";
+import { mkdir, rmdir, stat } from "node:fs/promises";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 import { DESIGN_IDS, PAGE_IDS, PAGES, type DesignId, type PageId } from "@asksite/site-schema";
@@ -94,6 +94,7 @@ const isLifecycleEngine = (name: string): boolean => (LIFECYCLE_ENGINES as reado
 const REPO = fileURLToPath(new URL("../../..", import.meta.url));
 /** Held while one operate.ts runs: a directory, because mkdir fails for all but one caller. */
 const OPERATE_LOCK = `${REPO}.wrangler/e2e-operate.lock`;
+const OPERATE_LOCK_STALE_MS = 120_000;
 
 /**
  * Changes the running server's state (operate.ts): approve a second version, take down or restore the site.
@@ -108,6 +109,9 @@ async function operate(command: "approve-v2" | "take-down" | "restore", slug: st
       break;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      // A worker killed at its test timeout never reaches the finally below: a lock older than any run takes is stale.
+      const held = await stat(OPERATE_LOCK).then((info) => Date.now() - info.mtimeMs, () => 0);
+      if (held > OPERATE_LOCK_STALE_MS) await rmdir(OPERATE_LOCK).catch(() => undefined);
       await new Promise((done) => setTimeout(done, 200));
     }
   }
@@ -223,6 +227,9 @@ for (const design of DESIGN_IDS) {
       test.describe.configure({ mode: "serial" });
       test.beforeEach(async ({ browserName }, testInfo) => {
         test.skip(!isLifecycleEngine(browserName) || testInfo.project.name === "chromium-390", "run in chromium-1280 and webkit-390 only: one site per engine");
+        // operate() takes its turn behind the other workers' runs (the lock), and each run takes seconds on a busy machine:
+        // the wait must not eat the default 30 s of the test.
+        test.setTimeout(150_000);
       });
       const live = (engine: string, id: PageId): string => `https://${lifecycleSlug(design, engine as LifecycleEngine)}.${ROOT}${PAGES[id].path}`;
       const v1 = { headline: loadFixture("plumber-austin").copy?.heroHeadline ?? "", intro: loadFixture("plumber-austin").copy?.sectionIntros?.services ?? "" };
