@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { LIMITS, sha256Hex } from "@asksite/core";
 import { Facts } from "@asksite/site-schema";
 import { afterEach, describe, expect, it } from "vitest";
-import { APP_ORIGIN, awayFromMinuteBoundary, json, nextIp, useAppHarness } from "../support/harness.ts";
+import { APP_ORIGIN, awayFromMinuteBoundary, eventually, json, nextIp, useAppHarness } from "../support/harness.ts";
 import { TURNSTILE_DUMMY_TOKEN } from "../support/turnstile.ts";
 
 const h = useAppHarness();
@@ -473,6 +473,16 @@ describe("magic-link sign-in", () => {
     expect(await tokenRows(owner.ownerId)).toEqual([]);
   });
 
+  // F26: after an "unavailable" (a 5xx) the provider may have delivered, so the link must still work and still count.
+  it("keeps the link, and its place in the caps, when the email service was unavailable", async () => {
+    const owner = await h.signIn("flaky@mail-unavailable.example");
+    h.server.clearLogs();
+    await h.login("flaky@mail-unavailable.example");
+    await h.backgroundDone("/api/auth/login");
+    expect(h.logLines().filter((line) => line["event"] === "email_failed")).toEqual([{ event: "email_failed", tag: "magic_link", error: "unavailable" }]);
+    expect(await tokenRows(owner.ownerId)).toHaveLength(1);
+  });
+
   it("logs a sign-in link job that failed as one line, without the address", async () => {
     const owner = await h.signIn("jobfails@example.com");
     h.server.clearLogs();
@@ -677,11 +687,33 @@ describe("sessions", () => {
         await loggedOut(await h.call("POST", "/api/auth/logout", { cookie: owner.cookie, ip: nextIp() }));
       },
     );
-    // The row the DELETE could not remove is still there (it expires on its own); the browser's cookie is gone.
+    // The row neither DELETE could remove is still there (it lives up to 30 days); the browser's cookie is gone.
     expect(await sessionHashes(owner.ownerId)).toEqual([await sha256Hex(cookieValue(owner.cookie))]);
     const lines = h.logLines().filter((line) => line["route"] === "POST /api/auth/logout");
     expect(lines).toEqual([{ route: "POST /api/auth/logout", status: 204, ms: expect.any(Number), event: "session_delete_failed", error: "Error" }]);
     expect(h.server.getLogs().map((entry) => entry.message).join("\n")).not.toContain(cookieValue(owner.cookie));
+  });
+
+  // F4: a session the owner signed out of must not stay valid for 30 days because one DELETE failed.
+  it("logout retries a failed session delete once in the background, so the session is gone", async () => {
+    const owner = await h.signIn();
+    await h.call("POST", "/__test/session-delete-fails", { body: { times: 1 } });
+    await loggedOut(await h.call("POST", "/api/auth/logout", { cookie: owner.cookie, ip: nextIp() }));
+    await eventually(() => sessionHashes(owner.ownerId), (left) => left.length === 0, "the retry to delete the session");
+  });
+
+  it("logout logs the retry's own line when the second delete fails too", async () => {
+    const owner = await h.signIn();
+    h.server.clearLogs();
+    await withTrigger(
+      "fail_logout_twice",
+      `CREATE TRIGGER fail_logout_twice BEFORE DELETE ON sessions WHEN OLD.owner_id = '${owner.ownerId}' BEGIN SELECT RAISE(ABORT, 'test failure'); END`,
+      async () => {
+        await loggedOut(await h.call("POST", "/api/auth/logout", { cookie: owner.cookie, ip: nextIp() }));
+        const lines = await eventually(() => h.logLines().filter((line) => line["event"] === "session_delete_retry_failed"), (found) => found.length > 0, "the retry's log line");
+        expect(lines).toEqual([{ event: "session_delete_retry_failed", error: "Error" }]);
+      },
+    );
   });
 
   it("logout from another site is refused like every change (Origin check), and the session stays", async () => {

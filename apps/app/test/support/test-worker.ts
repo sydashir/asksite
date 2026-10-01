@@ -224,6 +224,9 @@ function aroundRun(statement: D1PreparedStatement, around: Around): D1PreparedSt
   return hooked;
 }
 
+/** How many of the next sessions DELETEs (sign-out) fail, as a D1 outage would make them. */
+let sessionDeletesToFail = 0;
+
 /**
  * The Worker's env for a request to `path`, with a D1 binding that runs the armed hooks: around a route's batch(),
  * disable owners before it and store twins after it; before an uploads INSERT, take the site's last upload slot,
@@ -238,6 +241,7 @@ function withD1Hooks(env: Env, path: string): Env {
     takeSlotBeforeUploadInsert.size === 0 &&
     loseReservationBeforeRowWrite.size === 0 &&
     saveAfterSiteWrite.size === 0 &&
+    sessionDeletesToFail === 0 &&
     !stepsOf.has(path) &&
     !sqlOf.has(path)
   ) {
@@ -257,6 +261,15 @@ function withD1Hooks(env: Env, path: string): Env {
           }
           if (sql.trimStart().startsWith("DELETE FROM uploads") && (loseReservationBeforeRowWrite.size > 0 || stepsOf.has(path))) {
             return aroundRun(statement, { before: () => loseReservations(target), after: async () => noteStep(path, "delete") });
+          }
+          if (sessionDeletesToFail > 0 && sql.trimStart().startsWith("DELETE FROM sessions")) {
+            return aroundRun(statement, {
+              before: async () => {
+                if (sessionDeletesToFail === 0) return;
+                sessionDeletesToFail -= 1;
+                throw new Error("test failure");
+              },
+            });
           }
           if (saveAfterSiteWrite.size > 0 && sql.trimStart().startsWith("UPDATE sites ")) return aroundRun(statement, { after: () => saveOtherTabs(target) });
           if (sqlOf.has(path) && isUploadPreCheck(sql)) {
@@ -497,6 +510,13 @@ helpers.post("/__test/images-fails", async (c) => {
 helpers.post("/__test/images-output-format", async (c) => {
   const { format } = await c.req.json<{ format: ImageOutputOptions["format"] }>();
   nextOutputFormat = format;
+  return c.json({ ok: true });
+});
+
+/** Arms the hook above: the next `times` (default 1) sessions DELETEs of any request fail. */
+helpers.post("/__test/session-delete-fails", async (c) => {
+  const { times } = await c.req.json<{ times?: number }>();
+  sessionDeletesToFail = times ?? 1;
   return c.json({ ok: true });
 });
 
