@@ -86,8 +86,8 @@ function PublishScreen({ siteId, site, view, facts }: { siteId: string; site: Si
     const res = await api("DELETE", `/api/sites/${siteId}/publish-requests/pending`);
     if (res.ok || res.status === 409) {
       await Promise.all([site.reload(), loadVersions()]);
-      // 409 means nothing was pending any more: it was approved, rejected or taken down meanwhile, and the page now shows which.
-      showResult(res.ok ? "Your request was withdrawn. Nothing was published." : "This request was already decided, so there was nothing to withdraw. The page now shows where things stand.");
+      // 409 means nothing was pending any more (another tab withdrew it, or it was decided): never claim which, the status below says.
+      showResult(res.ok ? "Your request was withdrawn. Nothing was published." : "There was no request waiting to withdraw. Its latest status is below.");
     } else showResult(res.error.message);
   }
 

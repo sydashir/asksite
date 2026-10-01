@@ -68,8 +68,8 @@ test("a request approved in another tab is not reported as withdrawn", async ({ 
   await page.getByRole("button", { name: "Withdraw this request" }).click();
   await page.getByRole("dialog", { name: "Withdraw your request?" }).getByRole("button", { name: "Withdraw" }).click();
   await expect(page.getByText("Your website is live at")).toBeVisible();
+  await expect(page.getByText("There was no request waiting to withdraw. Its latest status is below.")).toBeVisible();
   await expect(page.getByText(/Nothing was published/)).toBeHidden();
-  await expect(page.getByText(/already decided/)).toBeVisible();
 });
 
 test("a rejected request shows the reviewer's note", async ({ page }) => {
@@ -103,9 +103,19 @@ test("after going live, a changed draft says it is not published yet", async ({ 
   await expect(page.getByText("You have changes that are not published yet.")).toBeVisible();
 });
 
-test("a site that cannot be loaded shows an error, not a spinner", async ({ page }) => {
-  await builtSite(page);
-  await page.goto("/sites/00000000-0000-4000-8000-000000000000/publish");
-  await expect(page.getByText("Loading…")).toBeHidden();
-  await expect(page.getByText(/not found|could not|cannot/i)).toBeVisible();
+for (const path of ["setup/business", "publish"]) {
+  test(`a site that cannot be loaded shows an error, not a spinner (/${path})`, async ({ page }) => {
+    await builtSite(page);
+    await page.goto(`/sites/00000000-0000-4000-8000-000000000000/${path}`);
+    await expect(page.getByText(/not found|could not|cannot/i)).toBeVisible();
+    await expect(page.getByText(/^Loading/)).toBeHidden();
+  });
+}
+
+test("a taken-down site shows the notice and no way to send for review", async ({ page }) => {
+  const siteId = await builtSite(page);
+  await page.request.post(`${APP}/__test/sites/${siteId}/take-down`, { data: {} });
+  await page.goto(`/sites/${siteId}/publish`);
+  await expect(page.getByText("Your website has been taken offline, so visitors cannot see it.")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Send for review" })).toBeHidden();
 });

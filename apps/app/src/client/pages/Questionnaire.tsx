@@ -17,8 +17,8 @@ import { STEP_BODY } from "../steps/index.tsx";
 
 export function Questionnaire({ siteId, step }: { siteId: string; step: StepId }) {
   const site = useSite(siteId);
-  if (site.load.state === "loading" || site.draft === null) return <p role="status">Loading your answers…</p>;
   if (site.load.state === "error") return <Notice tone="error">{site.load.message}</Notice>;
+  if (site.load.state === "loading" || site.draft === null) return <p role="status">Loading your answers…</p>;
   return <StepPage siteId={siteId} step={step} site={site} view={site.load.view} draft={site.draft} />;
 }
 

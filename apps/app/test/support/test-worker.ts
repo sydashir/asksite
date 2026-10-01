@@ -599,6 +599,13 @@ helpers.post("/__test/versions/:versionId/reject", async (c) => {
   return c.json(await fakeReject(c.env, c.req.param("versionId"), note, Date.now()));
 });
 
+/** What the admin's Take down does to the site row (Plan 2B's own statement). */
+helpers.post("/__test/sites/:siteId/take-down", async (c) => {
+  const now = Date.now();
+  await c.env.DB.prepare(TAKE_DOWN_SITE_SQL).bind(now, TEST_TAKEDOWN_REASON, now, c.req.param("siteId")).run();
+  return c.json({ ok: true });
+});
+
 export default {
   fetch(request, env, ctx) {
     const path = new URL(request.url).pathname;
