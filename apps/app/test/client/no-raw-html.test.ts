@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 
 // §2.2 / §9.1: owner and visitor text reaches the screen only as React text nodes. This test is
 // the lint rule: it fails if any client source file writes raw HTML.
-const RAW_HTML = /dangerouslySetInnerHTML|\.innerHTML\s*=|\.outerHTML\s*=|insertAdjacentHTML|document\.write/;
+const RAW_HTML = /\b(inner|outer)HTML\b|insertAdjacentHTML|document\.write|setHTMLUnsafe|createContextualFragment|parseFromString|dangerouslySetInnerHTML/;
 
 function files(dir: string): string[] {
   return readdirSync(dir).flatMap((name) => {
@@ -20,8 +20,25 @@ describe("client source", () => {
     expect(offenders).toEqual([]);
   });
 
-  it("the check itself catches a raw-HTML write", () => {
-    expect(RAW_HTML.test("<div dangerouslySetInnerHTML={{ __html: x }} />")).toBe(true);
-    expect(RAW_HTML.test("el.innerHTML = value")).toBe(true);
+  // F13: each of these is a way to turn text into markup that the earlier pattern let through.
+  it.each([
+    "<div dangerouslySetInnerHTML={{ __html: x }} />",
+    "el.innerHTML = value",
+    "el.innerHTML += value",
+    'el["innerHTML"] = value',
+    "el.outerHTML = value",
+    "el.insertAdjacentHTML('beforeend', value)",
+    "document.write(value)",
+    "el.setHTMLUnsafe(value)",
+    "document.createRange().createContextualFragment(value)",
+    "new DOMParser().parseFromString(value, 'text/html')",
+  ])("the check itself catches a raw-HTML write: %s", (code) => {
+    expect(RAW_HTML.test(code)).toBe(true);
+  });
+
+  // F13: a preview may show a page in a sandboxed iframe through its srcdoc attribute. That is an attribute, not markup
+  // written into this page, so the rule explicitly allows it.
+  it("allows the iframe srcdoc attribute of the preview", () => {
+    expect(RAW_HTML.test("<iframe sandbox title=\"Preview\" srcDoc={html} />")).toBe(false);
   });
 });
