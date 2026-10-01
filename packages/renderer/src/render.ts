@@ -105,9 +105,18 @@ export function pageDescription(doc: SiteDocument, page: PageId): string {
   }
 }
 
-/** Throws unless `siteUrl` is an https origin with its final "/" and nothing else (no path, query, hash or userinfo). */
+/**
+ * Throws unless `siteUrl` is an https origin with its final "/" and nothing else (no path, query, hash or userinfo).
+ * try/new URL, not URL.canParse: render() also runs in the owner's browser preview, and iOS 16.4 Safari (the client
+ * floor) has no URL.canParse (A9 rule, as in site-schema's url.ts).
+ */
 function checkSiteUrl(siteUrl: string): void {
-  const url = URL.canParse(siteUrl) ? new URL(siteUrl) : null;
+  let url: URL | null;
+  try {
+    url = new URL(siteUrl);
+  } catch {
+    url = null;
+  }
   if (url === null || url.protocol !== "https:" || siteUrl !== `${url.origin}/`) throw new Error("siteUrl must be an https origin ending in /");
 }
 
