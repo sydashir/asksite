@@ -13,7 +13,7 @@ async function liveSite(page: Page, options: { emailDomain?: string } = {}) {
 }
 
 test("review a site: the stored page shows in a sandboxed frame, flags are listed, and approving publishes it", async ({ page }) => {
-  const violations = watchCsp(page);
+  const violations = await watchCsp(page);
   const site = await pendingSite(page.request, { ...FACTS, testimonials: [{ quote: "Pay at paypa1-help.com", name: "A" }] });
   await page.goto("/");
   await expect(page.getByRole("heading", { level: 1, name: "Waiting for review" })).toBeFocused();
@@ -50,7 +50,7 @@ test("review a site: the stored page shows in a sandboxed frame, flags are liste
 // watching". An inline script on the admin's own origin breaks its script-src 'self'; the event line (not the console
 // wording, which differs by engine) is what proves the securitypolicyviolation listener works.
 test("the CSP collector reports an inline script on the admin origin", async ({ page }) => {
-  const violations = watchCsp(page);
+  const violations = await watchCsp(page);
   await page.goto("/");
   await page.evaluate(() => {
     const script = document.createElement("script");
@@ -58,7 +58,7 @@ test("the CSP collector reports an inline script on the admin origin", async ({ 
     document.head.append(script);
   });
   expect(await page.evaluate(() => "__inlineRan" in window)).toBe(false);
-  await expect.poll(async () => (await violations()).filter((line) => /^script-src(-elem)? blocked inline$/.test(line)).length).toBeGreaterThan(0);
+  await expect.poll(async () => (await violations()).filter((line) => /^event script-src(-elem)? inline$/.test(line)).length).toBeGreaterThan(0);
 });
 
 test("the preview shows the stored page without leaving it: its links are off, and the stored bytes are untouched", async ({ page }) => {
