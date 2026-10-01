@@ -83,21 +83,32 @@ describe("Modern: every page can call or ask for a quote (A16)", () => {
       }
       expect(html.indexOf("</main>") - html.indexOf("</section>", html.indexOf('<section id="get-in-touch"'))).toBe("</section>\n".length);
       const card = element(band, '<div class="close-card');
-      expect(card).toContain('<h2 id="get-in-touch-title" class="display h2">Get in touch</h2>');
+      expect(card).toContain('<h2 id="get-in-touch-title" class="close-k">Get in touch</h2>');
       expect(card).toContain('href="tel:+15125550142"><svg class="i" viewBox="0 0 24 24" aria-hidden="true">');
       expect(card).toContain("Call (512) 555-0142</a>");
       expect(card).toContain('<a class="button button-line button-lg" href="/contact#quote">Get a free quote</a>');
     }
   });
 
-  // A16 round 1's judges (/about): the About band, the closing card and the footer were three brand slabs in a row.
-  it("draws the closing card on the brand colour, or white with the brand rule right after a band on the brand colour (About, Home's credentials band)", () => {
+  // A16 round 2's judges: "Get in touch" alone was the weakest line at each page's conversion moment. The heading keeps
+  // the contract's words; the card's big line asks the owner's own question, from the trade and the home town only.
+  it("asks in the closing band whether the visitor needs the owner's trade in the owner's town, from those two facts only", () => {
+    const question = (input: SiteDocumentInput) => /<h2 id="get-in-touch-title" class="close-k">Get in touch<\/h2>\n<p class="display h2">([^<]*)<\/p>/.exec(pageOf(input, "home"))?.[1];
+    expect(question(loadFixture("plumber-austin"))).toBe("Need a plumber in Austin?");
+    expect(question(loadFixture("hvac-phoenix"))).toBe("Need heating or cooling help in Phoenix?");
+    expect(question(loadFixture("cleaning-minimal"))).toBe("Need a cleaner in Boise?");
+    expect(question(loadFixture("roofing-extreme"))).toBe("Need a roofer in North Richland Hills tile slate flashing?");
+    expect(question(loadFixture("electrical-xss"))).toBe('Need an electrician in "&gt;&lt;script&gt;alert(1)&lt;/script&gt;?');
+    const plumber = loadFixture("plumber-austin");
+    expect(question({ ...plumber, facts: { ...plumber.facts, trade: "landscaping" } })).toBe("Need a landscaper in Austin?");
+  });
+
+  // A16 round 2's judges: a brand card 64 px above a footer of the same colour read as a double footer.
+  it("draws the closing card white with the brand rule on every page, whatever comes before it", () => {
     const card = (input: SiteDocumentInput, id: PageId) => /<div class="(close-card[^"]*)">/.exec(pageOf(input, id))?.[1];
     const plumber = loadFixture("plumber-austin");
-    expect(["home", "services", "gallery"].map((id) => card(plumber, id as PageId))).toEqual(Array(3).fill("close-card on-brand"));
-    expect(card(plumber, "about")).toBe("close-card close-card--light");
-    expect(card(trustLater(plumber), "home")).toBe("close-card close-card--light");
-    expect(card(withHidden(trustLater(plumber), ["trust"]), "home")).toBe("close-card on-brand");
+    expect(["home", "services", "about", "gallery"].map((id) => card(plumber, id as PageId))).toEqual(Array(4).fill("close-card"));
+    expect(card(trustLater(plumber), "home")).toBe("close-card");
   });
 
   it("the closing band gives a reason to act from the owner's own facts only: 24/7 service and free estimates, each with its fact, else the towns it serves", () => {
@@ -156,29 +167,45 @@ describe("Modern: the header names every page and marks the one on screen (A16)"
 });
 
 describe("Modern: Home previews the first three services (A16)", () => {
-  it("in the owner's order, each a ticked line with its From price, or 'Price on request' as on the Services page (no box: not a link), and one link to the Services page", () => {
-    const preview = element(pageOf(loadFixture("plumber-austin"), "home"), '<section id="services-preview"');
+  /** `input` with only its first `count` services (the copy describes exactly the owner's services, so both are cut). */
+  const withServices = (input: SiteDocumentInput, count: number): SiteDocumentInput => ({
+    ...withFacts(input, { services: input.facts.services.slice(0, count) }),
+    copy: { ...input.copy, serviceDescriptions: input.copy.serviceDescriptions.slice(0, count) },
+  });
+  const previewOf = (input: SiteDocumentInput) => element(pageOf(input, "home"), '<section id="services-preview"');
+
+  // Moderator answer (a): a service without a price shows its name only, no "From" and no invented price (review2 I-1).
+  // A16 round 2's judges: the owner's own line about each service, so the band informs and fills its columns.
+  it("in the owner's order, each a ticked line with its name, its From price only when it has one, and the owner's own line about it (no box: not a link), and one link to the Services page", () => {
+    const plumber = loadFixture("plumber-austin");
+    const preview = previewOf(plumber);
     expect(preview).toContain('<ul class="teaser-list">');
-    expect([...preview.matchAll(/<li><svg class="i" [^>]*>[^]*?<\/svg><h3 class="h3">([^<]*)<\/h3><p class="price[^"]*">(?:<small>From<\/small> )?([^<]*)<\/p><\/li>/g)].map((m) => [m[1], m[2]])).toEqual([
-      ["Drain cleaning", "$89"],
-      ["Water heater repair &amp; install", "$149"],
-      ["Leak detection", "Price on request"],
+    const rows = [...preview.matchAll(/<li><svg class="i" [^>]*>[^]*?<\/svg><h3 class="h3">([^<]*)<\/h3>(?:<p class="price"><small>From<\/small> ([^<]*)<\/p>)?<p class="teaser-desc">([^<]*)<\/p><\/li>/g)];
+    expect(rows.map((m) => [m[1], m[2], m[3]])).toEqual([
+      ["Drain cleaning", "$89", plumber.copy.serviceDescriptions[0]?.description],
+      ["Water heater repair &amp; install", "$149", plumber.copy.serviceDescriptions[1]?.description],
+      ["Leak detection", undefined, plumber.copy.serviceDescriptions[2]?.description],
     ]);
-    expect(preview).toContain('<p class="price price--ask">Price on request</p>');
-    // As on the Services page: an owner who prices no service is never told "Price on request".
-    expect(element(pageOf(loadFixture("cleaning-minimal"), "home"), '<section id="services-preview"')).not.toContain("<p class=\"price");
+    expect(preview).not.toContain("Price on request");
+    expect(previewOf(loadFixture("cleaning-minimal"))).not.toContain('<p class="price');
     expect(preview).not.toContain('class="card');
     expect([...preview.matchAll(/href="([^"]*)"/g)].map((m) => m[1])).toEqual(["/services"]);
     expect(preview).toContain('<a class="button button-line teaser-more" href="/services">More about our services<svg');
   });
 
-  it("names its column count for one or two services, so they fill the row", () => {
-    const plumber = loadFixture("plumber-austin");
-    const list = (count: number) => {
-      const one = withFacts(plumber, { services: plumber.facts.services.slice(0, count) });
-      return /<ul class="(teaser-list[^"]*)">/.exec(pageOf({ ...one, copy: { ...one.copy, serviceDescriptions: plumber.copy.serviceDescriptions.slice(0, count) } }, "home"))?.[1];
-    };
-    expect([1, 2, 3].map(list)).toEqual(["teaser-list teaser-list--1", "teaser-list teaser-list--2", "teaser-list"]);
+  // A16 round 2's judges: with 12 services, nothing on Home said that 9 more exist (the link's words are the contract's).
+  it("says how many services the owner has beside the link, when it has more than the preview shows", () => {
+    const count = (input: SiteDocumentInput) => /<p class="teaser-count">([^<]*)<\/p>/.exec(previewOf(input))?.[1];
+    expect(count(loadFixture("plumber-austin"))).toBe("Showing 3 of 5 services");
+    expect(count(loadFixture("roofing-extreme"))).toBe("Showing 3 of 12 services");
+    expect(count(withServices(loadFixture("plumber-austin"), 3))).toBeUndefined();
+    expect(count(loadFixture("cleaning-minimal"))).toBeUndefined();
+    expect(previewOf(loadFixture("plumber-austin"))).toMatch(/<div class="teaser-end"><p class="teaser-count">Showing 3 of 5 services<\/p><a class="button button-line teaser-more" href="\/services">/);
+  });
+
+  it("names its layout for one or two services: one service beside the heading, two in two columns", () => {
+    const wrap = (count: number) => /<div class="(wrap teaser[^"]*)">/.exec(previewOf(withServices(loadFixture("plumber-austin"), count)))?.[1];
+    expect([1, 2, 3].map(wrap)).toEqual(["wrap teaser teaser--1", "wrap teaser teaser--2", "wrap teaser"]);
   });
 });
 
@@ -256,6 +283,21 @@ describe("Modern: the Contact page (A16)", () => {
     const headers = site(loadFixture("plumber-austin")).pages.map((p) => element(p.html, "<header").replace(/ aria-current="page"/g, ""));
     expect(new Set(headers).size).toBe(1);
   });
+
+  // A16 round 2's judges: a bare one-word h1 ("Book") made the page head look unfinished.
+  it("gives its heading the owner's contact intro, else the hero's subheadline, as its line", () => {
+    const lede = (input: SiteDocumentInput) => /<h1 id="contact-title" class="display h1">[^<]*<\/h1>\n<p class="lede">([^<]*)<\/p>/.exec(pageOf(input, "contact"))?.[1];
+    expect(lede(loadFixture("plumber-austin"))).toBe("Tell us what is going on and we will call you back.");
+    expect(lede(loadFixture("cleaning-minimal"))).toBe("Careful cleaners for busy Boise households.");
+  });
+
+  // A16 round 2's judges: with no credentials the call card stood 290 px short of the form beside it.
+  it("lets the call card fill the column beside the form when the owner shows no credentials", () => {
+    const wrap = (input: SiteDocumentInput) => /<div class="(wrap contact[^"]*)">/.exec(pageOf(input, "contact"))?.[1];
+    expect(wrap(loadFixture("plumber-austin"))).toBe("wrap contact");
+    expect(wrap(loadFixture("cleaning-minimal"))).toBe("wrap contact contact--call");
+    expect(wrap(withHidden(loadFixture("plumber-austin"), ["trust"]))).toBe("wrap contact contact--call");
+  });
 });
 
 describe("Modern: About (A16)", () => {
@@ -268,9 +310,12 @@ describe("Modern: About (A16)", () => {
     expect(photoOf(withFacts(withoutHeroPhoto(plumber), { photos: [] }))).toEqual([]);
   });
 
-  it("carries the owner's statement under its h1 and the owner's credentials after it, and no buttons of its own (the closing band follows)", () => {
+  // A16 round 2's judges: on phones the photo came last, after about 800 px of brand colour; Home shows its photo first.
+  it("carries its photo straight under its h1, then the owner's statement and credentials, and no buttons of its own (the closing band follows)", () => {
     const about = element(pageOf(plumber, "about"), '<section id="about"');
     expect(about).toContain('<h1 id="about-title" class="display h1">About Reliable Rooter Plumbing</h1>');
+    expect(about).toMatch(/<\/h1>\s*<\/div>\n<img class="about-img" /);
+    expect(about.indexOf('<img class="about-img"')).toBeLessThan(about.indexOf('<p class="about-text'));
     expect(about.indexOf('<p class="about-text')).toBeLessThan(about.indexOf('<ul class="facts">'));
     expect(credentialsIn(about, '<ul class="facts"')).toEqual(["License M-40123", "Insured", "Since 1998", "Free estimates"]);
     expect(about).not.toContain("<a ");
@@ -285,6 +330,12 @@ describe("Modern: About (A16)", () => {
 });
 
 describe("Modern: the gallery", () => {
+  // A16 round 2's judges: below 1200 px the only quote action came after the whole grid.
+  it("offers the owner's call to action, to the form, on its heading row", () => {
+    const gallery = element(pageOf(loadFixture("plumber-austin"), "gallery"), '<section id="our-work"');
+    expect(gallery).toMatch(/<div class="wrap gal">\n<div class="head">[^]*?<\/div>\n<a class="button button-line gal-cta" href="\/contact#quote">Get a free quote<\/a>\n<ul class="shots">/);
+  });
+
   it("lays four photos out as one large beside three from 1024 px (judges' round 3), two and one as before", () => {
     const roofing = loadFixture("roofing-extreme");
     const shots = (count: number) => /<ul class="(shots[^"]*)">/.exec(pageOf(withFacts(roofing, { photos: (roofing.facts.photos ?? []).slice(0, count) }), "gallery"))?.[1];

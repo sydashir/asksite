@@ -7,7 +7,7 @@ import { headingLevel, onSite, quoteLink, type RenderContext } from "../../conte
 import { html, safeUrl, type SafeHtml } from "../../html.ts";
 import { DOM_ID } from "../../sections/ids.ts";
 import { itemHeading } from "../../ui.ts";
-import { credentialLine, credentialList, head, pageBand, pageCredentials, priceLine } from "./parts.ts";
+import { credentialLine, credentialList, head, pageBand, pageCredentials, priceLine, quoteButton } from "./parts.ts";
 
 /**
  * The column count for `count` service cards, at most `most`: the most columns, up to one more than the services.
@@ -87,14 +87,20 @@ ${rest.length > 0 && html`<ul class="quotes">${rest.map((t, i) => html`<li class
 // mosaic, judges' round 3), so four photos never take more height than six; one photo across the content width.
 const SHOTS = { 1: "shots shots--one", 2: "shots shots--two", 4: "shots shots--two shots--four", many: "shots" } as const;
 
+/**
+ * The owner's photos, each over the livery seam with its caption under it (never over the photo), and the owner's call
+ * to action on the heading row from 768 px (judges, A16 round 2: where intent peaks, the quote button sat after the
+ * whole grid below 1200 px; phones have the call bar's).
+ */
 export function renderGallery(ctx: RenderContext, _variant: VariantOf<"gallery">, tone: string): SafeHtml {
   const { facts, copy } = ctx.doc;
   const count = facts.photos.length;
   const shots = count === 1 || count === 2 || count === 4 ? SHOTS[count] : SHOTS.many;
   return html`<section id="${DOM_ID.gallery}" class="sec ${tone}" aria-labelledby="${DOM_ID.gallery}-title">
 ${pageBand(ctx, "gallery")}
-<div class="wrap">
+<div class="wrap gal">
 ${head(DOM_ID.gallery, "Our work", copy.sectionIntros.gallery, headingLevel(ctx, "gallery"))}
+${quoteButton(ctx, "gal-cta")}
 <ul class="${shots}">
 ${facts.photos.map((p) => html`<li><figure><img src="${safeUrl(p.url, ["https:"])}" width="${p.width}" height="${p.height}" alt="${p.alt}" loading="lazy" decoding="async">${p.caption && html`<figcaption>${p.caption}</figcaption>`}</figure></li>`)}
 </ul>
@@ -111,9 +117,9 @@ const aboutPhoto = (ctx: RenderContext): Photo | undefined => (onSite(ctx, "gall
 
 /**
  * The owner's statement set as type on the brand band, then the owner's credentials (who a homeowner lets into the
- * house), with a photo beside them from 1024 px (under them on phones); without a photo the credentials take its
- * place. The band ends its page, before the closing band with the Call and quote buttons, so it carries no buttons of
- * its own.
+ * house), with a photo beside them from 1024 px, as tall as they are (on phones straight under the heading, so the page
+ * opens on the owner's picture, as Home does: judges, A16 round 2); without a photo the credentials take its place.
+ * The band ends its page, before the closing band with the Call and quote buttons, so it carries no buttons of its own.
  */
 export function renderAbout(ctx: RenderContext, _variant: VariantOf<"about">): SafeHtml {
   const { facts, copy } = ctx.doc;
@@ -125,9 +131,9 @@ export function renderAbout(ctx: RenderContext, _variant: VariantOf<"about">): S
 ${pageBand(ctx, "about")}
 <div class="${photo !== undefined ? "wrap about--photo" : credentials ? "wrap about--facts" : "wrap"}">
 ${head(DOM_ID.about, `About ${facts.businessName}`, undefined, headingLevel(ctx, "about"))}
+${photo !== undefined && html`<img class="about-img" src="${safeUrl(photo.url, ["https:"])}" width="${photo.width}" height="${photo.height}" alt="${photo.alt}" decoding="async">`}
 <p class="about-text${size}">${about}</p>
 ${credentials}
-${photo !== undefined && html`<img class="about-img" src="${safeUrl(photo.url, ["https:"])}" width="${photo.width}" height="${photo.height}" alt="${photo.alt}" decoding="async">`}
 </div>
 </section>`;
 }

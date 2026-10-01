@@ -1,6 +1,6 @@
 // Words the Modern design derives from the owner's facts and the AI's copy. Nothing here adds a fact: each
 // helper only shortens, groups or repeats text the page already shows.
-import type { Facts, OpeningHours } from "@asksite/site-schema";
+import type { Facts, OpeningHours, Trade } from "@asksite/site-schema";
 import { TRADE_LABEL, weeklyHours } from "../../format.ts";
 
 /** The weekly hours with consecutive days of the same time in one row: "Monday – Friday". */
@@ -19,6 +19,19 @@ export function tradeAndCity(facts: Facts, headline: string): string | undefined
   const { city, state } = facts.location;
   return headline.toLowerCase().includes(city.toLowerCase()) ? undefined : `${TRADE_LABEL[facts.trade]} · ${city}, ${state}`;
 }
+
+// Who or what a visitor needs from each trade, as the closing band asks it.
+const NEED: Record<Trade, string> = {
+  plumbing: "a plumber",
+  hvac: "heating or cooling help",
+  electrical: "an electrician",
+  roofing: "a roofer",
+  cleaning: "a cleaner",
+  landscaping: "a landscaper",
+};
+
+/** "Need a plumber in Austin?": the owner's trade and home town, and nothing else, as a question. */
+export const needQuestion = (facts: Facts): string => `Need ${NEED[facts.trade]} in ${facts.location.city}?`;
 
 /** "Boise, ID" or "Boise, ID and Meridian": one or two places as words, the home town with its state. */
 export function fewPlaces(facts: Facts): string {

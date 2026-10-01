@@ -84,7 +84,8 @@ ${facts.insured && html`<li>Insured</li>`}
  * it stays at the bottom of the screen and stops sticking while keyboard focus is anywhere else
  * (focus-outside:static, styles/shared.css). On the Contact page, which is the quote form, it is not sticky: it sits
  * at the end of the page, so it never covers the form's Send button (moderator ruling (b), A16), and closes the
- * footer on its brand colour. z-index 10 keeps it under Send (z-index 20, shared.css) wherever it sticks.
+ * footer on its brand colour. Where it sticks it stays above the open phone menu's shade (styles/sheets/modern.css), so
+ * Call is one tap away with the menu open; no page with a sticky bar has a Send button.
  */
 export function renderCallBar(ctx: RenderContext): SafeHtml {
   const { phone } = ctx.doc.facts;

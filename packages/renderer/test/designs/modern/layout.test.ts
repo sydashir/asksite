@@ -545,37 +545,59 @@ describe.each(ENGINES)("Modern in %s", (_engine, engine) => {
 
   // A16 round 1's judges: the preview's rows were bordered white boxes (they looked tappable but are not links), a long
   // name pushed its price onto a second line on phones, and from 1024 px the heading's column stood empty beside them.
-  // On phones each service is one ruled line, its price on the name's line; from 768 px the services are one row of
-  // columns under the heading, with the link to the Services page level with the heading.
-  it("previews the services as one line each on phones, the price on the name's line, and as one row of columns from 768 px with the link beside the heading", async () => {
+  // Round 2's judges: each column also carries the owner's line about the service, the lines of a row start level
+  // whether a service has a price or not, one service sits beside the heading instead of alone at the band's left edge,
+  // and the count of the owner's services sits beside the link when there are more than the preview shows.
+  it("previews the services as one ruled line each on phones (the price on the name's line), as one row of level columns from 768 px with the link beside the heading, and one service beside the heading", async () => {
     const found: string[] = [];
     const measure = () => {
-      const list = document.querySelector(".teaser-list").getBoundingClientRect();
-      const link = document.querySelector(".teaser-more").getBoundingClientRect();
-      const title = document.querySelector("#services-preview-title").getBoundingClientRect();
+      const box = (selector: string) => document.querySelector(selector)?.getBoundingClientRect().toJSON();
       const rows = [...document.querySelectorAll(".teaser-list > li")].map((li) => {
         const name = li.querySelector("h3").getBoundingClientRect();
         const price = li.querySelector(".price")?.getBoundingClientRect();
-        const box = li.getBoundingClientRect();
-        return { top: Math.round(box.top), width: Math.round(box.width), sameLine: price === undefined || (price.left >= name.right - 1 && price.top < name.bottom && price.bottom > name.top) };
+        const desc = li.querySelector(".teaser-desc").getBoundingClientRect();
+        const item = li.getBoundingClientRect();
+        return {
+          top: Math.round(item.top),
+          left: item.left,
+          width: Math.round(item.width),
+          desc: desc.top,
+          under: desc.top >= name.bottom - 1 && desc.left >= name.left - 1,
+          sameLine: price === undefined || (price.left >= name.right - 1 && price.top < name.bottom && price.bottom > name.top),
+        };
       });
-      return { rows, list: { top: list.top, right: list.right, width: Math.round(list.width) }, link: { bottom: link.bottom, right: link.right, top: link.top }, title: { top: title.top, bottom: title.bottom } };
+      return { rows, list: box(".teaser-list"), link: box(".teaser-more"), count: box(".teaser-count"), title: box("#services-preview-title") };
     };
     const plumber = loadFixture("plumber-austin");
-    for (const count of [1, 2, 3]) {
-      await open(pageOf(withServices(plumber, count)), 320);
+    const PREVIEWS: ReadonlyArray<readonly [string, SiteDocumentInput]> = [
+      ["1 service", withServices(plumber, 1)],
+      ["2 services", withServices(plumber, 2)],
+      ["3 services, one unpriced", withServices(plumber, 3)],
+      ["12 services", loadFixture("roofing-extreme")],
+    ];
+    for (const [name, input] of PREVIEWS) {
+      await open(pageOf(input), 320);
       for (const width of [320, 390, 768, 1024, 1280, 1920]) {
         await tab.setViewportSize({ width, height: 800 });
         const got = await tab.evaluate(measure);
-        const where = `${count} services ${width}`;
+        const where = `${name} ${width}`;
+        for (const [i, row] of got.rows.entries()) if (!row.under) found.push(`${where}: row ${i + 1}'s line is not under its name`);
         if (width < 768) {
           for (const [i, row] of got.rows.entries()) if (!row.sameLine) found.push(`${where}: row ${i + 1}'s price is not on its name's line`);
-          if (got.link.top < got.list.top) found.push(`${where}: the link is above the list`);
+          if (got.link.top < got.list.bottom) found.push(`${where}: the link is not under the list`);
+          if (got.count !== undefined && got.count.bottom > got.link.top) found.push(`${where}: the count is not above the link`);
+          continue;
+        }
+        if (got.rows.length === 1) {
+          const [row] = got.rows;
+          if (row!.left < got.title.right || got.link.top < got.list.bottom || Math.abs(got.link.left - row!.left) > 1) found.push(`${where}: the service is not beside the heading with the link under it ${JSON.stringify(got)}`);
           continue;
         }
         if (new Set(got.rows.map((row) => row.top)).size !== 1) found.push(`${where}: rows at ${got.rows.map((row) => row.top).join(",")}`);
-        if (count > 1 && new Set(got.rows.map((row) => row.width)).size !== 1) found.push(`${where}: widths ${got.rows.map((row) => row.width).join(",")}`);
+        if (new Set(got.rows.map((row) => row.width)).size !== 1) found.push(`${where}: widths ${got.rows.map((row) => row.width).join(",")}`);
+        if (Math.max(...got.rows.map((row) => row.desc)) - Math.min(...got.rows.map((row) => row.desc)) > 1) found.push(`${where}: the lines start at ${got.rows.map((row) => Math.round(row.desc)).join(",")}`);
         if (got.link.bottom > got.list.top || Math.abs(got.link.right - got.list.right) > 1 || got.link.top > got.title.bottom) found.push(`${where}: the link is not beside the heading ${JSON.stringify(got)}`);
+        if (got.count !== undefined && (got.count.right > got.link.left || got.count.bottom < got.link.top || got.count.top > got.link.bottom)) found.push(`${where}: the count is not beside the link`);
       }
     }
     expect(found).toEqual([]);
@@ -595,8 +617,8 @@ describe.each(ENGINES)("Modern in %s", (_engine, engine) => {
   }, 60_000);
 
   // A16 round 1's judges: the closing band was a heading on a pale band with its buttons ~500 px away at the far right.
-  // It is a brand card: the buttons beside the heading from 1024 px, under it at the card's width on phones.
-  it("sets the closing band's buttons inside its brand card: beside the heading from 1024 px, under it at full width on phones", async () => {
+  // It is a card: the buttons beside the heading from 1024 px, under it at the card's width on phones.
+  it("sets the closing band's buttons inside its card: beside the heading from 1024 px, under it at full width on phones", async () => {
     const found: string[] = [];
     const measure = () => {
       const card = document.querySelector(".close-card").getBoundingClientRect();
@@ -695,20 +717,85 @@ describe.each(ENGINES)("Modern in %s", (_engine, engine) => {
   }, 60_000);
 
   // A16 round 1's judges: on Contact the right column ended ~240 px above the form and the areas and hours boards ended
-  // at different heights. The owner's credentials sit under the call card, and the two boards end level.
-  it("lines the Contact page up from 1024 px: the credentials under the call card, the areas and hours boards ending level", async () => {
+  // at different heights. Round 2's judges: never by padding the form (empty white under Send), nor a hollow areas
+  // board, nor a lone call card 290 px short of the form. The form ends at its button; the credentials (or a lone call
+  // card) end level with it when it is the taller column; the two boards end level, the address at the board's foot.
+  it("lines the Contact page up from 1024 px: the form at its own height, the column beside it ending level with it, the boards level with no hollow", async () => {
     const found: string[] = [];
     const measure = () => {
-      const box = (selector: string) => document.querySelector(selector).getBoundingClientRect().toJSON();
+      const box = (selector: string) => document.querySelector(selector)?.getBoundingClientRect().toJSON();
+      const form = document.querySelector(".form-card");
+      const style = getComputedStyle(form);
+      const send = box(".form-end .button");
+      const places = document.querySelector("#service-area .board");
+      const placesEnd = places?.querySelector(".board-body > :last-child")?.getBoundingClientRect().bottom;
+      const placesPad = places === null ? 0 : parseFloat(getComputedStyle(places.querySelector(".board-body")).paddingBottom) + 1;
       const boards = [...document.querySelectorAll("#service-area .board")].map((b) => b.getBoundingClientRect().bottom);
-      return { call: box(".call-card"), creds: box(".cred-card"), boards };
+      return {
+        call: box(".call-card"),
+        creds: box(".cred-card"),
+        form: box(".form-card"),
+        under: box(".form-card").bottom - send.bottom - parseFloat(style.paddingBottom) - parseFloat(style.borderBottomWidth),
+        boards,
+        hollow: places === null || placesEnd === undefined ? 0 : places.getBoundingClientRect().bottom - placesEnd - placesPad,
+      };
     };
-    await open(page("plumber-austin", undefined, "contact"), 1024);
-    for (const width of [1024, 1280, 1920]) {
+    for (const name of ["plumber-austin", "hvac-phoenix", "roofing-extreme", "cleaning-minimal"] as const) {
+      await open(page(name, undefined, "contact"), 1024);
+      for (const width of [1024, 1280, 1920]) {
+        await tab.setViewportSize({ width, height: 800 });
+        const got = await tab.evaluate(measure);
+        const where = `${name} ${width}`;
+        if (Math.abs(got.under) > 1) found.push(`${where}: ${Math.round(got.under)} px of empty form under Send`);
+        const side = got.creds ?? got.call;
+        if (got.creds !== undefined && (got.creds.top < got.call.bottom || Math.abs(got.creds.left - got.call.left) > 1 || Math.abs(got.creds.width - got.call.width) > 1)) found.push(`${where}: credentials ${JSON.stringify(got.creds)} vs call card ${JSON.stringify(got.call)}`);
+        if (Math.abs(got.call.top - got.form.top) > 1) found.push(`${where}: the call card starts ${Math.round(got.call.top - got.form.top)} px off the form`);
+        if (side.bottom < got.form.bottom - 1) found.push(`${where}: the column beside the form ends ${Math.round(got.form.bottom - side.bottom)} px above it`);
+        if (name === "plumber-austin" && (got.boards.length !== 2 || Math.abs(got.boards[0]! - got.boards[1]!) > 1)) found.push(`${where}: boards end at ${got.boards.map(Math.round).join(",")}`);
+        if (name === "plumber-austin" && Math.abs(got.hollow) > 1) found.push(`${where}: ${Math.round(got.hollow)} px hollow at the foot of the areas board`);
+      }
+    }
+    expect(found).toEqual([]);
+  }, 60_000);
+
+  // A16 round 2's judges: beside 30 places the hours board ended ~900 px above the list. It stays in view.
+  it("keeps the hours board in view under the header beside a long list of places, from 900 px", async () => {
+    const found: string[] = [];
+    await open(page("roofing-extreme", undefined, "contact"), 1280);
+    for (const width of [900, 1280, 1920]) {
       await tab.setViewportSize({ width, height: 800 });
-      const got = await tab.evaluate(measure);
-      if (got.creds.top < got.call.bottom || Math.abs(got.creds.left - got.call.left) > 1 || Math.abs(got.creds.width - got.call.width) > 1) found.push(`${width}: credentials ${JSON.stringify(got.creds)} vs call card ${JSON.stringify(got.call)}`);
-      if (got.boards.length !== 2 || Math.abs(got.boards[0]! - got.boards[1]!) > 1) found.push(`${width}: boards end at ${got.boards.map(Math.round).join(",")}`);
+      const got = await tab.evaluate(() => {
+        const places = document.querySelector("#service-area .board");
+        window.scrollTo(0, places.getBoundingClientRect().top + window.scrollY + places.getBoundingClientRect().height / 2);
+        const hours = document.querySelector("#service-area .board + .board").getBoundingClientRect();
+        const header = document.querySelector("header").getBoundingClientRect();
+        window.scrollTo(0, 0);
+        return { hours: hours.top, header: header.bottom };
+      });
+      if (Math.abs(got.hours - got.header - 24) > 1) found.push(`${width}: the hours board's top at ${Math.round(got.hours)}, the header's bottom at ${Math.round(got.header)}`);
+    }
+    expect(found).toEqual([]);
+  }, 60_000);
+
+  // A16 round 2's judges: on phones the 260 px call card pushed every form field under the first screen of a page whose
+  // h1 is the quote offer; at 1280x800 "Send request" sat just under the fold.
+  it("shows the Name and Phone fields on a phone's first screen, and the whole form on a laptop's, under a compact call card", async () => {
+    const found: string[] = [];
+    for (const name of ["plumber-austin", "hvac-phoenix", "cleaning-minimal"] as const) {
+      await open(page(name, undefined, "contact"), 390);
+      for (const [width, height] of [[390, 664], [1280, 800]] as const) {
+        await tab.setViewportSize({ width, height });
+        await tab.evaluate(() => window.scrollTo(0, 0));
+        const got = await tab.evaluate(() => ({
+          name: document.querySelector("#contact-name").getBoundingClientRect().bottom,
+          phone: document.querySelector("#contact-phone").getBoundingClientRect().bottom,
+          send: document.querySelector(".form-end .button").getBoundingClientRect().bottom,
+          card: document.querySelector(".call-card").getBoundingClientRect().height,
+        }));
+        const where = `${name} ${width}x${height}`;
+        if (width < 768 && (got.phone > height || got.card > 140)) found.push(`${where}: the Phone field ends at ${Math.round(got.phone)}, the call card is ${Math.round(got.card)} px tall`);
+        if (width >= 768 && got.send > height) found.push(`${where}: Send ends at ${Math.round(got.send)}`);
+      }
     }
     expect(found).toEqual([]);
   }, 60_000);
@@ -749,6 +836,71 @@ describe.each(ENGINES)("Modern in %s", (_engine, engine) => {
       const [large, second, third, wide] = four.widths;
       if (four.height > six.height + 1) found.push(`${width}: four photos ${Math.round(four.height)} px tall, six ${Math.round(six.height)}`);
       if (!(large! > 1.9 * second! && Math.abs(second! - third!) <= 1 && Math.abs(wide! - large!) <= 1 && four.tops[1] === four.tops[0] && four.tops[3]! > four.tops[1]!)) found.push(`${width}: cells ${four.widths.join(",")} at ${four.tops.join(",")}`);
+    }
+    expect(found).toEqual([]);
+  }, 60_000);
+
+  // A16 round 2's judges: on /about the photo was a fixed frame that ended 125-420 px above the statement and the
+  // credentials beside it (an empty hole of brand colour), and on phones it came last, after ~800 px of brand colour.
+  it("ends the About photo level with the text beside it from 1024 px, and shows it straight under the h1 on phones", async () => {
+    const found: string[] = [];
+    const measure = () => {
+      const box = (selector: string) => document.querySelector(`#about ${selector}`).getBoundingClientRect();
+      const text = [...document.querySelectorAll("#about .about-text, #about .facts")].map((el) => el.getBoundingClientRect().bottom);
+      return { img: box(".about-img").toJSON(), head: box(".head").toJSON(), title: box("h1").bottom, statement: box(".about-text").top, text: Math.max(...text) };
+    };
+    for (const name of ["plumber-austin", "roofing-extreme", "electrical-xss"] as const) {
+      await open(page(name, undefined, "about"), 390);
+      for (const width of [390, 1024, 1280, 1920]) {
+        await tab.setViewportSize({ width, height: 800 });
+        const got = await tab.evaluate(measure);
+        const where = `${name} ${width}`;
+        if (width < 1024) {
+          if (got.img.top < got.title || got.img.bottom > got.statement) found.push(`${where}: the photo is not between the h1 and the statement`);
+          continue;
+        }
+        if (Math.abs(got.img.top - got.head.top) > 1 || got.img.bottom < got.text - 1 || (got.img.height > 361 && Math.abs(got.img.bottom - got.text) > 1)) found.push(`${where}: the photo spans ${Math.round(got.img.top)}-${Math.round(got.img.bottom)}, the text ${Math.round(got.head.top)}-${Math.round(got.text)}`);
+      }
+    }
+    expect(found).toEqual([]);
+  }, 60_000);
+
+  // A16 round 2's judges: below 1200 px (where the header has no quote button) the gallery's only quote action came
+  // after the whole grid. From 768 px the owner's call to action sits on the heading row; phones have the call bar's.
+  it("puts the call to action on the gallery's heading row from 768 px, and leaves it to the call bar on phones", async () => {
+    const found: string[] = [];
+    await open(page("plumber-austin", undefined, "gallery"), 390);
+    for (const width of [390, 768, 1024, 1199, 1280]) {
+      await tab.setViewportSize({ width, height: 800 });
+      const got = await tab.evaluate(() => {
+        const cta = document.querySelector(".gal-cta");
+        const head = document.querySelector("#our-work .head").getBoundingClientRect();
+        const shots = document.querySelector("#our-work .shots").getBoundingClientRect();
+        const box = cta.getBoundingClientRect();
+        return { shown: cta.getClientRects().length > 0, left: box.left, top: box.top, bottom: box.bottom, right: box.right, head: head.toJSON(), shots: shots.toJSON() };
+      });
+      if (width < 768 ? got.shown : !got.shown || got.left < got.head.right || got.bottom > got.shots.top || Math.abs(got.right - got.shots.right) > 1) found.push(`${width}: ${JSON.stringify(got)}`);
+    }
+    expect(found).toEqual([]);
+  }, 60_000);
+
+  // A16 round 2's judges: with the phone menu open, its shade covered the sticky call bar, so Call looked turned off
+  // and a tap on it only closed the menu. The bar stays above the shade on every page with a sticky bar.
+  it("keeps the call bar above the open phone menu's shade, so Call is one tap away", async () => {
+    const found: string[] = [];
+    for (const id of ["home", "services", "gallery"] as const) {
+      await open(page("plumber-austin", undefined, id), 390);
+      for (const [width, height] of [[320, 568], [390, 664], [412, 839]] as const) {
+        await tab.setViewportSize({ width, height });
+        const hit = await tab.evaluate(() => {
+          document.querySelector(".menu").open = true;
+          const call = document.querySelector("aside a").getBoundingClientRect();
+          const top = document.elementFromPoint(call.left + call.width / 2, call.top + call.height / 2);
+          document.querySelector(".menu").open = false;
+          return top?.closest("aside") !== null && top?.closest("aside") !== undefined;
+        });
+        if (!hit) found.push(`${id} ${width}x${height}: the call bar is under the menu's shade`);
+      }
     }
     expect(found).toEqual([]);
   }, 60_000);

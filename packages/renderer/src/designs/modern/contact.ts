@@ -80,11 +80,14 @@ ${!last && html`<div class="faq-more"><p class="faq-more-q">Still have a questio
 }
 
 /**
- * The heading, the call card, the form and the owner's credentials. On phones the call card comes first, so calling
- * is one tap from the top of the page (the Contact page's call bar is not sticky, A16), and the credentials follow
- * the form; from 1024 px the form takes the wide column under the heading, and the call card and the credentials sit
- * beside it. The <form> is today's field for field (the shared invariant compares it with its class attributes
- * removed): only the classes differ.
+ * The heading (the owner's call to action, with the owner's contact intro, else the hero's subheadline, as its line:
+ * a bare "Book" looked unfinished), the call card, the form and the owner's credentials. On phones a compact call card
+ * comes first, so calling is one tap from the top of the page (the Contact page's call bar is not sticky, A16) and
+ * the form's first fields still share the first screen, and the credentials follow the form; from 1024 px the
+ * heading's line sits beside it, the form takes the wide column under it at its own height, and the call card and the
+ * credentials sit beside it (the call card alone fills the column when the owner shows no credentials: contact--call).
+ * The <form> is today's field for field (the shared invariant compares it with its class attributes removed): only
+ * the classes differ.
  */
 export function renderContact(ctx: RenderContext, _variant: VariantOf<"contact">, tone: string): SafeHtml {
   const { facts, copy } = ctx.doc;
@@ -92,8 +95,8 @@ export function renderContact(ctx: RenderContext, _variant: VariantOf<"contact">
   const credentials = credentialList(ctx);
   return html`<section id="${DOM_ID.contact}" class="sec ${tone}" aria-labelledby="${DOM_ID.contact}-title">
 ${pageBand(ctx, "contact")}
-<div class="wrap contact">
-${head(DOM_ID.contact, copy.ctaText, copy.sectionIntros.contact, headingLevel(ctx, "contact"))}
+<div class="${credentials ? "wrap contact" : "wrap contact contact--call"}">
+${head(DOM_ID.contact, copy.ctaText, copy.sectionIntros.contact ?? copy.heroSubheadline, headingLevel(ctx, "contact"))}
 <div class="call-card">
 <p class="lbl">Prefer to talk?</p>
 <a class="big whitespace-nowrap" href="${telUrl(facts.phone)}">${icon("phone", "i")}<span><span class="sr-only">Call </span>${keepParts(phone.split(" "))}</span></a>
