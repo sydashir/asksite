@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { assertDeployableSiteKey, buildVars, contentSecurityPolicy, headersFile, parseDevVars, workerConfigPath } from "../../build-config.ts";
+import { assertDeployableSiteKey, buildVars, contentSecurityPolicy, headersFile, LOCAL_BUILD_WORKER_NAME, parseDevVars, undeployableLocalConfig, workerConfigPath } from "../../build-config.ts";
 
 const ROOT = new URL("../../", import.meta.url).href;
 
@@ -31,6 +31,41 @@ describe("build-config", () => {
     expect(csp).toContain("default-src 'self';");
     expect(csp).toContain("frame-ancestors 'none'");
     expect(headersFile("asksite.example", false)).toContain("Content-Security-Policy: default-src 'self'");
+  });
+});
+
+// F14: the whole _headers file, line by line, so deleting or changing any single header turns a test red (the CSP
+// directives are also checked one by one above). The static file is the only place the SPA's headers come from (§9.1).
+const CSP =
+  "default-src 'self'; script-src 'self' https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline'; img-src 'self' https://media.asksite.example blob: data:; connect-src 'self'; frame-src 'self' https://challenges.cloudflare.com; form-action 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'";
+const COMMON_HEADERS = ["  X-Content-Type-Options: nosniff", "  Referrer-Policy: no-referrer", "  X-Frame-Options: DENY", "  X-Robots-Tag: noindex"];
+
+describe("headersFile (F14)", () => {
+  it("is exactly this for a production build: the CSP, HSTS, nosniff, no referrer, no framing, no indexing", () => {
+    expect(headersFile("asksite.example", true)).toBe(
+      ["/*", `  Content-Security-Policy: ${CSP}`, "  Strict-Transport-Security: max-age=31536000; includeSubDomains", ...COMMON_HEADERS, ""].join("\n"),
+    );
+  });
+
+  it("is exactly this for any other build: the same, without HSTS (it would force https onto every local project)", () => {
+    expect(headersFile("asksite.example", false)).toBe(["/*", `  Content-Security-Policy: ${CSP}`, ...COMMON_HEADERS, ""].join("\n"));
+  });
+});
+
+// F5: `pnpm build` builds on the production wrangler.jsonc, and a bare `wrangler deploy` follows the build's output config.
+describe("undeployableLocalConfig (F5)", () => {
+  const production = { name: "asksite-app", routes: [{ pattern: "app.asksite.example/*", zone_name: "asksite.example" }], triggers: { crons: ["0 6 * * *"] }, vars: { ENVIRONMENT: "production" } };
+
+  it("renames the Worker and drops its route and cron, so a bare deploy cannot replace production or take its address", () => {
+    const local = undeployableLocalConfig(production);
+    expect(local["name"]).toBe(LOCAL_BUILD_WORKER_NAME);
+    expect(LOCAL_BUILD_WORKER_NAME).not.toBe(production.name);
+    expect(local).not.toHaveProperty("routes");
+    expect(local).not.toHaveProperty("triggers");
+  });
+
+  it("keeps everything else, so the local build still runs as configured", () => {
+    expect(undeployableLocalConfig(production)["vars"]).toEqual(production.vars);
   });
 });
 
