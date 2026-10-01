@@ -2,15 +2,21 @@ import { describe, expect, it } from "vitest";
 import {
   formActionUrl,
   liveKey,
+  liveKeys,
+  livePageKey,
   mediaKey,
   mediaUrl,
+  pageUrl,
   parseHost,
   previewFormActionUrl,
+  previewSiteUrl,
   RESERVED_SLUGS,
   siteUrl,
   slugIssue,
   versionKey,
+  versionPageKey,
 } from "../src/index.ts";
+import { PAGE_IDS, type PageId } from "@asksite/site-schema";
 
 const SITE = "7c9e6679-7425-40de-944b-e07fc1f90ae7";
 const VERSION = "0b0c2d3e-4f50-4a6b-8c7d-8e9fa0b1c2d3";
@@ -26,6 +32,57 @@ describe("keys", () => {
     expect(previewFormActionUrl("asksite.example", "joes", SITE)).toBe(`https://joes.asksite.example/_f/${SITE}`);
     expect(mediaUrl("asksite.example", SITE, VERSION)).toBe(`https://media.asksite.example/${SITE}/${VERSION}.webp`);
   });
+});
+
+// A16: one R2 object per page. Home keeps today's keys, so the sites Worker's metadata reads (form.ts,
+// business.ts) and stored versions keep working; the other pages sit under the slug or the version id.
+// Security: the builders accept only the 5 page ids, so no request path or stored text becomes a key.
+describe("page keys (A16)", () => {
+  it("builds each page's LIVE and WORK key, Home at today's key", () => {
+    expect(PAGE_IDS.map((page) => livePageKey("joes", page))).toEqual([
+      "joes.html",
+      "joes/services.html",
+      "joes/about.html",
+      "joes/gallery.html",
+      "joes/contact.html",
+    ]);
+    expect(livePageKey("joes", "home")).toBe(liveKey("joes"));
+    expect(PAGE_IDS.map((page) => versionPageKey(SITE, VERSION, page))).toEqual([
+      `versions/${SITE}/${VERSION}.html`,
+      `versions/${SITE}/${VERSION}/services.html`,
+      `versions/${SITE}/${VERSION}/about.html`,
+      `versions/${SITE}/${VERSION}/gallery.html`,
+      `versions/${SITE}/${VERSION}/contact.html`,
+    ]);
+    expect(versionPageKey(SITE, VERSION, "home")).toBe(versionKey(SITE, VERSION));
+  });
+
+  it("lists every LIVE key of a site, for takedown", () => {
+    expect(liveKeys("joes")).toEqual(PAGE_IDS.map((page) => livePageKey("joes", page)));
+  });
+
+  it("builds each page's public URL (the canonical) and the preview's site URL", () => {
+    expect(PAGE_IDS.map((page) => pageUrl("asksite.example", "joes", page))).toEqual([
+      "https://joes.asksite.example/",
+      "https://joes.asksite.example/services",
+      "https://joes.asksite.example/about",
+      "https://joes.asksite.example/gallery",
+      "https://joes.asksite.example/contact",
+    ]);
+    expect(pageUrl("asksite.example", "joes", "home")).toBe(siteUrl("asksite.example", "joes"));
+    expect(previewSiteUrl("asksite.example", null)).toBe("https://preview.asksite.example/");
+    expect(previewSiteUrl("asksite.example", "joes")).toBe("https://joes.asksite.example/");
+  });
+
+  it.each(["", "Home", "SERVICES", "../joes", "services/../../x", "/services", "services.html", "index", "__proto__", "constructor", "toString", "hasOwnProperty"])(
+    "refuses %j as a page id in every builder",
+    (value) => {
+      const page = value as PageId;
+      expect(() => livePageKey("joes", page)).toThrow(/page/);
+      expect(() => versionPageKey(SITE, VERSION, page)).toThrow(/page/);
+      expect(() => pageUrl("asksite.example", "joes", page)).toThrow(/page/);
+    },
+  );
 });
 
 describe("parseHost", () => {

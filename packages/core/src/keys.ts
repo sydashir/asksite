@@ -1,3 +1,4 @@
+import { isPageId, PAGE_IDS, PAGES, type PageId } from "@asksite/site-schema";
 import { slugIssue } from "./slug.ts";
 
 // The only place R2 keys and public URLs are built. `root` is ROOT_DOMAIN: host[:port].
@@ -12,6 +13,23 @@ export const formActionUrl = (root: string, slug: string, siteId: string) => `ht
 export const previewFormActionUrl = (root: string, slug: string | null, siteId: string) =>
   formActionUrl(root, slug ?? "preview", siteId);
 export const mediaUrl = (root: string, siteId: string, uploadId: string) => `https://media.${root}/${siteId}/${uploadId}.webp`;
+
+// A16: one object per page. Home keeps today's keys (liveKey, versionKey), so the sites Worker's metadata
+// reads and the existing tests stay as they are; the other pages sit under the slug or the version id. Slugs
+// and ids never contain "/", so a page key can never be another site's key. Only the 5 page ids are accepted.
+function knownPage(page: PageId): PageId {
+  if (!isPageId(page)) throw new Error("Unknown page id");
+  return page;
+}
+export const livePageKey = (slug: string, page: PageId) => (knownPage(page) === "home" ? liveKey(slug) : `${slug}/${page}.html`);
+/** Every page's LIVE key, whether or not the site has that page: a takedown deletes them all. */
+export const liveKeys = (slug: string) => PAGE_IDS.map((page) => livePageKey(slug, page));
+export const versionPageKey = (siteId: string, versionId: string, page: PageId) =>
+  knownPage(page) === "home" ? versionKey(siteId, versionId) : `versions/${siteId}/${versionId}/${page}.html`;
+/** A page's public URL, also its canonical URL: siteUrl for Home, else https://<slug>.<root>/<page>. */
+export const pageUrl = (root: string, slug: string, page: PageId) => `https://${slug}.${root}${PAGES[knownPage(page)].path}`;
+/** The site URL the owner app's preview renders with before a slug is chosen (as previewFormActionUrl). */
+export const previewSiteUrl = (root: string, slug: string | null) => siteUrl(root, slug ?? "preview");
 
 export type HostKind =
   | { kind: "apex" }
