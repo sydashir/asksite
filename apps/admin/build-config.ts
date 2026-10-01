@@ -3,7 +3,7 @@
 // it never loads Turnstile, and its review screen shows the stored page in a srcdoc iframe, which inherits this
 // policy, so the page's Bold font (a data: URI) needs font-src data:.
 
-import { undeployableLocalConfig as withoutRoutes } from "../app/build-config.ts";
+import { isFilledString, undeployableLocalConfig as withoutRoutes } from "../app/build-config.ts";
 import { allowlist } from "./src/worker/access.ts";
 
 /** The Worker name a development-mode build gets in its generated output config (F5). */
@@ -28,13 +28,16 @@ const ACCESS_TEAM_DOMAIN = /^https:\/\/[a-z0-9-]+\.cloudflareaccess\.com$/;
  * admin. The production config ships the Access values empty until Task 27, and an admin deployed that way refuses
  * everyone (F9), so `release` runs this first. The messages name a field and never carry a value.
  */
-export function assertDeployableAccess(vars: Record<string, string> | undefined): void {
+export function assertDeployableAccess(vars: Record<string, unknown> | undefined): void {
   const v = vars ?? {};
   if (v["ADMIN_AUTH_MODE"] !== "access") throw new Error('ADMIN_AUTH_MODE must be "access" before a release');
-  if ((v["ACCESS_AUD"] ?? "") === "") throw new Error("ACCESS_AUD must be set before a release");
-  if (!ACCESS_TEAM_DOMAIN.test(v["ACCESS_TEAM_DOMAIN"] ?? "")) throw new Error("ACCESS_TEAM_DOMAIN must be set before a release, as https://<team>.cloudflareaccess.com");
-  if (allowlist(v["ADMIN_EMAILS"] ?? "").length === 0) throw new Error("ADMIN_EMAILS must be set before a release, with at least one email");
-  if ((v["DEV_ADMIN_EMAIL"] ?? "") !== "") throw new Error("DEV_ADMIN_EMAIL must be empty before a release");
+  if (!isFilledString(v["ACCESS_AUD"])) throw new Error("ACCESS_AUD must be set before a release");
+  const teamDomain = v["ACCESS_TEAM_DOMAIN"];
+  if (typeof teamDomain !== "string" || !ACCESS_TEAM_DOMAIN.test(teamDomain)) throw new Error("ACCESS_TEAM_DOMAIN must be set before a release, as https://<team>.cloudflareaccess.com");
+  const emails = v["ADMIN_EMAILS"];
+  if (typeof emails !== "string" || allowlist(emails).length === 0) throw new Error("ADMIN_EMAILS must be set before a release, with at least one email");
+  const devAdmin = v["DEV_ADMIN_EMAIL"];
+  if ((devAdmin ?? "") !== "") throw new Error("DEV_ADMIN_EMAIL must be empty before a release");
 }
 
 /** The §9.1 admin policy, with this build's media host. */

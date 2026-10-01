@@ -27,7 +27,7 @@ function run(configPath: string): { status: number | null; stderr: string; stdou
   return { status, stderr, stdout };
 }
 
-function guard(vars: Record<string, string> | null): { status: number | null; stderr: string; stdout: string } {
+function guard(vars: Record<string, unknown> | null): { status: number | null; stderr: string; stdout: string } {
   const config = join(dir, "wrangler.jsonc");
   writeFileSync(config, JSON.stringify(vars === null ? {} : { vars }));
   return run(config);
@@ -48,6 +48,9 @@ describe("release-guard.ts", () => {
     ["dev auth mode", { ADMIN_AUTH_MODE: "dev" }, "ADMIN_AUTH_MODE"],
     ["no auth mode", { ADMIN_AUTH_MODE: "" }, "ADMIN_AUTH_MODE"],
     ["an empty audience", { ACCESS_AUD: "" }, "ACCESS_AUD"],
+    ["a blank audience", { ACCESS_AUD: " " }, "ACCESS_AUD"],
+    ["an audience that is an object", { ACCESS_AUD: { aud: "fake-object-audience-0123" } }, "ACCESS_AUD"],
+    ["admin emails that are an object", { ADMIN_EMAILS: { list: "boss@fake.example" } }, "ADMIN_EMAILS"],
     ["an empty team domain", { ACCESS_TEAM_DOMAIN: "" }, "ACCESS_TEAM_DOMAIN"],
     ["a team domain over http", { ACCESS_TEAM_DOMAIN: "http://fake-team.cloudflareaccess.com" }, "ACCESS_TEAM_DOMAIN"],
     ["a team domain on another host", { ACCESS_TEAM_DOMAIN: "https://fake-team.cloudflareaccess.com.evil.example" }, "ACCESS_TEAM_DOMAIN"],
@@ -60,9 +63,10 @@ describe("release-guard.ts", () => {
     const { status, stderr, stdout } = guard(vars);
     expect(status).toBe(1);
     expect(stderr).toContain(field);
-    for (const value of Object.values(vars).filter((v) => v !== "" && v !== "access")) {
+    for (const value of Object.values(vars).filter((v): v is string => typeof v === "string" && v.trim() !== "" && v !== "access")) {
       expect(stderr + stdout).not.toContain(value);
     }
+    expect(stderr + stdout).not.toMatch(/fake-object-audience|\[object/);
   });
 
   it.each(["ADMIN_AUTH_MODE", "ACCESS_AUD", "ACCESS_TEAM_DOMAIN", "ADMIN_EMAILS"])("stops the release when %s is missing from the config", (field) => {

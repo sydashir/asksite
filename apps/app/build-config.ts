@@ -54,13 +54,18 @@ const TURNSTILE_ORIGIN = "https://challenges.cloudflare.com";
 /** Cloudflare's documented dummy sitekeys: 1x/2x/3x, twenty zeros, then AA, AB, BB or FF (Turnstile "testing" page). */
 const DUMMY_SITE_KEY = /^[123]x0{20}[A-F]{2}$/;
 
+/** A release-guard value counts only if it is a string with something other than whitespace in it (a config can hold anything). */
+export function isFilledString(value: unknown): value is string {
+  return typeof value === "string" && value.trim() !== "";
+}
+
 /**
  * Throws unless `key` is a real Turnstile sitekey: an empty one leaves the sign-in form without a widget
  * and a dummy one is accepted from any domain. Task 27's deploy step runs this on the production
  * TURNSTILE_SITE_KEY; builds do not, because the e2e and size builds use the dummy key (M3).
  */
-export function assertDeployableSiteKey(key: string): void {
-  if (key === "" || DUMMY_SITE_KEY.test(key)) throw new Error("TURNSTILE_SITE_KEY must be the real Turnstile sitekey, not empty or one of Cloudflare's dummy keys");
+export function assertDeployableSiteKey(key: unknown): void {
+  if (!isFilledString(key) || DUMMY_SITE_KEY.test(key)) throw new Error("TURNSTILE_SITE_KEY must be the real Turnstile sitekey, not empty or one of Cloudflare's dummy keys");
 }
 
 /** The §9.1 app policy, with this build's media host. */

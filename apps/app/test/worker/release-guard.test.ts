@@ -12,7 +12,7 @@ mkdirSync(results, { recursive: true });
 const dir = mkdtempSync(join(results, "release-guard-"));
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
 
-function guard(vars: Record<string, string> | null): { status: number | null; stderr: string } {
+function guard(vars: Record<string, unknown> | null): { status: number | null; stderr: string } {
   const config = join(dir, "wrangler.jsonc");
   writeFileSync(config, JSON.stringify(vars === null ? {} : { vars }));
   const run = spawnSync(process.execPath, [GUARD, config], { encoding: "utf8" });
@@ -28,12 +28,15 @@ describe("release-guard.ts", () => {
     ["an empty sitekey", { TURNSTILE_SITE_KEY: "" }],
     ["no sitekey", {}],
     ["no vars at all", null],
+    ["a blank sitekey", { TURNSTILE_SITE_KEY: " " }],
+    ["a sitekey that is an object", { TURNSTILE_SITE_KEY: { key: "0x4AAAAAAAfakefakefake" } }],
     ["a dummy sitekey that always passes", { TURNSTILE_SITE_KEY: "1x00000000000000000000AA" }],
     ["a dummy sitekey that always fails", { TURNSTILE_SITE_KEY: "2x00000000000000000000AB" }],
   ])("stops the release on %s, saying which variable", (_what, vars) => {
     const { status, stderr } = guard(vars);
     expect(status).toBe(1);
     expect(stderr).toMatch(/TURNSTILE_SITE_KEY must be the real Turnstile sitekey/);
+    expect(stderr).not.toMatch(/0x4AAAAAAAfake|\[object/);
   });
 
   // A config that is not plain JSON (a `//` comment) makes the parser quote the offending line, which holds config
