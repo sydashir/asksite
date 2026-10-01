@@ -35,4 +35,18 @@ describe("release-guard.ts", () => {
     expect(status).toBe(1);
     expect(stderr).toMatch(/TURNSTILE_SITE_KEY must be the real Turnstile sitekey/);
   });
+
+  // A config that is not plain JSON (a `//` comment) makes the parser quote the offending line, which holds config
+  // values. The guard must print one fixed message instead, never a value, a source line or a stack trace.
+  it("stops on a config that is not plain JSON without printing any value from it", () => {
+    const config = join(dir, "commented.jsonc");
+    writeFileSync(config, '{ "vars": {\n  "TURNSTILE_SITE_KEY": "0x4AAAAAAAfakefakefake", // boss@fake.example\n} }');
+    const run = spawnSync(process.execPath, [GUARD, config], { encoding: "utf8" });
+    expect(run.status).toBe(1);
+    expect(run.stdout).toBe("");
+    expect(run.stderr).toBe(
+      "The release guard could not read the wrangler config as JSON; fix the file and run the release again\n",
+    );
+    expect(run.stdout + run.stderr).not.toMatch(/0x4AAAAAAAfake|boss@fake|SyntaxError|\bat /);
+  });
 });
