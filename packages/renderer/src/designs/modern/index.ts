@@ -3,10 +3,12 @@
 // design's livery (the action colour over the brand colour) marks the header, the hero seam, each section heading
 // and the footer. System fonts only (zero font
 // bytes), zero JavaScript. Its stylesheet is styles/sheets/modern.css; its notices are in NOTICES.md.
-import type { LayoutSection, SectionId } from "@asksite/site-schema";
+import type { LayoutSection } from "@asksite/site-schema";
 import type { RenderContext } from "../../context.ts";
 import type { Design } from "../../design.ts";
 import { html, type SafeHtml } from "../../html.ts";
+import { CLOSING_BAND_ID, DOM_ID, SERVICES_PREVIEW_ID } from "../../sections/ids.ts";
+import { renderClosingBand, renderServicesPreview } from "./blocks.ts";
 import { renderContact, renderFaq, renderServiceArea } from "./contact.ts";
 import { renderCallBar, renderFooter, renderHeader } from "./frame.ts";
 import { renderHero, renderTrustBand, trustInHero } from "./hero.ts";
@@ -19,12 +21,25 @@ const ATTRIBUTION =
   "<!-- Modern design. Portions adapted from AstroWind, Copyright (c) 2023 onWidget, and Tabler Icons, Copyright (c) 2020-2026 Paweł Kuna. MIT License. -->";
 
 /**
- * The background of each section below the hero, in the order the page shows them: About and the trust band are on
- * the brand colour, the others alternate tint and white.
+ * The element ids of the page's blocks in the order render.ts draws them (A16): the page's sections, Home's services
+ * preview right before the reviews (after Home's last section without them), and the closing band last on every
+ * page but Contact.
  */
-function tone(ctx: RenderContext, id: SectionId): string {
-  const banded = ctx.sections.filter((s) => s.id !== "hero" && s.id !== "about" && s.id !== "trust");
-  return banded.findIndex((s) => s.id === id) % 2 === 0 ? "tint" : "white";
+function blockIds(ctx: RenderContext): string[] {
+  const home = ctx.page.id === "home";
+  const ids = ctx.page.sections.flatMap((s) => (home && s.id === "testimonials" ? [SERVICES_PREVIEW_ID, DOM_ID[s.id]] : [DOM_ID[s.id]]));
+  if (home && !ids.includes(SERVICES_PREVIEW_ID)) ids.push(SERVICES_PREVIEW_ID);
+  if (ctx.page.id !== "contact") ids.push(CLOSING_BAND_ID);
+  return ids;
+}
+
+/**
+ * The background of a block below the hero, in the order the page shows them: About and the trust band are on the
+ * brand colour, the others alternate tint and white, starting with tint.
+ */
+function tone(ctx: RenderContext, domId: string): string {
+  const onBrand: readonly string[] = [DOM_ID.hero, DOM_ID.about, DOM_ID.trust];
+  return blockIds(ctx).filter((id) => !onBrand.includes(id)).indexOf(domId) % 2 === 0 ? "tint" : "white";
 }
 
 function renderSection(ctx: RenderContext, section: LayoutSection): SafeHtml {
@@ -35,19 +50,19 @@ function renderSection(ctx: RenderContext, section: LayoutSection): SafeHtml {
       // Straight after the hero, the hero draws it under the headline.
       return trustInHero(ctx) ? html`` : renderTrustBand(ctx.doc.facts);
     case "services":
-      return renderServices(ctx, section.variant, tone(ctx, "services"));
+      return renderServices(ctx, section.variant, tone(ctx, DOM_ID.services));
     case "testimonials":
-      return renderReviews(ctx, section.variant, tone(ctx, "testimonials"));
+      return renderReviews(ctx, section.variant, tone(ctx, DOM_ID.testimonials));
     case "gallery":
-      return renderGallery(ctx, section.variant, tone(ctx, "gallery"));
+      return renderGallery(ctx, section.variant, tone(ctx, DOM_ID.gallery));
     case "about":
       return renderAbout(ctx, section.variant);
     case "serviceArea":
-      return renderServiceArea(ctx, section.variant, tone(ctx, "serviceArea"));
+      return renderServiceArea(ctx, section.variant, tone(ctx, DOM_ID.serviceArea));
     case "faq":
-      return renderFaq(ctx, section.variant, tone(ctx, "faq"));
+      return renderFaq(ctx, section.variant, tone(ctx, DOM_ID.faq));
     case "contact":
-      return renderContact(ctx, section.variant, tone(ctx, "contact"));
+      return renderContact(ctx, section.variant, tone(ctx, DOM_ID.contact));
   }
 }
 
@@ -57,6 +72,8 @@ export const design: Design = Object.freeze({
   variables: modernVariables,
   header: renderHeader,
   section: renderSection,
+  servicesTeaser: (ctx: RenderContext) => renderServicesPreview(ctx, tone(ctx, SERVICES_PREVIEW_ID)),
+  closingBand: (ctx: RenderContext) => renderClosingBand(ctx, tone(ctx, CLOSING_BAND_ID)),
   footer: renderFooter,
   callBar: renderCallBar,
 });

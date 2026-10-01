@@ -43,15 +43,6 @@ function cutLabels(cta: string): { short: string; tiny: string } {
   return { short: text.length <= SHORT_MAX ? text : one, tiny: one };
 }
 
-/**
- * The contact section's heading: the owner's CTA when it reads as a phrase ("Get a free quote", "Book a
- * visit"); "Get in touch" when it is one bare word ("Book") or starts with a call verb (the section is a form).
- */
-export function contactHeading(cta: string): string {
-  const words = cta.split(/\s+/).filter(Boolean);
-  return words.length < 2 || CALL_VERBS.includes((words[0] ?? "").toLowerCase()) ? "Get in touch" : words.join(" ");
-}
-
 /** The weekly hours with consecutive days of the same time in one row: "Monday – Friday". */
 export function groupedHours(hours: readonly OpeningHours[]): Array<{ days: string; time: string }> {
   const rows: Array<{ first: string; last: string; time: string }> = [];

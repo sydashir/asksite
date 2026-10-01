@@ -9,7 +9,7 @@
 //   call bar. Anywhere else in the layout they are a band of their own on the brand colour, and the hero keeps
 //   one short line with the licenses and insurance.
 import type { Facts, VariantOf } from "@asksite/site-schema";
-import { isVisible, type RenderContext } from "../../context.ts";
+import { onPage, onSite, type RenderContext } from "../../context.ts";
 import { mailtoUrl } from "../../format.ts";
 import { fragment, html, safeUrl, type SafeHtml } from "../../html.ts";
 import { icon } from "../../icons.ts";
@@ -24,8 +24,8 @@ export const LICENSES_ID = "licenses";
 /** Licenses the hero shows; the rest are one link away (the footer lists them all). */
 const HERO_LICENSES = 2;
 
-/** True when the trust section comes straight after the hero, so the hero holds it. */
-export const trustInHero = (ctx: RenderContext): boolean => ctx.sections[1]?.id === "trust";
+/** True when the trust section comes straight after the hero on Home (the owner's order, A16 U1), so the hero holds it. */
+export const trustInHero = (ctx: RenderContext): boolean => ctx.page.sections[0]?.id === "hero" && ctx.page.sections[1]?.id === "trust";
 
 /** The 24/7 fact and the trade and city, as one line of flat text; nothing when the owner has neither. */
 function heroLine(ctx: RenderContext, className: string): SafeHtml | false {
@@ -73,7 +73,7 @@ export function renderTrustBand(facts: Facts): SafeHtml {
   ].filter((group) => group.length > 0);
   return html`<section id="${DOM_ID.trust}" class="trust on-brand" aria-labelledby="${DOM_ID.trust}-title">
 <div class="wrap">
-${head("trust", "Credentials")}
+${head(DOM_ID.trust, "Credentials")}
 <div class="creds">${groups.map((group) => html`<ul>${group.map(credential)}</ul>`)}</div>
 </div>
 </section>`;
@@ -90,7 +90,7 @@ function proofLine(ctx: RenderContext): SafeHtml | false {
     ...facts.licences.slice(0, HERO_LICENSES).map((licence) => html`<li>${icon("certificate", "i")}<span>${licenseText(licence.number)}</span></li>`),
     ...(facts.insured ? [html`<li>${insuredItem().mark}<span>Insured</span></li>`] : []),
   ];
-  return isVisible(ctx, "trust") && !trustInHero(ctx) && items.length > 0 && html`<ul class="proof-line">${items}</ul>`;
+  return onPage(ctx, "trust") && !trustInHero(ctx) && items.length > 0 && html`<ul class="proof-line">${items}</ul>`;
 }
 
 /** The headline, subheadline and the Call and quote buttons (the buttons show from 768 px; phones have the call bar). */
@@ -121,16 +121,16 @@ ${hoursTable(facts)}
 ${emergencyNote(facts)}
 </div>`;
   }
-  return html`<div class="door door--reach"><dl class="reach">${isVisible(ctx, "serviceArea") && html`<dt>Service area</dt><dd>${icon("map-pin", "i")}${areaSummary(facts)}</dd>`}<dt>Email</dt><dd><a href="${mailtoUrl(facts.email)}">${emailText(facts.email)}</a></dd></dl></div>`;
+  return html`<div class="door door--reach"><dl class="reach">${onSite(ctx, "serviceArea") && html`<dt>Service area</dt><dd>${icon("map-pin", "i")}${areaSummary(facts)}</dd>`}<dt>Email</dt><dd><a href="${mailtoUrl(facts.email)}">${emailText(facts.email)}</a></dd></dl></div>`;
 }
 
 /**
  * Without a hero photo the hours move up into the hero's card, so the first screen says when the business is
- * open; the service area section then shows the places only. Only when that section is on the page: an owner
- * who hides it hides the hours too, as on every design.
+ * open; the service area section then shows the places only. Only when the site shows that section (on the Contact
+ * page): an owner who hides it hides the hours too, as on every design.
  */
 export const showsHoursInHero = (ctx: RenderContext): boolean =>
-  ctx.doc.facts.heroPhoto === undefined && ctx.doc.facts.hours.length > 0 && isVisible(ctx, "serviceArea");
+  ctx.doc.facts.heroPhoto === undefined && ctx.doc.facts.hours.length > 0 && onSite(ctx, "serviceArea");
 
 export function renderHero(ctx: RenderContext, variant: VariantOf<"hero">): SafeHtml {
   const { facts } = ctx.doc;

@@ -2,27 +2,29 @@
 // buttons, the hours table and the credentials list. Every value goes through html``, which escapes it for
 // where it lands; class strings are whole literals from this folder, so the sheet (styles/sheets/modern.css)
 // defines each one.
-import type { Facts, SectionId } from "@asksite/site-schema";
-import { isVisible, type RenderContext } from "../../context.ts";
+import type { Facts } from "@asksite/site-schema";
+import { quoteLink, type RenderContext } from "../../context.ts";
 import { formatPhone, telUrl } from "../../format.ts";
-import { fragment, html, type SafeHtml } from "../../html.ts";
+import { html, type SafeHtml } from "../../html.ts";
 import { icon } from "../../icons.ts";
-import { DOM_ID } from "../../sections/ids.ts";
 import { CALENDAR } from "./icons.ts";
 import { groupedHours } from "./text.ts";
-
-/** Where a quote button leads: the contact heading and form (the contact section's inner column). */
-export const FORM_ID = "contact-form";
 
 /** An email address with a break chance before the @ and each dot, so a long one wraps only there. */
 export function emailText(email: string): SafeHtml {
   return html`${email.split(/(?=[@.])/).map((part, i) => html`${i > 0 && html`<wbr>`}${part}`)}`;
 }
 
-/** A section's heading: the livery mark, the h2 (labels the section) and an optional intro. */
-export function head(id: SectionId, title: string, intro?: string): SafeHtml {
+/**
+ * A block's heading: the livery mark, the heading (labels the block, whose element id is `domId`) and an optional
+ * intro. `level` 1 is an inner page's one <h1>, in its first section (A16, headingLevel); otherwise an h2. Two literal
+ * branches, because a template cannot interpolate a tag name.
+ */
+export function head(domId: string, title: string, intro?: string, level: 1 | 2 = 2): SafeHtml {
+  const heading =
+    level === 1 ? html`<h1 id="${domId}-title" class="display h1">${title}</h1>` : html`<h2 id="${domId}-title" class="display h2">${title}</h2>`;
   return html`<div class="head">
-<h2 id="${DOM_ID[id]}-title" class="display h2">${title}</h2>
+${heading}
 ${intro && html`<p class="lede">${intro}</p>`}
 </div>`;
 }
@@ -32,9 +34,9 @@ export function callButton(facts: Facts, className: string): SafeHtml {
   return html`<a class="button button-act whitespace-nowrap ${className}" href="${telUrl(facts.phone)}">${icon("phone", "i")}Call ${formatPhone(facts.phone)}</a>`;
 }
 
-/** The owner's call to action, leading to the form; nothing when the page has no contact section. */
-export function quoteButton(ctx: RenderContext, className: string): SafeHtml | false {
-  return isVisible(ctx, "contact") && html`<a class="button button-line ${className}" href="${fragment(FORM_ID)}">${ctx.doc.copy.ctaText}</a>`;
+/** The owner's call to action, leading to the quote form on the Contact page, which every site has (A16). */
+export function quoteButton(ctx: RenderContext, className: string): SafeHtml {
+  return html`<a class="button button-line ${className}" href="${quoteLink()}">${ctx.doc.copy.ctaText}</a>`;
 }
 
 /**

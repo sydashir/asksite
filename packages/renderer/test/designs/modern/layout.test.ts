@@ -3,9 +3,9 @@
 // spacing, long unbroken words, odd photo counts) and the build judges' layout must-fixes (A12 Modern build, rounds 2
 // and 3). No network: every photo is one gray pixel.
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "@playwright/test";
-import { FONT_IDS, type FontId, type SiteDocumentInput } from "@asksite/site-schema";
+import { FONT_IDS, type FontId, type PageId, type SiteDocumentInput } from "@asksite/site-schema";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { DESIGN_CSS, FIXTURE_FORM_ACTION, FIXTURES, inDesign, loadFixture, type FixtureName } from "../../../../../fixtures/index.ts";
+import { DESIGN_CSS, FIXTURE_FORM_ACTION, FIXTURE_SITE_URL, FIXTURES, inDesign, loadFixture, type FixtureName } from "../../../../../fixtures/index.ts";
 import { render } from "../../../src/index.ts";
 
 // The functions handed to tab.evaluate run inside the page. The root tsconfig has no DOM library (only e2e/ has
@@ -20,20 +20,23 @@ const ENGINES: ReadonlyArray<readonly [string, BrowserType]> = [
   ["webkit", webkit],
 ];
 
-/** Modern's page of `input` (in `font` when given), with the real compiled sheet. */
-const pageOf = (input: SiteDocumentInput, font?: FontId): string => {
+const OPTIONS = { stylesheets: DESIGN_CSS, formAction: FIXTURE_FORM_ACTION, siteUrl: FIXTURE_SITE_URL };
+/** Modern's pages of `input` (in `font` when given), with the real compiled sheet, Home first. */
+const pagesOf = (input: SiteDocumentInput, font?: FontId) => {
   const doc = inDesign(input, "modern");
-  return render(font === undefined ? doc : { ...doc, theme: { ...doc.theme, font } }, { stylesheets: DESIGN_CSS, formAction: FIXTURE_FORM_ACTION }).html;
+  return render(font === undefined ? doc : { ...doc, theme: { ...doc.theme, font } }, OPTIONS).pages;
 };
-const page = (name: FixtureName, font?: FontId): string => pageOf(loadFixture(name), font);
+/** One of Modern's pages of `input` (Home unless another is named). */
+const pageOf = (input: SiteDocumentInput, font?: FontId, id: PageId = "home"): string => pagesOf(input, font).find((p) => p.page === id)?.html ?? "";
+const page = (name: FixtureName, font?: FontId, id: PageId = "home"): string => pageOf(loadFixture(name), font, id);
 
 const withFacts = (input: SiteDocumentInput, facts: Partial<SiteDocumentInput["facts"]>): SiteDocumentInput => ({ ...input, facts: { ...input.facts, ...facts } });
-/** `input` with the trust section moved after services: a band of its own, and the hero keeps one short line. */
+/** `input` with the trust section moved after the reviews (the owner's order on Home): a band of its own, and the hero keeps one short line. */
 function trustLater(input: SiteDocumentInput): SiteDocumentInput {
   const trust = input.layout.filter((section) => section.id === "trust");
   const rest = input.layout.filter((section) => section.id !== "trust");
-  const services = rest.findIndex((section) => section.id === "services");
-  return { ...input, layout: [...rest.slice(0, services + 1), ...trust, ...rest.slice(services + 1)] };
+  const reviews = rest.findIndex((section) => section.id === "testimonials");
+  return { ...input, layout: [...rest.slice(0, reviews + 1), ...trust, ...rest.slice(reviews + 1)] };
 }
 /** One word of `length` letters: no break chance in it. */
 const word = (length: number, first: string): string => (first + "ordwithoutabreak".repeat(6)).slice(0, length);
@@ -44,7 +47,7 @@ const cleaningInput = loadFixture("cleaning-minimal");
 const LONG_WORDS: ReadonlyArray<readonly [string, SiteDocumentInput]> = [
   ["a 39-letter business name", withFacts(plumberInput, { businessName: "AustinEmergencyPlumbingAndDrainCleaning" })],
   ["a 60-letter business name", withFacts(plumberInput, { businessName: word(60, "B") })],
-  ["a 30-letter license number, trust later", withFacts(loadFixture("hvac-phoenix"), { licences: [{ label: "Arizona ROC", number: "W".repeat(30) }] })],
+  ["a 30-letter license number, trust later", withFacts(trustLater(loadFixture("hvac-phoenix")), { licences: [{ label: "Arizona ROC", number: "W".repeat(30) }] })],
   ["a 30-digit license number, trust later", withFacts(trustLater(plumberInput), { licences: [{ label: "Texas master plumber", number: "1".repeat(30) }] })],
   ["an 80-letter street", withFacts(plumberInput, { location: { ...plumberInput.facts.location, streetAddress: word(80, "S") } })],
   ["a 40-letter home town, no street", withFacts(plumberInput, { location: { city: word(40, "C"), state: "TX" } })],
@@ -162,7 +165,7 @@ describe.each(ENGINES)("Modern in %s", (_engine, engine) => {
   it("puts every price on its own line under its service's name, at every width (judge 1)", async () => {
     const found: string[] = [];
     for (const name of ["plumber-austin", "hvac-phoenix"] as const) {
-      await open(page(name), 390);
+      await open(page(name, undefined, "services"), 390);
       for (const width of [390, 768, 1024, 1280]) {
         await tab.setViewportSize({ width, height: 800 });
         const wrong = await tab.evaluate(() =>
@@ -192,11 +195,11 @@ describe.each(ENGINES)("Modern in %s", (_engine, engine) => {
             copy: { ...roofing.copy, serviceDescriptions: roofing.copy.serviceDescriptions.slice(0, count) },
             layout: roofing.layout.map((s) => (s.id === "services" ? { id: "services", variant } : s)),
           } as SiteDocumentInput,
-          { stylesheets: DESIGN_CSS, formAction: FIXTURE_FORM_ACTION },
-        ).html,
+          OPTIONS,
+        ).pages.find((p) => p.page === "services")?.html ?? "",
       ]),
     );
-    for (const [name, html] of [...FIXTURES.map((fixture): [string, string] => [fixture, page(fixture)]), ...counts]) {
+    for (const [name, html] of [...FIXTURES.map((fixture): [string, string] => [fixture, page(fixture, undefined, "services")]), ...counts]) {
       await open(html, 390);
       for (const width of [390, 700, 1024, 1280, 1920]) {
         await tab.setViewportSize({ width, height: 800 });
@@ -248,7 +251,7 @@ describe.each(ENGINES)("Modern in %s", (_engine, engine) => {
     const found: string[] = [];
     const roofing = loadFixture("roofing-extreme");
     for (const count of [3, 5, 7]) {
-      await open(pageOf(withFacts(roofing, { photos: (roofing.facts.photos ?? []).slice(0, count) })), 1024);
+      await open(pageOf(withFacts(roofing, { photos: (roofing.facts.photos ?? []).slice(0, count) }), undefined, "gallery"), 1024);
       for (const width of [390, 1024, 1280, 1920]) {
         await tab.setViewportSize({ width, height: 800 });
         const rows = await tab.evaluate(() => {
@@ -282,7 +285,7 @@ describe.each(ENGINES)("Modern in %s", (_engine, engine) => {
   // itself while "Insured" used a third of its column, and at 1024 px one credential sat alone on a second row.
   it("sizes the stand-alone credentials band to its content: each credential on one line, none alone on a row, one gap (round 2 judges)", async () => {
     const found: string[] = [];
-    const hvac = loadFixture("hvac-phoenix");
+    const hvac = trustLater(loadFixture("hvac-phoenix"));
     const plumber = trustLater(loadFixture("plumber-austin"));
     const BANDS: ReadonlyArray<readonly [string, SiteDocumentInput]> = [
       ["hvac-phoenix", hvac],
@@ -325,7 +328,7 @@ describe.each(ENGINES)("Modern in %s", (_engine, engine) => {
   // would run past the band's edge. Each credential still keeps its text on one line.
   it("wraps a group of credentials too wide for one row inside the band: five licenses (round 3)", async () => {
     const found: string[] = [];
-    const hvac = loadFixture("hvac-phoenix");
+    const hvac = trustLater(loadFixture("hvac-phoenix"));
     const five = withFacts(hvac, {
       licences: [
         ...(hvac.facts.licences ?? []),
@@ -384,7 +387,7 @@ describe.each(ENGINES)("Modern in %s", (_engine, engine) => {
   // Round 2's judge 3: six places used six of the board's seven columns at 1280 px, an empty column at the end.
   it("spreads a row of places across the whole board (round 2 judges)", async () => {
     const found: string[] = [];
-    await open(page("hvac-phoenix"), 1280);
+    await open(page("hvac-phoenix", undefined, "contact"), 1280);
     for (const width of [768, 1024, 1280, 1920]) {
       await tab.setViewportSize({ width, height: 800 });
       // The widest row reaches the board's right edge: no empty column after the places.
@@ -403,7 +406,7 @@ describe.each(ENGINES)("Modern in %s", (_engine, engine) => {
     const found: string[] = [];
     for (const name of ["plumber-austin", "hvac-phoenix"] as const) {
       for (const font of FONT_IDS) {
-        await open(page(name, font), 390);
+        await open(page(name, font, "services"), 390);
         for (const width of [390, 768, 1024, 1280, 1920]) {
           await tab.setViewportSize({ width, height: 800 });
           const cards = await tab.evaluate(() =>

@@ -1,26 +1,30 @@
 // The Modern design's own rules (A12 design build; the approved mockup modern-v2/r6 and its judges' must-fixes). The
 // shared invariants, XSS, html-validate, class-drift and contrast checks run for Modern in the shared suites; these
 // pin what makes Modern Modern and what its judges asked for.
-import { FONT_IDS, PALETTE_IDS, SiteDocument, type HideableSectionId, type SiteDocumentInput } from "@asksite/site-schema";
+import { FONT_IDS, PALETTE_IDS, SiteDocument, type HideableSectionId, type PageId, type SiteDocumentInput } from "@asksite/site-schema";
 import { describe, expect, it } from "vitest";
-import { FIXTURE_FORM_ACTION, FIXTURES, inDesign, loadFixture, stubStylesheets, type FixtureName } from "../../../../../fixtures/index.ts";
+import { FIXTURE_FORM_ACTION, FIXTURE_SITE_URL, FIXTURES, inDesign, loadFixture, stubStylesheets, type FixtureName } from "../../../../../fixtures/index.ts";
 import { BASELINE } from "../../../src/baseline.ts";
 import { AA_LARGE_TEXT, contrastRatio, hexToRgb } from "../../../src/contrast.ts";
 import { DESIGNS } from "../../../src/designs/index.ts";
 import { cardColumns } from "../../../src/designs/modern/sections.ts";
-import { areaSummary, contactHeading, ctaLabels, groupedHours } from "../../../src/designs/modern/text.ts";
+import { areaSummary, ctaLabels, groupedHours } from "../../../src/designs/modern/text.ts";
 import { MODERN_COLORS, MODERN_FONTS, modernVariables } from "../../../src/designs/modern/tokens.ts";
 import { render } from "../../../src/index.ts";
 import { renderDocument } from "../../../src/render.ts";
 import { invariantProblems } from "../../support/design-invariants.ts";
 import { startTags } from "../../support/page-safety.ts";
 
-const OPTIONS = { stylesheets: stubStylesheets(), formAction: FIXTURE_FORM_ACTION };
-const modern = (input: SiteDocumentInput): string => render(inDesign(input, "modern"), OPTIONS).html;
-/** The shared invariants (A12 §7, the honesty rule included) for Modern's page of `input`, against today's page. */
+const OPTIONS = { stylesheets: stubStylesheets(), formAction: FIXTURE_FORM_ACTION, siteUrl: FIXTURE_SITE_URL };
+const site = (input: SiteDocumentInput) => render(inDesign(input, "modern"), OPTIONS);
+/** Every page of Modern's site for `input`, Home first, as one string: for checks that hold whichever page shows the content. */
+const modern = (input: SiteDocumentInput): string => site(input).pages.map((p) => p.html).join("\n");
+/** One page of Modern's site for `input` ("" when the site has no such page). */
+const pageOf = (input: SiteDocumentInput, id: PageId): string => site(input).pages.find((p) => p.page === id)?.html ?? "";
+/** The shared invariants (A12 §7, A16, the honesty rule included) for Modern's site of `input`, against today's site. */
 function problems(input: SiteDocumentInput): string[] {
   const doc = SiteDocument.parse(inDesign(input, "modern"));
-  return invariantProblems(modern(input), renderDocument(doc, BASELINE, OPTIONS).html, doc, DESIGNS.modern);
+  return invariantProblems(site(input), renderDocument(doc, BASELINE, OPTIONS), doc, DESIGNS.modern);
 }
 const fixture = (name: FixtureName): string => modern(loadFixture(name));
 const withFacts = (input: SiteDocumentInput, facts: Partial<SiteDocumentInput["facts"]>): SiteDocumentInput => ({ ...input, facts: { ...input.facts, ...facts } });
@@ -43,6 +47,19 @@ function element(page: string, start: string): string {
   return page.slice(from);
 }
 const hero = (page: string) => element(page, '<section id="top"');
+/** `input` with the trust section moved after the reviews (the owner's order on Home, A16 U1): a band of its own there. */
+function trustLater(input: SiteDocumentInput): SiteDocumentInput {
+  const trust = input.layout.filter((section) => section.id === "trust");
+  const rest = input.layout.filter((section) => section.id !== "trust");
+  const reviews = rest.findIndex((section) => section.id === "testimonials");
+  return { ...input, layout: [...rest.slice(0, reviews + 1), ...trust, ...rest.slice(reviews + 1)] };
+}
+/** `input` with the trust section moved straight after the hero. */
+function trustFirst(input: SiteDocumentInput): SiteDocumentInput {
+  const trust = input.layout.filter((section) => section.id === "trust");
+  const [first, ...rest] = input.layout.filter((section) => section.id !== "trust");
+  return { ...input, layout: [first!, ...trust, ...rest] };
+}
 const imageSources = (markup: string) => startTags(markup).filter((t) => t.name === "img").map((t) => t.attributes.find((a) => a.name === "src")?.value);
 
 describe("Modern: the call bar's labels come from the owner's call to action", () => {
@@ -68,11 +85,6 @@ describe("Modern: the call bar's labels come from the owner's call to action", (
     }
   });
 
-  it("the contact heading is the call to action, or 'Get in touch' for one word or a call verb", () => {
-    expect(contactHeading("Get a free quote")).toBe("Get a free quote");
-    expect(contactHeading("Book")).toBe("Get in touch");
-    expect(contactHeading("Call now")).toBe("Get in touch");
-  });
 });
 
 describe("Modern: small layout helpers", () => {
@@ -126,16 +138,16 @@ describe("Modern: the credentials", () => {
     for (const fact of ["License M-40123", "Texas master plumber", "Insured", "Since 1998", "Free estimates"]) expect(text).toContain(fact);
   });
 
-  it("are a band of their own on the brand colour, with a heading, wherever else the layout puts them", () => {
-    const page = fixture("hvac-phoenix");
+  it("are a band of their own on the brand colour, with a heading, wherever else the owner puts them on Home", () => {
+    const page = pageOf(trustLater(loadFixture("hvac-phoenix")), "home");
     expect(hero(page)).not.toContain('id="credentials"');
     const band = element(page, '<section id="credentials"');
     expect(band).toMatch(/^<section id="credentials" class="trust on-brand" aria-labelledby="credentials-title">/);
     expect(band).toContain('<h2 id="credentials-title" class="display h2">Credentials</h2>');
-    expect(page.indexOf('<section id="credentials"')).toBeGreaterThan(page.indexOf('<section id="services"'));
+    expect(page.indexOf('<section id="credentials"')).toBeGreaterThan(page.indexOf('<section id="reviews"'));
     // The band is not one of the tint and white sections, which keep alternating around it.
     expect([...page.matchAll(/<section id="([a-z-]+)" class="sec ([a-z]+)"/g)].map((m) => `${m[1]} ${m[2]}`)).toEqual([
-      "services tint", "reviews white", "our-work tint", "service-area white", "faq tint", "contact white",
+      "services-preview tint", "reviews white", "get-in-touch tint",
     ]);
     const text = band.replace(/<[^>]*>/g, "");
     for (const fact of ["License ROC 999001", "License ROC 999002", "Insured", "Since 2011", "24/7 emergency service"]) expect(text).toContain(fact);
@@ -144,33 +156,27 @@ describe("Modern: the credentials", () => {
   it("in the band, come in three groups that each move to a new row whole: the licenses, insured, then the other facts (round 2 judges)", () => {
     const groups = (page: string) =>
       [...element(element(page, '<section id="credentials"'), '<div class="creds"').matchAll(/<ul>([\s\S]*?)<\/ul>/g)].map((m) => [...(m[1] ?? "").matchAll(/<strong>([\s\S]*?)<\/strong>/g)].map((s) => (s[1] ?? "").replace(/<[^>]*>/g, "")));
-    expect(groups(fixture("hvac-phoenix"))).toEqual([["License ROC 999001", "License ROC 999002"], ["Insured"], ["Since 2011", "24/7 emergency service"]]);
+    const hvac = trustLater(loadFixture("hvac-phoenix"));
+    expect(groups(modern(hvac))).toEqual([["License ROC 999001", "License ROC 999002"], ["Insured"], ["Since 2011", "24/7 emergency service"]]);
     // An empty group leaves no empty list.
-    const hvac = loadFixture("hvac-phoenix");
     expect(groups(modern(withFacts(hvac, { insured: false })))).toEqual([["License ROC 999001", "License ROC 999002"], ["Since 2011", "24/7 emergency service"]]);
     expect(groups(modern(withFacts(hvac, { yearFounded: undefined })))).toEqual([["License ROC 999001", "License ROC 999002"], ["Insured"], ["24/7 emergency service"]]);
     // Insurance alone (copy that claims nothing else, so the schema accepts the other facts off).
-    const plumber = loadFixture("plumber-austin");
-    const rest = plumber.layout.filter((s) => s.id !== "trust");
-    const at = rest.findIndex((s) => s.id === "services") + 1;
-    const later: SiteDocumentInput = {
-      ...plumber,
-      copy: { ...plumber.copy, ctaText: "Get a quote", heroSubheadline: "Clear prices and tidy work, start to finish.", faq: [] },
-      layout: [...rest.slice(0, at), ...plumber.layout.filter((s) => s.id === "trust"), ...rest.slice(at)],
-    };
+    const plumber = trustLater(loadFixture("plumber-austin"));
+    const later: SiteDocumentInput = { ...plumber, copy: { ...plumber.copy, ctaText: "Get a quote", heroSubheadline: "Clear prices and tidy work, start to finish.", faq: [] } };
     expect(groups(modern(withFacts(later, { yearFounded: undefined, freeEstimates: false, emergency247: false, licences: [] })))).toEqual([["Insured"]]);
   });
 
   it("when they come later, the hero still names the licenses and insurance in one short line", () => {
-    const top = hero(fixture("hvac-phoenix"));
+    const top = hero(modern(trustLater(loadFixture("hvac-phoenix"))));
     const line = element(top, '<ul class="proof-line"').replace(/<[^>]*>/g, "");
     expect(line).toBe("License ROC 999001License ROC 999002Insured");
     expect(top).not.toContain("Since 2011");
   });
 
   it("leave the hero when the owner hides them, wherever the layout puts them", () => {
-    for (const name of ["plumber-austin", "hvac-phoenix"] as const) {
-      const top = hero(modern(withHidden(loadFixture(name), ["trust"])));
+    for (const input of [loadFixture("plumber-austin"), trustLater(loadFixture("hvac-phoenix"))]) {
+      const top = hero(modern(withHidden(input, ["trust"])));
       expect(top).not.toContain("Insured");
       expect(top).not.toContain("License");
     }
@@ -191,7 +197,7 @@ describe("Modern: the credentials", () => {
   });
 
   it("show two licenses in the hero and link to the footer, which lists them all, with a label that says so and a down arrow", () => {
-    const page = fixture("roofing-extreme");
+    const page = pageOf(trustFirst(loadFixture("roofing-extreme")), "home");
     const top = hero(page);
     expect(top.match(/License RCAT/g)).toHaveLength(2);
     expect(top).toMatch(/<a href="#licenses">See all 5 licenses<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path [^>]*d="M12 5l0 14M18 13l-6 6M6 13l6 6"\/><\/svg><\/a>/);
@@ -240,10 +246,11 @@ describe("Modern: each credential shows only with its owner fact", () => {
   ];
   const PLACES = [
     ["in the hero (trust follows the hero)", "plumber-austin"],
-    ["in the band and the hero's line (trust after services)", "hvac-phoenix"],
+    ["in the band and the hero's line (trust after the reviews)", "hvac-later"],
     ["on a page without a hero photo", "no-photo"],
   ] as const;
-  const input = (name: string) => (name === "no-photo" ? withoutHeroPhoto(loadFixture("plumber-austin")) : loadFixture(name as FixtureName));
+  const input = (name: string) =>
+    name === "no-photo" ? withoutHeroPhoto(loadFixture("plumber-austin")) : name === "hvac-later" ? trustLater(loadFixture("hvac-phoenix")) : loadFixture(name as FixtureName);
   // Copy that claims nothing, so the schema accepts every fact turned off (it refuses copy the facts do not back).
   const neutral = (doc: SiteDocumentInput): SiteDocumentInput => ({
     ...doc,
@@ -256,7 +263,7 @@ describe("Modern: each credential shows only with its owner fact", () => {
       const doc = withFacts(neutral(input(name)), facts);
       // The owner's own words (reviews, FAQ answers) never hold these exact forms in the fixtures; the page's one
       // comment (the licence attribution, "MIT License") is not page text.
-      expect(modern(doc).replace(DESIGNS.modern.attribution, "")).not.toMatch(words);
+      expect(modern(doc).replaceAll(DESIGNS.modern.attribution, "")).not.toMatch(words);
       expect(problems(doc)).toEqual([]);
     },
   );
@@ -313,8 +320,9 @@ describe("Modern: a hero without a photo", () => {
 
 describe("Modern: services are priced cards", () => {
   it("say 'Price on request' only where another service has a price, always under the service's name", () => {
-    expect(fixture("plumber-austin").match(/<\/h3><p class="price price--ask">Price on request<\/p>/g)).toHaveLength(2);
-    expect(fixture("plumber-austin").match(/<\/h3><p class="price"><small>From<\/small>/g)).toHaveLength(3);
+    const services = pageOf(loadFixture("plumber-austin"), "services");
+    expect(services.match(/<\/h2><p class="price price--ask">Price on request<\/p>/g)).toHaveLength(2);
+    expect(services.match(/<\/h2><p class="price"><small>From<\/small>/g)).toHaveLength(3);
     expect(fixture("cleaning-minimal")).not.toContain("Price on request");
     expect(fixture("cleaning-minimal")).toContain("Ask us for a price.");
   });
@@ -323,8 +331,8 @@ describe("Modern: services are priced cards", () => {
     const services = element(fixture("plumber-austin"), '<section id="services"');
     expect(services).toContain('class="cards cards--c3"');
     const cards = element(services, '<ul class="cards');
-    expect(cards).toMatch(/<li class="card ask on-brand"><div><p class="ask-q">Not sure which service you need\?<\/p><p>Tell us about the job\.<\/p><\/div><a class="button button-act" href="#contact-form">Get a free quote<\/a><\/li>\n<\/ul>$/);
-    expect(services.split('href="#contact-form"')).toHaveLength(2);
+    expect(cards).toMatch(/<li class="card ask on-brand"><div><p class="ask-q">Not sure which service you need\?<\/p><p>Tell us about the job\.<\/p><\/div><a class="button button-act" href="\/contact#quote">Get a free quote<\/a><\/li>\n<\/ul>$/);
+    expect(services.split('href="/contact#quote"')).toHaveLength(2);
     expect(fixture("hvac-phoenix")).toContain('class="cards cards--c4 cards--compact"');
     expect(fixture("cleaning-minimal")).toContain('class="cards cards--c3"');
   });
@@ -350,9 +358,9 @@ describe("Modern: shows the owner's content where a visitor looks for it", () =>
     expect(element(page, "<footer")).toContain("<li>Insured</li>");
   });
 
-  it("the call bar's and About's quote buttons lead to the form", () => {
-    expect(element(page, "<aside")).toContain('<a class="button button-line" href="#contact-form">');
-    expect(element(page, '<section id="about"')).toContain('<a class="button button-line " href="#contact-form">Get a free quote</a>');
+  it("the call bar's and About's quote buttons lead to the form on the Contact page", () => {
+    expect(element(page, "<aside")).toContain('<a class="button button-line" href="/contact#quote">');
+    expect(element(page, '<section id="about"')).toContain('<a class="button button-line " href="/contact#quote">Get a free quote</a>');
   });
 
   it("one or two places name the home town with its state", () => {
@@ -369,7 +377,7 @@ describe("Modern: small pieces the judges and the text-spacing check asked for",
 
   it("the footer ends on a closing row with a copyright line in the business's name (no year: the renderer has no clock) and a way back to the top", () => {
     const footer = element(fixture("plumber-austin"), "<footer");
-    expect(footer).toMatch(/<div class="wrap"><div class="foot-end"><p>© Reliable Rooter Plumbing<\/p><a href="#top">Back to top<\/a><\/div><\/div>\n<\/footer>$/);
+    expect(footer).toMatch(/<div class="wrap"><div class="foot-end"><p>© Reliable Rooter Plumbing<\/p><a href="#">Back to top<\/a><\/div><\/div>\n<\/footer>$/);
   });
 
   it("each time in the hours keeps its own words together, so a squeezed column wraps only after the dash", () => {

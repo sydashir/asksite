@@ -1,14 +1,15 @@
 // Modern's service area, questions and contact sections.
-import type { Facts, VariantOf } from "@asksite/site-schema";
-import type { RenderContext } from "../../context.ts";
+import { QUOTE_ID, type Facts, type VariantOf } from "@asksite/site-schema";
+import { headingLevel, type RenderContext } from "../../context.ts";
 import { formatPhone, mailtoUrl, telUrl } from "../../format.ts";
 import { html, trusted, type SafeHtml } from "../../html.ts";
 import { icon } from "../../icons.ts";
 import { DOM_ID } from "../../sections/ids.ts";
+import { itemHeading } from "../../ui.ts";
 import { showsHoursInHero } from "./hero.ts";
 import { BUILDING } from "./icons.ts";
-import { callButton, emailText, emergencyNote, FORM_ID, head, hoursTable, keepParts } from "./parts.ts";
-import { cityLine, contactHeading, fewPlaces } from "./text.ts";
+import { callButton, emailText, emergencyNote, head, hoursTable, keepParts } from "./parts.ts";
+import { cityLine, fewPlaces } from "./text.ts";
 
 /** The street address with the building icon, or "Based in …" when the list of places does not already name the home town. */
 function address(facts: Facts): SafeHtml | false {
@@ -25,23 +26,24 @@ function address(facts: Facts): SafeHtml | false {
  */
 export function renderServiceArea(ctx: RenderContext, _variant: VariantOf<"serviceArea">, tone: string): SafeHtml {
   const { facts } = ctx.doc;
+  const level = headingLevel(ctx, "serviceArea");
   const { places, note } = facts.serviceArea;
   const hours = facts.hours.length > 0 && !showsHoursInHero(ctx);
   const few = places.length <= 2;
   const hoursBoard =
     hours &&
-    html`<div class="board"><h3 class="board-h">${icon("clock", "i")}${facts.emergency247 ? "Office hours" : "Hours"}</h3>${hoursTable(facts)}${emergencyNote(facts)}</div>`;
+    html`<div class="board">${itemHeading(level, "board-h", html`${icon("clock", "i")}${facts.emergency247 ? "Office hours" : "Hours"}`)}${hoursTable(facts)}${emergencyNote(facts)}</div>`;
   const areas = few
     ? html`<div class="few"><p class="few-line">${icon("map-pin", "i")}<span>Serving <strong>${fewPlaces(facts)}</strong></span></p>${address(facts)}</div>`
     : // A place with one word of 16 or more letters takes a whole row, so it wraps only when wider than the list.
-      html`<div class="board"><h3 class="board-h">${icon("map-pin", "i")}Areas we serve</h3><div class="board-body">
+      html`<div class="board">${itemHeading(level, "board-h", html`${icon("map-pin", "i")}Areas we serve`)}<div class="board-body">
 <ul class="places">${places.map((place) => html`<li class="place${place.split(/\s+/).some((word) => word.length >= 16) ? " span" : ""}">${place}</li>`)}</ul>
 ${address(facts)}
 </div></div>`;
 
   return html`<section id="${DOM_ID.serviceArea}" class="sec${few && !hours ? " slim" : ""} ${tone}" aria-labelledby="${DOM_ID.serviceArea}-title">
 <div class="wrap${few && !hours ? " slim-in" : ""}">
-${head("serviceArea", hours ? "Service area & hours" : "Service area", note)}
+${head(DOM_ID.serviceArea, hours ? "Service area & hours" : "Service area", note, level)}
 <div class="area${hours ? "" : " area--solo"}">${areas}${hoursBoard}</div>
 </div>
 </section>`;
@@ -49,17 +51,18 @@ ${head("serviceArea", hours ? "Service area & hours" : "Service area", note)}
 
 export function renderFaq(ctx: RenderContext, variant: VariantOf<"faq">, tone: string): SafeHtml {
   const { copy, facts } = ctx.doc;
+  const level = headingLevel(ctx, "faq");
   const list =
     variant === "accordion"
       ? html`<div class="qa-list">
-${copy.faq.map((item, i) => html`<details class="qa" name="faq"${i === 0 && trusted(" open")}><summary><h3 class="h3">${item.question}</h3><span class="tog" aria-hidden="true"></span></summary><div class="qa-body"><p>${item.answer}</p></div></details>`)}
+${copy.faq.map((item, i) => html`<details class="qa" name="faq"${i === 0 && trusted(" open")}><summary>${itemHeading(level, "h3", item.question)}<span class="tog" aria-hidden="true"></span></summary><div class="qa-body"><p>${item.answer}</p></div></details>`)}
 </div>`
       : html`<div class="qa-list">
-${copy.faq.map((item) => html`<div class="qo"><h3 class="h3">${item.question}</h3><p>${item.answer}</p></div>`)}
+${copy.faq.map((item) => html`<div class="qo">${itemHeading(level, "h3", item.question)}<p>${item.answer}</p></div>`)}
 </div>`;
   return html`<section id="${DOM_ID.faq}" class="sec ${tone}" aria-labelledby="${DOM_ID.faq}-title">
 <div class="wrap faq">
-${head("faq", "Questions & answers", copy.sectionIntros.faq)}
+${head(DOM_ID.faq, "Questions & answers", copy.sectionIntros.faq, level)}
 ${list}
 <div class="faq-more"><p class="faq-more-q">Still have a question?</p>${callButton(facts, "")}</div>
 </div>
@@ -75,10 +78,10 @@ export function renderContact(ctx: RenderContext, _variant: VariantOf<"contact">
   const phone = formatPhone(facts.phone);
   return html`<section id="${DOM_ID.contact}" class="sec ${tone}" aria-labelledby="${DOM_ID.contact}-title">
 <div class="wrap contact">
-<div class="contact-main" id="${FORM_ID}">
-${head("contact", contactHeading(copy.ctaText), copy.sectionIntros.contact)}
+<div class="contact-main">
+${head(DOM_ID.contact, copy.ctaText, copy.sectionIntros.contact, headingLevel(ctx, "contact"))}
 <div class="form-card">
-<form class="form" action="${ctx.formAction}" method="post">
+<form id="${QUOTE_ID}" class="form" action="${ctx.formAction}" method="post">
 <div class="field"><label for="contact-name">Name</label><input id="contact-name" name="name" type="text" autocomplete="name" required maxlength="80" class="input"></div>
 <div class="field"><label for="contact-phone">Phone</label><input id="contact-phone" name="phone" type="tel" autocomplete="tel" required maxlength="30" class="input"></div>
 <div class="field"><label for="contact-email">Email (optional)</label><input id="contact-email" name="email" type="email" autocomplete="email" maxlength="254" class="input"></div>

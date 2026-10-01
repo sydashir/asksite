@@ -3,16 +3,17 @@
 // featured quote, the owner's photos in even rows with captions under them, and About as a statement on the
 // brand band. The owner's photos each show once on the page: About never repeats one.
 import type { VariantOf } from "@asksite/site-schema";
-import { isVisible, type RenderContext } from "../../context.ts";
+import { headingLevel, quoteLink, type RenderContext } from "../../context.ts";
 import { formatPrice } from "../../format.ts";
-import { fragment, html, safeUrl, type SafeHtml } from "../../html.ts";
+import { html, safeUrl, type SafeHtml } from "../../html.ts";
 import { DOM_ID } from "../../sections/ids.ts";
-import { callButton, FORM_ID, head, quoteButton } from "./parts.ts";
+import { itemHeading } from "../../ui.ts";
+import { callButton, head, quoteButton } from "./parts.ts";
 
 /**
  * The column count for `count` service cards, at most `most`: the most columns, up to one more than the services.
  * The call-to-action card closes the grid and fills whatever the last row leaves (styles/sheets/modern.css spans
- * it), so no row has a hole. The contact section is always on the page (site-schema), so the card always shows.
+ * it), so no row has a hole. Every site has the Contact page and its quote form (A16), so the card always shows.
  */
 export const cardColumns = (count: number, most: number): number => Math.min(most, count + 1);
 
@@ -25,6 +26,7 @@ const CARD_COLUMNS = { 2: "cards--c2", 3: "cards--c3", 4: "cards--c4" } as const
  */
 export function renderServices(ctx: RenderContext, variant: VariantOf<"services">, tone: string): SafeHtml {
   const { facts, copy } = ctx.doc;
+  const level = headingLevel(ctx, "services");
   const anyPrice = facts.services.some((s) => s.startingPrice !== undefined);
   // SiteDocument guarantees serviceDescriptions[i] names facts.services[i].
   const items = facts.services.map((service, i) => ({ ...service, description: copy.serviceDescriptions[i]?.description }));
@@ -33,15 +35,13 @@ export function renderServices(ctx: RenderContext, variant: VariantOf<"services"
     dollars !== undefined
       ? html`<p class="price"><small>From</small> ${formatPrice(dollars)}</p>`
       : anyPrice && html`<p class="price price--ask">Price on request</p>`;
-  const askCard =
-    isVisible(ctx, "contact") &&
-    html`<li class="card ask on-brand"><div><p class="ask-q">${anyPrice ? "Not sure which service you need?" : "Ask us for a price."}</p><p>${anyPrice ? "Tell us about the job." : "Tell us what you need."}</p></div><a class="button button-act" href="${fragment(FORM_ID)}">${copy.ctaText}</a></li>`;
+  const askCard = html`<li class="card ask on-brand"><div><p class="ask-q">${anyPrice ? "Not sure which service you need?" : "Ask us for a price."}</p><p>${anyPrice ? "Tell us about the job." : "Tell us what you need."}</p></div><a class="button button-act" href="${quoteLink()}">${copy.ctaText}</a></li>`;
 
   return html`<section id="${DOM_ID.services}" class="sec ${tone}" aria-labelledby="${DOM_ID.services}-title">
 <div class="wrap">
-${head("services", "Our services", copy.sectionIntros.services)}
+${head(DOM_ID.services, "Our services", copy.sectionIntros.services, level)}
 <ul class="cards ${CARD_COLUMNS[columns]}${variant === "compact" ? " cards--compact" : ""}">
-${items.map((s) => html`<li class="card"><h3 class="h3">${s.name}</h3>${price(s.startingPrice)}${s.description && html`<p class="card-desc">${s.description}</p>`}</li>`)}
+${items.map((s) => html`<li class="card">${itemHeading(level, "h3", s.name)}${price(s.startingPrice)}${s.description && html`<p class="card-desc">${s.description}</p>`}</li>`)}
 ${askCard}
 </ul>
 </div>
@@ -67,7 +67,7 @@ export function renderReviews(ctx: RenderContext, _variant: VariantOf<"testimoni
 
   return html`<section id="${DOM_ID.testimonials}" class="sec ${tone}" aria-labelledby="${DOM_ID.testimonials}-title">
 <div class="wrap">
-${head("testimonials", "What customers say")}
+${head(DOM_ID.testimonials, "What customers say", undefined, headingLevel(ctx, "testimonials"))}
 ${lead && html`<figure class="lead-q${size}${rest.length === 0 ? " lead-q--solo" : ""}"><blockquote><p>${lead.quote}</p></blockquote>${who(lead)}</figure>`}
 ${rest.length > 0 && html`<ul class="quotes">${rest.map((t, i) => html`<li class="${spans[i] ?? "s6"}"><figure class="q"><blockquote><p>${t.quote}</p></blockquote>${who(t)}</figure></li>`)}</ul>`}
 </div>
@@ -82,7 +82,7 @@ export function renderGallery(ctx: RenderContext, _variant: VariantOf<"gallery">
   const shots = count === 1 ? SHOTS[1] : count === 2 || count === 4 ? SHOTS[2] : SHOTS.many;
   return html`<section id="${DOM_ID.gallery}" class="sec ${tone}" aria-labelledby="${DOM_ID.gallery}-title">
 <div class="wrap">
-${head("gallery", "Our work", copy.sectionIntros.gallery)}
+${head(DOM_ID.gallery, "Our work", copy.sectionIntros.gallery, headingLevel(ctx, "gallery"))}
 <ul class="${shots}">
 ${facts.photos.map((p) => html`<li><figure><img src="${safeUrl(p.url, ["https:"])}" width="${p.width}" height="${p.height}" alt="${p.alt}" loading="lazy" decoding="async">${p.caption && html`<figcaption>${p.caption}</figcaption>`}</figure></li>`)}
 </ul>
@@ -100,7 +100,7 @@ export function renderAbout(ctx: RenderContext, _variant: VariantOf<"about">): S
   const size = about.length > 300 ? " about-text--long" : about.length <= 140 ? " about-text--short" : "";
   return html`<section id="${DOM_ID.about}" class="sec on-brand" aria-labelledby="${DOM_ID.about}-title">
 <div class="wrap about">
-${head("about", "About us")}
+${head(DOM_ID.about, `About ${facts.businessName}`, undefined, headingLevel(ctx, "about"))}
 <p class="about-text${size}">${about}</p>
 <div class="about-foot">${callButton(facts, "")}${quoteButton(ctx, "")}</div>
 </div>
