@@ -120,6 +120,26 @@ export const CREDENTIAL_CLAIMS: readonly RegExp[] = [
  */
 export const ROUND_THE_CLOCK = { pattern: /\b24\s*\/\s*7\b/, backedBy: (facts: Facts): boolean => facts.emergency247 } as const;
 
+/**
+ * Time in business: "since 1998", "est. 2004", "since the nineties", "25+ years", "twenty years", "decades",
+ * "established", "generations". NEVER_IN_COPY keeps these out of the AI's copy (time in business comes from
+ * yearFounded); a design's own text may state it only for an owner who gave the year.
+ */
+export const TIME_IN_BUSINESS = {
+  pattern:
+    /\b(?:since|established|founded|est\.)\s+(?:in\s+)?(?:the\s+)?(?:(?:1[89]|20)\d\d|(?:twen|thir|for|fif|six|seven|eigh|nine)ties)\b|\b(?:\d+\+?|(?:twen|thir|for|fif|six|seven|eigh|nine)ty|hundred)\s+years?\b|\b(?:decades?|established|generations?)\b/i,
+  backedBy: (facts: Facts): boolean => facts.yearFounded !== undefined,
+} as const;
+
+/**
+ * Review words: "reviews", "testimonials", "loved by", "trusted by". A design may use them only for an owner who has
+ * a testimonial to show (the Reviews section); without one they claim reviews that do not exist.
+ */
+export const REVIEW_WORDS = {
+  pattern: /\b(?:reviews?|testimonials?|loved\s+by|trusted\s+by)\b/i,
+  backedBy: (facts: Facts): boolean => facts.testimonials.length > 0,
+} as const;
+
 // The joiners of claims.ts: hyphen, space, figure dash, en dash, em dash and minus sign.
 const JOIN = String.raw`[-\u2012\u2013\u2014\u2212 ]`;
 
@@ -161,8 +181,10 @@ export function pageClaims(page: string, facts: Facts): string[] {
   const unbacked = CREDENTIAL_CLAIMS.filter((pattern) => !NEEDS_A_FACT.some((claim) => claim.pattern === pattern && claim.backedBy(facts)));
   const words = texts.flatMap((text) => unbackedClaims(text, facts)).flatMap((word) => unbacked.flatMap((pattern) => pattern.exec(word)?.[0] ?? []));
   const digits = ROUND_THE_CLOCK.backedBy(facts) ? [] : texts.flatMap((text) => ROUND_THE_CLOCK.pattern.exec(text)?.[0] ?? []);
+  const unbackedFacts = [TIME_IN_BUSINESS, REVIEW_WORDS].filter((claim) => !claim.backedBy(facts));
+  const timeAndReviews = texts.flatMap((text) => unbackedFacts.flatMap((claim) => allMatches(claim.pattern, text)));
   const ratingsAndHours = texts.flatMap((text) => [STAR_RATING, SERVICE_HOURS].flatMap((pattern) => allMatches(pattern, text)));
-  return [...new Set([...words, ...digits, ...ratingsAndHours].map((claim) => claim.toLowerCase()))];
+  return [...new Set([...words, ...digits, ...timeAndReviews, ...ratingsAndHours].map((claim) => claim.toLowerCase()))];
 }
 
 const titleOf = (page: string) => /<title>([^<]*)<\/title>/.exec(page)?.[1];

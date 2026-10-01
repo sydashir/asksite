@@ -34,9 +34,11 @@ import {
   navAnchors,
   navLinks,
   pageClaims,
+  REVIEW_WORDS,
   ROUND_THE_CLOCK,
   SERVICE_HOURS,
   STAR_RATING,
+  TIME_IN_BUSINESS,
   variableProblems,
 } from "./support/design-invariants.ts";
 
@@ -338,7 +340,7 @@ describe("the invariant checks can fail (RED proof, on edited pages)", () => {
     ["a 24/7 pill", '<p><span class="pill">24/7</span> Call now</p>', ["24/7"]],
     ["a claim inside quotation marks", '<p>"Fully insured crew"</p>', ["insured"]],
     // Digits and symbols, which site-schema's word lists leave out (A12-0 round-5 rulings, review4 I-1).
-    ["a star row that screen readers skip", '<p><span aria-hidden="true">\u2605\u2605\u2605\u2605\u2605</span> Loved by our neighbors</p>', ["\u2605"]],
+    ["a star row that screen readers skip", '<p><span aria-hidden="true">\u2605\u2605\u2605\u2605\u2605</span> Loved by our neighbors</p>', ["loved by", "\u2605"]],
     ["a 5-star claim", "<p>5-star service</p>", ["5-star"]],
     ["a 4.9-star rating", "<p>4.9 stars on Google</p>", ["4.9 stars"]],
     ["24-hour opening", "<p>Open 24 hours</p>", ["24 hours"]],
@@ -467,12 +469,40 @@ describe("the invariant checks can fail (RED proof, on edited pages)", () => {
     expect(problemsOf(loadFixture("plumber-austin"), probe)).toEqual([]); // every credential backed: the same words are fine
   });
 
+  // The claims the yearFounded and testimonials facts back: time in business, and reviews.
+  const printsSince1998: Design = { ...BASELINE, footer: (ctx) => html`${BASELINE.footer(ctx)}${ctx.doc.facts.yearFounded === undefined && html`\n<p>Since 1998. 25 years of experience.</p>`}` };
+  const printsTimeInBusiness: Design = {
+    ...BASELINE,
+    footer: (ctx) => html`${BASELINE.footer(ctx)}\n<p>Proudly serving Austin since the nineties. Over twenty years in business. Established and family owned.</p>`,
+  };
+  const printsReviews: Design = { ...BASELINE, footer: (ctx) => html`${BASELINE.footer(ctx)}${ctx.doc.facts.testimonials.length === 0 && html`\n<p>Loved by hundreds of neighbors. Read our reviews.</p>`}` };
+  it.each([
+    ["a footer that prints Since 1998 when the owner gave no year", printsSince1998, "yearFounded removed", ["since 1998", "25 years"]],
+    ["a footer that always prints its time in business", printsTimeInBusiness, "yearFounded removed", ["since the nineties", "twenty years", "established"]],
+    ["a footer that prints reviews when the owner has none", printsReviews, "testimonials:[]", ["loved by", "reviews"]],
+  ])("catch %s, on every page, in the %s variant only", (_, probe, variant, claims) => {
+    const caught = credentialOff("impact").map(([name, input]) => [name, problemsOf(input, probe)] as const).filter(([, found]) => found.length > 0);
+    expect(caught.map(([name]) => name)).toEqual([variant]);
+    expect(caught[0]?.[1]).toEqual(PAGES_OF_PLUMBER.map((path) => `${path}: unbacked claims ${JSON.stringify(claims)}`));
+    expect(problemsOf(loadFixture("plumber-austin"), probe)).toEqual([]); // every fact backed: the same words are fine
+  });
+
+  it("read time in business, backed by yearFounded, and review words, backed by a testimonial", () => {
+    const read = (pattern: RegExp, texts: readonly string[]) => texts.map((text) => pattern.exec(text)?.[0] ?? null);
+    expect(read(TIME_IN_BUSINESS.pattern, ["Since 1998", "Est. 2004", "Founded in 1975", "since the nineties", "25+ years", "Over twenty years", "decades of work", "Established", "Family owned for generations", "Mop since Monday", "Open 365 days", "3 years warranty"])).toEqual([
+      "Since 1998", "Est. 2004", "Founded in 1975", "since the nineties", "25+ years", "twenty years", "decades", "Established", "generations", null, null, "3 years",
+    ]);
+    expect(read(REVIEW_WORDS.pattern, ["Read our reviews", "5 testimonials", "Loved by hundreds of neighbors", "Trusted by neighbors", "Our work", "Preview", "Hear what they said"])).toEqual(["reviews", "testimonials", "Loved by", "Trusted by", null, null, null]);
+    const [withFacts, without] = [SiteDocument.parse(loadFixture("plumber-austin")).facts, SiteDocument.parse(loadFixture("cleaning-minimal")).facts];
+    expect([pageClaims("<p>Since 1998. Read our reviews.</p>", withFacts), pageClaims("<p>Since 1998. Read our reviews.</p>", without)]).toEqual([[], ["since 1998", "reviews"]]);
+  });
+
   it("read the credential claims: every NEEDS_A_FACT pattern, and NEVER_IN_COPY's bond, rating, guarantee and price words only", () => {
     expect(CREDENTIAL_CLAIMS).toEqual([NEVER_IN_COPY[0], NEVER_IN_COPY[1], NEVER_IN_COPY[4], NEVER_IN_COPY[5], ...NEEDS_A_FACT.map((n) => n.pattern)]);
     // NEVER_IN_COPY's other patterns guard AI copy only. A curly quote or a quoted caption (decorative in the
-    // Classic and Modern mockups), review words, years, weekdays and web addresses state no credential.
+    // Classic and Modern mockups), weekdays and web addresses state no credential (years and review words are claims of their own, backed by yearFounded and a testimonial).
     const doc = SiteDocument.parse(loadFixture("cleaning-minimal"));
-    expect(pageClaims("<p>\u201c</p><figcaption>\"Kitchen\" after</figcaption><p>Reviews since 1990, Monday. mop.com</p>", doc.facts)).toEqual([]);
+    expect(pageClaims("<p>\u201c</p><figcaption>\"Kitchen\" after</figcaption><p>Weekdays, Monday. mop.com</p>", doc.facts)).toEqual([]);
   });
 
   it("read the meta description, which search results show, and the title", () => {
