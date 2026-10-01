@@ -1,0 +1,57 @@
+import { expect, test } from "@playwright/test";
+import { APP, apiCall, builtSite, expectAccessible, FACTS } from "./support.ts";
+
+test("send for review, see what is reviewed, withdraw, send again, then see it live", async ({ page }) => {
+  const siteId = await builtSite(page);
+  await page.goto(`/sites/${siteId}/publish`);
+  await expect(page.getByRole("heading", { level: 1, name: "Publish your website" })).toBeFocused();
+  await expectAccessible(page);
+
+  await page.getByRole("button", { name: "Send for review" }).click();
+  await expect(page.getByRole("heading", { name: "Waiting for approval" })).toBeVisible();
+  await expect(page.getByText(/^Version 1, sent/)).toBeVisible();
+  const link = page.getByRole("link", { name: "See what we are reviewing (opens in a new tab)" });
+  const href = await link.getAttribute("href");
+  expect(href).toMatch(new RegExp(`^/api/sites/${siteId}/versions/[0-9a-f-]{36}/page$`));
+  const stored = await page.request.get(`${APP}${href}`);
+  expect(stored.headers()["content-security-policy"]).toContain("sandbox");
+  expect(await stored.text()).toContain("Plumbing done right");
+  await expectAccessible(page);
+
+  await page.getByRole("button", { name: "Withdraw this request" }).click();
+  await page.getByRole("dialog", { name: "Withdraw your request?" }).getByRole("button", { name: "Withdraw" }).click();
+  await expect(page.getByText("Your request was withdrawn. Nothing was published.")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Waiting for approval" })).toBeHidden();
+
+  await page.getByRole("button", { name: "Send for review" }).click();
+  await expect(page.getByText(/^Version 2, sent/)).toBeVisible();
+  const view = await apiCall(page, "GET", `/api/sites/${siteId}`);
+  const pending = view.json?.["pendingVersion"] as { id: string };
+  await page.request.post(`${APP}/__test/versions/${pending.id}/approve`, { data: {} });
+  await page.reload();
+  await expect(page.getByText("Your website is live at")).toBeVisible();
+  await expect(page.getByRole("link", { name: /^https:\/\/joes-[a-z0-9]+\.localhost:8789\/$/ })).toBeVisible();
+});
+
+test("publishing with reviews but no attestation lists the fix, with a link to it", async ({ page }) => {
+  const siteId = await builtSite(page, { ...FACTS, testimonials: [{ quote: "Fixed our leak the same afternoon.", name: "Ana P." }] });
+  await page.goto(`/sites/${siteId}/publish`);
+  await page.getByRole("button", { name: "Send for review" }).click();
+  const fix = page.getByRole("link", { name: "Why customers can trust you: Check the box to confirm these reviews are from real customers." });
+  await expect(fix).toBeVisible();
+  await fix.click();
+  await page.waitForURL(`${APP}/sites/${siteId}/setup/trust#f-brief-reviewsAreReal`);
+  await expect(page.getByLabel("These reviews are from real customers, copied word for word")).toBeFocused();
+});
+
+test("an empty closing time is listed once, and its link opens that day's closing field", async ({ page }) => {
+  const siteId = await builtSite(page);
+  const before = await apiCall(page, "GET", `/api/sites/${siteId}`);
+  await apiCall(page, "PATCH", `/api/sites/${siteId}/draft`, { rev: before.json?.["rev"], facts: { ...FACTS, hours: [{ days: ["Monday"], opens: "09:00", closes: "" }] } });
+  await page.goto(`/sites/${siteId}/publish`);
+  await page.getByRole("button", { name: "Send for review" }).click();
+  await expect(page.getByRole("heading", { name: "There is 1 thing to fix" })).toBeVisible();
+  await page.getByRole("link", { name: /Please enter a time\./ }).click();
+  await page.waitForURL(`${APP}/sites/${siteId}/setup/area#hours-Monday-closes`);
+  await expect(page.getByLabel("Monday closes at")).toBeFocused();
+});
