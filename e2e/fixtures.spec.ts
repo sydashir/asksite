@@ -274,6 +274,49 @@ async function tapSend(page: Page, input: "mouse" | "touch", offset: number): Pr
   return { clicked: clicks.join(", "), posts };
 }
 
+/** The phone windows the /contact call bar check runs at (heights around 915-1040 px were where Send covered a sticky bar). */
+const CALL_BAR_HEIGHTS = [844, 900, 932, 1024] as const;
+/** The projects that run it: both engines at 390 px, where the call bar shows. One list, checked against the config below. */
+const CALL_BAR_PROJECTS: readonly string[] = ["chromium-390", "webkit-390"];
+
+/**
+ * Lists where the call bar and Send get in each other's way on /contact, in three views: at load, after Send is
+ * scrolled to the middle of the window, and after the bar itself is scrolled to the bottom. In each view a bar
+ * link that is in the window must be wholly inside it, must answer elementFromPoint at its centre and corners,
+ * and Send's box must not meet the bar's. (The bar may sit below the fold at load: it is static on /contact.)
+ */
+async function callBarProblems(page: Page): Promise<string[]> {
+  const send = page.getByRole("button", { name: "Send request" });
+  const bar = page.locator('aside[aria-label="Call us"]');
+  const look = (view: string) =>
+    page.evaluate((view) => {
+      const sendBox = document.querySelector("button[type=submit]")?.getBoundingClientRect();
+      const barBox = document.querySelector('aside[aria-label="Call us"]')?.getBoundingClientRect();
+      if (!sendBox || !barBox) return [`${view}: no Send button or call bar`];
+      const problems: string[] = [];
+      if (sendBox.top < barBox.bottom && sendBox.bottom > barBox.top) problems.push(`${view}: Send's box meets the bar's`);
+      for (const link of document.querySelectorAll<HTMLAnchorElement>('aside[aria-label="Call us"] a')) {
+        const box = link.getBoundingClientRect();
+        if (box.bottom <= 0 || box.top >= window.innerHeight) continue; // below the fold: not in this view
+        if (box.top < 0 || box.bottom > window.innerHeight) problems.push(`${view}: "${link.textContent?.trim()}" is cut off by the window`);
+        // The corners, pulled in along the diagonal to where a rounded button's own edge is (a pill has no corner at the box's).
+        const radius = Math.min(parseFloat(getComputedStyle(link).borderTopLeftRadius) || 0, box.height / 2, box.width / 2);
+        const inset = radius * (1 - Math.SQRT1_2) + 2;
+        const points = [[0.5, 0.5], [0, 0], [1, 0], [0, 1], [1, 1]].map(([x, y]) => [box.left + inset + (box.width - 2 * inset) * x!, box.top + inset + (box.height - 2 * inset) * y!] as const);
+        for (const [x, y] of points) {
+          if (document.elementFromPoint(x, y)?.closest("a") !== link) problems.push(`${view}: "${link.textContent?.trim()}" is covered at ${Math.round(x)},${Math.round(y)}`);
+        }
+      }
+      return problems;
+    }, view);
+  const problems = await look("at load");
+  await send.evaluate((el) => el.scrollIntoView({ block: "center" }));
+  problems.push(...(await look("with Send in view")));
+  await bar.evaluate((el) => el.scrollIntoView({ block: "end" }));
+  problems.push(...(await look("with the bar in view")));
+  return problems;
+}
+
 /** The id of each element keyboard focus lands on, over `steps` presses ("" for one without an id). */
 async function focusedIds(page: Page, browserName: string, steps = 80): Promise<string[]> {
   const ids: string[] = [];
@@ -400,6 +443,20 @@ for (const design of DESIGN_IDS) {
       });
     }
 
+    // On /contact the form sits near the first screen and Send stacks above the call bar, so a sticky bar there
+    // let Send cover its buttons on phones about 915-1040 px tall (WCAG 2.5.8); the bar is static on that page.
+    for (const height of CALL_BAR_HEIGHTS) {
+      test.describe(`at 390 x ${height}`, () => {
+        test.use({ viewport: { width: 390, height } });
+
+        test("the /contact call bar never overlaps Send", async ({ page }, testInfo) => {
+          test.skip(!CALL_BAR_PROJECTS.includes(testInfo.project.name), "checked in CALL_BAR_PROJECTS");
+          await open(page, "plumber-austin", design, "contact");
+          expect(await callBarProblems(page)).toEqual([]);
+        });
+      });
+    }
+
     test.describe("with JavaScript disabled", () => {
       test.use({ javaScriptEnabled: false });
 
@@ -485,9 +542,9 @@ test.describe("the harness", () => {
     expect(addresses.every((address) => address === null)).toBe(true);
   });
 
-  test("the inner-page projects are projects of the config", async ({}, testInfo) => {
+  test("the inner-page and call bar projects are projects of the config", async ({}, testInfo) => {
     const names = testInfo.config.projects.map((project) => project.name);
-    expect(INNER_PAGE_PROJECTS.filter((name) => !names.includes(name))).toEqual([]);
+    expect([...INNER_PAGE_PROJECTS, ...CALL_BAR_PROJECTS].filter((name) => !names.includes(name))).toEqual([]);
   });
 });
 
@@ -617,6 +674,21 @@ test.describe("the gates can fail (RED proof)", () => {
     // Today's page without the fix in styles/shared.css: Send no longer stacks above the call bar.
     await page.addStyleTag({ content: 'form button[type="submit"]{position:static!important;z-index:auto!important}' });
     expect(await tapSend(page, "mouse", 40)).toEqual({ clicked: "BODY", posts: 0 });
+  });
+
+  test("the call bar check sees Send over a sticky bar's buttons", async ({ page }, testInfo) => {
+    test.skip(!CALL_BAR_PROJECTS.includes(testInfo.project.name), "checked in CALL_BAR_PROJECTS");
+    // Today's page with the bar sticking on /contact, as it did before it became static there. Where Send sits in the band
+    // depends on the engine's layout, so the proof looks at every window height the real check runs at: all must be
+    // clean on the static bar (above), and the sticky bar must be caught at one or more.
+    const caught: number[] = [];
+    for (const height of CALL_BAR_HEIGHTS) {
+      await page.setViewportSize({ width: 390, height });
+      await openToday(page, "plumber-austin", undefined, "contact");
+      await page.addStyleTag({ content: 'aside[aria-label="Call us"]{position:sticky!important;bottom:0!important;z-index:10!important}' });
+      if ((await callBarProblems(page)).length > 0) caught.push(height);
+    }
+    expect(caught.length).toBeGreaterThan(0);
   });
 
   test("the focus check sees a link hidden under a call bar that sticks while a link has focus", async ({ page, browserName }) => {
