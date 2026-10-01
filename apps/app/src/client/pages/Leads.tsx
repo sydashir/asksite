@@ -89,7 +89,11 @@ export function Leads({ siteId }: { siteId: string }) {
         To stop spam, one visitor can send up to {LIMITS.leadsPerNetworkPerSitePerDay} messages a day through your form; after that they see your phone number.
       </p>
       {state === "loading" ? <p role="status">Loading…</p> : null}
-      {state === "error" ? <Notice tone="error">{error}</Notice> : null}
+      {state === "error" ? (
+        <div role="alert">
+          <Notice tone="error">{error}</Notice>
+        </div>
+      ) : null}
       {state === "ready" && leads.length === 0 ? <p className="mt-4">No messages yet. When someone uses your contact form, it shows up here and in your email.</p> : null}
       <ul className="mt-4 space-y-3">
         {leads.map((lead) => (
