@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { contentSecurityPolicy as appPolicy } from "../../../app/build-config.ts";
-import { adminContentSecurityPolicy, adminHeadersFile } from "../../build-config.ts";
+import { adminContentSecurityPolicy, adminHeadersFile, LOCAL_BUILD_WORKER_NAME, undeployableLocalConfig } from "../../build-config.ts";
 
 // §9.1 / security area: the admin's document policy. The review screen shows the stored page in a srcdoc iframe, which
 // inherits this policy, so the Bold font (a data: URI) needs font-src data:. Nothing else may widen.
@@ -40,5 +40,22 @@ describe("adminHeadersFile", () => {
       expect(text).toContain("Referrer-Policy: no-referrer");
       expect(text).toContain("X-Robots-Tag: noindex");
     }
+  });
+});
+
+// F5: a development build runs on the production wrangler.jsonc, and a bare `wrangler deploy` follows the build's output config.
+describe("undeployableLocalConfig (F5)", () => {
+  const production = { name: "asksite-admin", routes: [{ pattern: "admin.asksite.example/*", zone_name: "asksite.example" }], triggers: { crons: ["0 6 * * *"] }, vars: { ENVIRONMENT: "production" } };
+
+  it("renames the Worker and drops its route, so a bare deploy cannot replace production or take its address", () => {
+    const local = undeployableLocalConfig(production);
+    expect(local["name"]).toBe(LOCAL_BUILD_WORKER_NAME);
+    expect(LOCAL_BUILD_WORKER_NAME).not.toBe(production.name);
+    expect(local).not.toHaveProperty("routes");
+    expect(local).not.toHaveProperty("triggers");
+  });
+
+  it("keeps everything else, so the local build still runs as configured", () => {
+    expect(undeployableLocalConfig(production)["vars"]).toEqual(production.vars);
   });
 });

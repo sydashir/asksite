@@ -117,7 +117,7 @@ describe("production wrangler.jsonc", () => {
     expect(scripts["build"]).toBe("vite build --mode development");
     expect(scripts["build:production"]).toBe("vite build --mode production");
     // Named "release", not "deploy": `pnpm deploy` is a built-in pnpm command and would never run this script.
-    expect(scripts["release"]).toBe("vite build --mode production && wrangler deploy");
+    expect(scripts["release"]).toBe("node release-guard.ts && vite build --mode production && wrangler deploy");
     expect(scripts["deploy"]).toBeUndefined();
   });
 
