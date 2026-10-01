@@ -285,6 +285,14 @@ describe("every fenced statement and every pointer re-check", () => {
       expect(await auditActions(env.DB, p.siteId)).not.toContain("site.taken_down");
     });
 
+    it("re-checks the lease after a zero-row batch on a site with no slug (the only check left there)", async () => {
+      const s = await seedSite(env.DB);
+      await env.DB.prepare("UPDATE sites SET slug = NULL WHERE id = ?").bind(s.siteId).run();
+      expect(detailOf(await failure(take(s.siteId, T0, { ...env, DB: stealOnBatch(s.siteId) })))).toEqual(lost);
+      expect(await siteRow(env.DB, s.siteId)).toMatchObject({ taken_down_at: null });
+      expect(await auditActions(env.DB, s.siteId)).not.toContain("site.taken_down");
+    });
+
     it("re-checks the lease before the second pointer delete", async () => {
       const p = await setup();
       const calls: Array<{ call: string; arg: unknown }> = [];
