@@ -241,13 +241,30 @@ test("typing while the web address saves is kept, not dropped by a stale save", 
   });
   await page.getByLabel("Web address").fill(uniqueSlug("typing"));
   await expect(page.getByText("This address is free. Save it to keep it.")).toBeVisible();
-  await page.getByRole("button", { name: "Save this web address" }).click();
-  await page.getByLabel("Anything we should know about this?").fill("Typed while saving");
+  const comments = page.getByLabel("Anything we should know about this?");
+  await comments.fill("Before saving");
   await expect(page.getByRole("status").filter({ hasText: "All changes saved." })).toBeVisible();
-  await expect(page.getByLabel("Anything we should know about this?")).toHaveValue("Typed while saving");
+  await page.getByRole("button", { name: "Save this web address" }).click();
+  // While the save runs the step is busy but keeps keyboard focus: the field is read-only, not disabled.
+  await expect(page.locator("form")).toHaveAttribute("aria-busy", "true");
+  await comments.focus();
+  await expect(comments).toBeFocused();
+  await page.keyboard.type(" typed while saving");
+  await expect(comments).toBeFocused();
+  // Read once, not polled: a typed character that was accepted and then dropped by the reload must not pass.
+  expect(await comments.inputValue()).toBe("Before saving");
+  // Enter inside a read-only field must not submit the step while the save runs.
+  await page.getByLabel("Web address").focus();
+  await page.keyboard.press("Enter");
+  await expect(page).toHaveURL(`${APP}/sites/${siteId}/setup/address`);
+  await expect(page.locator("form")).not.toHaveAttribute("aria-busy", "true");
+  await comments.focus();
+  await page.keyboard.type(" and after");
+  await expect(comments).toHaveValue("Before saving and after");
+  await expect(page.getByRole("status").filter({ hasText: "All changes saved." })).toBeVisible();
   const view = await apiCall(page, "GET", `/api/sites/${siteId}`);
   expect(view.json?.["slug"]).toMatch(/^typing-/);
-  expect(view.json?.["brief"]).toMatchObject({ comments: { address: "Typed while saving" } });
+  expect(view.json?.["brief"]).toMatchObject({ comments: { address: "Before saving and after" } });
 });
 
 test("the web address is not saved while the owner's latest answers are unsaved", async ({ page }) => {

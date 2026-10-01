@@ -61,7 +61,7 @@ export function SecurityCheck({ onToken, resetSignal }: { onToken: (token: strin
       <div ref={container} />
       {loadFailed ? (
         <div role="alert" className="mt-2">
-          <p className="font-medium text-red-700">The security check could not load. Check that nothing on your device is blocking it, then try again.</p>
+          <p className="font-medium text-red-700">The security check didn't load. If you use an ad blocker, allow this page, then press Try again.</p>
           <button
             type="button"
             className="btn-secondary mt-2"

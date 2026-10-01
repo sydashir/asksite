@@ -78,6 +78,8 @@ function StepPage({ siteId, step, site, view, draft }: { siteId: string; step: S
 
   function onSubmit(event: FormEvent) {
     event.preventDefault();
+    // Enter in a read-only field still submits: ignore it while a save runs.
+    if (busy || site.locked) return;
     if (blocking.length > 0) {
       setShowErrors(true);
       setFocusSignal((n) => n + 1);
@@ -97,7 +99,7 @@ function StepPage({ siteId, step, site, view, draft }: { siteId: string; step: S
   // Links to other steps save first and stay here if that fails (decision 37).
   const leave = linkAfter(site.flush, () => setMessage("Your latest answers are not saved yet. Please try again in a moment."));
   return (
-    <form noValidate onSubmit={onSubmit} className="mx-auto max-w-2xl">
+    <form noValidate onSubmit={onSubmit} aria-busy={site.locked || undefined} className="mx-auto max-w-2xl">
       <p className="text-slate-700">
         Step {number} of {STEPS.length}
       </p>
@@ -117,19 +119,20 @@ function StepPage({ siteId, step, site, view, draft }: { siteId: string; step: S
       </nav>
       <ErrorSummary items={showErrors ? blocking.map((i) => summaryItem(siteId, step, i, draft.facts)) : []} focusSignal={focusSignal} />
       <div className="card mt-6">
-        {/* Locked while a change that bypasses the autosaver runs (the web address): see useSite.exclusive. */}
-        <fieldset disabled={site.locked} className="m-0 min-w-0 border-0 p-0">
+        {/* Read-only while a change that bypasses the autosaver runs (the web address): see useSite.exclusive. Not disabled: that drops keyboard focus. */}
+        <div>
           <Body {...props} />
           <TextArea
             id={fieldId(["brief", "comments", step])}
             label="Anything we should know about this?"
             optional
             max={500}
+            readOnly={site.locked}
             value={asString(comments[step])}
             errors={props.errors(["brief", "comments", step])}
             onChange={(v) => props.setBrief(["comments", step], v === "" ? undefined : v)}
           />
-        </fieldset>
+        </div>
       </div>
       {message !== null ? (
         <div role="alert">
@@ -144,7 +147,7 @@ function StepPage({ siteId, step, site, view, draft }: { siteId: string; step: S
               Back
             </a>
           ) : null}
-          <button type="submit" className="btn-primary" disabled={busy || site.locked}>
+          <button type="submit" className="btn-primary" aria-disabled={busy || site.locked}>
             {last ? (view.ai !== null ? "Go to the editor" : busy ? "Starting…" : "Build my website") : "Save and continue"}
           </button>
         </div>

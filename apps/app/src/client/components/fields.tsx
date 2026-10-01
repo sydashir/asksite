@@ -12,6 +12,8 @@ interface Common {
   optional?: boolean;
   /** Shown under the errors, e.g. a button that opens the fact that fixes the error. */
   after?: ReactNode;
+  /** Blocks typing but keeps keyboard focus (a disabled control would drop it). */
+  readOnly?: boolean;
 }
 
 function describedBy(id: string, hint: string | undefined, errors: readonly string[], counter: boolean): string | undefined {
@@ -77,6 +79,7 @@ export function TextInput(
         className={INPUT}
         type={props.type ?? "text"}
         value={props.value}
+        readOnly={props.readOnly}
         onChange={(e) => props.onChange(e.target.value)}
         autoComplete={props.autoComplete ?? "off"}
         inputMode={props.inputMode}
@@ -103,6 +106,7 @@ export function TextArea(props: Common & { value: string; onChange: (value: stri
         className={INPUT}
         rows={props.rows ?? 3}
         value={props.value}
+        readOnly={props.readOnly}
         onChange={(e) => props.onChange(e.target.value)}
         aria-invalid={errors.length > 0 ? true : undefined}
         aria-describedby={describedBy(props.id, props.hint, errors, counted)}

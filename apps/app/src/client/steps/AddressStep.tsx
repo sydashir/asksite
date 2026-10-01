@@ -49,7 +49,10 @@ export function AddressStep({ siteId, view, site, facts, errors }: StepProps) {
     return () => clearTimeout(timer);
   }, [value, view.slug, locked]);
 
+  const cannotSave = saving || value === view.slug || check?.ok !== true;
+
   async function save() {
+    if (cannotSave) return;
     setSaving(true);
     await site.exclusive(async () => {
       // The address is saved against the newest rev: if the owner's latest answers did not save, say so and stop.
@@ -83,6 +86,7 @@ export function AddressStep({ siteId, view, site, facts, errors }: StepProps) {
         max={40}
         value={value}
         errors={errors(["slug"])}
+        readOnly={saving}
         onChange={(v) => setValue(v.toLowerCase().trim())}
       />
       <p className="mt-2 break-all text-slate-800">
@@ -91,7 +95,7 @@ export function AddressStep({ siteId, view, site, facts, errors }: StepProps) {
       <p role="status" className={unsaved || check?.ok === false ? "mt-2 font-medium text-red-700" : "mt-2 text-green-800"}>
         {unsaved ? "Your latest answers are not saved yet. Please try again in a moment." : (check?.text ?? "")}
       </p>
-      <button type="button" className="btn-secondary mt-4" disabled={saving || value === view.slug || check?.ok !== true} onClick={() => void save()}>
+      <button type="button" className="btn-secondary mt-4" aria-disabled={cannotSave} onClick={() => void save()}>
         {saving ? "Saving…" : "Save this web address"}
       </button>
     </>

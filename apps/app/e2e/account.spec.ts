@@ -90,7 +90,7 @@ test("the security check fits at 320 px (compact) and 390 px (normal) without si
 test("if the security check cannot load, the owner is told and Try again brings it back @mobile", async ({ page }) => {
   await page.route("https://challenges.cloudflare.com/turnstile/v0/api.js*", (route) => route.abort());
   await page.goto("/");
-  await expect(page.getByText("The security check could not load. Check that nothing on your device is blocking it, then try again.")).toBeVisible();
+  await expect(page.getByText("The security check didn't load. If you use an ad blocker, allow this page, then press Try again.")).toBeVisible();
   await expectAccessible(page);
   await expect(page.locator("[data-stub-turnstile]")).toHaveCount(0);
 
@@ -98,7 +98,7 @@ test("if the security check cannot load, the owner is told and Try again brings 
   await stubTurnstile(page);
   await page.getByRole("button", { name: "Try again" }).click();
   await waitForSecurityCheck(page);
-  await expect(page.getByText("The security check could not load.")).toHaveCount(0);
+  await expect(page.getByText("The security check didn't load.")).toHaveCount(0);
   await page.getByLabel("Your email address").fill(uniqueEmail("retry"));
   await page.getByRole("button", { name: "Email me a sign-in link" }).click();
   await expect(page.getByText("If that email has an account, we've sent a link.", { exact: false })).toBeVisible();
