@@ -345,6 +345,8 @@ describe("the Bold pages", () => {
     expect([...preview.matchAll(/<h3 class="svc-name h3">([^<]*)<\/h3>/g)].map((m) => m[1])).toEqual(["Drain cleaning", "Leak detection", "Sewer line repair"]);
     expect([...preview.matchAll(/From <span class="svc-amt display tnum">([^<]*)<\/span>/g)].map((m) => m[1])).toEqual(["$89", "$1,200"]);
     expect(preview.match(/<a [^>]*>/g)).toEqual(['<a class="svc-ask" href="/services">']);
+    // The link sits under the heading, before the board, at every width (a phone reads it before the list).
+    expect(preview.indexOf("svc-ask")).toBeLessThan(preview.indexOf('<ul class="board">'));
     expect(preview).toContain("More about our services");
   });
 
@@ -377,6 +379,11 @@ describe("the Bold pages", () => {
     const faqFirst = bold(moved(plumber, "services", "faq"), "services");
     expect(faqFirst).toMatch(/<section id="faq" class="page-open" aria-labelledby="faq-title">[^]*<h1 id="faq-title" class="pt display">Questions &amp; answers<\/h1>/);
     expect(faqFirst).toMatch(/<section id="services" class="sec tint seam-down" aria-labelledby="services-title">/);
+  });
+
+  it("shows the owner's credentials on About too, unless the owner hides the credentials section", () => {
+    expect(bold(plumber, "about")).toMatch(/<dl class="specs about-specs">[^]*M-40123[^]*Insured[^]*24\/7 emergency service[^]*<\/dl>/);
+    expect(bold({ ...plumber, hidden: ["trust"] }, "about")).not.toContain("specs");
   });
 
   it("links the hero card's towns to the service area on the Contact page", () => {
