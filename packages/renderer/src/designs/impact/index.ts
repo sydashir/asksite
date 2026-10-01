@@ -1,7 +1,9 @@
-// Bold (design id "impact", A12): an ink-and-paper page for trades that take emergency calls, built from the
+// Bold (design id "impact", A12): ink-and-paper pages for trades that take emergency calls, built from the
 // approved mockup (bold-v2 round 4) and its judges' must-fix list. Condensed display type (Archivo Condensed
 // ExtraBold, embedded in styles/sheets/impact.css) carries the headings, buttons and prices; the body stays in
-// the owner's lettering choice. Licences and notices: NOTICES.md.
+// the owner's lettering choice. A16: every page speaks Home's language. It opens on ink (Home's hero, or an
+// inner page's head band with its <h1>), its light bands meet the ink ones at the slanted seam, and it ends on the
+// ink "Get in touch" band (Contact ends on its form). Licences and notices: NOTICES.md.
 import type { LayoutSection } from "@asksite/site-schema";
 import type { RenderContext } from "../../context.ts";
 import type { Design } from "../../design.ts";
@@ -31,7 +33,7 @@ function renderSection(ctx: RenderContext, section: LayoutSection): SafeHtml {
     case "hero":
       return renderHero(ctx, section.variant);
     case "trust":
-      // Straight under the hero, the credentials are the hero's own card.
+      // Straight under the hero (the owner's order on Home), the credentials are the hero's own card.
       return boldPage(ctx).trustInHero ? html`` : renderCredentials(ctx);
     case "services":
       return renderServices(ctx);

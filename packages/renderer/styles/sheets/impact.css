@@ -253,8 +253,8 @@
     }
   }
 
-  /* Header: static below 64rem (the call bar carries Call and the call to action there); from 64rem it sticks,
-     with the number and the owner's call-to-action button. Inline links from 75rem. */
+  /* Header: static below 64rem (the call bar carries Call and "Get a quote" there); from 64rem it sticks,
+     with the number and the owner's call-to-action button. The site's pages as inline links from 75rem. */
   .site-header {
     position: relative;
     z-index: 30;
@@ -320,14 +320,15 @@
     display: none;
   }
 
-  /* The phone and tablet menu: a full-screen ink sheet under the header while the header is the :target. It
-     covers the hero and the call bar, carries both calls to action, and the page behind it is hidden, so
+  /* The phone and tablet menu: a <details> disclosure whose panel is a full-screen ink sheet under the header. It
+     covers the page and the call bar, carries Call and "Get a quote", and the page behind it is hidden, so
      keyboard focus and screen readers stay in the sheet. */
-  .menu-btn,
+  .menu,
   .menu-panel {
     display: none;
   }
   .menu-btn {
+    display: flex;
     align-items: center;
     justify-content: center;
     width: 2.75rem;
@@ -339,6 +340,10 @@
   .menu-btn .ic {
     width: 1.5rem;
     height: 1.5rem;
+  }
+  .menu[open] .ic-open,
+  .menu:not([open]) .ic-close {
+    display: none;
   }
   /* It reaches the bottom of the screen whatever the header's height (a long name wraps it to more lines): the
      header is its containing block, so 100% is the header's own height. */
@@ -359,7 +364,6 @@
   .menu-list a {
     display: flex;
     align-items: center;
-    justify-content: space-between;
     gap: 1rem;
     min-height: 3.5rem;
     border-bottom: 1px solid var(--aw-impact-ink-line);
@@ -374,46 +378,45 @@
     color: #ffffff;
     text-decoration: none;
   }
+  .menu-list a > span {
+    position: relative;
+    margin-right: auto;
+  }
   .menu-list .ic {
     width: 1.5rem;
     height: 1.5rem;
     color: var(--aw-impact-on-ink-muted);
   }
+  /* The current page: over the house slanted bar in the action colour, as in the desktop links (more than colour,
+     WCAG 1.4.1). */
+  .menu-list a[aria-current="page"] > span::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: -0.4375rem;
+    height: 0.375rem;
+    background: var(--aw-impact-accent);
+    clip-path: polygon(0.375rem 0, 100% 0, calc(100% - 0.375rem) 100%, 0 100%);
+  }
   .menu-acts {
     display: grid;
-    grid-template-columns: minmax(min-content, 1fr) minmax(0, max-content);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 0.5rem;
     margin-top: auto;
     padding-top: 1.5rem;
   }
-  .menu-acts .bt {
-    padding-inline: 0.625rem;
-    gap: 0.5rem;
-    font-size: 1.125rem;
-    letter-spacing: 0.02em;
-  }
-  @media (max-width: 25.99rem) {
-    .menu-acts .cb-word {
-      display: none;
-    }
-  }
   @media (max-width: 74.99rem) {
-    .menu-open {
+    .menu {
+      display: block;
+    }
+    .menu[open] .menu-panel {
       display: flex;
     }
-    .site-header:target .menu-open {
-      display: none;
-    }
-    .site-header:target .menu-close {
-      display: flex;
-    }
-    .site-header:target .menu-panel {
-      display: flex;
-    }
-    html:has(.site-header:target) {
+    html:has(.menu[open]) {
       overflow: hidden;
     }
-    html:has(body > .site-header:target) body > :is(main, .site-footer, .callbar) {
+    html:has(body > .site-header .menu[open]) body > :is(main, .site-footer, .callbar) {
       visibility: hidden;
     }
   }
@@ -436,7 +439,7 @@
       max-width: 40rem;
     }
     .menu-acts {
-      grid-template-columns: minmax(min-content, 1fr) minmax(0, 12rem);
+      grid-template-columns: minmax(0, 1fr) minmax(0, 12rem);
     }
   }
   .header-cta {
@@ -484,6 +487,7 @@
       gap: 0.125rem;
     }
     .nav-desktop a {
+      position: relative;
       display: inline-flex;
       align-items: center;
       min-height: 2.75rem;
@@ -494,15 +498,20 @@
       text-decoration: none;
       white-space: nowrap;
     }
-  }
-  /* 75-90rem: the row is short of room for the number, the button and every link, so About goes first. */
-  @media (min-width: 75rem) and (max-width: 89.99rem) {
-    .nav-opt {
-      display: none;
+    /* The current page: white, over the house slanted bar in the action colour (more than colour, WCAG 1.4.1). */
+    .nav-desktop a[aria-current="page"] {
+      color: #ffffff;
     }
-  }
-  .brand--long + .nav .nav-opt {
-    display: none;
+    .nav-desktop a[aria-current="page"]::after {
+      content: "";
+      position: absolute;
+      left: 0.625rem;
+      right: 0.625rem;
+      bottom: 0.25rem;
+      height: 0.3125rem;
+      background: var(--aw-impact-accent);
+      clip-path: polygon(0.3125rem 0, 100% 0, calc(100% - 0.3125rem) 100%, 0 100%);
+    }
   }
   @media (min-width: 75rem) and (max-width: 79.99rem) {
     .brand--long {
@@ -1147,6 +1156,53 @@
     }
   }
 
+  /* An inner page opens like Home (A16): on ink, with the trade and the town over the page's <h1> at display scale
+     and the intro, text only. The content band below meets it at the slanted seam (it reaches up over this band's
+     bottom edge, so the head keeps the slant's depth in its padding). The section holds both, so no heading sits
+     outside the sections. */
+  .page-open {
+    display: block;
+  }
+  .page-head {
+    position: relative;
+    isolation: isolate;
+    padding-block: 2.75rem calc(3.25rem + var(--slant));
+  }
+  .page-title {
+    max-width: 54rem;
+  }
+  .pt {
+    font-size: clamp(2.625rem, min(1.5rem + 4.4vw, 11svh), 4.5rem);
+    line-height: 0.95;
+    letter-spacing: 0.012em;
+    text-transform: uppercase;
+    color: var(--fg-h);
+    text-wrap: balance;
+  }
+  .pt--long {
+    font-size: clamp(2.125rem, min(1.2rem + 3vw, 8.5svh), 3.5rem);
+    line-height: 1.04;
+    letter-spacing: -0.008em;
+    text-transform: none;
+  }
+  @media (min-width: 64rem) {
+    .page-head {
+      padding-block: 4.75rem calc(5rem + var(--slant));
+    }
+    /* The type-only hero's faint grid at the far right, fading out before the text. */
+    .page-head::before {
+      content: "";
+      position: absolute;
+      z-index: -1;
+      inset: 0 0 0 62%;
+      background-image:
+        repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.07) 0 1px, transparent 1px 2.5rem),
+        repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.07) 0 1px, transparent 1px 2.5rem);
+      -webkit-mask-image: linear-gradient(90deg, transparent, #000 70%);
+      mask-image: linear-gradient(90deg, transparent, #000 70%);
+    }
+  }
+
   /* Credentials band (only when it is not straight under the hero; there it is the hero's card). */
   .sec--rail {
     padding-block: 2.5rem;
@@ -1363,6 +1419,63 @@
       top: 6.5rem;
       margin-top: 0;
       padding: 2rem;
+    }
+  }
+
+  /* Home's services preview: the Services band's board, names and prices only, and its one link, under the
+     heading from 64rem (where the Services band has its call-to-action card). */
+  .teaser-more {
+    margin-top: 1.75rem;
+  }
+  @media (min-width: 64rem) {
+    .teaser-more {
+      grid-column: 1;
+      grid-row: 2;
+      align-self: start;
+      margin-top: 0;
+    }
+  }
+
+  /* The closing band: "Get in touch" and the house line at the left, the Call and call-to-action pair at the
+     right from 64rem, stacked full width (a phone gets the call bar's size, so the owner's label stays on one
+     line: rules.ts LABEL_SLOTS). */
+  .close {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    row-gap: 2rem;
+  }
+  .close .sec-head {
+    margin-bottom: 0;
+  }
+  .close-chip {
+    margin-top: 1.25rem;
+  }
+  .close-acts {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.75rem;
+  }
+  @media (max-width: 39.99rem) {
+    .close-acts .bt {
+      font-size: 1.125rem;
+      padding-inline: 0.75rem;
+    }
+  }
+  @media (min-width: 40rem) {
+    .close-acts {
+      max-width: 30rem;
+    }
+  }
+  @media (min-width: 64rem) {
+    .close {
+      grid-template-columns: minmax(0, 7fr) minmax(0, 5fr);
+      align-items: center;
+      column-gap: 5rem;
+    }
+    .close-acts {
+      width: 100%;
+      max-width: 26rem;
+      justify-self: end;
     }
   }
 
@@ -1599,6 +1712,12 @@
   .about .sec-head {
     margin-bottom: 0;
   }
+  .page-open .year {
+    margin-top: 0;
+  }
+  .about-specs {
+    margin-top: 2.25rem;
+  }
   .year {
     display: flex;
     flex-direction: column;
@@ -1649,11 +1768,20 @@
       gap: 5rem;
       align-items: start;
     }
+    .about--text {
+      grid-template-columns: minmax(0, 1fr);
+    }
     .year {
       margin-top: 2.75rem;
     }
     .about-body {
       padding-top: 2.25rem;
+    }
+    .page-open .about-body {
+      padding-top: 0.5rem;
+    }
+    .about--text .about-body {
+      max-width: 46rem;
     }
   }
 
@@ -1783,6 +1911,9 @@
     .area-wrap--one .sec-head {
       margin-bottom: 0;
     }
+    .page-open .area-wrap--one {
+      grid-template-columns: minmax(0, 7fr) minmax(0, 5fr);
+    }
   }
 
   /* FAQ: phones read the heading, the questions, then the call prompt; from 64rem the heading and the call
@@ -1904,23 +2035,23 @@
     }
   }
 
-  /* Contact: phones read the heading (the #quote target), the form, then "Prefer to talk?"; from 64rem the form
-     sits beside them. Nothing here clips or restacks, so Send stays above the call bar (styles/shared.css). */
+  /* Contact: phones read the heading, "Prefer to talk?" with the number, then the form (the "/contact#quote"
+     target, which lands with the card's top edge in view); from 64rem the form sits beside them. Nothing here
+     clips or restacks, so Send stays above the call bar (styles/shared.css). */
   .contact {
     display: grid;
     grid-template-columns: minmax(0, 1fr);
-    grid-template-areas: "head" "form" "talk";
+    grid-template-areas: "head" "talk" "form";
   }
   .contact-head {
     grid-area: head;
-    margin-bottom: 2rem;
-    scroll-margin-top: 1.5rem;
+    margin-bottom: 1.75rem;
   }
   .talk {
     grid-area: talk;
     container-type: inline-size;
-    margin-top: 2.5rem;
-    padding-top: 1.5rem;
+    margin-bottom: 2rem;
+    padding-top: 1.25rem;
     border-top: 1px solid var(--fg-l);
   }
   .talk .kicker {
@@ -1968,6 +2099,12 @@
     display: grid;
     grid-template-columns: minmax(0, 1fr);
     gap: 1.25rem;
+    scroll-margin-top: 2.5rem;
+  }
+  @media (min-width: 40rem) {
+    .fields {
+      scroll-margin-top: 3.25rem;
+    }
   }
   .field label {
     display: block;
@@ -2054,6 +2191,8 @@
     }
     .talk {
       margin-top: 2rem;
+      margin-bottom: 0;
+      padding-top: 1.5rem;
     }
   }
 
@@ -2119,31 +2258,32 @@
     }
   }
 
-  /* The phone call bar (below 64rem): Call in the action colour, then the call to action. It sticks (the
-     sticky utility) with a hairline and a tight shadow, and stops sticking while keyboard focus is elsewhere
-     (focus-outside:static). It stacks below the form's Send button (styles/shared.css). Call keeps the width of
-     its number; the short label takes its one-line width from the rest (rules.ts shortCta picks a label that
-     fits beside the widest number at 320 px), so neither ever wraps. */
+  /* The phone call bar (below 64rem): Call in the action colour, then "Get a quote", in two equal halves. It
+     sticks (the sticky utility; static on Contact) with a hairline and a tight shadow, and stops sticking while
+     keyboard focus is elsewhere (focus-outside:static). It stacks below the form's Send button (styles/shared.css).
+     The number joins "Call" where its half holds it (from 36rem); neither label ever wraps. The phone menu's
+     pair is the same. */
   .callbar {
     bottom: 0;
     z-index: 10;
     display: grid;
-    grid-template-columns: minmax(min-content, 1fr) minmax(0, max-content);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 0.5rem;
     padding: 0.625rem 1rem calc(0.625rem + env(safe-area-inset-bottom));
     background: var(--aw-impact-ink);
     border-top: 1px solid var(--aw-impact-ink-line);
     box-shadow: 0 -6px 12px -8px rgb(0 0 0 / 0.25);
   }
-  .callbar .bt {
+  .callbar .bt,
+  .menu-acts .bt {
     min-height: 3.25rem;
     padding-inline: 0.625rem;
     gap: 0.5rem;
     font-size: 1.125rem;
     letter-spacing: 0.02em;
   }
-  @media (max-width: 25.99rem) {
-    .callbar .cb-word {
+  @media (max-width: 35.99rem) {
+    .cb-num {
       display: none;
     }
   }

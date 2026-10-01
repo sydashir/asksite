@@ -3,9 +3,9 @@
 // full height beyond), with the credentials card on it. Without a photo the right side holds a card of the
 // facts a caller checks first (hours and the towns served); with nothing new for a card the hero is type only.
 import type { VariantOf } from "@asksite/site-schema";
-import { onPage, onSite, type RenderContext } from "../../context.ts";
+import { onPage, onSite, sectionLink, type RenderContext } from "../../context.ts";
 import { TRADE_LABEL } from "../../format.ts";
-import { fragment, html, safeUrl, type SafeHtml } from "../../html.ts";
+import { html, safeUrl, type SafeHtml } from "../../html.ts";
 import { DOM_ID } from "../../sections/ids.ts";
 import { icon } from "./icons.ts";
 import { boldPage, callButton, ctaButton, licenceMarkup } from "./parts.ts";
@@ -24,6 +24,8 @@ interface ProofGroups {
 function proofGroups(ctx: RenderContext): ProofGroups {
   const { facts } = ctx.doc;
   const { trustInHero } = boldPage(ctx);
+  // The credentials show only while their section is on the page (the owner may hide it).
+  if (!onPage(ctx, "trust")) return { licences: [], standing: [] };
   const [first, ...rest] = facts.licences;
   const licences: SafeHtml[] = [];
   if (first !== undefined) {
@@ -33,7 +35,7 @@ function proofGroups(ctx: RenderContext): ProofGroups {
       licences.push(
         trustInHero
           ? html`<li class="proof-more-li"><details class="proof-more"><summary>${more}</summary><ul>${rest.map((l) => html`<li>${licenceMarkup(l)}</li>`)}</ul></details></li>`
-          : html`<li class="proof-more-li"><a class="proof-more-link" href="${fragment(DOM_ID.trust)}">${more}</a></li>`,
+          : html`<li class="proof-more-li"><a class="proof-more-link" href="${sectionLink(ctx, "trust")}">${more}</a></li>`,
       );
     }
   }
@@ -52,27 +54,27 @@ function proofGroups(ctx: RenderContext): ProofGroups {
  * strip moves to the next line whole.
  */
 function proof(ctx: RenderContext, { licences, standing }: ProofGroups): SafeHtml | false {
-  if (!onPage(ctx, "trust") || licences.length + standing.length === 0) return false;
+  if (licences.length + standing.length === 0) return false;
   const lists = html`${licences.length > 0 && html`<ul class="proof-list proof-lics">${licences}</ul>`}${standing.length > 0 && html`<ul class="proof-list">${standing}</ul>`}`;
   return boldPage(ctx).trustInHero
     ? html`<section id="${DOM_ID.trust}" class="proof" aria-label="Credentials">${lists}</section>`
     : html`<div class="proof">${lists}</div>`;
 }
 
-/** The towns served: the first three, then "and N more", a link to the service area. */
+/** The towns served: the first three, then "and N more", a link to the service area on the Contact page. */
 function placesSummary(ctx: RenderContext): SafeHtml {
   const { places } = ctx.doc.facts.serviceArea;
   const first = places.slice(0, 3).join(", ");
   const rest = places.length - 3;
   if (rest <= 0) return html`${first}`;
-  return html`${first} <span class="whitespace-nowrap">and <a href="${fragment(DOM_ID.serviceArea)}">${rest} more</a></span>`;
+  return html`${first} <span class="whitespace-nowrap">and <a href="${sectionLink(ctx, "serviceArea")}">${rest} more</a></span>`;
 }
 
 /**
  * The no-photo card's blocks, owner facts only: the hours, grouped, led by an "Emergencies 24/7" row when the
  * owner offers it (so a card that ends "Sun Closed" never stands alone beside a 24/7 promise), then the towns
  * served unless the only town is the city the hero already names. The card sums up the service area and
- * hours section, so it follows that section: none while the owner hides it. None: no card.
+ * hours section (on the Contact page), so it follows that section: none while the owner hides it. None: no card.
  */
 function cardBlocks(ctx: RenderContext): SafeHtml[] {
   const { facts } = ctx.doc;

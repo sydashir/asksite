@@ -1,4 +1,4 @@
-import { HIDEABLE_SECTIONS, type PageId, type SectionId, type SiteDocumentInput } from "@asksite/site-schema";
+import { HIDEABLE_SECTIONS, PAGE_IDS, PALETTE_IDS, SiteDocument, type PageId, type SectionId, type SiteDocumentInput } from "@asksite/site-schema";
 import { describe, expect, it } from "vitest";
 import { DESIGN_CSS, FIXTURE_FORM_ACTION, FIXTURE_SITE_URL, inDesign, loadFixture, stubStylesheets, type FixtureName } from "../../../../../fixtures/index.ts";
 import {
@@ -11,12 +11,19 @@ import {
   groupedHours,
   headlineClass,
   licenceParts,
+  pageTitleClass,
   seamClass,
-  shortCta,
   surfaces,
   yearClass,
+  type Band,
 } from "../../../src/designs/impact/rules.ts";
+import type { RenderContext } from "../../../src/context.ts";
+import { contrastRatio, hexToRgb } from "../../../src/contrast.ts";
+import { boldPage } from "../../../src/designs/impact/parts.ts";
+import { BOLD_COLORS } from "../../../src/designs/impact/tokens.ts";
+import { safeUrl } from "../../../src/html.ts";
 import { render } from "../../../src/render.ts";
+import { sitePages } from "../../../src/visibility.ts";
 
 const NBSP = " ";
 const OPTIONS = { stylesheets: stubStylesheets(), formAction: FIXTURE_FORM_ACTION, siteUrl: FIXTURE_SITE_URL };
@@ -66,32 +73,16 @@ describe("Bold page rules", () => {
     expect(buttonCase(wide)).toBe("sentence");
   });
 
-  it("shortens the call to action for the call bar, and words the contact heading", () => {
-    expect(shortCta("Get a free quote")).toBe("Get quote");
-    expect(shortCta("Book")).toBe("Book");
-    expect(shortCta("Book a visit")).toBe("Book");
-    expect(shortCta("Schedule a free estimate")).toBe("Estimate");
-    expect(shortCta("Call us today")).toBe("Request");
+  it("words the contact heading when the band is not the page's h1", () => {
     expect(contactHeading("Get a free quote")).toBe("Get a free quote");
     expect(contactHeading("Book")).toBe("Request a booking");
     expect(contactHeading("Quote.")).toBe("Request a quote");
     expect(contactHeading("Hello")).toBe("Send us a request");
   });
 
-  // At 320 px the call bar's label has 96 px inside its padding at 17 px, beside Call with the widest number
-  // "(000) 000-0000" (rules.ts CALLBAR_LABEL): every label the bar can show must fit there on one line.
-  it("gives the call bar a label that fits one line beside Call at 320 px, the owner's own when it fits", () => {
-    const fits = (label: string) => capsWidth(label, 17) * 1.03 <= 96;
-    for (const label of ["Get quote", "Estimate", "Schedule", "Book", "Request", "Book now", "Call now"]) {
-      expect(shortCta(label)).toBe(label);
-      expect(fits(label)).toBe(true);
-    }
-    // Eight characters too wide in capitals: a verb found in the words, else "Request".
-    expect(fits("WWWWWWWW")).toBe(false);
-    expect(shortCta("WWWWWWWW")).toBe("Request");
-    expect(shortCta("QuoteWWW")).toBe("Get quote");
-    const every = ["Get a free quote", "Schedule a free estimate", "Book a visit", "Book an appointment", "Call us today", "WWWWWWWW", "MMMMMMM"];
-    for (const cta of every) expect(fits(shortCta(cta)), cta).toBe(true);
+  it("sets an inner page's h1 in capitals up to 40 characters, then in a mixed-case step", () => {
+    expect(pageTitleClass("x".repeat(40))).toBe("pt display");
+    expect(pageTitleClass("x".repeat(41))).toBe("pt display pt--long");
   });
 
   it("groups the week's hours, with no break inside a time or a day range", () => {
@@ -133,59 +124,91 @@ describe("Bold page rules", () => {
   });
 });
 
-// Every page shape a document can have: the hero first, then any order of the other sections, with any set of
-// the owner-hideable ones left out (84,158 shapes). The credentials straight under the hero are the hero's card.
-function* shapes(): Generator<SectionId[]> {
-  const rest: SectionId[] = ["trust", "services", "testimonials", "gallery", "about", "serviceArea", "faq", "contact"];
-  const permutations = function* (items: SectionId[]): Generator<SectionId[]> {
-    if (items.length <= 1) yield items;
-    else for (let i = 0; i < items.length; i++) for (const tail of permutations([...items.slice(0, i), ...items.slice(i + 1)])) yield [items[i] as SectionId, ...tail];
-  };
-  for (let mask = 0; mask < 1 << HIDEABLE_SECTIONS.length; mask++) {
-    const kept = rest.filter((id) => !HIDEABLE_SECTIONS.some((h, bit) => h === id && (mask >> bit) % 2 === 1));
-    for (const order of permutations(kept)) yield ["hero", ...order];
+// Every page shape an owner can give each page (A16, U1): each page's sections in every order the owner can choose
+// within the page (the hero stays first), with any set of the owner-hideable sections left out. The page model is
+// worked out by the real code (boldPage) for each page sitePages() gives the document.
+function* pageShapes(): Generator<{ page: PageId; flow: readonly Band[] }> {
+  const base = SiteDocument.parse(inDesign(loadFixture("plumber-austin"), "impact"));
+  const orders: SectionId[][][] = [
+    [["hero", "trust", "testimonials"], ["hero", "testimonials", "trust"]],
+    [["services", "faq"], ["faq", "services"]],
+    [["about"]],
+    [["gallery"]],
+    [["contact", "serviceArea"], ["serviceArea", "contact"]],
+  ];
+  const combos = orders.reduce<SectionId[][]>((all, choices) => all.flatMap((prefix) => choices.map((order) => [...prefix, ...order])), [[]]);
+  for (const order of combos) {
+    for (let mask = 0; mask < 1 << HIDEABLE_SECTIONS.length; mask++) {
+      const hidden = HIDEABLE_SECTIONS.filter((_, bit) => (mask >> bit) % 2 === 1);
+      const doc: SiteDocument = { ...base, hidden, layout: order.map((id) => base.layout.find((s) => s.id === id)!) };
+      const pages = sitePages(doc);
+      for (const page of pages) {
+        const ctx: RenderContext = { doc, page, pages, formAction: safeUrl("https://forms.example.com/submit", ["https:"]) };
+        yield { page: page.id, flow: boldPage(ctx).flow };
+      }
+    }
   }
 }
 
 describe("Bold surfaces", () => {
-  it("in every page shape: never more than two light bands in a row, ink only beside ink when both are fixed, light neighbours in two tones, seams only on light bands", () => {
+  it("in every page shape: opens on ink, ends on the closing band (Contact on its own bands), no ink beside ink, at most two light bands in a row in two tones, seams only on light bands", () => {
     const problems: string[] = [];
-    let count = 0;
-    for (const sections of shapes()) {
-      count++;
-      const flow = sections[1] === "trust" ? sections.filter((id) => id !== "trust") : sections;
+    const flows = new Set<string>();
+    for (const { page, flow } of pageShapes()) {
+      flows.add(`${page}: ${flow.join(",")}`);
       const surface = surfaces(flow);
+      const shown = `${page}: ${flow.join(",")}`;
+      if (!["hero", "head", "contact"].includes(flow[0] ?? "")) problems.push(`does not open on ink: ${shown}`);
+      if ((page === "contact") !== (flow.at(-1) !== "closing")) problems.push(`closing band: ${shown}`);
       let light = 0;
       for (const id of [...flow, undefined]) {
         light = id === undefined || surface.get(id) === "ink" ? 0 : light + 1;
-        if (light > 2) problems.push(`three light bands: ${flow.join(",")}`);
+        if (light > 2) problems.push(`three light bands: ${shown}`);
       }
       flow.forEach((id, i) => {
         const next = flow[i + 1];
         if (next === undefined) return;
         const [a, b] = [surface.get(id), surface.get(next)];
-        if (a === "ink" && b === "ink" && !(["hero", "contact"].includes(id) && ["hero", "contact"].includes(next))) problems.push(`ink beside ink: ${flow.join(",")}`);
-        if (a !== "ink" && a === b) problems.push(`same light tone: ${flow.join(",")}`);
+        if (a === "ink" && b === "ink") problems.push(`ink beside ink: ${shown}`);
+        if (a !== "ink" && a === b) problems.push(`same light tone: ${shown}`);
       });
-      for (const id of flow) if (surface.get(id) === "ink" && seamClass(flow, surface, id) !== "") problems.push(`seam on an ink band: ${flow.join(",")}`);
-      if (surface.get("hero") !== "ink" || (flow.includes("contact") && surface.get("contact") !== "ink")) problems.push(`hero or contact not ink: ${flow.join(",")}`);
-      if (problems.length > 5) break;
+      for (const id of flow) if (surface.get(id) === "ink" && seamClass(flow, surface, id) !== "") problems.push(`seam on an ink band: ${shown}`);
+      for (const id of ["hero", "head", "contact", "closing"] as const) if (flow.includes(id) && surface.get(id) !== "ink") problems.push(`${id} not ink: ${shown}`);
     }
-    expect(problems).toEqual([]);
-    expect(count).toBe(84_158);
+    expect([...new Set(problems)]).toEqual([]);
+    // Home: the hero with the credentials in it or after the reviews, the preview, the reviews or none; the inner pages.
+    expect([...flows].sort()).toEqual(
+      [
+        "home: hero,teaser,closing",
+        "home: hero,teaser,testimonials,closing",
+        "home: hero,teaser,testimonials,trust,closing",
+        "services: head,services,closing",
+        "services: head,services,faq,closing",
+        "services: head,faq,services,closing",
+        "about: head,about,closing",
+        "gallery: head,gallery,closing",
+        "contact: contact",
+        "contact: contact,serviceArea",
+        "contact: head,serviceArea,contact",
+      ].sort(),
+    );
   });
 
-  it("turns the reviews ink when both neighbours are light, before About", () => {
-    const flow: SectionId[] = ["hero", "services", "testimonials", "about", "faq", "contact"];
+  it("turns the reviews ink when both neighbours are light", () => {
+    const flow: Band[] = ["hero", "teaser", "testimonials", "trust", "closing"];
     const surface = surfaces(flow);
-    expect(flow.map((id) => surface.get(id))).toEqual(["ink", "paper", "ink", "tint", "paper", "ink"]);
+    expect(flow.map((id) => surface.get(id))).toEqual(["ink", "paper", "ink", "tint", "ink"]);
   });
 
   it("draws each seam from the light side: up over an ink band above (not the hero), down over an ink band below", () => {
-    const flow: SectionId[] = ["hero", "services", "testimonials", "gallery", "faq", "contact"];
-    const surface = surfaces(flow);
-    expect(flow.map((id) => surface.get(id))).toEqual(["ink", "paper", "ink", "tint", "paper", "ink"]);
-    expect(flow.map((id) => seamClass(flow, surface, id))).toEqual(["", " seam-down", "", " seam-up", " seam-down", ""]);
+    const home: Band[] = ["hero", "teaser", "testimonials", "closing"];
+    const homeSurface = surfaces(home);
+    expect(home.map((id) => homeSurface.get(id))).toEqual(["ink", "paper", "tint", "ink"]);
+    expect(home.map((id) => seamClass(home, homeSurface, id))).toEqual(["", "", " seam-down", ""]);
+    const services: Band[] = ["head", "services", "faq", "closing"];
+    const surface = surfaces(services);
+    expect(services.map((id) => surface.get(id))).toEqual(["ink", "paper", "tint", "ink"]);
+    expect(services.map((id) => seamClass(services, surface, id))).toEqual(["", " seam-up", " seam-down", ""]);
   });
 });
 
@@ -225,7 +248,7 @@ describe("the Bold page", () => {
     const name = "www<wbr>.reliablerooterplumbing<wbr>.com";
     const mail = "office@<wbr>reliablerooter<wbr>.example<wbr>.com";
     const page = site({ ...plumber, facts: { ...plumber.facts, businessName: "www.reliablerooterplumbing.com" } });
-    expect(page).toContain(`<a class="brand brand--long" href="#top">${name}</a>`);
+    expect(page).toContain(`<a class="brand brand--long" href="/">${name}</a>`);
     expect(page).toContain(`<span class="sign-name">${name}</span>`);
     expect(page).toContain(`<p class="foot-brand">${name}</p>`);
     // The contact link is a flex row (icon, text), so its text sits in one span: a <wbr> is never a flex item.
@@ -274,6 +297,98 @@ describe("the Bold page", () => {
     const without = heroOf(bold(minimal));
     expect(without).not.toContain("proof");
     expect(without).not.toContain("24/7");
+  });
+});
+
+// A16: every page of the site speaks Home's language, and a visitor can call or ask for a quote from each one.
+describe("the Bold pages", () => {
+  const all = pagesOf(plumber);
+
+  it("lists the site's pages in the header, marks the current one in both lists, and links the name to Home", () => {
+    for (const { page, path, html } of all) {
+      const header = html.slice(html.indexOf("<header"), html.indexOf("</header>"));
+      const desktop = header.slice(header.indexOf('<ul class="nav-desktop">'), header.indexOf("</ul>"));
+      expect(desktop.match(/href="[^"]*"/g), page).toEqual(all.map((p) => `href="${p.path}"`));
+      expect(header.match(/<a href="[^"]*" aria-current="page">/g), page).toEqual([`<a href="${path}" aria-current="page">`, `<a href="${path}" aria-current="page">`]);
+      expect(header).toMatch(/<a class="brand" href="\/">/);
+    }
+  });
+
+  it("opens the phone menu as a <details> disclosure, so no history entry or :target can reopen it on Back", () => {
+    const services = bold(plumber, "services");
+    const header = services.slice(services.indexOf("<header"), services.indexOf("</header>"));
+    expect(header).toContain('<details class="menu">\n<summary class="menu-btn"><span class="sr-only">Menu</span>');
+    expect(header).not.toMatch(/href="#(?:menu)?"/);
+    expect(header).not.toContain("id=");
+  });
+
+  it("puts Call (named with the number) and \"Get a quote\" in the call bar on every page; the bar sticks except on Contact", () => {
+    for (const { page, html } of all) {
+      const bar = html.slice(html.indexOf("<aside"), html.indexOf("</aside>"));
+      expect(bar, page).toContain(`<aside aria-label="Call us" class="${page === "contact" ? "callbar focus-outside:static" : "callbar sticky focus-outside:static"}">`);
+      expect(bar, page).toMatch(/href="tel:\+15125550142" aria-label="Call \(512\) 555-0142"><svg[^]*?<\/svg><span>Call<span class="cb-num"> \(512\) 555-0142<\/span><\/span><\/a>/);
+      expect(bar, page).toMatch(/href="\/contact#quote">Get a quote<\/a>/);
+    }
+  });
+
+  it("previews the first three services on Home, each priced only when the owner gave a price, with one link to Services", () => {
+    const services = [
+      { name: "Drain cleaning", startingPrice: 89 },
+      { name: "Leak detection" },
+      { name: "Sewer line repair", startingPrice: 1200 },
+      { name: "Water heater repair" },
+    ];
+    const doc = { ...plumber, facts: { ...plumber.facts, services }, copy: { ...plumber.copy, serviceDescriptions: services.map((s) => ({ service: s.name, description: "Done right." })) } };
+    const home = bold(doc);
+    const preview = home.slice(home.indexOf('<section id="services-preview"'), home.indexOf("</section>", home.indexOf('<section id="services-preview"')));
+    expect(preview).toContain('<h2 id="services-preview-title" class="h2 display">Our services</h2>');
+    expect([...preview.matchAll(/<h3 class="svc-name h3">([^<]*)<\/h3>/g)].map((m) => m[1])).toEqual(["Drain cleaning", "Leak detection", "Sewer line repair"]);
+    expect([...preview.matchAll(/From <span class="svc-amt display tnum">([^<]*)<\/span>/g)].map((m) => m[1])).toEqual(["$89", "$1,200"]);
+    expect(preview.match(/<a [^>]*>/g)).toEqual(['<a class="svc-ask" href="/services">']);
+    expect(preview).toContain("More about our services");
+  });
+
+  it("ends every page but Contact on the ink closing band: Get in touch, Call with the number, the owner's call to action", () => {
+    for (const { page, html } of all) {
+      const start = html.indexOf('<section id="get-in-touch"');
+      if (page === "contact") {
+        expect(start).toBe(-1);
+        continue;
+      }
+      const band = html.slice(start, html.indexOf("</section>", start));
+      expect(band, page).toMatch(/^<section id="get-in-touch" class="sec ink" aria-labelledby="get-in-touch-title">/);
+      expect(band, page).toContain('<h2 id="get-in-touch-title" class="h2 display">Get in touch</h2>');
+      expect(band, page).toMatch(/href="tel:\+15125550142" aria-label="Call \(512\) 555-0142">[^]*\(512\) 555-0142<\/span><\/a>/);
+      expect(band, page).toContain('href="/contact#quote">Get a free quote</a>');
+      expect(html.indexOf("</main>") - html.indexOf("</section>", start), page).toBeLessThan(20);
+    }
+  });
+
+  it("opens each inner page on the ink head with the page's h1 inside its first section; Contact's band carries its own", () => {
+    for (const { page, html } of all.filter((p) => p.page !== "home")) {
+      const main = html.slice(html.indexOf('<main id="main">'));
+      if (page === "contact") {
+        expect(main).toMatch(/^<main id="main">\n<section id="contact" class="sec ink" aria-labelledby="contact-title">\n<div class="wrap contact">\n<div class="sec-head contact-head"><p class="kicker eyebrow">Plumbing · Austin, TX<\/p><h1 id="contact-title" class="pt display">Get a free quote<\/h1>/);
+        continue;
+      }
+      expect(main, page).toMatch(/^<main id="main">\n<section id="[a-z-]+" class="page-open" aria-labelledby="[a-z-]+-title">\n<div class="page-head ink"><div class="wrap"><div class="page-title"><p class="kicker eyebrow">Plumbing · Austin, TX<\/p><h1 /);
+    }
+    // The owner's order within a page (U1): the FAQ first on Services is the page's h1, and the services are a band below it.
+    const faqFirst = bold(moved(plumber, "services", "faq"), "services");
+    expect(faqFirst).toMatch(/<section id="faq" class="page-open" aria-labelledby="faq-title">[^]*<h1 id="faq-title" class="pt display">Questions &amp; answers<\/h1>/);
+    expect(faqFirst).toMatch(/<section id="services" class="sec tint seam-down" aria-labelledby="services-title">/);
+  });
+
+  it("links the hero card's towns to the service area on the Contact page", () => {
+    const roofing = withoutPhotos(fixture("roofing-extreme"));
+    expect(heroOf(bold(roofing))).toContain('and <a href="/contact#service-area">27 more</a>');
+  });
+
+  it("gives the form the quote id, and puts the number before the form, where a phone shows it first", () => {
+    const contact = bold(plumber, "contact");
+    expect(contact).toContain('<form id="quote" class="fields" action=');
+    expect(contact.indexOf('<div class="talk">')).toBeLessThan(contact.indexOf('<div class="form-card card">'));
+    expect(contact.match(/id="quote"/g)).toHaveLength(1);
   });
 });
 
@@ -334,9 +449,24 @@ describe("the Bold sheet carries the round-4 must-fixes", () => {
     for (const selector of [".mail", ".foot-email"]) expect(rule(selector)).toContain("overflow-wrap:anywhere");
   });
 
-  it("keeps Call at its number's width and gives the short label its one-line width in the call bar and menu", () => {
-    expect(rule(".callbar")).toContain("grid-template-columns:minmax(min-content,1fr) minmax(0,max-content)");
-    expect(rule(".menu-acts")).toContain("grid-template-columns:minmax(min-content,1fr) minmax(0,max-content)");
+  it("splits the call bar and the menu's pair into two equal halves, the number beside Call only from 36rem", () => {
+    expect(rule(".callbar")).toContain("grid-template-columns:repeat(2,minmax(0,1fr))");
+    expect(rule(".menu-acts")).toContain("grid-template-columns:repeat(2,minmax(0,1fr))");
+    expect(rule(".cb-num", "@media (max-width:35.99rem)")).toContain("display:none");
+  });
+
+  // A16: the current page is marked by more than colour (WCAG 1.4.1): the house slanted bar, in the action colour,
+  // under the desktop link and before the menu's; the bar is a graphic, so it needs 3:1 against the ink (WCAG 1.4.11).
+  it("marks the current page with the slanted bar, not by colour alone, at 3:1 or more against the ink", () => {
+    for (const selector of [".nav-desktop a[aria-current=page]:after", ".menu-list a[aria-current=page]>span:after"]) {
+      const block = rule(selector);
+      expect(block, selector).toContain("background:var(--aw-impact-accent)");
+      expect(block, selector).toContain("clip-path:polygon(");
+    }
+    for (const palette of PALETTE_IDS) {
+      const { accent, ink } = BOLD_COLORS[palette];
+      expect(contrastRatio(hexToRgb(accent), hexToRgb(ink)), palette).toBeGreaterThanOrEqual(3);
+    }
   });
 
   it("sizes the phone menu from the header's own height, so it always reaches the bottom of the screen", () => {

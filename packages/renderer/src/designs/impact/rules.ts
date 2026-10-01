@@ -34,6 +34,11 @@ export function addressParts(text: string): string[] {
   return parts;
 }
 
+/** An inner page's title (its <h1>, A16): capitals up to 40 characters, then a mixed-case step ("About" and a long name). */
+export function pageTitleClass(title: string): "pt display" | "pt display pt--long" {
+  return length(title) <= 40 ? "pt display" : "pt display pt--long";
+}
+
 /** A business name over 28 characters gets the smaller brand size (the schema allows 60). */
 export const brandClass = (name: string): "brand" | "brand brand--long" => (length(name) > 28 ? "brand brand--long" : "brand");
 
@@ -53,11 +58,13 @@ const TRACKING = 0.025; // em between capitals on a button
 const FIT_MARGIN = 1.03; // kerning and rounding
 
 // The narrowest content box, in px, of each button that shows the owner's call-to-action label, with its font
-// size in px (impact.css): the hero pair at 64rem, the header button and the services card from 64rem.
+// size in px (impact.css): the hero pair at 64rem, the header button and the services card from 64rem, and the
+// closing band's button at 320 px (A16; the band is 288 px inside there, less 0.75rem padding and the border).
 const LABEL_SLOTS = [
   { width: 455, size: 20 },
   { width: 240, size: 17 },
   { width: 274, size: 20 },
+  { width: 260, size: 18 },
 ] as const;
 
 /** Width in px of `label` in capitals at `size` px. */
@@ -72,34 +79,6 @@ export function capsWidth(label: string, size: number): number {
  */
 export function buttonCase(ctaText: string): "caps" | "sentence" {
   return LABEL_SLOTS.every(({ width, size }) => capsWidth(ctaText, size) * FIT_MARGIN <= width) ? "caps" : "sentence";
-}
-
-const SHORT_CTA: ReadonlyArray<readonly [string, string]> = [
-  ["estimate", "Estimate"],
-  ["quote", "Get quote"],
-  ["schedule", "Schedule"],
-  ["book", "Book"],
-  ["appointment", "Book"],
-  ["visit", "Book"],
-];
-
-// The call bar's (and the phone menu's) second button at its narrowest, 320 px (impact.css, below 22.5rem): the
-// bar is 296 px inside, the gap 8 px, and Call keeps the width of the widest number the formatter makes,
-// "(000) 000-0000": icon 18 + gap 6 + padding 16 + border 4 + the number, 127 px by capsWidth at 17 px. That
-// leaves 96 px inside the label's own padding and border (20 px), at 17 px. Every wider window leaves more.
-const CALLBAR_LABEL = { width: 96, size: 17 } as const;
-
-const fitsCallBar = (label: string) => capsWidth(label, CALLBAR_LABEL.size) * FIT_MARGIN <= CALLBAR_LABEL.width;
-
-/**
- * The call bar's second label, always on one line beside Call: the owner's own words when they are short (8
- * characters or fewer) and fit in capitals, else a short verb found in them ("Get quote", "Estimate", ...).
- */
-export function shortCta(cta: string): string {
-  const label = cta.trim();
-  if (length(label) <= 8 && fitsCallBar(label)) return label;
-  const lower = label.toLowerCase();
-  return SHORT_CTA.find(([word]) => lower.includes(word))?.[1] ?? "Request";
 }
 
 // A one-word label is fine on a button ("Book") but reads as a bare template label as a heading.
@@ -194,70 +173,41 @@ export const yearClass = (year: number): "year-n display" | "year-n display year
   return lead === "1" ? "year-n display year-n--1" : lead === "2" ? "year-n display year-n--2" : "year-n display";
 };
 
+/**
+ * One band of a page, in page order (A16): a section, Home's services preview, the ink head an inner page opens
+ * with (its <h1>; drawn inside the page's first section), or the closing "Get in touch" band.
+ */
+export type Band = SectionId | "head" | "teaser" | "closing";
+
 export type Surface = "ink" | "paper" | "tint";
 
-// Which light section turns ink when a run of light sections is too long: About first, services last.
-const INK_PREFERENCE: readonly SectionId[] = ["about", "testimonials", "serviceArea", "faq", "gallery", "trust", "services"];
-
-/** Every way to pick `k` of `items`, in order. */
-function combinations<T>(items: readonly T[], k: number): T[][] {
-  if (k === 0) return [[]];
-  return items.flatMap((item, i) => combinations(items.slice(i + 1), k - 1).map((rest) => [item, ...rest]));
-}
+/** Always ink: the hero and an inner page's head (every page opens on ink), the contact band, the closing band. */
+const ALWAYS_INK: ReadonlySet<Band> = new Set<Band>(["hero", "head", "contact", "closing"]);
 
 /**
- * The fewest sections to turn ink inside a run of light sections with ink on both sides, so no more than
- * two light sections stay in a row. A turned section never touches another ink band, so the first and last
- * of the run never turn. Ties go to the most preferred sections.
+ * The surface of each band of one page, in page order. The hero, an inner page's head, the contact band and the
+ * closing band are ink, and so is the footer below; reviews are ink when neither neighbour is; the light bands
+ * between alternate the page colour and the tint, so two light neighbours never share a tone. A page holds at
+ * most two light bands in a row (the page map keeps pages short; test/designs/impact checks every page shape).
  */
-function inkFlips(run: readonly SectionId[]): SectionId[] {
-  const n = run.length;
-  if (n <= 2) return [];
-  const inner = Array.from({ length: n - 2 }, (_, i) => i + 1);
-  for (let k = 1; k < n; k++) {
-    let best: { score: number; pick: number[] } | undefined;
-    for (const pick of combinations(inner, k)) {
-      if (pick.some((p, i) => i > 0 && p - (pick[i - 1] ?? 0) < 2)) continue;
-      const edges = [-1, ...pick, n];
-      if (edges.some((e, i) => i > 0 && e - (edges[i - 1] ?? 0) - 1 > 2)) continue;
-      const score = pick.reduce((sum, i) => sum + INK_PREFERENCE.indexOf(run[i] ?? "services"), 0);
-      if (best === undefined || score < best.score) best = { score, pick };
-    }
-    if (best !== undefined) return best.pick.map((i) => run[i] ?? "services");
-  }
-  return [];
-}
-
-/**
- * The surface of each section on the page, in page order (`flow` holds the sections drawn as their own
- * band). The hero and contact are ink, and so is the footer below; reviews are ink unless a neighbour
- * already is; never more than two light sections in a row; two light neighbours never share a tone.
- */
-export function surfaces(flow: readonly SectionId[]): Map<SectionId, Surface> {
-  const ink = new Set<SectionId>(["hero", "contact"]);
+export function surfaces(flow: readonly Band[]): Map<Band, Surface> {
+  const ink = new Set(flow.filter((id) => ALWAYS_INK.has(id)));
   flow.forEach((id, i) => {
     if (id === "testimonials" && !ink.has(flow[i - 1] ?? "services") && !ink.has(flow[i + 1] ?? "services")) ink.add(id);
   });
-  let run: SectionId[] = [];
-  for (const id of [...flow, undefined]) {
-    if (id === undefined || ink.has(id)) {
-      for (const flipped of inkFlips(run)) ink.add(flipped);
-      run = [];
-    } else run.push(id);
-  }
-  const result = new Map<SectionId, Surface>();
+  const result = new Map<Band, Surface>();
   let light = 0;
   for (const id of flow) result.set(id, ink.has(id) ? "ink" : light++ % 2 === 0 ? "paper" : "tint");
   return result;
 }
 
 /**
- * The slanted seam where a mid-page ink band meets a light section, drawn by the LIGHT section: it reaches
- * over the ink band's edge, so no ink band (the contact band holds the form) forms a stacking context that
- * would trap the Send button under the call bar (styles/shared.css). "seam-up": the band above is ink (not
- * the hero, whose own seam is inside it); "seam-down": the band below is ink.
+ * The slanted seam where an ink band meets a light one, drawn by the LIGHT band: it reaches over the ink band's
+ * edge, so no ink band (the contact band holds the form) forms a stacking context that would trap the Send
+ * button under the call bar (styles/shared.css). "seam-up": the band above is ink (not the hero, whose own seam
+ * is inside it); "seam-down": the band below is ink.
  */
-export function seamClass(flow: readonly SectionId[], surface: ReadonlyMap<SectionId, Surface>, id: SectionId): "" | " seam-up" | " seam-down" | " seam-up seam-down" {
+export function seamClass(flow: readonly Band[], surface: ReadonlyMap<Band, Surface>, id: Band): "" | " seam-up" | " seam-down" | " seam-up seam-down" {
   if (surface.get(id) === "ink") return "";
   const i = flow.indexOf(id);
   const above = flow[i - 1];

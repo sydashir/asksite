@@ -28,7 +28,7 @@ export function renderReviews(ctx: RenderContext): SafeHtml {
 
   return html`<section id="${DOM_ID.testimonials}" class="${bandClass(ctx, "testimonials")}" aria-labelledby="${DOM_ID.testimonials}-title">
 <div class="wrap rev-layout">
-${sectionHead("testimonials", "Reviews", "What customers say")}
+${sectionHead(DOM_ID.testimonials, { eyebrow: "Reviews", title: "What customers say" })}
 ${lead && html`<figure class="rev-lead">${icon("quote", "q-mark")}<blockquote><p>${lead.quote}</p></blockquote>${byline(lead)}</figure>`}
 ${rest.length > 0 && html`<ul class="${gridClass(rest.length)}">${rest.map((t) => html`<li><figure><blockquote><p>${t.quote}</p></blockquote>${byline(t)}</figure></li>`)}</ul>`}
 ${sites.length > 0 && html`<ul class="rev-more">${sites.map((s) => html`<li><a href="${s.url}">Read more reviews on ${s.site}${icon("arrow-up-right")}</a></li>`)}</ul>`}
