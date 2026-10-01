@@ -38,8 +38,11 @@ jobs:
 
   # The browser jobs run in Playwright's own image, which already holds the browsers and their system
   # libraries (playwright.dev/docs/ci, "via Containers"), instead of installing them with apt on every run
-  # (an e2e shard timed out in that install). The image tag MUST equal @playwright/test in pnpm-lock.yaml
-  # (1.63.0): bump the two together, or Playwright cannot find the browsers (playwright.dev/docs/docker).
+  # (an e2e shard timed out in that install). The image is pinned by tag AND digest (the digest of the
+  # tag's multi-platform index, like the action SHAs); tag and digest MUST match @playwright/test in
+  # pnpm-lock.yaml (1.63.0): bump all three together, or Playwright cannot find the browsers
+  # (playwright.dev/docs/docker). Per that page: --ipc=host, or Chromium can run out of memory and crash;
+  # --init, so no test process runs as PID 1; a non-root --user, since root disables Chromium's sandbox.
   # Run steps use `sh` inside a container. Customer hostnames are <slug>.localhost; the container's
   # /etc/hosts maps the e2e ones through --add-host (no sudo as --user 1001): media and www, then
   # e2e-<design>-<fixture> for every design and fixture (apps/sites/e2e/global-setup.ts seeds them).
@@ -52,9 +55,11 @@ jobs:
     permissions:
       contents: read
     container:
-      image: mcr.microsoft.com/playwright:v1.63.0-noble
+      image: mcr.microsoft.com/playwright:v1.63.0-noble@sha256:eff16c30e6f3f4af0a03fa4b706120d5e9b0891c344a27d64559aff5900a4a27
       options: >-
         --user 1001
+        --ipc=host
+        --init
         --add-host media.localhost:127.0.0.1
         --add-host www.localhost:127.0.0.1
         --add-host e2e-impact-plumber-austin.localhost:127.0.0.1
@@ -102,9 +107,11 @@ jobs:
     # The same image and hosts as e2e, plus e2e-life-<design>-<engine> for the lifecycle tests
     # (apps/sites/e2e/lifecycle.ts).
     container:
-      image: mcr.microsoft.com/playwright:v1.63.0-noble
+      image: mcr.microsoft.com/playwright:v1.63.0-noble@sha256:eff16c30e6f3f4af0a03fa4b706120d5e9b0891c344a27d64559aff5900a4a27
       options: >-
         --user 1001
+        --ipc=host
+        --init
         --add-host media.localhost:127.0.0.1
         --add-host www.localhost:127.0.0.1
         --add-host e2e-impact-plumber-austin.localhost:127.0.0.1
