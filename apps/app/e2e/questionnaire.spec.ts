@@ -230,7 +230,7 @@ test("with a draft already written, the last step says Go to the editor and star
 });
 
 // STRICT (customer data): typing while the web address is being saved must never be lost.
-test("typing while the web address saves is kept, not dropped by a stale save", async ({ page }) => {
+test("typing and Enter are blocked while the web address saves, and typing after it is kept", async ({ page }) => {
   const siteId = await acceptInvite(page);
   await page.goto(`/sites/${siteId}/setup/address`);
   // The server takes the address at once, but its answer is slow: the window in which the saver's rev is stale.
@@ -258,6 +258,8 @@ test("typing while the web address saves is kept, not dropped by a stale save", 
   await page.keyboard.press("Enter");
   await expect(page).toHaveURL(`${APP}/sites/${siteId}/setup/address`);
   await expect(page.locator("form")).not.toHaveAttribute("aria-busy", "true");
+  // A submit on this unfilled step would draw the error summary: none may appear.
+  await expect(page.getByRole("heading", { name: /things? to fix/ })).toHaveCount(0);
   await comments.focus();
   await page.keyboard.type(" and after");
   await expect(comments).toHaveValue("Before saving and after");
