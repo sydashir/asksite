@@ -146,9 +146,12 @@ describe("clipping (A16)", () => {
     expect(services).toBe(`Services | ${"X".repeat(57)}…`);
     for (const id of PAGE_IDS) expect(noLoneSurrogate(pageTitle(doc, id))).toBe(true);
     const family = `${"Y".repeat(54)}\u{1F468}‍\u{1F469}‍\u{1F467}`; // a ZWJ family: one character, 8 code units
-    const clipped = pageTitle(SiteDocument.parse(withName(family)), "services");
-    expect(clipped) // 11 + 54 + 8 = 73 > 70, so the whole family goes.toBe(`Services | ${"Y".repeat(54)}…`);
-    for (const page of pagesOf(doc)) expect((await htmlValidate.validateString(page.html)).valid).toBe(true);
+    const familyDoc = SiteDocument.parse(withName(family));
+    const clipped = pageTitle(familyDoc, "services");
+    // 11 + 54 + 8 = 73 > 70, so the whole family goes
+    expect(clipped).toBe(`Services | ${"Y".repeat(54)}…`);
+    for (const id of PAGE_IDS) expect(noLoneSurrogate(pageTitle(familyDoc, id))).toBe(true);
+    for (const page of [...pagesOf(doc), ...pagesOf(familyDoc)]) expect((await htmlValidate.validateString(page.html)).valid).toBe(true);
   });
 
   it("clips a 200-character about text with no space at a grapheme boundary, to 160 characters with the ellipsis", async () => {
