@@ -16,6 +16,9 @@ export interface VersionSummary {
   id: string; number: number; status: "pending" | "approved" | "rejected" | "withdrawn" | "superseded";
   requestedAt: number; reviewedAt: number | null; reviewNote: string | null;
 }
+// A16: the owner's site view also lists the version's pages (from its stored pages_json, in page order; [] for a row from before A16),
+// so the owner's preview asks only for pages the version has.
+export interface OwnerVersionSummary extends VersionSummary { pages: PageId[] }
 export interface UploadView { id: string; url: string; width: number; height: number; bytes: number; createdAt: number }
 export interface SiteView {
   id: string; slug: string | null; rev: number;
@@ -23,7 +26,7 @@ export interface SiteView {
   facts: unknown; brief: unknown; edits: OwnerEdits;
   ai: { generationId: string; draft: AiDraft; usedFallback: boolean } | null;
   activeGeneration: GenerationView | null;
-  pendingVersion: VersionSummary | null; liveVersion: VersionSummary | null;
+  pendingVersion: OwnerVersionSummary | null; liveVersion: OwnerVersionSummary | null;
   draftDiffersFromLive: boolean;
   uploads: UploadView[];
   limits: { generationsLeftToday: number; generationsLeftTotal: number };

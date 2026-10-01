@@ -1,42 +1,39 @@
-import type { VersionSummary } from "@asksite/core";
-import { PAGE_IDS, type PageId } from "@asksite/site-schema";
+import type { OwnerVersionSummary } from "@asksite/core";
+import type { PageId } from "@asksite/site-schema";
 import { useEffect, useState } from "react";
 import { Notice } from "./feedback.tsx";
 import { PagePreview, type PreviewPageSource } from "./page-preview.tsx";
 
 type Load = { state: "loading" } | { state: "error" } | { state: "ready"; pages: PreviewPageSource[] };
 
-/** One stored page of the version: its html, null when the version has no such page (404), or a throw for any other answer. */
-async function storedPage(siteId: string, versionId: string, page: PageId): Promise<PreviewPageSource | null> {
+/** One stored page of the version: its html, or a throw for any answer but 200 (the version lists this page, so it must be there). */
+async function storedPage(siteId: string, versionId: string, page: PageId): Promise<PreviewPageSource> {
   const res = await fetch(`/api/sites/${siteId}/versions/${versionId}/pages/${page}`, { credentials: "same-origin" });
-  if (res.status === 404) return null;
   if (!res.ok) throw new Error("page request failed");
   return { page, html: await res.text() };
 }
 
 /**
  * What the owner sees of the version that was sent for review: every page it has, as stored, in the shared page preview.
- * The version's list of pages is not in the owner's site view, so each of the five page addresses is asked and the ones
- * the version lacks answer 404 (the per-page route lists only a version's own pages). Any other failure is an error, never a
- * page quietly left out.
+ * Only the pages the version lists (its `pages`, in page order) are asked for. Any failure, or a version that lists no
+ * page (a row from before A16), is an error, never a page quietly left out.
  */
-export function ReviewPreview({ siteId, version }: { siteId: string; version: VersionSummary }) {
+export function ReviewPreview({ siteId, version }: { siteId: string; version: OwnerVersionSummary }) {
   const [load, setLoad] = useState<Load>({ state: "loading" });
   const [attempt, setAttempt] = useState(0);
+  // A new site view brings a new array each time; the preview is loaded again only when the pages themselves change.
+  const pageList = version.pages.join(",");
   useEffect(() => {
     let live = true;
     setLoad({ state: "loading" });
-    Promise.all(PAGE_IDS.map((page) => storedPage(siteId, version.id, page))).then(
-      (found) => {
-        const pages = found.filter((page): page is PreviewPageSource => page !== null);
-        if (live) setLoad(pages[0]?.page === "home" ? { state: "ready", pages } : { state: "error" });
-      },
+    Promise.all(version.pages.map((page) => storedPage(siteId, version.id, page))).then(
+      (pages) => live && setLoad(pages[0]?.page === "home" ? { state: "ready", pages } : { state: "error" }),
       () => live && setLoad({ state: "error" }),
     );
     return () => {
       live = false;
     };
-  }, [siteId, version.id, attempt]);
+  }, [siteId, version.id, pageList, attempt]);
 
   return (
     <div className="mt-3">

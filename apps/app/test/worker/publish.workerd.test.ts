@@ -449,6 +449,13 @@ describe("GET /api/sites/:siteId/versions/:versionId/pages/:pageId (A16: one pag
     expect(await res.text()).not.toContain("not part of this version");
   });
 
+  it("lists the version's pages in the owner's site view, in page order; a row that lists none gives []", async () => {
+    const { owner, version } = await sentVersion("page-list-plumbing");
+    expect((await view(owner)).pendingVersion?.pages).toEqual(["home", "services", "about", "contact"]);
+    await (await h.db()).prepare("UPDATE site_versions SET pages_json = '[]' WHERE id = ?").bind(version.id).run();
+    expect((await view(owner)).pendingVersion?.pages).toEqual([]);
+  });
+
   it("answers 404 for every page of a version that lists none (a row from before A16: '[]')", async () => {
     const { owner, version, pages } = await sentVersion("old-row-plumbing");
     await (await h.db()).prepare("UPDATE site_versions SET pages_json = '[]' WHERE id = ?").bind(version.id).run();

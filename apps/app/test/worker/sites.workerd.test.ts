@@ -192,7 +192,7 @@ describe("GET /api/sites/:siteId", () => {
     const res = await h.call("GET", `/api/sites/${owner.siteId}`, { cookie: owner.cookie });
     expect(res.status).toBe(200);
     const text = await res.text();
-    expect((JSON.parse(text) as SiteView).liveVersion).toEqual({ id: live, number: 1, status: "approved", requestedAt: 1, reviewedAt: 2, reviewNote: null });
+    expect((JSON.parse(text) as SiteView).liveVersion).toEqual({ id: live, number: 1, status: "approved", requestedAt: 1, reviewedAt: 2, reviewNote: null, pages: [] });
     expect(text).not.toContain("Note for the record");
   });
 
@@ -203,7 +203,7 @@ describe("GET /api/sites/:siteId", () => {
     const rejected = await reviewedVersion(owner.siteId, owner.ownerId, 1, "rejected", "Please add your license number.");
     await (await h.db()).prepare("UPDATE sites SET pending_version_id = ? WHERE id = ?").bind(rejected, owner.siteId).run();
     const view = await json<SiteView>(await h.call("GET", `/api/sites/${owner.siteId}`, { cookie: owner.cookie }));
-    expect(view.pendingVersion).toEqual({ id: rejected, number: 1, status: "rejected", requestedAt: 1, reviewedAt: 2, reviewNote: "Please add your license number." });
+    expect(view.pendingVersion).toEqual({ id: rejected, number: 1, status: "rejected", requestedAt: 1, reviewedAt: 2, reviewNote: "Please add your license number.", pages: [] });
   });
 
   // P4-12: an allowlist, so a note on any status other than "rejected" (today's or a future one) stays hidden.
@@ -215,7 +215,7 @@ describe("GET /api/sites/:siteId", () => {
     const res = await h.call("GET", `/api/sites/${owner.siteId}`, { cookie: owner.cookie });
     expect(res.status).toBe(200);
     const text = await res.text();
-    expect((JSON.parse(text) as SiteView).pendingVersion).toEqual({ id: version, number: 1, status, requestedAt: 1, reviewedAt: 2, reviewNote: null });
+    expect((JSON.parse(text) as SiteView).pendingVersion).toEqual({ id: version, number: 1, status, requestedAt: 1, reviewedAt: 2, reviewNote: null, pages: [] });
     expect(text).not.toContain("Internal note");
   });
 });
