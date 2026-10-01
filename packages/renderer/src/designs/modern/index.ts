@@ -1,8 +1,9 @@
-// Modern (modern): a clean, contemporary page for a local trade. The owner's photo and the headline share the
-// first screen, the credentials sit under the headline (or in a brand band where the owner places them), and the
-// design's livery (the action colour over the brand colour) marks the header, the hero seam, each section heading
-// and the footer. System fonts only (zero font
-// bytes), zero JavaScript. Its stylesheet is styles/sheets/modern.css; its notices are in NOTICES.md.
+// Modern (modern): a clean, contemporary site for a local trade, page by page (A16). On Home the owner's photo and
+// the headline share the first screen and the credentials sit under the headline (or in a brand band where the owner
+// places them); every other page opens with its own heading; every page but Contact ends with a band to call or ask
+// for a quote. The design's livery (the action colour over the brand colour) marks the header, the current page in
+// the menu, the hero seam, each section heading and the footer. System fonts only (zero font bytes), zero
+// JavaScript. Its stylesheet is styles/sheets/modern.css; its notices are in NOTICES.md.
 import type { LayoutSection } from "@asksite/site-schema";
 import type { RenderContext } from "../../context.ts";
 import type { Design } from "../../design.ts";

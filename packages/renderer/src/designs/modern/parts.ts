@@ -4,7 +4,7 @@
 // defines each one.
 import type { Facts } from "@asksite/site-schema";
 import { quoteLink, type RenderContext } from "../../context.ts";
-import { formatPhone, telUrl } from "../../format.ts";
+import { formatPhone, formatPrice, telUrl } from "../../format.ts";
 import { html, type SafeHtml } from "../../html.ts";
 import { icon } from "../../icons.ts";
 import { CALENDAR } from "./icons.ts";
@@ -33,6 +33,10 @@ ${intro && html`<p class="lede">${intro}</p>`}
 export function callButton(facts: Facts, className: string): SafeHtml {
   return html`<a class="button button-act whitespace-nowrap ${className}" href="${telUrl(facts.phone)}">${icon("phone", "i")}Call ${formatPhone(facts.phone)}</a>`;
 }
+
+/** "From $89" as a pill under a service's name; nothing for a service without a price (none is ever invented). */
+export const price = (dollars: number | undefined): SafeHtml | false =>
+  dollars !== undefined && html`<p class="price"><small>From</small> ${formatPrice(dollars)}</p>`;
 
 /** The owner's call to action, leading to the quote form on the Contact page, which every site has (A16). */
 export function quoteButton(ctx: RenderContext, className: string): SafeHtml {

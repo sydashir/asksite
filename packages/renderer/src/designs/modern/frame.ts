@@ -6,15 +6,20 @@ import { html, safeUrl, trusted, type SafeHtml } from "../../html.ts";
 import { icon } from "../../icons.ts";
 import { LICENSES_ID } from "./hero.ts";
 import { emailText, licenseText } from "./parts.ts";
-import { ctaLabels } from "./text.ts";
 
 /** A business name longer than this takes the smaller brand size, so it keeps room beside the menu. */
 const LONG_NAME = 30;
 
+/** The header's Call button: from 768 px everywhere; on the Contact page, whose call bar does not stick, on phones too (the phone icon alone there). */
+const HEADER_CALL = {
+  contact: "button button-act hdr-call hdr-call--contact whitespace-nowrap",
+  other: "button button-act hdr-call whitespace-nowrap",
+} as const;
+
 /**
- * The header: the business name (a link to Home), the site's pages (a <details> menu below 1200 px, zero
- * JavaScript; the page on screen marked aria-current) and, from 768 px, a Call button. From 768 px it stays at the
- * top while the page scrolls (styles/sheets/modern.css).
+ * The header: the business name (a link to Home), the site's pages (a <details> menu below 1024 px, zero
+ * JavaScript; the page on screen marked aria-current) and a Call button. From 768 px it stays at the top while the
+ * page scrolls (styles/sheets/modern.css).
  */
 export function renderHeader(ctx: RenderContext): SafeHtml {
   const { facts } = ctx.doc;
@@ -27,7 +32,7 @@ export function renderHeader(ctx: RenderContext): SafeHtml {
 <ul class="nav-links">${links}</ul>
 <details class="menu"><summary>${icon("menu-2", "i i-open")}${icon("x", "i i-close")}<span>Menu</span></summary><ul class="menu-list">${links}</ul></details>
 </nav>
-<a class="button button-act hdr-call whitespace-nowrap" href="${telUrl(facts.phone)}" aria-label="Call ${phone}">${icon("phone", "i")}${phone}</a>
+<a class="${HEADER_CALL[ctx.page.id === "contact" ? "contact" : "other"]}" href="${telUrl(facts.phone)}" aria-label="Call ${phone}">${icon("phone", "i")}<span>${phone}</span></a>
 </div>
 </header>`;
 }
@@ -79,17 +84,17 @@ ${facts.insured && html`<li>Insured</li>`}
 }
 
 /**
- * The phone call bar, the page's only <aside>: Call, and the owner's call to action cut to fit (its full short
- * label from 340 px, one word below). It stays at the bottom of the screen below 768 px and stops sticking while
- * keyboard focus is anywhere else (focus-outside:static, styles/shared.css). z-index 10 keeps it under the form's
- * Send button (z-index 20, shared.css), so a tap on Send never lands on the bar.
+ * The phone call bar, the page's only <aside>: Call (its accessible name carries the number, so the visible word
+ * starts it, WCAG 2.5.3) and the fixed words "Get a quote", which lead to the form on the Contact page. Below 768 px
+ * it stays at the bottom of the screen and stops sticking while keyboard focus is anywhere else
+ * (focus-outside:static, styles/shared.css). On the Contact page, which is the quote form, it is not sticky: it sits
+ * at the end of the page, so it never covers the form's Send button (moderator ruling (b), A16). z-index 10 keeps
+ * it under Send (z-index 20, shared.css) wherever it sticks.
  */
 export function renderCallBar(ctx: RenderContext): SafeHtml {
-  const { facts, copy } = ctx.doc;
-  const phone = formatPhone(facts.phone);
-  const { short, tiny } = ctaLabels(copy.ctaText);
-  return html`<aside aria-label="Call us" class="callbar sticky focus-outside:static">
-<a class="button button-act whitespace-nowrap" href="${telUrl(facts.phone)}" aria-label="Call ${phone}">${icon("phone", "i")}${phone}</a>
-<a class="button button-line" href="${quoteLink()}">${short === tiny ? short : html`<span class="cta-s">${short}</span><span class="cta-t">${tiny}</span>`}</a>
+  const { phone } = ctx.doc.facts;
+  return html`<aside aria-label="Call us" class="${ctx.page.id === "contact" ? "callbar focus-outside:static" : "callbar sticky focus-outside:static"}">
+<a class="button button-act whitespace-nowrap" href="${telUrl(phone)}" aria-label="Call ${formatPhone(phone)}">${icon("phone", "i")}Call</a>
+<a class="button button-line" href="${quoteLink()}">Get a quote</a>
 </aside>`;
 }

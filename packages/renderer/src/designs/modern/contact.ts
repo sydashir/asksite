@@ -6,7 +6,6 @@ import { html, trusted, type SafeHtml } from "../../html.ts";
 import { icon } from "../../icons.ts";
 import { DOM_ID } from "../../sections/ids.ts";
 import { itemHeading } from "../../ui.ts";
-import { showsHoursInHero } from "./hero.ts";
 import { BUILDING } from "./icons.ts";
 import { callButton, emailText, emergencyNote, head, hoursTable, keepParts } from "./parts.ts";
 import { cityLine, fewPlaces } from "./text.ts";
@@ -20,15 +19,16 @@ function address(facts: Facts): SafeHtml | false {
 }
 
 /**
- * The places as a ruled list on a board with a brand header, and the hours as a timetable board beside it.
- * Each board is as tall as its own content. One or two places without hours read as one sentence in a slim band
- * beside the heading, not a full section.
+ * The places as a ruled list on a board with a brand header, and the hours as a timetable board beside it: the
+ * Contact page always says when the business is open, at every width (A16). Each board is as tall as its own
+ * content. One or two places without hours read as one sentence in a slim band beside the heading, not a full
+ * section.
  */
 export function renderServiceArea(ctx: RenderContext, _variant: VariantOf<"serviceArea">, tone: string): SafeHtml {
   const { facts } = ctx.doc;
   const level = headingLevel(ctx, "serviceArea");
   const { places, note } = facts.serviceArea;
-  const hours = facts.hours.length > 0 && !showsHoursInHero(ctx);
+  const hours = facts.hours.length > 0;
   const few = places.length <= 2;
   const hoursBoard =
     hours &&
@@ -70,16 +70,25 @@ ${list}
 }
 
 /**
- * The form, then the call card beside it (from 1024 px). The <form> is today's field for field (the shared
- * invariant compares it with its class attributes removed): only the classes differ.
+ * The heading, the call card and the form. On phones the call card comes first, so calling is one tap from the top
+ * of the page (the Contact page's call bar is not sticky, A16); from 1024 px the form takes the wide column under the
+ * heading and the call card sits beside it. The <form> is today's field for field (the shared invariant compares it
+ * with its class attributes removed): only the classes differ.
  */
 export function renderContact(ctx: RenderContext, _variant: VariantOf<"contact">, tone: string): SafeHtml {
   const { facts, copy } = ctx.doc;
   const phone = formatPhone(facts.phone);
   return html`<section id="${DOM_ID.contact}" class="sec ${tone}" aria-labelledby="${DOM_ID.contact}-title">
 <div class="wrap contact">
-<div class="contact-main">
 ${head(DOM_ID.contact, copy.ctaText, copy.sectionIntros.contact, headingLevel(ctx, "contact"))}
+<div class="call-card">
+<p class="lbl">Prefer to talk?</p>
+<a class="big whitespace-nowrap" href="${telUrl(facts.phone)}">${icon("phone", "i")}<span><span class="sr-only">Call </span>${keepParts(phone.split(" "))}</span></a>
+<ul>
+<li><span class="lbl">Email</span><a href="${mailtoUrl(facts.email)}">${emailText(facts.email)}</a></li>
+${facts.emergency247 && html`<li><span class="lbl">Emergencies</span>Available 24/7</li>`}
+</ul>
+</div>
 <div class="form-card">
 <form id="${QUOTE_ID}" class="form" action="${ctx.formAction}" method="post">
 <div class="field"><label for="contact-name">Name</label><input id="contact-name" name="name" type="text" autocomplete="name" required maxlength="80" class="input"></div>
@@ -94,15 +103,6 @@ ${facts.services.map((s) => html`<option>${s.name}</option>`)}
 <div class="hp" aria-hidden="true"><label for="contact-website">Leave this field empty</label><input id="contact-website" name="website" type="text" tabindex="-1" autocomplete="off"></div>
 <div class="form-end"><button type="submit" class="button button-act button-lg">Send request</button></div>
 </form>
-</div>
-</div>
-<div class="call-card">
-<p class="lbl">Prefer to talk?</p>
-<a class="big whitespace-nowrap" href="${telUrl(facts.phone)}">${icon("phone", "i")}<span><span class="sr-only">Call </span>${keepParts(phone.split(" "))}</span></a>
-<ul>
-<li><span class="lbl">Email</span><a href="${mailtoUrl(facts.email)}">${emailText(facts.email)}</a></li>
-${facts.emergency247 && html`<li><span class="lbl">Emergencies</span>Available 24/7</li>`}
-</ul>
 </div>
 </div>
 </section>`;

@@ -8,7 +8,7 @@ import { BASELINE } from "../../../src/baseline.ts";
 import { AA_LARGE_TEXT, contrastRatio, hexToRgb } from "../../../src/contrast.ts";
 import { DESIGNS } from "../../../src/designs/index.ts";
 import { cardColumns } from "../../../src/designs/modern/sections.ts";
-import { areaSummary, ctaLabels, groupedHours } from "../../../src/designs/modern/text.ts";
+import { areaSummary, groupedHours } from "../../../src/designs/modern/text.ts";
 import { MODERN_COLORS, MODERN_FONTS, modernVariables } from "../../../src/designs/modern/tokens.ts";
 import { render } from "../../../src/index.ts";
 import { renderDocument } from "../../../src/render.ts";
@@ -62,29 +62,109 @@ function trustFirst(input: SiteDocumentInput): SiteDocumentInput {
 }
 const imageSources = (markup: string) => startTags(markup).filter((t) => t.name === "img").map((t) => t.attributes.find((a) => a.name === "src")?.value);
 
-describe("Modern: the call bar's labels come from the owner's call to action", () => {
-  it.each([
-    ["Get a free quote", "Free quote", "Quote"],
-    ["Book a visit", "Book a visit", "Book"],
-    ["Book", "Book", "Book"],
-    ["Free estimate", "Free estimate", "Estimate"],
-    ["Request an estimate", "Estimate", "Estimate"],
-    ["Schedule a free estimate", "Schedule", "Schedule"],
-    ["Call us today", "Contact us", "Contact"],
-    ["Get your free roof inspection", "Inspection", "Contact"],
-    ["<a href=javascript:x>", "Contact us", "Contact"],
-  ])("%s gives %s, and %s below 340 px", (cta, short, tiny) => {
-    expect(ctaLabels(cta)).toEqual({ short, tiny });
-  });
+describe("Modern: every page can call or ask for a quote (A16)", () => {
+  const pages = site(loadFixture("plumber-austin")).pages;
 
-  it("never gives a label wider than the bar has room for", () => {
-    for (const cta of ["Get a free quote", "Schedule a free estimate", "Supercalifragilisticexpi", "Book now please thanks", "x"]) {
-      const { short, tiny } = ctaLabels(cta);
-      expect(short.length).toBeLessThanOrEqual(13);
-      expect(tiny.length).toBeLessThanOrEqual(9);
+  it("the call bar says Call (its name carries the number) and Get a quote, sticky on every page but Contact", () => {
+    for (const { page, html } of pages) {
+      const bar = element(html, "<aside");
+      expect(bar).toContain('<a class="button button-act whitespace-nowrap" href="tel:+15125550142" aria-label="Call (512) 555-0142">');
+      expect(bar).toMatch(/<\/svg>Call<\/a>\n<a class="button button-line" href="\/contact#quote">Get a quote<\/a>/);
+      expect(bar.startsWith(page === "contact" ? '<aside aria-label="Call us" class="callbar focus-outside:static">' : '<aside aria-label="Call us" class="callbar sticky focus-outside:static">')).toBe(true);
     }
   });
 
+  it("every page but Contact ends with the closing band: Call with the number, and the call to action to the form", () => {
+    for (const { page, html } of pages) {
+      const band = element(html, '<section id="get-in-touch"');
+      if (page === "contact") {
+        expect(band).toBe("");
+        continue;
+      }
+      expect(html.indexOf("</main>") - html.indexOf("</section>", html.indexOf('<section id="get-in-touch"'))).toBe("</section>\n".length);
+      expect(band).toContain('<h2 id="get-in-touch-title" class="display h2">Get in touch</h2>');
+      expect(band).toContain('href="tel:+15125550142"><svg class="i" viewBox="0 0 24 24" aria-hidden="true">');
+      expect(band).toContain("Call (512) 555-0142</a>");
+      expect(band).toContain('<a class="button button-line button-lg" href="/contact#quote">Get a free quote</a>');
+    }
+  });
+});
+
+describe("Modern: the header names every page and marks the one on screen (A16)", () => {
+  it("lists the site's pages in both menus, the current one marked aria-current, and the name leads Home unmarked", () => {
+    for (const { page, html } of site(loadFixture("hvac-phoenix")).pages) {
+      const header = element(html, "<header");
+      expect(header).toContain('<a class="brand" href="/">Desert Air Heating &amp; Cooling</a>');
+      const links = [...header.matchAll(/<li><a href="([^"]*)"( aria-current="page")?>([^<]*)<\/a><\/li>/g)].map((m) => `${m[1]}${m[2] ? "*" : ""} ${m[3]}`);
+      const list = ["/ Home", "/services Services", "/gallery Gallery", "/contact Contact"].map((l) => (l.split(" ")[0] === ({ home: "/", services: "/services", gallery: "/gallery", contact: "/contact" } as Record<string, string>)[page] ? l.replace(" ", "* ") : l));
+      expect(links).toEqual([...list, ...list]);
+    }
+  });
+});
+
+describe("Modern: Home previews the first three services (A16)", () => {
+  it("in the owner's order, each with its From price or its name only, and one link to the Services page", () => {
+    const preview = element(pageOf(loadFixture("plumber-austin"), "home"), '<section id="services-preview"');
+    expect([...preview.matchAll(/<li class="card"><h3 class="h3">([^<]*)<\/h3>(<p class="price"><small>From<\/small> ([^<]*)<\/p>)?<\/li>/g)].map((m) => [m[1], m[3]])).toEqual([
+      ["Drain cleaning", "$89"],
+      ["Water heater repair &amp; install", "$149"],
+      ["Leak detection", undefined],
+    ]);
+    expect(preview).not.toContain("Price on request");
+    expect([...preview.matchAll(/href="([^"]*)"/g)].map((m) => m[1])).toEqual(["/services"]);
+    expect(preview).toContain(">More about our services<");
+  });
+});
+
+describe("Modern: inner pages open with their own heading (A16)", () => {
+  it("the page's first section heading is its h1, and that section's items are h2 under it", () => {
+    const plumber = loadFixture("plumber-austin");
+    expect(pageOf(plumber, "services")).toContain('<h1 id="services-title" class="display h1">Our services</h1>');
+    const [hero, ...rest] = plumber.layout;
+    const faqFirst: SiteDocumentInput = { ...plumber, layout: [hero!, ...rest.filter((s) => s.id === "faq"), ...rest.filter((s) => s.id !== "faq")] };
+    const services = pageOf(faqFirst, "services");
+    expect(services).toContain('<h1 id="faq-title" class="display h1">Questions &amp; answers</h1>');
+    expect(services).toContain('<summary><h2 class="h3">Do you charge for estimates?</h2>');
+    expect(services).toContain('<h2 id="services-title" class="display h2">Our services</h2>');
+    expect(services).toContain('<li class="card"><h3 class="h3">Drain cleaning</h3>');
+  });
+});
+
+describe("Modern: the Contact page (A16)", () => {
+  it("shows its heading, the call card, then the form, and the opening hours, with or without a hero photo", () => {
+    for (const input of [loadFixture("plumber-austin"), withoutHeroPhoto(loadFixture("plumber-austin"))]) {
+      const contact = pageOf(input, "contact");
+      const at = (text: string) => contact.indexOf(text);
+      expect(at('<h1 id="contact-title"')).toBeLessThan(at('<div class="call-card">'));
+      expect(at('<div class="call-card">')).toBeLessThan(at('<form id="quote" class="form"'));
+      expect(element(contact, '<section id="service-area"').replace(/<[^>]*>/g, "")).toContain("7:30 AM – 6:00 PM");
+    }
+  });
+});
+
+describe("Modern: About (A16)", () => {
+  const photoOf = (input: SiteDocumentInput) => imageSources(element(pageOf(input, "about"), '<section id="about"'));
+  const plumber = loadFixture("plumber-austin");
+
+  it("shows a photo Home does not: the gallery's first, else the hero photo, else none", () => {
+    expect(photoOf(plumber)).toEqual([plumber.facts.photos?.[0]?.url]);
+    expect(photoOf(withHidden(plumber, ["gallery"]))).toEqual([plumber.facts.heroPhoto?.url]);
+    expect(photoOf(withFacts(withoutHeroPhoto(plumber), { photos: [] }))).toEqual([]);
+  });
+
+  it("carries the owner's statement under its h1, and no buttons of its own (the closing band follows)", () => {
+    const about = element(pageOf(plumber, "about"), '<section id="about"');
+    expect(about).toContain('<h1 id="about-title" class="display h1">About Reliable Rooter Plumbing</h1>');
+    expect(about).not.toContain("<a ");
+  });
+});
+
+describe("Modern: the gallery", () => {
+  it("lays four photos out as one large beside three from 1024 px (judges' round 3), two and one as before", () => {
+    const roofing = loadFixture("roofing-extreme");
+    const shots = (count: number) => /<ul class="(shots[^"]*)">/.exec(pageOf(withFacts(roofing, { photos: (roofing.facts.photos ?? []).slice(0, count) }), "gallery"))?.[1];
+    expect([1, 2, 3, 4, 5].map(shots)).toEqual(["shots shots--one", "shots shots--two", "shots", "shots shots--two shots--four", "shots"]);
+  });
 });
 
 describe("Modern: small layout helpers", () => {
@@ -114,19 +194,12 @@ describe("Modern: small layout helpers", () => {
   });
 });
 
-describe("Modern: every owner photo shows once (judges' must-fix)", () => {
-  it.each([...FIXTURES])("%s repeats no photo, and About has none", (name) => {
-    const page = fixture(name);
-    const sources = imageSources(page);
-    expect(new Set(sources).size).toBe(sources.length);
-    expect(imageSources(element(page, '<section id="about"'))).toEqual([]);
-  });
-
-  it("a page without a hero photo repeats no gallery photo either", () => {
-    const page = modern(withoutHeroPhoto(loadFixture("plumber-austin")));
-    const sources = imageSources(page);
-    expect(sources).toHaveLength(6);
-    expect(new Set(sources).size).toBe(6);
+describe("Modern: no page shows the same photo twice (judges' must-fix, per page: moderator ruling (e))", () => {
+  it.each([...FIXTURES])("%s", (name) => {
+    for (const { html } of site(loadFixture(name)).pages) {
+      const sources = imageSources(html);
+      expect(new Set(sources).size).toBe(sources.length);
+    }
   });
 });
 
@@ -146,7 +219,7 @@ describe("Modern: the credentials", () => {
     expect(band).toContain('<h2 id="credentials-title" class="display h2">Credentials</h2>');
     expect(page.indexOf('<section id="credentials"')).toBeGreaterThan(page.indexOf('<section id="reviews"'));
     // The band is not one of the tint and white sections, which keep alternating around it.
-    expect([...page.matchAll(/<section id="([a-z-]+)" class="sec ([a-z]+)"/g)].map((m) => `${m[1]} ${m[2]}`)).toEqual([
+    expect([...page.matchAll(/<section id="([a-z-]+)" class="sec (?:close )?([a-z]+)"/g)].map((m) => `${m[1]} ${m[2]}`)).toEqual([
       "services-preview tint", "reviews white", "get-in-touch tint",
     ]);
     const text = band.replace(/<[^>]*>/g, "");
@@ -279,13 +352,10 @@ describe("Modern: each credential shows only with its owner fact", () => {
 describe("Modern: a hero without a photo", () => {
   const noPhoto = withoutHeroPhoto(loadFixture("plumber-austin"));
 
-  it("shows the opening hours in its card, and the service area section shows the places only", () => {
+  it("shows the opening hours in its card", () => {
     const page = modern(noPhoto);
     expect(hero(page)).toContain("Office hours");
     expect(hero(page).replace(/<[^>]*>/g, "")).toContain("7:30 AM – 6:00 PM");
-    const area = element(page, '<section id="service-area"');
-    expect(area).toContain(">Service area<");
-    expect(area).not.toContain("7:30 AM");
   });
 
   it("shows no hours when the owner hides the service area section", () => {
@@ -358,10 +428,6 @@ describe("Modern: shows the owner's content where a visitor looks for it", () =>
     expect(element(page, "<footer")).toContain("<li>Insured</li>");
   });
 
-  it("the call bar's and About's quote buttons lead to the form on the Contact page", () => {
-    expect(element(page, "<aside")).toContain('<a class="button button-line" href="/contact#quote">');
-    expect(element(page, '<section id="about"')).toContain('<a class="button button-line " href="/contact#quote">Get a free quote</a>');
-  });
 
   it("one or two places name the home town with its state", () => {
     expect(element(fixture("cleaning-minimal"), '<section id="service-area"')).toContain("Serving <strong>Boise, ID</strong>");

@@ -25,7 +25,7 @@ export const LICENSES_ID = "licenses";
 const HERO_LICENSES = 2;
 
 /** True when the trust section comes straight after the hero on Home (the owner's order, A16 U1), so the hero holds it. */
-export const trustInHero = (ctx: RenderContext): boolean => ctx.page.sections[0]?.id === "hero" && ctx.page.sections[1]?.id === "trust";
+export const trustInHero = (ctx: RenderContext): boolean => ctx.page.sections[1]?.id === "trust";
 
 /** The 24/7 fact and the trade and city, as one line of flat text; nothing when the owner has neither. */
 function heroLine(ctx: RenderContext, className: string): SafeHtml | false {
@@ -125,9 +125,9 @@ ${emergencyNote(facts)}
 }
 
 /**
- * Without a hero photo the hours move up into the hero's card, so the first screen says when the business is
- * open; the service area section then shows the places only. Only when the site shows that section (on the Contact
- * page): an owner who hides it hides the hours too, as on every design.
+ * Without a hero photo the hero's card shows the hours, so Home's first screen says when the business is open (the
+ * Contact page's service area section shows them too). Only when the site shows that section: an owner who hides it
+ * hides the hours too, as on every design.
  */
 export const showsHoursInHero = (ctx: RenderContext): boolean =>
   ctx.doc.facts.heroPhoto === undefined && ctx.doc.facts.hours.length > 0 && onSite(ctx, "serviceArea");

@@ -13,6 +13,7 @@ import { render } from "../../../src/index.ts";
 declare const document: any;
 declare const getComputedStyle: any;
 declare const NodeFilter: any;
+declare const window: any;
 
 const GRAY = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAQAAAADCAIAAAA7ljmRAAAAEUlEQVR42mM4ffUhHDHg5AAASSceDT8mdlEAAAAASUVORK5CYII=", "base64");
 const ENGINES: ReadonlyArray<readonly [string, BrowserType]> = [
@@ -121,19 +122,21 @@ describe.each(ENGINES)("Modern in %s", (_engine, engine) => {
 
   // attack1 I-1: the call card's number lost its last digit off the card and the page scrolled sideways, and the hours
   // board cut its time column. Today's page loses nothing on the same documents.
-  it("loses no text and never scrolls sideways under WCAG 1.4.12 text spacing, on phones, for every fixture and lettering", async () => {
+  it("loses no text and never scrolls sideways under WCAG 1.4.12 text spacing, on phones, on every page of every fixture, in every lettering", async () => {
     const found: string[] = [];
     for (const name of FIXTURES) {
       for (const font of FONT_IDS) {
-        await open(page(name, font), 320, TEXT_SPACING);
-        for (const width of [320, 360, 390, 768]) {
-          await tab.setViewportSize({ width, height: 800 });
-          for (const problem of await tab.evaluate(lostText)) found.push(`${name} ${font} ${width}: ${problem}`);
+        for (const { page: id, html } of pagesOf(loadFixture(name), font)) {
+          await open(html, 320, TEXT_SPACING);
+          for (const width of [320, 360, 390, 768]) {
+            await tab.setViewportSize({ width, height: 800 });
+            for (const problem of await tab.evaluate(lostText)) found.push(`${name} ${id} ${font} ${width}: ${problem}`);
+          }
         }
       }
     }
     expect(found).toEqual([]);
-  }, 120_000);
+  }, 300_000);
 
   it("keeps each license number in one piece on small phones, in every lettering (judge 3)", async () => {
     const found: string[] = [];
@@ -460,6 +463,121 @@ describe.each(ENGINES)("Modern in %s", (_engine, engine) => {
           if (gap.top < 12 || gap.bottom < 12) found.push(`${name} ${width}x${height}: "${gap.text}" ${gap.top.toFixed(1)} px under the bar's top, ${gap.bottom.toFixed(1)} px over the screen's bottom`);
         }
       }
+    }
+    expect(found).toEqual([]);
+  }, 60_000);
+  // Round 3's judge 2: on 360-376 px phones "Monday – Friday" wrapped after its dash, on the hours board and in the
+  // no-photo hero's hours card. A day range now keeps its line at every phone width; a time may wrap after its dash.
+  it("keeps every day range of the hours on one line on phones, on Contact and in the no-photo hero card (round 3 judges)", async () => {
+    const found: string[] = [];
+    const days = () =>
+      [...document.querySelectorAll(".hours th")].flatMap((th) => {
+        const range = document.createRange();
+        range.selectNodeContents(th);
+        const lines = new Set([...range.getClientRects()].filter((r) => r.width > 0.5).map((r) => Math.round(r.top))).size;
+        return lines === 1 ? [] : [th.textContent];
+      });
+    const { heroPhoto: _photo, ...facts } = loadFixture("hvac-phoenix").facts;
+    const PLACES: ReadonlyArray<readonly [string, SiteDocumentInput, PageId]> = [
+      ["plumber-austin contact", loadFixture("plumber-austin"), "contact"],
+      ["hvac-phoenix contact", loadFixture("hvac-phoenix"), "contact"],
+      ["hvac-phoenix home (no photo)", { ...loadFixture("hvac-phoenix"), facts }, "home"],
+    ];
+    for (const [name, input, id] of PLACES) {
+      for (const font of FONT_IDS) {
+        await open(pageOf(input, font, id), 320);
+        for (const width of [320, 340, 360, 375, 390, 414, 430]) {
+          await tab.setViewportSize({ width, height: 800 });
+          for (const day of await tab.evaluate(days)) found.push(`${name} ${font} ${width}: "${day}" wraps`);
+        }
+      }
+    }
+    expect(found).toEqual([]);
+  }, 60_000);
+
+  // Round 3's judge 2: from 768 to 928 px the footer's narrow Contact column broke a 34-character email in two
+  // ("office@reliablerooter" + ".example.com"), and at 1024-1056 px the Contact page's call card did too.
+  it("keeps a 34-character email and every phone number on one line from 768 to 1440 px, in the footer and the call card (round 3 judges)", async () => {
+    const found: string[] = [];
+    const broken = () =>
+      [...document.querySelectorAll('footer a[href^="mailto:"], footer a[href^="tel:"], .call-card a[href^="mailto:"]')].flatMap((link) => {
+        const range = document.createRange();
+        range.selectNodeContents(link);
+        return new Set([...range.getClientRects()].filter((r) => r.width > 0.5).map((r) => Math.round(r.top))).size === 1 ? [] : [link.textContent];
+      });
+    for (const font of FONT_IDS) {
+      await open(page("plumber-austin", font, "contact"), 768);
+      for (let width = 768; width <= 1440; width += 16) {
+        await tab.setViewportSize({ width, height: 800 });
+        for (const text of await tab.evaluate(broken)) found.push(`${font} ${width}: "${text}" breaks`);
+      }
+    }
+    expect(found).toEqual([]);
+  }, 60_000);
+
+  // Round 3's judge 1: four photos showed as two rows of two at about 588 px each from 1024 px, a section taller than
+  // six photos make. From 1024 px they are one large photo beside three, no taller than the six-photo gallery.
+  it("lays four photos out as one large beside three from 1024 px, no taller than six photos (round 3 judges)", async () => {
+    const found: string[] = [];
+    const roofing = loadFixture("roofing-extreme");
+    const gallery = (count: number) => pageOf(withFacts(roofing, { photos: (roofing.facts.photos ?? []).slice(0, count) }), undefined, "gallery");
+    const measure = () => {
+      const cells = [...document.querySelectorAll("#our-work .shots > li")].map((li) => li.getBoundingClientRect());
+      return { height: document.querySelector("#our-work .shots").getBoundingClientRect().height, widths: cells.map((c) => Math.round(c.width)), tops: cells.map((c) => Math.round(c.top)) };
+    };
+    for (const width of [1024, 1280, 1920]) {
+      await open(gallery(6), width);
+      const six = await tab.evaluate(measure);
+      await open(gallery(4), width);
+      const four = await tab.evaluate(measure);
+      const [large, second, third, wide] = four.widths;
+      if (four.height > six.height + 1) found.push(`${width}: four photos ${Math.round(four.height)} px tall, six ${Math.round(six.height)}`);
+      if (!(large! > 1.9 * second! && Math.abs(second! - third!) <= 1 && Math.abs(wide! - large!) <= 1 && four.tops[1] === four.tops[0] && four.tops[3]! > four.tops[1]!)) found.push(`${width}: cells ${four.widths.join(",")} at ${four.tops.join(",")}`);
+    }
+    expect(found).toEqual([]);
+  }, 60_000);
+
+  // A16: every page is reachable from the header at every width (WCAG 2.4.5): inline from 1024 px, beside the name and
+  // the Call button without touching them, also for the longest business name; below that through the menu.
+  it("shows every page link in the header from 1024 px without touching the name or the Call button, in every lettering", async () => {
+    const found: string[] = [];
+    const header = () => {
+      const box = (el: any) => el.getBoundingClientRect();
+      const links = [...document.querySelectorAll(".nav-links a")].filter((a) => a.getClientRects().length > 0).map(box);
+      const brand = box(document.querySelector(".brand"));
+      const call = box(document.querySelector(".hdr-call"));
+      const nav = box(document.querySelector(".nav-links"));
+      return { shown: links.length, total: document.querySelectorAll(".nav-links a").length, clear: brand.right <= nav.left && nav.right <= call.left, menu: document.querySelector(".menu").getClientRects().length };
+    };
+    for (const name of ["plumber-austin", "roofing-extreme"] as const) {
+      for (const font of FONT_IDS) {
+        await open(page(name, font, "services"), 1024);
+        for (const width of [1024, 1100, 1199, 1280, 1920]) {
+          await tab.setViewportSize({ width, height: 800 });
+          const got = await tab.evaluate(header);
+          if (got.shown !== got.total || !got.clear || got.menu !== 0) found.push(`${name} ${font} ${width}: ${JSON.stringify(got)}`);
+        }
+      }
+    }
+    expect(found).toEqual([]);
+  }, 60_000);
+
+  // A16: "Get a quote" lands on the form on the Contact page with its first field in view, below the sticky header.
+  it("lands /contact#quote with the Name field in view under the header, on phones and desktops", async () => {
+    const found: string[] = [];
+    const contact = page("plumber-austin", undefined, "contact");
+    for (const [width, height] of [[390, 664], [768, 1024], [1280, 800], [1920, 1080]] as const) {
+      await tab.setViewportSize({ width, height });
+      await tab.route("https://fixture.asksite.example/contact", (route) => route.fulfill({ body: contact, contentType: "text/html" }));
+      await tab.goto("https://fixture.asksite.example/contact#quote", { waitUntil: "load" });
+      const got = await tab.evaluate(() => {
+        const name = document.querySelector("#contact-name").getBoundingClientRect();
+        const header = document.querySelector("header").getBoundingClientRect();
+        const label = document.querySelector('label[for="contact-name"]').getBoundingClientRect();
+        return { label: label.top, field: name.bottom, under: getComputedStyle(document.querySelector("header")).position === "sticky" ? header.bottom : 0, height: window.innerHeight };
+      });
+      if (got.label < got.under || got.field > got.height) found.push(`${width}x${height}: ${JSON.stringify(got)}`);
+      await tab.unroute("https://fixture.asksite.example/contact");
     }
     expect(found).toEqual([]);
   }, 60_000);

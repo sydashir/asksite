@@ -78,6 +78,8 @@
   .button {
     display: inline-flex; align-items: center; justify-content: center; gap: 10px; min-height: 52px; padding: 8px 22px;
     border: 2px solid transparent; border-radius: var(--r); font: 700 1.0625rem/1.2 var(--body); text-align: center; text-wrap: balance; cursor: pointer;
+    /* owner words (the call to action) wrap inside the button, however long, instead of pushing the page sideways */
+    overflow-wrap: anywhere;
   }
   .button-lg { min-height: 56px; padding-inline: 24px; font-size: 1.125rem; }
   .button-act { background: var(--act); color: var(--on-act); }
@@ -121,7 +123,16 @@
     .nav-links a:hover { color: var(--ink); text-decoration: underline 2px; text-underline-offset: 0.35em; }
     .menu-list a:hover { background: var(--tint); }
   }
+  /* The page on screen: the livery bar (a shape, not colour alone: WCAG 1.4.1; the brand half is 3:1 on white,
+     1.4.11) beside its name in the phone menu's list, under it in the row of links from 768 px. */
+  .nav [aria-current] { border-radius: 0; box-shadow: inset 3px 0 var(--act), inset 6px 0 var(--brand); }
+  @media (min-width: 768px) {
+    .nav [aria-current] { box-shadow: inset 0 -3px var(--brand), inset 0 -6px var(--act); }
+  }
   .hdr-call { display: none; }
+  /* the Contact page on phones: the phone icon alone (its name is "Call" and the number), beside the menu */
+  .hdr-call--contact { display: inline-flex; min-height: 44px; padding: 0 12px; }
+  .hdr-call--contact span { display: none; }
   @media (min-width: 768px) {
     html { scroll-padding-top: calc(var(--hdr) + var(--menu-row) + 12px); }
     .hdr { position: sticky; top: 0; }
@@ -133,10 +144,11 @@
     .brand { font-size: 1.25rem; }
     .brand--long { max-width: 20rem; font-size: 1.0625rem; }
     .hdr-call { display: inline-flex; min-height: 46px; padding: 0 18px; font-size: 1rem; }
+    .hdr-call--contact span { display: inline; }
   }
-  /* 768-1199 px: the open menu is one row of links across the sticky header. It stays open after a tap (no
-     JavaScript closes it), so scroll-padding grows by its height and a jump lands below the row. */
-  @media (min-width: 768px) and (max-width: 1199px) {
+  /* 768-1023 px: the open menu is one row of the pages across the sticky header. It stays open after a tap on a jump
+     within the page (no JavaScript closes it), so scroll-padding grows by its height and a jump lands below the row. */
+  @media (min-width: 768px) and (max-width: 1023px) {
     html:has(.menu[open]) { --menu-row: 57px; }
     .menu { position: static; }
     .menu-list {
@@ -146,7 +158,7 @@
     }
     .menu-list a { min-height: 44px; padding: 0 12px; font-size: 0.9375rem; }
   }
-  @media (min-width: 1200px) {
+  @media (min-width: 1024px) {
     .bar { gap: 20px; }
     .nav { order: 0; }
     .nav-links { display: flex; }
@@ -313,8 +325,11 @@
   .white { background: #fff; }
   .on-brand { background: var(--brand); color: #fff; }
   .on-brand .display { color: #fff; }
+  /* an inner page's first section: its heading is the page's h1 (the hero's size), close under the header */
+  main > .sec:first-child { padding-top: 40px; }
   @media (min-width: 768px) {
     .sec { padding-block: 96px; }
+    main > .sec:first-child { padding-top: 64px; }
   }
 
   /* the trust section as a band of its own on the brand colour (when the layout does not put it straight after the
@@ -353,8 +368,33 @@
   .ask .button { flex: 1 1 auto; }
   .ask-q { font: 700 1.3125rem/1.25 var(--display); letter-spacing: calc(var(--trk) * -0.01em); color: #fff; text-wrap: balance; }
   .ask p + p { margin-top: 6px; color: var(--on-brand-muted); }
+  /* Home's services preview: one row per service, its price pill at the end; from 1024 px the rows beside the
+     heading and the link to the Services page */
+  .preview { display: grid; gap: 12px; }
+  .preview .card { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; min-height: 76px; padding-block: 14px; }
+  .preview .price { margin: 0; }
+  .preview .h3 { min-width: 0; overflow-wrap: anywhere; }
+  .more { margin-top: 24px; }
+  /* the closing band: the heading, then Call and the call to action (beside the heading from 1024 px) */
+  .sec.close { padding-block: 56px; }
+  .close-cta { display: grid; gap: 12px; }
   @media (max-width: 599px) {
     .faq-more .button { width: 100%; }
+    /* the regular size on phones, so Call and the whole number keep one line at 320 px, spaced out too (WCAG 1.4.12) */
+    .close-cta .button { padding-inline: 16px; font-size: 1.0625rem; }
+  }
+  @media (min-width: 600px) {
+    .close-cta { display: flex; flex-wrap: wrap; }
+  }
+  @media (min-width: 768px) {
+    .sec.close { padding-block: 72px; }
+  }
+  @media (min-width: 1024px) {
+    .teaser { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); grid-template-rows: auto 1fr; column-gap: 64px; }
+    .preview { grid-column: 2; grid-row: 1 / 3; }
+    .more { grid-column: 1; justify-self: start; align-self: start; margin: 0; }
+    .close-in { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 24px 48px; }
+    .close .head { margin: 0; }
   }
   @media (min-width: 640px) {
     .cards--c2, .cards--c3, .cards--c4 { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
@@ -438,23 +478,24 @@
     .shots:not(.shots--one, .shots--two) > li:nth-last-child(2):nth-child(3n + 1) { grid-column: 2 / 4; }
     .shots:not(.shots--one, .shots--two) > li:last-child:nth-child(3n + 2) { grid-column: 4 / 6; }
     .shots--two { gap: 28px 24px; }
+    .shots--four { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 24px 20px; }
+    .shots--four > :first-child { grid-row: span 2; }
+    .shots--four > :first-child, .shots--four > :last-child { grid-column: span 2; }
+    .shots--four > :last-child img { aspect-ratio: 8 / 3; }
+    .shots--four > :first-child figure { display: flex; flex-direction: column; height: 100%; }
+    .shots--four > :first-child img { flex: 1 1 0; min-height: 0; aspect-ratio: auto; }
   }
 
   /* about: the owner's statement as type on the brand band, with Call and the call to action beside it */
   .about-text { max-width: 44rem; font: 500 clamp(1.1875rem, 1.05rem + 0.7vw, 1.5rem)/1.5 var(--body); color: #fff; text-wrap: pretty; }
   .about-text--short { font-size: clamp(1.375rem, 1.1rem + 1.1vw, 1.75rem); line-height: 1.4; }
-  .about-foot { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; margin-top: 28px; }
-  @media (min-width: 600px) {
-    .about-foot { display: flex; flex-wrap: wrap; }
-  }
+  .about-img { width: 100%; margin-top: 32px; aspect-ratio: 4 / 3; object-fit: cover; border-radius: var(--r); background: var(--brand-line); }
   @media (min-width: 1024px) {
-    .about { display: grid; grid-template-columns: minmax(0, 8fr) minmax(0, 4fr); grid-template-rows: auto 1fr; column-gap: 64px; }
-    .about > .head { grid-column: 1; }
-    .about-text { grid-column: 1; grid-row: 2; font-size: clamp(1.375rem, 0.9rem + 0.9vw, 1.75rem); }
+    .about--photo { display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); grid-template-rows: auto 1fr; column-gap: 64px; }
+    .about-img { grid-column: 2; grid-row: 1 / 3; margin: 0; }
+    .about-text { font-size: clamp(1.375rem, 0.9rem + 0.9vw, 1.75rem); }
     .about-text--long { font-size: 1.25rem; line-height: 1.55; }
     .about-text.about-text--short { font-size: clamp(1.875rem, 1rem + 1.6vw, 2.375rem); line-height: 1.3; }
-    .about-foot { grid-column: 2; grid-row: 2; align-self: end; display: grid; margin: 0; padding-left: 40px; border-left: 1px solid var(--brand-line); }
-    .about-foot .button { width: 100%; }
   }
 
   /* service area: boards with a brand header, each as tall as its own content (never stretched) */
@@ -484,7 +525,7 @@
   .hours { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
   .hours th, .hours td { padding: 9px 0; border-top: 1px solid var(--line); text-align: left; vertical-align: baseline; }
   .hours tr:first-child > * { border-top: 0; }
-  .hours th { padding-right: 12px; font-weight: 500; color: var(--text); }
+  .hours th { padding-right: 12px; font-weight: 500; color: var(--text); white-space: nowrap; }
   .hours .time { color: var(--ink); font-weight: 700; text-align: right; white-space: nowrap; }
   .hours .closed { color: var(--muted); font-weight: 500; }
   .board .hours th, .board .hours td { padding: 14px 20px; }
@@ -493,10 +534,14 @@
   .board .em { margin: 0; padding: 16px 20px 14px; border-radius: 0 0 5px 5px; }
   .em-call { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; font-weight: 700; font-variant-numeric: tabular-nums; text-decoration: underline; text-underline-offset: 0.2em; }
   .em-call .i { color: var(--brand); }
-  /* Below 360 px a time may wrap after its dash (keepParts), so spaced-out text (WCAG 1.4.12) stays on the board */
-  @media (max-width: 359px) {
+  /* Below 400 px a day range stays whole ("Monday – Friday", judges' round 3) and a time may wrap after its dash
+     (keepParts) instead, so spaced-out text (WCAG 1.4.12) stays on the board */
+  @media (max-width: 399px) {
+    .hours { font-size: 0.9375rem; }
     .hours .time { white-space: normal; }
-    .board .hours th, .board .hours td { padding-inline: 14px; }
+  }
+  @media (max-width: 359px) {
+    .board .hours th, .board .hours td { padding-inline: 12px; }
     .board .hours td { padding-left: 0; }
   }
   @media (min-width: 768px) {
@@ -559,9 +604,10 @@
   /* contact: the form, then the call card; the <form> itself is the field grid */
   .contact { display: grid; grid-template-columns: minmax(0, 1fr); gap: 28px; }
   .contact > * { min-width: 0; }
-  .contact-main { scroll-margin-top: 16px; }
+  .contact .head { margin: 0; }
   .form-card { position: relative; padding: 26px 20px 22px; border: 1px solid var(--line); border-top: 4px solid var(--brand); border-radius: var(--r); background: #fff; box-shadow: var(--lift); color: var(--text); }
-  .form { display: grid; grid-template-columns: minmax(0, 1fr); gap: 18px; }
+  /* "/contact#quote" lands on the form with the card's top edge in view (under the sticky header from 768 px) */
+  .form { display: grid; grid-template-columns: minmax(0, 1fr); gap: 18px; scroll-margin-top: 48px; }
   .field label { display: block; margin-bottom: 7px; color: var(--ink); font-size: 0.9375rem; font-weight: 700; }
   .input { display: block; width: 100%; min-height: 52px; padding: 13px 14px; border: 1.5px solid var(--field); border-radius: var(--r); background: #fff; color: var(--text); font: 400 1rem/1.4 var(--body); }
   .input:focus-visible { border-color: var(--brand); outline-offset: 1px; }
@@ -582,7 +628,7 @@
     .full, .form-end { grid-column: 1 / -1; }
   }
   @media (min-width: 768px) {
-    .contact-main { scroll-margin-top: 12px; }
+    .contact { gap: 44px 28px; }
     .form-card { padding: 38px 36px 34px; }
   }
   /* The call card is a size container: the big number takes the card's width less the icon and gap (38 px) divided
@@ -598,14 +644,15 @@
   .big > span { white-space: normal; }
   .big .i { width: 26px; height: 26px; color: var(--band-accent); }
   .call-card ul { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; margin-top: 18px; padding-top: 18px; border-top: 1px solid var(--brand-line); }
-  .call-card li { min-width: 0; line-height: 1.4; text-wrap: balance; }
+  .call-card li { min-width: 0; font-size: 0.9375rem; line-height: 1.4; text-wrap: balance; }
   .call-card li a { font-weight: 600; text-decoration: underline; text-underline-offset: 0.2em; }
   @media (hover: hover) {
     .big:hover { text-decoration: underline 2px; }
   }
   @media (min-width: 1024px) {
-    .contact { grid-template-columns: minmax(0, 7fr) minmax(0, 4fr); grid-template-rows: auto auto; column-gap: 56px; }
-    .contact-main { grid-column: 1; grid-row: 1 / span 2; display: grid; grid-template-rows: subgrid; }
+    /* 3:2, so the call card keeps a 34-character email on one line from 1024 px (judges' round 3) */
+    .contact { grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); column-gap: 56px; }
+    .form-card { grid-row: 2; }
     .call-card { grid-column: 2; grid-row: 2; align-self: start; padding: 34px 32px; }
   }
 
@@ -624,31 +671,24 @@
   @media (hover: hover) {
     .foot a:hover { text-decoration-color: currentColor; }
   }
+  /* 768-1023 px: the business on its own row, Contact and Credentials side by side, so an email keeps its line */
   @media (min-width: 768px) {
     .foot { padding-block: 72px 40px; }
     .foot-end { margin-top: 56px; }
-    .foot-grid { grid-template-columns: minmax(0, 5fr) minmax(0, 4fr) minmax(0, 4fr); gap: 48px; }
+    .foot-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 40px 48px; }
+    .foot-grid > :first-child { grid-column: 1 / -1; }
+  }
+  @media (min-width: 1024px) {
+    .foot-grid { grid-template-columns: minmax(0, 5fr) minmax(0, 4fr) minmax(0, 4fr); }
+    .foot-grid > :first-child { grid-column: auto; }
   }
 
   /* ---------- the phone call bar: Call and the owner's call to action, under the thumb ---------- */
   /* 12 px or more between the buttons and the bar's top edge and the screen's bottom edge, as on today's page: axe's
      target-size check then passes any button the bar half-covers, wherever the page puts it (layout.test.ts) */
   .callbar { bottom: 0; z-index: 10; display: flex; gap: 8px; padding: 12px var(--gut) calc(12px + env(safe-area-inset-bottom)); border-top: 1px solid var(--line); background: #fff; }
-  .callbar .button { min-height: 54px; padding: 0 12px; gap: 8px; font-size: 1rem; }
-  .callbar .button-act { flex: 1 1 auto; font-variant-numeric: tabular-nums; }
-  /* the call to action may wrap rather than push the bar wider than the screen */
-  .callbar .button-line { flex: 0 1 auto; min-width: 0; overflow-wrap: anywhere; }
-  /* The full short label ("Free quote", "Book a visit") from 340 px, one word below. Under 375 px the bar tightens so
-     the widest label and the number fit side by side. */
-  .cta-s { display: none; }
-  @media (max-width: 374px) {
-    .callbar { gap: 6px; padding-inline: 12px; }
-    .callbar .button { gap: 6px; padding-inline: 10px; letter-spacing: -0.01em; }
-  }
-  @media (min-width: 340px) {
-    .cta-s { display: inline; }
-    .cta-t { display: none; }
-  }
+  /* Call and "Get a quote" in equal halves */
+  .callbar .button { flex: 1 1 0; min-width: 0; min-height: 54px; padding: 0 12px; gap: 8px; font-size: 1rem; }
   @media (min-width: 768px) {
     .callbar { display: none; }
   }

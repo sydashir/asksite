@@ -1,14 +1,13 @@
 // Modern's services, reviews, gallery and About. Every section opens with the same heading (the livery
-// mark, the h2 and the intro); what follows is the design's own: services as priced cards, reviews led by one
+// mark, the heading and the intro); what follows is the design's own: services as priced cards, reviews led by one
 // featured quote, the owner's photos in even rows with captions under them, and About as a statement on the
-// brand band. The owner's photos each show once on the page: About never repeats one.
-import type { VariantOf } from "@asksite/site-schema";
-import { headingLevel, quoteLink, type RenderContext } from "../../context.ts";
-import { formatPrice } from "../../format.ts";
+// brand band beside a photo. No page shows one of the owner's photos twice.
+import type { Photo, VariantOf } from "@asksite/site-schema";
+import { headingLevel, onSite, quoteLink, type RenderContext } from "../../context.ts";
 import { html, safeUrl, type SafeHtml } from "../../html.ts";
 import { DOM_ID } from "../../sections/ids.ts";
 import { itemHeading } from "../../ui.ts";
-import { callButton, head, quoteButton } from "./parts.ts";
+import { head, price } from "./parts.ts";
 
 /**
  * The column count for `count` service cards, at most `most`: the most columns, up to one more than the services.
@@ -31,17 +30,14 @@ export function renderServices(ctx: RenderContext, variant: VariantOf<"services"
   // SiteDocument guarantees serviceDescriptions[i] names facts.services[i].
   const items = facts.services.map((service, i) => ({ ...service, description: copy.serviceDescriptions[i]?.description }));
   const columns = cardColumns(items.length, variant === "compact" ? 4 : 3) as keyof typeof CARD_COLUMNS;
-  const price = (dollars: number | undefined) =>
-    dollars !== undefined
-      ? html`<p class="price"><small>From</small> ${formatPrice(dollars)}</p>`
-      : anyPrice && html`<p class="price price--ask">Price on request</p>`;
+  const priceLine = (dollars: number | undefined) => price(dollars) || (anyPrice && html`<p class="price price--ask">Price on request</p>`);
   const askCard = html`<li class="card ask on-brand"><div><p class="ask-q">${anyPrice ? "Not sure which service you need?" : "Ask us for a price."}</p><p>${anyPrice ? "Tell us about the job." : "Tell us what you need."}</p></div><a class="button button-act" href="${quoteLink()}">${copy.ctaText}</a></li>`;
 
   return html`<section id="${DOM_ID.services}" class="sec ${tone}" aria-labelledby="${DOM_ID.services}-title">
 <div class="wrap">
 ${head(DOM_ID.services, "Our services", copy.sectionIntros.services, level)}
 <ul class="cards ${CARD_COLUMNS[columns]}${variant === "compact" ? " cards--compact" : ""}">
-${items.map((s) => html`<li class="card">${itemHeading(level, "h3", s.name)}${price(s.startingPrice)}${s.description && html`<p class="card-desc">${s.description}</p>`}</li>`)}
+${items.map((s) => html`<li class="card">${itemHeading(level, "h3", s.name)}${priceLine(s.startingPrice)}${s.description && html`<p class="card-desc">${s.description}</p>`}</li>`)}
 ${askCard}
 </ul>
 </div>
@@ -74,12 +70,14 @@ ${rest.length > 0 && html`<ul class="quotes">${rest.map((t, i) => html`<li class
 </section>`;
 }
 
-const SHOTS = { 1: "shots shots--one", 2: "shots shots--two", many: "shots" } as const;
+// Two photos side by side; four as two rows of two below 1024 px, and from there as one large photo beside three
+// (the approved mockup's mosaic, judges' round 3), so four photos never take more height than six.
+const SHOTS = { 1: "shots shots--one", 2: "shots shots--two", 4: "shots shots--two shots--four", many: "shots" } as const;
 
 export function renderGallery(ctx: RenderContext, _variant: VariantOf<"gallery">, tone: string): SafeHtml {
   const { facts, copy } = ctx.doc;
   const count = facts.photos.length;
-  const shots = count === 1 ? SHOTS[1] : count === 2 || count === 4 ? SHOTS[2] : SHOTS.many;
+  const shots = count === 1 || count === 2 || count === 4 ? SHOTS[count] : SHOTS.many;
   return html`<section id="${DOM_ID.gallery}" class="sec ${tone}" aria-labelledby="${DOM_ID.gallery}-title">
 <div class="wrap">
 ${head(DOM_ID.gallery, "Our work", copy.sectionIntros.gallery, headingLevel(ctx, "gallery"))}
@@ -91,18 +89,26 @@ ${facts.photos.map((p) => html`<li><figure><img src="${safeUrl(p.url, ["https:"]
 }
 
 /**
- * The owner's statement set as type on the brand band, with the Call and quote buttons (beside it from
- * 1024 px). No photo: every owner photo already shows once, in the hero or the gallery.
+ * The photo About shows beside the owner's statement: the gallery's first photo when the site shows the gallery (one
+ * Home does not show), otherwise the hero photo, otherwise none. About has a page of its own, so no page shows a photo
+ * twice (moderator ruling (e), A16).
+ */
+const aboutPhoto = (ctx: RenderContext): Photo | undefined => (onSite(ctx, "gallery") ? ctx.doc.facts.photos[0] : undefined) ?? ctx.doc.facts.heroPhoto;
+
+/**
+ * The owner's statement set as type on the brand band, with a photo beside it from 1024 px (under it on phones). The
+ * band ends its page, before the closing band with the Call and quote buttons, so it carries no buttons of its own.
  */
 export function renderAbout(ctx: RenderContext, _variant: VariantOf<"about">): SafeHtml {
   const { facts, copy } = ctx.doc;
   const about = copy.about ?? "";
   const size = about.length > 300 ? " about-text--long" : about.length <= 140 ? " about-text--short" : "";
+  const photo = aboutPhoto(ctx);
   return html`<section id="${DOM_ID.about}" class="sec on-brand" aria-labelledby="${DOM_ID.about}-title">
-<div class="wrap about">
+<div class="${photo === undefined ? "wrap" : "wrap about--photo"}">
 ${head(DOM_ID.about, `About ${facts.businessName}`, undefined, headingLevel(ctx, "about"))}
 <p class="about-text${size}">${about}</p>
-<div class="about-foot">${callButton(facts, "")}${quoteButton(ctx, "")}</div>
+${photo !== undefined && html`<img class="about-img" src="${safeUrl(photo.url, ["https:"])}" width="${photo.width}" height="${photo.height}" alt="${photo.alt}" decoding="async">`}
 </div>
 </section>`;
 }
