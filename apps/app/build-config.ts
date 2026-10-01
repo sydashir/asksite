@@ -72,6 +72,8 @@ export function contentSecurityPolicy(rootDomain: string): string {
     `script-src 'self' ${TURNSTILE_ORIGIN}`,
     "style-src 'self' 'unsafe-inline'",
     `img-src 'self' https://media.${rootDomain} blob: data:`,
+    // The editor's preview is a srcdoc frame and inherits this policy: the Bold design embeds its font as a data: URI.
+    "font-src 'self' data:",
     "connect-src 'self'",
     `frame-src 'self' ${TURNSTILE_ORIGIN}`,
     "form-action 'self'",
