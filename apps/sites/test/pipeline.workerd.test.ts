@@ -1,13 +1,13 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { EMPTY_EDITS, LIMITS, newId, versionKey } from "@asksite/core";
+import { EMPTY_EDITS, LIMITS, newId, versionKey, versionPageKey } from "@asksite/core";
 import { approveVersion, createPendingVersion, restore, takeDown } from "@asksite/publishing";
 import { PAGE_IDS, PAGES, SiteDocument } from "@asksite/site-schema";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { at, ROOT, seedSite, settledLeads, sitesHarness, type ToolsEnv } from "./support/harness.ts";
 
 // Plan 2 end to end: publish (as the app Worker will), approve (as the admin Worker will), then the
-// public Worker serves those exact bytes and accepts the page's own contact form.
+// public Worker serves those exact bytes, every page of the site, and accepts the contact form of its Contact page (A16).
 const harness = sitesHarness();
 let tools: ToolsEnv;
 beforeAll(async () => {
@@ -30,14 +30,19 @@ async function publishAndApprove(fixtureName: string) {
 }
 
 describe("publish, approve, serve, contact", () => {
-  it("serves exactly the approved bytes and accepts the page's own form", async () => {
+  it("serves exactly the approved bytes of every page, and accepts the Contact page's own form", async () => {
     const site = await publishAndApprove("plumber-austin");
-    const page = await harness.server.fetch(at(site.slug));
-    expect(page.status).toBe(200);
-    const html = await page.text();
-    expect(html).toBe(await (await tools.WORK.get(versionKey(site.siteId, site.versionId)))?.text());
+    for (const page of PAGE_IDS) {
+      const response = await harness.server.fetch(at(site.slug, PAGES[page].path));
+      expect(response.status).toBe(200);
+      expect(await response.text()).toBe(await (await tools.WORK.get(versionPageKey(site.siteId, site.versionId, page)))?.text());
+    }
+    const home = await (await harness.server.fetch(at(site.slug))).text();
+    expect(home).toBe(await (await tools.WORK.get(versionKey(site.siteId, site.versionId)))?.text());
+    expect(home).not.toContain("<form"); // the form is on /contact only
 
-    const action = /<form action="([^"]+)" method="post">/.exec(html)?.[1];
+    const html = await (await harness.server.fetch(at(site.slug, "/contact"))).text();
+    const action = /<form id="quote" action="([^"]+)" method="post">/.exec(html)?.[1];
     expect(action).toBe(`https://${site.slug}.${ROOT}/_f/${site.siteId}`);
     const response = await harness.server.fetch(String(action), {
       method: "POST",
@@ -105,18 +110,21 @@ describe("publish, approve, serve, contact", () => {
 
   // A16 + U2: the pointer names the live version, so a takedown (which deletes it first) stops every page at once,
   // the ones already in the data centre's cache included; a restore writes it back.
-  it("a takedown makes every page answer 404, even a cached one; restore brings the site back", async () => {
-    const site = await publishAndApprove("cleaning-minimal");
+  it.each([
+    ["plumber-austin", [200, 200, 200, 200, 200]],
+    ["cleaning-minimal", [200, 200, 404, 404, 200]], // no about text and no photos: no About and no Gallery page
+  ] as const)("%s: a takedown makes every page answer 404, even a cached one; restore brings the site back", async (name, live) => {
+    const site = await publishAndApprove(name);
     const answers = async () => Promise.all(PAGE_IDS.map(async (page) => (await harness.server.fetch(at(site.slug, PAGES[page].path))).status));
-    expect(await answers()).toEqual([200, 404, 404, 404, 404]); // one page for now; Home is now cached
-    expect(await answers()).toEqual([200, 404, 404, 404, 404]);
+    expect(await answers()).toEqual(live); // every page is now cached
+    expect(await answers()).toEqual(live);
 
     await takeDown(tools, { siteId: site.siteId, reviewer: "admin@example.com", reason: "Test", purgeMedia: false, now: Date.now() });
     expect(await answers()).toEqual([404, 404, 404, 404, 404]);
     expect((await tools.LIVE.list({ prefix: site.slug })).objects.map((o) => o.key)).toEqual([]);
 
     await restore({ ...tools, ROOT_DOMAIN: ROOT }, { siteId: site.siteId, reviewer: "admin@example.com", now: Date.now() });
-    expect(await answers()).toEqual([200, 404, 404, 404, 404]);
+    expect(await answers()).toEqual(live);
     expect(await (await harness.server.fetch(at(site.slug))).text()).toBe(await (await tools.WORK.get(versionKey(site.siteId, site.versionId)))?.text());
   });
 });

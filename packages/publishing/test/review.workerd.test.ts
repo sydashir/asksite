@@ -1,3 +1,4 @@
+import type { PageId } from "@asksite/site-schema";
 import { livePageKey, livePointerKey, liveSitePrefix, newId, sha256Hex, versionKey, versionPageKey } from "@asksite/core";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { approveVersion, createPendingVersion, rejectVersion, takeDown } from "../src/index.ts";
@@ -13,14 +14,24 @@ afterAll(async () => {
   await harness.server.close();
 });
 
+/** The pages a version stores, from its row (A16: the renderer gives plumber-austin five). */
+async function storedPages(versionId: string) {
+  return JSON.parse(String((await versionRow(env.DB, versionId))?.pages_json)) as Array<{ page: PageId; sha256: string }>;
+}
+
+/** The LIVE keys one approved version holds: the pointer and each of its pages. */
+async function liveKeysOfVersion(slug: string, versionId: string) {
+  return [livePointerKey(slug), ...(await storedPages(versionId)).map((page) => livePageKey(slug, versionId, page.page))].sort();
+}
+
 /** A site with one version in review; returns what the admin was shown. */
 async function pending(document = doc()) {
   const site = await seedSite(env.DB);
   const version = await createPendingVersion(env, { ...site, document, edits: EDITS, generationId: null, now: 10 });
   const row = await versionRow(env.DB, version.id);
   // html_sha256 is the digest of the pages (what the admin approves); homeSha256 is Home's own hash.
-  const home = JSON.parse(String(row?.pages_json)) as Array<{ page: string; sha256: string }>;
-  return { ...site, versionId: version.id, htmlSha256: String(row?.html_sha256), homeSha256: String(home[0]?.sha256) };
+  const pages = await storedPages(version.id);
+  return { ...site, versionId: version.id, htmlSha256: String(row?.html_sha256), homeSha256: String(pages[0]?.sha256), pages };
 }
 
 const approve = (versionId: string, htmlSha256: string, extra: Partial<{ indexable: boolean; note: string | null; now: number }> = {}) =>
@@ -32,11 +43,17 @@ describe("approveVersion", () => {
     const result = await approve(p.versionId, p.htmlSha256, { note: "Looks good", indexable: false });
     expect(result).toEqual({ siteId: p.siteId, slug: p.slug, liveUrl: `https://${p.slug}.asksite.example/` });
 
+    // plumber-austin has all five pages (A16), each copied to its own immutable LIVE key.
+    expect(p.pages.map((page) => page.page)).toEqual(["home", "services", "about", "gallery", "contact"]);
+    for (const page of p.pages) {
+      const stored = await (await env.WORK.get(versionPageKey(p.siteId, p.versionId, page.page)))?.text();
+      const live = await env.LIVE.get(livePageKey(p.slug, p.versionId, page.page));
+      expect(await live?.text()).toBe(stored);
+      expect(live?.httpMetadata?.contentType).toBe("text/html; charset=utf-8");
+      expect(live?.customMetadata).toEqual({ siteId: p.siteId, versionId: p.versionId, page: page.page, sha256: page.sha256 });
+      expect(await sha256Hex(String(stored))).toBe(page.sha256);
+    }
     const work = await (await env.WORK.get(versionKey(p.siteId, p.versionId)))?.text();
-    const live = await env.LIVE.get(livePageKey(p.slug, p.versionId, "home"));
-    expect(await live?.text()).toBe(work);
-    expect(live?.httpMetadata?.contentType).toBe("text/html; charset=utf-8");
-    expect(live?.customMetadata).toEqual({ siteId: p.siteId, versionId: p.versionId, page: "home", sha256: p.homeSha256 });
     // The pointer: an empty object that names the live version. A15: the business phone of the approved document
     // (plumber-austin: +15125550142), for the sites Worker's "Please call instead" page: the text the page shows and
     // the number its tel: links call. QA-2 RU(2): and its business name, for the thank-you and 404 pages.
@@ -45,7 +62,7 @@ describe("approveVersion", () => {
     expect(pointer?.customMetadata).toEqual({
       siteId: p.siteId, versionId: p.versionId, businessName: "Reliable Rooter Plumbing", phoneText: "(512) 555-0142", phoneTel: "+15125550142",
     });
-    expect(await liveKeysOf(env.LIVE, p.slug)).toEqual([livePointerKey(p.slug), livePageKey(p.slug, p.versionId, "home")].sort());
+    expect(await liveKeysOf(env.LIVE, p.slug)).toEqual(await liveKeysOfVersion(p.slug, p.versionId));
     expect(await sha256Hex(String(work))).toBe(p.homeSha256);
 
     expect(await siteRow(env.DB, p.siteId)).toMatchObject({ live_version_id: p.versionId, pending_version_id: null, indexable: 0 });
@@ -109,8 +126,9 @@ describe("approveVersion", () => {
       versionId: second.id, businessName: "Desert Air Heating & Cooling", phoneText: "(602) 555-0118", phoneTel: "+16025550118",
     });
     expect((await versionRow(env.DB, p.versionId))?.status).toBe("approved");
-    // The older version's pages never came back, and the replaced one's are gone.
-    expect(await liveKeysOf(env.LIVE, p.slug)).toEqual([livePointerKey(p.slug), livePageKey(p.slug, second.id, "home")].sort());
+    // The older version's pages never came back, and the replaced one's are gone (hvac-phoenix has four pages).
+    expect(await liveKeysOf(env.LIVE, p.slug)).toEqual(await liveKeysOfVersion(p.slug, second.id));
+    expect((await storedPages(second.id)).map((page) => page.page)).toEqual(["home", "services", "gallery", "contact"]);
   });
 });
 
@@ -193,7 +211,7 @@ describe("what the review actions record and refuse (design §7.2)", () => {
     await approve(p.versionId, p.htmlSha256);
     await env.DB.prepare("UPDATE sites SET taken_down_at = 25 WHERE id = ?").bind(p.siteId).run();
     await env.LIVE.delete(livePointerKey(p.slug)); // a takedown deletes the pointer and the live pages too
-    await env.LIVE.delete(livePageKey(p.slug, p.versionId, "home"));
+    await env.LIVE.delete(p.pages.map((page) => livePageKey(p.slug, p.versionId, page.page)));
     expect((await failure(approve(p.versionId, p.htmlSha256, { now: 30 }))).code).toBe("site_taken_down");
     expect(await liveKeysOf(env.LIVE, p.slug)).toEqual([]);
     expect(await auditActions(env.DB, p.siteId)).toEqual(["version.requested", "version.approved"]);
@@ -241,7 +259,7 @@ describe("approveVersion: all the pages, then the pointer (A16)", () => {
     await approve(first.versionId, first.htmlSha256);
     const second = await createPendingVersion(env, { siteId: first.siteId, ownerId: first.ownerId, slug: first.slug, document: doc(), edits: EDITS, generationId: null, now: 30 });
     await approve(second.id, String((await versionRow(env.DB, second.id))?.html_sha256), { now: 31 });
-    expect(await liveKeysOf(env.LIVE, first.slug)).toEqual([livePointerKey(first.slug), livePageKey(first.slug, second.id, "home")].sort());
+    expect(await liveKeysOf(env.LIVE, first.slug)).toEqual(await liveKeysOfVersion(first.slug, second.id));
     expect(await liveKeysOf(env.LIVE, neighbour.slug)).toEqual([livePointerKey(neighbour.slug), ...neighbour.pages.map((page) => livePageKey(neighbour.slug, neighbour.versionId, page.page))].sort());
   });
 
@@ -269,7 +287,7 @@ describe("approveVersion: all the pages, then the pointer (A16)", () => {
     expect((await failure(approveVersion({ ...env, LIVE: v2PointerFails }, { versionId: v2.id, htmlSha256: v2Sha, reviewer: "admin@example.com", note: null, indexable: true, now: 31 }))).code).toBe("live_copy_failed");
     // The pointer still names v1 and all of v1's pages are still there, so the site keeps being served until the retry.
     expect((await env.LIVE.head(livePointerKey(v1.slug)))?.customMetadata?.["versionId"]).toBe(v1.versionId);
-    expect(await liveKeysOf(env.LIVE, v1.slug)).toEqual([...v1Keys, livePageKey(v1.slug, v2.id, "home")].sort());
+    expect(await liveKeysOf(env.LIVE, v1.slug)).toEqual([...v1Keys, ...(await storedPages(v2.id)).map((page) => livePageKey(v1.slug, v2.id, page.page))].sort());
 
     const pointerFails = flakyBucket(env.LIVE, (call, key) => call === "put" && key === livePointerKey(p.slug));
     const error = await failure(approveVersion({ ...env, LIVE: pointerFails }, { versionId: p.versionId, htmlSha256: p.htmlSha256, reviewer: "admin@example.com", note: null, indexable: true, now: 20 }));

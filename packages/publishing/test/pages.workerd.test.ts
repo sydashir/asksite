@@ -5,8 +5,8 @@ import { createPendingVersion } from "../src/index.ts";
 import { publishFailure as failure } from "./support/errors.ts";
 import { auditActions, doc, EDITS, flakyBucket, publishingHarness, seedSite, siteRow, versionRow, type PublishEnv } from "./support/harness.ts";
 
-// The renderer gives one page for now (A16-2). Here it is replaced, so create's handling of a site with several
-// pages is tested: what is stored in WORK and D1, and what a refused request leaves behind. vi.mock is hoisted.
+// Here the renderer is replaced, so create's handling of a site's pages is tested with chosen pages (a page twice,
+// Home not first, none): what is stored in WORK and D1, and what a refused request leaves behind. vi.mock is hoisted.
 const rendered: { site: RenderedSite | null } = vi.hoisted(() => ({ site: null }));
 vi.mock("@asksite/renderer", async (importOriginal) => {
   const original = await importOriginal<typeof import("@asksite/renderer")>();

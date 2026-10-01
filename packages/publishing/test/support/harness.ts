@@ -118,8 +118,9 @@ export async function liveKeysOf(live: R2Bucket, slug: string): Promise<string[]
 }
 
 /**
- * A version with several pages, built by hand with the real core helpers (the renderer gives one page for now):
- * a real pending version, then its WORK pages and its row's pages_json, digest and Home key replaced.
+ * A version with chosen pages, built by hand with the real core helpers (a real pending version, then its WORK pages
+ * and its row's pages_json and digest replaced), for the cases the renderer's own pages cannot make: a page of one
+ * word, a subset of the five.
  */
 export async function pendingWithPages(env: PublishEnv, pages: readonly PageId[] = ["home", "services", "contact"], slug?: string) {
   const site = await seedSite(env.DB, slug);
