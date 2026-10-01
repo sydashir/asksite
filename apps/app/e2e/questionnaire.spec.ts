@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { acceptInvite, apiCall, APP, BRIEF, expectAccessible, expectNoSidewaysScroll, FACTS, uniqueEmail, uniqueSlug } from "./support.ts";
+import { acceptInvite, apiCall, APP, BRIEF, builtSite, expectAccessible, expectNoSidewaysScroll, FACTS, uniqueEmail, uniqueSlug } from "./support.ts";
 
 test("invite, then the seven questionnaire steps, then Build starts writing the website", async ({ page }) => {
   const email = uniqueEmail("journey");
@@ -211,4 +211,20 @@ test("an opening-time error links to that day's opens field and shows its messag
   await expect(page.getByLabel("Monday opens at")).toBeFocused();
   await expect(page.getByLabel("Monday opens at")).toHaveAttribute("aria-invalid", "true");
   await expect(page.getByLabel("Monday opens at")).toHaveAccessibleDescription(/Please enter a time\./);
+});
+
+test("with a draft already written, the last step says Go to the editor and starts no new writing", async ({ page }) => {
+  const siteId = await builtSite(page);
+  const generationPosts: string[] = [];
+  page.on("request", (request) => {
+    if (request.method() === "POST" && request.url().endsWith(`/api/sites/${siteId}/generations`)) generationPosts.push(request.url());
+  });
+  await page.goto(`/sites/${siteId}/setup/address`);
+  await expect(page.getByRole("button", { name: "Go to the editor" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Build my website" })).toHaveCount(0);
+  await page.getByRole("button", { name: "Go to the editor" }).click();
+  await page.waitForURL(`${APP}/sites/${siteId}/edit`);
+  expect(generationPosts).toEqual([]);
+  const view = await apiCall(page, "GET", `/api/sites/${siteId}`);
+  expect(view.json?.["activeGeneration"]).toBeNull();
 });

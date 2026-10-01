@@ -70,6 +70,12 @@ function StepPage({ siteId, step, site, view, draft }: { siteId: string; step: S
     setMessage(res.error.message);
   }
 
+  /** A draft already exists: save step 7 and open the editor. Never starts a generation (rewriting is the editor's own action). */
+  async function openEditor() {
+    if (await site.flush()) navigate(paths.edit(siteId));
+    else setMessage("Your latest answers are not saved yet. Please try again in a moment.");
+  }
+
   function onSubmit(event: FormEvent) {
     event.preventDefault();
     if (blocking.length > 0) {
@@ -78,7 +84,7 @@ function StepPage({ siteId, step, site, view, draft }: { siteId: string; step: S
       return;
     }
     const next = nextStep(step);
-    if (next === null) void build();
+    if (next === null) void (view.ai === null ? build() : openEditor());
     else
       void site.flush().then((saved) => {
         if (saved) navigate(paths.setup(siteId, next));
@@ -136,7 +142,7 @@ function StepPage({ siteId, step, site, view, draft }: { siteId: string; step: S
             </a>
           ) : null}
           <button type="submit" className="btn-primary" disabled={busy}>
-            {last ? (busy ? "Starting…" : "Build my website") : "Save and continue"}
+            {last ? (view.ai !== null ? "Go to the editor" : busy ? "Starting…" : "Build my website") : "Save and continue"}
           </button>
         </div>
       </div>
