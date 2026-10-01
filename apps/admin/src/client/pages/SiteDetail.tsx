@@ -27,10 +27,10 @@ export function SiteDetail({ siteId }: { siteId: string }) {
   const { load, reload } = useResource<SiteDetailData>(`/api/admin/sites/${siteId}`);
   if (load.state === "loading") return <p role="status">Loading…</p>;
   if (load.state === "error") return <Notice tone="error">{load.error.message}</Notice>;
-  return <SiteScreen data={load.data} reload={() => void reload()} />;
+  return <SiteScreen data={load.data} reload={() => reload()} />;
 }
 
-function SiteScreen({ data, reload }: { data: SiteDetailData; reload: () => void }) {
+function SiteScreen({ data, reload }: { data: SiteDetailData; reload: () => Promise<void> }) {
   const { site } = data;
   const heading = usePageHeading<HTMLHeadingElement>(site.businessName ?? site.slug ?? "Site", "Admin");
   const [message, setMessage] = useState<{ tone: "success" | "warning" | "error"; text: string } | null>(null);
@@ -43,10 +43,13 @@ function SiteScreen({ data, reload }: { data: SiteDetailData; reload: () => void
   const [confirmTakedown, setConfirmTakedown] = useState(false);
   const [disableReason, setDisableReason] = useState("");
   const [disableErrors, setDisableErrors] = useState<string[]>([]);
+  /** A takedown answered 5xx: what to say depends on whether the reloaded site is down, so the text is chosen at render. */
+  const [takedownUnsure, setTakedownUnsure] = useState(false);
   const messageRef = useRef<HTMLDivElement>(null);
   /** An action can replace the control that ran it (take down becomes restore): keep keyboard focus on the result. */
   const show = (value: { tone: "success" | "warning" | "error"; text: string }) => {
     setMessage(value);
+    setTakedownUnsure(false);
     requestAnimationFrame(() => messageRef.current?.focus());
   };
 
@@ -72,7 +75,14 @@ function SiteScreen({ data, reload }: { data: SiteDetailData; reload: () => void
       // body: if the reload shows the site down, "Finish the takedown" re-sends it. That call never emails the owner (its own answer is
       // always null) and the failed one sent no notice, so the owner is marked as not emailed.
       if (res.status >= 500) setTakedown({ body, result: { tone: "warning", text: "", cleanupFailed: true, ownerNotEmailed: true } });
-      show({ tone: "error", text: res.status >= 500 ? "The takedown may have partly happened. Try again." : res.error.message });
+      if (res.status >= 500) {
+        // Wait for the reload, so the text below is chosen from the site's real state, not the one from before the takedown.
+        await reload();
+        setMessage(null);
+        setTakedownUnsure(true);
+        return;
+      }
+      show({ tone: "error", text: res.error.message });
     } else {
       const result = takedownResult(res.data, previous);
       setTakedown({ body, result });
@@ -121,6 +131,13 @@ function SiteScreen({ data, reload }: { data: SiteDetailData; reload: () => void
       ) : null}
       <div ref={messageRef} role="status" tabIndex={-1}>
         {message !== null ? <Notice tone={message.tone}>{message.text}</Notice> : null}
+        {takedownUnsure ? (
+          <Notice tone="error">
+            {site.takenDown
+              ? "The takedown may have partly happened, and the owner may not have been emailed. Finish it to make sure, and contact the owner:"
+              : "The takedown did not go through. Try again."}
+          </Notice>
+        ) : null}
         {takedown?.result.cleanupFailed === true && site.takenDown ? (
           <button type="button" className="btn-primary mt-3" onClick={() => void takeDown(takedown.body, takedown.result)}>
             Finish the takedown

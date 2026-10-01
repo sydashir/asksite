@@ -23,7 +23,6 @@ test("review a site: the stored page shows in a sandboxed frame, flags are liste
   const frame = page.frameLocator(FRAME);
   await expect(frame.getByRole("link", { name: "Call Joe today" }).first()).toBeAttached();
   await expect(page.locator(FRAME)).toHaveAttribute("sandbox", "");
-  await expect(page.getByText("Links are turned off in the preview.")).toBeVisible();
   await expect(page.getByText("facts.testimonials.0.quote contains a web address", { exact: false })).toBeVisible();
   await expect(page.getByText("copy.ctaText", { exact: false })).toBeVisible();
   await expectAccessible(page);
@@ -202,11 +201,12 @@ test("a takedown whose clean-up failed says so, and Finish the takedown finishes
   await expect(page.locator("body")).not.toContainText("Owner not emailed");
 });
 
-test("a takedown that answers with a server error says it may have partly happened", async ({ page }) => {
+test("a takedown that fails before it commits says it did not go through", async ({ page }) => {
   const site = await liveSite(page);
   await page.route("**/api/admin/sites/*/takedown", (route) => route.fulfill({ status: 500, json: { error: { code: "internal", message: "Something went wrong. Please try again." } } }));
   await takeDown(page, site.siteId);
-  await expect(page.getByText("The takedown may have partly happened. Try again.")).toBeVisible();
+  await expect(page.getByText("The takedown did not go through. Try again.")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Finish the takedown" })).toHaveCount(0);
 });
 
 test("a takedown sends exactly what the admin entered: the reason, the owner message, and whether photos are deleted", async ({ page }) => {
@@ -245,7 +245,7 @@ test("a takedown that errors AFTER the site went down offers Finish the takedown
     return route.continue({ headers: { ...request.headers(), "x-test-takedown-fault": "live-delete-reread" } });
   });
   await takeDown(page, site.siteId);
-  await expect(page.getByText("The takedown may have partly happened. Try again.")).toBeVisible();
+  await expect(page.getByText("The takedown may have partly happened, and the owner may not have been emailed. Finish it to make sure, and contact the owner:")).toBeVisible();
   await expect(page.getByRole("button", { name: "Restore the site" })).toBeVisible(); // the reload shows it down
   await page.getByRole("button", { name: "Finish the takedown" }).click();
   await expect(page.getByText("Owner not emailed — contact them.", { exact: false })).toBeVisible();
@@ -288,7 +288,7 @@ test("a list the server cuts off says so, and a short list does not", async ({ p
     await route.fulfill({ json: { items: repeat(json.items, 50, (row, i) => ({ ...row, version: { ...row.version, id: `v${i}` } })) } });
   });
   await page.reload();
-  await expect(page.getByText("Showing the 50 oldest.")).toBeVisible();
+  await expect(page.getByText("Showing the 50 oldest waiting. Review these to see the rest.")).toBeVisible();
 
   await page.route("**/api/admin/sites?*", async (route) => {
     const json = (await (await route.fetch()).json()) as { sites: Array<{ id: string }> };

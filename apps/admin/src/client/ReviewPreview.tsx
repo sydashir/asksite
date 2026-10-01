@@ -35,7 +35,6 @@ export function ReviewPreview({ src, phone }: { src: string; phone: boolean }) {
   if (load.state === "loading") {
     return (
       <>
-        <p className="mt-2 text-sm text-slate-700">Links are turned off in the preview.</p>
         <p role="status" className={`mt-3 ${size}`}>
           Loading the page…
         </p>
@@ -54,7 +53,6 @@ export function ReviewPreview({ src, phone }: { src: string; phone: boolean }) {
   }
   return (
     <>
-      <p className="mt-2 text-sm text-slate-700">Links are turned off in the preview.</p>
       <iframe
         title="Page under review"
         sandbox=""
