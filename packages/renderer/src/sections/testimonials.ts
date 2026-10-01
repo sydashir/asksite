@@ -5,7 +5,7 @@
 // one or two reviews use a narrower grid instead of leaving empty columns; dark:, intersect-*
 // and fade classes removed.
 import type { VariantOf } from "@asksite/site-schema";
-import type { RenderContext } from "../context.ts";
+import { headingLevel, type RenderContext } from "../context.ts";
 import { html, type SafeHtml } from "../html.ts";
 import { headline, sectionShell } from "../ui.ts";
 import { DOM_ID } from "./ids.ts";
@@ -22,7 +22,7 @@ export function renderTestimonials(ctx: RenderContext, variant: VariantOf<"testi
   const count = facts.testimonials.length;
   const layout = count === 1 ? LAYOUT.one : count === 2 ? LAYOUT.two : LAYOUT[variant];
 
-  return sectionShell(DOM_ID.testimonials, "6xl", html`${headline(DOM_ID.testimonials, "What customers say")}
+  return sectionShell(DOM_ID.testimonials, "6xl", html`${headline(DOM_ID.testimonials, "What customers say", undefined, headingLevel(ctx, "testimonials"))}
 <ul class="${layout.list}">
 ${facts.testimonials.map((t) => html`<li class="${layout.item}">
 <figure class="flex w-full flex-col rounded-md bg-white p-4 shadow-xl md:p-6">

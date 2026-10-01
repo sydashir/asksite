@@ -3,7 +3,7 @@ import { DESIGN_IDS, Facts, SiteDocument, TRADES, unbackedClaims, proseIn } from
 import { describe, expect, it } from "vitest";
 import { render } from "@asksite/renderer";
 import { HtmlValidate, StaticConfigLoader } from "html-validate";
-import { FIXTURE_FORM_ACTION, FIXTURES, inDesign, loadFixture, stubStylesheets } from "../../../fixtures/index.ts";
+import { FIXTURE_FORM_ACTION, FIXTURE_SITE_URL, FIXTURES, inDesign, loadFixture, stubStylesheets } from "../../../fixtures/index.ts";
 import { templateAnswer, templateDraft } from "../src/template.ts";
 import { MINIMAL_FACTS } from "./support/samples.ts";
 
@@ -81,13 +81,14 @@ describe("templateDraft", () => {
     for (const goal of GOALS) expect(issuesOf(facts, Brief.parse({ tone: "friendly", goal }))).toEqual([]);
   });
 
-  it.each(FIXTURES)("renders valid HTML in every design with the facts of fixture %s (Plan 1 renderer, html-validate)", async (name) => {
+  it.each(FIXTURES)("renders valid HTML on every page in every design with the facts of fixture %s (Plan 1 renderer, html-validate)", async (name) => {
     const facts = Facts.parse(loadFixture(name).facts);
     const document = { facts, ...templateDraft(facts, Brief.parse({ tone: "friendly", goal: "quote" })), hidden: [] };
     const validator = new HtmlValidate(new StaticConfigLoader({ extends: ["html-validate:recommended"], rules: { "tel-non-breaking": ["error", { ignoreClasses: ["whitespace-nowrap"] }] } }));
     for (const design of DESIGN_IDS) {
-      const page = render(inDesign(document, design), { stylesheets: stubStylesheets(), formAction: FIXTURE_FORM_ACTION });
-      expect({ design: page.design, valid: (await validator.validateString(page.html)).valid }).toEqual({ design, valid: true });
+      const site = render(inDesign(document, design), { stylesheets: stubStylesheets(), formAction: FIXTURE_FORM_ACTION, siteUrl: FIXTURE_SITE_URL });
+      const pages = await Promise.all(site.pages.map(async (page) => ({ design: site.design, page: page.page, valid: (await validator.validateString(page.html)).valid })));
+      expect(pages).toEqual(site.pages.map((page) => ({ design, page: page.page, valid: true })));
     }
   });
 

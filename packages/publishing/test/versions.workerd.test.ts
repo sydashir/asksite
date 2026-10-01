@@ -1,7 +1,7 @@
-import { canonicalJson, documentSha256, formActionUrl, LIMITS, newId, OwnerEdits, sha256Hex, versionKey } from "@asksite/core";
+import { canonicalJson, documentSha256, formActionUrl, LIMITS, newId, OwnerEdits, pagesDigest, sha256Hex, siteUrl, versionKey, versionPageKey, type VersionPages } from "@asksite/core";
 import { render } from "@asksite/renderer";
 import { DESIGN_CSS } from "@asksite/site-css";
-import { DESIGN_IDS, type SiteDocument } from "@asksite/site-schema";
+import { DESIGN_IDS, PAGE_IDS, type SiteDocument } from "@asksite/site-schema";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { createPendingVersion, withdrawPending } from "../src/index.ts";
 import { publishFailure as failure } from "./support/errors.ts";
@@ -70,6 +70,11 @@ async function auditRows(db: D1Database, siteId: string) {
 
 type Site = Awaited<ReturnType<typeof seedSite>>;
 
+// The renderer gives each fixture the pages its content gives it (A16): plumber-austin all five, cleaning-minimal
+// Home, Services and Contact. Every version stores one WORK object per page.
+const PLUMBER_PAGES = 5;
+const CLEANING_PAGES = 3;
+
 /** Another site of the same owner: an owner who accepts a second invite gets one (Plan 4's invite accept). */
 async function secondSite(db: D1Database, ownerId: string): Promise<Site> {
   const siteId = newId();
@@ -112,30 +117,43 @@ function numberReadSeesNothing(db: D1Database): D1Database {
   return production as unknown as D1Database;
 }
 
+/** The WORK key of every page of a version, from its row's pages_json (sorted, as a listing is). */
+async function allPageKeys(siteId: string, versionId: string): Promise<string[]> {
+  const pages = JSON.parse(String((await versionRow(env.DB, versionId))?.pages_json)) as Array<{ page: "home" | "services" | "about" | "gallery" | "contact" }>;
+  return pages.map((p) => versionPageKey(siteId, versionId, p.page)).sort();
+}
+
 /** The keys of a site's stored pages in WORK (R2 lists are strongly consistent). */
 async function workKeys(siteId: string): Promise<string[]> {
   return (await env.WORK.list({ prefix: `versions/${siteId}/` })).objects.map((object) => object.key);
 }
 
 describe("createPendingVersion", () => {
-  it("stores the exact rendered page and a pending version pointing at it", async () => {
+  it("stores every rendered page of plumber-austin and a pending version pointing at them", async () => {
     const { ownerId, siteId, slug } = await seedSite(env.DB);
     const document = doc();
     const summary = await createPendingVersion(env, { siteId, ownerId, slug, document, edits: EDITS, generationId: null, now: 1000 });
     expect(summary).toMatchObject({ number: 1, status: "pending", requestedAt: 1000, reviewedAt: null, reviewNote: null });
 
-    const expected = render(document, { stylesheets: DESIGN_CSS, formAction: formActionUrl(ROOT, slug, siteId) });
-    const object = await env.WORK.get(versionKey(siteId, summary.id));
-    expect(await object?.text()).toBe(expected.html);
-    expect(object?.httpMetadata?.contentType).toBe("text/html; charset=utf-8");
-    expect(object?.customMetadata).toEqual({ siteId, versionId: summary.id, sha256: await sha256Hex(expected.html) });
-    expect(expected.html).toContain(`action="https://${slug}.asksite.example/_f/${siteId}"`);
+    const expected = render(document, { stylesheets: DESIGN_CSS, formAction: formActionUrl(ROOT, slug, siteId), siteUrl: siteUrl(ROOT, slug) });
+    expect(expected.pages.map((p) => p.page)).toEqual(["home", "services", "about", "gallery", "contact"]);
+    const pages: VersionPages = await Promise.all(expected.pages.map(async (p) => ({ page: p.page, sha256: await sha256Hex(p.html) })));
+    expect(await workKeys(siteId)).toEqual(expected.pages.map((p) => versionPageKey(siteId, summary.id, p.page)).sort());
+    for (const [i, rendered] of expected.pages.entries()) {
+      const object = await env.WORK.get(versionPageKey(siteId, summary.id, rendered.page));
+      expect(await object?.text()).toBe(rendered.html);
+      expect(object?.httpMetadata?.contentType).toBe("text/html; charset=utf-8");
+      expect(object?.customMetadata).toEqual({ siteId, versionId: summary.id, page: rendered.page, sha256: pages[i]?.sha256 });
+    }
+    // Home keeps its old key, and the form (on Contact) posts to the site's own address.
+    expect(await (await env.WORK.get(versionKey(siteId, summary.id)))?.text()).toBe(expected.pages[0]?.html);
+    expect(expected.pages.find((p) => p.page === "contact")?.html).toContain(`action="https://${slug}.asksite.example/_f/${siteId}"`);
 
     expect(await versionRow(env.DB, summary.id)).toMatchObject({
       site_id: siteId, number: 1, status: "pending",
       document_json: canonicalJson(document), document_sha256: await documentSha256(document),
       edits_json: canonicalJson(EDITS), generation_id: null,
-      html_key: versionKey(siteId, summary.id), html_sha256: await sha256Hex(expected.html), stylesheet_sha256: expected.stylesheetSha256,
+      pages_json: canonicalJson(pages), html_key: versionKey(siteId, summary.id), html_sha256: await pagesDigest(pages), stylesheet_sha256: expected.stylesheetSha256,
       requested_by: ownerId, requested_at: 1000, reviewed_by: null,
     });
     expect((await siteRow(env.DB, siteId))?.pending_version_id).toBe(summary.id);
@@ -214,8 +232,8 @@ describe("createPendingVersion", () => {
     expect(row?.document_json).toBe(canonicalJson(document));
     expect(row?.document_sha256).toBe(await sha256Hex(row?.document_json as string));
     // And the stored page is the page of that stored document.
-    const page = render(document, { stylesheets: DESIGN_CSS, formAction: formActionUrl(ROOT, slug, siteId) });
-    expect(await (await env.WORK.get(versionKey(siteId, summary.id)))?.text()).toBe(page.html);
+    const site = render(document, { stylesheets: DESIGN_CSS, formAction: formActionUrl(ROOT, slug, siteId), siteUrl: siteUrl(ROOT, slug) });
+    expect(await (await env.WORK.get(versionKey(siteId, summary.id)))?.text()).toBe(site.pages[0]!.html);
   });
 
   // A12: the stored page is drawn in the document's own design and inlines that design's stylesheet, and the
@@ -226,14 +244,17 @@ describe("createPendingVersion", () => {
     const document: SiteDocument = { ...plumber, theme: { ...plumber.theme, design } };
     const summary = await createPendingVersion(env, { siteId, ownerId, slug, document, edits: EDITS, generationId: null, now: 1 });
 
-    const page = render(document, { stylesheets: DESIGN_CSS, formAction: formActionUrl(ROOT, slug, siteId) });
+    const page = render(document, { stylesheets: DESIGN_CSS, formAction: formActionUrl(ROOT, slug, siteId), siteUrl: siteUrl(ROOT, slug) });
     expect(page.design).toBe(design);
-    const stored = await (await env.WORK.get(versionKey(siteId, summary.id)))?.text();
-    expect(stored).toBe(page.html);
-    expect(stored).toContain(`<body data-design="${design}"`);
-    expect(stored).toContain(`<style>${DESIGN_CSS[design].css}</style>`);
+    for (const rendered of page.pages) {
+      const stored = await (await env.WORK.get(versionPageKey(siteId, summary.id, rendered.page)))?.text();
+      expect(stored).toBe(rendered.html);
+      expect(stored).toContain(`<body data-design="${design}"`);
+      expect(stored).toContain(`<style>${DESIGN_CSS[design].css}</style>`);
+    }
     const row = await versionRow(env.DB, summary.id);
-    expect(row).toMatchObject({ html_sha256: await sha256Hex(page.html), stylesheet_sha256: page.stylesheetSha256 });
+    const pages = await Promise.all(page.pages.map(async (p) => ({ page: p.page, sha256: await sha256Hex(p.html) })));
+    expect(row).toMatchObject({ html_sha256: await pagesDigest(pages as VersionPages), stylesheet_sha256: page.stylesheetSha256 });
     expect(row?.stylesheet_sha256).toBe(DESIGN_CSS[design].sha256);
     expect(JSON.parse(row?.document_json as string).theme.design).toBe(design);
   });
@@ -328,7 +349,7 @@ describe("the daily publish cap (Decision 25)", () => {
     expect(error.code).toBe("publish_cap_reached");
     expect(error.detail).toEqual({ retryAfter: 82_800 }); // 23 hours until 00:00 UTC
     expect(await versionCount(siteId)).toBe(LIMITS.publishRequestsPerSitePerDay);
-    expect((await env.WORK.list({ prefix: `versions/${siteId}/` })).objects).toHaveLength(LIMITS.publishRequestsPerSitePerDay);
+    expect((await env.WORK.list({ prefix: `versions/${siteId}/` })).objects).toHaveLength(LIMITS.publishRequestsPerSitePerDay * CLEANING_PAGES);
     // The cap counts each site on its own: the same day, another site still publishes, and its second request
     // supersedes its first.
     const other = await seedSite(env.DB);
@@ -353,7 +374,7 @@ describe("the daily publish cap (Decision 25)", () => {
     await env.DB.prepare("UPDATE site_versions SET status = 'rejected' WHERE site_id = ? AND number IN (3, 4)").bind(siteId).run();
     expect((await failure(publish(day + 3_600_000))).code).toBe("publish_cap_reached");
     expect(await versionCount(siteId)).toBe(LIMITS.publishRequestsPerSitePerDay);
-    expect((await env.WORK.list({ prefix: `versions/${siteId}/` })).objects).toHaveLength(LIMITS.publishRequestsPerSitePerDay);
+    expect((await env.WORK.list({ prefix: `versions/${siteId}/` })).objects).toHaveLength(LIMITS.publishRequestsPerSitePerDay * CLEANING_PAGES);
   });
 
   it("rounds retryAfter up, so a client is never told to come back before 00:00 UTC", async () => {
@@ -374,7 +395,7 @@ describe("the daily publish cap (Decision 25)", () => {
     expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
     for (const r of results) if (r.status === "rejected") expect(r.reason).toMatchObject({ code: "publish_cap_reached" });
     expect(await versionCount(siteId)).toBe(LIMITS.publishRequestsPerSitePerDay);
-    expect(await workKeys(siteId)).toHaveLength(LIMITS.publishRequestsPerSitePerDay); // no refused racer left its page
+    expect(await workKeys(siteId)).toHaveLength(LIMITS.publishRequestsPerSitePerDay * CLEANING_PAGES); // no refused racer left its pages
     // The refused racers changed nothing: the winner is the one version in review, and the site points at it.
     const [winner] = results.flatMap((r) => (r.status === "fulfilled" ? [r.value] : []));
     expect(await pendingIds(siteId)).toEqual([winner?.id]);
@@ -390,16 +411,16 @@ describe("the daily publish cap (Decision 25)", () => {
     const late = createPendingVersion({ ...env, DB: held.db }, input(day + 100));
     await Promise.race([held.reached, late]); // its early count saw one place left
     const winner = await createPendingVersion(env, input(day + 101)); // then another request took it
-    expect(await workKeys(siteId)).toHaveLength(LIMITS.publishRequestsPerSitePerDay + 1); // both stored a page
+    expect(await workKeys(siteId)).toHaveLength((LIMITS.publishRequestsPerSitePerDay + 1) * CLEANING_PAGES); // both stored their pages
     held.release();
     expect((await failure(late)).code).toBe("publish_cap_reached");
     expect(await pendingIds(siteId)).toEqual([winner.id]);
     expect((await siteRow(env.DB, siteId))?.pending_version_id).toBe(winner.id);
     expect(await versionCount(siteId)).toBe(LIMITS.publishRequestsPerSitePerDay);
     expect(await auditActions(env.DB, siteId)).toHaveLength(LIMITS.publishRequestsPerSitePerDay);
-    // The loser's page is gone: WORK holds exactly the pages of the stored versions.
-    const stored = await env.DB.prepare("SELECT html_key FROM site_versions WHERE site_id = ? ORDER BY html_key").bind(siteId).all<{ html_key: string }>();
-    expect(await workKeys(siteId)).toEqual(stored.results.map((r) => r.html_key));
+    // The loser's pages are gone: WORK holds exactly the pages of the stored versions.
+    const stored = await env.DB.prepare("SELECT id FROM site_versions WHERE site_id = ?").bind(siteId).all<{ id: string }>();
+    expect(await workKeys(siteId)).toEqual((await Promise.all(stored.results.map((r) => allPageKeys(siteId, r.id)))).flat().sort());
   });
 });
 
@@ -519,7 +540,7 @@ describe("a request the batch refuses, because the site changed after the early 
     const held = holdBatch(env.DB);
     const late = publish(held.db, 3);
     await Promise.race([held.reached, late]); // it passed the early checks and stored its page
-    expect(await workKeys(site.siteId)).toHaveLength(before.length + 1);
+    expect(await workKeys(site.siteId)).toHaveLength(before.length + PLUMBER_PAGES);
     await apply(site);
     held.release();
     const error = await failure(late);
@@ -557,7 +578,7 @@ describe("a request the batch refuses, because the site changed after the early 
       // The INSERT happened, so its page stays: deleting it would leave a version whose bytes are gone.
       const stored = await env.DB.prepare("SELECT id, html_key FROM site_versions WHERE site_id = ?").bind(site.siteId).all<{ id: string; html_key: string }>();
       expect(stored.results).toHaveLength(1);
-      expect(await workKeys(site.siteId)).toEqual([stored.results[0]?.html_key]);
+      expect(await workKeys(site.siteId)).toEqual(await allPageKeys(site.siteId, String(stored.results[0]?.id)));
       // One line, IDs and a code only, so the broken inference shows in production logs.
       expect(logged).toHaveBeenCalledTimes(1);
       expect(JSON.parse(String(logged.mock.calls[0]?.[0]))).toEqual({ code: "version_number_missing", siteId: site.siteId, versionId: stored.results[0]?.id });
@@ -584,7 +605,8 @@ describe("a request the batch refuses, because the site changed after the early 
       expect(logged).toHaveBeenCalledTimes(1);
       const line = JSON.parse(String(logged.mock.calls[0]?.[0])) as { versionId: string };
       expect(line).toEqual({ code: "refused_page_not_deleted", siteId: site.siteId, versionId: line.versionId });
-      expect(await workKeys(site.siteId)).toEqual([versionKey(site.siteId, line.versionId)]);
+      // No version row exists (the batch refused it), so the pages left behind are all five of plumber-austin's.
+      expect(await workKeys(site.siteId)).toEqual(PAGE_IDS.map((page) => versionPageKey(site.siteId, line.versionId, page)).sort());
     } finally {
       logged.mockRestore();
     }

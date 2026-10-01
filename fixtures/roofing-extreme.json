@@ -459,6 +459,10 @@
       "variant": "photo"
     },
     {
+      "id": "testimonials",
+      "variant": "masonry"
+    },
+    {
       "id": "trust",
       "variant": "band"
     },
@@ -467,24 +471,20 @@
       "variant": "cards"
     },
     {
-      "id": "testimonials",
-      "variant": "masonry"
-    },
-    {
-      "id": "gallery",
-      "variant": "grid"
+      "id": "faq",
+      "variant": "accordion"
     },
     {
       "id": "about",
       "variant": "plain"
     },
     {
-      "id": "serviceArea",
-      "variant": "split"
+      "id": "gallery",
+      "variant": "grid"
     },
     {
-      "id": "faq",
-      "variant": "accordion"
+      "id": "serviceArea",
+      "variant": "split"
     },
     {
       "id": "contact",

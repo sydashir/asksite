@@ -4,9 +4,9 @@
 // button plus one quote button; the image is a plain <img> (no Astro image pipeline);
 // set:html, dark:, intersect-* and fade classes removed; text-balance added to the h1.
 import type { VariantOf } from "@asksite/site-schema";
-import { isVisible, type RenderContext } from "../context.ts";
+import { quoteLink, type RenderContext } from "../context.ts";
 import { formatPhone, telUrl, TRADE_LABEL } from "../format.ts";
-import { fragment, html, safeUrl, type SafeHtml } from "../html.ts";
+import { html, safeUrl, type SafeHtml } from "../html.ts";
 import { icon } from "../icons.ts";
 import { DOM_ID } from "./ids.ts";
 
@@ -49,7 +49,7 @@ ${facts.emergency247 && html`<p class="mb-4 inline-block rounded-full bg-accent 
 <p class="mb-6 text-xl text-pretty text-muted">${copy.heroSubheadline}</p>
 <div class="m-auto flex max-w-xs flex-col flex-nowrap gap-4 sm:max-w-2xl sm:flex-row sm:justify-center">
 <div class="flex w-full sm:w-auto"><a class="btn-primary w-full whitespace-nowrap" href="${telUrl(facts.phone)}">${icon("phone", "h-5 w-5")}Call ${formatPhone(facts.phone)}</a></div>
-${isVisible(ctx, "contact") && html`<div class="flex w-full sm:w-auto"><a class="btn-secondary w-full" href="${fragment(DOM_ID.contact)}">${copy.ctaText}</a></div>`}
+<div class="flex w-full sm:w-auto"><a class="btn-secondary w-full" href="${quoteLink()}">${copy.ctaText}</a></div>
 </div>
 </div>
 </div>

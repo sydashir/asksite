@@ -1,6 +1,6 @@
 import { SiteDocument } from "@asksite/site-schema";
 import { describe, expect, it, vi } from "vitest";
-import { FIXTURE_FORM_ACTION, inDesign, loadFixture, stubStylesheets } from "../../../fixtures/index.ts";
+import { FIXTURE_FORM_ACTION, FIXTURE_SITE_URL, inDesign, loadFixture, stubStylesheets } from "../../../fixtures/index.ts";
 import { BASELINE } from "../src/baseline.ts";
 import { DESIGNS } from "../src/designs/index.ts";
 import { render, renderDocument } from "../src/render.ts";
@@ -27,21 +27,21 @@ vi.mock("../src/designs/index.ts", async () => {
   };
 });
 
-const OPTIONS = { stylesheets: stubStylesheets(), formAction: FIXTURE_FORM_ACTION };
+const OPTIONS = { stylesheets: stubStylesheets(), formAction: FIXTURE_FORM_ACTION, siteUrl: FIXTURE_SITE_URL };
 
 describe("broken designs are caught (RED proof)", () => {
-  it("copy written through trusted() fails the page-safety check", () => {
-    const page = render(inDesign(loadFixture("electrical-xss"), "impact"), OPTIONS).html;
-    expect(pageSafetyProblems(page)).toEqual(expect.arrayContaining(["url src=x", "handler onerror"]));
+  it("copy written through trusted() fails the page-safety check, on every page that shows the name", () => {
+    const pages = render(inDesign(loadFixture("electrical-xss"), "impact"), OPTIONS).pages;
+    expect(pages).toHaveLength(5);
+    for (const page of pages) expect(pageSafetyProblems(page.html)).toEqual(expect.arrayContaining(["url src=x", "handler onerror"]));
   });
 
   it.each([
-    ["refined", "a dropped required", "the contact form differs from today's (classes aside)"],
-    ["modern", "a second <aside>", "2 <aside> elements"],
+    ["refined", "a dropped required", "/contact: the contact form differs from today's (classes aside)"],
+    ["modern", "a second <aside>", "/: 2 <aside> elements"],
   ] as const)("the %s stub with %s fails the shared invariants", (design, _, problem) => {
     const input = inDesign(loadFixture("plumber-austin"), design);
     const doc = SiteDocument.parse(input);
-    const page = render(input, OPTIONS).html;
-    expect(invariantProblems(page, renderDocument(doc, BASELINE, OPTIONS).html, doc, DESIGNS[design])).toContain(problem);
+    expect(invariantProblems(render(input, OPTIONS), renderDocument(doc, BASELINE, OPTIONS), doc, DESIGNS[design])).toContain(problem);
   });
 });

@@ -1,5 +1,5 @@
 import { render } from "@asksite/renderer";
-import { SiteDocument, type SiteDocumentInput } from "@asksite/site-schema";
+import { DEFAULT_SECTION_ORDER, SiteDocument, type LayoutSection, type SiteDocumentInput } from "@asksite/site-schema";
 import { describe, expect, expectTypeOf, it } from "vitest";
 import { FIXTURES, loadFixture, stubStylesheets } from "../../../fixtures/index.ts";
 import {
@@ -29,6 +29,10 @@ function split(input: SiteDocumentInput): { facts: unknown; ai: CurrentAi } {
   return { facts, ai: { generationId: GEN, draft: AiDraft.parse({ copy, layout, theme }) } };
 }
 
+/** A layout in the page map's default order (U1), each section keeping its variant. */
+const inDefaultOrder = (layout: readonly LayoutSection[]): LayoutSection[] =>
+  [...layout].sort((a, b) => DEFAULT_SECTION_ORDER.indexOf(a.id) - DEFAULT_SECTION_ORDER.indexOf(b.id));
+
 const edits = (patch: Partial<OwnerEdits> = {}): OwnerEdits => ({ ...EMPTY_EDITS, baseGenerationId: GEN, ...patch });
 const issuesOf = (doc: unknown) => {
   const result = SiteDocument.safeParse(doc);
@@ -36,12 +40,13 @@ const issuesOf = (doc: unknown) => {
 };
 
 describe("composeDocument", () => {
-  it.each(FIXTURES)("with no edits, %s composes to a document that renders the same page", (name) => {
+  // U1 (user, 2026-10-01): without an owner order, sections follow the page map's order, whatever the AI's order.
+  it.each(FIXTURES)("with no edits, %s composes to a document that renders the same page as its layout in the default order", (name) => {
     const fixture = loadFixture(name);
     const { facts, ai } = split(fixture);
     const composed = SiteDocument.parse(composeDocument(facts, ai, EMPTY_EDITS));
-    const options = { stylesheets: stubStylesheets(), formAction: "https://joes.asksite.example/_f/x" };
-    expect(render(composed, options)).toEqual(render(fixture, options));
+    const options = { stylesheets: stubStylesheets(), formAction: "https://joes.asksite.example/_f/x", siteUrl: "https://joes.asksite.example/" };
+    expect(render(composed, options)).toEqual(render({ ...fixture, layout: inDefaultOrder(fixture.layout) }, options));
   });
 
   it("stays valid when the owner adds a first photo, review and licence after generation", () => {
@@ -62,14 +67,19 @@ describe("composeDocument", () => {
       licences: [{ label: "City business licence", number: "BL-1" }],
     };
     const composed = composeDocument(grown, ai, EMPTY_EDITS);
-    expect(composed.layout.map((s) => s.id)).toEqual(["hero", "services", "serviceArea", "trust", "testimonials", "gallery", "about", "faq", "contact"]);
+    expect(composed.layout.map((s) => s.id)).toEqual([...DEFAULT_SECTION_ORDER]);
     expect(issuesOf(composed)).toEqual([]);
   });
 
-  it("puts missing sections at the end when the AI layout has no contact section", () => {
-    const { facts, ai } = split(loadFixture("cleaning-minimal"));
+  it("puts every section in the page map's order whatever the AI's order, keeping the AI's variants", () => {
+    const { facts, ai } = split(loadFixture("plumber-austin"));
+    const reversed = { ...ai, draft: { ...ai.draft, layout: [ai.draft.layout[0]!, ...ai.draft.layout.slice(1).reverse()] } };
     const noContact = { ...ai, draft: { ...ai.draft, layout: ai.draft.layout.filter((s) => s.id !== "contact") } };
-    expect(composeDocument(facts, noContact, EMPTY_EDITS).layout.at(-1)).toEqual({ id: "contact", variant: "card" });
+    const composed = composeDocument(facts, ai, EMPTY_EDITS).layout;
+    expect(composed.map((s) => s.id)).toEqual([...DEFAULT_SECTION_ORDER]);
+    expect(composeDocument(facts, reversed, EMPTY_EDITS).layout).toEqual(composed);
+    for (const section of ai.draft.layout) expect(composed).toContainEqual(section);
+    expect(composeDocument(facts, noContact, EMPTY_EDITS).layout.find((s) => s.id === "contact")).toEqual({ id: "contact", variant: "card" });
   });
 
   it("applies wording edits with whitespace collapsed, and null removes an optional field", () => {
@@ -106,7 +116,7 @@ describe("composeDocument", () => {
     });
     const composed = composeDocument(facts, ai, stale);
     expect(composed.copy.heroHeadline).toBe(ai.draft.copy.heroHeadline);
-    expect(composed.layout.map((s) => s.id)).toEqual(ai.draft.layout.map((s) => s.id));
+    expect(composed.layout.map((s) => s.id)).toEqual([...DEFAULT_SECTION_ORDER]);
     expect(composed.hidden).toEqual(["faq"]);
     expect(composed.theme).toEqual({ palette: "charcoal-red", font: "sturdy", design: "refined" });
     expect(ownerEditedPaths(ai, stale)).toEqual([]);

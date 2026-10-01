@@ -93,15 +93,17 @@ const doc = {
     serviceDescriptions: services.map((service, i) => ({ service: service.name, description: fill(160, "", i) })),
     faq: times(8, (i) => ({ question: `${fill(79, "", i)}?`, answer: fill(320, "", i + 3) })),
   },
+  // The page map's order (a composed document has it), except two owner orders within a page, to cover U1 (A16):
+  // Home shows testimonials before the trust strip, and Contact shows the service area before the form.
   layout: [
     { id: "hero", variant: "photo" },
+    { id: "testimonials", variant: "masonry" },
     { id: "trust", variant: "band" },
     { id: "services", variant: "cards" },
-    { id: "testimonials", variant: "masonry" },
-    { id: "gallery", variant: "grid" },
-    { id: "about", variant: "plain" },
-    { id: "serviceArea", variant: "split" },
     { id: "faq", variant: "accordion" },
+    { id: "about", variant: "plain" },
+    { id: "gallery", variant: "grid" },
+    { id: "serviceArea", variant: "split" },
     { id: "contact", variant: "card" },
   ],
   theme: { palette: "charcoal-red", font: "friendly", design: "refined" },

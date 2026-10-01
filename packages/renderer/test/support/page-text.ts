@@ -27,7 +27,7 @@ const UNREAD_ELEMENTS: ReadonlySet<string> = new Set(["script", "style"]);
 
 /**
  * The texts a person reads or hears on the page, for the claims check (A12-0 round-4 rulings): each text
- * node and each alt, title and aria-label value, in page order, parsed and decoded as the browser does
+ * node, each alt, title and aria-label value and the meta description (shown in search results), in page order, parsed and decoded as the browser does
  * (parse5 follows the HTML standard). Unlike squashedText() each text node stays apart, so
  * "<li>Licensed</li><li>Insured</li>" keeps its word boundaries. Comments, the doctype and <style>/<script>
  * bodies are not read. KNOWN LIMITS: a word split across elements ("b<span>onded</span>") and CSS content
@@ -38,6 +38,9 @@ export function readableTexts(markup: string): string[] {
   const read = (node: DefaultTreeAdapterMap["node"]): void => {
     if ("value" in node) texts.push(node.value);
     if ("attrs" in node) texts.push(...node.attrs.filter((a) => READ_ATTRIBUTES.has(a.name)).map((a) => a.value));
+    if (node.nodeName === "meta" && "attrs" in node && node.attrs.some((a) => a.name === "name" && a.value === "description")) {
+      texts.push(...node.attrs.filter((a) => a.name === "content").map((a) => a.value));
+    }
     if ("childNodes" in node && !UNREAD_ELEMENTS.has(node.nodeName)) node.childNodes.forEach(read);
   };
   read(parse(markup));

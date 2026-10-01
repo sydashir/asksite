@@ -2,16 +2,20 @@ import {
   canonicalJson,
   documentSha256,
   formActionUrl,
+  hashPages,
   LIMITS,
   newId,
-  sha256Hex,
+  pagesDigest,
+  siteUrl,
   toIssues,
   utcDayStart,
   versionKey,
+  versionPageKey,
+  VersionPages,
   type OwnerEdits,
   type VersionSummary,
 } from "@asksite/core";
-import { render, type RenderedPage } from "@asksite/renderer";
+import { render, type RenderedSite } from "@asksite/renderer";
 import { DESIGN_CSS } from "@asksite/site-css";
 import { SiteDocument } from "@asksite/site-schema";
 import { PublishError } from "./errors.ts";
@@ -24,11 +28,12 @@ const siteChanged = () => new PublishError("integrity", { reason: "site_changed"
 /**
  * The owner's Publish. Cheap checks come first (the site is the owner's, not taken down, under today's
  * LIMITS.publishRequestsPerSitePerDay (Decision 25), still has this slug, and the generation is this site's),
- * so a request they refuse renders and stores nothing. Then: render the page, store the exact bytes in WORK,
- * and (one D1 batch) supersede any pending version, add this one as pending and point the site at it.
+ * so a request they refuse renders and stores nothing. Then: render the site, store each page's exact bytes
+ * in WORK, and (one D1 batch) supersede any pending version, add this one as pending (its pages, their digest
+ * and Home's WORK key in the same row) and point the site at it.
  * The batch re-checks the owner, slug, takedown and cap, for a request that races another one or a change
- * made in the meantime. If the batch refuses, the stored page is deleted again (only when no version row
- * names it) and the refusal is explained.
+ * made in the meantime. If the batch refuses, the stored pages are deleted again (only when no version row
+ * names them) and the refusal is explained.
  */
 export async function createPendingVersion(
   env: { DB: D1Database; WORK: R2Bucket; ROOT_DOMAIN: string },
@@ -48,21 +53,31 @@ export async function createPendingVersion(
   const refused = await refusal(db, input);
   if (refused !== null) throw refused;
 
-  // The page in the document's own design, with that design's stylesheet; render() reports the sheet's
+  // The site in the document's own design, with that design's stylesheet; render() reports the sheet's
   // SHA-256, which the version records (A12).
-  let page: RenderedPage;
+  let site: RenderedSite;
   try {
-    page = render(document, { stylesheets: DESIGN_CSS, formAction: formActionUrl(env.ROOT_DOMAIN, slug, siteId) });
+    site = render(document, { stylesheets: DESIGN_CSS, formAction: formActionUrl(env.ROOT_DOMAIN, slug, siteId), siteUrl: siteUrl(env.ROOT_DOMAIN, slug) });
   } catch (error) {
     throw new PublishError("render_failed", [{ path: [], code: "render_failed", message: error instanceof Error ? error.message : "Render failed" }]);
   }
+  const rendered = await hashPages(site.pages);
+  // The renderer's pages are always a valid list; if they are not, that is our bug, not the owner's.
+  const listed = VersionPages.safeParse(rendered.map(({ page, sha256 }) => ({ page, sha256 })));
+  if (!listed.success) throw new PublishError("render_failed", [{ path: [], code: "render_failed", message: "The renderer returned an invalid list of pages" }]);
+  const pages = listed.data;
+  const digest = await pagesDigest(pages);
 
   const versionId = newId();
   const key = versionKey(siteId, versionId);
-  const htmlSha256 = await sha256Hex(page.html);
-  // A page the batch below refuses is deleted again. If D1 itself fails, whether the batch committed is
-  // unknown, so the page stays; an orphan is harmless, as nothing ever serves WORK publicly.
-  await env.WORK.put(key, page.html, { httpMetadata: { contentType: HTML_TYPE }, customMetadata: { siteId, versionId, sha256: htmlSha256 } });
+  const keys = rendered.map((p) => versionPageKey(siteId, versionId, p.page));
+  // Pages the batch below refuses are deleted again. If D1 itself fails, whether the batch committed is
+  // unknown, so the pages stay; an orphan is harmless, as nothing ever serves WORK publicly.
+  await Promise.all(
+    rendered.map((p, i) =>
+      env.WORK.put(keys[i] ?? key, p.html, { httpMetadata: { contentType: HTML_TYPE }, customMetadata: { siteId, versionId, page: p.page, sha256: p.sha256 } }),
+    ),
+  );
 
   const dayStart = utcDayStart(now);
   const siteIsReady = "EXISTS (SELECT 1 FROM sites WHERE id = ? AND owner_id = ? AND slug = ? AND taken_down_at IS NULL)";
@@ -74,13 +89,13 @@ export async function createPendingVersion(
     db
       .prepare(
         `INSERT INTO site_versions (id, site_id, number, status, document_json, document_sha256, edits_json, generation_id,
-           html_key, html_sha256, stylesheet_sha256, requested_by, requested_at)
-         SELECT ?, ?, next.n, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?
+           pages_json, html_key, html_sha256, stylesheet_sha256, requested_by, requested_at)
+         SELECT ?, ?, next.n, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
          FROM (SELECT COALESCE(MAX(number), 0) + 1 AS n FROM site_versions WHERE site_id = ?) AS next
          WHERE ${siteIsReady} AND ${underCap}`,
       )
       .bind(versionId, siteId, canonicalJson(document), await documentSha256(document), canonicalJson(edits), generationId,
-        key, htmlSha256, page.stylesheetSha256, ownerId, now, siteId, siteId, ownerId, slug, siteId, dayStart, cap),
+        canonicalJson(pages), key, digest, site.stylesheetSha256, ownerId, now, siteId, siteId, ownerId, slug, siteId, dayStart, cap),
     // The number, read in the same transaction. Not RETURNING: production D1 returns no rows for writes (A10).
     db.prepare("SELECT number FROM site_versions WHERE id = ?").bind(versionId),
     // Only when the INSERT above happened (same transaction), so the site never points at a missing version.
@@ -91,11 +106,11 @@ export async function createPendingVersion(
 
   const number = (results[2]?.results[0] as { number?: number } | undefined)?.number;
   if (number === undefined) {
-    // No row: the INSERT did not happen, and no version can ever point at this page. Delete it, then find out why.
-    // That a read later in the batch sees the INSERT is inferred for production D1 (A10), so the page is deleted
-    // only when no version row names it; a row without a number is logged (IDs and a code only).
+    // No row: the INSERT did not happen, and no version can ever point at these pages. Delete them, then find out why.
+    // That a read later in the batch sees the INSERT is inferred for production D1 (A10), so the pages are deleted
+    // only when no version row names them; a row without a number is logged (IDs and a code only).
     const stored = await db.prepare("SELECT 1 FROM site_versions WHERE id = ?").bind(versionId).first();
-    if (stored === null) await deleteRefusedPage(env.WORK, key, { siteId, versionId });
+    if (stored === null) await deleteRefusedPages(env.WORK, keys, { siteId, versionId });
     else console.error(JSON.stringify({ code: "version_number_missing", siteId, versionId }));
     throw (await refusal(db, input)) ?? siteChanged();
   }
@@ -134,10 +149,10 @@ async function refusal(
   return null;
 }
 
-/** Best effort: a failed delete leaves an orphan (harmless), logged with IDs and a code only. */
-async function deleteRefusedPage(work: R2Bucket, key: string, ids: { siteId: string; versionId: string }): Promise<void> {
+/** Best effort, one call for all the pages: a failed delete leaves orphans (harmless), logged with IDs and a code only. */
+async function deleteRefusedPages(work: R2Bucket, keys: string[], ids: { siteId: string; versionId: string }): Promise<void> {
   try {
-    await work.delete(key);
+    await work.delete(keys);
   } catch {
     console.error(JSON.stringify({ code: "refused_page_not_deleted", ...ids }));
   }
