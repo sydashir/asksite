@@ -93,7 +93,10 @@ function proofLine(ctx: RenderContext): SafeHtml | false {
   return onPage(ctx, "trust") && !trustInHero(ctx) && credentialLine(items);
 }
 
-/** The headline, subheadline and the Call and quote buttons (the buttons show from 768 px; phones have the call bar). */
+/**
+ * The headline, subheadline and the Call and quote buttons (on phones the buttons end the hero, under the subheadline:
+ * the first screen keeps the headline and the credentials above the call bar, which offers both).
+ */
 function panel(ctx: RenderContext, line: SafeHtml | false): SafeHtml {
   const { facts, copy } = ctx.doc;
   return html`<div class="panel">

@@ -200,14 +200,17 @@
   /* the no-photo hero: its headline 40 px under the brand band on phones as on tablets */
   .hero--plain .hero-body { padding-top: 40px; }
   .hero-sub { margin-top: 10px; max-width: 36rem; color: var(--muted); text-wrap: pretty; }
-  .hero-actions { display: none; }
+  .hero-actions { display: grid; gap: 12px; margin-top: 24px; }
   /* Phones: the credentials come straight after the headline and the subheadline follows them, so the license,
-     insured and founded facts sit above the call bar on the first screen. The panel is a plain div, so
-     display: contents drops no meaning, and the reading order (headline, subheadline, credentials) is unchanged. */
+     insured and founded facts sit above the call bar on the first screen; Call and the call to action end the hero,
+     under the subheadline (the call bar offers both on the first screen). The panel is a plain div, so
+     display: contents drops no meaning, and the reading order (headline, subheadline, buttons, credentials) is
+     unchanged. */
   @media (max-width: 767px) {
     .hero-body { display: flex; flex-direction: column; }
     .panel { display: contents; }
-    .hero-sub { order: 1; margin-top: 16px; }
+    .hero-sub, .hero-actions { order: 1; }
+    .hero-sub { margin-top: 16px; }
     .door { order: 2; }
   }
   /* Short phones give the text more room: dense credentials (two licenses, a long number) and a long headline take
@@ -435,7 +438,7 @@
   @media (max-width: 599px) {
     .faq-more .button { width: 100%; }
     /* the regular size on phones, so Call and the whole number keep one line at 320 px, spaced out too (WCAG 1.4.12) */
-    .close-cta .button { padding-inline: 16px; font-size: 1.0625rem; }
+    .close-cta .button, .hero-actions .button { padding-inline: 16px; font-size: 1.0625rem; }
   }
   @media (min-width: 600px) {
     .close-cta { display: flex; flex-wrap: wrap; }

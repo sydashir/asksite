@@ -258,6 +258,28 @@ describe.each(ENGINES)("Modern in %s", (_engine, engine) => {
     expect(found).toEqual([]);
   }, 60_000);
 
+  // A16-4's journey "Get a quote on Home" clicks the hero's quote button, also in a 390 px window. On phones the hero
+  // now ends with Call and the call to action under the subheadline, and the first screen still holds the headline
+  // and the credentials above the sticky call bar (the approved phone hero).
+  it("ends the hero with Call and the call to action on phones, under the subheadline, the credentials still above the call bar", async () => {
+    const found: string[] = [];
+    for (const name of ["plumber-austin", "hvac-phoenix"] as const) {
+      await open(page(name), 390);
+      for (const [width, height] of [[320, 568], [375, 667], [390, 664], [412, 839]] as const) {
+        await tab.setViewportSize({ width, height });
+        const got = await tab.evaluate(() => {
+          const box = (selector: string) => document.querySelector(selector).getBoundingClientRect();
+          const buttons = [...document.querySelectorAll("#top .hero-actions > a")].map((a) => a.getBoundingClientRect());
+          return { sub: box("#top .hero-sub").bottom, proof: box("#top .proof").bottom, bar: box("aside").top, buttons: buttons.map((b) => ({ top: b.top, width: b.width })) };
+        });
+        const where = `${name} ${width}x${height}`;
+        if (got.buttons.length !== 2 || got.buttons.some((b) => b.width === 0 || b.top < got.sub)) found.push(`${where}: the buttons are not under the subheadline ${JSON.stringify(got)}`);
+        if (got.proof > got.bar) found.push(`${where}: the credentials end at ${Math.round(got.proof)}, under the call bar at ${Math.round(got.bar)}`);
+      }
+    }
+    expect(found).toEqual([]);
+  }, 60_000);
+
   // Round 2's review and attack I-1: owner text in a flex row keeps its automatic minimum (its min-content), and the
   // page's overflow-wrap: break-word does not lower that, so one long word pushed the page sideways (the footer's
   // closing row, the hero's license line, the address beside its icon, the hero line's town). Today's page loses
