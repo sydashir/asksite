@@ -1,6 +1,6 @@
 # Third-party notices
 
-asksite includes code and assets adapted from the projects below. Each licence text is
+asksite includes code and assets adapted from, or bundled with, the projects below. Each licence text is
 copied from the project's own LICENSE file. Every rendered customer page also carries a one-line
 HTML comment in its `<head>` with the AstroWind and Tabler Icons copyright notices
 (`packages/renderer/src/baseline.ts`; each page design carries its own attribution, A12).
@@ -122,4 +122,186 @@ Except as contained in this notice, the name of a copyright holder shall
 not be used in advertising or otherwise to promote the sale, use or other
 dealings in these Data Files or Software without prior written
 authorization of the copyright holder.
+```
+
+## standardwebhooks
+
+- Source: https://github.com/standard-webhooks/standard-webhooks (npm `standardwebhooks` 1.1.1)
+- Used in: the generator Worker bundle (`apps/generator`), as a dependency of `@anthropic-ai/sdk`
+  (`resources/beta/webhooks.mjs`).
+- Licence: its package.json says "MIT"; the npm tarball has no LICENSE file; the repository's root LICENSE is
+  Apache-2.0; `libraries/javascript` has no LICENSE, and its package.json says MIT.
+- Copyright, from `libraries/LICENSE` (MIT) at commit a7d19b4574ae62221042e76240648d0688a8c420, where
+  `libraries/javascript/package.json` is version 1.1.1
+  (https://raw.githubusercontent.com/standard-webhooks/standard-webhooks/a7d19b4574ae62221042e76240648d0688a8c420/libraries/LICENSE):
+
+```
+Copyright (c) 2023 Svix (https://www.svix.com)
+```
+
+## Bundled into the generator Worker
+
+The generator Worker's bundle (`apps/generator`, built by wrangler) holds code from the npm packages below, besides
+`standardwebhooks` (above). Each licence text is copied from the package's LICENSE file (for the vendored parser, from its published npm tarball, as its entry says).
+
+### @anthropic-ai/sdk
+
+- Source: https://github.com/anthropics/anthropic-sdk-typescript (npm `@anthropic-ai/sdk` 0.128.0)
+- Used in: `packages/generation/src/providers/anthropic.ts` (the Anthropic provider).
+
+```
+Copyright 2023 Anthropic, PBC.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+```
+
+### zod
+
+- Source: https://github.com/colinhacks/zod (npm `zod` 4.6.5)
+- Used in: the schemas in `packages/site-schema/src`, `packages/core/src` and `packages/generation/src`.
+
+```
+MIT License
+
+Copyright (c) 2025 Colin McDonnell
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+### @stablelib/base64
+
+- Source: https://github.com/StableLib/stablelib (npm `@stablelib/base64` 1.0.1)
+- Used in: a dependency of `standardwebhooks` (`dist/index.js`).
+
+```
+This software is licensed under the MIT license:
+
+Copyright (C) 2016 Dmitry Chestnykh
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of
+this software and associated documentation files (the "Software"), to deal in
+the Software without restriction, including without limitation the rights to
+use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies
+of the Software, and to permit persons to whom the Software is furnished to do
+so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+### fast-sha256
+
+- Source: https://github.com/dchest/fast-sha256-js (npm `fast-sha256` 1.3.0)
+- Used in: a dependency of `standardwebhooks` (`dist/index.js`).
+
+```
+This is free and unencumbered software released into the public domain.
+
+Anyone is free to copy, modify, publish, use, compile, sell, or
+distribute this software, either in source code form or as a compiled
+binary, for any purpose, commercial or non-commercial, and by any
+means.
+
+In jurisdictions that recognize copyright laws, the author or authors
+of this software dedicate any and all copyright interest in the
+software to the public domain. We make this dedication for the benefit
+of the public at large and to the detriment of our heirs and
+successors. We intend this dedication to be an overt act of
+relinquishment in perpetuity of all present and future rights to this
+software under copyright law.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+IN NO EVENT SHALL THE AUTHORS BE LIABLE FOR ANY CLAIM, DAMAGES OR
+OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE,
+ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
+OTHER DEALINGS IN THE SOFTWARE.
+
+For more information, please refer to <http://unlicense.org>
+```
+
+### partial-json-parser
+
+- Source: https://www.npmjs.com/package/partial-json-parser (closest published 1.2.1 / 1.2.2), vendored and modified inside @anthropic-ai/sdk 0.128.0
+- Used in: the generator Worker bundle, through @anthropic-ai/sdk (internal/message-stream-utils)
+
+partial-json-parser (MIT). The closest published versions are 1.2.1 and 1.2.2, which have identical source. It is
+vendored and modified inside @anthropic-ai/sdk 0.128.0, so the bundled code matches no published version exactly. npm
+metadata for 1.1.0-1.2.2 says ISC, but every published LICENSE file is the MIT text below.
+
+```
+MIT License
+
+Copyright (c) 2017 indgov
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+### neoqs (vendored qs)
+
+- Source: vendored inside @anthropic-ai/sdk 0.128.0 under `internal/qs/` (compiled code; the licence file is
+  `src/internal/qs/LICENSE.md` in the same package). The SDK's own `src/internal/qs/README.md` says it is a vendored
+  version of neoqs (https://github.com/PuruVJ/neoqs), a TypeScript rewrite of qs (https://github.com/ljharb/qs).
+- Used in: the generator Worker bundle, through @anthropic-ai/sdk's query-string code (`client.mjs:10` imports
+  `stringifyQuery` from `internal/utils/query.mjs`, which imports `../qs/stringify.mjs` at line 1).
+
+```
+BSD 3-Clause License
+
+Copyright (c) 2014, Nathan LaFreniere and other [contributors](https://github.com/puruvj/neoqs/graphs/contributors) All rights reserved.
+
+Redistribution and use in source and binary forms, with or without modification, are permitted provided that the following conditions are met:
+
+1. Redistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer.
+
+2. Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the following disclaimer in the documentation and/or other materials provided with the distribution.
+
+3. Neither the name of the copyright holder nor the names of its contributors may be used to endorse or promote products derived from this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ```
