@@ -170,6 +170,23 @@ describe("clipping (A16)", () => {
     for (const page of [...pagesOf(doc), ...pagesOf(familyDoc)]) expect((await htmlValidate.validateString(page.html)).valid).toBe(true);
   });
 
+  it("keeps whole graphemes when no word boundary is near the cut: ZWJ families in a name, skin-tone thumbs in the about text", async () => {
+    const family = "\u{1F468}\u200D\u{1F469}\u200D\u{1F467}"; // one character, 8 code units
+    const doc = SiteDocument.parse(withName(`${family.repeat(10)} Plumbing`, `${"\u{1F44D}\u{1F3FD}".repeat(40)} great`));
+    const wholeFamilies = { home: 8, services: 7, about: 7, gallery: 7, contact: 7 };
+    for (const id of PAGE_IDS) {
+      const text = pageTitle(doc, id);
+      expect(text.endsWith(`${family.repeat(wholeFamilies[id])}…`)).toBe(true);
+      expect(noLoneSurrogate(text)).toBe(true);
+      expect(text).not.toMatch(/\u200D…$/);
+    }
+    const about = pagesOf(doc).find((p) => p.page === "about")!;
+    const description = metaDescription(about.html) ?? "";
+    expect(description).toBe(`${"\u{1F44D}\u{1F3FD}".repeat(39)}…`); // 39 whole units: 156 + the ellipsis; a 40th would not fit
+    expect(noLoneSurrogate(description)).toBe(true);
+    for (const page of pagesOf(doc)) expect((await htmlValidate.validateString(page.html)).valid).toBe(true);
+  });
+
   it("clips a 200-character about text with no space at a grapheme boundary, to 160 characters with the ellipsis", async () => {
     const about = "a".repeat(200);
     const doc = withName("Reliable Rooter", about);
