@@ -38,10 +38,11 @@ describe("serializeJsonLd", () => {
 
 describe("localBusinessJsonLd", () => {
   it("uses the most specific type and owner facts only", () => {
-    expect(localBusinessJsonLd(facts)).toEqual({
+    expect(localBusinessJsonLd(facts, "https://joes.asksite.example/")).toEqual({
       "@context": "https://schema.org",
       "@type": "Plumber",
       name: "Reliable Rooter",
+      url: "https://joes.asksite.example/",
       telephone: "+15125550142",
       email: "office@example.com",
       address: {
@@ -78,6 +79,7 @@ describe("localBusinessJsonLd", () => {
         serviceArea: { places: ["Austin"] },
         services: [{ name: "Cleaning" }],
       }),
+      "https://mop.asksite.example/",
     );
     expect(ld["@type"]).toBe("HomeAndConstructionBusiness");
     expect(ld["address"]).toEqual({

@@ -5,11 +5,11 @@ import { createTestHarness } from "wrangler";
 import { DESIGN_IDS } from "@asksite/site-schema";
 import { FIXTURES, inDesign, loadFixture } from "../../../fixtures/index.ts";
 import { DESIGN_CSS } from "../src/index.ts";
-import { PROBE_FORM_ACTION } from "./support/probe-form-action.ts";
+import { PROBE_FORM_ACTION, PROBE_SITE_URL } from "./support/probe-form-action.ts";
 
 // Proves the Worker bundle: wrangler (esbuild) bundles @asksite/renderer, zod and the generated
-// stylesheets, and workerd renders every fixture in every design byte-for-byte like Node does, with
-// that design's own sheet (A12).
+// stylesheets, and workerd renders every page of every fixture in every design byte-for-byte like Node does, with
+// that design's own sheet (A12, A16).
 const WORKER = {
   name: "render-probe",
   main: "packages/site-css/test/support/render-probe.ts",
@@ -42,12 +42,13 @@ const post = (doc: unknown) => server.fetch("https://probe.localhost/", { method
 
 describe("render() inside workerd", () => {
   describe.each(DESIGN_IDS)("in the %s design", (design) => {
-    it.each(FIXTURES)("renders %s exactly as Node does, with the design's own sheet", async (name) => {
+    it.each(FIXTURES)("renders every page of %s exactly as Node does, with the design's own sheet", async (name) => {
       const doc = inDesign(loadFixture(name), design);
       const response = await post(doc);
       expect(response.status).toBe(200);
-      const page = render(doc, { stylesheets: DESIGN_CSS, formAction: PROBE_FORM_ACTION });
-      expect(await response.text()).toBe(page.html);
+      const site = render(doc, { stylesheets: DESIGN_CSS, formAction: PROBE_FORM_ACTION, siteUrl: PROBE_SITE_URL });
+      expect(site.pages.length).toBeGreaterThanOrEqual(3);
+      expect(await response.json()).toEqual(site.pages);
       expect([response.headers.get("x-design"), response.headers.get("x-stylesheet-sha256")]).toEqual([design, DESIGN_CSS[design].sha256]);
     });
   });
@@ -57,7 +58,8 @@ describe("render() inside workerd", () => {
     expect(doc.theme).not.toHaveProperty("design");
     const response = await post(doc);
     expect(response.headers.get("x-design")).toBe("impact");
-    expect(await response.text()).toContain('<body data-design="impact"');
+    const pages = (await response.json()) as Array<{ html: string }>;
+    for (const { html } of pages) expect(html).toContain('<body data-design="impact"');
   });
 
   it("rejects an invalid document inside the Worker too", async () => {

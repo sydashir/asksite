@@ -13,13 +13,6 @@ export const DOM_ID: Record<SectionId, string> = {
   contact: "contact",
 };
 
-/** Header navigation label; sections without one are not linked from the menu. */
-export const NAV_LABEL: Partial<Record<SectionId, string>> = {
-  services: "Services",
-  testimonials: "Reviews",
-  gallery: "Our work",
-  about: "About",
-  serviceArea: "Service area",
-  faq: "FAQ",
-  contact: "Contact",
-};
+/** The Home page's services preview and the closing "Get in touch" band: render.ts blocks, not layout sections. */
+export const SERVICES_PREVIEW_ID = "services-preview";
+export const CLOSING_BAND_ID = "get-in-touch";

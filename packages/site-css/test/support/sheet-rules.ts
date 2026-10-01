@@ -1,8 +1,15 @@
 import { posix } from "node:path";
 import { gzipSync } from "node:zlib";
+import type { DesignId } from "@asksite/site-schema";
 
-// A12 budget per compiled design sheet (moderator, 2026-09-26): today's sheet is 25,817 B raw, 5,665 B gzip-9.
-export const SHEET_BUDGET = { raw: 40 * 1024, gzip: 8 * 1024 } as const;
+// The budget of each compiled design sheet, every page inlines it (moderator rulings 2026-09-26 and M4, A16, 2026-10-01):
+// one row per design. Refined and Modern get 9 KiB gzip for the page-level markup A16 adds; Bold's own sync sets its
+// 64/24 KiB row with its font exception. Today's baseline sheet is 26 KB raw, 5.7 KB gzip-9, inside every row.
+export const SHEET_BUDGET: Readonly<Record<DesignId, { readonly raw: number; readonly gzip: number }>> = {
+  impact: { raw: 40 * 1024, gzip: 8 * 1024 },
+  refined: { raw: 40 * 1024, gzip: 9 * 1024 },
+  modern: { raw: 40 * 1024, gzip: 9 * 1024 },
+};
 
 // The compiled focus-outside variant (styles/shared.css): the call bar stops sticking while keyboard focus
 // is outside it, so it never hides the focused element (WCAG 2.4.11). Every design needs it.
@@ -11,14 +18,14 @@ export const FOCUS_OUTSIDE_RULE = String.raw`html:has(:focus-visible:not(aside *
 /**
  * What is wrong with a compiled sheet that every page inlines: it must not close its <style>, must fetch
  * nothing (no url(), @import, image-set() or @font-face: the page's CSP and html_sha256 cover only the
- * page), must carry the focus-outside rule and must fit the budget.
+ * page), must carry the focus-outside rule and must fit its design's budget row.
  *
  * KNOWN LIMIT: a CSS-escaped url( (for example `u\72l(`) is not seen here. Backstops: every sheet byte is
  * locked (packages/site-css/sheets/<id>.sha256) and reviewed, and the public page and the admin review
  * page are served with CSP default-src 'none' (Plan 2B apps/sites/src/headers.ts, Plan 4
  * packages/app-common/src/http.ts), so such a url() fetches nothing there.
  */
-export function sheetProblems(css: string): string[] {
+export function sheetProblems(css: string, design: DesignId): string[] {
   const problems: string[] = [];
   if (/<\/style/i.test(css)) problems.push("</style");
   for (const [label, pattern] of [
@@ -30,10 +37,11 @@ export function sheetProblems(css: string): string[] {
     if (pattern.test(css)) problems.push(label);
   }
   if (!css.includes(FOCUS_OUTSIDE_RULE)) problems.push("no focus-outside rule");
+  const budget = SHEET_BUDGET[design];
   const raw = Buffer.byteLength(css, "utf8");
-  if (raw > SHEET_BUDGET.raw) problems.push(`${raw} B raw > ${SHEET_BUDGET.raw}`);
+  if (raw > budget.raw) problems.push(`${raw} B raw > ${budget.raw}`);
   const gzip = gzipSync(css, { level: 9 }).length;
-  if (gzip > SHEET_BUDGET.gzip) problems.push(`${gzip} B gzip > ${SHEET_BUDGET.gzip}`);
+  if (gzip > budget.gzip) problems.push(`${gzip} B gzip > ${budget.gzip}`);
   return problems;
 }
 

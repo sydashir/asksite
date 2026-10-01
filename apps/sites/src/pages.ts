@@ -1,13 +1,17 @@
 import { utcDayStart } from "@asksite/core";
 import { escapeAttr, escapeText } from "@asksite/renderer";
+import { QUOTE_HREF } from "@asksite/site-schema";
 import { fixedPageHeaders, rootHostname } from "./headers.ts";
 
 // Fixed pages. Every word is a constant from this file, except escaped values that are never submitted
 // ones: the root domain on the apex page, and the business name and phone its approved page shows (from
-// the LIVE object's metadata) on the thank-you, 404 and "Please call instead" or "Please wait" pages.
+// the LIVE pointer's metadata) on the thank-you, 404 and "Please call instead" or "Please wait" pages.
 // Each has lang, a title, one h1 inside <main>, and reads well at 320 px (checked by axe in e2e).
 // overflow-wrap:break-word (Plan 1's body rule too): abuse@<root> on the apex page has no break
 // opportunity, so without it a long root domain scrolls sideways at 320 px (WCAG 1.4.10).
+
+// The form is on the Contact page (A16).
+const QUOTE = escapeAttr(QUOTE_HREF);
 
 const STYLE =
   "body{margin:0;overflow-wrap:break-word;background:#fff;color:#1f2937;font:1.125rem/1.6 system-ui,-apple-system,'Segoe UI',Roboto,sans-serif}" +
@@ -115,7 +119,7 @@ export const siteBusy = (root: string, now: number, phone: BusinessPhone | null)
   );
 
 export const unreadableForm = (root: string) =>
-  respond(root, 415, page("We could not send that", '<p>Your message could not be read. Please go back and try again.</p>\n<p><a href="/#contact">Go back to the form</a></p>'));
+  respond(root, 415, page("We could not send that", `<p>Your message could not be read. Please go back and try again.</p>\n<p><a href="${QUOTE}">Go back to the form</a></p>`));
 
 /** 413: only a very long message makes a visitor's form this large (A15). */
 export const messageTooLong = (root: string) =>
@@ -125,7 +129,7 @@ export const messageTooLong = (root: string) =>
     page(
       "Your message is too long",
       "<p>Please shorten your message and send it again, or call the business instead. Their phone number is on the website.</p>\n" +
-        `<p>Use your browser's Back button to return to the form with what you typed, or <a href="/#contact">go back to the form</a>.</p>`,
+        `<p>Use your browser's Back button to return to the form with what you typed, or <a href="${QUOTE}">go back to the form</a>.</p>`,
     ),
   );
 
@@ -137,7 +141,7 @@ export function formProblems(root: string, problems: readonly string[]): Respons
     400,
     page(
       "Please check your details",
-      `<ul>\n${items}\n</ul>\n<p>Use your browser's Back button to return to the form with what you typed, or <a href="/#contact">go back to the form</a>.</p>`,
+      `<ul>\n${items}\n</ul>\n<p>Use your browser's Back button to return to the form with what you typed, or <a href="${QUOTE}">go back to the form</a>.</p>`,
     ),
   );
 }

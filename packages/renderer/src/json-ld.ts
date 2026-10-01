@@ -30,12 +30,14 @@ export const SCHEMA_TYPE: Record<Trade, string> = {
   landscaping: "HomeAndConstructionBusiness",
 };
 
-export function localBusinessJsonLd(facts: Facts): Record<string, unknown> {
+/** `url` is the site's own address (the Home page's canonical). */
+export function localBusinessJsonLd(facts: Facts, url: string): Record<string, unknown> {
   const { location } = facts;
   return {
     "@context": "https://schema.org",
     "@type": SCHEMA_TYPE[facts.trade],
     name: facts.businessName,
+    url,
     telephone: facts.phone,
     email: facts.email,
     address: {

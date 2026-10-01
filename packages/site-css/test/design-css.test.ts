@@ -1,9 +1,10 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { sha256Hex } from "@asksite/core";
-import { DESIGN_IDS } from "@asksite/site-schema";
+import { gzipSync } from "node:zlib";
+import { DESIGN_IDS, type DesignId } from "@asksite/site-schema";
 import { describe, expect, it } from "vitest";
 import { DESIGN_CSS, SITE_CSS, SITE_CSS_SHA256 } from "../src/index.ts";
-import { FOCUS_OUTSIDE_RULE, sheetProblems, sourceProblems } from "./support/sheet-rules.ts";
+import { FOCUS_OUTSIDE_RULE, SHEET_BUDGET, sheetProblems, sourceProblems } from "./support/sheet-rules.ts";
 
 const STYLES = new URL("../../renderer/styles/", import.meta.url);
 const SHEETS = readdirSync(new URL("sheets/", STYLES)).filter((file) => file.endsWith(".css"));
@@ -33,7 +34,17 @@ describe("DESIGN_CSS (A12)", () => {
   });
 
   it.each(DESIGN_IDS)("%s: inlines safely, fetches nothing, keeps the focus-outside rule and fits the budget", (id) => {
-    expect(sheetProblems(DESIGN_CSS[id].css)).toEqual([]);
+    expect(sheetProblems(DESIGN_CSS[id].css, id)).toEqual([]);
+  });
+
+  it("keeps the baseline sheet within every design's budget row", () => {
+    const baseline = read("out/baseline.css", STYLES);
+    expect(DESIGN_IDS.map((id) => sheetProblems(baseline, id))).toEqual(DESIGN_IDS.map(() => []));
+  });
+
+  it("has one budget row per design: Bold 8 KiB gzip for now, Classic and Modern 9 KiB, raw 40 KiB for all (moderator ruling M4)", () => {
+    expect(SHEET_BUDGET).toEqual({ impact: { raw: 40960, gzip: 8192 }, refined: { raw: 40960, gzip: 9216 }, modern: { raw: 40960, gzip: 9216 } });
+    expect(Object.keys(SHEET_BUDGET)).toEqual([...DESIGN_IDS]);
   });
 
   it("writes identical sheets once: designs share an object exactly when they share the css", () => {
@@ -69,7 +80,7 @@ describe("the sheet checks can fail (RED proof)", () => {
   const good = `/*! tailwindcss v4.3.3 */${FOCUS_OUTSIDE_RULE}`;
 
   it("pass a good sheet", () => {
-    expect(sheetProblems(good)).toEqual([]);
+    expect(sheetProblems(good, "impact")).toEqual([]);
   });
 
   it.each([
@@ -80,12 +91,29 @@ describe("the sheet checks can fail (RED proof)", () => {
     ["@font-face", `${good}@font-face{font-family:x}`],
     ["no focus-outside rule", good.replace("position:static", "position:sticky")],
   ])("catch %s", (problem, css) => {
-    expect(sheetProblems(css)).toEqual([problem]);
+    expect(sheetProblems(css, "impact")).toEqual([problem]);
   });
 
   it("catch a sheet over the raw and the gzip budget", () => {
     const noise = Array.from({ length: 6000 }, (_, i) => `.c${(i * 7919) % 100_003}{order:${i}}`).join("");
-    expect(sheetProblems(good + noise).map((p) => p.replace(/^\d+/, "N"))).toEqual(["N B raw > 40960", "N B gzip > 8192"]);
+    const normal = (design: DesignId) => sheetProblems(good + noise, design).map((p) => p.replace(/^\d+/, "N"));
+    expect(normal("impact")).toEqual(["N B raw > 40960", "N B gzip > 8192"]);
+    expect(normal("refined")).toEqual(["N B raw > 40960", "N B gzip > 9216"]);
+    expect(normal("modern")).toEqual(["N B raw > 40960", "N B gzip > 9216"]);
+  });
+
+  it("catch a sheet that fits Classic's gzip row but not Bold's", () => {
+    // Between 8 and 9 KiB gzip: random-looking declarations that do not compress away.
+    let seed = 7;
+    const next = () => (seed = (seed * 1103515245 + 12345) % 2 ** 31);
+    let css = good;
+    while (gzipSync(css, { level: 9 }).length <= 8192) css += `.c${next().toString(36)}{order:${next() % 1000}}`;
+    const gzip = gzipSync(css, { level: 9 }).length;
+    expect(gzip).toBeGreaterThan(8192);
+    expect(gzip).toBeLessThanOrEqual(9216);
+    expect(sheetProblems(css, "refined")).toEqual([]);
+    expect(sheetProblems(css, "modern")).toEqual([]);
+    expect(sheetProblems(css, "impact").map((p) => p.replace(/^\d+/, "N"))).toEqual(["N B gzip > 8192"]);
   });
 
   it("catch a Tailwind input that scans another design, or everything", () => {

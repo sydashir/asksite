@@ -1,7 +1,7 @@
 // Render fixtures to standalone .html files for eyeballing in a browser, in every page design.
 // Usage: pnpm render                    (all fixtures)
 //        pnpm render plumber-austin     (one or more by name)
-// Output: out/<design>/<name>.html (gitignored). Run `pnpm build:css` first; `pnpm render` does it for you.
+// Output: out/<design>/<name>/<page>.html, one file per page of the site (gitignored). Run `pnpm build:css` first; `pnpm render` does it for you.
 import { mkdirSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { DESIGN_IDS } from "@asksite/site-schema";
@@ -9,20 +9,22 @@ import { DESIGN_CSS, FIXTURES, renderFixture, type FixtureName } from "../fixtur
 
 const isFixture = (name: string): name is FixtureName => (FIXTURES as readonly string[]).includes(name);
 
-/** Writes one .html file per design and fixture into `outDir`/<design>/ and returns the file paths. */
+/** Writes one .html file per design, fixture and page into `outDir`/<design>/<fixture>/ and returns the file paths. */
 export function renderFixturesToDir(names: readonly string[], outDir: URL): string[] {
   const unknown = names.filter((name) => !isFixture(name));
   if (unknown.length > 0) throw new Error(`Unknown fixture: ${unknown.join(", ")}. Known: ${FIXTURES.join(", ")}`);
   const selected = names.length > 0 ? names.filter(isFixture) : [...FIXTURES];
-  return DESIGN_IDS.flatMap((design) => {
-    const dir = new URL(`${design}/`, outDir);
-    mkdirSync(dir, { recursive: true });
-    return selected.map((name) => {
-      const file = new URL(`${name}.html`, dir);
-      writeFileSync(file, renderFixture(name, DESIGN_CSS, design));
-      return fileURLToPath(file);
-    });
-  });
+  return DESIGN_IDS.flatMap((design) =>
+    selected.flatMap((name) => {
+      const dir = new URL(`${design}/${name}/`, outDir);
+      mkdirSync(dir, { recursive: true });
+      return renderFixture(name, DESIGN_CSS, design).map(({ page, html }) => {
+        const file = new URL(`${page}.html`, dir);
+        writeFileSync(file, html);
+        return fileURLToPath(file);
+      });
+    }),
+  );
 }
 
 if (import.meta.main) {
