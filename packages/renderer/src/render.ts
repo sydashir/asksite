@@ -80,7 +80,6 @@ export function render(input: SiteDocumentInput, options: RenderOptions): Render
  * the same document, which every design is compared with. Not exported from the package.
  */
 export function renderDocument(doc: SiteDocument, design: Design, options: RenderOptions): RenderedSite {
-  checkSiteUrl(options.siteUrl);
   const id = doc.theme.design;
   const stylesheet = options.stylesheets[id];
   if (stylesheet === undefined) throw new Error(`No stylesheet for the "${id}" design`);
@@ -89,6 +88,7 @@ export function renderDocument(doc: SiteDocument, design: Design, options: Rende
     sections: visibleSections(doc),
     formAction: safeUrl(options.formAction, ["https:"]),
   };
+  checkSiteUrl(options.siteUrl);
 
   const page = html`<!DOCTYPE html>
 <html lang="en">
