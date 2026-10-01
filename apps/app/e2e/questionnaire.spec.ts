@@ -1,5 +1,49 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 import { acceptInvite, apiCall, APP, BRIEF, builtSite, expectAccessible, expectNoSidewaysScroll, FACTS, finishGeneration, uniqueEmail, uniqueSlug } from "./support.ts";
+
+/** The Business name field's id (fieldId(["facts", "businessName"])). */
+const NAME_FIELD_ID = "f-facts-businessName";
+
+/**
+ * Records what the Business name field saw, for a failure report: focus, beforeinput, input and change, each with the
+ * field's value then and the focused element. "after React" is a second input listener on the document, which runs
+ * after React's own listener on its root, so it shows whether the app put a different value back. A value the app
+ * clears later fires no event, so every click (leaving the step) also records the field's value just before it.
+ */
+async function logNameFieldEvents(page: Page) {
+  await page.evaluate((id) => {
+    const events: object[] = [];
+    (window as unknown as { __nameFieldEvents: object[] }).__nameFieldEvents = events;
+    const push = (phase: string, event: Event) => {
+      const field = document.getElementById(id);
+      const active = document.activeElement;
+      const input = event instanceof InputEvent ? { inputType: event.inputType, data: event.data } : {};
+      const value = field instanceof HTMLInputElement ? field.value : null;
+      events.push({ at: Math.round(performance.now()), phase, type: event.type, ...input, value, active: active?.id || active?.tagName || null });
+    };
+    const onField = (phase: string) => (event: Event) => {
+      if (event.target instanceof HTMLInputElement && event.target.id === id) push(phase, event);
+    };
+    for (const type of ["focusin", "focusout", "beforeinput", "input", "change"]) document.addEventListener(type, onField("capture"), true);
+    document.addEventListener("input", onField("after React"));
+    document.addEventListener("click", (event) => push("capture", event), true);
+  }, NAME_FIELD_ID);
+}
+
+// Failure only: attach the Business name field's events when a test that logged them fails, so a recurrence tells
+// "nothing was typed" (no input events) from "typed text was wiped" (an input event with the value, then it is gone).
+test.afterEach(async ({ page }, testInfo) => {
+  if (testInfo.status === testInfo.expectedStatus) return;
+  const evidence = await page
+    .evaluate((id) => {
+      const events = (window as unknown as { __nameFieldEvents?: object[] }).__nameFieldEvents;
+      if (events === undefined) return null;
+      const active = document.activeElement;
+      return { events, fieldNow: (document.getElementById(id) as HTMLInputElement | null)?.value ?? null, activeNow: active?.id || active?.tagName || null };
+    }, NAME_FIELD_ID)
+    .catch(() => null);
+  if (evidence !== null) await testInfo.attach("business-name-field-events", { body: JSON.stringify(evidence, null, 2), contentType: "application/json" });
+});
 
 test("invite, then the seven questionnaire steps, then Build starts writing the website", async ({ page }) => {
   const email = uniqueEmail("journey");
@@ -197,6 +241,7 @@ test("an answer typed just before leaving a step is saved first; if saving fails
   page.on("framenavigated", (frame) => {
     if (frame === page.mainFrame() && new URL(frame.url()).pathname.endsWith("/setup/services")) order.push("left the step");
   });
+  await logNameFieldEvents(page);
   const nameSaved = page.waitForResponse(
     (res) => res.request().method() === "PATCH" && res.url().endsWith(`/api/sites/${siteId}/draft`) && carriesName(res.request().postData()),
   );
@@ -221,6 +266,58 @@ test("an answer typed just before leaving a step is saved first; if saving fails
   await expect(page.getByRole("alert")).toContainText("Your latest answers are not saved yet.");
   await expect(page).toHaveURL(`${APP}/sites/${siteId}/setup/services`);
 });
+
+/** Holds every GET /api/me (the sign-in email the business step fills in) until the returned function is called. */
+async function holdSignInEmail(page: Page): Promise<() => void> {
+  let release!: () => void;
+  const released = new Promise<void>((resolve) => (release = resolve));
+  await page.route("**/api/me", async (route) => {
+    await released;
+    await route.continue();
+  });
+  return release;
+}
+
+// STRICT (customer data): the sign-in email fills in when GET /api/me answers. When that answer is slow and lands after
+// the owner has typed, it must not wipe the typed business name, take the focus, or save without the name.
+const lateEmailCases: ReadonlyArray<{ how: string; typeBefore: (name: Locator) => Promise<void>; before: string; after: string }> = [
+  { how: "after fill()", typeBefore: (name) => name.fill("Quick Exit Plumbing"), before: "Quick Exit Plumbing", after: "" },
+  { how: "after typing key by key", typeBefore: (name) => name.pressSequentially("Quick Exit Plumbing"), before: "Quick Exit Plumbing", after: "" },
+  { how: "in the middle of typing key by key", typeBefore: (name) => name.pressSequentially("Quick Exit "), before: "Quick Exit ", after: "Plumbing" },
+];
+for (const { how, typeBefore, before, after } of lateEmailCases) {
+  test(`the sign-in email arriving ${how} keeps the typed business name and saves it`, async ({ page }) => {
+    const owner = uniqueEmail("late-email");
+    const release = await holdSignInEmail(page);
+    const siteId = await acceptInvite(page, owner);
+    const name = page.getByLabel("Business name");
+    const email = page.getByLabel("Business email address");
+    const counter = (text: string) => page.getByText(`${[...text].length} of 60 characters`, { exact: true });
+    await expect(page.getByRole("heading", { level: 1, name: "Your business" })).toBeFocused();
+
+    await typeBefore(name);
+    await expect(counter(before)).toBeVisible();
+    expect(await email.inputValue(), "the sign-in email must still be held").toBe("");
+    const saved = page.waitForResponse(
+      (res) => res.request().method() === "PATCH" && res.url().endsWith(`/api/sites/${siteId}/draft`) && (res.request().postData() ?? "").includes("Quick Exit Plumbing") && (res.request().postData() ?? "").includes(owner),
+    );
+    release();
+    await expect(email).toHaveValue(owner);
+    // Read once, not polled: the email render has landed, and a name it wiped must not pass by coming back later.
+    expect(await name.inputValue()).toBe(before);
+    expect(await counter(before).isVisible(), "the page's answers (the counter is drawn from them) still hold the name").toBe(true);
+    await expect(name).toBeFocused();
+    await page.keyboard.type(after);
+    await expect(name).toHaveValue("Quick Exit Plumbing");
+    await expect(counter("Quick Exit Plumbing")).toBeVisible();
+
+    const response = await saved;
+    expect(response.status()).toBe(200);
+    expect(JSON.parse(response.request().postData() ?? "{}")).toMatchObject({ facts: { businessName: "Quick Exit Plumbing", email: owner } });
+    const view = await apiCall(page, "GET", `/api/sites/${siteId}`);
+    expect(view.json?.["facts"]).toMatchObject({ businessName: "Quick Exit Plumbing", email: owner });
+  });
+}
 
 test("an opening-time error links to that day's opens field and shows its message there", async ({ page }) => {
   const siteId = await acceptInvite(page);
