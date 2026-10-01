@@ -5,7 +5,7 @@ import type { Siteverify } from "../../src/worker/deps.ts";
 import { requireTurnstile, SITEVERIFY_TIMEOUT_MS } from "../../src/worker/turnstile.ts";
 import type { AppEnv } from "../../src/worker/types.ts";
 import { createWorker } from "../../src/worker/worker.ts";
-import { calledLikeFetch, errorName, fakeApprove, fakeCreateMailer, fakeGeneration, fakePublishing, fakeSiteverify, fetchCalledOn, finishGeneration, refuseNextGeneration, siteverifyCallsSoFar } from "./fakes.ts";
+import { calledLikeFetch, errorName, fakeApprove, fakeCreateMailer, fakeGeneration, fakePublishing, fakeReject, fakeSiteverify, fetchCalledOn, finishGeneration, refuseNextGeneration, siteverifyCallsSoFar } from "./fakes.ts";
 import { PURGE_UPLOADS_SQL, TAKE_DOWN_SITE_SQL } from "./plan2b-statements.ts";
 
 // The app Worker wired to the fakes, plus /__test/* helpers that stand in for the admin and the
@@ -592,6 +592,12 @@ helpers.post("/__test/turnstile-never", async (c) => {
 
 /** What the admin's approval does to D1. */
 helpers.post("/__test/versions/:versionId/approve", async (c) => c.json(await fakeApprove(c.env, c.req.param("versionId"), Date.now())));
+
+/** What the admin's Reject does to D1. */
+helpers.post("/__test/versions/:versionId/reject", async (c) => {
+  const { note } = await c.req.json<{ note: string }>();
+  return c.json(await fakeReject(c.env, c.req.param("versionId"), note, Date.now()));
+});
 
 export default {
   fetch(request, env, ctx) {

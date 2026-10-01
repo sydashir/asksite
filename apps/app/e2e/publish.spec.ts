@@ -55,3 +55,57 @@ test("an empty closing time is listed once, and its link opens that day's closin
   await page.waitForURL(`${APP}/sites/${siteId}/setup/area#hours-Monday-closes`);
   await expect(page.getByLabel("Monday closes at")).toBeFocused();
 });
+
+test("a request approved in another tab is not reported as withdrawn", async ({ page }) => {
+  const siteId = await builtSite(page);
+  await page.goto(`/sites/${siteId}/publish`);
+  await page.getByRole("button", { name: "Send for review" }).click();
+  await expect(page.getByRole("heading", { name: "Waiting for approval" })).toBeVisible();
+  const view = await apiCall(page, "GET", `/api/sites/${siteId}`);
+  const pending = view.json?.["pendingVersion"] as { id: string };
+  await page.request.post(`${APP}/__test/versions/${pending.id}/approve`, { data: {} });
+  // No reload: the page still shows "Waiting for approval" when the owner withdraws.
+  await page.getByRole("button", { name: "Withdraw this request" }).click();
+  await page.getByRole("dialog", { name: "Withdraw your request?" }).getByRole("button", { name: "Withdraw" }).click();
+  await expect(page.getByText("Your website is live at")).toBeVisible();
+  await expect(page.getByText(/Nothing was published/)).toBeHidden();
+  await expect(page.getByText(/already decided/)).toBeVisible();
+});
+
+test("a rejected request shows the reviewer's note", async ({ page }) => {
+  const siteId = await builtSite(page);
+  await page.goto(`/sites/${siteId}/publish`);
+  await page.getByRole("button", { name: "Send for review" }).click();
+  await expect(page.getByRole("heading", { name: "Waiting for approval" })).toBeVisible();
+  const view = await apiCall(page, "GET", `/api/sites/${siteId}`);
+  const pending = view.json?.["pendingVersion"] as { id: string };
+  await page.request.post(`${APP}/__test/versions/${pending.id}/reject`, { data: { note: "Please add your license number." } });
+  await page.reload();
+  await expect(page.getByText("We asked for a change before your website goes live:")).toBeVisible();
+  await expect(page.getByText("Please add your license number.")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Waiting for approval" })).toBeHidden();
+});
+
+test("after going live, a changed draft says it is not published yet", async ({ page }) => {
+  const siteId = await builtSite(page);
+  await page.goto(`/sites/${siteId}/publish`);
+  await page.getByRole("button", { name: "Send for review" }).click();
+  await expect(page.getByRole("heading", { name: "Waiting for approval" })).toBeVisible();
+  const view = await apiCall(page, "GET", `/api/sites/${siteId}`);
+  const pending = view.json?.["pendingVersion"] as { id: string };
+  await page.request.post(`${APP}/__test/versions/${pending.id}/approve`, { data: {} });
+  await page.reload();
+  await expect(page.getByText("Your website is live at")).toBeVisible();
+  await expect(page.getByText("You have changes that are not published yet.")).toBeHidden();
+  const live = await apiCall(page, "GET", `/api/sites/${siteId}`);
+  await apiCall(page, "PATCH", `/api/sites/${siteId}/draft`, { rev: live.json?.["rev"], facts: { ...FACTS, businessName: "Joe's Plumbing and Heating" } });
+  await page.reload();
+  await expect(page.getByText("You have changes that are not published yet.")).toBeVisible();
+});
+
+test("a site that cannot be loaded shows an error, not a spinner", async ({ page }) => {
+  await builtSite(page);
+  await page.goto("/sites/00000000-0000-4000-8000-000000000000/publish");
+  await expect(page.getByText("Loading…")).toBeHidden();
+  await expect(page.getByText(/not found|could not|cannot/i)).toBeVisible();
+});

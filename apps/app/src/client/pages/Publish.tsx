@@ -28,8 +28,8 @@ function summaryItem(siteId: string, issue: Issue, facts: unknown): SummaryItem 
 /** Publish, waiting for approval, withdraw, live link, rejection note (§3.1 steps 6 to 8). */
 export function Publish({ siteId }: { siteId: string }) {
   const site = useSite(siteId);
-  if (site.load.state === "loading" || site.draft === null) return <p role="status">Loading…</p>;
   if (site.load.state === "error") return <Notice tone="error">{site.load.message}</Notice>;
+  if (site.load.state === "loading" || site.draft === null) return <p role="status">Loading…</p>;
   return <PublishScreen siteId={siteId} site={site} view={site.load.view} facts={site.draft.facts} />;
 }
 
@@ -86,7 +86,8 @@ function PublishScreen({ siteId, site, view, facts }: { siteId: string; site: Si
     const res = await api("DELETE", `/api/sites/${siteId}/publish-requests/pending`);
     if (res.ok || res.status === 409) {
       await Promise.all([site.reload(), loadVersions()]);
-      showResult("Your request was withdrawn. Nothing was published.");
+      // 409 means nothing was pending any more: it was approved, rejected or taken down meanwhile, and the page now shows which.
+      showResult(res.ok ? "Your request was withdrawn. Nothing was published." : "This request was already decided, so there was nothing to withdraw. The page now shows where things stand.");
     } else showResult(res.error.message);
   }
 
