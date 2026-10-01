@@ -465,7 +465,8 @@
   }
   .shots img { width: 100%; aspect-ratio: 4 / 3; object-fit: cover; border-radius: 4px; background: var(--line); }
   .shots figcaption { margin-top: 8px; color: var(--text); font-size: 0.875rem; line-height: 1.4; text-wrap: pretty; }
-  .shots.shots--one { grid-template-columns: minmax(0, 1fr); max-width: 56rem; margin-inline: auto; }
+  /* one photo: a large frame aligned with the page's heading, as every other block is */
+  .shots.shots--one { grid-template-columns: minmax(0, 1fr); max-width: 56rem; }
   @media (min-width: 640px) {
     .shots--one img { aspect-ratio: 16 / 9; }
     .shots figcaption { font-size: 0.9375rem; }
