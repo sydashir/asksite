@@ -54,26 +54,47 @@ test("a double-click on Show older messages lists every message exactly once", a
   await expect(older).toHaveCount(0);
 });
 
-test("pressing Enter on Show older messages keeps keyboard focus, then moves it to the first new message", async ({ page }) => {
+test("pressing Enter on Show older messages keeps keyboard focus on the button while pages are left, then moves it to the first new message", async ({ page }) => {
   const siteId = await builtSite(page);
   const now = Date.now();
-  for (let i = 0; i < 51; i++) {
+  for (let i = 0; i < 101; i++) {
     await page.request.post(`${APP}/__test/sites/${siteId}/leads`, { data: { name: `Visitor ${i}`, phone: "(512) 555-0100", createdAt: now - i * 1000 } });
   }
+  // Each older-page request waits at this gate until the test lets it through.
+  let olderRequests = 0;
+  let release: () => void = () => {};
   await page.route("**/leads?*before=*", async (route) => {
-    await new Promise((resolve) => setTimeout(resolve, 500));
+    olderRequests++;
+    await new Promise<void>((resolve) => {
+      release = resolve;
+    });
     await route.continue();
   });
   await page.goto(`/sites/${siteId}/leads`);
   const older = page.getByRole("button", { name: /older messages/ });
-  await expect(page.getByRole("heading", { level: 2 })).toHaveCount(50);
+  const cards = page.getByRole("heading", { level: 2 });
+  await expect(cards).toHaveCount(50);
   await older.focus();
   await page.keyboard.press("Enter");
+  await expect.poll(() => olderRequests).toBe(1);
   await expect(older).toHaveAttribute("aria-busy", "true");
   await expect(older).toBeFocused();
   await expect(older).toHaveText("Loading older messages…");
   await expect(older).toHaveAttribute("aria-disabled", "true");
-  await expect(page.getByRole("heading", { level: 2 })).toHaveCount(51);
+  await page.keyboard.press("Enter");
+  release();
+  // Page 2 of 3: more pages are left, so focus stays on the re-enabled button.
+  await expect(cards).toHaveCount(100);
+  await expect(older).toHaveText("Show older messages");
+  await expect(older).toHaveAttribute("aria-disabled", "false");
+  await expect(older).toBeFocused();
+  expect(olderRequests).toBe(1);
+  await page.keyboard.press("Enter");
+  await expect.poll(() => olderRequests).toBe(2);
+  release();
+  // The last page: the button is gone and focus moves to the first new message.
+  await expect(cards).toHaveCount(101);
   await expect(older).toHaveCount(0);
-  await expect(page.getByRole("listitem").filter({ hasText: "Visitor 50" })).toBeFocused();
+  await expect(page.getByRole("listitem").filter({ hasText: "Visitor 100" })).toBeFocused();
+  expect(olderRequests).toBe(2);
 });
