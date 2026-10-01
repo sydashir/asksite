@@ -7,7 +7,15 @@ import { assertDeployableAccess } from "./build-config.ts";
 // Usage: node release-guard.ts [wrangler config]   (default: ./wrangler.jsonc, the production config)
 // Exit 0: the admin can be deployed; 1: it cannot.
 const path = process.argv[2] ?? fileURLToPath(new URL("./wrangler.jsonc", import.meta.url));
-const { vars } = JSON.parse(readFileSync(path, "utf8")) as { vars?: Record<string, string> };
+// Reading and parsing get their own try: a config that is not plain JSON (a `//` comment, say) must give one fixed
+// message, never the parser's error, which quotes the offending line (an email or the audience tag).
+let vars: Record<string, string> | undefined;
+try {
+  ({ vars } = JSON.parse(readFileSync(path, "utf8")) as { vars?: Record<string, string> });
+} catch {
+  console.error("The release guard could not read the wrangler config as JSON; fix the file and run the release again");
+  process.exit(1);
+}
 try {
   assertDeployableAccess(vars);
 } catch (err) {

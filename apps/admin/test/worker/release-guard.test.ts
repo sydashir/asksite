@@ -72,6 +72,26 @@ describe("release-guard.ts", () => {
     expect(stderr).toContain(field);
   });
 
+  it.each([
+    ["a comment after a value", `{ "vars": {\n"ADMIN_EMAILS": "boss@fake.example", // the owner\n"ACCESS_AUD": "fake-audience-tag-0123456789" } }`],
+    ["text that is not JSON", "boss@fake.example fake-audience-tag-0123456789"],
+  ])("stops the release on a config with %s, with one plain message and none of the file's text", (_what, text) => {
+    const config = join(dir, "broken.jsonc");
+    writeFileSync(config, text);
+    const { status, stderr, stdout } = run(config);
+    expect(status).toBe(1);
+    expect(stderr).toMatch(/could not read the wrangler config as JSON/);
+    expect(stderr).not.toMatch(/boss@fake|fake-audience|SyntaxError|\bat .*\(/);
+    expect(stdout).toBe("");
+  });
+
+  it("stops the release when the config file does not exist", () => {
+    const { status, stderr } = run(join(dir, "missing.jsonc"));
+    expect(status).toBe(1);
+    expect(stderr).toMatch(/could not read the wrangler config as JSON/);
+    expect(stderr).not.toMatch(/SyntaxError|ENOENT|\bat .*\(/);
+  });
+
   it("stops the release when the config has no vars at all", () => {
     expect(guard(null).status).toBe(1);
   });
