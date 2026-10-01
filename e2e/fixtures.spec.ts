@@ -103,8 +103,18 @@ function openToday(page: Page, name: FixtureName, font?: FontId, id?: PageId): P
 const INNER_PAGE_PROJECTS: readonly string[] = ["chromium-390", "chromium-1200"];
 const runsPage = (id: PageId, project: string): boolean => id === "home" || id === "contact" || INNER_PAGE_PROJECTS.includes(project);
 
-/** The pages that get a screenshot baseline on main: the desktop projects take these two (inner pages are the design lanes' job). */
-const SCREENSHOT_PAGES: readonly PageId[] = ["home", "contact"];
+/**
+ * The screenshot matrix, page by project: Home and /contact on the four desktop projects, the inner pages on the
+ * INNER_PAGE_PROJECTS. A missing baseline fails ("A snapshot doesn't exist") unless run with --update-snapshots; nothing skips it.
+ */
+const DESKTOP_PROJECTS: readonly string[] = ["chromium-390", "chromium-1200", "chromium-1920", "webkit-390"];
+const SCREENSHOT_MATRIX: Readonly<Record<PageId, readonly string[]>> = {
+  home: DESKTOP_PROJECTS,
+  contact: DESKTOP_PROJECTS,
+  services: INNER_PAGE_PROJECTS,
+  about: INNER_PAGE_PROJECTS,
+  gallery: INNER_PAGE_PROJECTS,
+};
 
 /**
  * Every WCAG 2.2 A/AA violation, whatever axe's impact rating (impact is severity, not the WCAG level:
@@ -503,11 +513,10 @@ for (const design of DESIGN_IDS) {
               });
             }
 
-            if (SCREENSHOT_PAGES.includes(id)) {
-              test("matches the screenshot baseline", async ({ page }) => {
-                await expect(page).toHaveScreenshot([design, name, `${id}.png`], { fullPage: true, stylePath: SCREENSHOT_CSS });
-              });
-            }
+            test("matches the screenshot baseline", async ({ page }, testInfo) => {
+              test.skip(!SCREENSHOT_MATRIX[id].includes(testInfo.project.name), "not in the SCREENSHOT_MATRIX");
+              await expect(page).toHaveScreenshot([design, name, `${id}.png`], { fullPage: true, stylePath: SCREENSHOT_CSS });
+            });
           });
         }
       });
@@ -700,13 +709,12 @@ test.describe("the harness", () => {
   });
 });
 
-test("holds exactly the screenshot baselines of the pages and desktop projects, and no other file", async ({}, testInfo) => {
+test("holds exactly the screenshot baselines of the SCREENSHOT_MATRIX, and no other file", async ({}, testInfo) => {
   test.skip(testInfo.project.name !== "chromium-1200", "reads the baseline folder once");
   const folder = fileURLToPath(new URL("./fixtures.spec.ts-snapshots/", import.meta.url));
-  const projects = testInfo.config.projects.filter((project) => project.metadata["phone"] !== true).map((project) => project.name);
   expect(readdirSync(folder).sort()).toEqual([...DESIGN_IDS].sort());
   for (const design of DESIGN_IDS) {
-    const expected = FIXTURES.flatMap((name) => pagesOf(name).filter((id) => SCREENSHOT_PAGES.includes(id)).flatMap((id) => projects.map((project) => `${name}/${id}-${project}-darwin.png`))).sort();
+    const expected = FIXTURES.flatMap((name) => pagesOf(name).flatMap((id) => SCREENSHOT_MATRIX[id].map((project) => `${name}/${id}-${project}-darwin.png`))).sort();
     const found = readdirSync(`${folder}${design}`, { recursive: true, withFileTypes: true })
       .filter((entry) => entry.isFile())
       .map((entry) => `${entry.parentPath.slice(`${folder}${design}`.length + 1)}/${entry.name}`)

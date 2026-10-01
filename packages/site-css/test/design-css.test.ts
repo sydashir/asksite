@@ -42,8 +42,8 @@ describe("DESIGN_CSS (A12)", () => {
     expect(DESIGN_IDS.map((id) => sheetProblems(baseline, id))).toEqual(DESIGN_IDS.map(() => []));
   });
 
-  it("has one budget row per design: Bold 8 KiB gzip for now, Classic and Modern 9 KiB, raw 40 KiB for all (moderator ruling M4)", () => {
-    expect(SHEET_BUDGET).toEqual({ impact: { raw: 40960, gzip: 8192 }, refined: { raw: 40960, gzip: 9216 }, modern: { raw: 40960, gzip: 9216 } });
+  it("has one budget row per design: Bold 64 KiB raw / 24 KiB gzip with its one font, Classic and Modern 40 / 9 KiB and no font", () => {
+    expect(SHEET_BUDGET).toEqual({ impact: { raw: 65536, gzip: 24576, font: expect.any(RegExp) }, refined: { raw: 40960, gzip: 9216 }, modern: { raw: 40960, gzip: 9216 } });
     expect(Object.keys(SHEET_BUDGET)).toEqual([...DESIGN_IDS]);
   });
 
@@ -97,23 +97,23 @@ describe("the sheet checks can fail (RED proof)", () => {
   it("catch a sheet over the raw and the gzip budget", () => {
     const noise = Array.from({ length: 6000 }, (_, i) => `.c${(i * 7919) % 100_003}{order:${i}}`).join("");
     const normal = (design: DesignId) => sheetProblems(good + noise, design).map((p) => p.replace(/^\d+/, "N"));
-    expect(normal("impact")).toEqual(["N B raw > 40960", "N B gzip > 8192"]);
+    expect(normal("impact")).toEqual(["N B raw > 65536", "N B gzip > 24576"]);
     expect(normal("refined")).toEqual(["N B raw > 40960", "N B gzip > 9216"]);
     expect(normal("modern")).toEqual(["N B raw > 40960", "N B gzip > 9216"]);
   });
 
-  it("catch a sheet that fits Classic's gzip row but not Bold's", () => {
-    // Between 8 and 9 KiB gzip: random-looking declarations that do not compress away.
+  it("catch a sheet that fits Bold's gzip row but not Classic's", () => {
+    // Between 9 and 24 KiB gzip: random-looking declarations that do not compress away.
     let seed = 7;
     const next = () => (seed = (seed * 1103515245 + 12345) % 2 ** 31);
     let css = good;
-    while (gzipSync(css, { level: 9 }).length <= 8192) css += `.c${next().toString(36)}{order:${next() % 1000}}`;
+    while (gzipSync(css, { level: 9 }).length <= 9216) css += `.c${next().toString(36)}{order:${next() % 1000}}`;
     const gzip = gzipSync(css, { level: 9 }).length;
-    expect(gzip).toBeGreaterThan(8192);
-    expect(gzip).toBeLessThanOrEqual(9216);
-    expect(sheetProblems(css, "refined")).toEqual([]);
-    expect(sheetProblems(css, "modern")).toEqual([]);
-    expect(sheetProblems(css, "impact").map((p) => p.replace(/^\d+/, "N"))).toEqual(["N B gzip > 8192"]);
+    expect(gzip).toBeGreaterThan(9216);
+    expect(gzip).toBeLessThanOrEqual(24576);
+    expect(sheetProblems(css, "impact")).toEqual([]);
+    expect(sheetProblems(css, "refined").map((p) => p.replace(/^\d+/, "N"))).toEqual(["N B gzip > 9216"]);
+    expect(sheetProblems(css, "modern").map((p) => p.replace(/^\d+/, "N"))).toEqual(["N B gzip > 9216"]);
   });
 
   it("catch a Tailwind input that scans another design, or everything", () => {
