@@ -58,6 +58,19 @@ test("the security check loads only on the sign-in form, once, for the login act
   expect(await turnstileRenders(page)).toMatchObject([{ sitekey: "1x00000000000000000000AA", action: "login" }]);
 });
 
+test("the sign-in link page (/login#token) loads no security check, and Cloudflare's script is still requested only once @mobile", async ({ page }) => {
+  const requested = await stubTurnstile(page);
+  await page.goto("/");
+  await waitForSecurityCheck(page);
+  expect(requested).toHaveLength(1);
+
+  await page.goto(`/login#${"a".repeat(43)}`);
+  await expect(page.getByRole("button", { name: "Sign in" })).toBeVisible();
+  await page.waitForLoadState("networkidle");
+  expect(requested).toHaveLength(1);
+  expect(await turnstileRenders(page)).toEqual([]);
+});
+
 test("the security check fits at 320 px (compact) and 390 px (normal) without sideways scrolling @mobile", async ({ page }) => {
   await stubTurnstile(page);
   await page.setViewportSize({ width: 320, height: 700 });
@@ -71,6 +84,24 @@ test("the security check fits at 320 px (compact) and 390 px (normal) without si
   await waitForSecurityCheck(page);
   expect(await turnstileRenders(page)).toMatchObject([{ size: "normal" }]);
   await expectNoSidewaysScroll(page);
+});
+
+// STRICT (honesty): when Cloudflare's script cannot load, the owner is told so and can try again; never "complete the check" with no check on screen.
+test("if the security check cannot load, the owner is told and Try again brings it back @mobile", async ({ page }) => {
+  await page.route("https://challenges.cloudflare.com/turnstile/v0/api.js*", (route) => route.abort());
+  await page.goto("/");
+  await expect(page.getByText("The security check could not load. Check that nothing on your device is blocking it, then try again.")).toBeVisible();
+  await expectAccessible(page);
+  await expect(page.locator("[data-stub-turnstile]")).toHaveCount(0);
+
+  await page.unroute("https://challenges.cloudflare.com/turnstile/v0/api.js*");
+  await stubTurnstile(page);
+  await page.getByRole("button", { name: "Try again" }).click();
+  await waitForSecurityCheck(page);
+  await expect(page.getByText("The security check could not load.")).toHaveCount(0);
+  await page.getByLabel("Your email address").fill(uniqueEmail("retry"));
+  await page.getByRole("button", { name: "Email me a sign-in link" }).click();
+  await expect(page.getByText("If that email has an account, we've sent a link.", { exact: false })).toBeVisible();
 });
 
 test("the app's policy lets Cloudflare's widget script and frame in, and nothing else new", async ({ request }) => {
