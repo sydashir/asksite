@@ -1,6 +1,6 @@
-import { HIDEABLE_SECTIONS, type SectionId, type SiteDocumentInput } from "@asksite/site-schema";
+import { HIDEABLE_SECTIONS, type PageId, type SectionId, type SiteDocumentInput } from "@asksite/site-schema";
 import { describe, expect, it } from "vitest";
-import { DESIGN_CSS, FIXTURE_FORM_ACTION, inDesign, loadFixture, stubStylesheets, type FixtureName } from "../../../../../fixtures/index.ts";
+import { DESIGN_CSS, FIXTURE_FORM_ACTION, FIXTURE_SITE_URL, inDesign, loadFixture, stubStylesheets, type FixtureName } from "../../../../../fixtures/index.ts";
 import {
   addressParts,
   brandClass,
@@ -19,8 +19,12 @@ import {
 import { render } from "../../../src/render.ts";
 
 const NBSP = " ";
-const OPTIONS = { stylesheets: stubStylesheets(), formAction: FIXTURE_FORM_ACTION };
-const bold = (input: SiteDocumentInput) => render(inDesign(input, "impact"), OPTIONS).html;
+const OPTIONS = { stylesheets: stubStylesheets(), formAction: FIXTURE_FORM_ACTION, siteUrl: FIXTURE_SITE_URL };
+const pagesOf = (input: SiteDocumentInput) => render(inDesign(input, "impact"), OPTIONS).pages;
+/** One page of the Bold site (Home unless another is named); "" when the site has no such page. */
+const bold = (input: SiteDocumentInput, page: PageId = "home") => pagesOf(input).find((p) => p.page === page)?.html ?? "";
+/** Every page of the Bold site, one after another. */
+const site = (input: SiteDocumentInput) => pagesOf(input).map((p) => p.html).join("\n");
 const fixture = (name: FixtureName) => loadFixture(name);
 const plumber = fixture("plumber-austin");
 
@@ -28,6 +32,18 @@ function withoutPhotos(input: SiteDocumentInput): SiteDocumentInput {
   const { heroPhoto: _photo, ...facts } = input.facts;
   return { ...input, facts: { ...facts, photos: [] } };
 }
+
+/** The owner's order with `id` moved to straight after `after` (owners reorder sections within a page, U1). */
+function moved(input: SiteDocumentInput, id: SectionId, after: SectionId): SiteDocumentInput {
+  const rest = input.layout.filter((s) => s.id !== id);
+  const section = input.layout.find((s) => s.id === id);
+  if (section === undefined) throw new Error(`no ${id} in the layout`);
+  const at = rest.findIndex((s) => s.id === after) + 1;
+  return { ...input, layout: [...rest.slice(0, at), section, ...rest.slice(at)] } as SiteDocumentInput;
+}
+
+/** The hero section of a Home page: from its opening tag to the next block's. */
+const heroOf = (page: string) => page.slice(page.indexOf('<section id="top"'), page.search(/<section id="(?:services-preview|reviews)"/));
 
 describe("Bold page rules", () => {
   it("picks the headline size by length: capitals up to 40 characters, then two mixed-case steps", () => {
@@ -174,11 +190,9 @@ describe("Bold surfaces", () => {
 });
 
 describe("the Bold page", () => {
-  it("draws the credentials straight under the hero as the hero's own card, and a band elsewhere", () => {
-    const page = bold(plumber);
-    const hero = page.slice(page.indexOf('<section id="top"'), page.indexOf('<section id="services"'));
-    expect(hero).toContain('<section id="credentials" class="proof" aria-label="Credentials">');
-    const hvac = bold(fixture("hvac-phoenix"));
+  it("draws the credentials straight under the hero as the hero's own card, and a band when the owner puts them after the reviews", () => {
+    expect(heroOf(bold(plumber))).toContain('<section id="credentials" class="proof" aria-label="Credentials">');
+    const hvac = bold(moved(fixture("hvac-phoenix"), "trust", "testimonials"));
     expect(hvac).toContain('<div class="proof">');
     expect(hvac).toMatch(/<section id="credentials" class="sec [a-z -]*sec--rail" aria-label="Credentials">/);
   });
@@ -188,7 +202,7 @@ describe("the Bold page", () => {
   // groups. So it is one line where everything fits, and "Insured  Since 2011" is never split at any width.
   it("groups the hero's credentials: the licences, then Insured and the founding year", () => {
     const LI = String.raw`<li><svg[^]*?<\/svg><span>`;
-    expect(bold(fixture("hvac-phoenix"))).toMatch(
+    expect(bold(moved(fixture("hvac-phoenix"), "trust", "testimonials"))).toMatch(
       new RegExp(
         String.raw`<div class="proof"><ul class="proof-list proof-lics"><li class="proof-lic">[^]*?ROC 999001[^]*?<\/li><li class="proof-more-li"><a class="proof-more-link" href="#credentials">\+1 more license<\/a><\/li><\/ul>` +
           String.raw`<ul class="proof-list">${LI}Insured<\/span><\/li>${LI}Since 2011<\/span><\/li><\/ul><\/div>`,
@@ -210,7 +224,7 @@ describe("the Bold page", () => {
   it("marks where a long email or web-address name may break: contact band, footer, header and About", () => {
     const name = "www<wbr>.reliablerooterplumbing<wbr>.com";
     const mail = "office@<wbr>reliablerooter<wbr>.example<wbr>.com";
-    const page = bold({ ...plumber, facts: { ...plumber.facts, businessName: "www.reliablerooterplumbing.com" } });
+    const page = site({ ...plumber, facts: { ...plumber.facts, businessName: "www.reliablerooterplumbing.com" } });
     expect(page).toContain(`<a class="brand brand--long" href="#top">${name}</a>`);
     expect(page).toContain(`<span class="sign-name">${name}</span>`);
     expect(page).toContain(`<p class="foot-brand">${name}</p>`);
@@ -218,7 +232,7 @@ describe("the Bold page", () => {
     expect(page).toMatch(new RegExp(`<a class="mail" href="mailto:office@reliablerooter.example.com"><svg[^]*?</svg><span>${mail}</span></a>`));
     expect(page).toContain(`<a class="foot-email" href="mailto:office@reliablerooter.example.com">${mail}</a>`);
     // Every part is escaped as text.
-    expect(bold({ ...plumber, facts: { ...plumber.facts, businessName: "Tom&Jerry<b>.plumbing.example" } })).toContain(
+    expect(site({ ...plumber, facts: { ...plumber.facts, businessName: "Tom&Jerry<b>.plumbing.example" } })).toContain(
       '<p class="foot-brand">Tom&amp;Jerry&lt;b&gt;<wbr>.plumbing<wbr>.example</p>',
     );
   });
@@ -254,11 +268,10 @@ describe("the Bold page", () => {
   it("shows 24/7 service as the hero's credential only when the owner offers it and gave no other credential", () => {
     // cleaning-minimal: no licence, not insured, no founding year; the credentials follow the hero.
     const minimal = fixture("cleaning-minimal");
-    const hero = (page: string) => page.slice(page.indexOf('<section id="top"'), page.indexOf('<section id="services"'));
-    const with247 = hero(bold({ ...minimal, facts: { ...minimal.facts, emergency247: true } }));
+    const with247 = heroOf(bold({ ...minimal, facts: { ...minimal.facts, emergency247: true } }));
     expect(with247).toMatch(/<section id="credentials" class="proof" aria-label="Credentials"><ul class="proof-list"><li><svg[^]*?<\/svg><span>24\/7 emergency service<\/span><\/li><\/ul><\/section>/);
     expect(with247).not.toContain('class="chip"');
-    const without = hero(bold(minimal));
+    const without = heroOf(bold(minimal));
     expect(without).not.toContain("proof");
     expect(without).not.toContain("24/7");
   });

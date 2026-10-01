@@ -11,6 +11,7 @@ import { renderServiceArea } from "./area.ts";
 import { renderContact } from "./contact.ts";
 import { renderCredentials } from "./credentials.ts";
 import { renderFaq } from "./faq.ts";
+import { renderClosingBand } from "./closing.ts";
 import { renderCallBar, renderFooter } from "./footer.ts";
 import { renderGallery } from "./gallery.ts";
 import { renderHeader } from "./header.ts";
@@ -18,6 +19,7 @@ import { renderHero } from "./hero.ts";
 import { boldPage } from "./parts.ts";
 import { renderReviews } from "./reviews.ts";
 import { renderServices } from "./services.ts";
+import { renderServicesTeaser } from "./teaser.ts";
 import { boldVariables } from "./tokens.ts";
 
 // The page's one comment: the copyright notices of the code, icons and font this design is built from.
@@ -54,6 +56,8 @@ export const design: Design = Object.freeze({
   variables: boldVariables,
   header: renderHeader,
   section: renderSection,
+  servicesTeaser: renderServicesTeaser,
+  closingBand: renderClosingBand,
   footer: renderFooter,
   callBar: renderCallBar,
 });

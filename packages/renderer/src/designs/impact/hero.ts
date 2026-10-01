@@ -3,7 +3,7 @@
 // full height beyond), with the credentials card on it. Without a photo the right side holds a card of the
 // facts a caller checks first (hours and the towns served); with nothing new for a card the hero is type only.
 import type { VariantOf } from "@asksite/site-schema";
-import { isVisible, type RenderContext } from "../../context.ts";
+import { onPage, onSite, type RenderContext } from "../../context.ts";
 import { TRADE_LABEL } from "../../format.ts";
 import { fragment, html, safeUrl, type SafeHtml } from "../../html.ts";
 import { DOM_ID } from "../../sections/ids.ts";
@@ -52,7 +52,7 @@ function proofGroups(ctx: RenderContext): ProofGroups {
  * strip moves to the next line whole.
  */
 function proof(ctx: RenderContext, { licences, standing }: ProofGroups): SafeHtml | false {
-  if (!isVisible(ctx, "trust") || licences.length + standing.length === 0) return false;
+  if (!onPage(ctx, "trust") || licences.length + standing.length === 0) return false;
   const lists = html`${licences.length > 0 && html`<ul class="proof-list proof-lics">${licences}</ul>`}${standing.length > 0 && html`<ul class="proof-list">${standing}</ul>`}`;
   return boldPage(ctx).trustInHero
     ? html`<section id="${DOM_ID.trust}" class="proof" aria-label="Credentials">${lists}</section>`
@@ -77,7 +77,7 @@ function placesSummary(ctx: RenderContext): SafeHtml {
 function cardBlocks(ctx: RenderContext): SafeHtml[] {
   const { facts } = ctx.doc;
   const blocks: SafeHtml[] = [];
-  if (!isVisible(ctx, "serviceArea")) return blocks;
+  if (!onSite(ctx, "serviceArea")) return blocks;
   if (facts.hours.length > 0 || facts.emergency247) {
     const rows = facts.hours.length > 0 ? groupedHours(facts.hours, true) : [];
     blocks.push(html`<div class="biz-block"><p class="kicker biz-k">${icon("clock")}Hours</p><dl class="biz-hours">${facts.emergency247 && html`<div class="biz-247"><dt>Emergencies</dt><dd>24/7</dd></div>`}${rows.map((r) => html`<div><dt>${r.label}</dt><dd>${r.value}</dd></div>`)}</dl></div>`);

@@ -2,11 +2,13 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { DESIGN_CSS } from "../../../../../fixtures/index.ts";
-import { FOCUS_OUTSIDE_RULE, sheetProblems } from "../../../../site-css/test/support/sheet-rules.ts";
+import { FOCUS_OUTSIDE_RULE, SHEET_BUDGET, sheetProblems } from "../../../../site-css/test/support/sheet-rules.ts";
 
 // USER DECISION 2026-09-27 (A12.md): Bold (impact) embeds Archivo Condensed ExtraBold as a data: woff2 in its own
 // sheet only, for headings, buttons and prices, with its own budget of 64 KiB raw / 24 KiB gzip. Only that one
-// @font-face is allowed, and only in the impact sheet; every other url() stays forbidden in every sheet.
+// @font-face is allowed, and only in the impact sheet; every other url() stays forbidden in every sheet. Since A16
+// (moderator ruling M4 and the Bold sync ruling, 2026-10-01) the exception is impact's own row of the per-design
+// budget table: its budget and its one allowed @font-face; the other rows keep the strict rules.
 
 const good = `/*! tailwindcss v4.3.3 */${FOCUS_OUTSIDE_RULE}`;
 const face = (src: string, family = "Archivo Condensed") =>
@@ -18,7 +20,13 @@ describe("the impact sheet's one embedded font (sheet-rules.ts)", () => {
     const css = DESIGN_CSS.impact.css;
     expect(css.match(/@font-face/g)).toHaveLength(1);
     expect(css.match(/url\(/g)).toHaveLength(1);
-    expect(sheetProblems(css)).toEqual([]);
+    expect(sheetProblems(css, "impact")).toEqual([]);
+  });
+
+  it("is impact's own row of the budget table: 64 KiB raw, 24 KiB gzip and the one font; no other row has a font", () => {
+    expect(SHEET_BUDGET.impact).toMatchObject({ raw: 65_536, gzip: 24_576 });
+    expect(SHEET_BUDGET.impact.font).toBeInstanceOf(RegExp);
+    expect([SHEET_BUDGET.refined.font, SHEET_BUDGET.modern.font]).toEqual([undefined, undefined]);
   });
 
   it("allows one data:font/woff2 @font-face for Archivo Condensed in the impact sheet", () => {
@@ -26,7 +34,7 @@ describe("the impact sheet's one embedded font (sheet-rules.ts)", () => {
     expect(sheetProblems(good + face(WOFF2, '"Archivo Condensed"'), "impact")).toEqual([]);
   });
 
-  it.each(["refined", "modern", undefined] as const)("refuses the same @font-face in the %s sheet", (design) => {
+  it.each(["refined", "modern"] as const)("refuses the same @font-face in the %s sheet", (design) => {
     expect(sheetProblems(good + face(WOFF2), design)).toEqual(["url(", "@font-face"]);
   });
 
@@ -44,11 +52,11 @@ describe("the impact sheet's one embedded font (sheet-rules.ts)", () => {
     expect(sheetProblems(css, "impact")).toEqual(problems);
   });
 
-  it("gives the impact sheet 64 KiB raw / 24 KiB gzip, and every other sheet 40 / 8", () => {
+  it("gives the impact sheet 64 KiB raw / 24 KiB gzip, and Classic its own 40 / 9", () => {
     const noise = (n: number) => Array.from({ length: n }, (_, i) => `.c${(i * 7919) % 100_003}{order:${i}}`).join("");
-    const budget = (css: string, design?: "impact" | "refined") => sheetProblems(css, design).map((p) => p.replace(/^\d+/, "N"));
+    const budget = (css: string, design: "impact" | "refined") => sheetProblems(css, design).map((p) => p.replace(/^\d+/, "N"));
     expect(budget(good + noise(3000), "impact")).toEqual([]);
-    expect(budget(good + noise(3000), "refined")).toEqual(["N B raw > 40960", "N B gzip > 8192"]);
+    expect(budget(good + noise(3000), "refined")).toEqual(["N B raw > 40960", "N B gzip > 9216"]);
     expect(budget(good + noise(9000), "impact")).toEqual(["N B raw > 65536", "N B gzip > 24576"]);
   });
 });

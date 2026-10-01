@@ -1,7 +1,7 @@
 // Pieces every Bold section shares: the page model (which band is ink, the button case) and the markup of
 // buttons, section heads, licences and addresses.
 import type { Facts, SectionId } from "@asksite/site-schema";
-import { isVisible, type RenderContext } from "../../context.ts";
+import { onSite, type RenderContext } from "../../context.ts";
 import { formatPhone, telUrl } from "../../format.ts";
 import { fragment, html, type SafeHtml } from "../../html.ts";
 import { DOM_ID } from "../../sections/ids.ts";
@@ -25,10 +25,11 @@ const PAGES = new WeakMap<RenderContext, BoldPage>();
 export function boldPage(ctx: RenderContext): BoldPage {
   const known = PAGES.get(ctx);
   if (known !== undefined) return known;
-  const ids = ctx.sections.map((s) => s.id);
+  const ids = ctx.page.sections.map((s) => s.id);
   const trustInHero = ids[0] === "hero" && ids[1] === "trust";
   const flow = trustInHero ? ids.filter((id) => id !== "trust") : ids;
-  const contact = isVisible(ctx, "contact");
+  // The quote form is on the Contact page, which every site has: a fact about the site, not this page.
+  const contact = onSite(ctx, "contact");
   const model: BoldPage = {
     flow,
     surface: surfaces(flow),
