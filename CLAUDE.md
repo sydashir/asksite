@@ -57,6 +57,7 @@ Read this whole file at the start of every session. These rules override default
 
 - API keys never go into git, logs, chat output, screenshots or client-side code.
 - Secrets live only in `.env` / `.dev.vars`, which are gitignored. Never print a key.
+- Never print the environment: no bare `env`, `printenv`, `set` or `export`, and no `$=VAR` word-splitting tricks. To check a variable, test only whether it is set, never its value. (A lane agent once printed the local messaging token this way; 2026-09-30.)
 
 ## How to talk to the user
 
@@ -88,7 +89,7 @@ Update them as work happens, not only at the end. The user will say when context
 
 ## Parallel build sessions (user instruction 2026-09-25)
 
-- The moderator session (currently `web-maker-d3`, formerly `web-maker-42`, `web-maker-5f`, `web-maker-1c`, `web-maker-76` and `web-maker-99`; after any restart it announces its new name and socket to every session) in folder `/Users/ashir/Documents/workk2/web_maker` is the controller of every build session. Build sessions talk to it with SendMessage; it relays to the user only when a decision is the user's.
+- The moderator session (currently `web-maker-f4`, formerly `web-maker-d3`, `web-maker-42`, `web-maker-5f`, `web-maker-1c`, `web-maker-76` and `web-maker-99`; after any restart it announces its new name and socket to every session) in folder `/Users/ashir/Documents/workk2/web_maker` is the controller of every build session. Build sessions talk to it with SendMessage; it relays to the user only when a decision is the user's.
 - Build sessions never assume or guess: if the plan, design or code does not answer something with certainty, stop and ask the moderator. The moderator asks the user when it is unsure.
 - User rule (2026-09-25): the moderator reviews a build session's code before any git action beyond a local commit on that session's own branch. Build sessions may only run read-only git, `git add <named paths>` and `git commit` on their own branch; push, merge (including "Sync with main"), rebase, reset, revert, cherry-pick, amend, switching branches, branch/tag changes, stash, worktree commands and `git clean` need the moderator's explicit OK for that one action, given after review.
 - Only the moderator pushes or runs `gh` (the active gh account is machine-wide, so parallel switching can leave the wrong one active); build sessions never push, and the moderator pushes their branches.

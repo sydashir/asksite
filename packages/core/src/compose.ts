@@ -1,4 +1,4 @@
-import { SECTION_VARIANTS, type LayoutSection, type SiteDocument, type SiteDocumentInput } from "@asksite/site-schema";
+import { DEFAULT_SECTION_ORDER, SECTION_VARIANTS, type LayoutSection, type SiteDocument, type SiteDocumentInput } from "@asksite/site-schema";
 import { SECTION_IDS, type AiDraft, type CopyEdits, type OwnerEdits } from "./draft.ts";
 import type { Issue } from "./issues.ts";
 import { mediaUrl } from "./keys.ts";
@@ -24,15 +24,16 @@ function optional(edit: string | null | undefined, ai: string | undefined): stri
   return edit === undefined ? ai : tidy(edit);
 }
 
-/** Every section id once: missing ones go directly before "contact" (at the end if there is none). */
+/**
+ * Every section id once (a missing one gets its first variant), in the owner's order when one applies, else in
+ * the page map's order (U1, user 2026-10-01). The AI's layout picks the variants and which sections it wrote; its
+ * order no longer decides anything, since each section lives on a fixed page and the owner orders within a page.
+ */
 function composeLayout(ai: AiDraft["layout"], order: OwnerEdits["order"]): LayoutSection[] {
   const listed = new Set(ai.map((s) => s.id));
   const missing = SECTION_IDS.filter((id) => !listed.has(id)).map((id) => ({ id, variant: SECTION_VARIANTS[id][0] }) as LayoutSection);
-  const contactAt = ai.findIndex((s) => s.id === "contact");
-  const layout = contactAt === -1 ? [...ai, ...missing] : [...ai.slice(0, contactAt), ...missing, ...ai.slice(contactAt)];
-  if (order === null) return layout;
-  const rank = new Map(order.map((id, i) => [id, i]));
-  return layout.sort((a, b) => (rank.get(a.id) ?? 0) - (rank.get(b.id) ?? 0));
+  const rank = new Map((order ?? DEFAULT_SECTION_ORDER).map((id, i) => [id, i]));
+  return [...ai, ...missing].sort((a, b) => (rank.get(a.id) ?? 0) - (rank.get(b.id) ?? 0));
 }
 
 /**

@@ -1,4 +1,4 @@
-import { isSafeUrl, type UrlScheme } from "@asksite/site-schema";
+import { isPageId, isSafeUrl, PAGES, type PageId, type UrlScheme } from "@asksite/site-schema";
 import { escapeAttr, escapeText } from "./escape.ts";
 
 /**
@@ -21,7 +21,7 @@ export class SafeHtml {
 // escaped as text, not checked as attributes) can never pass for it.
 class TrustedHtml extends SafeHtml {}
 
-// Only safeUrl() and fragment() hold this key, so no code outside this module can make a SafeUrl,
+// Only safeUrl(), fragment() and pagePath() hold this key, so no code outside this module can make a SafeUrl,
 // not even through safeUrl(x).constructor.
 const MINT = Symbol("SafeUrl");
 
@@ -32,12 +32,12 @@ let hrefOf: (value: unknown) => string | undefined;
 
 /**
  * A URL whose scheme has been checked. The only value `html` accepts in a URL attribute (href, src,
- * action, …). Exported as a type only, so safeUrl() and fragment() are the only ways to make one.
+ * action, …). Exported as a type only, so safeUrl(), fragment() and pagePath() are the only ways to make one.
  */
 class SafeUrl {
   readonly #href: string;
   constructor(key: symbol, href: string) {
-    if (key !== MINT) throw new Error("Only safeUrl() and fragment() can make a SafeUrl");
+    if (key !== MINT) throw new Error("Only safeUrl(), fragment() and pagePath() can make a SafeUrl");
     this.#href = href;
   }
   toString(): string {
@@ -64,8 +64,22 @@ export function safeUrl(input: string, allowed?: readonly UrlScheme[]): SafeUrl 
 
 /** In-page link to one of our own element ids, e.g. "#services". */
 export function fragment(id: string): SafeUrl {
-  if (!/^[a-z][a-z0-9-]*$/.test(id)) throw new Error(`Invalid fragment id: ${JSON.stringify(id)}`);
-  return new SafeUrl(MINT, `#${id}`);
+  return new SafeUrl(MINT, `#${checkedId(id)}`);
+}
+
+/**
+ * Root-relative link to one of the site's pages ("/services", "/contact#quote"), the only minter of a relative
+ * URL. The path is read from the page map, so no string path is ever accepted; the fragment, when given, is
+ * checked like fragment()'s.
+ */
+export function pagePath(page: PageId, fragmentId?: string): SafeUrl {
+  if (!isPageId(page)) throw new Error(`Invalid page: ${JSON.stringify(page)}`);
+  return new SafeUrl(MINT, fragmentId === undefined ? PAGES[page].path : `${PAGES[page].path}#${checkedId(fragmentId)}`);
+}
+
+function checkedId(id: string): string {
+  if (typeof id !== "string" || !/^[a-z][a-z0-9-]*$/.test(id)) throw new Error(`Invalid fragment id: ${JSON.stringify(id)}`);
+  return id;
 }
 
 // The states of the WHATWG HTML tokenizer (https://html.spec.whatwg.org/multipage/parsing.html#tokenization)

@@ -3,7 +3,7 @@
 // this is a plain zero-JS grid of owner photos with lazy loading and optional captions.
 // Column count follows the number of photos (lookup table, whole class strings).
 import type { VariantOf } from "@asksite/site-schema";
-import type { RenderContext } from "../context.ts";
+import { headingLevel, type RenderContext } from "../context.ts";
 import { html, safeUrl, type SafeHtml } from "../html.ts";
 import { headline, sectionShell } from "../ui.ts";
 import { DOM_ID } from "./ids.ts";
@@ -19,7 +19,7 @@ export function renderGallery(ctx: RenderContext, _variant: VariantOf<"gallery">
   const count = facts.photos.length;
   const grid = count === 1 ? GRID.one : count === 2 || count === 4 ? GRID.two : GRID.many;
 
-  return sectionShell(DOM_ID.gallery, "6xl", html`${headline(DOM_ID.gallery, "Our work", copy.sectionIntros.gallery)}
+  return sectionShell(DOM_ID.gallery, "6xl", html`${headline(DOM_ID.gallery, "Our work", copy.sectionIntros.gallery, headingLevel(ctx, "gallery"))}
 <ul class="${grid}">
 ${facts.photos.map((p) => html`<li>
 <figure>
