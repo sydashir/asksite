@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { FIXTURE_SITE_URL, FIXTURES, inDesign, loadFixture, stubStylesheets } from "../../../fixtures/index.ts";
 import { escapeText } from "../src/escape.ts";
 import { TRADE_LABEL } from "../src/format.ts";
-import { clipText, pageTitle, render } from "../src/render.ts";
+import { clipText, pageDescription, pageTitle, render } from "../src/render.ts";
 import { FULL, MINIMAL } from "./support/doc.ts";
 import { startTags } from "./support/page-safety.ts";
 
@@ -88,6 +88,24 @@ describe("the words the renderer adds claim nothing (A16)", () => {
       ...PAGE_IDS.slice(1).map((id) => `${PAGES[id].label} | Mop`),
     ]);
     expect([...fixed, ...filled].flatMap((text) => unbackedClaims(text, facts).map((word) => `${text}: ${word}`))).toEqual([]);
+  });
+
+  // A clipped About description is a prefix of the about text, so a cut inside a word must not leave a claim word behind
+  // ("since" from "sincere") that the whole text does not hold.
+  it.each([
+    ["sincere", "since"],
+    ["bondholder", "bond"],
+    ["freedom", "free"],
+  ])("never cuts the About description inside %j so that it reads %j", (word, claim) => {
+    const stem = word.slice(0, claim.length);
+    const pad = `,${"x,".repeat(80)}`.slice(-(159 - stem.length)); // 159 characters, the cut falling right after `stem`
+    const about = `${pad}${word},tail,${"y,".repeat(10)}`;
+    const doc = SiteDocument.parse({ ...MINIMAL, copy: { ...MINIMAL.copy, about } });
+    expect(unbackedClaims(about, doc.facts)).toEqual([]);
+    const description = pageDescription(doc, "about");
+    expect(description.length).toBeLessThanOrEqual(160);
+    expect(about.startsWith(description.slice(0, -1))).toBe(true);
+    expect(unbackedClaims(description, doc.facts)).toEqual([]);
   });
 
   it.each(DESIGN_IDS)("writes in every page of every fixture only its title and description template (the about text clipped), in the %s design", (design) => {

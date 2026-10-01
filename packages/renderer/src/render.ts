@@ -53,7 +53,7 @@ const fitsTitle = (title: string) => escapeText(title).length <= MAX_TITLE_LENGT
 const GRAPHEMES = new Intl.Segmenter("en", { granularity: "grapheme" });
 
 /**
- * `raw` itself when `fits` accepts it; otherwise its longest prefix, cut at a word boundary (else at a grapheme
+ * `raw` itself when `fits` accepts it; otherwise its longest prefix, cut at a word boundary (else where a word starts or ends, else at a grapheme
  * boundary, so no emoji or accent is split), with "…" appended, that `fits` accepts. Clips the RAW text: escaping is
  * left to the html template, so an escape sequence is never cut in half.
  */
@@ -62,7 +62,10 @@ export function clipText(raw: string, fits: (text: string) => boolean): string {
   const cuts = [...GRAPHEMES.segment(raw)].map((part) => part.index);
   const longest = cuts.findLast((cut) => fits(`${raw.slice(0, cut)}…`));
   if (longest === undefined) return "…";
-  const wordEnd = cuts.findLast((cut) => cut > 0 && cut <= longest && /\s/.test(raw.charAt(cut)) && raw.slice(0, cut).trim() !== "");
+  const wordEnd =
+    cuts.findLast((cut) => cut > 0 && cut <= longest && /\s/.test(raw.charAt(cut)) && raw.slice(0, cut).trim() !== "") ??
+    // No whitespace to cut at (a run of comma-joined words): cut where a word starts or ends, so no word is left half-written ("sincere" -> "since").
+    cuts.findLast((cut) => cut > 0 && cut <= longest && /\w/.test(raw.charAt(cut - 1)) !== /\w/.test(raw.charAt(cut)));
   return `${raw.slice(0, wordEnd ?? longest).trimEnd()}…`;
 }
 
