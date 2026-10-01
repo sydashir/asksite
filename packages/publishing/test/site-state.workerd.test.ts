@@ -1,7 +1,7 @@
 import { livePageKey, livePointerKey, mediaKey, mediaUrl, newId, versionKey, versionPageKey } from "@asksite/core";
 import { SiteDocument } from "@asksite/site-schema";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { approveVersion, createPendingVersion, restore, setIndexable, takeDown } from "../src/index.ts";
+import { approveVersion, createPendingVersion, restore, setIndexable, TAKEDOWN_REVIEW_NOTE, takeDown } from "../src/index.ts";
 import { publishFailure as failure } from "./support/errors.ts";
 import { auditActions, doc, EDITS, flakyBucket, liveKeysOf, pendingWithPages, publishingHarness, ROOT, seedSite, siteRow, versionRow, type PublishEnv } from "./support/harness.ts";
 
@@ -38,7 +38,9 @@ describe("takeDown", () => {
     const s = await liveSite(true);
     await takeDown(env, { siteId: s.siteId, reviewer: ADMIN, reason: "Phishing", purgeMedia: false, now: 50 });
     expect(await siteRow(env.DB, s.siteId)).toMatchObject({ taken_down_at: 50, takedown_reason: "Phishing", pending_version_id: null, live_version_id: s.liveVersionId });
-    expect(await versionRow(env.DB, String(s.pendingVersionId))).toMatchObject({ status: "rejected", review_note: "Site taken down", reviewed_by: ADMIN });
+    expect(await versionRow(env.DB, String(s.pendingVersionId))).toMatchObject({ status: "rejected", review_note: TAKEDOWN_REVIEW_NOTE, reviewed_by: ADMIN });
+    // Plan 4 tells a takedown's automatic rejection from a real review by this exact note (the same bytes as always).
+    expect(TAKEDOWN_REVIEW_NOTE).toBe("Site taken down");
     expect(await liveKeysOf(env.LIVE, s.slug)).toEqual([]);
     expect(await auditActions(env.DB, s.siteId)).toEqual(["version.requested", "version.approved", "version.requested", "site.taken_down"]);
   });

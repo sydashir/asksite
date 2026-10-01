@@ -2,6 +2,10 @@ import { canonicalJson, livePointerKey, liveSitePrefix, siteUrl } from "@asksite
 import { PublishError } from "./errors.ts";
 import { type AuditAction, auditIfChanged, copyLivePages, deletePrefix, liveMetadata, removeOtherVersions, verifiedPages, writeLivePointer } from "./shared.ts";
 
+/** The review note a takedown gives the version it rejects. Plan 4 tells this automatic rejection from a real
+ *  review by it, so an owner is never told the reviewer asked for a change. Its bytes never change. */
+export const TAKEDOWN_REVIEW_NOTE = "Site taken down";
+
 /**
  * The admin's Take down, in this order:
  * 1) the site's LIVE pointer is deleted first: it stops every page at once, cached ones included (a cached page's
@@ -26,8 +30,8 @@ export async function takeDown(
 
   const actor = `admin:${reviewer}`;
   const [, takenDown] = await db.batch([
-    db.prepare("UPDATE site_versions SET status = 'rejected', reviewed_by = ?, reviewed_at = ?, review_note = 'Site taken down' WHERE site_id = ? AND status = 'pending'")
-      .bind(reviewer, now, siteId),
+    db.prepare("UPDATE site_versions SET status = 'rejected', reviewed_by = ?, reviewed_at = ?, review_note = ? WHERE site_id = ? AND status = 'pending'")
+      .bind(reviewer, now, TAKEDOWN_REVIEW_NOTE, siteId),
     db.prepare("UPDATE sites SET taken_down_at = ?, takedown_reason = ?, pending_version_id = NULL, updated_at = ? WHERE id = ? AND taken_down_at IS NULL")
       .bind(now, reason, now, siteId),
     auditIfChanged(db, { at: now, actor, action: "site.taken_down", siteId, detail: { reason, purgeMedia } }),
