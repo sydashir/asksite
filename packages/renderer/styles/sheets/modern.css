@@ -392,6 +392,8 @@
   @media (min-width: 1024px) {
     .teaser { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); grid-template-rows: auto 1fr; column-gap: 64px; }
     .preview { grid-column: 2; grid-row: 1 / 3; }
+    /* a lone service keeps its row's own height, centred on the heading's column, instead of stretching to it */
+    .preview > :only-child { align-self: center; }
     .more { grid-column: 1; justify-self: start; align-self: start; margin: 0; }
     .close-in { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 24px 48px; }
     .close .head { margin: 0; }

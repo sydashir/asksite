@@ -531,6 +531,28 @@ describe.each(ENGINES)("Modern in %s", (_engine, engine) => {
     expect(found).toEqual([]);
   }, 60_000);
 
+  // A16: an owner with one service gets one row in Home's preview, beside a taller column (the heading and the link to
+  // the Services page). The row keeps its own height, centred on that column, instead of stretching into a tall, empty
+  // card; two or more rows still fill the column, as before.
+  it("keeps a lone service in Home's preview its own height, centred beside the heading, from 1024 px", async () => {
+    const found: string[] = [];
+    const plumber = loadFixture("plumber-austin");
+    // The copy describes exactly the owner's services, in order (SiteDocument), so both lists are cut together.
+    const one = withFacts(plumber, { services: plumber.facts.services.slice(0, 1) });
+    await open(pageOf({ ...one, copy: { ...one.copy, serviceDescriptions: plumber.copy.serviceDescriptions.slice(0, 1) } }), 1024);
+    const row = () => {
+      const list = document.querySelector(".preview").getBoundingClientRect();
+      const card = document.querySelector(".preview .card").getBoundingClientRect();
+      return { height: Math.round(card.height), above: Math.round(card.top - list.top), below: Math.round(list.bottom - card.bottom) };
+    };
+    for (const width of [1024, 1280, 1920]) {
+      await tab.setViewportSize({ width, height: 800 });
+      const got = await tab.evaluate(row);
+      if (got.height > 80 || got.above < 8 || Math.abs(got.above - got.below) > 1) found.push(`${width}: ${JSON.stringify(got)}`);
+    }
+    expect(found).toEqual([]);
+  }, 60_000);
+
   // Round 3's judge 1: four photos showed as two rows of two at about 588 px each from 1024 px, a section taller than
   // six photos make. From 1024 px they are one large photo beside three, no taller than the six-photo gallery.
   it("lays four photos out as one large beside three from 1024 px, no taller than six photos (round 3 judges)", async () => {
