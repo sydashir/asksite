@@ -1,7 +1,7 @@
 // The Bold services preview on Home (A16): a short menu board of the first three services in the owner's order,
 // each with "From $N" when the owner gave a starting price (the name alone otherwise; never an invented price),
 // and the one link to the Services page. It shares the Services band's layout: the heading and the link under it
-// (at the left from 64rem), then the board.
+// (at the left from 64rem), then the board, whose names are set in the display face like a menu board.
 import { pageLink, type RenderContext } from "../../context.ts";
 import { formatPrice } from "../../format.ts";
 import { html, type SafeHtml } from "../../html.ts";
@@ -20,7 +20,7 @@ export function renderServicesTeaser(ctx: RenderContext): SafeHtml {
 <div class="wrap svc-layout">
 ${sectionHead(SERVICES_PREVIEW_ID, { eyebrow: "Services", title: "Our services" })}
 <p class="teaser-more"><a class="svc-ask" href="${pageLink(ctx, "services")}">More about our services${icon("arrow-right")}</a></p>
-<ul class="board">${rows}</ul>
+<ul class="board board--preview">${rows}</ul>
 </div>
 </section>`;
 }

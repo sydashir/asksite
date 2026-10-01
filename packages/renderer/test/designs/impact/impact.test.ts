@@ -346,7 +346,7 @@ describe("the Bold pages", () => {
     expect([...preview.matchAll(/From <span class="svc-amt display tnum">([^<]*)<\/span>/g)].map((m) => m[1])).toEqual(["$89", "$1,200"]);
     expect(preview.match(/<a [^>]*>/g)).toEqual(['<a class="svc-ask" href="/services">']);
     // The link sits under the heading, before the board, at every width (a phone reads it before the list).
-    expect(preview.indexOf("svc-ask")).toBeLessThan(preview.indexOf('<ul class="board">'));
+    expect(preview.indexOf("svc-ask")).toBeLessThan(preview.indexOf('<ul class="board board--preview">'));
     expect(preview).toContain("More about our services");
   });
 

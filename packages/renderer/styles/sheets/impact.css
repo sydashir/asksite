@@ -1427,6 +1427,20 @@
   .teaser-more {
     margin: -0.75rem 0 1.75rem;
   }
+  .board--preview .svc {
+    align-items: baseline;
+    padding-block: 1.25rem;
+  }
+  .board--preview .svc-name {
+    font-family: var(--display);
+    font-weight: 800;
+    font-stretch: condensed;
+    font-size: clamp(1.5rem, 1.15rem + 1.1vw, 2rem);
+    line-height: 1.05;
+    letter-spacing: 0.012em;
+    word-spacing: 0.06em;
+    text-transform: uppercase;
+  }
   @media (min-width: 64rem) {
     .teaser-more {
       grid-column: 1;
