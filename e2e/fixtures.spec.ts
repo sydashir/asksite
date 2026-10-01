@@ -373,15 +373,22 @@ const visibleQuoteLinks = (page: Page): Promise<number> => page.locator('a[href=
 
 /**
  * Lists what is wrong with the quote form's Name field where a visitor has landed: missing, not wholly in the
- * window, or covered (by a sticky bar or header). Works with JavaScript off (locator checks only). A trial click
- * scrolls nothing here, because the field is already wholly in view, and fails when another element would take
- * the click.
+ * window, or covered (by a sticky bar or header). Works with JavaScript off. The field is judged where it is:
+ * elementFromPoint at its centre and corners must return the field itself. (A trial click would not do: when
+ * something covers the target Playwright scrolls on its retries, so a covered field passes once it is scrolled clear.)
  */
 async function nameFieldProblems(page: Page): Promise<string[]> {
-  const name = page.locator("#contact-name");
-  if ((await name.count()) === 0) return ["no Name field on the page"];
-  if (!(await expect(name).toBeInViewport({ ratio: 1, timeout: 3_000 }).then(() => true, () => false))) return ["the Name field is not wholly in the window"];
-  return (await name.click({ trial: true, timeout: 3_000 }).then(() => true, () => false)) ? [] : ["the Name field is covered"];
+  return page.evaluate(() => {
+    const name = document.querySelector<HTMLElement>("#contact-name");
+    if (!name) return ["no Name field on the page"];
+    const box = name.getBoundingClientRect();
+    if (box.top < 0 || box.left < 0 || box.bottom > window.innerHeight || box.right > document.documentElement.clientWidth) return ["the Name field is not wholly in the window"];
+    // The corners, pulled in along the diagonal to where a rounded field's own edge is.
+    const radius = Math.min(parseFloat(getComputedStyle(name).borderTopLeftRadius) || 0, box.height / 2, box.width / 2);
+    const inset = radius * (1 - Math.SQRT1_2) + 2;
+    const points = [[0.5, 0.5], [0, 0], [1, 0], [0, 1], [1, 1]].map(([x, y]) => [box.left + inset + (box.width - 2 * inset) * x!, box.top + inset + (box.height - 2 * inset) * y!] as const);
+    return points.some(([x, y]) => document.elementFromPoint(x, y) !== name) ? ["the Name field is covered"] : [];
+  });
 }
 
 /** Follows a link that should lead to the quote form and lists what is wrong where it lands: another address, or a Name field problem. */
@@ -897,6 +904,16 @@ test.describe("the gates can fail (RED proof)", () => {
     expect(await nameFieldProblems(page)).toEqual([]);
     await page.addStyleTag({ content: 'body::after{content:"";position:fixed;inset:0;z-index:50}' });
     expect(await nameFieldProblems(page)).toEqual(["the Name field is covered"]);
+  });
+
+  test("the quote-landing check sees a sticky header that covers the Name field where the visitor lands", async ({ page }) => {
+    await openToday(page, "plumber-austin", undefined, "contact");
+    await page.addStyleTag({ content: "header{position:sticky!important;top:0!important;z-index:50!important;min-height:120px!important}" });
+    await page.locator("#contact-name").evaluate((el) => window.scrollTo(0, el.getBoundingClientRect().top + window.scrollY - 24));
+    expect(await nameFieldProblems(page)).toEqual(["the Name field is covered"]);
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await page.locator("#contact-name").evaluate((el) => window.scrollTo(0, el.getBoundingClientRect().top + window.scrollY - 200));
+    expect(await nameFieldProblems(page)).toEqual([]);
   });
 
   test("the visible-quote check sees a page whose only quote link is hidden at 1200", async ({ page }, testInfo) => {
