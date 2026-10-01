@@ -53,3 +53,27 @@ test("a double-click on Show older messages lists every message exactly once", a
   await expect(page.getByRole("heading", { level: 2 })).toHaveCount(51);
   await expect(older).toHaveCount(0);
 });
+
+test("pressing Enter on Show older messages keeps keyboard focus, then moves it to the first new message", async ({ page }) => {
+  const siteId = await builtSite(page);
+  const now = Date.now();
+  for (let i = 0; i < 51; i++) {
+    await page.request.post(`${APP}/__test/sites/${siteId}/leads`, { data: { name: `Visitor ${i}`, phone: "(512) 555-0100", createdAt: now - i * 1000 } });
+  }
+  await page.route("**/leads?*before=*", async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    await route.continue();
+  });
+  await page.goto(`/sites/${siteId}/leads`);
+  const older = page.getByRole("button", { name: /older messages/ });
+  await expect(page.getByRole("heading", { level: 2 })).toHaveCount(50);
+  await older.focus();
+  await page.keyboard.press("Enter");
+  await expect(older).toHaveAttribute("aria-busy", "true");
+  await expect(older).toBeFocused();
+  await expect(older).toHaveText("Loading older messages…");
+  await expect(older).toHaveAttribute("aria-disabled", "true");
+  await expect(page.getByRole("heading", { level: 2 })).toHaveCount(51);
+  await expect(older).toHaveCount(0);
+  await expect(page.getByRole("listitem").filter({ hasText: "Visitor 50" })).toBeFocused();
+});

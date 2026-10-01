@@ -1,6 +1,6 @@
 import { LIMITS, type LeadView } from "@asksite/core";
 import { isSafeUrl } from "@asksite/site-schema";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Notice } from "../components/feedback.tsx";
 import { usePageHeading } from "../hooks/use-page-heading.ts";
 import { onLinkClick } from "../hooks/use-route.ts";
@@ -34,6 +34,9 @@ export function Leads({ siteId }: { siteId: string }) {
   const [state, setState] = useState<"loading" | "ready" | "error">("loading");
   const [error, setError] = useState("");
   const [loadingOlder, setLoadingOlder] = useState(false);
+  const loadingRef = useRef(false);
+  const [focusId, setFocusId] = useState<string | null>(null);
+  const focusCard = useRef<HTMLLIElement>(null);
 
   async function load(before: number | null) {
     const res = await api<{ leads: LeadView[]; nextBefore: number | null }>("GET", `/api/sites/${siteId}/leads?limit=50${before === null ? "" : `&before=${before}`}`);
@@ -42,24 +45,35 @@ export function Leads({ siteId }: { siteId: string }) {
       setError(res.error.message);
       return;
     }
-    setLeads((current) => {
-      if (before === null) return res.data.leads;
-      const listed = new Set(current.map((lead) => lead.id));
-      return [...current, ...res.data.leads.filter((lead) => !listed.has(lead.id))];
-    });
+    if (before === null) setLeads(res.data.leads);
+    else {
+      const listed = new Set(leads.map((lead) => lead.id));
+      const fresh = res.data.leads.filter((lead) => !listed.has(lead.id));
+      setLeads([...leads, ...fresh]);
+      // The button unmounts with the last page: keyboard focus moves to the first new card instead of dropping to the page.
+      if (res.data.nextBefore === null && fresh[0] !== undefined) setFocusId(fresh[0].id);
+    }
     setNext(res.data.nextBefore);
     setState("ready");
   }
 
   async function loadOlder(before: number) {
+    // aria-disabled keeps the button focusable, so presses while loading are ignored here (a native disabled drops focus).
+    if (loadingRef.current) return;
+    loadingRef.current = true;
     setLoadingOlder(true);
     await load(before);
+    loadingRef.current = false;
     setLoadingOlder(false);
   }
 
   useEffect(() => {
     void load(null);
   }, [siteId]);
+
+  useEffect(() => {
+    if (focusId !== null) focusCard.current?.focus();
+  }, [focusId]);
 
   return (
     <section className="mx-auto max-w-3xl">
@@ -79,7 +93,7 @@ export function Leads({ siteId }: { siteId: string }) {
       {state === "ready" && leads.length === 0 ? <p className="mt-4">No messages yet. When someone uses your contact form, it shows up here and in your email.</p> : null}
       <ul className="mt-4 space-y-3">
         {leads.map((lead) => (
-          <li key={lead.id} className="card">
+          <li key={lead.id} className="card" ref={lead.id === focusId ? focusCard : undefined} tabIndex={lead.id === focusId ? -1 : undefined}>
             <h2 className="text-lg font-semibold">{lead.name}</h2>
             <p className="text-sm text-slate-600">{when(lead.createdAt)}</p>
             <dl className="mt-2 grid grid-cols-1 gap-x-4 gap-y-1 sm:grid-cols-[8rem_1fr]">
@@ -113,8 +127,8 @@ export function Leads({ siteId }: { siteId: string }) {
         ))}
       </ul>
       {next !== null ? (
-        <button type="button" className="btn-secondary mt-4" disabled={loadingOlder} aria-busy={loadingOlder} onClick={() => void loadOlder(next)}>
-          Show older messages
+        <button type="button" className="btn-secondary mt-4" aria-disabled={loadingOlder} aria-busy={loadingOlder} onClick={() => void loadOlder(next)}>
+          {loadingOlder ? "Loading older messages…" : "Show older messages"}
         </button>
       ) : null}
     </section>
