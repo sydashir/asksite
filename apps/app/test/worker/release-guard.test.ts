@@ -12,7 +12,7 @@ mkdirSync(results, { recursive: true });
 const dir = mkdtempSync(join(results, "release-guard-"));
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
 
-function guard(vars: Record<string, string> | null): { status: number | null; stderr: string } {
+function guard(vars: Record<string, unknown> | null): { status: number | null; stderr: string } {
   const config = join(dir, "wrangler.jsonc");
   writeFileSync(config, JSON.stringify(vars === null ? {} : { vars }));
   const run = spawnSync(process.execPath, [GUARD, config], { encoding: "utf8" });
@@ -28,11 +28,31 @@ describe("release-guard.ts", () => {
     ["an empty sitekey", { TURNSTILE_SITE_KEY: "" }],
     ["no sitekey", {}],
     ["no vars at all", null],
+    ["a blank sitekey", { TURNSTILE_SITE_KEY: " " }],
+    ["a sitekey that is an object", { TURNSTILE_SITE_KEY: { key: "0x4AAAAAAAfakefakefake" } }],
     ["a dummy sitekey that always passes", { TURNSTILE_SITE_KEY: "1x00000000000000000000AA" }],
     ["a dummy sitekey that always fails", { TURNSTILE_SITE_KEY: "2x00000000000000000000AB" }],
+    // Decided 2026-10-01: a value with surrounding whitespace is refused, so a padded dummy key cannot slip past the shape check.
+    ["a dummy sitekey with a leading space", { TURNSTILE_SITE_KEY: " 1x00000000000000000000AA" }],
+    ["a real-looking sitekey with a trailing space", { TURNSTILE_SITE_KEY: "0x4AAAAAAApaddedKeyExample " }],
   ])("stops the release on %s, saying which variable", (_what, vars) => {
     const { status, stderr } = guard(vars);
     expect(status).toBe(1);
     expect(stderr).toMatch(/TURNSTILE_SITE_KEY must be the real Turnstile sitekey/);
+    expect(stderr).not.toMatch(/0x4AAAAAAAfake|0x4AAAAAAApadded|1x0000|2x0000|\[object/);
+  });
+
+  // A config that is not plain JSON (a `//` comment) makes the parser quote the offending line, which holds config
+  // values. The guard must print one fixed message instead, never a value, a source line or a stack trace.
+  it("stops on a config that is not plain JSON without printing any value from it", () => {
+    const config = join(dir, "commented.jsonc");
+    writeFileSync(config, '{ "vars": {\n  "TURNSTILE_SITE_KEY": "0x4AAAAAAAfakefakefake", // boss@fake.example\n} }');
+    const run = spawnSync(process.execPath, [GUARD, config], { encoding: "utf8" });
+    expect(run.status).toBe(1);
+    expect(run.stdout).toBe("");
+    expect(run.stderr).toBe(
+      "The release guard could not read the wrangler config as JSON; fix the file and run the release again\n",
+    );
+    expect(run.stdout + run.stderr).not.toMatch(/0x4AAAAAAAfake|boss@fake|SyntaxError|\bat /);
   });
 });

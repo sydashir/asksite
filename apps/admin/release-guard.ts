@@ -1,14 +1,14 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { assertDeployableSiteKey } from "./build-config.ts";
+import { assertDeployableAccess } from "./build-config.ts";
 
-// Run by `release` before anything is built or deployed (F31): refuses to ship a Worker whose Turnstile sitekey is
-// empty (nobody could sign in) or one of Cloudflare's dummy keys (accepted from any domain).
+// Run by `release` before anything is built or deployed (F5): refuses to ship a Worker whose Cloudflare Access settings
+// are empty or in dev mode (no admin could sign in, or the dev bypass would be on). It names the field and never a value.
 // Usage: node release-guard.ts [wrangler config]   (default: ./wrangler.jsonc, the production config)
-// Exit 0: the sitekey can be deployed; 1: it cannot.
+// Exit 0: the admin can be deployed; 1: it cannot.
 const path = process.argv[2] ?? fileURLToPath(new URL("./wrangler.jsonc", import.meta.url));
 // Reading and parsing get their own try: a config that is not plain JSON (a `//` comment, say) must give one fixed
-// message, never the parser's error, which quotes the offending line (a sitekey or an email).
+// message, never the parser's error, which quotes the offending line (an email or the audience tag).
 let vars: Record<string, unknown> | undefined;
 let readable = true;
 try {
@@ -22,7 +22,7 @@ if (!readable) {
   process.exitCode = 1;
 } else {
   try {
-    assertDeployableSiteKey(vars?.["TURNSTILE_SITE_KEY"]);
+    assertDeployableAccess(vars);
   } catch (err) {
     console.error(err instanceof Error ? err.message : "The release guard refused this config");
     process.exitCode = 1;
