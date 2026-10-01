@@ -94,6 +94,28 @@ describe("adminAccess reasons", () => {
     for (const error of down) expect(await refusedWith(await accessToken(), ENV, failing(error))).toBe("keys_unavailable");
   });
 
+  // The token's fault, not a key-server outage: jose raises these before or instead of fetching keys (the TOKEN_FAULTS codes).
+  it("logs an algorithm swap, an unknown key id and an ambiguous key id as invalid_token, never keys_unavailable", async () => {
+    const claims = (jwt: SignJWT) => jwt.setIssuer(TEAM).setAudience(AUD).setExpirationTime("5m");
+    const rs384 = await generateKeyPair("RS384", { extractable: true });
+    const rs384Token = await claims(new SignJWT({ email: "admin@example.com" }).setProtectedHeader({ alg: "RS384", kid: "k384" })).sign(rs384.privateKey);
+    const rs384Jwk = await exportJWK(rs384.publicKey);
+    const rs384Keys = () => createLocalJWKSet({ keys: [{ ...rs384Jwk, kid: "k384" }] });
+    expect(await refusedWith(rs384Token, ENV, rs384Keys)).toBe("invalid_token");
+
+    const hs256Token = await claims(new SignJWT({ email: "admin@example.com" }).setProtectedHeader({ alg: "HS256", kid: "test-key" })).sign(new TextEncoder().encode("0123456789abcdef0123456789abcdef"));
+    expect(await refusedWith(hs256Token)).toBe("invalid_token");
+
+    const rs256 = await generateKeyPair("RS256", { extractable: true });
+    const unknownKid = await claims(new SignJWT({ email: "admin@example.com" }).setProtectedHeader({ alg: "RS256", kid: "unknown" })).sign(rs256.privateKey);
+    expect(await refusedWith(unknownKid)).toBe("invalid_token");
+
+    const jwk = await exportJWK(rs256.publicKey);
+    const twoKeys = () => createLocalJWKSet({ keys: [{ ...jwk, alg: "RS256", kid: "a" }, { ...jwk, alg: "RS256", kid: "b" }] });
+    const noKid = await claims(new SignJWT({ email: "admin@example.com" }).setProtectedHeader({ alg: "RS256" })).sign(rs256.privateKey);
+    expect(await refusedWith(noKid, ENV, twoKeys)).toBe("invalid_token");
+  });
+
   it("never puts the token, an email or the team domain in a reason", async () => {
     const token = await accessToken({ email: "intruder@example.com" });
     const result = await adminAccess(request(token), ENV, keys);
