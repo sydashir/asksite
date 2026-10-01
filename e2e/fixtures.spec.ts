@@ -274,6 +274,9 @@ async function tapSend(page: Page, input: "mouse" | "touch", offset: number): Pr
   return { clicked: clicks.join(", "), posts };
 }
 
+/** Today's sticky call bar, put back on /contact (its bar is static there now) for the RED proofs that need one that sticks. */
+const STICKY_BAR_CSS = 'aside[aria-label="Call us"]{position:sticky!important;bottom:0!important;z-index:10!important}';
+
 /** The phone windows the /contact call bar check runs at (heights around 915-1040 px were where Send covered a sticky bar). */
 const CALL_BAR_HEIGHTS = [844, 900, 932, 1024] as const;
 /** The projects that run it: both engines at 390 px, where the call bar shows. One list, checked against the config below. */
@@ -618,7 +621,7 @@ test.describe("the gates can fail (RED proof)", () => {
     test.skip(!isPhoneProject(page), "the call bar only shows below 768 px");
     await openToday(page, "plumber-austin", undefined, "contact");
     await page.setViewportSize({ width: 390, height: 500 }); // the form's fields lie below the fold, so Tab scrolls them to the bottom edge
-    await page.addStyleTag({ content: "aside{position:sticky!important}" });
+    await page.addStyleTag({ content: STICKY_BAR_CSS });
     expect(await focusHiddenByCallBar(page, browserName)).not.toEqual([]);
   });
 
@@ -671,8 +674,8 @@ test.describe("the gates can fail (RED proof)", () => {
   test("the Send check sees a tap that the call bar takes", async ({ page }) => {
     test.skip(page.viewportSize()?.width !== 390, "checked in the 390 px projects, where the call bar shows");
     await openToday(page, "plumber-austin", undefined, "contact");
-    // Today's page without the fix in styles/shared.css: Send no longer stacks above the call bar.
-    await page.addStyleTag({ content: 'form button[type="submit"]{position:static!important;z-index:auto!important}' });
+    // Today's page without the fix in styles/shared.css: Send no longer stacks above the call bar, which sticks again once focus leaves the field (as it did on /contact before the bar became static there).
+    await page.addStyleTag({ content: STICKY_BAR_CSS + "html:has(:focus-visible:not(aside *)) aside{position:static!important}" + 'form button[type="submit"]{position:static!important;z-index:auto!important}' });
     expect(await tapSend(page, "mouse", 40)).toEqual({ clicked: "BODY", posts: 0 });
   });
 
@@ -685,7 +688,7 @@ test.describe("the gates can fail (RED proof)", () => {
     for (const height of CALL_BAR_HEIGHTS) {
       await page.setViewportSize({ width: 390, height });
       await openToday(page, "plumber-austin", undefined, "contact");
-      await page.addStyleTag({ content: 'aside[aria-label="Call us"]{position:sticky!important;bottom:0!important;z-index:10!important}' });
+      await page.addStyleTag({ content: STICKY_BAR_CSS });
       if ((await callBarProblems(page)).length > 0) caught.push(height);
     }
     expect(caught.length).toBeGreaterThan(0);
