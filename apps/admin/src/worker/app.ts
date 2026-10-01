@@ -1,6 +1,6 @@
-import { ApiError, apiHeaders, handleError, handleNotFound, rateLimit, requireOrigin } from "@asksite/app-common";
+import { ApiError, apiHeaders, handleError, handleNotFound, noteLog, rateLimit, requireOrigin } from "@asksite/app-common";
 import { Hono, type MiddlewareHandler } from "hono";
-import { adminEmail, type AccessKeys } from "./access.ts";
+import { adminAccess, type AccessKeys } from "./access.ts";
 import type { AdminDeps } from "./deps.ts";
 import { inviteRoutes } from "./routes/invites.ts";
 import { reviewRoutes } from "./routes/reviews.ts";
@@ -18,7 +18,10 @@ import type { AdminEnv } from "./types.ts";
  */
 const sameOriginOnly: MiddlewareHandler<AdminEnv> = async (c, next) => {
   const site = c.req.header("Sec-Fetch-Site");
-  if (site !== undefined && site !== "same-origin") throw new ApiError("forbidden", "This request is not allowed from another site");
+  if (site !== undefined && site !== "same-origin") {
+    noteLog(c, { reason: "fetch_metadata_refused" });
+    throw new ApiError("forbidden", "This request is not allowed from another site");
+  }
   await next();
 };
 
@@ -31,10 +34,13 @@ export function createAdminApp(deps: AdminDeps, keys: AccessKeys): Hono<AdminEnv
   app.use("/api/admin/*", sameOriginOnly);
   app.use("/api/admin/*", requireOrigin((c) => c.env.ADMIN_ORIGIN));
   app.use("/api/admin/*", async (c, next) => {
-    const email = await adminEmail(c.req.raw, c.env, keys);
-    if (email === null) throw new ApiError("forbidden", "You are not allowed to use the admin");
-    await rateLimit(c.env.ADMIN_RL, email);
-    c.set("admin", email);
+    const access = await adminAccess(c.req.raw, c.env, keys);
+    if (!("email" in access)) {
+      noteLog(c, { reason: access.refused }); // tells a misconfigured gate from an attack in the logs
+      throw new ApiError("forbidden", "You are not allowed to use the admin");
+    }
+    await rateLimit(c.env.ADMIN_RL, access.email);
+    c.set("admin", access.email);
     await next();
   });
   app.get("/api/admin/me", (c) => c.json({ email: c.get("admin") }));
