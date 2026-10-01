@@ -102,6 +102,23 @@ export function toolsConfig(sites: { compatibility_date: string; d1_databases: o
   };
 }
 
+/**
+ * The local-only guard (A16-4c): throws if ANY object anywhere in the tools config says `remote: true` (a remote D1 or
+ * R2 binding, nested ones too). operate.ts and the local seed run the real publishing functions, which must never reach
+ * production through a config someone edited or left from `--remote`. They also pass remoteBindings: false to
+ * getPlatformProxy, which otherwise starts remote bindings (wrangler 4.138.0).
+ */
+export function assertLocalToolsConfig(configJson: string): void {
+  const remote = (value: unknown): boolean =>
+    typeof value === "object" && value !== null && (Object.entries(value).some(([key, inner]) => (key === "remote" && inner === true) || remote(inner)));
+  if (remote(JSON.parse(configJson))) throw new Error("The tools config has a remote binding: local tools never touch production. Run pnpm dev:seed again without --remote.");
+}
+
+/** Reads the generated tools config and refuses it if it is not local-only. */
+export function checkLocalToolsConfig(path: string = TOOLS_CONFIG): void {
+  assertLocalToolsConfig(readFileSync(path, "utf8"));
+}
+
 type PhotoInput = NonNullable<SiteDocumentInput["facts"]["heroPhoto"]>;
 
 /** The photo --hero-photo adds; its URL is replaced by the upload's. */
@@ -169,9 +186,10 @@ async function main(): Promise<void> {
 
   // Loaded here, not at the top, so the unit test of the helpers above does not load wrangler.
   const { getPlatformProxy } = await import("wrangler");
+  if (!options.remote) checkLocalToolsConfig();
   const proxy = await getPlatformProxy<ToolsEnv>({
     configPath: TOOLS_CONFIG,
-    ...(options.remote ? {} : { persist: { path: localStatePath(options.persistTo) } }),
+    ...(options.remote ? {} : { persist: { path: localStatePath(options.persistTo) }, remoteBindings: false }),
   });
   try {
     const ownerEmail = options.ownerEmail ?? `${options.slug}-owner@example.com`;

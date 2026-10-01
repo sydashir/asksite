@@ -1,7 +1,7 @@
 import type { PageId } from "@asksite/site-schema";
 import { livePageKey, livePointerKey, liveSitePrefix, newId, sha256Hex, versionKey, versionPageKey } from "@asksite/core";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { approveVersion, createPendingVersion, rejectVersion, takeDown } from "../src/index.ts";
+import { ADMIN_LEASE_MS, approveVersion, createPendingVersion, rejectVersion, takeDown } from "../src/index.ts";
 import { publishFailure as failure } from "./support/errors.ts";
 import { auditActions, doc, EDITS, flakyBucket, liveKeysOf, pendingWithPages, publishingHarness, seedSite, siteRow, versionRow, type PublishEnv } from "./support/harness.ts";
 
@@ -304,11 +304,16 @@ describe("approveVersion: all the pages, then the pointer (A16)", () => {
 
   // Residual 1 (moderator, 2026-10-01; strict: exposure). An approve and another admin's takedown can interleave, and
   // the pointer must never stay on a taken-down site: it would put the business name and phone back on the site's
-  // 404, thank-you and "please call" pages. Both orders are tested, for a first approval and for an accepted retry:
-  // (a) the whole takedown commits between this approve's D1 batch and its pointer write (the seam runs the real
+  // 404, thank-you and "please call" pages. Both orders are tested, for a first approval and for an accepted retry.
+  // A16-4c: under the site's lease the two cannot overlap at all (lease.workerd.test.ts: the second is site_busy), so
+  // these seams run the real other action once the first one's lease has run out (the fake clock: its `now` is past
+  // the lease), which is the only way they can still meet:
+  // (a) the whole takedown commits between this approve's lease re-check and its pointer write (the seam runs the real
   // takeDown inside the pointer write): approve takes its pointer back out;
   // (b) this whole approve runs between the takedown's first pointer delete and its D1 batch (the seam runs the
-  // real approveVersion inside that delete): the takedown deletes the pointer again after its D1 batch.
+  // real approveVersion inside that delete): the takedown's fenced batch changes nothing and throws lease_lost, the
+  // site is live and consistent, and the takedown's retry leaves no pointer.
+  const LATER = ADMIN_LEASE_MS + 1;
   const RACES = [
     ["a first approval", false],
     ["an accepted retry", true],
@@ -320,17 +325,17 @@ describe("approveVersion: all the pages, then the pointer (A16)", () => {
     const racingTakedown = {
       ...flakyBucket(env.LIVE, () => false),
       put: async (...args: Parameters<R2Bucket["put"]>) => {
-        if (args[0] === livePointerKey(p.slug)) await takeDown(env, { siteId: p.siteId, reviewer: "other@example.com", reason: "Phishing", purgeMedia: false, now: 40 });
+        if (args[0] === livePointerKey(p.slug)) await takeDown(env, { siteId: p.siteId, reviewer: "other@example.com", reason: "Phishing", purgeMedia: false, now: 40 + LATER });
         return env.LIVE.put(...args);
       },
     } as R2Bucket;
-    const racing = approveVersion({ ...env, LIVE: racingTakedown }, { versionId: p.versionId, htmlSha256: p.htmlSha256, reviewer: "admin@example.com", note: null, indexable: true, now: 41 });
+    const racing = approveVersion({ ...env, LIVE: racingTakedown }, { versionId: p.versionId, htmlSha256: p.htmlSha256, reviewer: "admin@example.com", note: null, indexable: true, now: 40 });
     expect((await failure(racing)).code).toBe("site_taken_down");
     expect(await liveKeysOf(env.LIVE, p.slug)).toEqual([]);
-    expect(await siteRow(env.DB, p.siteId)).toMatchObject({ taken_down_at: 40 });
+    expect(await siteRow(env.DB, p.siteId)).toMatchObject({ taken_down_at: 40 + LATER });
   });
 
-  it.each(RACES)("leaves no pointer when the whole approve runs inside a takedown, before its D1 batch (%s)", async (_name, approvedBefore) => {
+  it.each(RACES)("leaves no pointer when the whole approve runs inside a takedown, before its D1 batch: the takedown is fenced out and its retry finishes (%s)", async (_name, approvedBefore) => {
     const p = await pendingWithPages(env);
     if (approvedBefore) await approve(p.versionId, p.htmlSha256);
     let raced = false;
@@ -340,14 +345,20 @@ describe("approveVersion: all the pages, then the pointer (A16)", () => {
         await env.LIVE.delete(keys);
         if (keys === livePointerKey(p.slug) && !raced) {
           raced = true;
-          await approveVersion(env, { versionId: p.versionId, htmlSha256: p.htmlSha256, reviewer: "admin@example.com", note: null, indexable: true, now: 39 });
+          await approveVersion(env, { versionId: p.versionId, htmlSha256: p.htmlSha256, reviewer: "admin@example.com", note: null, indexable: true, now: 40 + LATER });
         }
       },
     } as R2Bucket;
-    await takeDown({ ...env, LIVE: racingApprove }, { siteId: p.siteId, reviewer: "other@example.com", reason: "Phishing", purgeMedia: false, now: 40 });
+    const takedown = (e: typeof env, now: number) => takeDown(e, { siteId: p.siteId, reviewer: "other@example.com", reason: "Phishing", purgeMedia: false, now });
+    const error = await failure(takedown({ ...env, LIVE: racingApprove }, 40));
     expect(raced).toBe(true);
+    expect({ code: error.code, detail: error.detail }).toEqual({ code: "site_busy", detail: { reason: "lease_lost" } });
+    // The approve's state, whole: live in D1 and its pointer names it (the pointer the takedown deleted was written again).
+    expect(await siteRow(env.DB, p.siteId)).toMatchObject({ taken_down_at: null, live_version_id: p.versionId });
+    expect((await env.LIVE.head(livePointerKey(p.slug)))?.customMetadata?.["versionId"]).toBe(p.versionId);
+    await takedown(env, 42); // the admin's retry
     expect(await liveKeysOf(env.LIVE, p.slug)).toEqual([]);
-    expect(await siteRow(env.DB, p.siteId)).toMatchObject({ taken_down_at: 40 });
+    expect(await siteRow(env.DB, p.siteId)).toMatchObject({ taken_down_at: 42 });
   });
 
   it("logs and refuses when it cannot take its pointer back out, and the takedown's retry removes it", async () => {
@@ -355,13 +366,13 @@ describe("approveVersion: all the pages, then the pointer (A16)", () => {
     const pointerDeleteFails = {
       ...flakyBucket(env.LIVE, (call, key) => call === "delete" && key === livePointerKey(p.slug)),
       put: async (...args: Parameters<R2Bucket["put"]>) => {
-        if (args[0] === livePointerKey(p.slug)) await takeDown(env, { siteId: p.siteId, reviewer: "other@example.com", reason: "Phishing", purgeMedia: false, now: 40 });
+        if (args[0] === livePointerKey(p.slug)) await takeDown(env, { siteId: p.siteId, reviewer: "other@example.com", reason: "Phishing", purgeMedia: false, now: 40 + LATER });
         return env.LIVE.put(...args);
       },
     } as R2Bucket;
     const logged = vi.spyOn(console, "error").mockImplementation(() => {});
     try {
-      const racing = approveVersion({ ...env, LIVE: pointerDeleteFails }, { versionId: p.versionId, htmlSha256: p.htmlSha256, reviewer: "admin@example.com", note: null, indexable: true, now: 41 });
+      const racing = approveVersion({ ...env, LIVE: pointerDeleteFails }, { versionId: p.versionId, htmlSha256: p.htmlSha256, reviewer: "admin@example.com", note: null, indexable: true, now: 40 });
       expect((await failure(racing)).code).toBe("site_taken_down");
       expect(logged.mock.calls.map((c) => String(c[0]))).toContainEqual(JSON.stringify({ code: "takedown_pointer_left", siteId: p.siteId, versionId: p.versionId }));
     } finally {
