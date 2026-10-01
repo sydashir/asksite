@@ -40,5 +40,5 @@
     { "binding": "LIVE", "bucket_name": "asksite-live" },
     { "binding": "MEDIA", "bucket_name": "asksite-media" }
   ],
-  "ratelimits": [{ "name": "ADMIN_RL", "namespace_id": "1005", "simple": { "limit": 300, "period": 60 } }]
+  "ratelimits": [{ "name": "ADMIN_RL", "namespace_id": "1005", "simple": { "limit": 5000, "period": 60 } }]
 }

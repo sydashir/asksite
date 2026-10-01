@@ -68,7 +68,10 @@ function SiteScreen({ data, reload }: { data: SiteDetailData; reload: () => void
   async function takeDown(body: TakedownBody, previous: TakedownResult | null) {
     const res = await api<TakedownView>("POST", `/api/admin/sites/${site.id}/takedown`, body);
     if (!res.ok) {
-      // A 500 can come after the takedown committed: say so rather than a plain error, and let the reload show the truth.
+      // A 500 can come after the takedown committed: say so rather than a plain error, and let the reload show the truth. Keep the
+      // body: if the reload shows the site down, "Finish the takedown" re-sends it. That call never emails the owner (its own answer is
+      // always null) and the failed one sent no notice, so the owner is marked as not emailed.
+      if (res.status >= 500) setTakedown({ body, result: { tone: "warning", text: "", cleanupFailed: true, ownerNotEmailed: true } });
       show({ tone: "error", text: res.status >= 500 ? "The takedown may have partly happened. Try again." : res.error.message });
     } else {
       const result = takedownResult(res.data, previous);
@@ -118,7 +121,7 @@ function SiteScreen({ data, reload }: { data: SiteDetailData; reload: () => void
       ) : null}
       <div ref={messageRef} role="status" tabIndex={-1}>
         {message !== null ? <Notice tone={message.tone}>{message.text}</Notice> : null}
-        {takedown?.result.cleanupFailed === true ? (
+        {takedown?.result.cleanupFailed === true && site.takenDown ? (
           <button type="button" className="btn-primary mt-3" onClick={() => void takeDown(takedown.body, takedown.result)}>
             Finish the takedown
           </button>

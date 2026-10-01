@@ -28,6 +28,17 @@ test("review a site: the stored page shows in a sandboxed frame, flags are liste
   await expect(page.getByText("copy.ctaText", { exact: false })).toBeVisible();
   await expectAccessible(page);
   await expectNoSidewaysScroll(page);
+  await expect(page.locator("dd", { hasText: FACTS.email })).toBeVisible();
+
+  const desktop = page.getByRole("button", { name: "Desktop width" });
+  const phone = page.getByRole("button", { name: "Phone width" });
+  await expect(desktop).toHaveAttribute("aria-pressed", "true");
+  await phone.click();
+  await expect(phone).toHaveAttribute("aria-pressed", "true");
+  await expect(desktop).toHaveAttribute("aria-pressed", "false");
+  expect((await page.locator(FRAME).boundingBox())?.width).toBeLessThanOrEqual(390);
+  await desktop.click();
+  await expect(desktop).toHaveAttribute("aria-pressed", "true");
 
   await page.getByLabel("Allow search engines to list this site").uncheck();
   await page.getByRole("button", { name: "Approve and publish" }).click();
@@ -101,6 +112,24 @@ test("when approving fails with a server error, Approve stays available to try a
   await expect(page.getByRole("button", { name: "Approve and publish" })).toBeEnabled();
 });
 
+test("when approving fails with a server error AFTER the version was approved, Approve stays so the copy to live can be retried", async ({ page }) => {
+  const site = await pendingSite(page.request);
+  await page.route("**/api/admin/versions/*/approve", async (route) => {
+    await route.fetch(); // the server really approves, as it does when only its last step (the live copy) fails
+    await route.fulfill({ status: 500, json: { error: { code: "internal", message: "Something went wrong. Please try again." } } });
+  });
+  await page.goto(`/reviews/${site.versionId}`);
+  await page.getByRole("button", { name: "Approve and publish" }).click();
+  await expect(page.getByText("Something went wrong. Please try again.")).toBeVisible();
+  await expect(page.getByText(/status approved/)).toBeVisible(); // the reload shows the version approved
+  await expect(page.getByRole("button", { name: "Approve and publish" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Reject and email the owner" })).toHaveCount(0);
+  await page.unroute("**/api/admin/versions/*/approve");
+  await page.getByRole("button", { name: "Approve and publish" }).click();
+  await expect(page.getByText("Approved. We'll email the owner.", { exact: false })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Approve and publish" })).toHaveCount(0);
+});
+
 test("send and revoke an invite; the link is never shown", async ({ page }) => {
   const email = `invitee-${Date.now()}@example.com`;
   await page.goto("/invites");
@@ -124,6 +153,12 @@ test("take a live site down after confirming, then restore it", async ({ page })
   await page.getByRole("link", { name: `Open ${site.slug}` }).click();
   await expect(page.getByRole("heading", { level: 1, name: "Joe's Plumbing" })).toBeFocused();
   await expectAccessible(page);
+  await expect(page.getByText("search engines allowed")).toBeVisible();
+  await page.getByRole("button", { name: "Block search engines" }).click();
+  await expect(page.getByText("Search engines are now blocked.")).toBeVisible();
+  await expect(page.getByText("search engines blocked")).toBeVisible();
+  await page.getByRole("button", { name: "Allow search engines" }).click();
+  await expect(page.getByText("Search engines are now allowed.")).toBeVisible();
   await page.getByRole("button", { name: "Take the site down" }).click();
   await expect(page.getByLabel("Reason for taking it down")).toBeFocused();
   await page.getByLabel("Reason for taking it down").fill("Phishing report");
@@ -174,6 +209,52 @@ test("a takedown that answers with a server error says it may have partly happen
   await expect(page.getByText("The takedown may have partly happened. Try again.")).toBeVisible();
 });
 
+test("a takedown sends exactly what the admin entered: the reason, the owner message, and whether photos are deleted", async ({ page }) => {
+  const bodies: unknown[] = [];
+  await page.route("**/api/admin/sites/*/takedown", (route, request) => {
+    bodies.push(request.postDataJSON());
+    return route.continue();
+  });
+  const plain = await liveSite(page);
+  await takeDown(page, plain.siteId);
+  await expect(page.getByText("Site taken down.", { exact: false })).toBeVisible();
+  expect(bodies).toEqual([{ reason: "Phishing report", ownerMessage: "", purgeMedia: false }]);
+
+  const purged = await liveSite(page);
+  await page.goto(`/sites/${purged.siteId}`);
+  await page.getByLabel("Reason for taking it down").fill("Copyright claim");
+  await page.getByLabel("Message to the owner").fill("Please send proof of the photos.");
+  await page.getByLabel("Also delete this site's photos").check();
+  await page.getByRole("button", { name: "Take the site down" }).click();
+  const dialog = page.getByRole("dialog", { name: "Take this site down?" });
+  await expect(dialog).toContainText("its photos are deleted");
+  await dialog.getByRole("button", { name: "Take it down" }).click();
+  await expect(page.getByText("Site taken down.", { exact: false })).toBeVisible();
+  expect(bodies[1]).toEqual({ reason: "Copyright claim", ownerMessage: "Please send proof of the photos.", purgeMedia: true });
+});
+
+test("a takedown that errors AFTER the site went down offers Finish the takedown, which sends the same body and says the owner was not emailed", async ({ page }) => {
+  const site = await liveSite(page);
+  const bodies: unknown[] = [];
+  let faulted = false;
+  await page.route("**/api/admin/sites/*/takedown", (route, request) => {
+    bodies.push(request.postDataJSON());
+    if (faulted) return route.continue();
+    faulted = true;
+    // The server commits the takedown in D1, then fails on LIVE (and on its re-read): a real 500, and no owner notice.
+    return route.continue({ headers: { ...request.headers(), "x-test-takedown-fault": "live-delete-reread" } });
+  });
+  await takeDown(page, site.siteId);
+  await expect(page.getByText("The takedown may have partly happened. Try again.")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Restore the site" })).toBeVisible(); // the reload shows it down
+  await page.getByRole("button", { name: "Finish the takedown" }).click();
+  await expect(page.getByText("Owner not emailed — contact them.", { exact: false })).toBeVisible();
+  await expect(page.getByText("Clean-up finished.", { exact: false })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Finish the takedown" })).toHaveCount(0);
+  expect(bodies).toHaveLength(2);
+  expect(bodies[1]).toEqual(bodies[0]);
+});
+
 test("send an owner a sign-in link from their site; a disabled owner has no such button", async ({ page }) => {
   const site = await pendingSite(page.request);
   await page.goto(`/sites/${site.siteId}`);
@@ -185,6 +266,64 @@ test("send an owner a sign-in link from their site; a disabled owner has no such
   await page.getByRole("button", { name: "Disable the owner" }).click();
   await expect(page.getByText("Owner disabled and signed out everywhere.")).toBeVisible();
   await expect(page.getByRole("button", { name: "Send sign-in link" })).toHaveCount(0);
+
+  await page.goto(`/reviews/${site.versionId}`);
+  await expect(page.getByText("The owner's account is disabled. Approving still publishes this page.")).toBeVisible();
+
+  await page.goto(`/sites/${site.siteId}`);
+  await page.getByRole("button", { name: "Enable the owner" }).click();
+  await expect(page.getByText("Owner enabled.")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Send sign-in link" })).toBeVisible();
+});
+
+test("a list the server cuts off says so, and a short list does not", async ({ page }) => {
+  const site = await pendingSite(page.request);
+  await page.goto("/");
+  await expect(page.getByRole("link", { name: `Review ${site.slug} version 1` })).toBeVisible();
+  await expect(page.getByText(/^Showing the \d+ /)).toHaveCount(0);
+
+  const repeat = <T,>(rows: T[], count: number, edit: (row: T, i: number) => T): T[] => Array.from({ length: count }, (_, i) => edit(rows[0] as T, i));
+  await page.route("**/api/admin/reviews", async (route) => {
+    const json = (await (await route.fetch()).json()) as { items: Array<{ version: { id: string }; site: object }> };
+    await route.fulfill({ json: { items: repeat(json.items, 50, (row, i) => ({ ...row, version: { ...row.version, id: `v${i}` } })) } });
+  });
+  await page.reload();
+  await expect(page.getByText("Showing the 50 oldest.")).toBeVisible();
+
+  await page.route("**/api/admin/sites?*", async (route) => {
+    const json = (await (await route.fetch()).json()) as { sites: Array<{ id: string }> };
+    await route.fulfill({ json: { sites: repeat(json.sites, 500, (row, i) => ({ ...row, id: `s${i}` })) } });
+  });
+  await page.goto("/sites");
+  await expect(page.getByText("Showing the 500 most recent.")).toBeVisible();
+
+  await page.route(`**/api/admin/sites/${site.siteId}`, async (route) => {
+    const json = (await (await route.fetch()).json()) as { versions: Array<{ id: string }>; generations: Array<{ id: string }>; audit: Array<{ at: number }> };
+    await route.fulfill({
+      json: {
+        ...json,
+        versions: repeat(json.versions, 50, (row, i) => ({ ...row, id: `v${i}` })),
+        generations: repeat(json.generations, 50, (row, i) => ({ ...row, id: `g${i}` })),
+        audit: repeat(json.audit, 100, (row, i) => ({ ...row, at: row.at + i })),
+      },
+    });
+  });
+  await page.goto(`/sites/${site.siteId}`);
+  await expect(page.getByText("Showing the 50 most recent.")).toHaveCount(2);
+  await expect(page.getByText("Showing the 100 most recent.")).toHaveCount(1);
+});
+
+test("the admin app's policy: frames only itself, no Cloudflare widget, and the other security headers", async ({ request }) => {
+  const res = await request.get(`${ADMIN}/`);
+  const headers = res.headers();
+  const csp = headers["content-security-policy"] ?? "";
+  expect(csp).toContain("frame-src 'self';");
+  expect(csp).toContain("script-src 'self';");
+  expect(csp).toContain("font-src 'self' data:");
+  expect(csp).toContain("frame-ancestors 'none'");
+  expect(csp).not.toContain("challenges.cloudflare.com");
+  expect(headers["x-frame-options"]).toBe("DENY");
+  expect(headers["x-robots-tag"]).toBe("noindex");
 });
 
 test("settings show today's sign-in emails against the cap, and a banner when the cap was reached", async ({ page }) => {

@@ -61,6 +61,12 @@ function ReviewScreen({ detail, onDone }: { detail: AdminVersionDetail; onDone: 
   const resultRef = useRef<HTMLDivElement>(null);
   const changes = detail.liveDocument === null ? [] : textChanges(detail.liveDocument, detail.document);
   const pending = version.status === "pending";
+  /**
+   * A server error on Approve can come after the approval was committed and before the page was copied live (the live copy is the
+   * last step, and a retry is accepted). The reload then shows "approved", but the page may not be live: keep Approve until it works.
+   */
+  const [approveFailed, setApproveFailed] = useState(false);
+  const showApprove = pending || approveFailed;
   const email = (detail.document as { facts?: { email?: unknown } }).facts?.email;
   const publicEmail = typeof email === "string" ? email : "(none)";
   /** Approve and Reject remove their own forms: keep keyboard focus on the result. */
@@ -72,6 +78,7 @@ function ReviewScreen({ detail, onDone }: { detail: AdminVersionDetail; onDone: 
   async function approve(event: FormEvent) {
     event.preventDefault();
     const res = await api<{ liveUrl: string }>("POST", `/api/admin/versions/${version.id}/approve`, { htmlSha256: version.htmlSha256, note: approveNote.trim(), indexable });
+    setApproveFailed(!res.ok && res.status >= 500);
     if (res.ok) showResult({ tone: "success", text: "Approved. We'll email the owner. The site goes live within about a minute:", href: res.data.liveUrl });
     else showResult({ tone: "error", text: res.error.message });
     onDone();
@@ -219,7 +226,7 @@ function ReviewScreen({ detail, onDone }: { detail: AdminVersionDetail; onDone: 
             </section>
           ) : null}
 
-          {pending ? (
+          {showApprove ? (
             <>
               <form className="card" noValidate onSubmit={(e) => void approve(e)} aria-labelledby="approve-title">
                 <h2 id="approve-title" className="text-lg font-semibold">
@@ -231,15 +238,17 @@ function ReviewScreen({ detail, onDone }: { detail: AdminVersionDetail; onDone: 
                   Approve and publish
                 </button>
               </form>
-              <form className="card" noValidate onSubmit={(e) => void reject(e)} aria-labelledby="reject-title">
-                <h2 id="reject-title" className="text-lg font-semibold">
-                  Reject
-                </h2>
-                <TextArea id="reject-note" label="Reason (the owner sees this)" hint="This is emailed to the owner." max={1000} value={rejectNote} onChange={setRejectNote} errors={rejectError} />
-                <button type="submit" className="btn-secondary mt-4">
-                  Reject and email the owner
-                </button>
-              </form>
+              {pending ? (
+                <form className="card" noValidate onSubmit={(e) => void reject(e)} aria-labelledby="reject-title">
+                  <h2 id="reject-title" className="text-lg font-semibold">
+                    Reject
+                  </h2>
+                  <TextArea id="reject-note" label="Reason (the owner sees this)" hint="This is emailed to the owner." max={1000} value={rejectNote} onChange={setRejectNote} errors={rejectError} />
+                  <button type="submit" className="btn-secondary mt-4">
+                    Reject and email the owner
+                  </button>
+                </form>
+              ) : null}
             </>
           ) : null}
         </div>
