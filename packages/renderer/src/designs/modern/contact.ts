@@ -10,18 +10,27 @@ import { BUILDING } from "./icons.ts";
 import { callButton, credentialList, emailText, emergencyNote, head, hoursTable, keepParts, pageBand, quoteButton } from "./parts.ts";
 import { cityLine, fewPlaces } from "./text.ts";
 
-/** The street address with the building icon, or "Based in …" when the list of places does not already name the home town. */
-function address(facts: Facts): SafeHtml | false {
+/**
+ * The street address with the building icon, or "Based in …": always at the foot of the places board, so a short list
+ * beside the hours never leaves a hollow board (judges, A16 round 2); in the one-line band of one or two places only
+ * when they do not already name the home town.
+ */
+function address(facts: Facts, always: boolean): SafeHtml | false {
   const { location, serviceArea } = facts;
   if (location.streetAddress !== undefined) return html`<div class="addr">${BUILDING}<address>${location.streetAddress}<br>${cityLine(facts)}</address></div>`;
   const home = location.city.trim().toLowerCase();
-  return !serviceArea.places.some((place) => place.trim().toLowerCase() === home) && html`<p class="addr">${BUILDING}<span>Based in ${cityLine(facts)}</span></p>`;
+  return (always || !serviceArea.places.some((place) => place.trim().toLowerCase() === home)) && html`<p class="addr">${BUILDING}<span>Based in ${cityLine(facts)}</span></p>`;
 }
+
+/** More places than this make a long list (see renderServiceArea). */
+const LONG_LIST = 12;
 
 /**
  * The places as a ruled list on a board with a brand header, and the hours as a timetable board beside it: the
  * Contact page always says when the business is open, at every width (A16). Side by side, a short list of places
- * ends level with the hours; a long one keeps its own height.
+ * ends level with the hours; beside a long one the hours board would end hundreds of pixels above it (judges, A16
+ * round 2), so with more than LONG_LIST places the hours sit beside the heading and the places take the whole width
+ * under both (area-long).
  * One or two places without hours read as one sentence in a slim band beside the heading, not a full section. When
  * the owner puts this section before the form (A16 U1), its heading carries Call and the call to action, which jumps
  * to the form, so the first screen still offers both (judges, A16 round 1).
@@ -33,20 +42,21 @@ export function renderServiceArea(ctx: RenderContext, _variant: VariantOf<"servi
   const { places, note } = facts.serviceArea;
   const hours = facts.hours.length > 0;
   const few = places.length <= 2;
+  const long = hours && places.length > LONG_LIST;
   const hoursBoard =
     hours &&
     html`<div class="board">${itemHeading(level, "board-h", html`${icon("clock", "i")}${facts.emergency247 ? "Office hours" : "Hours"}`)}${hoursTable(facts)}${emergencyNote(facts)}</div>`;
   const areas = few
-    ? html`<div class="few"><p class="few-line">${icon("map-pin", "i")}<span>Serving <strong>${fewPlaces(facts)}</strong></span></p>${address(facts)}</div>`
+    ? html`<div class="few"><p class="few-line">${icon("map-pin", "i")}<span>Serving <strong>${fewPlaces(facts)}</strong></span></p>${address(facts, false)}</div>`
     : // A place with one word of 16 or more letters takes a whole row, so it wraps only when wider than the list.
       html`<div class="board">${itemHeading(level, "board-h", html`${icon("map-pin", "i")}Areas we serve`)}<div class="board-body">
 <ul class="places">${places.map((place) => html`<li class="place${place.split(/\s+/).some((word) => word.length >= 16) ? " span" : ""}">${place}</li>`)}</ul>
-${address(facts)}
+${address(facts, true)}
 </div></div>`;
 
   return html`<section id="${DOM_ID.serviceArea}" class="sec${few && !hours ? " slim" : ""} ${tone}" aria-labelledby="${DOM_ID.serviceArea}-title">
 ${pageBand(ctx, "serviceArea")}
-<div class="wrap${few && !hours ? " slim-in" : ""}">
+<div class="${few && !hours ? "wrap slim-in" : long ? "wrap area-long" : "wrap"}">
 ${head(DOM_ID.serviceArea, hours ? "Service area & hours" : "Service area", note, level, actions)}
 <div class="area${hours ? "" : " area--solo"}">${areas}${hoursBoard}</div>
 </div>

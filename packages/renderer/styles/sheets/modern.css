@@ -331,7 +331,7 @@
   .on-brand .display { color: #fff; }
   /* an inner page's first section opens with Home's brand strip and livery seam, then its h1 (the hero's size) */
   main > .sec:first-child { padding-top: 0; }
-  .sec > .band { margin-bottom: 40px; }
+  .sec > .band { margin-bottom: 28px; }
   @media (min-width: 768px) {
     .sec { padding-block: 96px; }
     .sec > .band { margin-bottom: 56px; }
@@ -621,13 +621,17 @@
     /* the hours board never narrower than its table, whose day ranges and times keep their lines: the places give way */
     .area { grid-template-columns: minmax(0, 7fr) minmax(min-content, 5fr); gap: 20px; align-items: start; }
     .area.area--solo { grid-template-columns: minmax(0, 1fr); }
-    /* a short list of places ends level with the hours beside it, its address at the board's foot (no hollow card);
-       beside a long list, the hours board stays in view under the header while the places scroll past */
+    /* a short list of places ends level with the hours beside it, its address at the board's foot (no hollow card) */
     .area > .board:first-child, .board-body { display: flex; flex-direction: column; }
     .area > .board:first-child { align-self: stretch; }
     .board-body { flex: 1; }
     .board-body > .addr { margin-top: auto; }
-    .board + .board { position: sticky; top: calc(var(--hdr) + 24px); }
+    /* a long list (src/designs/modern/contact.ts): the hours beside the heading, ending with it, and the places across
+       the whole width under both */
+    .area-long { display: grid; grid-template-columns: minmax(0, 7fr) minmax(min-content, 5fr); column-gap: 20px; }
+    .area-long > .area { display: contents; }
+    .area-long .board { grid-column: 1 / -1; }
+    .area-long .board + .board { grid-area: 1 / 2; align-self: end; margin-bottom: 44px; }
   }
 
   /* questions: a ruled list with a square key, a call panel beside it */
@@ -674,7 +678,7 @@
   }
 
   /* contact: the form, then the call card; the <form> itself is the field grid */
-  .contact { display: grid; grid-template-columns: minmax(0, 1fr); gap: 20px; }
+  .contact { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
   .contact > * { min-width: 0; }
   .contact .head { margin: 0; }
   /* Call and the call to action under the heading, when the service area opens the Contact page */
@@ -684,7 +688,7 @@
   .cred-card { padding: 24px 22px; border: 1px solid var(--line); border-top: 4px solid var(--brand); border-radius: var(--r); background: #fff; }
   .white .cred-card { border-color: transparent; border-top-color: var(--brand); background: var(--tint); }
   .cred-card .lbl { margin-bottom: 16px; color: var(--ink); }
-  .form-card { position: relative; padding: 26px 20px 22px; border: 1px solid var(--line); border-top: 4px solid var(--brand); border-radius: var(--r); background: #fff; box-shadow: var(--lift); color: var(--text); }
+  .form-card { position: relative; padding: 22px 20px; border: 1px solid var(--line); border-top: 4px solid var(--brand); border-radius: var(--r); background: #fff; box-shadow: var(--lift); color: var(--text); }
   /* "/contact#quote" lands on the form with the card's top edge in view (under the sticky header from 768 px) */
   .form { display: grid; grid-template-columns: minmax(0, 1fr); gap: 18px; scroll-margin-top: 48px; }
   .field label { display: block; margin-bottom: 7px; color: var(--ink); font-size: 0.9375rem; font-weight: 700; }
@@ -725,12 +729,11 @@
   .call-card ul { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; margin-top: 18px; padding-top: 18px; border-top: 1px solid var(--brand-line); }
   .call-card li { min-width: 0; font-size: 0.9375rem; line-height: 1.4; text-wrap: balance; }
   .call-card li a { font-weight: 600; text-decoration: underline; text-underline-offset: 0.2em; }
-  /* Phones: a compact card, the number and the email under it, so the form's first fields share the first screen
-     (the 24/7 line is in the brand strip just above) */
+  /* Phones: a compact card, the label and the big number only, so the form's Name and Phone fields share the first
+     screen (judges, A16 round 2); the email is in the footer and the 24/7 line in the brand strip above */
   @media (max-width: 767px) {
-    .call-card { padding: 16px 20px 18px; }
-    .call-card ul { margin-top: 2px; padding-top: 0; border: 0; }
-    .call-card li .lbl, .call-card li + li { display: none; }
+    .call-card { padding: 16px 20px; }
+    .call-card ul { display: none; }
   }
   @media (hover: hover) {
     .big:hover { text-decoration: underline 2px; }

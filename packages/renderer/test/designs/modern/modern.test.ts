@@ -190,7 +190,7 @@ describe("Modern: Home previews the first three services (A16)", () => {
     expect(previewOf(loadFixture("cleaning-minimal"))).not.toContain('<p class="price');
     expect(preview).not.toContain('class="card');
     expect([...preview.matchAll(/href="([^"]*)"/g)].map((m) => m[1])).toEqual(["/services"]);
-    expect(preview).toContain('<a class="button button-line teaser-more" href="/services">More about our services<svg');
+    expect(preview).toContain('<a class="button button-line" href="/services">More about our services<svg');
   });
 
   // A16 round 2's judges: with 12 services, nothing on Home said that 9 more exist (the link's words are the contract's).
@@ -200,7 +200,7 @@ describe("Modern: Home previews the first three services (A16)", () => {
     expect(count(loadFixture("roofing-extreme"))).toBe("Showing 3 of 12 services");
     expect(count(withServices(loadFixture("plumber-austin"), 3))).toBeUndefined();
     expect(count(loadFixture("cleaning-minimal"))).toBeUndefined();
-    expect(previewOf(loadFixture("plumber-austin"))).toMatch(/<div class="teaser-end"><p class="teaser-count">Showing 3 of 5 services<\/p><a class="button button-line teaser-more" href="\/services">/);
+    expect(previewOf(loadFixture("plumber-austin"))).toMatch(/<div class="teaser-end"><p class="teaser-count">Showing 3 of 5 services<\/p><a class="button button-line" href="\/services">/);
   });
 
   it("names its layout for one or two services: one service beside the heading, two in two columns", () => {
@@ -297,6 +297,23 @@ describe("Modern: the Contact page (A16)", () => {
     expect(wrap(loadFixture("plumber-austin"))).toBe("wrap contact");
     expect(wrap(loadFixture("cleaning-minimal"))).toBe("wrap contact contact--call");
     expect(wrap(withHidden(loadFixture("plumber-austin"), ["trust"]))).toBe("wrap contact contact--call");
+  });
+
+  // A16 round 2's judges: beside 30 places the hours board ended ~900 px above the list.
+  it("names the long layout of the service area (the hours beside the heading) for more than 12 places with hours", () => {
+    const plumber = loadFixture("plumber-austin");
+    const places = (count: number) => withFacts(plumber, { serviceArea: { ...plumber.facts.serviceArea, places: Array.from({ length: count }, (_, i) => `Town ${i + 1}`) } });
+    const wrap = (input: SiteDocumentInput) => /<section id="service-area"[^]*?<div class="(wrap|wrap area-long)">\n/.exec(pageOf(input, "contact"))?.[1];
+    expect([plumber, places(12), places(13), loadFixture("roofing-extreme")].map(wrap)).toEqual(["wrap", "wrap", "wrap area-long", "wrap area-long"]);
+    expect(wrap(withFacts(places(13), { hours: [] }))).toBe("wrap");
+  });
+
+  // A16 round 2's judges: a places board stretched to the hours beside it was hollow at its foot.
+  it("ends the places board with the street address, else where the business is based, even when a place names the home town", () => {
+    const foot = (input: SiteDocumentInput) => /<div class="board-body">[^]*<\/ul>\n([^]*?)\n<\/div><\/div>/.exec(pageOf(input, "contact"))?.[1];
+    expect(foot(loadFixture("hvac-phoenix"))).toMatch(/^<p class="addr"><svg [^]*<\/svg><span>Based in Phoenix, AZ 85016<\/span><\/p>$/);
+    expect(foot(loadFixture("plumber-austin"))).toMatch(/^<div class="addr"><svg [^]*<\/svg><address>4100 S Congress Ave<br>Austin, TX 78745<\/address><\/div>$/);
+    expect(pageOf(loadFixture("cleaning-minimal"), "contact")).not.toContain("Based in");
   });
 });
 

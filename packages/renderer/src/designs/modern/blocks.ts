@@ -33,7 +33,7 @@ ${head(SERVICES_PREVIEW_ID, "Our services")}
 <ul class="teaser-list">
 ${items.map((s) => html`<li>${icon("check", "i")}<h3 class="h3">${s.name}</h3>${fromPrice(s.startingPrice)}${s.description && html`<p class="teaser-desc">${s.description}</p>`}</li>`)}
 </ul>
-<div class="teaser-end">${count}<a class="button button-line teaser-more" href="${pageLink(ctx, "services")}">More about our services${icon("chevron-right", "i")}</a></div>
+<div class="teaser-end">${count}<a class="button button-line" href="${pageLink(ctx, "services")}">More about our services${icon("chevron-right", "i")}</a></div>
 </div>
 </section>`;
 }

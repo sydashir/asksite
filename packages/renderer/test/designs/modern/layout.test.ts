@@ -566,7 +566,7 @@ describe.each(ENGINES)("Modern in %s", (_engine, engine) => {
           sameLine: price === undefined || (price.left >= name.right - 1 && price.top < name.bottom && price.bottom > name.top),
         };
       });
-      return { rows, list: box(".teaser-list"), link: box(".teaser-more"), count: box(".teaser-count"), title: box("#services-preview-title") };
+      return { rows, list: box(".teaser-list"), link: box(".teaser-end > a"), count: box(".teaser-count"), title: box("#services-preview-title") };
     };
     const plumber = loadFixture("plumber-austin");
     const PREVIEWS: ReadonlyArray<readonly [string, SiteDocumentInput]> = [
@@ -740,6 +740,9 @@ describe.each(ENGINES)("Modern in %s", (_engine, engine) => {
         hollow: places === null || placesEnd === undefined ? 0 : places.getBoundingClientRect().bottom - placesEnd - placesPad,
       };
     };
+    // The fixtures whose places board sits beside the hours (a short list): plumber-austin ends it with its street,
+    // hvac-phoenix with "Based in" (its home town is one of the places).
+    const SIDE_BY_SIDE: readonly string[] = ["plumber-austin", "hvac-phoenix"];
     for (const name of ["plumber-austin", "hvac-phoenix", "roofing-extreme", "cleaning-minimal"] as const) {
       await open(page(name, undefined, "contact"), 1024);
       for (const width of [1024, 1280, 1920]) {
@@ -751,28 +754,34 @@ describe.each(ENGINES)("Modern in %s", (_engine, engine) => {
         if (got.creds !== undefined && (got.creds.top < got.call.bottom || Math.abs(got.creds.left - got.call.left) > 1 || Math.abs(got.creds.width - got.call.width) > 1)) found.push(`${where}: credentials ${JSON.stringify(got.creds)} vs call card ${JSON.stringify(got.call)}`);
         if (Math.abs(got.call.top - got.form.top) > 1) found.push(`${where}: the call card starts ${Math.round(got.call.top - got.form.top)} px off the form`);
         if (side.bottom < got.form.bottom - 1) found.push(`${where}: the column beside the form ends ${Math.round(got.form.bottom - side.bottom)} px above it`);
-        if (name === "plumber-austin" && (got.boards.length !== 2 || Math.abs(got.boards[0]! - got.boards[1]!) > 1)) found.push(`${where}: boards end at ${got.boards.map(Math.round).join(",")}`);
-        if (name === "plumber-austin" && Math.abs(got.hollow) > 1) found.push(`${where}: ${Math.round(got.hollow)} px hollow at the foot of the areas board`);
+        if (SIDE_BY_SIDE.includes(name) && (got.boards.length !== 2 || Math.abs(got.boards[0]! - got.boards[1]!) > 1)) found.push(`${where}: boards end at ${got.boards.map(Math.round).join(",")}`);
+        if (SIDE_BY_SIDE.includes(name) && Math.abs(got.hollow) > 1) found.push(`${where}: ${Math.round(got.hollow)} px hollow at the foot of the areas board`);
       }
     }
     expect(found).toEqual([]);
   }, 60_000);
 
-  // A16 round 2's judges: beside 30 places the hours board ended ~900 px above the list. It stays in view.
-  it("keeps the hours board in view under the header beside a long list of places, from 900 px", async () => {
+  // A16 round 2's judges: beside 30 places the hours board ended ~900 px above the list, leaving the right third of the
+  // section empty. With a long list the hours sit beside the heading, ending with it, and the places take the whole
+  // width under both; a short list keeps the boards side by side (the test above).
+  it("sets the hours beside the heading and the places across the whole width under both, for a long list of places, from 900 px", async () => {
     const found: string[] = [];
-    await open(page("roofing-extreme", undefined, "contact"), 1280);
-    for (const width of [900, 1280, 1920]) {
-      await tab.setViewportSize({ width, height: 800 });
-      const got = await tab.evaluate(() => {
-        const places = document.querySelector("#service-area .board");
-        window.scrollTo(0, places.getBoundingClientRect().top + window.scrollY + places.getBoundingClientRect().height / 2);
-        const hours = document.querySelector("#service-area .board + .board").getBoundingClientRect();
-        const header = document.querySelector("header").getBoundingClientRect();
-        window.scrollTo(0, 0);
-        return { hours: hours.top, header: header.bottom };
-      });
-      if (Math.abs(got.hours - got.header - 24) > 1) found.push(`${width}: the hours board's top at ${Math.round(got.hours)}, the header's bottom at ${Math.round(got.header)}`);
+    for (const [name, input] of [
+      ["roofing-extreme, the service area first", loadFixture("roofing-extreme")],
+      ["plumber-austin with 20 places, the form first", withFacts(plumberInput, { serviceArea: { ...plumberInput.facts.serviceArea, places: Array.from({ length: 20 }, (_, i) => `Town ${i + 1}`) } })],
+    ] as const) {
+      await open(pageOf(input, undefined, "contact"), 1280);
+      for (const width of [900, 1280, 1920]) {
+        await tab.setViewportSize({ width, height: 800 });
+        const got = await tab.evaluate(() => {
+          const box = (selector: string) => document.querySelector(`#service-area ${selector}`).getBoundingClientRect().toJSON();
+          return { head: box(".head"), places: box(".board"), hours: box(".board + .board"), wrap: box(".wrap") };
+        });
+        const where = `${name} ${width}`;
+        if (got.hours.left < got.head.right || got.hours.top < got.head.top - 1 || Math.abs(got.hours.right - got.places.right) > 1) found.push(`${where}: the hours board is not beside the heading ${JSON.stringify(got)}`);
+        if (got.places.top < Math.max(got.head.bottom, got.hours.bottom + 43)) found.push(`${where}: the places start at ${Math.round(got.places.top)}, above the heading's or the hours board's end`);
+        if (Math.abs(got.places.left - got.head.left) > 1 || got.places.width < got.wrap.width - 2 * 40 - 1) found.push(`${where}: the places board does not take the whole width ${JSON.stringify(got)}`);
+      }
     }
     expect(found).toEqual([]);
   }, 60_000);
