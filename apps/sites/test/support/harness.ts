@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { liveKey, mediaKey, newId } from "@asksite/core";
+import { livePageKey, mediaKey, newId } from "@asksite/core";
+import type { PageId } from "@asksite/site-schema";
 import { createTestHarness } from "wrangler";
 import type { Env } from "../../src/env.ts";
 
@@ -128,11 +129,16 @@ export async function seedSite(
   return site;
 }
 
-/** Stores a site's page in LIVE the way approveVersion does: content type and { siteId, versionId } metadata, plus `metadata`. */
-export async function putLive(env: ToolsEnv, site: Pick<SeededSite, "slug" | "siteId" | "versionId" | "html">, metadata: Record<string, string> = {}): Promise<void> {
-  await env.LIVE.put(liveKey(site.slug), site.html, {
+/** Stores a site's page (Home unless `page` says otherwise) in LIVE the way approveVersion does: content type and { siteId, versionId } metadata, plus `metadata`. */
+export async function putLive(
+  env: ToolsEnv,
+  site: Pick<SeededSite, "slug" | "siteId" | "versionId" | "html">,
+  metadata: Record<string, string> = {},
+  page: PageId = "home",
+): Promise<void> {
+  await env.LIVE.put(livePageKey(site.slug, page), site.html, {
     httpMetadata: { contentType: "text/html; charset=utf-8" },
-    customMetadata: { siteId: site.siteId, versionId: site.versionId ?? "", ...metadata },
+    customMetadata: { siteId: site.siteId, versionId: site.versionId ?? "", page, ...metadata },
   });
 }
 

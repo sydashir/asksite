@@ -168,7 +168,7 @@ test.describe("a wrong path on a live site", () => {
         dialogs.push(dialog.message());
         void dialog.dismiss();
       });
-      const response = await page.goto(`${live?.url}contact`);
+      const response = await page.goto(`${live?.url}old-page`);
       expect(response?.status()).toBe(404);
       expect(response?.headers()["x-robots-tag"]).toBe("noindex");
       const link = page.getByRole("link", { name: `Go to ${name}'s page` });

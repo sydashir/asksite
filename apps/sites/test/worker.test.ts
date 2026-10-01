@@ -2,6 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } fr
 import { securityTxt } from "../src/apex.ts";
 import type { Env } from "../src/env.ts";
 import worker from "../src/index.ts";
+import { liveKeys } from "@asksite/core";
+import { PAGE_IDS, PAGES } from "@asksite/site-schema";
 
 // The handler run directly in Node: what the workerd harness cannot show. workerd itself drops a HEAD
 // response's body on the wire (checked with a raw socket), so only here can a test see that the
@@ -98,7 +100,7 @@ describe("the 404 page on a live host", () => {
     const statement = { bind: () => statement, first: async () => ({ indexable: 1, live_version_id: "v" }) };
     const DB = new Proxy({}, { get: (_, key) => (d1.push(String(key)), () => statement) });
     const liveEnv = { ...env(), LIVE, DB } as unknown as Env;
-    const paths = ["/robots.txt", "/wp-login.php", "/contact", "/_f/not-an-id/sent", ...Array.from({ length: 196 }, (_, i) => `/x${i}`)];
+    const paths = ["/robots.txt", "/wp-login.php", "/old-page", "/_f/not-an-id/sent", ...Array.from({ length: 196 }, (_, i) => `/x${i}`)];
     for (const [i, path] of paths.entries()) {
       const method = i % 2 === 0 ? "GET" : "HEAD";
       const response = await worker.fetch(new Request(`https://joes.${ROOT}${path}`, { method }) as IncomingRequest, liveEnv, ctx);
@@ -107,6 +109,48 @@ describe("the 404 page on a live host", () => {
     }
     expect(d1).toEqual([]);
     expect(heads).toEqual(paths.map(() => "joes.html"));
+  });
+});
+
+// A16 routing is security: the Worker never builds an R2 key from the request path. Whatever the path,
+// every LIVE read is one of the site's 5 page keys, and an unknown slug never reaches D1.
+describe("page routing on a site host", () => {
+  const slug = "joes";
+  const hostile = ["/../x", "/%2e%2e/x", "/services/../about", "/services%2F..%2Fabout", "//services", "/SERVICES", "/services.html", "/index.html", "/contact#x", "/services/", "/services//", "/__proto__", "/constructor"];
+
+  beforeEach(() => {
+    vi.stubGlobal("caches", { default: { match: async () => undefined, put: async () => {} } });
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  async function readsFor(paths: readonly string[]) {
+    const keys: string[] = [];
+    const d1: string[] = [];
+    const LIVE = {
+      get: async (key: string) => (keys.push(key), null),
+      head: async (key: string) => (keys.push(key), null),
+    };
+    const DB = new Proxy({}, { get: (_, key) => (d1.push(String(key)), () => { throw new Error("D1 must not be read"); }) });
+    const siteEnv = { ...env(), LIVE, DB } as unknown as Env;
+    for (const path of paths) {
+      for (const method of ["GET", "HEAD"]) await worker.fetch(new Request(`https://${slug}.${ROOT}${path}`, { method }) as IncomingRequest, siteEnv, ctx);
+    }
+    return { keys, d1 };
+  }
+
+  it("reads only the site's 5 page keys from LIVE, whatever the path", async () => {
+    const { keys } = await readsFor(hostile);
+    expect(keys.length).toBeGreaterThan(0);
+    const allowed = new Set(liveKeys(slug));
+    for (const key of keys) expect(allowed.has(key), key).toBe(true);
+  });
+
+  it("never reaches D1 for a slug with no LIVE object, on any page path", async () => {
+    const { keys, d1 } = await readsFor(PAGE_IDS.map((page) => PAGES[page].path));
+    expect(keys).toContain("joes/about.html");
+    expect(d1).toEqual([]);
   });
 });
 
