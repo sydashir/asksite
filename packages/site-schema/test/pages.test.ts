@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   ALWAYS_PAGES,
+  DEFAULT_SECTION_ORDER,
   HIDEABLE_SECTIONS,
   isPageId,
   PAGE_IDS,
@@ -33,6 +34,13 @@ describe("the page map (A16)", () => {
     const placed = PAGE_IDS.flatMap((id) => PAGES[id].sections);
     expect([...placed].sort()).toEqual([...SECTION_IDS].sort());
     for (const id of SECTION_IDS) expect(PAGES[SECTION_PAGE[id]].sections).toContain(id);
+  });
+
+  // U1 (user, 2026-10-01): an owner may reorder sections within a page; without an owner order, each page shows
+  // its sections in the page map's order (for example the Contact page starts with the quote form).
+  it("gives every section once, in the page map's order, as the default order (hero first)", () => {
+    expect(DEFAULT_SECTION_ORDER).toEqual(["hero", "trust", "testimonials", "services", "faq", "about", "gallery", "contact", "serviceArea"]);
+    expect(Object.isFrozen(DEFAULT_SECTION_ORDER)).toBe(true);
   });
 
   it("always has Home, Services and Contact: each holds a section the owner can never hide", () => {

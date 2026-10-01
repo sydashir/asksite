@@ -31,6 +31,7 @@ export {
 } from "./layout.ts";
 export {
   ALWAYS_PAGES,
+  DEFAULT_SECTION_ORDER,
   isPageId,
   PAGE_IDS,
   pageForPath,

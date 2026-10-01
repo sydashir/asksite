@@ -32,6 +32,12 @@ export const SECTION_PAGE: Readonly<Record<SectionId, PageId>> = Object.freeze(
   Object.fromEntries(PAGE_IDS.flatMap((id) => PAGES[id].sections.map((section) => [section, id]))) as Record<SectionId, PageId>,
 );
 
+/**
+ * Every section once, in the page map's order: hero first, then each page's sections in turn. It is the order
+ * a site uses until the owner reorders sections, which they may do only within a page (U1, user 2026-10-01).
+ */
+export const DEFAULT_SECTION_ORDER: readonly SectionId[] = Object.freeze(PAGE_IDS.flatMap((id) => PAGES[id].sections));
+
 /** The pages every site has. */
 export const ALWAYS_PAGES = Object.freeze(["home", "services", "contact"] as const satisfies readonly PageId[]);
 
