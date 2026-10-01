@@ -116,6 +116,8 @@ test("sections are grouped by page, move only within their page, and hiding says
     return html.includes('<section id="faq"') && html.indexOf('<section id="faq"') < html.indexOf('<section id="services"');
   }).toBe(true);
   await expect(page.getByRole("button", { name: "Move Questions and answers up" })).toBeDisabled();
+  // The button that reached the edge is disabled, so keyboard focus moves to its sibling instead of falling to the page.
+  await expect(page.getByRole("button", { name: "Move Questions and answers down" })).toBeFocused();
 
   // The Contact page keeps its own order.
   await page.getByRole("button", { name: "Move Service area and hours up" }).click();
@@ -164,6 +166,16 @@ test("the preview follows the owner to the page of the field being edited, and s
   await showPreview(page);
   await expect(pageButton(page, "Home")).toHaveAttribute("aria-pressed", "true");
   await expect(page.getByText("Showing the Home page")).toBeVisible();
+});
+
+test("moving a question to the top of the list keeps keyboard focus on a live button", async ({ page }) => {
+  await openEditor(page);
+  await page.getByRole("button", { name: "Add a question" }).click();
+  await expect(page.getByLabel("Question 2")).toBeVisible();
+  await page.getByRole("button", { name: "Move question 2 up" }).click();
+  // The moved question is now first, so its Move up is disabled: focus goes to its Move down.
+  await expect(page.getByRole("button", { name: "Move question 1 up" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Move question 1 down" })).toBeFocused();
 });
 
 test("write new wording asks first, then replaces the wording but keeps the look", async ({ page }) => {
@@ -300,8 +312,12 @@ test("when the preview cannot load it says so, editing and saving carry on, and 
   // First failure. Nothing reloads by itself.
   await showPreview(page);
   await expect(page.getByText("The preview couldn't load. Your changes are saved.")).toBeVisible();
-  await page.getByRole("button", { name: "Try again" }).click();
+  // By keyboard: WebKit does not focus a button on a mouse click.
+  await page.getByRole("button", { name: "Try again" }).focus();
+  await page.keyboard.press("Enter");
   await expect(page.getByText("The preview still can't load. Your changes are saved.")).toBeVisible();
+  // Retrying must not take the keyboard's place: the button that was pressed is still there and still focused.
+  await expect(page.getByRole("button", { name: "Try again" })).toBeFocused();
   expect(await kept()).toBe(true);
 
   // The editor is still usable, and saves.

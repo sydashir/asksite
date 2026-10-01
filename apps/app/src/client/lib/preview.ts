@@ -1,6 +1,6 @@
 import { composeDocument, previewFormActionUrl, previewSiteUrl, toIssues, type CurrentAi, type Issue, type OwnerEdits } from "@asksite/core";
 import { render, type DesignStylesheets, type RenderedSitePage } from "@asksite/renderer";
-import { SiteDocument, type DesignId } from "@asksite/site-schema";
+import { SiteDocument } from "@asksite/site-schema";
 import { issuesToShow } from "./messages.ts";
 
 export interface DraftParts {
@@ -37,11 +37,6 @@ export function renderPages(doc: SiteDocument, site: { id: string; slug: string 
 export function buildPreview(ai: CurrentAi, draft: DraftParts, site: { id: string; slug: string | null }, root: string, stylesheets: DesignStylesheets): Preview {
   const checked = checkDraft(ai, draft);
   return checked.ok ? { ok: true, doc: checked.doc, pages: renderPages(checked.doc, site, root, stylesheets) } : checked;
-}
-
-/** The design the draft's page is drawn in: the owner's choice, else the AI draft's (as composeDocument picks the theme). */
-export function previewDesign(ai: CurrentAi, edits: OwnerEdits): DesignId {
-  return edits.theme?.design ?? ai.draft.theme.design;
 }
 
 export type ImportStylesheets = () => Promise<{ readonly DESIGN_CSS: DesignStylesheets }>;

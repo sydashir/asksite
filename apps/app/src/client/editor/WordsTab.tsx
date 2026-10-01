@@ -5,7 +5,7 @@ import { isAllowedKey, withCopy, withServiceDescription } from "../lib/edits.ts"
 import type { Fix } from "../lib/messages.ts";
 import { sectionOfCopy } from "../lib/sections.ts";
 import { asArray, asRecord, asString, fieldId, moveItem, type Path } from "../lib/values.ts";
-import { focusSoon } from "../steps/types.ts";
+import { focusFirstEnabled, focusSoon } from "../steps/types.ts";
 
 type CopyEdits = OwnerEdits["copy"];
 type Intro = "services" | "gallery" | "faq" | "contact";
@@ -41,6 +41,13 @@ export function WordsTab({ ai, edits, composed, facts, setEdits, errors, fixFor,
     setEdits(withCopy(ai, edits, fn));
   };
   const setIntro = (key: Intro, value: string) => change(sectionOfCopy(["copy", "sectionIntros", key]), (c) => ({ ...c, sectionIntros: { ...c.sectionIntros, [key]: value === "" ? null : value } }));
+  const faqMoveId = (index: number, direction: "up" | "down") => `faq-move-${direction}-${index}`;
+  /** Moves a question; a button that reached the end of the list is disabled, so keyboard focus goes to the other one. */
+  const moveFaq = (index: number, by: -1 | 1) => {
+    setFaq(moveItem(faqItems, index, by));
+    const same = by === -1 ? "up" : "down";
+    focusFirstEnabled(faqMoveId(index + by, same), faqMoveId(index + by, same === "up" ? "down" : "up"));
+  };
   const setFaq = (items: Array<{ question: string; answer: string }>) => change("faq", (c) => ({ ...c, faq: items }));
   const faqItems = faq.map((f) => ({ question: asString(f["question"]), answer: asString(f["answer"]) }));
   // Every service by index, so field ids and errors line up with copy.serviceDescriptions.<i>. Edits are
@@ -119,10 +126,10 @@ export function WordsTab({ ai, edits, composed, facts, setEdits, errors, fixFor,
             <TextInput {...field("faq", i, "question")} label={`Question ${i + 1}`} max={COPY_LIMITS.faqQuestion} value={item.question} onChange={(v) => setFaq(faqItems.map((f, n) => (n === i ? { ...f, question: v } : f)))} />
             <TextArea {...field("faq", i, "answer")} label={`Answer ${i + 1}`} max={COPY_LIMITS.faqAnswer} value={item.answer} onChange={(v) => setFaq(faqItems.map((f, n) => (n === i ? { ...f, answer: v } : f)))} />
             <div className="mt-3 flex flex-wrap gap-2">
-              <button type="button" className="btn-small" disabled={i === 0} onClick={() => setFaq(moveItem(faqItems, i, -1))}>
+              <button id={faqMoveId(i, "up")} type="button" className="btn-small" disabled={i === 0} onClick={() => moveFaq(i, -1)}>
                 Move question {i + 1} up
               </button>
-              <button type="button" className="btn-small" disabled={i === faqItems.length - 1} onClick={() => setFaq(moveItem(faqItems, i, 1))}>
+              <button id={faqMoveId(i, "down")} type="button" className="btn-small" disabled={i === faqItems.length - 1} onClick={() => moveFaq(i, 1)}>
                 Move question {i + 1} down
               </button>
               <button

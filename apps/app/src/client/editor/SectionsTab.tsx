@@ -1,5 +1,6 @@
 import type { CurrentAi, OwnerEdits } from "@asksite/core";
 import { PAGES, type SectionId, type SiteDocument } from "@asksite/site-schema";
+import { focusFirstEnabled } from "../steps/types.ts";
 import { editsForAi } from "../lib/edits.ts";
 import { canMove, isHideable, listedSections, moveSection, pageRemovedByHiding, SECTION_LABEL, sectionsByPage, setHidden } from "../lib/sections.ts";
 
@@ -12,6 +13,8 @@ interface Props {
   onSection: (section: SectionId) => void;
 }
 
+const moveId = (id: SectionId, direction: "up" | "down") => `section-move-${id}-${direction}`;
+
 /**
  * Order and hide sections with buttons, never drag (WCAG 2.5.7). Grouped by the page each section lives on: a section
  * moves up and down only within its own page (U1). Hero, services and contact always show.
@@ -22,6 +25,8 @@ export function SectionsTab({ ai, doc, edits, setEdits, onSection }: Props) {
   const move = (id: SectionId, by: -1 | 1) => {
     onSection(id);
     setEdits({ ...editsForAi(ai, edits), order: moveSection(order, listed, id, by) });
+    // A button that reached the edge of its page is disabled: keep keyboard focus on this section's other Move button.
+    focusFirstEnabled(moveId(id, by === -1 ? "up" : "down"), moveId(id, by === -1 ? "down" : "up"));
   };
   return (
     <div className="mt-4">
@@ -44,10 +49,10 @@ export function SectionsTab({ ai, doc, edits, setEdits, onSection }: Props) {
                   </p>
                   {id === "hero" ? null : (
                     <div className="mt-2 flex flex-wrap gap-2">
-                      <button type="button" className="btn-small" disabled={!canMove(order, listed, id, -1)} onClick={() => move(id, -1)}>
+                      <button id={moveId(id, "up")} type="button" className="btn-small" disabled={!canMove(order, listed, id, -1)} onClick={() => move(id, -1)}>
                         Move {SECTION_LABEL[id]} up
                       </button>
-                      <button type="button" className="btn-small" disabled={!canMove(order, listed, id, 1)} onClick={() => move(id, 1)}>
+                      <button id={moveId(id, "down")} type="button" className="btn-small" disabled={!canMove(order, listed, id, 1)} onClick={() => move(id, 1)}>
                         Move {SECTION_LABEL[id]} down
                       </button>
                     </div>

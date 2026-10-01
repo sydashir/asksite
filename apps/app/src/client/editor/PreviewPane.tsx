@@ -1,9 +1,13 @@
 import type { PageId } from "@asksite/site-schema";
 import type { RenderedSitePage } from "@asksite/renderer";
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { Notice } from "../components/feedback.tsx";
 import { PagePreview, type FollowPage } from "../components/page-preview.tsx";
+import { focusSoon } from "../steps/types.ts";
 import { previewFailureText, type SheetsState } from "../lib/preview-sheets.ts";
+
+/** The id of the "Preview" heading in the editor: where focus goes when the preview appears after "Try again". */
+export const PREVIEW_HEADING_ID = "editor-preview-heading";
 
 interface Props {
   sheets: SheetsState;
@@ -21,12 +25,32 @@ interface Props {
  */
 export function PreviewPane({ sheets, pages, follow, afterReload, onRetry, onReload }: Props) {
   const sources = useMemo(() => pages?.map(({ page, html }: { page: PageId; html: string }) => ({ page, html })) ?? null, [pages]);
-  if (sheets.status === "failed") {
+  const retried = useRef(false);
+  const ready = sheets.status === "ready";
+  useEffect(() => {
+    // "Try again" took keyboard focus with it when the notice went; on success, focus goes to the preview's heading.
+    if (ready && retried.current) {
+      retried.current = false;
+      focusSoon(PREVIEW_HEADING_ID);
+    }
+  }, [ready]);
+  // After "Try again" the notice stays (it is the same block while the sheets load again), so the pressed button keeps focus.
+  const retrying = sheets.status === "loading" && sheets.failures > 0;
+  if (sheets.status === "failed" || retrying) {
     return (
       <div role="alert">
-        <Notice tone="warning">{previewFailureText(sheets.failures, afterReload)}</Notice>
+        <Notice tone="warning">{retrying ? "Loading the preview…" : previewFailureText(sheets.failures, afterReload)}</Notice>
         <div className="mt-3 flex flex-wrap gap-2">
-          <button type="button" className="btn-secondary" onClick={onRetry}>
+          <button
+            type="button"
+            className="btn-secondary"
+            aria-disabled={retrying}
+            onClick={() => {
+              if (retrying) return;
+              retried.current = true;
+              onRetry();
+            }}
+          >
             Try again
           </button>
           <button type="button" className="btn-secondary" onClick={onReload}>

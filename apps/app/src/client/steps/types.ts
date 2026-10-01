@@ -22,3 +22,19 @@ export interface StepProps {
 export function focusSoon(id: string): void {
   requestAnimationFrame(() => document.getElementById(id)?.focus());
 }
+
+/**
+ * Once React has rendered, focuses the first of these buttons that is still enabled. A Move button that has just reached the end
+ * of its list is disabled, and a disabled button drops keyboard focus to the page, so the opposite Move button takes it.
+ */
+export function focusFirstEnabled(...ids: string[]): void {
+  requestAnimationFrame(() => {
+    for (const id of ids) {
+      const el = document.getElementById(id);
+      if (el instanceof HTMLButtonElement && !el.disabled) {
+        el.focus();
+        return;
+      }
+    }
+  });
+}

@@ -6,7 +6,7 @@ import { Notice, SaveStatus } from "../components/feedback.tsx";
 import type { FollowPage } from "../components/page-preview.tsx";
 import { Tabs } from "../components/tabs.tsx";
 import { LookTab } from "../editor/LookTab.tsx";
-import { PreviewPane } from "../editor/PreviewPane.tsx";
+import { PREVIEW_HEADING_ID, PreviewPane } from "../editor/PreviewPane.tsx";
 import { SectionsTab } from "../editor/SectionsTab.tsx";
 import { WordsTab } from "../editor/WordsTab.tsx";
 import { useGeneration } from "../hooks/use-generation.ts";
@@ -223,7 +223,9 @@ function EditorScreen(props: { siteId: string; site: SiteState; view: SiteView; 
         </section>
 
         <section aria-label="Preview" className={pane === "preview" ? "min-w-0" : "hidden min-w-0 md:block"}>
-          <h2 className="mb-2 font-semibold">Preview</h2>
+          <h2 id={PREVIEW_HEADING_ID} tabIndex={-1} className="mb-2 font-semibold">
+            Preview
+          </h2>
           <PreviewPane sheets={sheets} pages={pages} follow={follow} afterReload={afterReload} onRetry={retrySheets} onReload={reloadPage} />
         </section>
       </div>

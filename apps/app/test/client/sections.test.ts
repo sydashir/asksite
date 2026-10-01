@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import { DESIGN_CSS, FIXTURES, loadFixture, stubStylesheets } from "../../../../fixtures/index.ts";
 import { editsForAi, isAllowedKey, withCopy, withServiceDescription } from "../../src/client/lib/edits.ts";
 import { issuesAt } from "../../src/client/lib/messages.ts";
-import { buildPreview, checkDraft, previewDesign, stylesheetLoader } from "../../src/client/lib/preview.ts";
+import { buildPreview, checkDraft, stylesheetLoader } from "../../src/client/lib/preview.ts";
 import { canMove, listedSections, moveSection, pageRemovedByHiding, sectionHasContent, sectionOfCopy, sectionsByPage, setHidden } from "../../src/client/lib/sections.ts";
 
 // The renderer's DOM ids for each section (Plan 1 Task 10 DOM_ID).
@@ -243,9 +243,6 @@ describe("edits and preview", () => {
     // plumber-austin's AI design, impact, is also DEFAULT_DESIGN; an AI draft in refined tells "the AI draft's design" from "the default".
     const refinedAi = { ...ai, draft: { ...ai.draft, theme: { ...ai.draft.theme, design: "refined" as const } } };
     expect(ai.draft.theme.design).toBe("impact");
-    expect(previewDesign(ai, EMPTY_EDITS)).toBe("impact");
-    expect(previewDesign(refinedAi, EMPTY_EDITS)).toBe("refined");
-    expect(previewDesign(ai, modern)).toBe("modern");
     for (const [aiDraft, edits, design, other] of [[ai, EMPTY_EDITS, "impact", "modern"], [refinedAi, EMPTY_EDITS, "refined", "impact"], [ai, modern, "modern", "impact"]] as const) {
       const preview = buildPreview(aiDraft, draft(edits), site, "localhost:8789", sheets);
       expect(preview.ok).toBe(true);
