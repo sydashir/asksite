@@ -1,6 +1,7 @@
 import { AxeBuilder } from "@axe-core/playwright";
-import { DESIGN_IDS, type DesignId } from "@asksite/site-schema";
+import { DESIGN_IDS, PAGES, type DesignId, type PageId } from "@asksite/site-schema";
 import { expect, test, type Page, type TestInfo } from "@playwright/test";
+import { renderFixture } from "../../../fixtures/index.ts";
 import { apexPlaceholder, formProblems, messageTooLong, notFound, siteBusy, thankYou, tooManyRequests, unavailable, unreadableForm } from "../src/pages.ts";
 import { watchCsp } from "./csp.ts";
 import { E2E_FIXTURES, e2eSlug, type E2eFixture } from "./global-setup.ts";
@@ -9,6 +10,12 @@ const ROOT = "localhost:8789";
 /** The published site of a fixture in a design (global-setup.ts seeds every design x fixture). */
 const site = (design: DesignId, fixture: E2eFixture): { siteId: string; url: string } | undefined =>
   (JSON.parse(process.env["ASKSITE_E2E_SITES"] ?? "{}") as Record<string, { siteId: string; url: string }>)[e2eSlug(design, fixture)];
+
+/** The address of one page of a published site (the site's url ends in "/", a page path starts with it). */
+const pageUrl = (design: DesignId, fixture: E2eFixture, id: PageId): string => `${site(design, fixture)?.url ?? ""}${PAGES[id].path.slice(1)}`;
+
+/** The pages a fixture publishes, Home first (the same in every design). */
+const pagesOf = (fixture: E2eFixture): PageId[] => renderFixture(fixture).map((p) => p.page);
 
 // The same gates as Plan 1's e2e: every WCAG 2.2 A/AA violation, whatever axe's impact rating (impact is
 // severity, not the WCAG level: meta-viewport is AA but rated moderate; A9 item 4), plus every structure rule.
@@ -82,31 +89,34 @@ for (const design of DESIGN_IDS) {
   test.describe(design, () => {
     for (const fixture of E2E_FIXTURES) {
       test.describe(`published ${fixture}`, () => {
-        test("is served by the Worker in its design, with its photos and zero CSP violations", async ({ page }) => {
-          const violations = await watchCsp(page);
-          const badPhotos: string[] = [];
-          page.on("response", (r) => {
-            if (r.url().startsWith(`https://media.${ROOT}/`) && r.status() !== 200) badPhotos.push(`${r.status()} ${r.url()}`);
+        for (const id of pagesOf(fixture)) {
+          test(`serves ${id} in its design, with its photos and zero CSP violations`, async ({ page }) => {
+            const violations = await watchCsp(page);
+            const badPhotos: string[] = [];
+            page.on("response", (r) => {
+              if (r.url().startsWith(`https://media.${ROOT}/`) && r.status() !== 200) badPhotos.push(`${r.status()} ${r.url()}`);
+            });
+            page.on("requestfailed", (r) => badPhotos.push(`failed ${r.url()}`));
+            const response = await page.goto(pageUrl(design, fixture, id));
+            expect(response?.status()).toBe(200);
+            expect(response?.headers()["content-security-policy"]).toContain(`img-src https://media.${ROOT};`);
+            await expect(page.locator("body")).toHaveAttribute("data-design", design);
+            await expect(page.locator('link[rel="canonical"]')).toHaveAttribute("href", pageUrl(design, fixture, id));
+            await page.waitForLoadState("load");
+            // Gallery photos are lazy-loaded: scroll each into view, then wait for it to decode.
+            for (const img of await page.locator("img").all()) {
+              await img.scrollIntoViewIfNeeded();
+              await expect.poll(() => img.evaluate((el: HTMLImageElement) => el.complete && el.naturalWidth > 0), { timeout: 15_000 }).toBe(true);
+            }
+            expect(badPhotos).toEqual([]);
+            expect(await violations()).toEqual([]);
           });
-          page.on("requestfailed", (r) => badPhotos.push(`failed ${r.url()}`));
-          const response = await page.goto(site(design, fixture)?.url ?? "");
-          expect(response?.status()).toBe(200);
-          expect(response?.headers()["content-security-policy"]).toContain(`img-src https://media.${ROOT};`);
-          await expect(page.locator("body")).toHaveAttribute("data-design", design);
-          await page.waitForLoadState("load");
-          // Gallery photos are lazy-loaded: scroll each into view, then wait for it to decode.
-          for (const img of await page.locator("img").all()) {
-            await img.scrollIntoViewIfNeeded();
-            await expect.poll(() => img.evaluate((el: HTMLImageElement) => el.complete && el.naturalWidth > 0), { timeout: 15_000 }).toBe(true);
-          }
-          expect(badPhotos).toEqual([]);
-          expect(await violations()).toEqual([]);
-        });
 
-        test("passes axe (every WCAG 2.2 A/AA violation, plus the structure rules)", async ({ page }) => {
-          await page.goto(site(design, fixture)?.url ?? "");
-          expect(await axeProblems(page)).toEqual([]);
-        });
+          test(`passes axe on ${id} (every WCAG 2.2 A/AA violation, plus the structure rules)`, async ({ page }) => {
+            await page.goto(pageUrl(design, fixture, id));
+            expect(await axeProblems(page)).toEqual([]);
+          });
+        }
       });
     }
 
@@ -115,7 +125,11 @@ for (const design of DESIGN_IDS) {
         const plumber = site(design, "plumber-austin");
         await page.setExtraHTTPHeaders({ "cf-connecting-ip": designVisitor(testInfo, design) });
         const violations = await watchCsp(page);
+        // Exactly one form post per design per network (A15 caps): the form is only on /contact, reached from Home.
         await page.goto(plumber?.url ?? "");
+        expect(await page.locator("form").count()).toBe(0);
+        await page.locator('a[href="/contact#quote"]:visible').first().click();
+        await expect(page).toHaveURL(`${plumber?.url}contact#quote`);
         await page.getByLabel("Name").fill("Pat Browser");
         await page.getByLabel("Phone").fill("(512) 555-0123");
         await page.getByLabel("How can we help? (optional)").fill("Leaking tap");
@@ -131,12 +145,12 @@ for (const design of DESIGN_IDS) {
       });
 
       test("its honeypot field lies wholly off-screen", async ({ page }) => {
-        await page.goto(site(design, "plumber-austin")?.url ?? "");
+        await page.goto(pageUrl(design, "plumber-austin", "contact"));
         expect(await honeypotOffScreen(page)).toBe(true);
       });
 
       test("keyboard focus reaches it but never its honeypot field", async ({ page, browserName }) => {
-        await page.goto(site(design, "plumber-austin")?.url ?? "");
+        await page.goto(pageUrl(design, "plumber-austin", "contact"));
         const ids = await focusedIds(page, browserName);
         expect(ids).toContain("contact-message");
         expect(ids).not.toContain("contact-website");
@@ -147,7 +161,7 @@ for (const design of DESIGN_IDS) {
 
 test.describe("contact form problems in a real browser", () => {
   test("shows plain-words problems for a bad phone number, without the typed text", async ({ page }) => {
-    await page.goto(site("modern", "cleaning-minimal")?.url ?? ""); // the design a cleaning business starts on (A12)
+    await page.goto(pageUrl("modern", "cleaning-minimal", "contact")); // the design a cleaning business starts on (A12)
     await page.getByLabel("Name").fill("Pat");
     await page.getByLabel("Phone").fill("call me");
     await page.getByRole("button", { name: "Send request" }).click();
@@ -243,13 +257,13 @@ test.describe("the gates can fail (RED proof)", () => {
 
   // The two honeypot proofs strip the classes that hide the field, so they hold whatever a design uses to hide it.
   test("the honeypot check sees the field shown on the page", async ({ page }) => {
-    await page.goto(site("impact", "plumber-austin")?.url ?? "");
+    await page.goto(pageUrl("impact", "plumber-austin", "contact"));
     await unhideHoneypot(page);
     expect(await honeypotOffScreen(page)).toBe(false);
   });
 
   test("the focus check sees a honeypot field that keyboard focus can reach", async ({ page, browserName }) => {
-    await page.goto(site("impact", "plumber-austin")?.url ?? "");
+    await page.goto(pageUrl("impact", "plumber-austin", "contact"));
     await unhideHoneypot(page);
     await page.locator("#contact-website").evaluate((field) => field.removeAttribute("tabindex"));
     expect(await focusedIds(page, browserName)).toContain("contact-website");
