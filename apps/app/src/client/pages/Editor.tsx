@@ -99,18 +99,18 @@ function EditorScreen(props: { siteId: string; site: SiteState; view: SiteView; 
     focusSoon(issueTarget(fix.field, draft.facts));
   };
 
-  const { reload } = site;
+  const { refreshAi } = site;
   useEffect(() => {
     if (rewriteId === null || generation?.id !== rewriteId) return;
     if (generation.status === "succeeded") {
       setRewriteId(null);
       setRewriteMessage("New wording is ready.");
-      void reload();
+      void refreshAi();
     } else if (generation.status === "failed") {
       setRewriteId(null);
       setRewriteMessage("We could not write new wording this time. Your current wording is unchanged.");
     }
-  }, [generation, rewriteId, reload]);
+  }, [generation, rewriteId, refreshAi]);
 
   async function rewrite() {
     setConfirming(false);

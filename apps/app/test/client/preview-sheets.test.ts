@@ -19,19 +19,16 @@ describe("the preview's stylesheet state (task-17-extra B3)", () => {
   });
 
   it("says 'couldn't load' on the first failure, and 'still can't load' on a failure after Try again or on a page that was itself a reload", () => {
-    expect(previewFailureText(1, false, false)).toBe(PREVIEW_FIRST_FAILURE);
-    expect(previewFailureText(2, false, false)).toBe(PREVIEW_STILL_FAILING);
-    expect(previewFailureText(1, true, false)).toBe(PREVIEW_STILL_FAILING);
+    expect(previewFailureText(1, false)).toBe(PREVIEW_FIRST_FAILURE);
+    expect(previewFailureText(2, false)).toBe(PREVIEW_STILL_FAILING);
+    expect(previewFailureText(1, true)).toBe(PREVIEW_STILL_FAILING);
     expect(PREVIEW_FIRST_FAILURE).toBe("The preview couldn't load.");
     expect(PREVIEW_STILL_FAILING).toBe("The preview still can't load.");
   });
 
-  // STRICT (the honesty rules): "saved" is claimed only while the editor really is saved.
-  it("adds 'Your changes are saved.' only when the editor says saved", () => {
+  it("keeps the failure text free of the save state (it is a live region); the saved note is its own text", () => {
     expect(SAVED_NOTE).toBe("Your changes are saved.");
-    expect(previewFailureText(1, false, true)).toBe("The preview couldn't load. Your changes are saved.");
-    expect(previewFailureText(2, false, true)).toBe("The preview still can't load. Your changes are saved.");
-    expect(previewFailureText(1, false, false)).not.toContain("saved");
+    for (const [failures, afterReload] of [[1, false], [2, false], [1, true]] as const) expect(previewFailureText(failures, afterReload)).not.toContain("saved");
   });
 
   it("runs a failing importer through the real loader: failure, failure, then Try again succeeds (a failed import is not kept)", async () => {

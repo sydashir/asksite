@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef } from "react";
 import { Notice } from "../components/feedback.tsx";
 import { PagePreview, type FollowPage } from "../components/page-preview.tsx";
 import { focusSoon } from "../steps/types.ts";
-import { previewFailureText, type SheetsState } from "../lib/preview-sheets.ts";
+import { previewFailureText, SAVED_NOTE, type SheetsState } from "../lib/preview-sheets.ts";
 
 /** The id of the "Preview" heading in the editor: where focus goes when the preview appears after "Try again". */
 export const PREVIEW_HEADING_ID = "editor-preview-heading";
@@ -39,9 +39,14 @@ export function PreviewPane({ saved, sheets, pages, follow, afterReload, onRetry
   // After "Try again" the notice stays (it is the same block while the sheets load again), so the pressed button keeps focus.
   const retrying = sheets.status === "loading" && sheets.failures > 0;
   if (sheets.status === "failed" || retrying) {
+    // The alert's text depends only on how the preview failed, never on the save state: every save would otherwise read it all again.
+    // "Your changes are saved." sits beside it in plain text (not a live region); the save status above already announces saving.
     return (
-      <div role="alert">
-        <Notice tone="warning">{retrying ? "Loading the preview…" : previewFailureText(sheets.failures, afterReload, saved)}</Notice>
+      <div>
+        <div role="alert">
+          <Notice tone="warning">{retrying ? "Loading the preview…" : previewFailureText(sheets.failures, afterReload)}</Notice>
+        </div>
+        {saved ? <p className="mt-3 text-slate-800">{SAVED_NOTE}</p> : null}
         <div className="mt-3 flex flex-wrap gap-2">
           <button
             type="button"

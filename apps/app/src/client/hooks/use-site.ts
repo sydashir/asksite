@@ -1,7 +1,7 @@
 import type { OwnerEdits, SiteView } from "@asksite/core";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, GENERIC_ERROR_MESSAGE } from "../lib/api.ts";
-import { AutoSaver, type DraftPatch, type SaverState } from "../lib/autosave.ts";
+import { AutoSaver, mayReplaceDraft, type DraftPatch, type SaverState } from "../lib/autosave.ts";
 
 export interface Draft {
   facts: unknown;
@@ -28,9 +28,11 @@ export function useSite(siteId: string) {
   const [locked, setLocked] = useState(false);
 
   const reload = useCallback(async () => {
-    // Save what is typed first (after a conflict this does nothing: the reload shows the newer
-    // version on purpose), and wait for a save the previous page started as it closed.
-    if (saverRef.current !== null) await saverRef.current.flush();
+    // Save what is typed first (after a conflict this does nothing: the reload shows the newer version on purpose).
+    // A save that failed keeps the draft and the saver as they are: the not-saved warning stays and nothing is replaced.
+    const current = saverRef.current;
+    if (current !== null && !mayReplaceDraft(await current.flush(), current.currentStatus)) return null;
+    // Wait for a save the previous page started as it closed.
     await leaving.get(siteId);
     const res = await api<SiteView>("GET", `/api/sites/${siteId}`);
     if (!res.ok) {
@@ -90,10 +92,28 @@ export function useSite(siteId: string) {
     }
   }, []);
 
+  /**
+   * Takes only the AI's wording (and the counters beside it) from the server's newest view. The owner's local draft and the
+   * saver stay exactly as they are, so nothing typed or still unsaved is replaced and the saver's rev is never touched. The one
+   * thing taken from the server's edits is the look it pinned before the rewrite (the owner never chose one): while the owner
+   * has none, the page would otherwise jump to the new draft's look. That look is already the server's, so nothing is saved.
+   */
+  const refreshAi = useCallback(async () => {
+    const res = await api<SiteView>("GET", `/api/sites/${siteId}`);
+    if (!res.ok || res.data.ai === null) return;
+    const fresh = res.data;
+    const current = draftRef.current;
+    if (current !== null && current.edits.theme === null && fresh.edits.theme !== null) {
+      draftRef.current = { ...current, edits: { ...current.edits, theme: fresh.edits.theme } };
+      setDraft(draftRef.current);
+    }
+    setLoad((last) => (last.state === "ready" ? { state: "ready", view: { ...last.view, ai: fresh.ai, limits: fresh.limits, activeGeneration: fresh.activeGeneration } } : last));
+  }, [siteId]);
+
   const flush = useCallback(async () => (saverRef.current === null ? true : saverRef.current.flush()), []);
   const rev = () => saverRef.current?.currentRev ?? 0;
 
-  return { load, draft, saver, locked, update, exclusive, flush, reload, rev };
+  return { load, draft, saver, locked, update, exclusive, flush, reload, refreshAi, rev };
 }
 
 export type SiteState = ReturnType<typeof useSite>;

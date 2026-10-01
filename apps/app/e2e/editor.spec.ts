@@ -418,3 +418,132 @@ test("moves made while the wording has an issue are all kept, shown and saved", 
   await expect.poll(() => names("Contact page")).toEqual(["Service area and hours", "Contact form"]);
   await expect.poll(async () => (await savedEdits(page, siteId)).order).toEqual(["hero", "trust", "testimonials", "faq", "services", "about", "gallery", "serviceArea", "contact"]);
 });
+
+// STRICT (customer data): new wording refreshes only the AI's wording; nothing the owner did is replaced or lost (task-17 fix round 3, D1).
+const NOT_SAVED = "Your changes are not saved yet.";
+const green = (page: Page) => page.getByRole("group", { name: "Colors and lettering" }).getByLabel(/Green & amber/);
+const other = (page: Page) => page.getByRole("group", { name: "Colors and lettering" }).getByLabel(/Charcoal & red/);
+const savedTheme = async (page: Page, siteId: string) => ((await apiCall(page, "GET", `/api/sites/${siteId}`)).json?.["edits"] as { theme: { palette: string } | null }).theme?.palette ?? null;
+
+/** Asks for new wording through the dialog. Returns the generation's id; finish it with finishGeneration. */
+async function askNewWording(page: Page, siteId: string): Promise<string> {
+  await page.getByRole("tab", { name: "Words" }).click();
+  await page.getByRole("button", { name: "Write new wording" }).click();
+  const [started] = await Promise.all([
+    page.waitForResponse((r) => r.url().endsWith(`/api/sites/${siteId}/generations`) && r.request().method() === "POST"),
+    page.getByRole("dialog", { name: "Write new wording?" }).getByRole("button", { name: "Write new wording" }).click(),
+  ]);
+  return ((await started.json()) as { generation: { id: string } }).generation.id;
+}
+
+/** Holds the next GET of the site, answering with what the server said at that moment (so it can go stale while held). */
+async function holdNextSiteGet(page: Page, siteId: string) {
+  const gate: { armed: boolean; reached: boolean; release: () => void } = { armed: false, reached: false, release: () => undefined };
+  await page.route(`**/api/sites/${siteId}`, async (route) => {
+    if (!gate.armed || route.request().method() !== "GET") return route.fallback();
+    gate.armed = false;
+    const response = await route.fetch();
+    gate.reached = true;
+    await new Promise<void>((resolve) => (gate.release = resolve));
+    return route.fulfill({ response });
+  });
+  return gate;
+}
+
+test("a change that could not be saved survives new wording, with its warning, and saves once saving works", async ({ page }) => {
+  const siteId = await openEditor(page);
+  let failing = true;
+  await page.route(`**/api/sites/${siteId}/draft`, (route) =>
+    failing ? route.fulfill({ status: 500, json: { error: { code: "internal", message: "Something went wrong. Please try again." } } }) : route.fallback(),
+  );
+  await page.getByRole("tab", { name: "Look" }).click();
+  await green(page).check();
+  await expect(page.getByRole("status").filter({ hasText: NOT_SAVED })).toBeVisible();
+
+  const id = await askNewWording(page, siteId);
+  await finishGeneration(page.request, id);
+  await expect(page.getByText("New wording is ready.")).toBeVisible({ timeout: 15_000 });
+
+  await expect(page.getByRole("status").filter({ hasText: NOT_SAVED })).toBeVisible();
+  await page.getByRole("tab", { name: "Look" }).click();
+  await expect(green(page)).toBeChecked();
+  expect(await savedTheme(page, siteId)).not.toBe("green-amber");
+
+  failing = false;
+  await page.getByRole("button", { name: "Try again" }).click();
+  await expect(savedStatus(page)).toBeVisible();
+  expect(await savedTheme(page, siteId)).toBe("green-amber");
+});
+
+test("a change made while new wording arrives is kept on screen and saved", async ({ page }) => {
+  const siteId = await openEditor(page);
+  const gate = await holdNextSiteGet(page, siteId);
+  gate.armed = true;
+  const id = await askNewWording(page, siteId);
+  await finishGeneration(page.request, id);
+  await expect.poll(() => gate.reached, { timeout: 15_000 }).toBe(true);
+
+  await page.getByRole("tab", { name: "Look" }).click();
+  await green(page).check();
+  gate.release();
+  await expect(page.getByText("New wording is ready.")).toBeVisible();
+
+  await expect(green(page)).toBeChecked();
+  await expect(savedStatus(page)).toBeVisible();
+  await expect.poll(() => savedTheme(page, siteId)).toBe("green-amber");
+});
+
+test("a change saved while new wording arrives stays, and the next change is not refused as another tab's", async ({ page }) => {
+  const siteId = await openEditor(page);
+  const gate = await holdNextSiteGet(page, siteId);
+  gate.armed = true;
+  const id = await askNewWording(page, siteId);
+  await finishGeneration(page.request, id);
+  await expect.poll(() => gate.reached, { timeout: 15_000 }).toBe(true);
+
+  // The held answer is from before this change, so it is stale when it arrives.
+  await page.getByRole("tab", { name: "Look" }).click();
+  await green(page).check();
+  await expect(savedStatus(page)).toBeVisible();
+  await expect.poll(() => savedTheme(page, siteId)).toBe("green-amber");
+  gate.release();
+  await expect(page.getByText("New wording is ready.")).toBeVisible();
+  await expect(green(page)).toBeChecked();
+
+  await other(page).check();
+  await expect(savedStatus(page)).toBeVisible();
+  await expect(page.getByText("This site changed in another tab or window.")).toHaveCount(0);
+  await expect.poll(() => savedTheme(page, siteId)).toBe("charcoal-red");
+});
+
+// Accessibility: the preview's alert is read out in full whenever its text changes, so a save must never change it.
+test("the preview's alert keeps the same text through a save cycle; 'saved' is plain text beside it", async ({ page }) => {
+  const siteId = await builtSite(page);
+  await page.route("**/assets/*.js", async (route) => {
+    const response = await route.fetch();
+    const body = await response.text();
+    return body.includes("tailwindcss v4.3.3") ? route.abort() : route.fulfill({ response, body });
+  });
+  await page.goto(`/sites/${siteId}/edit`);
+  await expect(page.getByRole("heading", { level: 1, name: "Edit your website" })).toBeFocused();
+  await showPreview(page);
+  const alert = page.getByRole("alert").filter({ hasText: "The preview couldn't load." });
+  await expect(alert).toHaveText("The preview couldn't load.");
+  // Record every change of the alert's text from here on.
+  await alert.evaluate((el) => {
+    const seen: string[] = [];
+    (window as unknown as { __alertTexts: string[] }).__alertTexts = seen;
+    new MutationObserver(() => seen.push(el.textContent ?? "")).observe(el, { subtree: true, childList: true, characterData: true });
+  });
+  await showEditor(page);
+  await page.getByLabel("Headline", { exact: true }).fill("A save cycle");
+  await expect(page.getByText("Saving…")).toBeVisible();
+  await expect(savedStatus(page)).toBeVisible();
+  await showPreview(page);
+  const note = page.getByText("Your changes are saved.");
+  await expect(note).toBeVisible();
+  await expect(alert).toHaveText("The preview couldn't load.");
+  expect(await page.evaluate(() => (window as unknown as { __alertTexts: string[] }).__alertTexts)).toEqual([]);
+  // The note is plain text: not inside the alert, and not a live region itself.
+  expect(await note.evaluate((el) => el.closest('[role="alert"], [role="status"], [aria-live]') === null)).toBe(true);
+});

@@ -24,6 +24,12 @@ export interface SaverState {
   message?: string;
 }
 
+/**
+ * Whether a reload may replace the local draft after a flush. Only when everything is saved, or the save stopped on a conflict
+ * (the owner asked for the newer version on purpose). A failed save keeps its unsaved values: replacing them would lose them.
+ */
+export const mayReplaceDraft = (saved: boolean, status: SaveStatus): boolean => saved || status === "conflict";
+
 export type SendPatch = (rev: number, patch: DraftPatch) => Promise<SaveResult>;
 
 export class AutoSaver {
@@ -45,6 +51,10 @@ export class AutoSaver {
 
   get currentRev(): number {
     return this.rev;
+  }
+
+  get currentStatus(): SaveStatus {
+    return this.status;
   }
 
   change(patch: DraftPatch): void {
