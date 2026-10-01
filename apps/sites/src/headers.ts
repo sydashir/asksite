@@ -10,8 +10,10 @@ const isLocal = (root: string): boolean => {
   return host === "localhost" || host.endsWith(".localhost");
 };
 
+// font-src data: only: Bold (impact) embeds its heading font as a data: URI inside its sheet (user decision
+// 2026-09-27); no page loads a font from anywhere else.
 export const pageCsp = (root: string): string =>
-  `default-src 'none'; style-src 'unsafe-inline'; img-src https://media.${root}; form-action 'self'; base-uri 'none'; frame-ancestors 'none'`;
+  `default-src 'none'; style-src 'unsafe-inline'; img-src https://media.${root}; font-src data:; form-action 'self'; base-uri 'none'; frame-ancestors 'none'`;
 
 function securityHeaders(root: string): Record<string, string> {
   return {

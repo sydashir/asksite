@@ -20,7 +20,7 @@ function expectFixedPage(response: HarnessResponse, status: number) {
   expect(response.headers.get("x-robots-tag")).toBe("noindex");
   expect(response.headers.get("cache-control")).toBe("no-store");
   expect(response.headers.get("content-security-policy")).toBe(
-    `default-src 'none'; style-src 'unsafe-inline'; img-src https://media.${ROOT}; form-action 'self'; base-uri 'none'; frame-ancestors 'none'`,
+    `default-src 'none'; style-src 'unsafe-inline'; img-src https://media.${ROOT}; font-src data:; form-action 'self'; base-uri 'none'; frame-ancestors 'none'`,
   );
   expect(response.headers.get("x-content-type-options")).toBe("nosniff");
 }

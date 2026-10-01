@@ -16,7 +16,7 @@ afterAll(async () => {
 type Init = NonNullable<Parameters<typeof harness.server.fetch>[1]>;
 type HarnessResponse = Awaited<ReturnType<typeof harness.server.fetch>>;
 const get = (url: string, init: Init = {}): Promise<HarnessResponse> => harness.server.fetch(url, { redirect: "manual", ...init });
-const CSP = `default-src 'none'; style-src 'unsafe-inline'; img-src https://media.${ROOT}; form-action 'self'; base-uri 'none'; frame-ancestors 'none'`;
+const CSP = `default-src 'none'; style-src 'unsafe-inline'; img-src https://media.${ROOT}; font-src data:; form-action 'self'; base-uri 'none'; frame-ancestors 'none'`;
 
 describe("live pages", () => {
   it("serves the approved bytes with the page headers and no noindex", async () => {
