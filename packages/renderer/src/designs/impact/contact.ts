@@ -3,7 +3,9 @@
 // and the form's first fields in the first screen, in reading order. When the band opens the Contact page its
 // heading is the page's <h1>, the owner's call to action as written (A16).
 // The <form> is today's form, field for field, with only its classes changed (A12 §7: the fields, names,
-// limits, "Send request" and the honeypot are shared; src/sections/contact.ts, ported from AstroWind).
+// limits, "Send request" and the honeypot are shared; src/sections/contact.ts, ported from AstroWind). Its own
+// opening tag is today's exactly, with no class (the sites Worker's tests read the action from it); the sheet
+// styles it as the form card's child.
 // Nothing around the form makes a stacking context, so its Send button stays above the call bar
 // (styles/shared.css).
 import type { VariantOf } from "@asksite/site-schema";
@@ -34,7 +36,7 @@ ${facts.emergency247 && html`<p><span class="chip">${icon("clock")}24/7 emergenc
 <p><a class="mail" href="${mailtoUrl(facts.email)}">${icon("mail")}<span>${addressMarkup(facts.email)}</span></a></p>
 </div>
 <div class="form-card card">
-<form id="quote" class="fields" action="${ctx.formAction}" method="post">
+<form id="quote" action="${ctx.formAction}" method="post">
 <div class="field"><label for="contact-name">Name</label><input id="contact-name" name="name" type="text" autocomplete="name" required maxlength="80" class="input"></div>
 <div class="field"><label for="contact-phone">Phone</label><input id="contact-phone" name="phone" type="tel" autocomplete="tel" required maxlength="30" class="input"></div>
 <div class="field"><label for="contact-email">Email (optional)</label><input id="contact-email" name="email" type="email" autocomplete="email" maxlength="254" class="input"></div>

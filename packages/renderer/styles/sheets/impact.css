@@ -2109,14 +2109,14 @@
     padding: 1.5rem;
     border-radius: 0.75rem;
   }
-  .fields {
+  .form-card > form {
     display: grid;
     grid-template-columns: minmax(0, 1fr);
     gap: 1.25rem;
     scroll-margin-top: 2.5rem;
   }
   @media (min-width: 40rem) {
-    .fields {
+    .form-card > form {
       scroll-margin-top: 3.25rem;
     }
   }
@@ -2185,7 +2185,7 @@
     .form-card {
       padding: 2.25rem;
     }
-    .fields {
+    .form-card > form {
       grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
     }
     .field--full {

@@ -393,7 +393,8 @@ describe("the Bold pages", () => {
 
   it("gives the form the quote id, and puts the number before the form, where a phone shows it first", () => {
     const contact = bold(plumber, "contact");
-    expect(contact).toContain('<form id="quote" class="fields" action=');
+    // Today's opening tag exactly, with no class: the sites Worker's pipeline test reads the form action from it.
+    expect(contact).toContain(`<form id="quote" action="${FIXTURE_FORM_ACTION}" method="post">`);
     expect(contact.indexOf('<div class="talk">')).toBeLessThan(contact.indexOf('<div class="form-card card">'));
     expect(contact.match(/id="quote"/g)).toHaveLength(1);
   });
