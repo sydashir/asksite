@@ -23,11 +23,15 @@ export function priceInput(value: unknown): string {
   return asString(value);
 }
 
-/** "" removes the price; "$1,250" becomes 1250; anything else is kept as typed. */
+/**
+ * "" removes the price; "$1,250" becomes 1250; anything else is kept as typed. A comma counts only as a
+ * thousands separator: "1,25" is not 125, so it stays as typed and the schema reports it.
+ */
 export function priceToFacts(input: string): number | string | undefined {
   const trimmed = input.trim();
   if (trimmed === "") return undefined;
-  const plain = trimmed.replace(/^\$/, "").replace(/,/g, "");
+  const amount = trimmed.replace(/^\$/, "");
+  const plain = /^\d{1,3}(,\d{3})+$/.test(amount) ? amount.replace(/,/g, "") : amount;
   return /^\d+$/.test(plain) ? Number(plain) : input;
 }
 
