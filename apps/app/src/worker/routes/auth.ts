@@ -4,6 +4,7 @@ import { Hono, type MiddlewareHandler } from "hono";
 import { loginEmailsPerDay } from "../config.ts";
 import { clientIp, mailerEnv } from "../db.ts";
 import type { AppDeps } from "../deps.ts";
+import { claimInvite } from "../invite-claim.ts";
 import { endSession, EXPIRED_SESSION_COOKIE, insertSession, sessionCookie } from "../session.ts";
 import { requireTurnstile } from "../turnstile.ts";
 import type { AppEnv } from "../types.ts";
@@ -84,11 +85,7 @@ export function authRoutes(deps: AppDeps): Hono<AppEnv> {
 /** §5.2 invite steps (1) and (2): claim the token, then create the owner, site, invite links, session and audit row in one batch. */
 async function acceptInvite(db: D1Database, invite: { id: string; email: string }, tokenHash: string, now: number) {
   // (1) Claim the token: exactly one request can win.
-  const claim = await db
-    .prepare("UPDATE invites SET used_at = ? WHERE token_hash = ? AND used_at IS NULL AND revoked_at IS NULL AND expires_at > ?")
-    .bind(now, tokenHash, now)
-    .run();
-  if (claim.meta.changes !== 1) throw new ApiError("invite_invalid", INVITE_INVALID);
+  if (!(await claimInvite(db, tokenHash, now))) throw new ApiError("invite_invalid", INVITE_INVALID);
   // (2) Owner, site, invite links, session and audit row in one transaction.
   const siteId = newId();
   const sessionToken = newToken();
