@@ -290,3 +290,16 @@ describe("the stylesheet loader (P4-20 amendment)", () => {
     expect(await stylesheetLoader()()).toBe(DESIGN_CSS);
   });
 });
+
+describe("the Sections tab reads the always-current composed draft, valid or not", () => {
+  it("lists the sections of a draft with a claim issue, and of one whose facts are half typed, without throwing", () => {
+    const fixture = SiteDocument.parse(loadFixture("plumber-austin"));
+    const ai = { generationId: "g1", draft: { copy: fixture.copy, layout: fixture.layout, theme: fixture.theme } };
+    const valid = composeDocument(fixture.facts, ai, EMPTY_EDITS);
+    expect(listedSections(valid)).toEqual(listedSections(SiteDocument.parse(valid)));
+    const halfTyped = composeDocument({ trade: "plumber", licences: "x" }, ai, EMPTY_EDITS);
+    expect(() => listedSections(halfTyped)).not.toThrow();
+    expect(listedSections(halfTyped)).toContain("services");
+    expect(listedSections(halfTyped)).not.toContain("trust");
+  });
+});

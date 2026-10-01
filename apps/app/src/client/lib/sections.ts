@@ -1,4 +1,5 @@
-import { ALWAYS_PAGES, HIDEABLE_SECTIONS, PAGE_IDS, SECTION_PAGE, factSections, type HideableSectionId, type PageId, type SectionId, type SiteDocument } from "@asksite/site-schema";
+import type { ComposedDocument } from "@asksite/core";
+import { ALWAYS_PAGES, HIDEABLE_SECTIONS, PAGE_IDS, SECTION_PAGE, factSections, type Facts, type HideableSectionId, type PageId, type SectionId } from "@asksite/site-schema";
 
 export const SECTION_LABEL: Record<SectionId, string> = {
   hero: "Top of the page",
@@ -20,15 +21,23 @@ export const isHideable = (id: SectionId): id is HideableSectionId => (HIDEABLE_
  * other section when the owner's facts need it. test/client/sections.test.ts checks this against
  * real rendered pages.
  */
-export function sectionHasContent(doc: SiteDocument, id: SectionId): boolean {
+export function sectionHasContent(doc: ComposedDocument, id: SectionId): boolean {
   if (id === "hero") return true;
   if (id === "about") return doc.copy.about !== undefined;
-  if (id === "faq") return doc.copy.faq.length > 0;
-  return factSections(doc.facts).includes(id);
+  if (id === "faq") return (doc.copy.faq?.length ?? 0) > 0;
+  return factSectionsOf(doc.facts).includes(id);
 }
 
-/** Sections the Sections tab lists, in page order: those with content, hidden or not. */
-export function listedSections(doc: SiteDocument): SectionId[] {
+const asList = (value: unknown): unknown[] => (Array.isArray(value) ? value : []);
+
+/** factSections for facts that may be half typed (the composed draft is not validated): a missing or odd field counts as empty. */
+function factSectionsOf(facts: unknown): SectionId[] {
+  const f = (typeof facts === "object" && facts !== null ? facts : {}) as Record<string, unknown>;
+  return factSections({ licences: asList(f["licences"]), insured: f["insured"] === true, yearFounded: f["yearFounded"], emergency247: f["emergency247"] === true, testimonials: asList(f["testimonials"]), photos: asList(f["photos"]) } as unknown as Facts);
+}
+
+/** Sections the Sections tab lists, in page order: those with content, hidden or not. Takes the composed draft, valid or not. */
+export function listedSections(doc: ComposedDocument): SectionId[] {
   return doc.layout.map((s) => s.id).filter((id) => sectionHasContent(doc, id));
 }
 

@@ -10,6 +10,8 @@ import { previewFailureText, type SheetsState } from "../lib/preview-sheets.ts";
 export const PREVIEW_HEADING_ID = "editor-preview-heading";
 
 interface Props {
+  /** Whether the editor really is saved right now (never a hope): only then does the failure notice say so. */
+  saved: boolean;
   sheets: SheetsState;
   /** The pages of the last valid draft, or null while there is none (or the sheets are not here). */
   pages: readonly RenderedSitePage[] | null;
@@ -21,9 +23,9 @@ interface Props {
 
 /**
  * The editor's live preview: the shared page preview over the last valid draft. While the stylesheets load it says so; if they
- * fail, it says that plainly, offers "Try again" and "Reload the page", and the editing beside it carries on and keeps saving.
+ * fail, it says that plainly, offers "Try again" and "Reload the page", and the editing beside it carries on and keeps saving (it says the changes are saved only while the editor is saved).
  */
-export function PreviewPane({ sheets, pages, follow, afterReload, onRetry, onReload }: Props) {
+export function PreviewPane({ saved, sheets, pages, follow, afterReload, onRetry, onReload }: Props) {
   const sources = useMemo(() => pages?.map(({ page, html }: { page: PageId; html: string }) => ({ page, html })) ?? null, [pages]);
   const retried = useRef(false);
   const ready = sheets.status === "ready";
@@ -39,7 +41,7 @@ export function PreviewPane({ sheets, pages, follow, afterReload, onRetry, onRel
   if (sheets.status === "failed" || retrying) {
     return (
       <div role="alert">
-        <Notice tone="warning">{retrying ? "Loading the preview…" : previewFailureText(sheets.failures, afterReload)}</Notice>
+        <Notice tone="warning">{retrying ? "Loading the preview…" : previewFailureText(sheets.failures, afterReload, saved)}</Notice>
         <div className="mt-3 flex flex-wrap gap-2">
           <button
             type="button"

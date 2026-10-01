@@ -1,12 +1,13 @@
-import type { CurrentAi, OwnerEdits } from "@asksite/core";
-import { PAGES, type SectionId, type SiteDocument } from "@asksite/site-schema";
+import type { ComposedDocument, CurrentAi, OwnerEdits } from "@asksite/core";
+import { PAGES, type SectionId } from "@asksite/site-schema";
 import { focusFirstEnabled } from "../steps/types.ts";
 import { editsForAi } from "../lib/edits.ts";
 import { canMove, isHideable, listedSections, moveSection, pageRemovedByHiding, SECTION_LABEL, sectionsByPage, setHidden } from "../lib/sections.ts";
 
 interface Props {
   ai: CurrentAi;
-  doc: SiteDocument;
+  /** The always-current composed draft (valid or not), so every move builds on the one before it. */
+  composed: ComposedDocument;
   edits: OwnerEdits;
   setEdits: (edits: OwnerEdits) => void;
   /** The owner changed this section: the preview shows its page. */
@@ -19,9 +20,9 @@ const moveId = (id: SectionId, direction: "up" | "down") => `section-move-${id}-
  * Order and hide sections with buttons, never drag (WCAG 2.5.7). Grouped by the page each section lives on: a section
  * moves up and down only within its own page (U1). Hero, services and contact always show.
  */
-export function SectionsTab({ ai, doc, edits, setEdits, onSection }: Props) {
-  const listed = listedSections(doc);
-  const order = doc.layout.map((s) => s.id);
+export function SectionsTab({ ai, composed, edits, setEdits, onSection }: Props) {
+  const listed = listedSections(composed);
+  const order = composed.layout.map((s) => s.id);
   const move = (id: SectionId, by: -1 | 1) => {
     onSection(id);
     setEdits({ ...editsForAi(ai, edits), order: moveSection(order, listed, id, by) });

@@ -2,7 +2,7 @@ import type { DesignStylesheets } from "@asksite/renderer";
 import { describe, expect, it } from "vitest";
 import { stubStylesheets } from "../../../../fixtures/index.ts";
 import { stylesheetLoader } from "../../src/client/lib/preview.ts";
-import { PREVIEW_STILL_FAILING, PREVIEW_FIRST_FAILURE, previewFailureText, reloadAfterSave, sheetsReducer, startSheetsLoad, type SheetsEvent, type SheetsState } from "../../src/client/lib/preview-sheets.ts";
+import { PREVIEW_STILL_FAILING, PREVIEW_FIRST_FAILURE, SAVED_NOTE, previewFailureText, reloadAfterSave, sheetsReducer, startSheetsLoad, type SheetsEvent, type SheetsState } from "../../src/client/lib/preview-sheets.ts";
 
 const sheets: DesignStylesheets = stubStylesheets();
 const failing = () => new TypeError("Failed to fetch dynamically imported module");
@@ -19,11 +19,19 @@ describe("the preview's stylesheet state (task-17-extra B3)", () => {
   });
 
   it("says 'couldn't load' on the first failure, and 'still can't load' on a failure after Try again or on a page that was itself a reload", () => {
-    expect(previewFailureText(1, false)).toBe(PREVIEW_FIRST_FAILURE);
-    expect(previewFailureText(2, false)).toBe(PREVIEW_STILL_FAILING);
-    expect(previewFailureText(1, true)).toBe(PREVIEW_STILL_FAILING);
-    expect(PREVIEW_FIRST_FAILURE).toBe("The preview couldn't load. Your changes are saved.");
-    expect(PREVIEW_STILL_FAILING).toBe("The preview still can't load. Your changes are saved.");
+    expect(previewFailureText(1, false, false)).toBe(PREVIEW_FIRST_FAILURE);
+    expect(previewFailureText(2, false, false)).toBe(PREVIEW_STILL_FAILING);
+    expect(previewFailureText(1, true, false)).toBe(PREVIEW_STILL_FAILING);
+    expect(PREVIEW_FIRST_FAILURE).toBe("The preview couldn't load.");
+    expect(PREVIEW_STILL_FAILING).toBe("The preview still can't load.");
+  });
+
+  // STRICT (the honesty rules): "saved" is claimed only while the editor really is saved.
+  it("adds 'Your changes are saved.' only when the editor says saved", () => {
+    expect(SAVED_NOTE).toBe("Your changes are saved.");
+    expect(previewFailureText(1, false, true)).toBe("The preview couldn't load. Your changes are saved.");
+    expect(previewFailureText(2, false, true)).toBe("The preview still can't load. Your changes are saved.");
+    expect(previewFailureText(1, false, false)).not.toContain("saved");
   });
 
   it("runs a failing importer through the real loader: failure, failure, then Try again succeeds (a failed import is not kept)", async () => {

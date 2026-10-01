@@ -31,11 +31,18 @@ export function startSheetsLoad(load: () => Promise<DesignStylesheets>, dispatch
   };
 }
 
-export const PREVIEW_FIRST_FAILURE = "The preview couldn't load. Your changes are saved.";
-export const PREVIEW_STILL_FAILING = "The preview still can't load. Your changes are saved.";
+export const PREVIEW_FIRST_FAILURE = "The preview couldn't load.";
+export const PREVIEW_STILL_FAILING = "The preview still can't load.";
+export const SAVED_NOTE = "Your changes are saved.";
 
-/** The first failure, or any failure on a page that was itself a reload or after "Try again", says "still". */
-export const previewFailureText = (failures: number, afterReload: boolean): string => (failures >= 2 || afterReload ? PREVIEW_STILL_FAILING : PREVIEW_FIRST_FAILURE);
+/**
+ * The first failure, or any failure on a page that was itself a reload or after "Try again", says "still". The saved note is
+ * added only while the editor says saved (`saved`): while changes are waiting, saving or failed, the save status speaks.
+ */
+export function previewFailureText(failures: number, afterReload: boolean, saved: boolean): string {
+  const text = failures >= 2 || afterReload ? PREVIEW_STILL_FAILING : PREVIEW_FIRST_FAILURE;
+  return saved ? `${text} ${SAVED_NOTE}` : text;
+}
 
 /** Saves what is typed, then reloads; a failed save (or one that throws) reloads nothing, so no change is lost. Returns whether it reloaded. */
 export async function reloadAfterSave(flush: () => Promise<boolean>, reload: () => void): Promise<boolean> {

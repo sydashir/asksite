@@ -12,7 +12,8 @@ const isPhone = (page: Page) => (page.viewportSize()?.width ?? 1280) < 768;
 async function showEditor(page: Page) {
   if (isPhone(page)) await page.getByRole("button", { name: "Edit", exact: true }).click();
 }
-const savedEdits = async (page: Page, siteId: string) => (await apiCall(page, "GET", `/api/sites/${siteId}`)).json?.["edits"] as { copy: { heroHeadline?: string }; theme: unknown };
+const savedEdits = async (page: Page, siteId: string) =>
+  (await apiCall(page, "GET", `/api/sites/${siteId}`)).json?.["edits"] as { copy: { heroHeadline?: string }; theme: unknown; order: string[] | null };
 
 async function openEditor(page: Page) {
   const siteId = await builtSite(page);
@@ -311,11 +312,11 @@ test("when the preview cannot load it says so, editing and saving carry on, and 
 
   // First failure. Nothing reloads by itself.
   await showPreview(page);
-  await expect(page.getByText("The preview couldn't load. Your changes are saved.")).toBeVisible();
+  await expect(page.getByText("The preview couldn't load.")).toBeVisible();
   // By keyboard: WebKit does not focus a button on a mouse click.
   await page.getByRole("button", { name: "Try again" }).focus();
   await page.keyboard.press("Enter");
-  await expect(page.getByText("The preview still can't load. Your changes are saved.")).toBeVisible();
+  await expect(page.getByText("The preview still can't load.")).toBeVisible();
   // Retrying must not take the keyboard's place: the button that was pressed is still there and still focused.
   await expect(page.getByRole("button", { name: "Try again" })).toBeFocused();
   expect(await kept()).toBe(true);
@@ -341,7 +342,7 @@ test("when the preview cannot load it says so, editing and saving carry on, and 
   await page.getByRole("button", { name: "Reload the page" }).click();
   await expect.poll(kept).toBe(false);
   await showPreview(page);
-  await expect(page.getByText("The preview still can't load. Your changes are saved.")).toBeVisible();
+  await expect(page.getByText("The preview still can't load.")).toBeVisible();
   await showEditor(page);
   await expect(page.getByLabel("Headline", { exact: true })).toHaveValue("Not saved yet");
   expect((await savedEdits(page, siteId)).copy.heroHeadline).toBe("Not saved yet");
@@ -352,4 +353,68 @@ test("when the preview cannot load it says so, editing and saving carry on, and 
   await page.getByRole("button", { name: "Reload the page" }).click();
   await showPreview(page);
   await expect(page.frameLocator(FRAME).getByRole("heading", { level: 1 })).toHaveText("Not saved yet");
+});
+
+// STRICT (the honesty rules): the preview failure says "Your changes are saved." only while the editor really is saved.
+test("when the preview cannot load, it says the changes are saved only while they are saved", async ({ page }) => {
+  const siteId = await builtSite(page);
+  await page.route("**/assets/*.js", async (route) => {
+    const response = await route.fetch();
+    const body = await response.text();
+    return body.includes("tailwindcss v4.3.3") ? route.abort() : route.fulfill({ response, body });
+  });
+  const claim = page.getByText("Your changes are saved.");
+  let release: (() => void) | null = null;
+  let mode: "hold" | "pass" | "fail" = "hold";
+  await page.route(`**/api/sites/${siteId}/draft`, async (route) => {
+    if (mode === "fail") return route.fulfill({ status: 500, json: { error: { code: "internal", message: "Something went wrong. Please try again." } } });
+    if (mode === "hold") await new Promise<void>((resolve) => (release = resolve));
+    return route.fallback();
+  });
+  await page.goto(`/sites/${siteId}/edit`);
+  await expect(page.getByRole("heading", { level: 1, name: "Edit your website" })).toBeFocused();
+  const headline = page.getByLabel("Headline", { exact: true });
+
+  // Nothing was changed yet: the editor does not say saved, so the notice does not either.
+  await showPreview(page);
+  await expect(page.getByText("The preview couldn't load.")).toBeVisible();
+  await expect(claim).toHaveCount(0);
+
+  // Typed, and the save is still in flight: not saved.
+  await showEditor(page);
+  await headline.fill("First saving state");
+  await expect(page.getByText("Saving…")).toBeVisible();
+  await showPreview(page);
+  await expect(claim).toHaveCount(0);
+  await expect.poll(() => release !== null).toBe(true);
+
+  // Saved: now it says so.
+  mode = "pass";
+  release!();
+  await expect(savedStatus(page)).toBeVisible();
+  await expect(claim).toBeVisible();
+
+  // A save that fails: not saved again.
+  mode = "fail";
+  await showEditor(page);
+  await headline.fill("Second failing state");
+  await expect(page.getByRole("status").filter({ hasText: "Your changes are not saved yet." })).toBeVisible();
+  await showPreview(page);
+  await expect(page.getByText("The preview couldn't load.")).toBeVisible();
+  await expect(claim).toHaveCount(0);
+});
+
+// STRICT (customer data): a move must build on the earlier moves, even while the wording has an issue to fix.
+test("moves made while the wording has an issue are all kept, shown and saved", async ({ page }) => {
+  const siteId = await openEditor(page);
+  await page.getByLabel("Headline", { exact: true }).fill("Licensed plumbers you can trust");
+  await expect(page.getByText("Fix 1 issue to update the preview.")).toBeVisible();
+  await page.getByRole("tab", { name: "Sections" }).click();
+  await page.getByRole("button", { name: "Move Questions and answers up" }).click();
+  await page.getByRole("button", { name: "Move Service area and hours up" }).click();
+
+  const names = (heading: string) => page.getByRole("region", { name: heading }).locator("p.font-medium").allTextContents();
+  await expect.poll(() => names("Services page")).toEqual(["Questions and answers", "Services"]);
+  await expect.poll(() => names("Contact page")).toEqual(["Service area and hours", "Contact form"]);
+  await expect.poll(async () => (await savedEdits(page, siteId)).order).toEqual(["hero", "trust", "testimonials", "faq", "services", "about", "gallery", "serviceArea", "contact"]);
 });

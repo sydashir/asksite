@@ -197,9 +197,7 @@ function EditorScreen(props: { siteId: string; site: SiteState; view: SiteView; 
               </>
             ) : null}
             {tab === "look" ? <LookTab aiTheme={ai.draft.theme} edits={draft.edits} trade={stepProps.facts["trade"]} setEdits={setEdits} /> : null}
-            {tab === "sections" ? (
-              doc === null ? <p className="mt-4">Fix the issues in your wording first.</p> : <SectionsTab ai={ai} doc={doc} edits={draft.edits} setEdits={setEdits} onSection={showSection} />
-            ) : null}
+            {tab === "sections" ? <SectionsTab ai={ai} composed={composed} edits={draft.edits} setEdits={setEdits} onSection={showSection} /> : null}
             {tab === "photos" ? <PhotoManager {...stepProps} /> : null}
             {tab === "details" ? (
               <>
@@ -226,7 +224,7 @@ function EditorScreen(props: { siteId: string; site: SiteState; view: SiteView; 
           <h2 id={PREVIEW_HEADING_ID} tabIndex={-1} className="mb-2 font-semibold">
             Preview
           </h2>
-          <PreviewPane sheets={sheets} pages={pages} follow={follow} afterReload={afterReload} onRetry={retrySheets} onReload={reloadPage} />
+          <PreviewPane saved={site.saver.status === "saved"} sheets={sheets} pages={pages} follow={follow} afterReload={afterReload} onRetry={retrySheets} onReload={reloadPage} />
         </section>
       </div>
 
