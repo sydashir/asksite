@@ -1,5 +1,5 @@
 import { PAGES, type PageId } from "@asksite/site-schema";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { pageToShow } from "../lib/page-preview.ts";
 import { Notice } from "./feedback.tsx";
 
@@ -121,12 +121,12 @@ function PageFrame({ source, size, frameTitle, onLeftPage }: { source: PreviewPa
 /**
  * One document in an iframe. Any `load` after the first of that document is the frame leaving the page: it is mounted again
  * and the parent says so. Giving the inserted iframe a NEW srcdoc fires `load` too, but that is the new document arriving, so
- * the count starts again whenever `html` changes (the effect runs before that load can arrive).
+ * the count starts again whenever `html` changes (a layout effect runs in the commit itself, so before that load can arrive).
  */
 function LoadedFrame({ html, size, frameTitle, onLeftPage }: { html: string; size: string; frameTitle: string; onLeftPage: () => void }) {
   const [mount, setMount] = useState(0);
   const loads = useRef(0);
-  useEffect(() => {
+  useLayoutEffect(() => {
     loads.current = 0;
   }, [html]);
   return (
