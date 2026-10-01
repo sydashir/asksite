@@ -15,7 +15,7 @@ import { html, type SafeHtml } from "../../html.ts";
 import { icon as sharedIcon } from "../../icons.ts";
 import { DOM_ID } from "../../sections/ids.ts";
 import { icon } from "./icons.ts";
-import { addressMarkup, bandClass, buttonClass, pageHeading, sectionHead } from "./parts.ts";
+import { addressMarkup, bandClass, buttonClass, contactPageHeading, sectionHead } from "./parts.ts";
 import { contactHeading } from "./rules.ts";
 
 export function renderContact(ctx: RenderContext, _variant: VariantOf<"contact">): SafeHtml {
@@ -23,7 +23,7 @@ export function renderContact(ctx: RenderContext, _variant: VariantOf<"contact">
   const intro = copy.sectionIntros.contact;
   const head =
     headingLevel(ctx, "contact") === 1
-      ? pageHeading(ctx, DOM_ID.contact, copy.ctaText, intro, "sec-head contact-head")
+      ? contactPageHeading(ctx, DOM_ID.contact, intro)
       : sectionHead(DOM_ID.contact, { eyebrow: "Contact", title: contactHeading(copy.ctaText), intro }, "sec-head contact-head");
 
   return html`<section id="${DOM_ID.contact}" class="${bandClass(ctx, "contact")}" aria-labelledby="${DOM_ID.contact}-title">

@@ -1,17 +1,17 @@
 // The Bold FAQ: the heading at the left (with the call prompt under it from 64rem), the questions at the right.
 // The accordion is native <details name="faq"> (one open at a time, no JavaScript); the "open" variant shows
-// every answer. When the owner puts it first on the Services page its heading is the page's <h1> and the
-// questions are h2s (A16).
+// every answer. When the owner puts it first on the Services page, the page's head (its <h1> "Our services") opens
+// the band and the FAQ keeps its own heading (A16, U1).
 import type { VariantOf } from "@asksite/site-schema";
-import { headingLevel, type RenderContext } from "../../context.ts";
+import type { RenderContext } from "../../context.ts";
 import { html, trusted, type SafeHtml } from "../../html.ts";
 import { itemHeading } from "../../ui.ts";
 import { icon } from "./icons.ts";
-import { band, callButton } from "./parts.ts";
+import { band, callButton, itemLevel } from "./parts.ts";
 
 export function renderFaq(ctx: RenderContext, variant: VariantOf<"faq">): SafeHtml {
   const { copy } = ctx.doc;
-  const level = headingLevel(ctx, "faq");
+  const level = itemLevel(ctx, "faq");
   const items =
     variant === "accordion"
       ? copy.faq.map(
@@ -23,7 +23,7 @@ export function renderFaq(ctx: RenderContext, variant: VariantOf<"faq">): SafeHt
   return band(
     ctx,
     "faq",
-    { eyebrow: "FAQ", title: "Questions & answers", pageTitle: "Questions & answers", intro: copy.sectionIntros.faq },
+    { eyebrow: "FAQ", title: "Questions & answers", intro: copy.sectionIntros.faq },
     "wrap faq-layout",
     html`<div class="faq-list">${items}</div>
 <p class="faq-call"><span>Still have a question?</span>${callButton(ctx, "ghost")}</p>`,

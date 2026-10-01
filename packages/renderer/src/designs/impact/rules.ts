@@ -58,8 +58,10 @@ const TRACKING = 0.025; // em between capitals on a button
 const FIT_MARGIN = 1.03; // kerning and rounding
 
 // The narrowest content box, in px, of each button that shows the owner's call-to-action label, with its font
-// size in px (impact.css): the hero pair at 64rem, the header button and the services card from 64rem, and the
-// closing band's button at 320 px (A16; the band is 288 px inside there, less 0.75rem padding and the border).
+// size in px (impact.css): the hero pair at 64rem, the header button, the services card (and Home's) from 64rem, and
+// the closing band's button at 320 px (A16; the band is 288 px inside there, less 0.75rem padding and the border).
+// Wider ones need no slot: the inner page head's from 64rem, the phone menu's and Contact's head button at 320 px
+// (18 px, as the closing band's, or 17 px in the menu).
 const LABEL_SLOTS = [
   { width: 455, size: 20 },
   { width: 240, size: 17 },
@@ -181,19 +183,24 @@ export type Band = SectionId | "head" | "teaser" | "closing";
 
 export type Surface = "ink" | "paper" | "tint";
 
-/** Always ink: the hero and an inner page's head (every page opens on ink), the contact band, the closing band. */
-const ALWAYS_INK: ReadonlySet<Band> = new Set<Band>(["hero", "head", "contact", "closing"]);
+/** Always ink: the hero, an inner page's head (every page opens on ink) and the contact band. */
+const ALWAYS_INK: ReadonlySet<Band> = new Set<Band>(["hero", "head", "contact"]);
+
+/** Ink unless the band above is ink: the reviews (the approved Home's ink band between two seams) and the closing band. */
+const INK_AFTER_LIGHT: ReadonlySet<Band> = new Set<Band>(["testimonials", "closing"]);
 
 /**
- * The surface of each band of one page, in page order. The hero, an inner page's head, the contact band and the
- * closing band are ink, and so is the footer below; reviews are ink when neither neighbour is; the light bands
- * between alternate the page colour and the tint, so two light neighbours never share a tone. A page holds at
- * most two light bands in a row (the page map keeps pages short; test/designs/impact checks every page shape).
+ * The surface of each band of one page, in page order. The hero, an inner page's head and the contact band are ink;
+ * the reviews and the closing band are ink unless the band above is ink (so after ink reviews the closing band is
+ * light and the two never merge into one dark block); the light bands alternate the page colour and the tint, so two
+ * light neighbours never share a tone. A page holds at most two light bands in a row (the page map keeps pages
+ * short; test/designs/impact checks every page shape). The footer below is the deeper ink.
  */
 export function surfaces(flow: readonly Band[]): Map<Band, Surface> {
-  const ink = new Set(flow.filter((id) => ALWAYS_INK.has(id)));
+  const ink = new Set<Band>();
   flow.forEach((id, i) => {
-    if (id === "testimonials" && !ink.has(flow[i - 1] ?? "services") && !ink.has(flow[i + 1] ?? "services")) ink.add(id);
+    const above = flow[i - 1];
+    if (ALWAYS_INK.has(id) || (INK_AFTER_LIGHT.has(id) && (above === undefined || !ink.has(above)))) ink.add(id);
   });
   const result = new Map<Band, Surface>();
   let light = 0;

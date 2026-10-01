@@ -1,6 +1,8 @@
 // The Bold header: an ink bar with the business name (a link to Home), the site's pages and the phone number; from
 // 64rem it sticks, with the owner's call-to-action button always beside the number. From 75rem the pages are inline
-// links; below, a full-screen menu holds them with Call and "Get a quote".
+// links; below, a full-screen menu holds them with Call (it shows the number) and the owner's call to action, as the
+// header and the hero word it. On Contact the menu holds Call only: the page is the form, and a jump to it would
+// leave the menu open over it (a <details> stays open on an in-page link).
 // The menu needs no JavaScript: it is a native <details> disclosure, so it opens and closes in place and adds no
 // history entry, and Back from another page never lands on a URL that reopens it (A16; a :target menu did).
 // The current page's link carries aria-current="page" and a slanted bar, so it is marked by more than colour
@@ -9,7 +11,7 @@ import { navItems, pageLink, quoteLink, type RenderContext } from "../../context
 import { formatPhone, telUrl } from "../../format.ts";
 import { html, trusted, type SafeHtml } from "../../html.ts";
 import { icon } from "./icons.ts";
-import { addressMarkup, boldPage, buttonClass, callQuotePair } from "./parts.ts";
+import { addressMarkup, boldPage, buttonClass, callButton, ctaButton } from "./parts.ts";
 import { brandClass } from "./rules.ts";
 
 export function renderHeader(ctx: RenderContext): SafeHtml {
@@ -27,7 +29,7 @@ export function renderHeader(ctx: RenderContext): SafeHtml {
 <summary class="menu-btn"><span class="sr-only">Menu</span>${icon("menu-2", "ic ic-open")}${icon("x", "ic ic-close")}</summary>
 <div class="menu-panel">
 <ul class="menu-list">${links.map((l) => html`<li><a href="${l.href}"${current(l.current)}><span>${l.label}</span>${icon("arrow-right")}</a></li>`)}</ul>
-<div class="menu-acts">${callQuotePair(ctx)}</div>
+<div class="menu-acts">${callButton(ctx, "action")}${ctx.page.id !== "contact" && ctaButton(ctx)}</div>
 </div>
 </details>
 </nav>

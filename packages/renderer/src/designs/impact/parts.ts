@@ -1,6 +1,6 @@
 // Pieces every Bold section shares: the page model (which band is ink, the button case), the band shell with its
 // heading, and the markup of buttons, licences and addresses.
-import type { Facts, SectionId } from "@asksite/site-schema";
+import type { Facts, PageId, SectionId } from "@asksite/site-schema";
 import { headingLevel, onSite, quoteLink, type RenderContext } from "../../context.ts";
 import { formatPhone, telUrl, TRADE_LABEL } from "../../format.ts";
 import { html, type SafeHtml } from "../../html.ts";
@@ -67,17 +67,17 @@ export function bandClass(ctx: RenderContext, id: Band): string {
   return `sec ${surface.get(id) ?? "paper"}${seamClass(flow, surface, id)}`;
 }
 
-/** What a section's heading says: as a band on a page (an h2), and as the <h1> of the inner page it opens. */
+/** What a section's heading says: as a band on a page (an h2), and as the <h1> of the inner page it names. */
 export interface BandHead {
   /** The section's menu label, over the h2. */
   readonly eyebrow: string;
   /** The h2: Bold's own words. */
   readonly title: string;
-  /** The <h1> when the section opens an inner page: the words that name the page. */
-  readonly pageTitle: string;
+  /** The <h1> when the section opens the inner page it names: the words that name the page. */
+  readonly pageTitle?: string;
   /** The AI's intro, or the owner's own note. */
   readonly intro?: string | undefined;
-  /** Shown under an h2 heading (the founding-year numeral). */
+  /** Shown under the heading (the closing band's 24/7 chip). */
   readonly extra?: SafeHtml | false;
 }
 
@@ -85,23 +85,86 @@ export interface BandHead {
  * The house heading on a band: an eyebrow (a slanted bar and the section's menu label in small spaced capitals),
  * the h2 and the intro when there is one.
  */
-export function sectionHead(domId: string, head: Pick<BandHead, "eyebrow" | "title" | "intro" | "extra">, classes = "sec-head"): SafeHtml {
+export function sectionHead(domId: string, head: BandHead, classes = "sec-head"): SafeHtml {
   return html`<div class="${classes}"><p class="kicker eyebrow">${head.eyebrow}</p><h2 id="${domId}-title" class="h2 display">${head.title}</h2>${head.intro && html`<p class="sec-intro">${head.intro}</p>`}${head.extra}</div>`;
 }
 
 /**
- * An inner page's own heading: the trade and the town over the page's <h1>, then the intro. The eyebrow ties the
- * page to Home's hero line ("Plumbing · Austin, TX").
+ * The sections that name each inner page: when the owner puts one first, its heading IS the page's <h1> (the
+ * contract's words, test/fixtures.test.ts). Contact is named by either of its sections ("Service area & hours" when
+ * the owner puts the area first). Another first section (the FAQ on Services) keeps its own h2 under the page's name.
  */
-export function pageHeading(ctx: RenderContext, domId: string, title: string, intro: string | undefined, classes = "sec-head"): SafeHtml {
+const NAMES: Readonly<Record<PageId, readonly SectionId[]>> = {
+  home: [],
+  services: ["services"],
+  about: ["about"],
+  gallery: ["gallery"],
+  contact: ["contact", "serviceArea"],
+};
+
+/** True when `id` opens its inner page and names it, so the page's <h1> is its heading and its items are h2s. */
+export function namesPage(ctx: RenderContext, id: SectionId): boolean {
+  return headingLevel(ctx, id) === 1 && NAMES[ctx.page.id].includes(id);
+}
+
+/** The level a section's item headings sit under: the page's <h1> (items are h2s) when the section names its page, else its own h2 (items are h3s). */
+export function itemLevel(ctx: RenderContext, id: SectionId): 1 | 2 {
+  return namesPage(ctx, id) ? 1 : 2;
+}
+
+/** The page's own name, the <h1> over a first section that does not name the page (U1: the FAQ first on Services). */
+const PAGE_NAME: Readonly<Record<PageId, string>> = { home: "", services: "Our services", about: "About us", gallery: "Our work", contact: "Contact us" };
+
+/** The trade and the town over an inner page's <h1>, as in Home's hero line ("Plumbing · Austin, TX"). */
+function pageKicker(ctx: RenderContext): SafeHtml {
   const { trade, location } = ctx.doc.facts;
-  return html`<div class="${classes}"><p class="kicker eyebrow">${TRADE_LABEL[trade]} · ${location.city}, ${location.state}</p><h1 id="${domId}-title" class="${pageTitleClass(title)}">${title}</h1>${intro && html`<p class="sec-intro">${intro}</p>`}</div>`;
+  return html`<p class="kicker eyebrow">${TRADE_LABEL[trade]} · ${location.city}, ${location.state}</p>`;
 }
 
 /**
- * A section as a Bold band. On Home and below an inner page's first section it is one band with an h2 heading;
- * the first section of an inner page opens the page instead: its heading, the page's <h1>, sits on the ink head
- * band and the content follows on its own band, both inside the section (A16: no heading outside the sections).
+ * The owner's standing as chips on an inner page's head, owner facts only: 24/7 service, and Insured and the
+ * founding year while the owner shows the credentials section (About leaves the year to its numeral).
+ */
+function trustChips(ctx: RenderContext): SafeHtml | false {
+  const { facts } = ctx.doc;
+  const shown = onSite(ctx, "trust");
+  const chips = [
+    facts.emergency247 && html`<li class="chip">${icon("clock")}24/7 emergency service</li>`,
+    shown && facts.insured && html`<li class="chip">${icon("shield-check")}Insured</li>`,
+    shown && facts.yearFounded !== undefined && ctx.page.id !== "about" && html`<li class="chip">${icon("calendar")}Since ${facts.yearFounded}</li>`,
+  ].filter((chip): chip is SafeHtml => chip !== false);
+  return chips.length > 0 && html`<ul class="ph-chips">${chips}</ul>`;
+}
+
+/**
+ * The head band an inner page opens with (A16), on ink like Home's hero: the trade and the town over the page's
+ * <h1>, the intro and the owner's standing; from 64rem Call and the owner's call to action stacked at its right
+ * (below, the call bar carries them). On Contact (the owner put the service area first) it carries the number and the owner's
+ * call to action, a jump to the form below, at every width: the call bar there sits at the end of the page
+ * (moderator ruling b), so a phone visitor can still call or ask for a quote from the first screen.
+ */
+function pageHead(ctx: RenderContext, title: string, titleId: string | undefined, intro: string | undefined): SafeHtml {
+  const { phone } = ctx.doc.facts;
+  const h1 = titleId === undefined ? html`<h1 class="${pageTitleClass(title)}">${title}</h1>` : html`<h1 id="${titleId}" class="${pageTitleClass(title)}">${title}</h1>`;
+  const acts =
+    ctx.page.id === "contact"
+      ? html`<div class="ph-talk"><p class="kicker">Prefer to talk?</p><p><a class="big-phone display whitespace-nowrap" href="${telUrl(phone)}">${formatPhone(phone)}</a></p><p>${ctaButton(ctx)}</p></div>`
+      : html`<div class="ph-acts">${callButton(ctx, "action")}${ctaButton(ctx)}</div>`;
+  return html`<div class="page-head ink"><div class="wrap ph"><div class="page-title">${pageKicker(ctx)}${h1}${intro && html`<p class="sec-intro">${intro}</p>`}${trustChips(ctx)}</div>${acts}</div></div>`;
+}
+
+/** The contact band's own heading when the form opens the Contact page: the page's <h1>, the owner's call to action. */
+export function contactPageHeading(ctx: RenderContext, domId: string, intro: string | undefined): SafeHtml {
+  const title = ctx.doc.copy.ctaText;
+  return html`<div class="sec-head contact-head">${pageKicker(ctx)}<h1 id="${domId}-title" class="${pageTitleClass(title)}">${title}</h1>${intro && html`<p class="sec-intro">${intro}</p>`}</div>`;
+}
+
+/**
+ * A section as a Bold band. On Home and below an inner page's first section it is one band with an h2 heading.
+ * The first section of an inner page opens the page instead: the ink head band with the page's <h1>, then the
+ * content on its own band, both inside the section (A16: no heading outside the sections). When that section
+ * names the page (Services on /services) the <h1> is its heading; otherwise (the owner put the FAQ first) the <h1>
+ * is the page's name and the section keeps its own h2 on its band.
  */
 export function band(ctx: RenderContext, id: SectionId, head: BandHead, layout: string, body: SafeHtml): SafeHtml {
   const domId = DOM_ID[id];
@@ -113,11 +176,13 @@ ${body}
 </div>
 </section>`;
   }
+  const names = namesPage(ctx, id);
   return html`<section id="${domId}" class="page-open" aria-labelledby="${domId}-title">
-<div class="page-head ink"><div class="wrap">${pageHeading(ctx, domId, head.pageTitle, head.intro, "page-title")}</div></div>
+${names ? pageHead(ctx, head.pageTitle ?? head.title, `${domId}-title`, head.intro) : pageHead(ctx, PAGE_NAME[ctx.page.id], undefined, undefined)}
 <div class="${bandClass(ctx, id)}">
 <div class="${layout}">
-${body}
+${names ? body : html`${sectionHead(domId, head)}
+${body}`}
 </div>
 </div>
 </section>`;
@@ -147,12 +212,13 @@ export function ctaButton(ctx: RenderContext, large = false): SafeHtml {
 }
 
 /**
- * The call bar's (and the phone menu's) pair: Call, whose visible word starts its accessible name, with the number
- * beside it where the bar has room, and the fixed "Get a quote" (moderator ruling, WCAG 2.5.3), to the quote form.
+ * The call bar's pair: Call, whose visible words are its accessible name, and the fixed "Get a quote" to the form
+ * (moderator ruling, WCAG 2.5.3). The number is always in view: on phones under a small "Call" (the approved bar
+ * showed the number), from 36rem on one line with it.
  */
-export function callQuotePair(ctx: RenderContext): SafeHtml {
+export function callBarPair(ctx: RenderContext): SafeHtml {
   const { phone } = ctx.doc.facts;
-  return html`<a class="${buttonClass(ctx, "action")} whitespace-nowrap" href="${telUrl(phone)}" aria-label="Call ${formatPhone(phone)}">${icon("phone")}<span>Call<span class="cb-num"> ${formatPhone(phone)}</span></span></a><a class="${buttonClass(ctx, "ghost")}" href="${quoteLink()}">Get a quote</a>`;
+  return html`<a class="${buttonClass(ctx, "action")} cb-call whitespace-nowrap" href="${telUrl(phone)}" aria-label="Call ${formatPhone(phone)}">${icon("phone")}<span class="cb-txt"><span class="cb-k">Call</span> <span>${formatPhone(phone)}</span></span></a><a class="${buttonClass(ctx, "ghost")}" href="${quoteLink()}">Get a quote</a>`;
 }
 
 /**

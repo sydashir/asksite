@@ -321,8 +321,8 @@
   }
 
   /* The phone and tablet menu: a <details> disclosure whose panel is a full-screen ink sheet under the header. It
-     covers the page and the call bar, carries Call and "Get a quote", and the page behind it is hidden, so
-     keyboard focus and screen readers stay in the sheet. */
+     covers the page and the call bar, carries Call (with the number) over the owner's call to action, and the page
+     behind it is hidden, so keyboard focus and screen readers stay in the sheet. */
   .menu,
   .menu-panel {
     display: none;
@@ -401,8 +401,8 @@
   }
   .menu-acts {
     display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 0.5rem;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.625rem;
     margin-top: auto;
     padding-top: 1.5rem;
   }
@@ -437,9 +437,6 @@
     .menu-acts {
       width: 100%;
       max-width: 40rem;
-    }
-    .menu-acts {
-      grid-template-columns: minmax(0, 1fr) minmax(0, 12rem);
     }
   }
   .header-cta {
@@ -1156,23 +1153,29 @@
     }
   }
 
-  /* An inner page opens like Home (A16): on ink, with the trade and the town over the page's <h1> at display scale
-     and the intro, text only. The content band below meets it at the slanted seam (it reaches up over this band's
-     bottom edge, so the head keeps the slant's depth in its padding). The section holds both, so no heading sits
-     outside the sections. */
+  /* An inner page opens like Home (A16): on ink, with the trade and the town over the page's <h1> at display scale,
+     the intro and the owner's standing as chips; from 64rem Call and the call to action are stacked at its right (on
+     Contact the number and the call to action, at every width). The head is short, so the content starts high on the first
+     screen. The content band below meets it at the slanted seam (it reaches up over this band's bottom edge, so the
+     head keeps the slant's depth in its padding). The section holds both, so no heading sits outside the sections. */
   .page-open {
     display: block;
   }
   .page-head {
-    position: relative;
-    isolation: isolate;
-    padding-block: 2.75rem calc(3.25rem + var(--slant));
+    padding-block: 1.5rem calc(1.75rem + var(--slant));
   }
   .page-title {
     max-width: 54rem;
   }
+  .page-title .eyebrow {
+    margin-bottom: 0.75rem;
+  }
+  .page-title .sec-intro {
+    margin-top: 0.75rem;
+    color: var(--fg-t);
+  }
   .pt {
-    font-size: clamp(2.625rem, min(1.5rem + 4.4vw, 11svh), 4.5rem);
+    font-size: clamp(2.25rem, min(1.6rem + 2.8vw, 10svh), 3.75rem);
     line-height: 0.95;
     letter-spacing: 0.012em;
     text-transform: uppercase;
@@ -1180,26 +1183,61 @@
     text-wrap: balance;
   }
   .pt--long {
-    font-size: clamp(2.125rem, min(1.2rem + 3vw, 8.5svh), 3.5rem);
+    font-size: clamp(1.875rem, min(1.2rem + 2.4vw, 8.5svh), 3rem);
     line-height: 1.04;
     letter-spacing: -0.008em;
     text-transform: none;
   }
+  .ph-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-top: 1rem;
+  }
+  .ph-chips .chip {
+    max-width: 100%;
+  }
+  .ph-acts {
+    display: none;
+  }
+  .ph-talk {
+    container-type: inline-size;
+    margin-top: 1.25rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--fg-l);
+  }
+  .ph-talk .kicker {
+    color: var(--fg-m);
+  }
+  .ph-talk .bt {
+    width: 100%;
+    margin-top: 1.125rem;
+  }
+  @media (max-width: 39.99rem) {
+    .ph-talk .bt {
+      font-size: 1.125rem;
+      padding-inline: 0.75rem;
+    }
+  }
   @media (min-width: 64rem) {
     .page-head {
-      padding-block: 4.75rem calc(5rem + var(--slant));
+      padding-block: 2.75rem calc(2.75rem + var(--slant));
     }
-    /* The type-only hero's faint grid at the far right, fading out before the text. */
-    .page-head::before {
-      content: "";
-      position: absolute;
-      z-index: -1;
-      inset: 0 0 0 62%;
-      background-image:
-        repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.07) 0 1px, transparent 1px 2.5rem),
-        repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.07) 0 1px, transparent 1px 2.5rem);
-      -webkit-mask-image: linear-gradient(90deg, transparent, #000 70%);
-      mask-image: linear-gradient(90deg, transparent, #000 70%);
+    .ph {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 21rem);
+      column-gap: 4rem;
+      align-items: end;
+    }
+    .ph-acts {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr);
+      gap: 0.75rem;
+    }
+    .ph-talk {
+      margin-top: 0;
+      padding-top: 0;
+      border-top: 0;
     }
   }
 
@@ -1296,7 +1334,6 @@
     grid-template-columns: minmax(0, 1fr);
   }
   .board {
-    align-self: start;
     border-bottom: 1px solid var(--fg-l);
   }
   .svc {
@@ -1307,8 +1344,39 @@
     padding-block: 1.375rem;
     border-top: 1px solid var(--fg-l);
   }
+  /* The board opens without a rule: under the heading, or right under the seam where it opens the band. */
+  .svc:first-child {
+    padding-top: 0;
+    border-top: 0;
+  }
   .svc-name {
     grid-area: name;
+    font-size: 1.3125rem;
+    font-weight: 800;
+  }
+  /* Home's preview: each row leads to the Services page (the name's link covers the row), and its price cell's link
+     to the form stays on top. */
+  .svc--go {
+    position: relative;
+  }
+  .svc-go {
+    color: inherit;
+    text-decoration: none;
+  }
+  .svc-go::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+  }
+  .svc--go .svc-ask {
+    position: relative;
+    z-index: 1;
+  }
+  .svc-all {
+    margin-top: 2rem;
+  }
+  .svc-all .bt {
+    width: 100%;
   }
   .svc-desc {
     grid-area: desc;
@@ -1362,10 +1430,10 @@
       align-self: start;
     }
   }
-  /* The call-to-action card shows from 64rem only (below it the call bar carries the same pair). */
+  /* The call-to-action card: under the list on phones (Home's shows from 64rem only: the call bar carries the pair
+     there), beside it from 64rem. */
   .cta-card {
-    display: none;
-    margin-top: 2.25rem;
+    margin-top: 2.5rem;
     padding: 1.5rem 1.25rem;
     border-radius: 0.75rem;
   }
@@ -1391,6 +1459,9 @@
     padding-inline: 0.75rem;
     overflow-wrap: anywhere;
   }
+  .cta-card--home {
+    display: none;
+  }
   @media (min-width: 64rem) {
     .svc-layout {
       grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
@@ -1402,13 +1473,12 @@
       grid-row: 1;
       margin-bottom: 2.5rem;
     }
-    .board {
+    .svc-main {
       grid-column: 2;
       grid-row: 1 / span 2;
     }
-    .svc:first-child {
-      padding-top: 0;
-      border-top: 0;
+    .svc-name {
+      font-size: 1.4375rem;
     }
     .cta-card {
       display: block;
@@ -1419,34 +1489,6 @@
       top: 6.5rem;
       margin-top: 0;
       padding: 2rem;
-    }
-  }
-
-  /* Home's services preview: the Services band's board, names and prices only, and its one link under the
-     heading (at the left from 64rem, where the Services band has its call-to-action card). */
-  .teaser-more {
-    margin: -0.75rem 0 1.75rem;
-  }
-  .board--preview .svc {
-    align-items: baseline;
-    padding-block: 1.25rem;
-  }
-  .board--preview .svc-name {
-    font-family: var(--display);
-    font-weight: 800;
-    font-stretch: condensed;
-    font-size: clamp(1.5rem, 1.15rem + 1.1vw, 2rem);
-    line-height: 1.05;
-    letter-spacing: 0.012em;
-    word-spacing: 0.06em;
-    text-transform: uppercase;
-  }
-  @media (min-width: 64rem) {
-    .teaser-more {
-      grid-column: 1;
-      grid-row: 2;
-      align-self: start;
-      margin: 0;
     }
   }
 
@@ -1619,7 +1661,8 @@
   }
 
   /* Gallery: picked by photo count (rules.ts galleryClass). Phones: 2 columns, the first photo (and a last odd
-     one) full width. Desktop: 6 tracks, a tile spans 2. Tiles are 4:3 on phones, 3:2 on desktop. */
+     one) full width. Desktop: 6 tracks, a tile spans 2; one photo spans the row. Tiles are 4:3 on phones, 3:2 on
+     desktop. Each tile is a link to its full-size photo. */
   .gal {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1638,6 +1681,7 @@
     height: 100%;
   }
   .gal-img {
+    display: block;
     position: relative;
     aspect-ratio: 4/3;
     overflow: hidden;
@@ -1706,7 +1750,6 @@
     }
     .gal--solo {
       grid-template-columns: minmax(0, 1fr);
-      max-width: 56rem;
     }
     .gal--solo > li:first-child {
       grid-column: 1/-1;
@@ -1716,27 +1759,30 @@
     }
   }
 
-  /* About: the founding-year numeral is the anchor, real text at full contrast. A leading 1 or 2 is pulled
-     left by its measured side bearing in the display face, so its ink starts on the heading edge. */
+  /* About (rules in about.ts): the owner's photo with the founding year on an ink tab, or the year as a large
+     numeral with the credentials under it, or the story beside the credentials. A leading 1 or 2 of the numeral is
+     pulled left by its measured side bearing in the display face, so its ink starts on the column's edge. */
   .about {
     display: grid;
     grid-template-columns: minmax(0, 1fr);
     gap: 2rem;
   }
-  .about .sec-head {
-    margin-bottom: 0;
+  .about-media {
+    position: relative;
   }
-  .page-open .year {
-    margin-top: 0;
-  }
-  .about-specs {
-    margin-top: 2.25rem;
+  .about-media img {
+    display: block;
+    width: 100%;
+    height: auto;
+    aspect-ratio: 4/3;
+    object-fit: cover;
+    border-radius: 0.375rem;
+    background: var(--fg-l);
   }
   .year {
     display: flex;
     flex-direction: column;
     gap: 0.625rem;
-    margin-top: 2rem;
     color: var(--fg-m);
   }
   .year-n {
@@ -1752,6 +1798,20 @@
   .year-n--2 {
     margin-left: -0.033em;
   }
+  .about-media .year {
+    --fg-h: #ffffff;
+    --fg-m: var(--aw-impact-on-ink-muted);
+    position: absolute;
+    left: 0;
+    bottom: 0;
+    gap: 0.5rem;
+    padding: 0.875rem 1.25rem 1.125rem;
+    border-radius: 0 0.375rem 0 0.375rem;
+    background: var(--aw-impact-ink);
+  }
+  .about-media .year-n {
+    font-size: clamp(2.75rem, 2rem + 2.5vw, 4.25rem);
+  }
   .about-text {
     max-width: 36em;
     font-size: clamp(1.1875rem, 1rem + 0.75vw, 1.5rem);
@@ -1759,43 +1819,53 @@
     color: var(--fg-h);
     text-wrap: pretty;
   }
-  .sign {
-    display: flex;
-    flex-direction: column;
-    gap: 0.125rem;
-    margin-top: 1.75rem;
-    padding-top: 1.25rem;
+  .specs--stack {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0;
+  }
+  .specs--stack .spec {
+    padding-block: 1rem;
     border-top: 1px solid var(--fg-l);
-  }
-  .sign-name {
-    font-family: var(--aw-font-heading);
-    font-weight: 800;
-    color: var(--fg-h);
-  }
-  .sign-meta {
-    font-size: 0.9375rem;
-    color: var(--fg-m);
   }
   @media (min-width: 64rem) {
     .about {
       grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
-      gap: 5rem;
+      grid-template-rows: auto 1fr;
+      gap: 2.5rem 5rem;
       align-items: start;
     }
+    .about--photo {
+      grid-template-areas: "media body" "media specs";
+    }
+    .about--wide {
+      grid-template-areas: "media body" "specs specs";
+    }
+    .about--year {
+      grid-template-areas: "year body" "specs body";
+    }
     .about--text {
+      grid-template-columns: minmax(0, 7fr) minmax(0, 5fr);
+      grid-template-areas: "body specs";
+    }
+    .about--solo {
       grid-template-columns: minmax(0, 1fr);
     }
-    .year {
-      margin-top: 2.75rem;
+    .about-media {
+      grid-area: media;
+    }
+    .about > .year {
+      grid-area: year;
     }
     .about-body {
-      padding-top: 2.25rem;
+      grid-area: body;
     }
-    .page-open .about-body {
-      padding-top: 0.5rem;
+    .about-specs {
+      grid-area: specs;
     }
-    .about--text .about-body {
-      max-width: 46rem;
+    .specs--stack .spec + .spec {
+      padding-left: 0;
+      border-left: 0;
     }
   }
 
@@ -1840,6 +1910,19 @@
     font-size: 0.9375rem;
     font-weight: 600;
     overflow-wrap: anywhere;
+  }
+  .more-places summary {
+    display: inline-flex;
+    align-items: center;
+    min-height: 2.75rem;
+    margin-top: 0.375rem;
+    font-weight: 700;
+    color: var(--fg-h);
+    text-decoration: underline;
+    text-underline-offset: 0.22em;
+  }
+  .more-places .chips {
+    margin-top: 0.375rem;
   }
   .addr {
     margin-top: 1.5rem;
@@ -2264,24 +2347,58 @@
   .site-footer .foot-social li {
     margin-top: 0;
   }
+  /* The site's pages: a row of links on phones, a column from 48rem; the current page white and underlined. */
+  .site-footer nav ul {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0 1.5rem;
+  }
+  .site-footer nav li + li {
+    margin-top: 0;
+  }
+  .site-footer a[aria-current="page"] {
+    color: #ffffff;
+    text-decoration: underline;
+    text-underline-offset: 0.3em;
+  }
+  .site-footer .foot-k {
+    margin-top: 1.5rem;
+  }
+  .foot-hours div {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    column-gap: 1rem;
+    max-width: 18rem;
+  }
+  .foot-hours div + div {
+    margin-top: 0.375rem;
+  }
+  .foot-hours dt {
+    color: var(--aw-impact-on-ink-soft);
+  }
   @media (min-width: 48rem) {
     .foot-grid {
-      grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 1fr);
+      grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
       gap: 2.5rem;
       padding-block: 4rem;
     }
+    .site-footer nav ul {
+      flex-direction: column;
+      gap: 0.375rem;
+    }
   }
 
-  /* The phone call bar (below 64rem): Call in the action colour, then "Get a quote", in two equal halves. It
-     sticks (the sticky utility; static on Contact) with a hairline and a tight shadow, and stops sticking while
-     keyboard focus is elsewhere (focus-outside:static). It stacks below the form's Send button (styles/shared.css).
-     The number joins "Call" where its half holds it (from 36rem); neither label ever wraps. The phone menu's
-     pair is the same. */
+  /* The phone call bar (below 64rem): Call with the number in the action colour, then "Get a quote", in two halves;
+     the Call half never narrower than its number. It sticks (the sticky utility; static on Contact) with a hairline
+     and a tight shadow, and stops sticking while keyboard focus is elsewhere (focus-outside:static). It stacks below
+     the form's Send button (styles/shared.css). On phones a small "Call" sits over the number; from 36rem they share
+     one line. */
   .callbar {
     bottom: 0;
     z-index: 10;
     display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(2, minmax(min-content, 1fr));
     gap: 0.5rem;
     padding: 0.625rem 1rem calc(0.625rem + env(safe-area-inset-bottom));
     background: var(--aw-impact-ink);
@@ -2296,9 +2413,30 @@
     font-size: 1.125rem;
     letter-spacing: 0.02em;
   }
-  @media (max-width: 35.99rem) {
-    .cb-num {
-      display: none;
+  .cb-call {
+    padding-block: 0.375rem;
+  }
+  .cb-txt {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.25rem;
+  }
+  .cb-k {
+    font-family: var(--aw-font-sans);
+    font-size: 0.6875rem;
+    font-weight: 700;
+    line-height: 1;
+    letter-spacing: 0.12em;
+  }
+  @media (min-width: 36rem) {
+    .cb-txt {
+      flex-direction: row;
+      gap: 0.3em;
+    }
+    .cb-k {
+      font: inherit;
+      letter-spacing: inherit;
     }
   }
   @media (max-width: 22.49rem) {

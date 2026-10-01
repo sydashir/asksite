@@ -21,6 +21,7 @@ import type { RenderContext } from "../../../src/context.ts";
 import { contrastRatio, hexToRgb } from "../../../src/contrast.ts";
 import { boldPage } from "../../../src/designs/impact/parts.ts";
 import { BOLD_COLORS } from "../../../src/designs/impact/tokens.ts";
+import { escapeText } from "../../../src/escape.ts";
 import { safeUrl } from "../../../src/html.ts";
 import { render } from "../../../src/render.ts";
 import { sitePages } from "../../../src/visibility.ts";
@@ -151,7 +152,7 @@ function* pageShapes(): Generator<{ page: PageId; flow: readonly Band[] }> {
 }
 
 describe("Bold surfaces", () => {
-  it("in every page shape: opens on ink, ends on the closing band (Contact on its own bands), no ink beside ink, at most two light bands in a row in two tones, seams only on light bands", () => {
+  it("in every page shape: opens on ink, ends on the closing band (Contact on its own bands), no ink beside ink, at most two light bands in a row in two tones, seams only on light bands, the reviews on ink", () => {
     const problems: string[] = [];
     const flows = new Set<string>();
     for (const { page, flow } of pageShapes()) {
@@ -173,7 +174,11 @@ describe("Bold surfaces", () => {
         if (a !== "ink" && a === b) problems.push(`same light tone: ${shown}`);
       });
       for (const id of flow) if (surface.get(id) === "ink" && seamClass(flow, surface, id) !== "") problems.push(`seam on an ink band: ${shown}`);
-      for (const id of ["hero", "head", "contact", "closing"] as const) if (flow.includes(id) && surface.get(id) !== "ink") problems.push(`${id} not ink: ${shown}`);
+      // The approved Home: the reviews on ink between two seams, in every shape the owner can give Home.
+      for (const id of ["hero", "head", "contact", "testimonials"] as const) if (flow.includes(id) && surface.get(id) !== "ink") problems.push(`${id} not ink: ${shown}`);
+      // The closing band is ink unless the band above it is (then it is light, so two ink bands never merge).
+      const above = flow[flow.indexOf("closing") - 1];
+      if (flow.includes("closing") && (surface.get("closing") === "ink") === (above !== undefined && surface.get(above) === "ink")) problems.push(`closing band: ${shown}`);
     }
     expect([...new Set(problems)]).toEqual([]);
     // Home: the hero with the credentials in it or after the reviews, the preview, the reviews or none; the inner pages.
@@ -194,7 +199,10 @@ describe("Bold surfaces", () => {
     );
   });
 
-  it("turns the reviews ink when both neighbours are light", () => {
+  it("puts the reviews on ink, and makes the closing band light right after them", () => {
+    const home: Band[] = ["hero", "teaser", "testimonials", "closing"];
+    const homeSurface = surfaces(home);
+    expect(home.map((id) => homeSurface.get(id))).toEqual(["ink", "paper", "ink", "tint"]);
     const flow: Band[] = ["hero", "teaser", "testimonials", "trust", "closing"];
     const surface = surfaces(flow);
     expect(flow.map((id) => surface.get(id))).toEqual(["ink", "paper", "ink", "tint", "ink"]);
@@ -203,8 +211,7 @@ describe("Bold surfaces", () => {
   it("draws each seam from the light side: up over an ink band above (not the hero), down over an ink band below", () => {
     const home: Band[] = ["hero", "teaser", "testimonials", "closing"];
     const homeSurface = surfaces(home);
-    expect(home.map((id) => homeSurface.get(id))).toEqual(["ink", "paper", "tint", "ink"]);
-    expect(home.map((id) => seamClass(home, homeSurface, id))).toEqual(["", "", " seam-down", ""]);
+    expect(home.map((id) => seamClass(home, homeSurface, id))).toEqual(["", " seam-down", "", " seam-up"]);
     const services: Band[] = ["head", "services", "faq", "closing"];
     const surface = surfaces(services);
     expect(services.map((id) => surface.get(id))).toEqual(["ink", "paper", "tint", "ink"]);
@@ -244,12 +251,11 @@ describe("the Bold page", () => {
     );
   });
 
-  it("marks where a long email or web-address name may break: contact band, footer, header and About", () => {
+  it("marks where a long email or web-address name may break: contact band, footer and header", () => {
     const name = "www<wbr>.reliablerooterplumbing<wbr>.com";
     const mail = "office@<wbr>reliablerooter<wbr>.example<wbr>.com";
     const page = site({ ...plumber, facts: { ...plumber.facts, businessName: "www.reliablerooterplumbing.com" } });
     expect(page).toContain(`<a class="brand brand--long" href="/">${name}</a>`);
-    expect(page).toContain(`<span class="sign-name">${name}</span>`);
     expect(page).toContain(`<p class="foot-brand">${name}</p>`);
     // The contact link is a flex row (icon, text), so its text sits in one span: a <wbr> is never a flex item.
     expect(page).toMatch(new RegExp(`<a class="mail" href="mailto:office@reliablerooter.example.com"><svg[^]*?</svg><span>${mail}</span></a>`));
@@ -322,35 +328,61 @@ describe("the Bold pages", () => {
     expect(header).not.toContain("id=");
   });
 
-  it("puts Call (named with the number) and \"Get a quote\" in the call bar on every page; the bar sticks except on Contact", () => {
+  // Round 2 (judges): the phone bar showed only "CALL"; the approved bar showed the number.
+  it("puts Call with the number in view and \"Get a quote\" in the call bar on every page; the bar sticks except on Contact", () => {
     for (const { page, html } of all) {
       const bar = html.slice(html.indexOf("<aside"), html.indexOf("</aside>"));
       expect(bar, page).toContain(`<aside aria-label="Call us" class="${page === "contact" ? "callbar focus-outside:static" : "callbar sticky focus-outside:static"}">`);
-      expect(bar, page).toMatch(/href="tel:\+15125550142" aria-label="Call \(512\) 555-0142"><svg[^]*?<\/svg><span>Call<span class="cb-num"> \(512\) 555-0142<\/span><\/span><\/a>/);
+      expect(bar, page).toMatch(/<a class="bt bt-action cb-call whitespace-nowrap" href="tel:\+15125550142" aria-label="Call \(512\) 555-0142"><svg[^]*?<\/svg><span class="cb-txt"><span class="cb-k">Call<\/span> <span>\(512\) 555-0142<\/span><\/span><\/a>/);
       expect(bar, page).toMatch(/href="\/contact#quote">Get a quote<\/a>/);
     }
   });
 
-  it("previews the first three services on Home, each priced only when the owner gave a price, with one link to Services", () => {
+  // Round 2 (judges, reviewer): the menu said "Get a quote" where the header and the hero say the owner's words, and on
+  // Contact its quote jump left the menu open over the form.
+  it("puts Call and the owner's call to action in the phone menu, and Call only on Contact", () => {
+    const menu = (html: string) => html.slice(html.indexOf('<div class="menu-acts">'), html.indexOf("</details>"));
+    for (const { page, html } of all) {
+      expect(menu(html), page).toMatch(/href="tel:\+15125550142" aria-label="Call \(512\) 555-0142">/);
+      expect(menu(html).includes('href="/contact#quote">Get a free quote</a>'), page).toBe(page !== "contact");
+      expect(menu(html), page).not.toContain("Get a quote<");
+    }
+  });
+
+  // Round 2 (judges): the preview hid how much the business does, showed nothing beside an unpriced service, was not a
+  // way on, drew the names unlike the Services page and left the column under its heading empty.
+  it("previews the first three services on Home like the Services board: each row a way to Services, a price or the estimate cue, the count, and the call card", () => {
     const services = [
       { name: "Drain cleaning", startingPrice: 89 },
       { name: "Leak detection" },
       { name: "Sewer line repair", startingPrice: 1200 },
       { name: "Water heater repair" },
     ];
-    const doc = { ...plumber, facts: { ...plumber.facts, services }, copy: { ...plumber.copy, serviceDescriptions: services.map((s) => ({ service: s.name, description: "Done right." })) } };
+    const doc = { ...plumber, facts: { ...plumber.facts, services }, copy: { ...plumber.copy, serviceDescriptions: services.map((s) => ({ service: s.name, description: `${s.name} done right.` })) } };
     const home = bold(doc);
     const preview = home.slice(home.indexOf('<section id="services-preview"'), home.indexOf("</section>", home.indexOf('<section id="services-preview"')));
     expect(preview).toContain('<h2 id="services-preview-title" class="h2 display">Our services</h2>');
-    expect([...preview.matchAll(/<h3 class="svc-name h3">([^<]*)<\/h3>/g)].map((m) => m[1])).toEqual(["Drain cleaning", "Leak detection", "Sewer line repair"]);
+    // The Services page's row, with the name a link to that page (its ::after covers the row).
+    expect([...preview.matchAll(/<li class="svc svc--go"><h3 class="svc-name h3"><a class="svc-go" href="\/services">([^<]*)<\/a><\/h3>/g)].map((m) => m[1])).toEqual(["Drain cleaning", "Leak detection", "Sewer line repair"]);
     expect([...preview.matchAll(/From <span class="svc-amt display tnum">([^<]*)<\/span>/g)].map((m) => m[1])).toEqual(["$89", "$1,200"]);
-    expect(preview.match(/<a [^>]*>/g)).toEqual(['<a class="svc-ask" href="/services">']);
-    // The link sits under the heading, before the board, at every width (a phone reads it before the list).
-    expect(preview.indexOf("svc-ask")).toBeLessThan(preview.indexOf('<ul class="board board--preview">'));
-    expect(preview).toContain("More about our services");
+    expect(preview).toContain('<p class="svc-price"><a class="svc-ask" href="/contact#quote">Free estimate<svg');
+    expect([...preview.matchAll(/<p class="svc-desc">([^<]*)<\/p>/g)].map((m) => m[1])).toEqual(["Drain cleaning done right.", "Leak detection done right.", "Sewer line repair done right."]);
+    // The count, under the list (where a phone reader finishes), and the call card.
+    expect(preview).toMatch(/<\/ul>\n<p class="svc-all"><a class="bt bt-ghost" href="\/services">See all 4 services<svg/);
+    expect(preview).toMatch(/<div class="cta-card cta-card--home ink">\n<h3 class="h3">Not sure what you need\?<\/h3>/);
+    // Three or fewer: nothing more to see, so no count.
+    const three = { ...doc, facts: { ...doc.facts, services: services.slice(0, 3) }, copy: { ...doc.copy, serviceDescriptions: doc.copy.serviceDescriptions.slice(0, 3) } };
+    expect(bold(three)).toContain('href="/services">More about our services<svg');
   });
 
-  it("ends every page but Contact on the ink closing band: Get in touch, Call with the number, the owner's call to action", () => {
+  it("draws a service's name in one style on Home and on Services", () => {
+    const name = (html: string) => /<(h[23]) class="(svc-name h3)">(?:<a class="svc-go" href="\/services">)?Drain cleaning/.exec(html)?.[2];
+    expect([name(bold(plumber)), name(bold(plumber, "services"))]).toEqual(["svc-name h3", "svc-name h3"]);
+    // and no rule restyles the preview's names (round 1 set them in display capitals there).
+    expect(DESIGN_CSS.impact.css).not.toMatch(/board--preview|svc--go \.svc-name|svc-go\{[^}]*font/);
+  });
+
+  it("ends every page but Contact on the closing band: Get in touch, its own line, Call with the number, the owner's call to action", () => {
     for (const { page, html } of all) {
       const start = html.indexOf('<section id="get-in-touch"');
       if (page === "contact") {
@@ -358,32 +390,111 @@ describe("the Bold pages", () => {
         continue;
       }
       const band = html.slice(start, html.indexOf("</section>", start));
-      expect(band, page).toMatch(/^<section id="get-in-touch" class="sec ink" aria-labelledby="get-in-touch-title">/);
+      // Light right after Home's ink reviews (so the two never merge), ink elsewhere.
+      expect(band, page).toMatch(page === "home" ? /^<section id="get-in-touch" class="sec tint seam-up" / : /^<section id="get-in-touch" class="sec ink" /);
       expect(band, page).toContain('<h2 id="get-in-touch-title" class="h2 display">Get in touch</h2>');
+      expect(band, page).toContain("Questions, or a job in mind? Call us, or send a quick request.");
       expect(band, page).toMatch(/href="tel:\+15125550142" aria-label="Call \(512\) 555-0142">[^]*\(512\) 555-0142<\/span><\/a>/);
       expect(band, page).toContain('href="/contact#quote">Get a free quote</a>');
       expect(html.indexOf("</main>") - html.indexOf("</section>", start), page).toBeLessThan(20);
     }
+    expect(bold(plumber)).toMatch(/<section id="reviews" class="sec ink" /);
   });
 
-  it("opens each inner page on the ink head with the page's h1 inside its first section; Contact's band carries its own", () => {
+  it("opens each inner page on a short ink head: its h1, the owner's standing and, from 64rem, Call and the call to action; Contact's band carries its own", () => {
     for (const { page, html } of all.filter((p) => p.page !== "home")) {
       const main = html.slice(html.indexOf('<main id="main">'));
       if (page === "contact") {
         expect(main).toMatch(/^<main id="main">\n<section id="contact" class="sec ink" aria-labelledby="contact-title">\n<div class="wrap contact">\n<div class="sec-head contact-head"><p class="kicker eyebrow">Plumbing · Austin, TX<\/p><h1 id="contact-title" class="pt display">Get a free quote<\/h1>/);
         continue;
       }
-      expect(main, page).toMatch(/^<main id="main">\n<section id="[a-z-]+" class="page-open" aria-labelledby="[a-z-]+-title">\n<div class="page-head ink"><div class="wrap"><div class="page-title"><p class="kicker eyebrow">Plumbing · Austin, TX<\/p><h1 /);
+      expect(main, page).toMatch(/^<main id="main">\n<section id="[a-z-]+" class="page-open" aria-labelledby="[a-z-]+-title">\n<div class="page-head ink"><div class="wrap ph"><div class="page-title"><p class="kicker eyebrow">Plumbing · Austin, TX<\/p><h1 /);
+      const head = main.slice(0, main.indexOf('\n<div class="sec '));
+      expect(head, page).toContain('<ul class="ph-chips"><li class="chip">');
+      expect(head, page).toContain("24/7 emergency service</li>");
+      expect(head, page).toContain("Insured</li>");
+      expect(head.includes("Since 1998</li>"), page).toBe(page !== "about"); // About shows the year as its own numeral
+      expect(head, page).toMatch(/<div class="ph-acts"><a class="bt bt-action whitespace-nowrap" href="tel:\+15125550142"[^]*href="\/contact#quote">Get a free quote<\/a><\/div>/);
     }
-    // The owner's order within a page (U1): the FAQ first on Services is the page's h1, and the services are a band below it.
+  });
+
+  // Round 2 (judges): with the FAQ first, Services was titled "Questions & answers" under the active Services link.
+  it("keeps the page's name as the Services h1 when the owner puts the FAQ first, and the FAQ its own heading", () => {
     const faqFirst = bold(moved(plumber, "services", "faq"), "services");
-    expect(faqFirst).toMatch(/<section id="faq" class="page-open" aria-labelledby="faq-title">[^]*<h1 id="faq-title" class="pt display">Questions &amp; answers<\/h1>/);
+    expect(faqFirst).toMatch(/<section id="faq" class="page-open" aria-labelledby="faq-title">\n<div class="page-head ink"><div class="wrap ph"><div class="page-title"><p class="kicker eyebrow">Plumbing · Austin, TX<\/p><h1 class="pt display">Our services<\/h1><ul class="ph-chips">/);
+    expect(faqFirst).toMatch(/<div class="wrap faq-layout">\n<div class="sec-head"><p class="kicker eyebrow">FAQ<\/p><h2 id="faq-title" class="h2 display">Questions &amp; answers<\/h2>/);
+    expect(faqFirst).toContain('<summary><h3 class="h3">');
     expect(faqFirst).toMatch(/<section id="services" class="sec tint seam-down" aria-labelledby="services-title">/);
+    expect(faqFirst).toContain('<h3 class="svc-name h3">Drain cleaning</h3>');
+  });
+
+  // Round 2 (judges, CRITICAL): with the service area first, a phone's first screen had no way to call or ask for a
+  // quote (the Contact bar sits at the end of the page, moderator ruling b).
+  it("puts the number and the owner's call to action in Contact's head when the owner puts the service area first", () => {
+    const contact = bold(moved(plumber, "contact", "serviceArea"), "contact");
+    const head = contact.slice(contact.indexOf('<div class="page-head ink">'), contact.indexOf('\n<div class="sec ', contact.indexOf('<div class="page-head ink">')));
+    expect(head).toContain('<h1 id="service-area-title" class="pt display">Service area &amp; hours</h1>');
+    expect(head).toContain('<div class="ph-talk"><p class="kicker">Prefer to talk?</p><p><a class="big-phone display whitespace-nowrap" href="tel:+15125550142">(512) 555-0142</a></p><p><a class="bt bt-ghost" href="/contact#quote">Get a free quote</a></p></div>');
+    expect(contact.indexOf('<div class="ph-talk">')).toBeLessThan(contact.indexOf('<div class="area card">'));
+  });
+
+  it("shows the first 12 towns and the rest behind \"+N more areas\", every town still on the page", () => {
+    const roofing = fixture("roofing-extreme");
+    const contact = bold(roofing, "contact");
+    const area = contact.slice(contact.indexOf('<section id="service-area"'), contact.indexOf('<section id="contact"'));
+    const first = area.slice(0, area.indexOf('<details class="more-places">'));
+    expect(first.match(/<li>/g)).toHaveLength(12);
+    expect(area).toContain('<details class="more-places"><summary>+18 more areas</summary><ul class="chips">');
+    for (const place of roofing.facts.serviceArea.places) expect(area).toContain(`<li>${escapeText(place)}</li>`);
+    expect(bold(plumber, "contact")).not.toContain("more-places");
+  });
+
+  // Round 2 (judges): About was all type, repeated the name and place three times, left half the band empty without a
+  // year and squeezed several licences into a third of a row.
+  it("shows the owner's photo beside the story on About, with the year on its tab, and no signature", () => {
+    const about = bold(plumber, "about");
+    expect(about).toContain('<div class="wrap about about--photo">\n<figure class="about-media"><img src="https://picsum.photos/seed/rooter-van/1600/900" width="1600" height="900" alt="Reliable Rooter service van parked outside a home" loading="eager" decoding="async"><p class="year"><span class="kicker">Since</span> <span class="year-n display year-n--1">1998</span></p></figure><div class="about-body">');
+    expect(about).not.toContain('class="sign');
+    // No hero photo: the first gallery photo, while the gallery shows.
+    const { heroPhoto: _hero, ...facts } = plumber.facts;
+    expect(bold({ ...plumber, facts }, "about")).toContain('<img src="https://picsum.photos/seed/rooter-1/1200/900"');
+    expect(bold({ ...plumber, facts, hidden: ["gallery"] }, "about")).not.toContain("<img");
+  });
+
+  it("lays About out by what the owner has: several licences get their own row, no photo puts the credentials under the year, neither puts them beside the story", () => {
+    const layout = (input: SiteDocumentInput) => /<div class="(wrap about[^"]*)">/.exec(bold(input, "about"))?.[1];
+    const { heroPhoto: _hero, ...facts } = plumber.facts;
+    const noPhotos = { ...facts, photos: [] };
+    const { yearFounded: _year, ...noYear } = noPhotos;
+    expect(layout(plumber)).toBe("wrap about about--photo");
+    expect(layout(fixture("roofing-extreme"))).toBe("wrap about about--photo about--wide");
+    expect(layout({ ...plumber, facts: noPhotos })).toBe("wrap about about--year");
+    expect(layout({ ...plumber, facts: noYear })).toBe("wrap about about--text");
+    expect(layout({ ...plumber, facts: noYear, hidden: ["trust"] })).toBe("wrap about about--solo");
+    expect(bold({ ...plumber, facts: noPhotos }, "about")).toContain('<dl class="specs about-specs specs--stack">');
   });
 
   it("shows the owner's credentials on About too, unless the owner hides the credentials section", () => {
     expect(bold(plumber, "about")).toMatch(/<dl class="specs about-specs">[^]*M-40123[^]*Insured[^]*24\/7 emergency service[^]*<\/dl>/);
     expect(bold({ ...plumber, hidden: ["trust"] }, "about")).not.toContain("specs");
+  });
+
+  // Round 2 (judges): a phone's 170 px thumbnails could not be opened larger.
+  it("links each gallery photo to its full-size file", () => {
+    const gallery = bold(plumber, "gallery");
+    expect(gallery).toContain('<figure><a class="gal-img" href="https://picsum.photos/seed/rooter-1/1200/900"><img src="https://picsum.photos/seed/rooter-1/1200/900" ');
+    expect(gallery.match(/<a class="gal-img" href="https:/g)).toHaveLength(6);
+  });
+
+  // Round 2 (judges): the footer had no way to the other pages and no hours.
+  it("lists the site's pages in the footer, the current one marked, and the hours while the service area shows", () => {
+    for (const { page, path, html } of all) {
+      const footer = html.slice(html.indexOf("<footer"), html.indexOf("</footer>"));
+      expect(footer.match(/<nav aria-label="Pages">[^]*?<\/nav>/)?.[0].match(/href="[^"]*"/g), page).toEqual(all.map((p) => `href="${p.path}"`));
+      expect(footer, page).toContain(`<a href="${path}" aria-current="page">`);
+      expect(footer, page).toContain('<dl class="foot-hours"><div><dt>Emergencies</dt><dd>24/7</dd></div><div><dt>Mon');
+    }
+    expect(bold({ ...plumber, hidden: ["serviceArea"] })).not.toContain("foot-hours");
   });
 
   it("links the hero card's towns to the service area on the Contact page", () => {
@@ -457,10 +568,11 @@ describe("the Bold sheet carries the round-4 must-fixes", () => {
     for (const selector of [".mail", ".foot-email"]) expect(rule(selector)).toContain("overflow-wrap:anywhere");
   });
 
-  it("splits the call bar and the menu's pair into two equal halves, the number beside Call only from 36rem", () => {
-    expect(rule(".callbar")).toContain("grid-template-columns:repeat(2,minmax(0,1fr))");
-    expect(rule(".menu-acts")).toContain("grid-template-columns:repeat(2,minmax(0,1fr))");
-    expect(rule(".cb-num", "@media (max-width:35.99rem)")).toContain("display:none");
+  it("splits the call bar in two halves, the Call half never narrower than its number, with \"Call\" over the number on phones", () => {
+    expect(rule(".callbar")).toContain("grid-template-columns:repeat(2,minmax(min-content,1fr))");
+    expect(rule(".cb-txt")).toContain("flex-direction:column");
+    expect(rule(".cb-txt", "@media (min-width:36rem)")).toContain("flex-direction:row");
+    expect(css).not.toContain(".cb-num");
   });
 
   // A16: the current page is marked by more than colour (WCAG 1.4.1): the house slanted bar, in the action colour,
