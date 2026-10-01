@@ -139,12 +139,14 @@ export function PhotoManager(props: StepProps) {
           accept="image/jpeg,image/png,image/webp"
           aria-describedby="photo-upload-hint"
           aria-disabled={busy}
-          className="mt-2 block w-full max-w-full text-base"
+          className="mt-2 block w-full max-w-full text-base aria-disabled:cursor-not-allowed aria-disabled:opacity-60"
           onChange={(e) => {
             const file = e.target.files?.[0];
             e.target.value = "";
             // aria-disabled, not disabled: a disabled input would drop the keyboard focus it holds.
-            if (file !== undefined && !busy) void upload(file);
+            if (file === undefined) return;
+            if (busy) setStatus("Another photo is still uploading. Choose this one again when it finishes.");
+            else void upload(file);
           }}
         />
         <p id="photo-status" role="status" tabIndex={-1} className="mt-2 text-slate-800">

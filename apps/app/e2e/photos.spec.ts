@@ -260,3 +260,54 @@ test("the photo buttons keep keyboard focus when they change or disappear", asyn
   await page.keyboard.press("Enter");
   await expect(page.getByRole("button", { name: "Move work photo 2 up" })).toBeFocused();
 });
+
+test("deleting photos that are in use removes them from the saved site", async ({ page }) => {
+  const siteId = await acceptInvite(page);
+  await page.goto(`/sites/${siteId}/setup/photos`);
+  for (const name of ["a.jpg", "b.jpg"]) {
+    await page.getByLabel("Upload a photo").setInputFiles({ name, mimeType: "image/jpeg", buffer: await rotatedJpeg() });
+    await expect(page.getByRole("button", { name: `Delete uploaded photo ${name === "a.jpg" ? 1 : 2}` })).toBeVisible();
+  }
+  await page.getByRole("button", { name: "Use uploaded photo 1 as the main photo" }).click();
+  await expect(page.getByLabel("Describe the main photo")).toBeFocused();
+  await page.getByRole("button", { name: "Add uploaded photo 2 to your work photos" }).click();
+  await expect(page.getByLabel("Describe work photo 1")).toBeFocused();
+  const saved = async () => (await apiCall(page, "GET", `/api/sites/${siteId}`)).json?.["facts"] as { heroPhoto?: unknown; photos?: unknown[] };
+  await expect.poll(async () => [(await saved()).heroPhoto !== undefined, (await saved()).photos?.length]).toEqual([true, 1]);
+
+  const dialog = page.getByRole("dialog", { name: "Delete this photo?" });
+  for (const _ of [1, 2]) {
+    await page.getByRole("button", { name: "Delete uploaded photo 1" }).click();
+    await dialog.getByRole("button", { name: "Delete photo" }).click();
+    await expect(page.getByText("Photo deleted.")).toBeVisible();
+  }
+  await expect(page.getByLabel("Describe the main photo")).toBeHidden();
+  await expect(page.getByLabel("Describe work photo 1")).toBeHidden();
+  await expect.poll(async () => [(await saved()).heroPhoto, (await saved()).photos]).toEqual([undefined, []]);
+});
+
+test("a photo picked while another uploads is told to wait, and the first still uploads", async ({ page }) => {
+  const siteId = await acceptInvite(page);
+  await page.goto(`/sites/${siteId}/setup/photos`);
+  let release: () => void = () => undefined;
+  const gate = new Promise<void>((resolve) => (release = resolve));
+  let posts = 0;
+  await page.route(`**/api/sites/${siteId}/uploads`, async (route) => {
+    if (route.request().method() !== "POST") return route.fallback();
+    posts += 1;
+    await gate;
+    return route.fallback();
+  });
+  const input = page.getByLabel("Upload a photo");
+  await input.setInputFiles({ name: "a.jpg", mimeType: "image/jpeg", buffer: await rotatedJpeg() });
+  await expect(page.getByText("Uploading your photo…")).toBeVisible();
+  await expect.poll(() => posts).toBe(1);
+  await expect(input).toHaveCSS("opacity", "0.6");
+  await input.setInputFiles({ name: "b.jpg", mimeType: "image/jpeg", buffer: await rotatedJpeg() });
+  await expect(page.getByText("Another photo is still uploading. Choose this one again when it finishes.")).toBeVisible();
+  release();
+  await expect(page.getByText("Photo uploaded. Choose where to use it below.")).toBeVisible();
+  await expect(input).not.toHaveCSS("opacity", "0.6");
+  expect(posts).toBe(1);
+  expect(((await apiCall(page, "GET", `/api/sites/${siteId}`)).json?.["uploads"] as unknown[]).length).toBe(1);
+});
