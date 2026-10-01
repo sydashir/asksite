@@ -1,5 +1,7 @@
 import { AxeBuilder } from "@axe-core/playwright";
-import { execFileSync } from "node:child_process";
+import { execFile } from "node:child_process";
+import { mkdir, rmdir } from "node:fs/promises";
+import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 import { DESIGN_IDS, PAGE_IDS, PAGES, type DesignId, type PageId } from "@asksite/site-schema";
 import { expect, test, type Page, type TestInfo } from "@playwright/test";
@@ -89,9 +91,31 @@ function designVisitor(testInfo: TestInfo, design: DesignId): string {
 
 const isLifecycleEngine = (name: string): boolean => (LIFECYCLE_ENGINES as readonly string[]).includes(name);
 
-/** Changes the running server's state (operate.ts): approve a second version, take down or restore the site. */
-function operate(command: "approve-v2" | "take-down" | "restore", slug: string): void {
-  execFileSync("node", [fileURLToPath(new URL("./operate.ts", import.meta.url)), command, slug], { cwd: fileURLToPath(new URL("../../..", import.meta.url)), stdio: ["ignore", "ignore", "inherit"] });
+const REPO = fileURLToPath(new URL("../../..", import.meta.url));
+/** Held while one operate.ts runs: a directory, because mkdir fails for all but one caller. */
+const OPERATE_LOCK = `${REPO}.wrangler/e2e-operate.lock`;
+
+/**
+ * Changes the running server's state (operate.ts): approve a second version, take down or restore the site.
+ * One at a time across the workers: each run opens its own copy of the state wrangler dev is serving, and two
+ * at once fail with D1 and R2 "internal error"s.
+ */
+async function operate(command: "approve-v2" | "take-down" | "restore", slug: string): Promise<void> {
+  await mkdir(`${REPO}.wrangler`, { recursive: true });
+  for (;;) {
+    try {
+      await mkdir(OPERATE_LOCK);
+      break;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      await new Promise((done) => setTimeout(done, 200));
+    }
+  }
+  try {
+    await promisify(execFile)("node", [fileURLToPath(new URL("./operate.ts", import.meta.url)), command, slug], { cwd: REPO });
+  } finally {
+    await rmdir(OPERATE_LOCK);
+  }
 }
 
 // Every published page in every design (A12).
@@ -210,10 +234,15 @@ for (const design of DESIGN_IDS) {
         await page.locator('a[href="/services"]:visible').first().click();
         await expect(page.getByText(v1.intro)).toBeVisible();
 
-        operate("approve-v2", lifecycleSlug(design, browserName as LifecycleEngine));
+        await operate("approve-v2", lifecycleSlug(design, browserName as LifecycleEngine));
 
-        // Each view after the switch must be the second version: a reload, then links to the pages the browser has seen
-        // (Cache-Control: no-cache makes it ask again; a reused copy would show the first version).
+        // Each view after the switch must be the second version: a reload, then links to the pages the browser has seen.
+        // Cache-Control: no-cache is what makes a browser ask again, so every document answer must carry it. (The
+        // browser cache is not used over the local self-signed certificate, so the views alone cannot show a stale copy.)
+        const cacheControls: string[] = [];
+        page.on("response", (response) => {
+          if (response.request().resourceType() === "document") cacheControls.push(`${response.url()} ${response.headers()["cache-control"] ?? ""}`);
+        });
         const seen: string[] = [];
         await page.reload();
         await expect(page.getByText(V2_COPY.servicesIntro)).toBeVisible();
@@ -228,6 +257,8 @@ for (const design of DESIGN_IDS) {
         await expect(home).toHaveText(V2_COPY.heroHeadline);
         seen.push(await page.locator("body").innerText());
         expect(seen.filter((text) => text.includes(v1.headline) || text.includes(v1.intro))).toEqual([]);
+        expect(cacheControls.length).toBeGreaterThanOrEqual(4);
+        expect(cacheControls.filter((line) => !line.endsWith(" no-cache"))).toEqual([]);
       });
 
       test("answers 404 on every page after a takedown and serves every page again after the restore", async ({ page, browserName }) => {
@@ -238,9 +269,9 @@ for (const design of DESIGN_IDS) {
           for (const id of ids) found.push({ id, status: (await page.goto(live(browserName, id)))?.status() });
           return found;
         };
-        operate("take-down", slug);
+        await operate("take-down", slug);
         expect(await statuses()).toEqual(ids.map((id) => ({ id, status: 404 })));
-        operate("restore", slug);
+        await operate("restore", slug);
         expect(await statuses()).toEqual(ids.map((id) => ({ id, status: 200 })));
         await page.goto(live(browserName, "home"));
         await expect(page.getByRole("heading", { level: 1 })).toHaveText(V2_COPY.heroHeadline);

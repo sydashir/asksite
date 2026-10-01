@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { rmSync } from "node:fs";
 import { resolve } from "node:path";
 import { DESIGN_IDS, type DesignId } from "@asksite/site-schema";
 import { LIFECYCLE_ENGINES, lifecycleSlug } from "./lifecycle.ts";
@@ -15,6 +16,7 @@ export const e2eSlug = (design: DesignId, fixture: E2eFixture): string => `e2e-$
 const REPO = resolve(import.meta.dirname, "../../..");
 
 export default function globalSetup(): void {
+  rmSync(resolve(REPO, ".wrangler/e2e-operate.lock"), { recursive: true, force: true }); // a lock a killed run left (sites.spec.ts, operate)
   const seeded: Record<string, { siteId: string; url: string }> = {};
   for (const design of DESIGN_IDS) {
     for (const fixture of E2E_FIXTURES) {
