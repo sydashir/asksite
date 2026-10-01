@@ -80,13 +80,11 @@ describe("the words the renderer adds claim nothing (A16)", () => {
 
   it("passes unbackedClaims with facts that back nothing", () => {
     const fixed = ["Our services", "More about our services", "Get in touch", "Get a quote", "Call", "Our work", ...PAGE_IDS.map((id) => PAGES[id].label)];
-    const filled = Object.values(TRADE_LABEL).flatMap((trade) => [
-      `${trade} services from Mop in Austin, TX. Call (512) 555-0199.`,
-      `Photos of recent work by Mop, ${trade} in Austin, TX.`,
-      `Contact Mop in Austin, TX for a quote, or call (512) 555-0199.`,
-      `Mop | ${trade} in Austin, TX`,
-      ...PAGE_IDS.slice(1).map((id) => `${PAGES[id].label} | Mop`),
-    ]);
+    // The real pageTitle and pageDescription, for every trade and page, from a document whose facts back nothing.
+    const filled = (Object.keys(TRADE_LABEL) as (keyof typeof TRADE_LABEL)[]).flatMap((trade) => {
+      const doc = SiteDocument.parse({ ...MINIMAL, facts: { ...MINIMAL.facts, trade }, copy: { ...MINIMAL.copy, about: "Careful work, done right." } });
+      return PAGE_IDS.flatMap((id) => [pageTitle(doc, id), pageDescription(doc, id)]);
+    });
     expect([...fixed, ...filled].flatMap((text) => unbackedClaims(text, facts).map((word) => `${text}: ${word}`))).toEqual([]);
   });
 

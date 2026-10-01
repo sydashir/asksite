@@ -440,6 +440,16 @@ describe("the invariant checks can fail (RED proof, on edited pages)", () => {
     expect(problems).toEqual(CREDENTIAL_OFF.map(([name]) => [name, []]));
   });
 
+  // Today's own text is the baseline the check above compares with, so it is checked absolutely too: with each credential
+  // switched off, today's pages, titles and descriptions state no claim (the plumber's own reviews hold none).
+  it("keeps today's own text free of claims with each credential switched off", () => {
+    const claims = credentialOff("impact").map(([name, input]) => {
+      const { doc, baseline } = sites(input);
+      return [name, [...new Set(baseline.pages.flatMap((p) => pageClaims(p.html, doc.facts)))]] as const;
+    });
+    expect(claims).toEqual(CREDENTIAL_OFF.map(([name]) => [name, []]));
+  });
+
   // RED proof: a design that prints a credential for owners who have another one is caught for the owner who lacks it.
   const printsInsuredWithALicence: Design = {
     ...BASELINE,
@@ -463,6 +473,12 @@ describe("the invariant checks can fail (RED proof, on edited pages)", () => {
     // Classic and Modern mockups), review words, years, weekdays and web addresses state no credential.
     const doc = SiteDocument.parse(loadFixture("cleaning-minimal"));
     expect(pageClaims("<p>\u201c</p><figcaption>\"Kitchen\" after</figcaption><p>Reviews since 1990, Monday. mop.com</p>", doc.facts)).toEqual([]);
+  });
+
+  it("read the meta description, which search results show, and the title", () => {
+    const facts = SiteDocument.parse(loadFixture("cleaning-minimal")).facts;
+    expect(pageClaims('<title>Fully insured</title><meta name="description" content="Licensed and bonded">', facts)).toEqual(["insured", "bonded", "licensed"]);
+    expect(pageClaims('<meta name="keywords" content="Licensed">', facts)).toEqual([]);
   });
 
   it('read "24/7" as the round-the-clock claim, backed only by the 24/7 fact', () => {
