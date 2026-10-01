@@ -31,7 +31,7 @@ export function renderContact(ctx: RenderContext, _variant: VariantOf<"contact">
   // The email moves to the next line whole and is split only when longer than a line
   // (wrap-anywhere); break-all split addresses that fit ("s / ervice@…").
   return sectionShell(DOM_ID.contact, "7xl", html`${headline(DOM_ID.contact, copy.ctaText, copy.sectionIntros.contact, headingLevel(ctx, "contact"))}
-<div class="relative mx-auto flex w-full max-w-xl flex-col rounded-lg border border-gray-200 bg-white p-4 shadow sm:p-6 lg:p-8">
+<div class="relative mx-auto flex w-full max-w-xl flex-col rounded-lg border border-gray-200 bg-white p-6 shadow lg:p-8">
 <p class="mb-8 text-default">Prefer to talk? Call <a class="font-semibold whitespace-nowrap text-link underline" href="${telUrl(facts.phone)}">${formatPhone(facts.phone)}</a> or email <a class="font-semibold wrap-anywhere text-link underline" href="${mailtoUrl(facts.email)}">${facts.email}</a>.</p>
 <form id="${QUOTE_ID}" action="${ctx.formAction}" method="post">
 <div class="mb-8"><label for="contact-name" class="${LABEL}">Name</label><input id="contact-name" name="name" type="text" autocomplete="name" required maxlength="80" class="${FIELD}"></div>
