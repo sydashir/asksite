@@ -74,7 +74,9 @@ export const LEASE_HELD = "EXISTS (SELECT 1 FROM sites WHERE id = ? AND admin_lo
 
 /**
  * Throws site_busy (lease_lost) unless the token still holds the site. Called after a fenced write changed no row,
- * and right before every R2 pointer write or delete (R2 cannot be conditioned on D1).
+ * and right before every R2 pointer write or delete (R2 cannot be conditioned on D1). The take-back deletes
+ * (approve's deletes after its takedown re-read, restore's pointerBack) are deliberately NOT lease-checked: they
+ * remove a pointer from a site that must stay down, and a check there could leave the pointer on a taken-down site.
  * RESIDUAL: if the lease runs out between this check and the R2 call (only an action over ADMIN_LEASE_MS), that
  * R2 write can land after another action's. The D1 fence still keeps D1 right, and the sites Worker serves only
  * when the pointer's version equals D1's live version (a mismatch is a 503, never wrong bytes).
@@ -131,7 +133,12 @@ export async function verifiedPages(
   );
 }
 
-/** Copies every verified page to its immutable LIVE key. Nothing is served from them until the pointer names the version. */
+/**
+ * Copies every verified page to its immutable LIVE key. Nothing is served from them until the pointer names the version.
+ * RESIDUAL: pages copied by an action that is then refused (lease_lost, site_busy, version_not_pending, live_copy_failed)
+ * or a cleanup that stops (live_cleanup_skipped) stay in LIVE unserved (the pointer never names them) until the next
+ * approval's or restore's cleanup or a takedown removes them.
+ */
 export async function copyLivePages(live: R2Bucket, slug: string, ids: { siteId: string; versionId: string }, pages: readonly VerifiedPage[]): Promise<void> {
   await Promise.all(
     pages.map((p) =>

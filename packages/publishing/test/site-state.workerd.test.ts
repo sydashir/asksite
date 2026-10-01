@@ -240,9 +240,10 @@ describe("what takedown, restore and the search switch change and record (design
   it("writes the pages and the pointer before clearing the takedown: if a write fails, the site stays down", async () => {
     const s = await liveSite();
     await takeDown(env, { siteId: s.siteId, reviewer: ADMIN, reason: "x", purgeMedia: false, now: 50 });
-    for (const failing of [flakyBucket(env.LIVE, (call) => call === "put"), flakyBucket(env.LIVE, (call, key) => call === "put" && key === livePointerKey(s.slug))]) {
-      await expect(restore({ ...env, LIVE: failing }, { siteId: s.siteId, reviewer: ADMIN, expectedTakenDownAt: 50, now: 60 })).rejects.toThrow("R2 is unavailable");
-    }
+    const restoreThrough = (failing: R2Bucket) => restore({ ...env, LIVE: failing }, { siteId: s.siteId, reviewer: ADMIN, expectedTakenDownAt: 50, now: 60 });
+    await expect(restoreThrough(flakyBucket(env.LIVE, (call) => call === "put"))).rejects.toThrow("R2 is unavailable");
+    // A rejected pointer write is live_copy_failed (it is taken back out: see lease.workerd.test.ts).
+    await expect(restoreThrough(flakyBucket(env.LIVE, (call, key) => call === "put" && key === livePointerKey(s.slug)))).rejects.toThrow("live_copy_failed");
     expect(await siteRow(env.DB, s.siteId)).toMatchObject({ taken_down_at: 50, takedown_reason: "x" });
     expect(await auditActions(env.DB, s.siteId)).not.toContain("site.restored");
   });

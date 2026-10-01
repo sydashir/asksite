@@ -1,6 +1,6 @@
 import { livePageKey, livePointerKey, liveSitePrefix, newId, versionPageKey } from "@asksite/core";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { ADMIN_LEASE_MS, approveVersion, copyLivePagesAgain, createPendingVersion, restore, takeDown, TAKEDOWN_REVIEW_NOTE, type PublishError } from "../src/index.ts";
+import { acquireLease as exportedAcquire, ADMIN_LEASE_MS, approveVersion, assertLease as exportedAssert, copyLivePagesAgain, createPendingVersion, releaseLease as exportedRelease, restore, takeDown, TAKEDOWN_REVIEW_NOTE, type PublishError } from "../src/index.ts";
 import { acquireLease, releaseLease, removeOtherVersions } from "../src/shared.ts";
 import { publishFailure as failure } from "./support/errors.ts";
 import { auditActions, doc, EDITS, flakyBucket, liveKeysOf, pendingWithPages, publishingHarness, seedSite, siteRow, versionRow, type PublishEnv } from "./support/harness.ts";
@@ -91,6 +91,20 @@ describe("acquireLease and releaseLease", () => {
     } finally {
       logged.mockRestore();
     }
+  });
+
+  it("is exported by the package entry for Plan 4's ops sweep, and an expired lease is taken over", async () => {
+    const s = await seedSite(env.DB);
+    const a = await exportedAcquire(env.DB, s.siteId, T0, "site_not_found");
+    expect(detailOf(await failure(exportedAcquire(env.DB, s.siteId, T0 + 1, "site_not_found")))).toEqual({ code: "site_busy", detail: { retryAfter: 120 } });
+    const b = await exportedAcquire(env.DB, s.siteId, EXPIRED, "site_not_found");
+    expect(b).not.toBe(a);
+    expect(detailOf(await failure(exportedAssert(env.DB, s.siteId, a)))).toEqual({ code: "site_busy", detail: { reason: "lease_lost" } });
+    await exportedAssert(env.DB, s.siteId, b);
+    await exportedRelease(env.DB, s.siteId, a);
+    expect((await lockOf(s.siteId))?.admin_lock).toBe(b);
+    await exportedRelease(env.DB, s.siteId, b);
+    expect(await lockOf(s.siteId)).toEqual({ admin_lock: null, admin_lock_until: null });
   });
 
   it("every action frees the site when it ends, by result or by error", async () => {
@@ -383,6 +397,47 @@ describe("every fenced statement and every pointer re-check", () => {
       }
       await take(p.siteId, 60); // the takedown's retry removes it
       expect(await liveKeysOf(env.LIVE, p.slug)).toEqual([]);
+    });
+
+    describe("a pointer write that rejects", () => {
+      /** The pointer put runs on the real bucket (landing or not) and then rejects, as a timeout after the write would. */
+      const rejectingPut = (slug: string, lands: boolean): R2Bucket => {
+        const put = (...args: Parameters<R2Bucket["put"]>) =>
+          args[0] === livePointerKey(slug) ? (lands ? env.LIVE.put(...args) : Promise.resolve(null)).then(() => Promise.reject(new Error("R2 timed out"))) : env.LIVE.put(...args);
+        return { ...watchBucket(env.LIVE), put } as unknown as R2Bucket;
+      };
+      const expectStillDown = async (p: Built, audit: string[]) => {
+        expect(await env.LIVE.head(livePointerKey(p.slug))).toBeNull();
+        expect(await siteRow(env.DB, p.siteId)).toMatchObject({ taken_down_at: 50 });
+        expect(await auditActions(env.DB, p.siteId)).toEqual(audit);
+        expect(await lockOf(p.siteId)).toEqual({ admin_lock: null, admin_lock_until: null });
+      };
+
+      it.each([
+        ["lands and then rejects", true],
+        ["rejects without landing", false],
+      ])("a put that %s: the pointer is taken back out, live_copy_failed, still down, retry-safe", async (_name, lands) => {
+        const p = await downSite();
+        const audit = await auditActions(env.DB, p.siteId);
+        expect(detailOf(await failure(back(p.siteId, 50, T0, { ...env, LIVE: rejectingPut(p.slug, lands) })))).toEqual({ code: "live_copy_failed", detail: { versionId: p.versionId } });
+        await expectStillDown(p, audit);
+        await back(p.siteId, 50, T0 + 1); // the admin restores again with the same expectedTakenDownAt
+        expect(await siteRow(env.DB, p.siteId)).toMatchObject({ taken_down_at: null });
+      });
+
+      it("answers live_copy_failed, never the delete's error, and logs the pointer left when the take-back fails too", async () => {
+        const p = await downSite();
+        const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+        try {
+          const noDelete = flakyBucket(rejectingPut(p.slug, true), (call) => call === "delete");
+          expect(detailOf(await failure(back(p.siteId, 50, T0, { ...env, LIVE: noDelete })))).toEqual({ code: "live_copy_failed", detail: { versionId: p.versionId } });
+          expect(logged.mock.calls.map((c) => String(c[0]))).toEqual([JSON.stringify({ code: "takedown_pointer_left", siteId: p.siteId, versionId: p.versionId })]);
+        } finally {
+          logged.mockRestore();
+        }
+        await take(p.siteId, 60); // the takedown's retry removes it
+        expect(await liveKeysOf(env.LIVE, p.slug)).toEqual([]);
+      });
     });
   });
 

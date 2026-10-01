@@ -93,7 +93,8 @@ function auditLaterPurge(
  * site_taken_down (taken_down_again) before any R2 write; a site that is not taken down is already restored and comes
  * back with the normal result, nothing changed. Otherwise: copies every page of the live version, verified, back to LIVE and
  * writes the pointer (not served yet: D1 still says taken down), then clears taken_down_at, fenced on the expected
- * time, the copied version and the lease. If the clear changes nothing or throws, the pointer is taken back out.
+ * time, the copied version and the lease. If the clear changes nothing or throws, the pointer is taken back out; a
+ * rejected pointer write takes it back out too and answers live_copy_failed (the site stays down: call it again).
  * Retry-safe. Takes ROOT_DOMAIN (not in the design's signature) because it returns the live URL, and MEDIA to
  * count the page's photos a purge deleted (Decision 29): the page still goes back up. A live site's pages are
  * copied again by copyLivePagesAgain.
@@ -147,9 +148,8 @@ async function restoreUnderLease(
   const pages = await verifiedPages(env.WORK, { site_id: siteId, id: versionId, pages_json: pagesJson, html_key: key, html_sha256: sha256 });
   await copyLivePages(env.LIVE, slug, { siteId, versionId }, pages);
   await assertLease(db, siteId, token); // R2 cannot be conditioned on D1 (residual: see assertLease)
-  await writeLivePointer(env.LIVE, slug, { siteId, versionId, ...liveMetadata(documentJson) });
-
-  // The pointer is out and the site must stay down if the clear does not happen: take it back out, best effort.
+  // The pointer is out (or may be) and the site must stay down if the write or the clear does not happen: take it back out, best effort.
+  // Not lease-checked: a check here could leave a pointer on a taken-down site.
   const pointerBack = async (): Promise<void> => {
     try {
       await env.LIVE.delete(livePointerKey(slug));
@@ -157,6 +157,13 @@ async function restoreUnderLease(
       console.error(JSON.stringify({ code: "takedown_pointer_left", siteId, versionId }));
     }
   };
+  const business = liveMetadata(documentJson);
+  try {
+    await writeLivePointer(env.LIVE, slug, { siteId, versionId, ...business });
+  } catch {
+    await pointerBack(); // the write may have landed before it rejected
+    throw new PublishError("live_copy_failed", { versionId });
+  }
   let cleared: D1Result[];
   try {
     cleared = await db.batch([
