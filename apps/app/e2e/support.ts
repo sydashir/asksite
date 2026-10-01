@@ -62,26 +62,33 @@ export async function expectNoSidewaysScroll(page: Page) {
 
 /**
  * Collects Content-Security-Policy violations from two sources: console text (Chromium and WebKit
- * word them there) and `securitypolicyviolation` events, which every engine fires (Firefox logs
- * nothing a console match can catch). The event listener is added by Playwright's init script, not
- * by a page script, so the page's own policy cannot block it. Only the directive and the blocked
- * URI are kept. Call the returned function when the page has settled to read the violations.
+ * word them there; entries start with "console ") and `securitypolicyviolation` events, which every
+ * engine fires (Firefox logs nothing a console match can catch; entries start with "event " and keep
+ * the effective directive and the blocked URI). The event listener is added by Playwright's init
+ * script, not by a page script, so the page's own policy cannot block it. It reports through
+ * page.exposeBinding, so the events reach Node at once and survive navigations. Awaiting this call
+ * guarantees both are in place before the first navigation. The returned reader throws when the
+ * collector is missing from the page, never an empty list.
  */
-export function watchCsp(page: Page): () => Promise<string[]> {
-  const consoleViolations: string[] = [];
+export async function watchCsp(page: Page): Promise<() => Promise<string[]>> {
+  const seen: string[] = [];
   page.on("console", (message) => {
-    if (/Content Security Policy/i.test(message.text())) consoleViolations.push(message.text());
+    if (/Content Security Policy/i.test(message.text())) seen.push(`console ${message.text()}`);
   });
-  void page.addInitScript(() => {
-    const seen: string[] = [];
-    (window as unknown as { __cspViolations: string[] }).__cspViolations = seen;
+  await page.exposeBinding("__reportCspViolation", (_source, entry: string) => {
+    seen.push(`event ${entry}`);
+  });
+  await page.addInitScript(() => {
+    const report = (window as unknown as { __reportCspViolation: (entry: string) => Promise<void> }).__reportCspViolation;
+    (window as unknown as { __cspCollector: boolean }).__cspCollector = true;
     document.addEventListener("securitypolicyviolation", (event) => {
-      seen.push(`${event.violatedDirective} blocked ${event.blockedURI}`);
+      void report(`${event.effectiveDirective} ${event.blockedURI}`);
     });
   });
   return async () => {
-    const events = await page.evaluate(() => (window as unknown as { __cspViolations?: string[] }).__cspViolations ?? []);
-    return [...consoleViolations, ...events];
+    const installed = await page.evaluate(() => (window as unknown as { __cspCollector?: boolean }).__cspCollector === true);
+    if (!installed) throw new Error("watchCsp: the violation collector is missing from this page");
+    return [...seen];
   };
 }
 

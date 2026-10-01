@@ -8,7 +8,7 @@ test("sign in with an emailed link; the button, not the page load, uses the toke
   // The same page, now a stranger: no cookies, so the app shows the sign-in form.
   await page.context().clearCookies();
   await stubTurnstile(page);
-  const violations = watchCsp(page);
+  const violations = await watchCsp(page);
   await page.goto("/");
   await expect(page.getByRole("heading", { level: 1, name: "Sign in" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Sign out" })).toHaveCount(0);
