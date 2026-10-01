@@ -3,9 +3,9 @@
 // under the name, which keeps the whole width, as in the approved mockup (build judges r1: a leader beside a phone's
 // price broke short names). Laid out by the repo's own Playwright Chromium and WebKit with the real Classic sheet,
 // every lettering choice, 320-1440 px, and a service name of 40 characters (the schema's longest; the judge asked for
-// 45), which wraps at most widths.
+// 45), which wraps at most widths: the Services page's list and Home's preview of its first three rows (A16).
 import { chromium, webkit, type Browser, type Page } from "@playwright/test";
-import { FONT_IDS, type FontId, type SiteDocumentInput } from "@asksite/site-schema";
+import { FONT_IDS, type FontId, type PageId, type SiteDocumentInput } from "@asksite/site-schema";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { loadFixture } from "../../../../../fixtures/index.ts";
 import { classicPage } from "./site.ts";
@@ -19,8 +19,9 @@ const MIN_LEADER = 55.5;
 
 function doc(font: FontId): SiteDocumentInput {
   const plumber = loadFixture("plumber-austin");
-  const services = plumber.facts.services.map((s, i) => (i === 3 ? { ...s, name: LONG_NAME, startingPrice: 2400 } : s));
-  const serviceDescriptions = plumber.copy.serviceDescriptions.map((d, i) => (i === 3 ? { ...d, service: LONG_NAME } : d));
+  // The third service, so Home's preview of the first three shows it too.
+  const services = plumber.facts.services.map((s, i) => (i === 2 ? { ...s, name: LONG_NAME, startingPrice: 2400 } : s));
+  const serviceDescriptions = plumber.copy.serviceDescriptions.map((d, i) => (i === 2 ? { ...d, service: LONG_NAME } : d));
   return { ...plumber, facts: { ...plumber.facts, services }, copy: { ...plumber.copy, serviceDescriptions }, theme: { ...plumber.theme, font, design: "refined" } };
 }
 
@@ -86,18 +87,20 @@ describe.each(Object.keys(ENGINES) as Array<keyof typeof ENGINES>)("the Classic 
     await browser?.close();
   }, 60_000);
 
-  async function open(font: FontId, width: number, css = ""): Promise<void> {
+  async function open(font: FontId, width: number, css = "", id: PageId = "services"): Promise<void> {
     await page.setViewportSize({ width, height: 900 });
-    await page.setContent(classicPage(doc(font), "services"), { waitUntil: "load" });
+    await page.setContent(classicPage(doc(font), id), { waitUntil: "load" });
     if (css) await page.addStyleTag({ content: css });
   }
 
   it.each(FONT_IDS)("puts every price under its name, which keeps the whole row, on phones with %s lettering", async (font) => {
     const found: Record<string, string[]> = {};
     for (const width of PHONES) {
-      await open(font, width);
-      const problems = (await page.evaluate(STACK)) as string[];
-      if (problems.length > 0) found[width] = problems;
+      for (const id of ["services", "home"] as const) {
+        await open(font, width, "", id);
+        const problems = (await page.evaluate(STACK)) as string[];
+        if (problems.length > 0) found[`${id} ${width}`] = problems;
+      }
     }
     expect(found).toEqual({});
   }, 60_000);
@@ -111,10 +114,12 @@ describe.each(Object.keys(ENGINES) as Array<keyof typeof ENGINES>)("the Classic 
     const found: Record<string, string[]> = {};
     let wrapped = 0;
     for (const width of WIDTHS) {
-      await open(font, width);
-      const problems = await leaderProblems(page);
-      if (problems.length > 0) found[width] = problems;
-      wrapped += await wrappedNames(page);
+      for (const id of ["services", "home"] as const) {
+        await open(font, width, "", id);
+        const problems = await leaderProblems(page);
+        if (problems.length > 0) found[`${id} ${width}`] = problems;
+        wrapped += await wrappedNames(page);
+      }
     }
     expect(found).toEqual({});
     expect(wrapped, "the long name wraps at some widths, so wrapped names are checked").toBeGreaterThan(0);

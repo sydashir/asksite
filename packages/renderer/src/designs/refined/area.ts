@@ -1,13 +1,13 @@
-// Classic's service area: the owner's towns in balanced columns beside a paper card with the hours (or,
-// when the hero's business card already lists them, the owner's base) and the 24/7 note. Everything
-// here is an owner fact; the intro is the owner's own area note. One town with nothing else to show is
-// one line (Plan.areaFold).
+// Classic's service area: the owner's towns in balanced columns beside a paper card with the hours (or, with no
+// hours on file, the owner's base) and the 24/7 note. It sits on the Contact page, so a visitor sees the hours
+// there at every width (A16). Everything here is an owner fact; the intro is the owner's own area note. One town
+// with nothing else to show is one line (Plan.areaFold).
 import type { RenderContext } from "../../context.ts";
 import { formatPhone, telUrl } from "../../format.ts";
 import { html, type SafeHtml } from "../../html.ts";
 import { DOM_ID } from "../../sections/ids.ts";
-import { dots, hoursList, hoursTitle, icon, sectionHead } from "./parts.ts";
-import { plan } from "./plan.ts";
+import { dots, hoursList, hoursTitle, icon, itemHeading, sectionTitle } from "./parts.ts";
+import { bandClass, plan } from "./plan.ts";
 
 /**
  * Columns for n towns, at most max. CSS columns fill in turn, ceil(n/c) towns each, so the last column
@@ -42,7 +42,7 @@ function areaLine(ctx: RenderContext): SafeHtml {
   const street = location.streetAddress;
   const base = street ? (home ? street : `${street}, ${cityLine}${location.postalCode ? ` ${location.postalCode}` : ""}`) : home ? undefined : `Based in ${cityLine}`;
   const items = [{ text: `Serving ${home ? cityLine : place}` }, ...(base === undefined ? [] : [{ text: base }])];
-  return html`<section id="${DOM_ID.serviceArea}" class="${plan(ctx).band.serviceArea === "white" ? "af bw" : "af bp"}" aria-labelledby="${DOM_ID.serviceArea}-title">
+  return html`<section id="${DOM_ID.serviceArea}" class="af ${bandClass(ctx, "serviceArea")}" aria-labelledby="${DOM_ID.serviceArea}-title">
 <div class="wr">
 <h2 id="${DOM_ID.serviceArea}-title" class="h3r">${icon("map-pin")}Service area</h2>
 <p class="af-l">${dots(items)}</p>
@@ -54,7 +54,7 @@ export function renderServiceArea(ctx: RenderContext): SafeHtml {
   if (plan(ctx).areaFold) return areaLine(ctx);
   const { facts } = ctx.doc;
   const { location, serviceArea } = facts;
-  const hasHours = facts.hours.length > 0 && !plan(ctx).cardHours;
+  const hasHours = facts.hours.length > 0;
   const cityLine = `${location.city}, ${location.state}${location.postalCode ? ` ${location.postalCode}` : ""}`;
   const base = location.streetAddress
     ? html`<address class="addr">${icon("store")}<span>${location.streetAddress}<br>${cityLine}</span></address>`
@@ -64,24 +64,24 @@ export function renderServiceArea(ctx: RenderContext): SafeHtml {
     html`<p class="h247"><strong>${icon("clock")}24/7 emergency service available</strong><a class="whitespace-nowrap" href="${telUrl(facts.phone)}">Call ${formatPhone(facts.phone)}</a></p>`;
   const card = hasHours
     ? html`<div class="hcard">
-<h3 class="h3r">${icon("clock")}${hoursTitle(facts)}</h3>
+${itemHeading(ctx, "serviceArea", "h3r", html`${icon("clock")}${hoursTitle(facts)}`)}
 <dl class="hours">
 ${hoursList(facts.hours)}
 </dl>
 ${note247}
 </div>`
     : html`<div class="hcard">
-<h3 class="h3r">${icon("store")}Where we’re based</h3>
+${itemHeading(ctx, "serviceArea", "h3r", html`${icon("store")}Where we’re based`)}
 ${location.streetAddress ? html`<address class="base">${location.streetAddress}<br>${cityLine}</address>` : html`<p class="base">${cityLine}</p>`}
 ${note247}
 </div>`;
 
-  return html`<section id="${DOM_ID.serviceArea}" class="${plan(ctx).band.serviceArea === "white" ? "sec bw" : "sec bp"}" aria-labelledby="${DOM_ID.serviceArea}-title">
+  return html`<section id="${DOM_ID.serviceArea}" class="sec ${bandClass(ctx, "serviceArea")}" aria-labelledby="${DOM_ID.serviceArea}-title">
 <div class="wr">
-${sectionHead(DOM_ID.serviceArea, hasHours ? "Service area & hours" : "Service area", serviceArea.note)}
+${sectionTitle(ctx, "serviceArea", hasHours ? "Service area & hours" : "Service area", serviceArea.note)}
 <div class="area">
 <div>
-<h3 class="h3r">${icon("map-pin")}Areas we serve</h3>
+${itemHeading(ctx, "serviceArea", "h3r", html`${icon("map-pin")}Areas we serve`)}
 <ul class="${placesClass(serviceArea.places.length)}">
 ${serviceArea.places.map((place) => html`<li>${place}</li>`)}
 </ul>

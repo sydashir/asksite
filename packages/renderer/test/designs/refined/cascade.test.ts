@@ -1,8 +1,9 @@
 // Classic's sheet in a real browser, where the cascade decides which rule wins (the pairs test checks tokens, not
 // rule order or specificity): hover colours, the rows phones leave out, link underlines, the phone call bar, the
-// About title, the header's stacking and its name's line, and the phone gallery's rows. Laid out by the repo's own
-// Playwright Chromium and WebKit with the real Classic sheet. Each check has a RED proof: a style override that puts
-// the flaw back is caught. No check waits on the clock: transitions are off where a state is read.
+// About title, the header's stacking and its name's line, the phone gallery's rows, the current page's mark in the
+// menu and the hours on the Contact page. Laid out by the repo's own Playwright Chromium and WebKit with the real
+// Classic sheet, each check on the page that draws what it checks. No check waits on the clock: transitions are off
+// where a state is read.
 import { chromium, webkit, type Browser, type Page } from "@playwright/test";
 import { FONT_IDS, PALETTE_IDS, type PageId, type SiteDocumentInput } from "@asksite/site-schema";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -146,7 +147,7 @@ describe.each(Object.keys(ENGINES) as Array<keyof typeof ENGINES>)("Classic's ca
     const found: string[] = [];
     for (const palette of PALETTE_IDS) {
       await open(refined(plumber, { palette }), 1280, NO_TRANSITIONS + css);
-      for (const selector of [".hd-q", ".ha .bt-out", ".cta-row .bt-out"]) {
+      for (const selector of [".hd-q", ".ha .bt-out", "#get-in-touch .bt-out"]) {
         await page.hover(selector);
         await page.waitForFunction(HOVERED(selector));
         found.push(...((await page.evaluate(`(${LOW_CONTRAST})(${JSON.stringify([[selector], 4.5])})`)) as string[]).map((p) => `${palette} ${p}`));
@@ -156,12 +157,8 @@ describe.each(Object.keys(ENGINES) as Array<keyof typeof ENGINES>)("Classic's ca
     return found;
   }
 
-  it("keeps an outline button's label readable on hover, the mid-page one included, in every palette", async () => {
+  it("keeps an outline button's label readable on hover, the closing band's on the dark band included, in every palette", async () => {
     expect(await hoverProblems()).toEqual([]);
-  }, 120_000);
-
-  it("RED: catches a later rule that keeps the mid-page button white on hover", async () => {
-    expect((await hoverProblems(".cta-row .bt-out{background:var(--aw-refined-surface)!important}")).join("\n")).toMatch(/cta-row .bt-out: 1\.00/);
   }, 120_000);
 
   // The hero's outline button has no fill of its own: a hover that loses its fill shows the paper behind it, which
@@ -170,34 +167,41 @@ describe.each(Object.keys(ENGINES) as Array<keyof typeof ENGINES>)("Classic's ca
     expect((await hoverProblems(".bt.bt-out:hover{background:none!important}")).join("\n")).toMatch(/ha \.bt-out: 1\.\d\d/);
   }, 120_000);
 
-  const PHONE_ROWS = [".c-list .c-more", ".c-hours.c-more", ".bc-m .bc-e"];
+  /** The recap rows phones leave out: the business card's email on Home, the contact band's towns and credentials on /contact. */
+  async function phoneRows(width: number, css = ""): Promise<string[]> {
+    const found: string[] = [];
+    for (const [id, selector] of [["home", ".bc-m .bc-e"], ["contact", ".c-list .c-more"]] as const) {
+      await open(refined(hvac), width, css, id);
+      found.push(...((await page.evaluate(`(${DISPLAYS})(${JSON.stringify([selector])})`)) as string[]));
+    }
+    return found;
+  }
 
   it("leaves the contact band's recap rows and the card's email out on phones, and shows them from 60rem", async () => {
-    await open(refined(hvac), 390);
-    const phone = (await page.evaluate(`(${DISPLAYS})(${JSON.stringify(PHONE_ROWS)})`)) as string[];
-    expect(phone.length).toBeGreaterThanOrEqual(4);
+    const phone = await phoneRows(390);
+    expect(phone.length).toBeGreaterThanOrEqual(3);
     expect(phone.filter((d) => !d.endsWith("=none"))).toEqual([]);
-    await open(refined(hvac), 1280);
-    expect(((await page.evaluate(`(${DISPLAYS})(${JSON.stringify(PHONE_ROWS)})`)) as string[]).filter((d) => d.endsWith("=none"))).toEqual([]);
+    expect((await phoneRows(1280)).filter((d) => d.endsWith("=none"))).toEqual([]);
   }, 60_000);
 
   it("RED: catches a recap row that shows on phones", async () => {
-    await open(refined(hvac), 390, ".c-list li{display:flex!important}");
-    expect(((await page.evaluate(`(${DISPLAYS})(${JSON.stringify(PHONE_ROWS)})`)) as string[]).filter((d) => !d.endsWith("=none"))).not.toEqual([]);
+    expect((await phoneRows(390, ".c-list li{display:flex!important}")).filter((d) => !d.endsWith("=none"))).not.toEqual([]);
   }, 60_000);
 
   const LINKS = [".bc-m a", ".h247 a", ".c-list a", ".fcall a"];
 
   it("underlines the links in running text: the business card's, the 24/7 box's call link and the contact band's", async () => {
     for (const width of [390, 1280]) {
-      await open(refined(hvac), width);
-      expect(await page.evaluate(`document.querySelectorAll(".bc-m a, .h247 a").length`)).toBeGreaterThanOrEqual(2);
-      expect(await page.evaluate(`(${NOT_UNDERLINED})(${JSON.stringify(LINKS)})`)).toEqual([]);
+      for (const id of ["home", "contact"] as const) {
+        await open(refined(hvac), width, "", id);
+        expect(await page.evaluate(`document.querySelectorAll(".bc-m a, .h247 a").length`)).toBeGreaterThanOrEqual(1);
+        expect(await page.evaluate(`(${NOT_UNDERLINED})(${JSON.stringify(LINKS)})`)).toEqual([]);
+      }
     }
   }, 60_000);
 
   it("RED: catches a link that lost its underline", async () => {
-    await open(refined(hvac), 1280, ".h247 a{text-decoration:none!important}");
+    await open(refined(hvac), 1280, ".h247 a{text-decoration:none!important}", "contact");
     expect(await page.evaluate(`(${NOT_UNDERLINED})(${JSON.stringify(LINKS)})`)).not.toEqual([]);
   }, 60_000);
 
@@ -228,12 +232,16 @@ describe.each(Object.keys(ENGINES) as Array<keyof typeof ENGINES>)("Classic's ca
     expect(await callBarProblems(".cw{position:static!important;width:auto!important;height:auto!important;clip-path:none!important}")).not.toEqual([]);
   }, 120_000);
 
-  it("sets the About letter's title quieter than a section title: 40 px on desktops, 28 px on phones", async () => {
-    const sizes = `[...document.querySelectorAll("#about .st, #services .st")].map((el) => parseFloat(getComputedStyle(el).fontSize))`;
-    await open(refined(plumber, { font: "clean" }), 1280);
-    expect(await page.evaluate(sizes)).toEqual([44, 40]);
-    await open(refined(plumber, { font: "clean" }), 390);
-    const [section, letter] = (await page.evaluate(sizes)) as number[];
+  it("sets the About letter's title, the About page's h1, quieter than a section title: 40 px on desktops, 28 px on phones", async () => {
+    const size = (selector: string) => `parseFloat(getComputedStyle(document.querySelector(${JSON.stringify(selector)})).fontSize)`;
+    const sizes = async (width: number) => {
+      await open(refined(plumber, { font: "clean" }), width);
+      const section = (await page.evaluate(size("#reviews .st"))) as number;
+      await open(refined(plumber, { font: "clean" }), width, "", "about");
+      return [section, (await page.evaluate(size("#about h1.st"))) as number];
+    };
+    expect(await sizes(1280)).toEqual([44, 40]);
+    const [section, letter] = await sizes(390);
     expect(letter).toBe(28);
     expect(section).toBeGreaterThan(28);
   }, 60_000);
@@ -285,7 +293,7 @@ describe.each(Object.keys(ENGINES) as Array<keyof typeof ENGINES>)("Classic's ca
   async function widePrints(css = ""): Promise<Record<number, number[]>> {
     const wide: Record<number, number[]> = {};
     for (let count = 1; count <= photos.length; count++) {
-      await open(refined({ ...plumber, facts: { ...plumber.facts, photos: photos.slice(0, count) } }), 390, css);
+      await open(refined({ ...plumber, facts: { ...plumber.facts, photos: photos.slice(0, count) } }), 390, css, "gallery");
       wide[count] = (await page.evaluate(WIDE_PRINTS)) as number[];
     }
     return wide;
@@ -303,9 +311,43 @@ describe.each(Object.keys(ENGINES) as Array<keyof typeof ENGINES>)("Classic's ca
   }, 60_000);
 
   it("keeps the sticky desktop header above the form's Send button (z-index 20)", async () => {
-    await open(refined(plumber), 1280);
+    await open(refined(plumber), 1280, "", "contact");
     const [header, send] = (await page.evaluate(`[".hd", "form button[type=submit]"].map((s) => Number(getComputedStyle(document.querySelector(s)).zIndex))`)) as number[];
     expect(send).toBe(20);
     expect(header).toBeGreaterThan(send ?? Infinity);
+  }, 60_000);
+
+  /**
+   * How each Main-menu link is drawn on each page of the plumber's site: the links to the current page must be heavier
+   * and underlined, every other link plain (WCAG 1.4.1: more than colour). The phone menu is opened to be read.
+   */
+  async function currentMarks(width: number): Promise<string[]> {
+    const found: string[] = [];
+    for (const id of ["home", "services", "about", "gallery", "contact"] as const) {
+      await open(refined(plumber), width, "", id);
+      if (width < 768) await page.evaluate(`document.querySelector(".menu").open = true`);
+      const links = (await page.evaluate(`[...document.querySelectorAll('nav[aria-label="Main"] a')].filter((a) => a.getClientRects().length > 0).map((a) => {
+        const style = getComputedStyle(a);
+        return { current: a.getAttribute("aria-current") === "page", weight: Number(style.fontWeight), underline: style.textDecorationLine.includes("underline") };
+      })`)) as Array<{ current: boolean; weight: number; underline: boolean }>;
+      if (links.length !== 5) found.push(`${id}: ${links.length} links on show`);
+      for (const l of links) {
+        if (l.current !== (l.weight >= 600 && l.underline)) found.push(`${id}: a ${l.current ? "current" : "plain"} link at weight ${l.weight}, ${l.underline ? "underlined" : "not underlined"}`);
+      }
+      if (links.filter((l) => l.current).length !== 1) found.push(`${id}: ${links.filter((l) => l.current).length} current links on show`);
+    }
+    return found;
+  }
+
+  it("marks the current page in the menu by weight and an underline, on phones (menu open) and desktops", async () => {
+    expect([...(await currentMarks(390)), ...(await currentMarks(1280))]).toEqual([]);
+  }, 60_000);
+
+  it("shows the opening hours on the Contact page at every width, for an owner with no photo too (Home's card lists them there)", async () => {
+    for (const width of [320, 390, 768, 1024, 1280, 1920]) {
+      await open(refined(hvac), width, "", "contact");
+      const shown = await page.evaluate(`[...document.querySelectorAll("#service-area .hours > div")].filter((row) => row.getClientRects().length > 0 && getComputedStyle(row).visibility === "visible").length`);
+      expect(shown, `${width} px`).toBeGreaterThanOrEqual(2);
+    }
   }, 60_000);
 });

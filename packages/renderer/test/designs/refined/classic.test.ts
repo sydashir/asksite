@@ -12,8 +12,8 @@ import { heroQuoteIndex } from "../../../src/designs/refined/plan.ts";
 import { PALETTES, variables } from "../../../src/designs/refined/tokens.ts";
 import { render, renderDocument } from "../../../src/render.ts";
 import { invariantProblems } from "../../support/design-invariants.ts";
-import { squashedText } from "../../support/page-text.ts";
-import { classicPages, options } from "./site.ts";
+import { squash, squashedText } from "../../support/page-text.ts";
+import { classicPage, classicPages, classicSite, options } from "./site.ts";
 
 const OPTIONS = options(stubStylesheets());
 /** Every page of the site, one after another: each section is on one page, and site-wide text is checked over all. */
@@ -180,7 +180,7 @@ describe("Classic states no credential the owner does not have", () => {
 // The approved mockup folds away a Service area section that would only repeat the hero (one town, no area note, no
 // hours to show). The shared contract keeps the section and its menu link (A12 §7), so Classic draws it as one line.
 describe("a one-town owner's Service area", () => {
-  it("is one short line that names the town once, and no booking box sits between the price list and the form", () => {
+  it("is one short line that names the town once, and no booking box sits between the price list and the closing band", () => {
     const html = page(cleaning);
     const area = section(html, "service-area");
     expect(area).not.toBe("");
@@ -190,12 +190,11 @@ describe("a one-town owner's Service area", () => {
     expect(squashedText(section(html, "contact"))).not.toContain("Serving");
   });
 
-  it("keeps the shared invariants in each one-line form (the town is the base, another town, a street address, card hours)", () => {
+  it("keeps the shared invariants in each one-line form (the town is the base, another town, a street address)", () => {
     const forms: Array<Partial<SiteDocumentInput["facts"]>> = [
       {},
       { serviceArea: { places: ["Meridian"] } },
       { serviceArea: { places: ["Meridian"] }, location: { streetAddress: "210 W Main St", city: "Boise", state: "ID", postalCode: "83702" } },
-      { hours: [{ days: ["Monday"], opens: "08:00", closes: "17:00" }], emergency247: true },
     ];
     for (const facts of forms) {
       const doc = SiteDocument.parse(inDesign({ ...cleaning, facts: { ...cleaning.facts, ...facts } }, "refined"));
@@ -216,15 +215,63 @@ describe("a one-town owner's Service area", () => {
     expect(home.match(/Boise/g)).toHaveLength(1);
   });
 
-  it("keeps the full section for two towns, an area note, or hours the hero does not show", () => {
+  it("keeps the full section, hours included, for two towns, an area note or any hours (Home's business card is on another page)", () => {
     const withFacts = (facts: Partial<SiteDocumentInput["facts"]>): SiteDocumentInput => ({ ...cleaning, facts: { ...cleaning.facts, ...facts } });
     const hours = [{ days: ["Monday" as const], opens: "08:00", closes: "17:00" }];
     const photo = { url: "https://media.example.com/a.webp", width: 1600, height: 900, alt: "A clean kitchen" };
     for (const facts of [{ serviceArea: { places: ["Boise", "Meridian"] } }, { serviceArea: { places: ["Boise"], note: "All of Ada County" } }, { hours, heroPhoto: photo }]) {
       expect(section(page(withFacts(facts)), "service-area"), JSON.stringify(facts)).toContain('class="area"');
     }
-    // The business card lists the hours on the first screen, so they fold too.
-    expect(section(page(withFacts({ hours })), "service-area")).not.toContain('class="area"');
+    // Home's business card lists the hours too, but on Home: the Contact page shows them in the Service area section.
+    const contact = section(classicPage(withFacts({ hours }), "contact", OPTIONS.stylesheets), "service-area");
+    expect(contact).toContain('class="area"');
+    expect(contact).toContain('<dl class="hours">');
     expect(section(page(plumber), "service-area")).toContain('class="area"');
+  });
+});
+
+// A16: Home previews the first services; every page but Contact ends with the closing band; the call bar has a fixed
+// quote label on every page and stays put on Contact; each inner page opens with the hero's eyebrow and its <h1>.
+describe("Classic's pages (A16)", () => {
+  const preview = (input: SiteDocumentInput) => section(classicPage(input, "home", OPTIONS.stylesheets), "services-preview");
+  const withServices = (services: SiteDocumentInput["facts"]["services"]): SiteDocumentInput => ({
+    ...plumber,
+    facts: { ...plumber.facts, services },
+    copy: { ...plumber.copy, serviceDescriptions: services.map((s) => ({ service: s.name, description: "Done with care." })) },
+  });
+  const rows = (markup: string) => [...markup.matchAll(/<li class="svc">([\s\S]*?)<\/li>/g)].map((m) => squashedText(m[1] ?? ""));
+
+  it("previews the first three services in the owner's order, a price only where the owner gave one, and links to the Services page", () => {
+    const roofing = loadFixture("roofing-extreme");
+    expect(rows(preview(roofing))).toEqual(roofing.facts.services.slice(0, 3).map((s) => squashedText(`${escapeText(s.name)}From $${s.startingPrice?.toLocaleString("en-US")}`)));
+    const two = preview(withServices([{ name: "Deep clean", startingPrice: 180 }, { name: "Move-out clean" }]));
+    expect(rows(two)).toEqual([squashedText("Deep cleanFrom $180"), squashedText("Move-out clean")]);
+    expect(two).not.toContain("Price on request");
+    expect(rows(preview(withServices([{ name: "Deep clean" }])))).toEqual([squashedText("Deep clean")]);
+    expect(two).toContain('<a class="bt bt-out" href="/services">More about our services</a>');
+  });
+
+  it("offers the booking box after the price list only when another section, not the closing band, comes next", () => {
+    expect(section(classicPage(plumber, "services", OPTIONS.stylesheets), "services")).toContain('class="svc-more"');
+    expect(section(classicPage({ ...plumber, hidden: ["faq"] }, "services", OPTIONS.stylesheets), "services")).not.toContain('class="svc-more"');
+    expect(section(classicPage(cleaning, "services", OPTIONS.stylesheets), "services")).not.toContain('class="svc-more"');
+  });
+
+  it("gives every page a call bar with Call and the fixed words Get a quote, sticky but on Contact", () => {
+    for (const { page: id, html } of classicSite(plumber, OPTIONS.stylesheets).pages) {
+      const bar = html.slice(html.indexOf("<aside"), html.indexOf("</aside>"));
+      expect(bar, id).toContain('<a class="bt bt-out" href="/contact#quote">Get a quote</a>');
+      expect(bar, id).toContain('href="tel:');
+      expect(bar.includes('class="cb sticky'), id).toBe(id !== "contact");
+    }
+  });
+
+  it("opens each inner page with the hero's eyebrow and the page's h1, and closes every page but Contact with the closing band", () => {
+    for (const { page: id, html } of classicSite(plumber, OPTIONS.stylesheets).pages) {
+      const first = html.slice(html.indexOf("<main"), html.indexOf("</section>", html.indexOf("<main")));
+      if (id !== "home" && id !== "about") expect(squashedText(first), id).toContain(squash("Plumbing Austin, TX Since 1998"));
+      expect(first, id).toContain("<h1 ");
+      expect(html.includes('<section id="get-in-touch"'), id).toBe(id !== "contact");
+    }
   });
 });

@@ -3,11 +3,11 @@
 // (phone, hours, towns, email). A round seal stamps the founded year; one short review sits under the
 // print or the buttons. No text ever sits on a photo.
 import type { Facts } from "@asksite/site-schema";
-import type { RenderContext } from "../../context.ts";
-import { formatPhone, mailtoUrl, telUrl, TRADE_LABEL } from "../../format.ts";
-import { fragment, html, safeUrl, type SafeHtml } from "../../html.ts";
+import { quoteLink, type RenderContext } from "../../context.ts";
+import { formatPhone, mailtoUrl, telUrl } from "../../format.ts";
+import { html, safeUrl, type SafeHtml } from "../../html.ts";
 import { DOM_ID } from "../../sections/ids.ts";
-import { callButton, ctaLong, dots, email, groupedHours, hoursTitle, icon, lic, reviewer, townSummary, type ClassicIcon } from "./parts.ts";
+import { callButton, ctaLong, dots, email, eyebrow, groupedHours, hoursTitle, icon, lic, reviewer, townSummary, type ClassicIcon } from "./parts.ts";
 import { plan } from "./plan.ts";
 
 /** A headline longer than this gets the smaller hero size. */
@@ -75,14 +75,9 @@ ${areaShown && html`<li>${icon("map-pin")}<span>Serving ${townSummary(ctx)}</spa
 export function renderHero(ctx: RenderContext): SafeHtml {
   const { facts, copy } = ctx.doc;
   const { photo: hasPhoto, lift, liftSwap, trustShown } = plan(ctx);
+  // On phones the eyebrow ends with the founded year; from 48rem the seal shows it.
   const photo = hasPhoto ? facts.heroPhoto : undefined;
   const quote = heroQuote(ctx, photo !== undefined);
-  // On phones the eyebrow ends with the founded year; from 48rem the seal shows it.
-  const eyebrow = dots([
-    { text: TRADE_LABEL[facts.trade] },
-    { text: `${facts.location.city}, ${facts.location.state}` },
-    ...(facts.yearFounded === undefined ? [] : [{ text: `Since ${facts.yearFounded}`, phone: true }]),
-  ]);
   const media = photo
     ? html`<div class="hm"><div class="${quote ? "frame fq" : "frame"}"><img src="${safeUrl(photo.url, ["https:"])}" width="${photo.width}" height="${photo.height}" alt="${photo.alt}" loading="eager" fetchpriority="high" decoding="async">${quote}</div>${seal(facts)}</div>`
     : html`<div class="${facts.yearFounded !== undefined ? "hm hm-card hm-sealed" : "hm hm-card"}">${businessCard(ctx)}${seal(facts)}</div>`;
@@ -91,12 +86,12 @@ export function renderHero(ctx: RenderContext): SafeHtml {
   return html`<section id="${DOM_ID.hero}" class="${classes}" aria-labelledby="${DOM_ID.hero}-title">
 <div class="wr h-grid">
 <div class="h-copy">
-<p class="eb">${eyebrow}</p>
+<p class="eb">${eyebrow(facts, true)}</p>
 <h1 id="${DOM_ID.hero}-title" class="${copy.heroHeadline.length > LONG_HEADLINE ? "ht ht-long" : "ht"}">${copy.heroHeadline}</h1>
 <p class="hs">${copy.heroSubheadline}</p>
 <div class="ha">
 ${callButton(facts, "bt bt-act bt-lg", `Call ${formatPhone(facts.phone)}`)}
-<a class="bt bt-out bt-lg" href="${fragment("contact-form")}">${ctaLong(ctx.doc)}</a>
+<a class="bt bt-out bt-lg" href="${quoteLink()}">${ctaLong(ctx.doc)}</a>
 </div>
 ${lift ? ledger(facts) : trustShown && proofLine(facts)}
 ${!photo && quote}

@@ -4,8 +4,8 @@
 import type { RenderContext } from "../../context.ts";
 import { html, type SafeHtml } from "../../html.ts";
 import { DOM_ID } from "../../sections/ids.ts";
-import { ctaRow, reviewer, sectionHead } from "./parts.ts";
-import { plan } from "./plan.ts";
+import { reviewer, sectionTitle } from "./parts.ts";
+import { bandClass, plan } from "./plan.ts";
 
 /** A pull quote longer than this gets the smaller size. */
 const LONG_QUOTE = 180;
@@ -17,7 +17,7 @@ function gridClass(count: number): string {
 }
 
 export function renderReviews(ctx: RenderContext): SafeHtml {
-  const { heroQuote, band, ctaAfter } = plan(ctx);
+  const { heroQuote } = plan(ctx);
   const [lead, ...rest] = ctx.doc.facts.testimonials.filter((_, i) => i !== heroQuote);
   const cards =
     rest.length > 0 &&
@@ -34,11 +34,10 @@ ${cards}
 </div>` : html`${pull}
 ${cards}`;
 
-  return html`<section id="${DOM_ID.testimonials}" class="${band.testimonials === "white" ? "sec bw" : "sec bp"}" aria-labelledby="${DOM_ID.testimonials}-title">
+  return html`<section id="${DOM_ID.testimonials}" class="sec ${bandClass(ctx, "testimonials")}" aria-labelledby="${DOM_ID.testimonials}-title">
 <div class="wr">
-${sectionHead(DOM_ID.testimonials, "What customers say")}
+${sectionTitle(ctx, "testimonials", "What customers say")}
 ${quotes}
-${ctaAfter === "testimonials" && ctaRow(ctx.doc)}
 </div>
 </section>`;
 }

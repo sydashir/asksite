@@ -1,9 +1,9 @@
 // Small pieces every Classic section shares. Owner text is always escaped by the html template; only
 // literal markup from this file is marked as trusted.
-import type { Facts, OpeningHours, SiteDocument, Trade } from "@asksite/site-schema";
-import type { RenderContext } from "../../context.ts";
-import { formatPhone, telUrl, weeklyHours } from "../../format.ts";
-import { fragment, html, trusted, type SafeHtml, type Value } from "../../html.ts";
+import type { Facts, OpeningHours, SectionId, SiteDocument, Trade } from "@asksite/site-schema";
+import { headingLevel, sectionLink, type RenderContext } from "../../context.ts";
+import { TRADE_LABEL, telUrl, weeklyHours } from "../../format.ts";
+import { html, trusted, type SafeHtml, type Value } from "../../html.ts";
 import { icon as sharedIcon, type IconName } from "../../icons.ts";
 import { DOM_ID } from "../../sections/ids.ts";
 
@@ -45,13 +45,13 @@ export const reviewer = (review: Facts["testimonials"][number]): SafeHtml =>
 /** The business card and the Contact band name at most this many towns before "and N more". */
 const TOWNS_SHOWN = 3;
 
-/** The towns in a sentence: at most three, then a link to the Service area section for the rest. */
+/** The towns in a sentence: at most three, then a link to the Service area section (on its page) for the rest. */
 export function townSummary(ctx: RenderContext): SafeHtml {
   const places = ctx.doc.facts.serviceArea.places;
   const shown = places.slice(0, TOWNS_SHOWN);
   const more = places.length - shown.length;
   if (more > 0) {
-    return html`${shown.join(", ")} <span class="whitespace-nowrap">and ${more} more.</span> <a class="whitespace-nowrap" href="${fragment(DOM_ID.serviceArea)}">See all areas</a>`;
+    return html`${shown.join(", ")} <span class="whitespace-nowrap">and ${more} more.</span> <a class="whitespace-nowrap" href="${sectionLink(ctx, "serviceArea")}">See all areas</a>`;
   }
   return html`${shown.length === 1 ? shown[0] : `${shown.slice(0, -1).join(", ")} and ${shown.at(-1)}`}`;
 }
@@ -133,19 +133,40 @@ export const TRADE_WORD: Readonly<Record<Trade, string>> = {
   landscaping: "landscaping",
 };
 
-/** The mid-page Call-or-quote row (tablets and wider; phones have the call bar). */
-export function ctaRow(doc: SiteDocument): SafeHtml {
-  return html`<div class="cta-row">
-${callButton(doc.facts, "bt bt-act bt-lg", `Call ${formatPhone(doc.facts.phone)}`)}
-<span class="cta-or" aria-hidden="true">or</span>
-<a class="bt bt-out bt-lg" href="${fragment("contact-form")}">${ctaLong(doc)}</a>
-</div>`;
+/**
+ * The trade, the town and, with the owner's year, "Since 1998", joined by dots: the hero's eyebrow (the year on
+ * phones only, as the seal shows it from 48rem) and the one that opens each inner page.
+ */
+export function eyebrow(facts: Facts, yearOnPhones = false): SafeHtml {
+  return dots([
+    { text: TRADE_LABEL[facts.trade] },
+    { text: `${facts.location.city}, ${facts.location.state}` },
+    ...(facts.yearFounded === undefined ? [] : [{ text: `Since ${facts.yearFounded}`, phone: yearOnPhones }]),
+  ]);
 }
 
-/** A section's heading: the accent rule, the h2 (id `${domId}-title`) and an optional intro. */
+/** A block's heading: the accent rule, the h2 (id `${domId}-title`) and an optional intro. */
 export function sectionHead(domId: string, title: Value, intro?: string): SafeHtml {
   return html`<div class="sh">
 <h2 id="${domId}-title" class="st">${title}</h2>
 ${intro && html`<p>${intro}</p>`}
 </div>`;
+}
+
+/**
+ * A section's heading. The first section of an inner page opens the page (A16): the eyebrow, then the page's one
+ * <h1>, set larger, as Home's hero opens Home. Every other section has the accent rule and an h2.
+ */
+export function sectionTitle(ctx: RenderContext, id: SectionId, title: Value, intro?: string): SafeHtml {
+  if (headingLevel(ctx, id) === 2) return sectionHead(DOM_ID[id], title, intro);
+  return html`<div class="sh sh-pg">
+<p class="eb">${eyebrow(ctx.doc.facts)}</p>
+<h1 id="${DOM_ID[id]}-title" class="st">${title}</h1>
+${intro && html`<p>${intro}</p>`}
+</div>`;
+}
+
+/** An item heading inside section `id`: an h3 under its h2, an h2 under the page's h1, so no level is skipped. */
+export function itemHeading(ctx: RenderContext, id: SectionId, cls: string, content: Value): SafeHtml {
+  return headingLevel(ctx, id) === 1 ? html`<h2 class="${cls}">${content}</h2>` : html`<h3 class="${cls}">${content}</h3>`;
 }
