@@ -13,6 +13,7 @@ const ENTRY = fileURLToPath(new URL("./__preview-harness-entry.js", import.meta.
 async function harnessBundle(): Promise<string> {
   const entry = `
     import { createElement, Fragment } from "react";
+    import { flushSync } from "react-dom";
     import { createRoot } from "react-dom/client";
     import { PagePreview } from ${JSON.stringify(PREVIEW)};
     const root = createRoot(document.getElementById("root"));
@@ -25,6 +26,11 @@ async function harnessBundle(): Promise<string> {
         n === null ? null : createElement("p", { id: "mark" }, String(n))));
     };
     window.show = (html) => draw(html, null);
+    // Several documents in ONE task, each committed at once (flushSync): the first frame's own load cannot run in between.
+    window.showMany = (list) => {
+      for (const html of list) flushSync(() => draw(html, null));
+      document.querySelector("iframe")?.setAttribute("data-first", "yes");
+    };
     // A render from outside any event: the same default lane as the frame's load event (see the barrier note in the spec).
     window.mark = (n) => draw(current, n);
   `;
@@ -45,7 +51,7 @@ async function harnessBundle(): Promise<string> {
   return chunk.code;
 }
 
-type Harness = Window & { show: (html: string) => void; mark: (n: number) => void; loaded?: Promise<void> };
+type Harness = Window & { show: (html: string) => void; showMany: (list: string[]) => void; mark: (n: number) => void; loaded?: Promise<void> };
 
 /** Opens the harness page and returns what both tests share. */
 async function openHarness(page: Page) {
@@ -59,6 +65,8 @@ async function openHarness(page: Page) {
     frame,
     linksOff: page.getByText(LINKS_OFF),
     show: (html: string) => page.evaluate((h) => (window as unknown as Harness).show(h), html),
+    showMany: (list: string[]) => page.evaluate((l) => (window as unknown as Harness).showMany(l), list),
+    mark: (n: number) => page.evaluate((m) => (window as unknown as Harness).mark(m), n),
     /** Marks the current iframe element, so a later check can tell it from a mounted-again one. */
     markFirst: () => page.locator("iframe").evaluate((el) => el.setAttribute("data-first", "yes")),
   };
@@ -104,4 +112,18 @@ test("a real link click in the preview still says links are turned off, and the 
   await expect(linksOff).toBeVisible();
   await expect(frame.locator("h1")).toHaveText("Second draft");
   await expect(page.locator("iframe")).not.toHaveAttribute("data-first", "yes");
+});
+
+// The editor sends a new document on every keystroke. Several documents handed over before the first frame's own load has run
+// (m6: rapid updates) must end on the LAST one, and a load that belongs to an older document must never be taken for a link.
+test("rapid updates show the last document and never say links are turned off", async ({ page }) => {
+  const { frame, linksOff, showMany, mark } = await openHarness(page);
+  await showMany([`<h1>First draft</h1>`, `<h1>Second draft</h1><a href="/services">Services</a>`, `<h1>Third draft</h1><a href="/services">Services</a>`]);
+  await expect(frame.locator("h1")).toHaveText("Third draft");
+  // The React barrier of the first test: once the marker is in the DOM, anything the frame's loads announced is committed too.
+  await mark(1);
+  await expect(page.locator("#mark")).toHaveText("1");
+  await expect(linksOff).toHaveCount(0);
+  await expect(page.locator("iframe")).toHaveAttribute("data-first", "yes");
+  await expect(frame.locator("h1")).toHaveText("Third draft");
 });

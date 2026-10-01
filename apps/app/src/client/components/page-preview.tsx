@@ -6,6 +6,15 @@ import { Notice } from "./feedback.tsx";
 /** One page to show: its html as it is (the editor's render), or the same-origin address to fetch it from (a stored version). */
 export type PreviewPageSource = { page: PageId; html: string } | { page: PageId; url: string };
 
+/**
+ * Asks the preview to show a page (the editor sends one each time the owner focuses or changes a field, A16 UX-8): `n` makes
+ * every ask a new one, so asking for the same page twice still works after the viewer chose another page by hand.
+ */
+export interface FollowPage {
+  page: PageId;
+  n: number;
+}
+
 /** What the status line says when the frame tried to leave the shown page. */
 export const LINKS_OFF = "Links are turned off in the preview.";
 
@@ -22,7 +31,7 @@ type Load = { state: "loading" } | { state: "error" } | { state: "ready"; html: 
  * navigation away: the frame is mounted again on the page that was shown, and the status line says links are off.
  * If the page on screen leaves `pages` (the owner hid About), the preview falls back to Home and says so.
  */
-export function PagePreview({ pages, frameTitle }: { pages: readonly PreviewPageSource[]; frameTitle: string }) {
+export function PagePreview({ pages, frameTitle, follow = null }: { pages: readonly PreviewPageSource[]; frameTitle: string; follow?: FollowPage | null }) {
   const [wanted, setWanted] = useState<PageId>(pages[0]?.page ?? "home");
   const [phone, setPhone] = useState(false);
   const [status, setStatus] = useState<{ text: string; n: number } | null>(null);
@@ -36,6 +45,13 @@ export function PagePreview({ pages, frameTitle }: { pages: readonly PreviewPage
       setWanted(shown);
     }
   }, [note, shown]);
+
+  // The owner moved to a field on another page: show that page and say so (never a silent switch). A page the site does not have is not asked for.
+  useEffect(() => {
+    if (follow === null || follow.page === shown || !pages.some((p) => p.page === follow.page)) return;
+    setWanted(follow.page);
+    announce(`Showing the ${PAGES[follow.page].label} page`);
+  }, [follow]);
 
   const source = pages.find((p) => p.page === shown);
   const size = phone ? "h-[80vh] w-[390px] max-w-full" : "h-[80vh] w-full";

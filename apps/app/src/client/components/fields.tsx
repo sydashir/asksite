@@ -14,6 +14,8 @@ interface Common {
   after?: ReactNode;
   /** Blocks typing but keeps keyboard focus (a disabled control would drop it). */
   readOnly?: boolean;
+  /** Called when the control gains focus (the editor's preview follows the owner to the field's page). */
+  onFocus?: () => void;
 }
 
 function describedBy(id: string, hint: string | undefined, errors: readonly string[], counter: boolean): string | undefined {
@@ -80,6 +82,7 @@ export function TextInput(
         type={props.type ?? "text"}
         value={props.value}
         readOnly={props.readOnly}
+        onFocus={props.onFocus}
         onChange={(e) => props.onChange(e.target.value)}
         autoComplete={props.autoComplete ?? "off"}
         inputMode={props.inputMode}
@@ -107,6 +110,7 @@ export function TextArea(props: Common & { value: string; onChange: (value: stri
         rows={props.rows ?? 3}
         value={props.value}
         readOnly={props.readOnly}
+        onFocus={props.onFocus}
         onChange={(e) => props.onChange(e.target.value)}
         aria-invalid={errors.length > 0 ? true : undefined}
         aria-describedby={describedBy(props.id, props.hint, errors, counted)}
