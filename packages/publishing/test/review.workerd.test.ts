@@ -1,6 +1,6 @@
 import { livePageKey, livePointerKey, liveSitePrefix, newId, sha256Hex, versionKey, versionPageKey } from "@asksite/core";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { approveVersion, createPendingVersion, rejectVersion } from "../src/index.ts";
+import { approveVersion, createPendingVersion, rejectVersion, takeDown } from "../src/index.ts";
 import { publishFailure as failure } from "./support/errors.ts";
 import { auditActions, doc, EDITS, flakyBucket, liveKeysOf, pendingWithPages, publishingHarness, seedSite, siteRow, versionRow, type PublishEnv } from "./support/harness.ts";
 
@@ -282,6 +282,26 @@ describe("approveVersion: all the pages, then the pointer (A16)", () => {
     expect((await env.LIVE.head(livePointerKey(p.slug)))?.customMetadata?.["versionId"]).toBe(p.versionId);
     expect((await auditActions(env.DB, p.siteId)).filter((a) => a === "version.approved")).toHaveLength(1);
     expect((await versionRow(env.DB, p.versionId))?.reviewed_at).toBe(20);
+  });
+
+  // Residual 1 (moderator, 2026-10-01; strict: exposure). Another admin's takedown can commit after this approve's
+  // D1 batch and delete the (old) pointer before this approve writes its own. The pointer must not stay: it would put
+  // the business name back on the site's 404 page. The seam runs the real takedown inside the pointer write.
+  it("takes its pointer back out when a takedown committed between its D1 batch and its pointer write", async () => {
+    const p = await pendingWithPages(env);
+    await approve(p.versionId, p.htmlSha256);
+    const racingTakedown = {
+      ...flakyBucket(env.LIVE, () => false),
+      put: async (...args: Parameters<R2Bucket["put"]>) => {
+        if (args[0] === livePointerKey(p.slug)) await takeDown(env, { siteId: p.siteId, reviewer: "other@example.com", reason: "Phishing", purgeMedia: false, now: 40 });
+        return env.LIVE.put(...args);
+      },
+    } as R2Bucket;
+    const retry = approveVersion({ ...env, LIVE: racingTakedown }, { versionId: p.versionId, htmlSha256: p.htmlSha256, reviewer: "admin@example.com", note: null, indexable: true, now: 41 });
+    expect((await failure(retry)).code).toBe("site_taken_down");
+    expect(await env.LIVE.head(livePointerKey(p.slug))).toBeNull();
+    expect(await liveKeysOf(env.LIVE, p.slug)).toEqual([]);
+    expect(await siteRow(env.DB, p.siteId)).toMatchObject({ taken_down_at: 40 });
   });
 
   it("changes neither D1 nor the pointer when a page copy fails, and can be retried", async () => {

@@ -1,4 +1,4 @@
-import { siteUrl } from "@asksite/core";
+import { livePointerKey, siteUrl } from "@asksite/core";
 import { PublishError } from "./errors.ts";
 import { auditIfChanged, copyLivePages, liveMetadata, removeOtherVersions, verifiedPages, writeLivePointer } from "./shared.ts";
 
@@ -75,6 +75,13 @@ export async function approveVersion(
     await writeLivePointer(env.LIVE, slug, { siteId, versionId, ...business });
   } catch {
     throw new PublishError("live_copy_failed", { versionId });
+  }
+  // A takedown by another admin can commit after the batch above and delete the pointer before this write lands.
+  // The takedown wins: take the pointer back out, so the site's pages and its business name stay off the web.
+  const after = await db.prepare("SELECT taken_down_at FROM sites WHERE id = ?").bind(siteId).first<{ taken_down_at: number | null }>();
+  if (after === null || after.taken_down_at !== null) {
+    await env.LIVE.delete(livePointerKey(slug));
+    throw new PublishError("site_taken_down");
   }
   await removeOtherVersions(env.LIVE, slug, { siteId, versionId });
   return { siteId, slug, liveUrl: siteUrl(env.ROOT_DOMAIN, slug) };
