@@ -1173,10 +1173,14 @@
   .page-title {
     max-width: 54rem;
   }
-  .page-title .eyebrow {
+  /* Contact's own heading, when the form opens the page, sets its title as every inner page's head does, so the
+     title never moves from page to page. */
+  .page-title .eyebrow,
+  .sec--open .contact-head .eyebrow {
     margin-bottom: 0.75rem;
   }
-  .page-title .sec-intro {
+  .page-title .sec-intro,
+  .sec--open .contact-head .sec-intro {
     margin-top: 0.75rem;
     color: var(--fg-t);
   }
@@ -1224,6 +1228,15 @@
     }
     .ph-long {
       display: none;
+    }
+  }
+  /* The narrowest phones: a smaller line, so the three facts still share one. */
+  @media (max-width: 22.49rem) {
+    .ph-chips {
+      column-gap: 0.625rem;
+    }
+    .ph-chips .chip {
+      font-size: 0.75rem;
     }
   }
   .ph-acts {
@@ -1545,6 +1558,7 @@
     .pv .board {
       grid-column: 2;
       grid-row: 1 / span 2;
+      align-self: start;
     }
     .pv .svc-all {
       grid-column: 1;
@@ -1567,6 +1581,14 @@
     .svc-main {
       grid-column: 2;
       grid-row: 1 / span 2;
+    }
+    /* A short list without the card: the board alone, at a width its rows read across. */
+    .svc-layout--solo {
+      grid-template-columns: minmax(0, 52rem);
+    }
+    .svc-layout--solo .svc-main {
+      grid-column: 1;
+      grid-row: auto;
     }
     .svc-name {
       font-size: 1.4375rem;
@@ -1598,6 +1620,12 @@
   }
   .close .eyebrow {
     margin-bottom: 0.875rem;
+  }
+  .close-copy {
+    min-width: 0;
+  }
+  .close-lead {
+    font-size: clamp(2.25rem, 1.6rem + 2.8vw, 3.75rem);
   }
   .close-chip {
     margin-top: 1.25rem;

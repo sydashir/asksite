@@ -132,7 +132,7 @@ export function trustChips(ctx: RenderContext): SafeHtml | false {
   const shown = onSite(ctx, "trust");
   if (ctx.page.id === "about" && shown) return false;
   const chips = [
-    facts.emergency247 && html`<li class="chip">${icon("clock")}24/7 emergency<span class="ph-long"> service</span></li>`,
+    facts.emergency247 && html`<li class="chip">${icon("clock")}<span>24/7 emergency<span class="ph-long"> service</span></span></li>`,
     shown && facts.insured && html`<li class="chip">${icon("shield-check")}Insured</li>`,
     shown && facts.yearFounded !== undefined && ctx.page.id !== "about" && html`<li class="chip">${icon("calendar")}Since ${facts.yearFounded}</li>`,
   ].filter((chip): chip is SafeHtml => chip !== false);
@@ -220,7 +220,7 @@ export function callButton(ctx: RenderContext, kind: ButtonKind, large = false):
  */
 export function bigCall(ctx: RenderContext): SafeHtml {
   const { phone } = ctx.doc.facts;
-  return html`<a class="big-call" href="${telUrl(phone)}"><span class="big-call-ic">${icon("phone")}</span><span class="display">${formatPhone(phone)}</span></a>`;
+  return html`<a class="big-call whitespace-nowrap" href="${telUrl(phone)}"><span class="big-call-ic">${icon("phone")}</span><span class="display">${formatPhone(phone)}</span></a>`;
 }
 
 /** The owner's call-to-action button, which leads to the quote form on the Contact page. */

@@ -433,7 +433,7 @@ describe("the Bold pages", () => {
       expect(band, page).toContain(`<div class="wrap"><div class="${page === "home" ? "close close--panel ink" : "close"}">`);
       expect(band, page).toContain('<h2 id="get-in-touch-title" class="kicker eyebrow">Get in touch</h2><p class="close-lead h2 display">Get a free quote</p>');
       lines.add(/<p class="sec-intro">([^<]*)<\/p>/.exec(band)?.[1] ?? "");
-      expect(band, page).toMatch(/<p class="kicker">Prefer to talk\?<\/p><p><a class="big-call" href="tel:\+15125550142"><span class="big-call-ic"><svg[^]*?<\/svg><\/span><span class="display">\(512\) 555-0142<\/span><\/a><\/p>/);
+      expect(band, page).toMatch(/<p class="kicker">Prefer to talk\?<\/p><p><a class="big-call whitespace-nowrap" href="tel:\+15125550142"><span class="big-call-ic"><svg[^]*?<\/svg><\/span><span class="display">\(512\) 555-0142<\/span><\/a><\/p>/);
       expect(band, page).toContain('href="/contact#quote">Get a free quote</a>');
       expect(html.indexOf("</main>") - html.indexOf("</section>", start), page).toBeLessThan(20);
     }
@@ -460,7 +460,8 @@ describe("the Bold pages", () => {
         // About's credentials, right below, list Insured and 24/7; the year is on its photo.
         expect(head, page).not.toContain("ph-chips");
       } else {
-        expect(head, page).toMatch(/<ul class="ph-chips"><li class="chip"><svg[^]*?<\/svg>24\/7 emergency<span class="ph-long"> service<\/span><\/li>/);
+        // One text run, so the chip's gap never opens inside "24/7 emergency service".
+        expect(head, page).toMatch(/<ul class="ph-chips"><li class="chip"><svg[^]*?<\/svg><span>24\/7 emergency<span class="ph-long"> service<\/span><\/span><\/li>/);
         expect(head, page).toContain("Insured</li>");
         expect(head, page).toContain("Since 1998</li>");
       }
@@ -481,6 +482,22 @@ describe("the Bold pages", () => {
     expect(faqFirst).toContain('<h3 class="svc-name h3">Drain cleaning</h3>');
   });
 
+  // Round 3 (A16 judges): on a short list the card's Call and quote pair sat a screen above the closing band's same
+  // pair. The card shows beside a longer list only; a short one is the board alone, with the closing band right below.
+  it("shows the \"Not sure what you need?\" card beside a list of more than three services only", () => {
+    const services = (input: SiteDocumentInput) => {
+      const page = bold(input, "services");
+      return page.slice(page.indexOf('<section id="services"'), page.indexOf("</section>", page.indexOf('<section id="services"')));
+    };
+    expect(services(plumber)).toContain('<div class="wrap svc-layout">');
+    expect(services(plumber)).toContain('<div class="cta-card ink">');
+    const short = { ...plumber, facts: { ...plumber.facts, services: plumber.facts.services.slice(0, 3) }, copy: { ...plumber.copy, serviceDescriptions: plumber.copy.serviceDescriptions.slice(0, 3) } };
+    for (const input of [short, fixture("cleaning-minimal")]) {
+      expect(services(input)).toContain('<div class="wrap svc-layout svc-layout--solo">');
+      expect(services(input)).not.toContain("cta-card");
+    }
+  });
+
   // Round 2 (judges, CRITICAL): with the service area first, a phone's first screen had no way to call or ask for a
   // quote (the Contact bar sits at the end of the page, moderator ruling b).
   // Round 3 (review2 Minor, A16 judges): the number showed twice (head and form band), and as plain display type that
@@ -489,7 +506,7 @@ describe("the Bold pages", () => {
     const contact = bold(moved(plumber, "contact", "serviceArea"), "contact");
     const head = contact.slice(contact.indexOf('<div class="page-head ink">'), contact.indexOf('\n<div class="sec ', contact.indexOf('<div class="page-head ink">')));
     expect(head).toContain('<h1 id="service-area-title" class="pt display">Service area &amp; hours</h1>');
-    expect(head).toMatch(/<div class="ph-talk"><p class="kicker">Prefer to talk\?<\/p><p><a class="big-call" href="tel:\+15125550142"><span class="big-call-ic"><svg[^]*?<\/svg><\/span><span class="display">\(512\) 555-0142<\/span><\/a><\/p><p><a class="bt bt-ghost" href="\/contact#quote">Get a free quote<\/a><\/p><\/div>/);
+    expect(head).toMatch(/<div class="ph-talk"><p class="kicker">Prefer to talk\?<\/p><p><a class="big-call whitespace-nowrap" href="tel:\+15125550142"><span class="big-call-ic"><svg[^]*?<\/svg><\/span><span class="display">\(512\) 555-0142<\/span><\/a><\/p><p><a class="bt bt-ghost" href="\/contact#quote">Get a free quote<\/a><\/p><\/div>/);
     expect(contact.indexOf('<div class="ph-talk">')).toBeLessThan(contact.indexOf('<div class="area card">'));
     const band = contact.slice(contact.indexOf('<section id="contact"'), contact.indexOf("</section>", contact.indexOf('<section id="contact"')));
     for (const repeat of ["big-call", 'class="talk"', "ph-chips", "Prefer to talk"]) expect(band).not.toContain(repeat);
@@ -583,7 +600,7 @@ describe("the Bold pages", () => {
     expect(contact.match(/id="quote"/g)).toHaveLength(1);
     const head = contact.slice(contact.indexOf('<div class="sec-head contact-head">'), contact.indexOf('<div class="talk">'));
     expect(head).toMatch(/<ul class="ph-chips">[^]*24\/7 emergency[^]*Insured<\/li>[^]*Since 1998<\/li><\/ul>/);
-    expect(contact).toMatch(/<div class="talk"><p class="kicker">Prefer to talk\?<\/p><p><a class="big-call" href="tel:\+15125550142"><span class="big-call-ic"><svg/);
+    expect(contact).toMatch(/<div class="talk"><p class="kicker">Prefer to talk\?<\/p><p><a class="big-call whitespace-nowrap" href="tel:\+15125550142"><span class="big-call-ic"><svg/);
     const order = ['<div class="talk">', '<div class="form-card card">', '<div class="talk-more">'].map((s) => contact.indexOf(s));
     expect(order[0]).toBeGreaterThan(0);
     expect([...order].sort((a, b) => a - b)).toEqual(order);
@@ -684,6 +701,19 @@ describe("the Bold sheet carries the round-4 must-fixes", () => {
   it("lets only the licences give way in the desktop credentials band", () => {
     expect(rule(".spec", "@media (min-width:64rem)")).toContain("flex:none");
     expect(rule(".spec-lic", "@media (min-width:64rem)")).toContain("flex-shrink:1");
+  });
+
+  // Round 3 (A16 judges): with the form first, Contact's title sat lower than every other inner page's.
+  it("sets Contact's own title as every inner page's head does, so it never moves from page to page", () => {
+    // One rule each for both heads (the compiled sheet lists the selectors together).
+    expect(css).toContain(".page-title .eyebrow,.sec--open .contact-head .eyebrow{margin-bottom:.75rem}");
+    expect(rule(".sec--open .contact-head .sec-intro")).toContain("margin-top:.75rem");
+  });
+
+  // Round 3 (the builder's screenshots): with one service the preview's board stretched to the heading column's
+  // height, so its only row's rule hung far below the row.
+  it("starts the preview's board at the top of its column from 64rem, whatever its row count", () => {
+    expect(rule(".pv .board", "@media (min-width:64rem)")).toContain("align-self:start");
   });
 
   it("breaks a call-to-action word too long for the services card's button inside the button", () => {
