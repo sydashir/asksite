@@ -87,9 +87,10 @@ describe("Bold states no credential the owner does not have", () => {
       for (const words of Object.values(WORDS).slice(0, 2)) expect(text).toMatch(words);
       expect(text).toMatch(/\bSince\b/);
     }
-    // hvac-phoenix's credentials follow its reviews, so they are the band; its footer repeats Insured on every page.
+    // hvac-phoenix's credentials follow its reviews, so they are the band (24/7 stays in the hero's chip); its footer
+    // repeats Insured on every page.
     const hvac = homeOf(BASE_DOCS[1]![1]);
-    expect(readableTexts(band(hvac)).join("\n")).toMatch(/Insured[^]*Since 2011[^]*24\/7 emergency service/);
+    expect(readableTexts(band(hvac)).join("\n")).toMatch(/Insured[^]*Since 2011/);
     expect(readableTexts(hvac.slice(hvac.indexOf("<footer"))).join("\n")).toContain("Insured");
   });
 

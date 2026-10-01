@@ -123,13 +123,16 @@ function pageKicker(ctx: RenderContext): SafeHtml {
 
 /**
  * The owner's standing as chips on an inner page's head, owner facts only: 24/7 service, and Insured and the
- * founding year while the owner shows the credentials section (About leaves the year to its numeral).
+ * founding year while the owner shows the credentials section. About leaves them to its credentials list right below
+ * (its year is on its photo), so each fact shows once there. On phones the chips are one light line, so "24/7
+ * emergency" drops its last word there.
  */
-function trustChips(ctx: RenderContext): SafeHtml | false {
+export function trustChips(ctx: RenderContext): SafeHtml | false {
   const { facts } = ctx.doc;
   const shown = onSite(ctx, "trust");
+  if (ctx.page.id === "about" && shown) return false;
   const chips = [
-    facts.emergency247 && html`<li class="chip">${icon("clock")}24/7 emergency service</li>`,
+    facts.emergency247 && html`<li class="chip">${icon("clock")}24/7 emergency<span class="ph-long"> service</span></li>`,
     shown && facts.insured && html`<li class="chip">${icon("shield-check")}Insured</li>`,
     shown && facts.yearFounded !== undefined && ctx.page.id !== "about" && html`<li class="chip">${icon("calendar")}Since ${facts.yearFounded}</li>`,
   ].filter((chip): chip is SafeHtml => chip !== false);
@@ -139,24 +142,28 @@ function trustChips(ctx: RenderContext): SafeHtml | false {
 /**
  * The head band an inner page opens with (A16), on ink like Home's hero: the trade and the town over the page's
  * <h1>, the intro and the owner's standing; from 64rem Call and the owner's call to action stacked at its right
- * (below, the call bar carries them). On Contact (the owner put the service area first) it carries the number and the owner's
- * call to action, a jump to the form below, at every width: the call bar there sits at the end of the page
- * (moderator ruling b), so a phone visitor can still call or ask for a quote from the first screen.
+ * (below, the call bar carries them), except on Services, whose card beside the list carries them already. On
+ * Contact (the owner put the service area first) it carries the number as a call control and the owner's call to
+ * action, a jump to the form below, at every width: the call bar there sits at the end of the page (moderator ruling
+ * b), so a phone visitor can still call or ask for a quote from the first screen.
  */
 function pageHead(ctx: RenderContext, title: string, titleId: string | undefined, intro: string | undefined): SafeHtml {
-  const { phone } = ctx.doc.facts;
   const h1 = titleId === undefined ? html`<h1 class="${pageTitleClass(title)}">${title}</h1>` : html`<h1 id="${titleId}" class="${pageTitleClass(title)}">${title}</h1>`;
+  const { id } = ctx.page;
   const acts =
-    ctx.page.id === "contact"
-      ? html`<div class="ph-talk"><p class="kicker">Prefer to talk?</p><p><a class="big-phone display whitespace-nowrap" href="${telUrl(phone)}">${formatPhone(phone)}</a></p><p>${ctaButton(ctx)}</p></div>`
-      : html`<div class="ph-acts">${callButton(ctx, "action")}${ctaButton(ctx)}</div>`;
+    id === "contact"
+      ? html`<div class="ph-talk"><p class="kicker">Prefer to talk?</p><p>${bigCall(ctx)}</p><p>${ctaButton(ctx)}</p></div>`
+      : id !== "services" && html`<div class="ph-acts">${callButton(ctx, "action")}${ctaButton(ctx)}</div>`;
   return html`<div class="page-head ink"><div class="wrap ph"><div class="page-title">${pageKicker(ctx)}${h1}${intro && html`<p class="sec-intro">${intro}</p>`}${trustChips(ctx)}</div>${acts}</div></div>`;
 }
 
-/** The contact band's own heading when the form opens the Contact page: the page's <h1>, the owner's call to action. */
+/**
+ * The contact band's own heading when the form opens the Contact page: the page's <h1>, the owner's call to action,
+ * with the owner's standing beside the form as on every other inner page's head.
+ */
 export function contactPageHeading(ctx: RenderContext, domId: string, intro: string | undefined): SafeHtml {
   const title = ctx.doc.copy.ctaText;
-  return html`<div class="sec-head contact-head">${pageKicker(ctx)}<h1 id="${domId}-title" class="${pageTitleClass(title)}">${title}</h1>${intro && html`<p class="sec-intro">${intro}</p>`}</div>`;
+  return html`<div class="sec-head contact-head">${pageKicker(ctx)}<h1 id="${domId}-title" class="${pageTitleClass(title)}">${title}</h1>${intro && html`<p class="sec-intro">${intro}</p>`}${trustChips(ctx)}</div>`;
 }
 
 /**
@@ -204,6 +211,16 @@ export function buttonClass(ctx: RenderContext, kind: ButtonKind, large = false)
 export function callButton(ctx: RenderContext, kind: ButtonKind, large = false): SafeHtml {
   const { phone } = ctx.doc.facts;
   return html`<a class="${buttonClass(ctx, kind, large)} whitespace-nowrap" href="${telUrl(phone)}" aria-label="Call ${formatPhone(phone)}">${icon("phone")}<span><span class="cb-word">Call </span>${formatPhone(phone)}</span></a>`;
+}
+
+/**
+ * The number in display type as a call control (Contact, and the closing band): the phone glyph in the action colour
+ * beside it, and on phones and tablets the whole of it an action-colour button, so it never reads as a plain heading.
+ * Its visible text, the number, is its accessible name.
+ */
+export function bigCall(ctx: RenderContext): SafeHtml {
+  const { phone } = ctx.doc.facts;
+  return html`<a class="big-call" href="${telUrl(phone)}"><span class="big-call-ic">${icon("phone")}</span><span class="display">${formatPhone(phone)}</span></a>`;
 }
 
 /** The owner's call-to-action button, which leads to the quote form on the Contact page. */

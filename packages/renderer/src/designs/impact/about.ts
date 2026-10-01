@@ -1,9 +1,10 @@
 // The Bold about (A16: it opens the About page, so its heading is the page's <h1>, the head band's "About <name>").
 // The page shows who the visitor is about to let in: one of the owner's own photos beside the story when there is
-// one (the hero photo, else the first gallery photo while the gallery shows), with the founding year on a tab over
-// it; without a photo the founding year as a large numeral leads, with the credentials under it; without either the
-// story sits beside the credentials. The credentials (while the owner shows them on Home) give several licences a
-// row of their own, so long numbers never squeeze. Owner facts and the AI's checked about text only.
+// one, with the founding year on a tab over it. It prefers a photo Home has not shown (the first gallery photo that is
+// not the hero's, while the gallery shows), so the second page adds new proof; the hero photo only when it is the one
+// photo. Without a photo the founding year as a large numeral leads, with the credentials under it; without either
+// the story sits beside the credentials. The licence (while the owner shows the credentials) has a row of its own,
+// so its number never squeezes. Owner facts and the AI's checked about text only.
 import { onSite, type RenderContext } from "../../context.ts";
 import { html, safeUrl, type SafeHtml } from "../../html.ts";
 import { credentialSpecs } from "./credentials.ts";
@@ -16,8 +17,9 @@ type AboutLayout = "wrap about about--photo" | "wrap about about--photo about--w
 export function renderAbout(ctx: RenderContext): SafeHtml {
   const { facts, copy } = ctx.doc;
   const year = facts.yearFounded;
-  const photo = facts.heroPhoto ?? (onSite(ctx, "gallery") ? facts.photos[0] : undefined);
-  const specs = onSite(ctx, "trust") ? credentialSpecs(ctx, false) : [];
+  const unseen = onSite(ctx, "gallery") ? facts.photos.find((p) => p.url !== facts.heroPhoto?.url) : undefined;
+  const photo = unseen ?? facts.heroPhoto;
+  const specs = onSite(ctx, "trust") ? credentialSpecs(ctx, { year: false, availability: true }) : [];
   const numeral = year !== undefined && html`<p class="year"><span class="kicker">Since</span> <span class="${yearClass(year)}">${year}</span></p>`;
   const media =
     photo !== undefined &&

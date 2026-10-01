@@ -3,7 +3,7 @@
 // full height beyond), with the credentials card on it. Without a photo the right side holds a card of the
 // facts a caller checks first (hours and the towns served); with nothing new for a card the hero is type only.
 import type { VariantOf } from "@asksite/site-schema";
-import { onPage, onSite, sectionLink, type RenderContext } from "../../context.ts";
+import { onSite, sectionLink, type RenderContext } from "../../context.ts";
 import { TRADE_LABEL } from "../../format.ts";
 import { html, safeUrl, type SafeHtml } from "../../html.ts";
 import { DOM_ID } from "../../sections/ids.ts";
@@ -12,9 +12,8 @@ import { boldPage, callButton, ctaButton, licenceMarkup } from "./parts.ts";
 import { groupedHours, headlineClass } from "./rules.ts";
 
 /**
- * Owner facts only, in the two groups the strip never splits: the licences (the first, never cut, and a count
- * of the rest) and the owner's standing (Insured and the founding year, or 24/7 service when the card has
- * nothing else).
+ * Owner facts only, in the two groups the strip never splits: the licences (the first, then the rest behind "+N
+ * more") and the owner's standing (Insured and the founding year, or 24/7 service when the card has nothing else).
  */
 interface ProofGroups {
   readonly licences: readonly SafeHtml[];
@@ -23,42 +22,32 @@ interface ProofGroups {
 
 function proofGroups(ctx: RenderContext): ProofGroups {
   const { facts } = ctx.doc;
-  const { trustInHero } = boldPage(ctx);
-  // The credentials show only while their section is on the page (the owner may hide it).
-  if (!onPage(ctx, "trust")) return { licences: [], standing: [] };
+  // The credentials are the hero's card only while the owner keeps their section straight under the hero. Anywhere
+  // else on Home (U1) they are the band there, so each fact shows once (credentials.ts).
+  if (!boldPage(ctx).trustInHero) return { licences: [], standing: [] };
   const [first, ...rest] = facts.licences;
   const licences: SafeHtml[] = [];
   if (first !== undefined) {
     licences.push(html`<li class="proof-lic">${icon("certificate")}<span>${licenceMarkup(first, "proof-label", "proof-num")}</span></li>`);
     if (rest.length > 0) {
       const more = `+${rest.length} more ${rest.length === 1 ? "license" : "licenses"}`;
-      licences.push(
-        trustInHero
-          ? html`<li class="proof-more-li"><details class="proof-more"><summary>${more}</summary><ul>${rest.map((l) => html`<li>${licenceMarkup(l)}</li>`)}</ul></details></li>`
-          : html`<li class="proof-more-li"><a class="proof-more-link" href="${sectionLink(ctx, "trust")}">${more}</a></li>`,
-      );
+      licences.push(html`<li class="proof-more-li"><details class="proof-more"><summary>${more}</summary><ul>${rest.map((l) => html`<li>${licenceMarkup(l)}</li>`)}</ul></details></li>`);
     }
   }
   const standing: SafeHtml[] = [];
   if (facts.insured) standing.push(html`<li>${icon("shield-check")}<span>Insured</span></li>`);
   if (facts.yearFounded !== undefined) standing.push(html`<li>${icon("calendar")}<span>Since ${facts.yearFounded}</span></li>`);
-  if (trustInHero && licences.length === 0 && standing.length === 0 && facts.emergency247) {
-    standing.push(html`<li>${icon("clock")}<span>24/7 emergency service</span></li>`);
-  }
+  if (licences.length === 0 && standing.length === 0 && facts.emergency247) standing.push(html`<li>${icon("clock")}<span>24/7 emergency service</span></li>`);
   return { licences, standing };
 }
 
 /**
- * The credentials under the headline, shown while the credentials section is on the page. Straight under
- * the hero that section IS this card, so it keeps its id and label here. Each group is its own list, which the
- * strip moves to the next line whole.
+ * The credentials under the headline: the credentials section itself, straight under the hero, so it keeps its id
+ * and label here. Each group is its own list, which the strip moves to the next line whole.
  */
-function proof(ctx: RenderContext, { licences, standing }: ProofGroups): SafeHtml | false {
+function proof({ licences, standing }: ProofGroups): SafeHtml | false {
   if (licences.length + standing.length === 0) return false;
-  const lists = html`${licences.length > 0 && html`<ul class="proof-list proof-lics">${licences}</ul>`}${standing.length > 0 && html`<ul class="proof-list">${standing}</ul>`}`;
-  return boldPage(ctx).trustInHero
-    ? html`<section id="${DOM_ID.trust}" class="proof" aria-label="Credentials">${lists}</section>`
-    : html`<div class="proof">${lists}</div>`;
+  return html`<section id="${DOM_ID.trust}" class="proof" aria-label="Credentials">${licences.length > 0 && html`<ul class="proof-list proof-lics">${licences}</ul>`}${standing.length > 0 && html`<ul class="proof-list">${standing}</ul>`}</section>`;
 }
 
 /** The towns served: the first three, then "and N more", a link to the service area on the Contact page. */
@@ -101,7 +90,7 @@ export function renderHero(ctx: RenderContext, variant: VariantOf<"hero">): Safe
   const copyBlock = html`<div class="hero-copy">
 <p class="hero-kicker">${facts.emergency247 && !chipInProof && html`<span class="chip">${icon("clock")}24/7 emergency service</span>`}<span class="hero-where">${TRADE_LABEL[facts.trade]} · ${facts.location.city}, ${facts.location.state}</span></p>
 <h1 id="${DOM_ID.hero}-title" class="${headlineClass(copy.heroHeadline)}">${copy.heroHeadline}</h1>
-${proof(ctx, groups)}
+${proof(groups)}
 <p class="hero-sub">${copy.heroSubheadline}</p>
 <div class="hero-actions">${callButton(ctx, "action", true)}${boldPage(ctx).contact && ctaButton(ctx, true)}</div>
 </div>`;

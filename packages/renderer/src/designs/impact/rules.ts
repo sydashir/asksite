@@ -58,15 +58,15 @@ const TRACKING = 0.025; // em between capitals on a button
 const FIT_MARGIN = 1.03; // kerning and rounding
 
 // The narrowest content box, in px, of each button that shows the owner's call-to-action label, with its font
-// size in px (impact.css): the hero pair at 64rem, the header button, the services card (and Home's) from 64rem, and
-// the closing band's button at 320 px (A16; the band is 288 px inside there, less 0.75rem padding and the border).
-// Wider ones need no slot: the inner page head's from 64rem, the phone menu's and Contact's head button at 320 px
-// (18 px, as the closing band's, or 17 px in the menu).
+// size in px (impact.css): the hero pair at 64rem, the header button, the services card from 64rem, and at 320 px
+// the services card and the closing band (A16; Home's closing panel is the narrower: 288 px less its 1rem padding,
+// the button's 0.75rem padding and its border). Wider ones need no slot: the closing band's from 64rem (a 26rem
+// column), the inner page head's from 64rem, the phone menu's and Contact's head button at 320 px.
 const LABEL_SLOTS = [
   { width: 455, size: 20 },
   { width: 240, size: 17 },
   { width: 274, size: 20 },
-  { width: 260, size: 18 },
+  { width: 228, size: 17 },
 ] as const;
 
 /** Width in px of `label` in capitals at `size` px. */
