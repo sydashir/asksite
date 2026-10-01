@@ -2,14 +2,15 @@ import { describe, expect, it } from "vitest";
 import {
   formActionUrl,
   liveKey,
-  liveKeys,
   livePageKey,
+  livePointerKey,
+  liveSitePrefix,
   mediaKey,
   mediaUrl,
-  pageUrl,
   parseHost,
   previewFormActionUrl,
   previewSiteUrl,
+  publicPageUrl,
   RESERVED_SLUGS,
   siteUrl,
   slugIssue,
@@ -34,19 +35,28 @@ describe("keys", () => {
   });
 });
 
-// A16: one R2 object per page. Home keeps today's keys, so the sites Worker's metadata reads (form.ts,
-// business.ts) and stored versions keep working; the other pages sit under the slug or the version id.
-// Security: the builders accept only the 5 page ids, so no request path or stored text becomes a key.
+// A16 + U2 (user, 2026-10-01: all pages switch together, never mixed): LIVE holds one small pointer per site,
+// naming its live version, and the approved pages at immutable keys under the slug and the version id. One
+// pointer write switches every page at once. WORK keeps Home at today's key. Security: the builders accept
+// only the 5 page ids (and, for LIVE pages, a real version id), so no request path or stored text becomes a key.
 describe("page keys (A16)", () => {
-  it("builds each page's LIVE and WORK key, Home at today's key", () => {
-    expect(PAGE_IDS.map((page) => livePageKey("joes", page))).toEqual([
-      "joes.html",
-      "joes/services.html",
-      "joes/about.html",
-      "joes/gallery.html",
-      "joes/contact.html",
+  it("builds the site's LIVE pointer and each page's immutable LIVE key under the slug", () => {
+    expect(livePointerKey("joes")).toBe("joes");
+    expect(liveSitePrefix("joes")).toBe("joes/");
+    expect(PAGE_IDS.map((page) => livePageKey("joes", VERSION, page))).toEqual([
+      `joes/${VERSION}/home.html`,
+      `joes/${VERSION}/services.html`,
+      `joes/${VERSION}/about.html`,
+      `joes/${VERSION}/gallery.html`,
+      `joes/${VERSION}/contact.html`,
     ]);
-    expect(livePageKey("joes", "home")).toBe(liveKey("joes"));
+    for (const page of PAGE_IDS) expect(livePageKey("joes", VERSION, page).startsWith(liveSitePrefix("joes"))).toBe(true);
+    expect(livePointerKey("joes").startsWith(liveSitePrefix("joes"))).toBe(false);
+    // Another site's prefix never covers this site's keys ("joe/" is not a prefix of "joes/...").
+    expect(livePageKey("joes", VERSION, "home").startsWith(liveSitePrefix("joe"))).toBe(false);
+  });
+
+  it("builds each page's WORK key, Home at today's key", () => {
     expect(PAGE_IDS.map((page) => versionPageKey(SITE, VERSION, page))).toEqual([
       `versions/${SITE}/${VERSION}.html`,
       `versions/${SITE}/${VERSION}/services.html`,
@@ -57,19 +67,15 @@ describe("page keys (A16)", () => {
     expect(versionPageKey(SITE, VERSION, "home")).toBe(versionKey(SITE, VERSION));
   });
 
-  it("lists every LIVE key of a site, for takedown", () => {
-    expect(liveKeys("joes")).toEqual(PAGE_IDS.map((page) => livePageKey("joes", page)));
-  });
-
   it("builds each page's public URL (the canonical) and the preview's site URL", () => {
-    expect(PAGE_IDS.map((page) => pageUrl("asksite.example", "joes", page))).toEqual([
+    expect(PAGE_IDS.map((page) => publicPageUrl("asksite.example", "joes", page))).toEqual([
       "https://joes.asksite.example/",
       "https://joes.asksite.example/services",
       "https://joes.asksite.example/about",
       "https://joes.asksite.example/gallery",
       "https://joes.asksite.example/contact",
     ]);
-    expect(pageUrl("asksite.example", "joes", "home")).toBe(siteUrl("asksite.example", "joes"));
+    expect(publicPageUrl("asksite.example", "joes", "home")).toBe(siteUrl("asksite.example", "joes"));
     expect(previewSiteUrl("asksite.example", null)).toBe("https://preview.asksite.example/");
     expect(previewSiteUrl("asksite.example", "joes")).toBe("https://joes.asksite.example/");
   });
@@ -78,11 +84,16 @@ describe("page keys (A16)", () => {
     "refuses %j as a page id in every builder",
     (value) => {
       const page = value as PageId;
-      expect(() => livePageKey("joes", page)).toThrow(/page/);
+      expect(() => livePageKey("joes", VERSION, page)).toThrow(/page/);
       expect(() => versionPageKey(SITE, VERSION, page)).toThrow(/page/);
-      expect(() => pageUrl("asksite.example", "joes", page)).toThrow(/page/);
+      expect(() => publicPageUrl("asksite.example", "joes", page)).toThrow(/page/);
     },
   );
+
+  // The sites Worker reads the version id from the pointer's metadata: a damaged pointer must not choose the key.
+  it.each(["", "../x", "x/../../y", `${VERSION}/../other`, VERSION.toUpperCase(), "not-an-id"])("refuses %j as a LIVE version id", (versionId) => {
+    expect(() => livePageKey("joes", versionId, "home")).toThrow(/version/);
+  });
 });
 
 describe("parseHost", () => {

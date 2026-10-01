@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { canonicalJson, hashPages, pagesDigest, sha256Hex, VersionPages } from "../src/index.ts";
 
-// A16: a version is up to 5 pages. site_versions.pages_json stores each page's id and SHA-256, and
-// html_sha256 becomes one digest over that list: what the admin approves covers every page.
+// A16: a version is 1 to 5 pages, Home first (a version made by the one-page renderer has only Home).
+// site_versions.pages_json stores each page's id and SHA-256, and html_sha256 becomes one digest over
+// that list: what the admin approves covers every page. Which pages a site has is the renderer's rule.
 const sha = (c: string) => c.repeat(64);
 const FIVE = [
   { page: "home", sha256: sha("a") },
@@ -19,6 +20,7 @@ describe("VersionPages (A16)", () => {
     expect(VersionPages.parse(THREE)).toEqual(THREE);
     expect(VersionPages.safeParse([FIVE[0], FIVE[1], FIVE[2], FIVE[4]]).success).toBe(true);
     expect(VersionPages.safeParse([FIVE[0], FIVE[1], FIVE[3], FIVE[4]]).success).toBe(true);
+    expect(VersionPages.parse([FIVE[0]])).toEqual([FIVE[0]]);
   });
 
   it.each([
@@ -26,8 +28,7 @@ describe("VersionPages (A16)", () => {
     ["pages out of order", [FIVE[1], FIVE[0], FIVE[4]]],
     ["a page twice", [FIVE[0], FIVE[1], FIVE[1], FIVE[4]]],
     ["no Home", [FIVE[1], FIVE[2], FIVE[4]]],
-    ["no Services", [FIVE[0], FIVE[2], FIVE[4]]],
-    ["no Contact", [FIVE[0], FIVE[1], FIVE[2]]],
+    ["Home after another page", [FIVE[1], FIVE[0]]],
     ["an unknown page", [FIVE[0], FIVE[1], { page: "blog", sha256: sha("f") }, FIVE[4]]],
     ["an inherited name as the page", [FIVE[0], FIVE[1], { page: "constructor", sha256: sha("f") }, FIVE[4]]],
     ["an upper-case hash", [{ page: "home", sha256: sha("A") }, FIVE[1], FIVE[4]]],
