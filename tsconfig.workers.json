@@ -12,7 +12,9 @@
     "packages/publishing/test",
     "apps/sites/src",
     "apps/sites/test",
-    "apps/sites/dev"
+    "apps/sites/dev",
+    "apps/sites/e2e/operate.ts",
+    "apps/sites/e2e/lifecycle.ts"
   ],
   "exclude": []
 }
