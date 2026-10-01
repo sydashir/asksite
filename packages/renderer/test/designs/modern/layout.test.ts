@@ -138,6 +138,22 @@ describe.each(ENGINES)("Modern in %s", (_engine, engine) => {
     expect(found).toEqual([]);
   }, 300_000);
 
+  // A16 gate: reflow from 320 to 1920 px on every page, the 1024-1079 px band (where the header turns to inline links)
+  // included. Each fixture keeps its own lettering; together they use all three.
+  it("never scrolls sideways or loses text on any page of any fixture from 320 to 1920 px, 1024-1079 px included", async () => {
+    const found: string[] = [];
+    for (const name of FIXTURES) {
+      for (const { page: id, html } of pagesOf(loadFixture(name))) {
+        await open(html, 320);
+        for (const width of [320, 414, 600, 768, 900, 1023, 1024, 1040, 1060, 1079, 1080, 1199, 1280, 1440, 1920]) {
+          await tab.setViewportSize({ width, height: 800 });
+          for (const problem of await tab.evaluate(lostText)) found.push(`${name} ${id} ${width}: ${problem}`);
+        }
+      }
+    }
+    expect(found).toEqual([]);
+  }, 300_000);
+
   it("keeps each license number in one piece on small phones, in every lettering (judge 3)", async () => {
     const found: string[] = [];
     for (const font of FONT_IDS) {

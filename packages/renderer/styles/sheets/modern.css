@@ -558,7 +558,8 @@
     .slim .head { margin: 0; }
   }
   @media (min-width: 900px) {
-    .area { grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); gap: 20px; align-items: start; }
+    /* the hours board never narrower than its table, whose day ranges and times keep their lines: the places give way */
+    .area { grid-template-columns: minmax(0, 7fr) minmax(min-content, 5fr); gap: 20px; align-items: start; }
     .area.area--solo { grid-template-columns: minmax(0, 1fr); }
   }
 
