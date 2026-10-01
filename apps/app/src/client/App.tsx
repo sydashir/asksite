@@ -5,6 +5,7 @@ import type { Route } from "./lib/route.ts";
 import { AcceptInvite } from "./pages/AcceptInvite.tsx";
 import { Build } from "./pages/Build.tsx";
 import { Home } from "./pages/Home.tsx";
+import { Leads } from "./pages/Leads.tsx";
 import { NotFound } from "./pages/NotFound.tsx";
 import { Questionnaire } from "./pages/Questionnaire.tsx";
 import { VerifyLogin } from "./pages/VerifyLogin.tsx";
@@ -23,7 +24,9 @@ function page(route: Route) {
       return <Build key={route.siteId} siteId={route.siteId} />;
     case "edit":
     case "publish":
+      return <NotFound />;
     case "leads":
+      return <Leads key={route.siteId} siteId={route.siteId} />;
     case "notFound":
       return <NotFound />;
   }
