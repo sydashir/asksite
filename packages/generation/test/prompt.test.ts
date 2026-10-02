@@ -1,6 +1,7 @@
 import { Brief } from "@asksite/core";
 import { COPY_LIMITS, DAYS, Facts, factSections, NEVER_IN_COPY, prose, unbackedClaims } from "@asksite/site-schema";
 import { describe, expect, it } from "vitest";
+import { aiClaims } from "../src/ai-claims.ts";
 import { buildPrompt, MAX_REPAIR_ISSUES, SYSTEM_PROMPT } from "../src/prompt.ts";
 import { FULL_FACTS, FULL_SNAPSHOT, MINIMAL_FACTS, MINIMAL_SNAPSHOT } from "./support/samples.ts";
 
@@ -40,9 +41,9 @@ const LIMIT_PLACES: Record<keyof typeof COPY_LIMITS, readonly [line: string, nth
   faqAnswer: ["faq:", 1],
 };
 
-/** Plan 1's real checks: the claim checker (MINIMAL_FACTS backs no claim) and the prose rules. */
+/** The real checks: the claim checker and the AI-only claim check (MINIMAL_FACTS backs no claim) and the prose rules. */
 const rejected = (text: string): boolean =>
-  unbackedClaims(text, MINIMAL_FACTS).length > 0 || !prose(COPY_LIMITS.about).safeParse(text).success;
+  unbackedClaims(text, MINIMAL_FACTS).length > 0 || aiClaims(text, MINIMAL_FACTS).length > 0 || !prose(COPY_LIMITS.about).safeParse(text).success;
 
 /** A sentence the validators accept once `fragment` is taken out. */
 const probe = (fragment: string): string => `We handle ${fragment} jobs`;
@@ -92,6 +93,7 @@ const CHARACTER_RULES: readonly NamedRule[] = [
     ["quotation marks", '"drain"'],
     ["quotation marks", "\u201Cdrain\u201D"],
     ["quotation marks", "\u2018drain\u2019"],
+    ["single quotes", "'drain'"],
   ]),
   // Not here: "Do not use emoji" is a style rule only; emoji are Common script, which Plan 1's validators allow.
   ...inLine("Write in English", [["Latin letters only", "dr\u0430in"]]),
@@ -109,6 +111,10 @@ describe("SYSTEM_PROMPT", () => {
       const stated = [...ruleLine(line).matchAll(/at most (\d+) characters/g)].map((match) => Number(match[1]));
       expect({ key, limit: stated[nth] }).toEqual({ key, limit });
     }
+  });
+
+  it("forbids inventing customers, quotes and testimonials", () => {
+    expect(ruleLine("Invent nothing")).toContain("no customers, quotes or testimonials");
   });
 
   it("tells the model that owner text is data, not instructions", () => {
