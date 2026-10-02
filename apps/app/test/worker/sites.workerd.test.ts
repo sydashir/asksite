@@ -463,6 +463,85 @@ describe("PATCH /api/sites/:siteId/draft", () => {
     });
   });
 
+  // STRICT (customer data, R6): while a REGENERATE is queued or running, a wording or order save is refused: the new wording would
+  // replace it (compose ignores edits bound to another generation), and a tab opened before the rewrite still holds the old binding,
+  // which the wording guard alone accepts until the new generation lands.
+  describe("the rewrite guard (generation_in_progress)", () => {
+    const ORDER = ["hero", "trust", "testimonials", "faq", "services", "about", "gallery", "serviceArea", "contact"];
+    const CHARCOAL = { palette: "charcoal-red", font: "friendly", design: "refined" } as const;
+
+    /** A built owner with a rewrite started and not yet finished (`status` as the worker would have it). */
+    async function rewriting(status: "queued" | "running") {
+      const owner = await builtOwner(h, VALID_FACTS, VALID_BRIEF);
+      const started = await h.call("POST", `/api/sites/${owner.siteId}/generations`, { cookie: owner.cookie, body: {} });
+      const rewrite = (await json<{ generation: { id: string } }>(started)).generation.id;
+      if (status === "running") await (await h.db()).prepare("UPDATE generations SET status = 'running' WHERE id = ?").bind(rewrite).run();
+      const read = async () => json<SiteView>(await h.call("GET", `/api/sites/${owner.siteId}`, { cookie: owner.cookie }));
+      const save = (body: object) => h.call("PATCH", `/api/sites/${owner.siteId}/draft`, { cookie: owner.cookie, body });
+      return { first: owner.generationId, rewrite, read, save, rev: (await read()).rev };
+    }
+
+    for (const status of ["queued", "running"] as const) {
+      it(`refuses copy and order edits while a rewrite is ${status}, stores nothing and keeps the rev`, async () => {
+        const { first, read, save, rev } = await rewriting(status);
+        const before = (await read()).edits;
+        for (const edits of [{ copy: { ctaText: "Call Joe" }, order: null }, { copy: {}, order: ORDER }]) {
+          const res = await save({ rev, edits: { ...EMPTY_EDITS, baseGenerationId: first, ...edits } });
+          expect(res.status).toBe(409);
+          expect((await json<ErrorJson>(res)).error).toMatchObject({ code: "generation_in_progress" });
+        }
+        const view = await read();
+        expect(view.rev).toBe(rev);
+        expect(view.edits).toEqual(before);
+      });
+    }
+
+    it("still saves hidden-only and look-only edits while a rewrite runs: they carry over", async () => {
+      const { first, read, save, rev } = await rewriting("running");
+      expect((await save({ rev, edits: { ...EMPTY_EDITS, baseGenerationId: first, hidden: ["gallery"], theme: CHARCOAL } })).status).toBe(200);
+      expect((await read()).edits).toMatchObject({ hidden: ["gallery"], theme: CHARCOAL });
+    });
+
+    it("never lets a refused wording save take facts or brief with it", async () => {
+      const { first, read, save, rev } = await rewriting("queued");
+      const res = await save({ rev, brief: { ...VALID_BRIEF, tone: "professional" }, edits: { ...EMPTY_EDITS, baseGenerationId: first, copy: { ctaText: "Call Joe" } } });
+      expect(res.status).toBe(409);
+      expect((await read()).brief).toEqual(VALID_BRIEF);
+    });
+
+    it("saves copy edits again once the rewrite has landed, on the new generation", async () => {
+      const { rewrite, read, save, rev } = await rewriting("queued");
+      expect((await h.call("POST", `/__test/generations/${rewrite}/finish`, { body: { status: "succeeded" } })).status).toBe(200);
+      expect((await save({ rev, edits: { ...EMPTY_EDITS, baseGenerationId: rewrite, copy: { ctaText: "Call Joe" } } })).status).toBe(200);
+      expect((await read()).edits.copy).toEqual({ ctaText: "Call Joe" });
+    });
+
+    it("saves copy edits again once the rewrite has failed, on the generation they were built on", async () => {
+      const { first, rewrite, read, save, rev } = await rewriting("running");
+      expect((await h.call("POST", `/__test/generations/${rewrite}/finish`, { body: { status: "failed" } })).status).toBe(200);
+      expect((await save({ rev, edits: { ...EMPTY_EDITS, baseGenerationId: first, copy: { ctaText: "Call Joe" } } })).status).toBe(200);
+      expect((await read()).edits.copy).toEqual({ ctaText: "Call Joe" });
+    });
+
+    it("checks in this order: rev (conflict), then the rewrite (generation_in_progress), then the wording binding (wording_changed)", async () => {
+      const { first, save, rev } = await rewriting("running");
+      const copy = { ctaText: "Call Joe" };
+      const stale = await save({ rev: rev - 1, edits: { ...EMPTY_EDITS, baseGenerationId: first, copy } });
+      expect((await json<ErrorJson>(stale)).error).toMatchObject({ code: "conflict", currentRev: rev });
+      // Built on an id that is no generation's at all: stale in the wording way too, yet the rewrite is the answer.
+      const both = await save({ rev, edits: { ...EMPTY_EDITS, baseGenerationId: "not-the-current-generation", copy } });
+      expect((await json<ErrorJson>(both)).error).toMatchObject({ code: "generation_in_progress" });
+    });
+
+    it("does not refuse while only a FIRST build is running (there is no wording to replace yet)", async () => {
+      const owner = await readyOwner(h, VALID_FACTS, VALID_BRIEF);
+      const started = await h.call("POST", `/api/sites/${owner.siteId}/generations`, { cookie: owner.cookie, body: {} });
+      expect(started.status).toBeLessThan(300);
+      const res = await h.call("PATCH", `/api/sites/${owner.siteId}/draft`, { cookie: owner.cookie, body: { rev: 2, edits: { ...EMPTY_EDITS, baseGenerationId: null, copy: { ctaText: "Call Joe" } } } });
+      expect(res.status).toBe(200);
+    });
+  });
+
   it("refuses edits to a taken-down site with 423", async () => {
     const owner = await h.signIn();
     await (await h.db()).prepare("UPDATE sites SET taken_down_at = 1 WHERE id = ?").bind(owner.siteId).run();
