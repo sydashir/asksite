@@ -7742,7 +7742,7 @@ Expected: every file in `packages/core/migrations/` at the deployed commit (list
 
 Then check that production D1 made every table STRICT (A9; local D1 is proven by `migration.workerd.test.ts`):
 Run: `pnpm exec wrangler d1 execute asksite --remote -c apps/sites/wrangler.jsonc --json --command "PRAGMA table_list"`
-Expected: every table those migrations create has `"strict": 1`; derive the list from the `CREATE TABLE` statements of the files at the deployed commit: `grep -hoiE '^ *create table( if not exists)? +[a-z_]+' packages/core/migrations/*.sql | awk '{print $NF}'`. If any has `0`, stop and tell the moderator before deploying.
+Expected: every table those migrations create has `"strict": 1`; derive the list from the `CREATE TABLE` statements of the files at the deployed commit: `grep -hoiE '^[[:space:]]*create[[:space:]]+table([[:space:]]+if[[:space:]]+not[[:space:]]+exists)?[[:space:]]+"?[a-z0-9_]+' packages/core/migrations/*.sql | awk '{print $NF}' | tr -d '"'` (it reads one-line CREATE TABLE statements, the style every migration uses; a table created any other way, or renamed later, must be added to the list by hand). If any has `0`, stop and tell the moderator before deploying.
 
 - [ ] **Step 6: DNS records (Cloudflare dashboard → DNS)**
 

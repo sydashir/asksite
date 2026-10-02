@@ -178,8 +178,9 @@ async function restoreUnderLease(
   // Down, gone or unreadable: the pointer is taken back and null is returned. Live: the pointer is left alone and the row is returned.
   // RESIDUAL: if this re-read lands BEFORE another restore's clear commits (that restore has already written its pointer),
   // it still says down, this take-back removes that pointer, and the other restore's clear then makes the site live with no
-  // pointer. Only possible when this action outlived its lease (over ADMIN_LEASE_MS); Restore again or Copy the live pages
-  // again heals it (`healed: true`).
+  // pointer. Only possible when this action outlived its lease (over ADMIN_LEASE_MS). Likewise, a re-read that THROWS after
+  // another restore made the site live is treated as down (a pointer never stays on a site that may be down), so the pointer
+  // is taken out of a live site. In both cases Restore again or Copy the live pages again heals it (`healed: true`).
   const pointerBackIfDown = async (): Promise<{ taken_down_at: number | null; live_version_id: string | null } | null> => {
     let after: { taken_down_at: number | null; live_version_id: string | null } | null = null;
     try {

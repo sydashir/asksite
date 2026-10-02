@@ -1208,11 +1208,12 @@ export async function restore(
 // If the clear throws, D1 is asked (it can commit a batch and still throw): a committed clear keeps the pointer and succeeds; a site
 // still down, or a read that throws too, takes the pointer back out and rethrows; a live site with another version (only after a lost
 // lease) is left alone and is site_busy (lease_lost). A REJECTED pointer write asks D1 the same way: still down or unreadable, the pointer
-// is taken back out and the answer is live_copy_failed, the site staying down (call restore again); live, the pointer is left and the
+// is taken back out and the answer is live_copy_failed, the site not served (call restore again); live, the pointer is left and the
 // answer is site_busy (lease_lost). All three take-backs are one helper. RESIDUAL: if this action's re-read lands BEFORE another
 // restore's clear commits (that restore has already written its pointer), it still says down, the take-back removes that pointer, and
 // the other restore's clear then makes the site live with no pointer; only possible when this action outlived its lease
-// (over ADMIN_LEASE_MS), and Restore again or Copy the live pages again heals it (`healed: true`). Then the
+// (over ADMIN_LEASE_MS). Likewise a re-read that THROWS after another restore made the site live is treated as down, so the
+// pointer is taken out of a live site. In both cases Restore again or Copy the live pages again heals it (`healed: true`). Then the
 // cleanup. missingPhotos counts photos a purge deleted: the page still goes back up. Retry-safe: an already-restored site's
 // pointer is HEAD-checked under the lease; a missing one, or one naming another version, is healed (the same copy-and-point
 // sequence as copyLivePagesAgain) and `healed` is true; a right pointer is left alone, `healed` false (as on a normal restore).
