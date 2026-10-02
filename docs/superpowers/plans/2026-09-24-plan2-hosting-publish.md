@@ -7738,11 +7738,11 @@ Expected: the diff shows only the domain, the database id, the sender name and t
 - [ ] **Step 5: Apply the schema to the real database**
 
 Run: `pnpm exec wrangler d1 migrations apply asksite --remote -c apps/sites/wrangler.jsonc`
-Expected: `0001_init.sql` listed with ✅.
+Expected: every file in `packages/core/migrations/` at the deployed commit (list them with `ls packages/core/migrations`) is applied in order and listed with ✅, through `0006` at least.
 
 Then check that production D1 made every table STRICT (A9; local D1 is proven by `migration.workerd.test.ts`):
 Run: `pnpm exec wrangler d1 execute asksite --remote -c apps/sites/wrangler.jsonc --json --command "PRAGMA table_list"`
-Expected: each of the 12 tables of `0001_init.sql` (`owners` … `dev_outbox`) has `"strict": 1`. If any has `0`, stop and tell the moderator before deploying.
+Expected: every table those migrations create has `"strict": 1`; derive the list from the `CREATE TABLE` statements of the files at the deployed commit: `grep -hoiE '^ *create table( if not exists)? +[a-z_]+' packages/core/migrations/*.sql | awk '{print $NF}'`. If any has `0`, stop and tell the moderator before deploying.
 
 - [ ] **Step 6: DNS records (Cloudflare dashboard → DNS)**
 

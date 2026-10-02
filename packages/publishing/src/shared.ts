@@ -77,7 +77,8 @@ export const LEASE_HELD = "EXISTS (SELECT 1 FROM sites WHERE id = ? AND admin_lo
  * and right before every R2 pointer write or delete (R2 cannot be conditioned on D1). The take-back deletes
  * (approve's deletes after its takedown re-read, restore's pointerBack, and copyAndPoint's, used by copyLivePagesAgain
  * and restore's heal) are deliberately NOT lease-checked: they
- * remove a pointer from a site that must stay down, and a check there could leave the pointer on a taken-down site.
+ * remove a pointer from a site D1 says is down (or whose state cannot be read), and a check there could leave the pointer
+ * on a taken-down site. Restore's take-backs ask D1 first and leave the pointer of a site that is live.
  * RESIDUAL: if the lease runs out between this check and the R2 call (only an action over ADMIN_LEASE_MS), that
  * R2 write can land after another action's. The D1 fence still keeps D1 right. On a cache miss the sites Worker
  * serves only when D1 says the site is live and not taken down and the pointer's version equals D1's live version
