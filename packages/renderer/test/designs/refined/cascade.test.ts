@@ -1,7 +1,7 @@
 // Classic's sheet in a real browser, where the cascade decides which rule wins (the pairs test checks tokens, not
 // rule order or specificity): hover colours, the rows phones leave out, link underlines, the phone call bar, the
-// About title, the header's stacking and its name's line, the phone gallery's rows, the current page's mark in the
-// menu and the hours on the Contact page. Laid out by the repo's own Playwright Chromium and WebKit with the real
+// About title, the header's stacking and its name's line, the gallery's rows on phones and small tablets, the current
+// page's mark in the menu, the hours on the Contact page and the eyebrow's line break. Laid out by the repo's own Playwright Chromium and WebKit with the real
 // Classic sheet, each check on the page that draws what it checks. No check waits on the clock: transitions are off
 // where a state is read.
 import { chromium, webkit, type Browser, type Page } from "@playwright/test";
@@ -67,13 +67,19 @@ const NOT_UNDERLINED = `(selectors) => selectors.flatMap((s) => [...document.que
   .filter((el) => !getComputedStyle(el).textDecorationLine.includes("underline"))
   .map((el) => s + ": " + el.textContent.trim().slice(0, 30)))`;
 
-/** The call bar's height, and each of its buttons whose visible text runs onto a second line. */
+/**
+ * The call bar's height and what is wrong in it: the word "Call" not on show (WCAG 2.5.3 keeps it first in the name,
+ * and a visitor reads it), the number or the quote label run onto a second line. Below 24rem "Call" may take a line of
+ * its own above the number.
+ */
 const CALL_BAR = `(() => {
   const bar = document.querySelector("aside");
   const lines = (el) => { const r = document.createRange(); r.selectNodeContents(el); return new Set([...r.getClientRects()].filter((x) => x.width > 2 && x.height > 2).map((x) => Math.round(x.top / 4))).size; };
   const [call, quote] = bar.querySelectorAll("a");
-  const label = call.querySelector(".bt-t > span") || call;
-  return { height: Math.round(bar.getBoundingClientRect().height), wrapped: [lines(label) > 1 && "call", lines(quote) > 1 && "quote"].filter(Boolean) };
+  const word = call.querySelector(".cw");
+  const number = [...call.querySelector(".bt-t > span").childNodes].find((n) => n.nodeType === 3 && n.textContent.trim() !== "");
+  const box = word.getBoundingClientRect();
+  return { height: Math.round(bar.getBoundingClientRect().height), wrapped: [!(box.width > 16 && box.height > 8) && "the word Call hidden", lines(number) > 1 && "number", lines(quote) > 1 && "quote"].filter(Boolean) };
 })()`;
 
 /** A short name that opens with a flat-topped, flat-footed capital, so its first letter's ink is the cap height. */
@@ -118,6 +124,24 @@ const INK_ROWS = `async ([base64, scale]) => {
   for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) if (Math.abs(lum((y * width + x) * 4) - paper) > far / 2) { rows.push(y); break; }
   return rows.length === 0 ? null : [rows[0] / scale, (rows[rows.length - 1] + 1) / scale];
 }`;
+
+/**
+ * The first eyebrow on the page: whether its shown items (the trade, the town, the year) fit on one row, read with
+ * wrapping off for a moment, and on which line (1-based) each sits as laid out.
+ */
+const EYEBROW = `(() => {
+  const dots = document.querySelector("main .eb > .dots");
+  const leaves = [...dots.querySelectorAll(".dots-r > span")].filter((el) => !el.querySelector(".dots") && el.getClientRects().length > 0);
+  const off = document.createElement("style");
+  off.textContent = ".eb .dots-r{flex-wrap:nowrap!important}.eb .dots-r>span{flex:none!important}";
+  document.head.append(off);
+  const edge = dots.getBoundingClientRect().left + dots.clientWidth - parseFloat(getComputedStyle(dots).paddingRight);
+  const fits = leaves[leaves.length - 1].getBoundingClientRect().right <= edge + 0.5;
+  off.remove();
+  const tops = leaves.map((el) => el.getBoundingClientRect().top);
+  const firsts = tops.filter((top, i) => tops.findIndex((other) => Math.abs(other - top) < 4) === i).sort((a, b) => a - b);
+  return { fits, items: leaves.map((el, i) => [el.textContent.trim(), firsts.findIndex((top) => Math.abs(top - tops[i]) < 4) + 1]) };
+})()`;
 
 /** The gallery prints (1-based) that span the whole row: wider than nine tenths of the list. */
 const WIDE_PRINTS = `[...document.querySelectorAll(".gal > li")].flatMap((li, i) => li.getBoundingClientRect().width > 0.9 * li.parentElement.getBoundingClientRect().width ? [i + 1] : [])`;
@@ -167,21 +191,25 @@ describe.each(Object.keys(ENGINES) as Array<keyof typeof ENGINES>)("Classic's ca
     expect((await hoverProblems(".bt.bt-out:hover{background:none!important}")).join("\n")).toMatch(/ha \.bt-out: 1\.\d\d/);
   }, 120_000);
 
-  /** The recap rows phones leave out: the business card's email on Home, the contact band's credentials on /contact. */
+  /** The rows phones leave out: the business card's email on Home, the hours beside the form in the contact band. */
   async function phoneRows(width: number, css = ""): Promise<string[]> {
     const found: string[] = [];
-    for (const [id, selector] of [["home", ".bc-m .bc-e"], ["contact", ".c-list .c-more"]] as const) {
+    for (const [id, selector] of [["home", ".bc-m .bc-e"], ["contact", ".c-list .c-sub"]] as const) {
       await open(refined(hvac), width, css, id);
       found.push(...((await page.evaluate(`(${DISPLAYS})(${JSON.stringify([selector])})`)) as string[]));
     }
     return found;
   }
 
-  it("leaves the contact band's recap rows and the card's email out on phones, and shows them from 60rem", async () => {
+  it("leaves the card's email and the hours beside the form out on phones, shows them from 60rem, and shows the contact band's license at every width", async () => {
     const phone = await phoneRows(390);
     expect(phone.length).toBeGreaterThanOrEqual(2);
     expect(phone.filter((d) => !d.endsWith("=none"))).toEqual([]);
     expect((await phoneRows(1280)).filter((d) => d.endsWith("=none"))).toEqual([]);
+    for (const width of [320, 390, 768, 1280]) {
+      await open(refined(hvac), width, "", "contact");
+      expect(await page.evaluate(`(${DISPLAYS})(["#contact .c-list li:has(.lic)"])`), `${width} px`).toEqual(["#contact .c-list li:has(.lic)=flex"]);
+    }
   }, 60_000);
 
   it("RED: catches a recap row that shows on phones", async () => {
@@ -205,18 +233,19 @@ describe.each(Object.keys(ENGINES) as Array<keyof typeof ENGINES>)("Classic's ca
     expect(await page.evaluate(`(${NOT_UNDERLINED})(${JSON.stringify(LINKS)})`)).not.toEqual([]);
   }, 60_000);
 
-  /** Every phone width where a call-bar button wraps or the bar leaves its one-line height, per page and lettering. */
+  /** Every phone width where the call bar hides "Call", wraps the number or the quote label, or changes height, per owner and lettering. */
   async function callBarProblems(css = ""): Promise<string[]> {
     const found: string[] = [];
     for (const font of FONT_IDS) {
       for (const [name, doc] of Object.entries({ plumber, hvac, cleaning })) {
-        await open(refined(doc, { font }), 390, css);
+        // Transitions off: a resize would otherwise be read mid-way through the buttons' padding transition.
+        await open(refined(doc, { font }), 390, NO_TRANSITIONS + css);
         const heights = new Set<number>();
         for (const width of [320, 340, 360, 375, 384, 390, 412, 430]) {
           await page.setViewportSize({ width, height: 900 });
           const bar = (await page.evaluate(CALL_BAR)) as { height: number; wrapped: string[] };
           heights.add(bar.height);
-          if (bar.wrapped.length > 0) found.push(`${font} ${name} ${width}: ${bar.wrapped.join(", ")} wraps`);
+          if (bar.wrapped.length > 0) found.push(`${font} ${name} ${width}: ${bar.wrapped.join(", ")}`);
         }
         if (heights.size > 1) found.push(`${font} ${name}: heights ${[...heights].join("/")}`);
       }
@@ -224,12 +253,12 @@ describe.each(Object.keys(ENGINES) as Array<keyof typeof ENGINES>)("Classic's ca
     return found;
   }
 
-  it("keeps the phone call bar's buttons on one line and the bar at one height from 320 to 430 px", async () => {
+  it("keeps 'Call' on show in the phone call bar, the number and the quote label on one line each, and the bar at one height from 320 to 430 px", async () => {
     expect(await callBarProblems()).toEqual([]);
   }, 120_000);
 
-  it("RED: catches a call bar whose quote button wraps once 'Call' shows again", async () => {
-    expect(await callBarProblems(".cw{position:static!important;width:auto!important;height:auto!important;clip-path:none!important}")).not.toEqual([]);
+  it("RED: catches a call bar that hides the word 'Call' on a small phone", async () => {
+    expect((await callBarProblems("@media (width < 24rem){.cw{position:absolute!important;width:1px!important;height:1px!important;overflow:hidden!important;clip-path:inset(50%)!important}}")).join("\n")).toMatch(/ 320: the word Call hidden/);
   }, 120_000);
 
   it("opens About as every inner page opens: its h1 at the Services page's h1 size and left edge, on phones and desktops", async () => {
@@ -283,6 +312,33 @@ describe.each(Object.keys(ENGINES) as Array<keyof typeof ENGINES>)("Classic's ca
     expect((await brandOffsets(".brand{text-box:normal!important}")).join("\n")).toMatch(/^sturdy /m);
   }, 120_000);
 
+  /**
+   * Where the eyebrow breaks, per lettering, owner, page and phone width: it must stay on one line wherever it fits, and
+   * where it does not, the trade takes the first line and the town and the year the second, together.
+   */
+  async function eyebrowProblems(): Promise<string[]> {
+    const found: string[] = [];
+    for (const font of FONT_IDS) {
+      for (const [name, doc] of Object.entries({ plumber, hvac, cleaning })) {
+        for (const id of ["home", "services"] as const) {
+          await open(refined(doc, { font }), 390, "", id);
+          for (const width of [320, 360, 375, 390, 414, 430, 768]) {
+            await page.setViewportSize({ width, height: 900 });
+            const { fits, items } = (await page.evaluate(EYEBROW)) as { fits: boolean; items: Array<[string, number]> };
+            const lines = items.map(([, line]) => line);
+            const wanted = fits ? items.map(() => 1) : items.map((_, i) => (i === 0 ? 1 : 2));
+            if (lines.join() !== wanted.join()) found.push(`${font} ${name} ${id} ${width}: ${items.map(([text, line]) => `${text} (line ${line})`).join(", ")}${fits ? ", though it fits on one" : ""}`);
+          }
+        }
+      }
+    }
+    return found;
+  }
+
+  it("keeps the eyebrow on one line wherever it fits, in every lettering, and otherwise breaks it once, the town and the year together", async () => {
+    expect(await eyebrowProblems()).toEqual([]);
+  }, 120_000);
+
   const photos = plumber.facts.photos ?? [];
 
   /** For 1-6 photos at a width, the positions (1-based) of the prints that span the whole row. */
@@ -295,11 +351,13 @@ describe.each(Object.keys(ENGINES) as Array<keyof typeof ENGINES>)("Classic's ca
     return wide;
   }
 
-  it("shows the Gallery page's prints one per row on phones, and two a row on tablets with an odd count's first print alone", async () => {
+  it("shows the Gallery page's prints one per row on phones, and two a row from 36rem (small tablets, phones held sideways) with an odd count's first print alone", async () => {
     expect(photos.length).toBe(6);
     const every = (n: number) => Array.from({ length: n }, (_, i) => i + 1);
     expect(await widePrints(390)).toEqual({ 1: every(1), 2: every(2), 3: every(3), 4: every(4), 5: every(5), 6: every(6) });
-    expect(await widePrints(800)).toEqual({ 1: [1], 2: [], 3: [1], 4: [], 5: [1], 6: [] });
+    const two = { 1: [1], 2: [], 3: [1], 4: [], 5: [1], 6: [] };
+    expect(await widePrints(600)).toEqual(two);
+    expect(await widePrints(800)).toEqual(two);
   }, 60_000);
 
   it("keeps the sticky desktop header above the form's Send button (z-index 20)", async () => {
@@ -353,15 +411,20 @@ describe.each(Object.keys(ENGINES) as Array<keyof typeof ENGINES>)("Classic's ca
    */
   async function newBlockContrast(): Promise<string[]> {
     const found: string[] = [];
-    const pages: Array<[PageId, SiteDocumentInput, string[]]> = [
-      ["services", plumber, [".cl-k", ".cl-t", ".cl-i", ".cl-l li span", ".cl-l a", ".ft-nav a:not([aria-current])", ".ft-nav [aria-current]", ".svc-mt", ".svc-more p + p", ".sh-pg .proof"]],
-      ["about", plumber, [".letter .tm", ".letter .tsub", ".letter-b"]],
-      ["contact", cleaning, [".af .h3r", ".af-l"]],
+    const { heroPhoto: _photo, ...noPhoto } = plumber.facts;
+    const pages: Array<[PageId, SiteDocumentInput, string[], number]> = [
+      ["services", plumber, [".cl-k", ".cl-t", ".cl-i", ".cl-l li span", ".cl-l a", ".ft-nav a:not([aria-current])", ".ft-nav [aria-current]", ".svc-mt", ".svc-more p + p", ".sh-pg .proof"], 1280],
+      ["services", plumber, [".cl-n a", ".cl-l li span"], 390],
+      ["about", plumber, [".letter .tm", ".letter .tsub", ".letter-b"], 1280],
+      ["about", { ...plumber, facts: noPhoto }, [".lt-w .tm", ".lt-w .tsub"], 1280],
+      ["contact", plumber, [".c-list .c-sub", "#contact .c-list li:has(.lic)"], 1280],
+      ["contact", cleaning, [".af .h3r", ".af-l"], 390],
+      ["contact", cleaning, [".c-list .c-sub"], 1280],
     ];
     for (const palette of PALETTE_IDS) {
       for (const font of FONT_IDS) {
-        for (const [id, doc, selectors] of pages) {
-          await open(refined(doc, { palette, font }), 1280, NO_TRANSITIONS, id);
+        for (const [id, doc, selectors, width] of pages) {
+          await open(refined(doc, { palette, font }), width, NO_TRANSITIONS, id);
           found.push(...((await page.evaluate(`(${LOW_CONTRAST})(${JSON.stringify([selectors, 4.5])})`)) as string[]).map((p) => `${palette} ${font} ${id} ${p}`));
         }
       }

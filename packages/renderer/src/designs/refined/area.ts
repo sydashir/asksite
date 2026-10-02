@@ -3,7 +3,7 @@
 // there at every width (A16). Everything here is an owner fact; the intro is the owner's own area note. When the
 // owner puts it first, the page still opens as the Contact page should: Call and the call to action (a jump to the
 // form below) come right under the heading, on the first screen. One town with nothing else to show is one line at
-// the foot of the contact band, in its colours (Plan.areaFold).
+// the foot of the contact band, in its colours (Plan.areaFold), and from 60rem a row of the band's facts.
 import { quoteLink, type RenderContext } from "../../context.ts";
 import { formatPhone, telUrl } from "../../format.ts";
 import { html, type SafeHtml } from "../../html.ts";
@@ -32,22 +32,29 @@ function placesClass(n: number): string {
 }
 
 /**
- * The one town, and the owner's base when it is another town or a street address, as one line under a small
- * heading, so the section does not repeat the hero's card in two columns (the approved mockup's fold).
+ * A one-town owner's area in one line: the town, and the owner's base when it is another town or a street address
+ * (the town is said once: a street address in the town served gives only the street).
  */
-function areaLine(ctx: RenderContext): SafeHtml {
+export function foldLine(ctx: RenderContext): SafeHtml {
   const { location, serviceArea } = ctx.doc.facts;
   const place = serviceArea.places[0] ?? location.city;
   const home = place.trim().toLowerCase() === location.city.trim().toLowerCase();
   const cityLine = `${location.city}, ${location.state}`;
-  // The town is said once: a street address in the town served gives only the street (the contact band has it in full).
   const street = location.streetAddress;
   const base = street ? (home ? street : `${street}, ${cityLine}${location.postalCode ? ` ${location.postalCode}` : ""}`) : home ? undefined : `Based in ${cityLine}`;
-  const items = [{ text: `Serving ${home ? cityLine : place}` }, ...(base === undefined ? [] : [{ text: base }])];
+  return dots([{ text: `Serving ${home ? cityLine : place}` }, ...(base === undefined ? [] : [{ text: base }])]);
+}
+
+/**
+ * The one-town area under a small heading, so the section does not repeat the hero's card in two columns (the approved
+ * mockup's fold): a line at the foot of the contact band, in its colours. From 60rem, where the band sets its facts
+ * beside the form, the band lists this line with them instead (contact.ts), so it is not a stray row under the form.
+ */
+function areaLine(ctx: RenderContext): SafeHtml {
   return html`<section id="${DOM_ID.serviceArea}" class="af dark" aria-labelledby="${DOM_ID.serviceArea}-title">
 <div class="wr">
 <h2 id="${DOM_ID.serviceArea}-title" class="h3r">${icon("map-pin")}Service area</h2>
-<p class="af-l">${dots(items)}</p>
+<p class="af-l">${foldLine(ctx)}</p>
 </div>
 </section>`;
 }

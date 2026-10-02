@@ -176,7 +176,7 @@ main>.sec:first-child{padding-top:2.5rem}
 .qgrid{display:grid;grid-template-columns:minmax(0,1fr);column-gap:1.25rem;margin-top:2.5rem}
 .gal>li,.print{display:grid;grid-row:span 2;grid-template-rows:subgrid;row-gap:0}
 /* Each card keeps its own height, the name right under its quote, so a short review is never a tall empty card. */
-.qc{align-self:start;margin-bottom:1.25rem}
+.qc{align-self:start;margin-bottom:1.25rem;break-inside:avoid}
 .qc figure{padding:1.5rem 1.5rem 1.25rem;border:1px solid var(--aw-refined-line);border-radius:var(--aw-refined-radius-paper);background:var(--card)}
 .qc p{font-size:1.125rem;line-height:1.5;color:var(--aw-refined-ink)}
 .qc figcaption{margin-top:1.125rem;padding-top:.875rem;border-top:1px solid var(--aw-refined-line)}
@@ -279,10 +279,9 @@ summary::-webkit-details-marker{display:none}
 .bc-m a,.fcall a{text-decoration:underline var(--aw-refined-accent);text-underline-offset:.25em}
 .c-list a,.h247 a{text-decoration:underline var(--aw-refined-accent-on-dark);text-underline-offset:.25em}
 .c-ph{font-size:1.75rem;line-height:1.2}
-.c-list .i-lg{width:1.5rem;height:1.5rem;margin-top:.5rem}
 .c-note{display:block;margin-top:.25rem;font-size:.9375rem}
-/* Rows that show only from 60rem (.c-info .c-more outranks .c-list li). */
-.c-info .c-more{display:none}
+/* The hours and a one-town area line beside the form, from 60rem (phones get them in the Service area section). */
+.c-list .c-sub{display:none}
 .fcard{padding:1.5rem 1.25rem;border-radius:var(--aw-refined-radius-card);background:var(--aw-refined-surface);color:var(--aw-refined-text);box-shadow:0 30px 60px -30px #0009}
 /* The form is a grid, so Name + Phone and Email + Service share rows from 40rem without extra markup; inputs line up if a label wraps.
    It is where every "Get a quote" link lands (/contact#quote): the card's top edge stays in view above it. */
@@ -305,7 +304,7 @@ summary::-webkit-details-marker{display:none}
 .fcall-n{flex-basis:100%;margin-top:-.25rem;font-size:.875rem}
 
 /* ---------- The closing band: a dark panel on the last light band, at the foot of every page but Contact. Its buttons
-   show from 48rem; on phones the call bar under the thumb carries Call and the quote button. ---------- */
+   show from 48rem; on phones the call bar under the thumb carries Call and the quote button, and the panel the number. ---------- */
 .cl{padding-block:2.5rem 3.5rem}
 .cl-p{position:relative;display:grid;gap:1.5rem;padding:2.25rem 1.5rem 2rem;border-radius:var(--aw-refined-radius-paper);background:var(--aw-refined-dark);color:var(--aw-refined-on-dark-muted);box-shadow:var(--sh)}
 .cl-p::after{content:"";position:absolute;inset:.4375rem;border:1px solid var(--aw-refined-accent-on-dark);border-radius:calc(var(--aw-refined-radius-paper)*.6);opacity:.4;pointer-events:none}
@@ -318,6 +317,8 @@ summary::-webkit-details-marker{display:none}
 .cl-l .i{margin-top:.1875rem;color:var(--aw-refined-accent-on-dark)}
 .cl-l .dots{flex:1 1 auto}
 .cl-l a{font-weight:600;color:var(--aw-refined-on-dark);text-decoration:underline var(--aw-refined-accent-on-dark);text-underline-offset:.25em}
+/* The number, large, to tap on phones (the call bar carries the buttons there); the buttons from 48rem. */
+.c-list .i-lg,.cl-l .i-lg{width:1.5rem;height:1.5rem;margin-top:.5rem}
 .cl-a{display:none}
 .cl .bt-out{border-color:var(--aw-refined-on-dark);color:var(--aw-refined-on-dark)}
 
@@ -361,19 +362,12 @@ summary::-webkit-details-marker{display:none}
 
 /* ---------- Phones only ---------- */
 @media (width < 24rem){
-  /* "Call" is visually hidden but still read, so the name stays "Call (number)"; the icon's room goes to the 24/7 line.
-     So both buttons keep one line and the bar one height on 320-383 px phones (the Android 360 and iPhone 375 widths). */
-  .cw{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
-  .cb .bt{padding-inline:.625rem}
-  .cb .bt-act>.i{display:none}
-  .cb .bt-n{font-size:.6875rem}
+  /* 320-383 px phones (the Android 360 and iPhone 375 widths): Call keeps its word, on a line above the number, in
+     place of the icon and the 24/7 line, so both buttons fit side by side and the bar keeps its one height. */
+  .cw{display:block}
+  .cb .bt{padding:.25rem .625rem;line-height:1.15}
+  .cb .bt-act>.i,.cb .bt-n{display:none}
 }
-/* Where the eyebrow with its year would wrap (parts.ts EYEBROW_TIERS), an inner page leaves the year out, so it opens on
-   one clean line, and Home's hero gives the trade the first line, so no line holds the year alone. */
-@media (width < 24rem){.dots-r>.eb-f1{display:none}.dots-r>.eb-b1{flex-basis:100%}}
-@media (width < 30rem){.dots-r>.eb-f2{display:none}.dots-r>.eb-b2{flex-basis:100%}}
-@media (width < 40rem){.dots-r>.eb-f3{display:none}.dots-r>.eb-b3{flex-basis:100%}}
-@media (width < 48rem){.dots-r>.eb-f4{display:none}.dots-r>.eb-b4{flex-basis:100%}}
 @media (width < 48rem){
   /* The email leaves the card (it sits where the call bar covers the first screen); the hero keeps only its quote button. */
   .bc-m .bc-e,.ha>.bt-act{display:none}
@@ -388,13 +382,20 @@ summary::-webkit-details-marker{display:none}
   .pw-1{columns:1}
 }
 
-/* ---------- 36rem: the price joins the name's last line, after a dotted leader ---------- */
+/* ---------- 36rem: the price joins the name's last line, after a dotted leader; two prints a row ---------- */
 @media (min-width:36rem){
+  .gal{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .g-1{grid-template-columns:minmax(0,1fr)}
   .svc-l{display:flex;align-items:flex-end;align-items:last baseline;gap:.5rem;overflow:hidden;padding-block:.4em;margin-block:-.4em}
   .svc-n{position:relative;flex:1 1 auto;min-width:0}
   .svc-n span{margin-right:3rem;padding-right:.5rem;background:var(--band)}
   .pr{flex:none;margin:0}
   .pr:before{content:"";display:inline-block;width:100vw;height:2px;margin:0 .5rem 0 -100vw;background:linear-gradient(90deg,var(--aw-refined-rule) 50%,#0000 0) 100% 0/4px 2px repeat-x}
+}
+
+/* Two prints a row: an odd count opens with one full-width print, so no row holds a print alone. */
+@media (36rem <= width < 64rem){
+  .gal>li:first-child:nth-last-child(odd){grid-column:1/-1}
 }
 
 /* ---------- 40rem ---------- */
@@ -404,14 +405,14 @@ summary::-webkit-details-marker{display:none}
   .fcard{padding:2.25rem}
 }
 
-/* ---------- 48rem: tablets. The header shows every section link and carries Quote and Call ---------- */
+/* ---------- 48rem: tablets. The header shows every page link and carries Quote and Call ---------- */
 @media (min-width:48rem){
   .classic{font-size:1.0625rem}
   .wr{padding-inline:2rem}
   .hd-row{flex-wrap:wrap;min-height:0;padding-block:.5rem 0}
   .hd-q,.hd-c{display:inline-flex;min-height:2.75rem;padding:.3125rem 1rem;font-size:.9375rem}
   .hd-q{background:var(--aw-refined-surface)}
-  .menu,.dots-r>.eb-y{display:none}
+  .menu,.dots-r>.eb-y,.cl-l .cl-n{display:none}
   .brand{flex:1 1 0}
   .nav{flex:1 0 100%;margin-top:.5rem;border-top:1px solid var(--aw-refined-line)}
   .nav-l{display:flex;flex-wrap:wrap;column-gap:.5rem;margin-inline:-.5rem}
@@ -448,11 +449,9 @@ summary::-webkit-details-marker{display:none}
   .ti{font-size:1rem}
   .ti .i{width:1.5rem;height:1.5rem}
   .tsub{font-size:.875rem}
-  .qg-2,.qg-3,.qg-n{grid-template-columns:repeat(2,minmax(0,1fr))}
-  .gal{grid-template-columns:repeat(2,minmax(0,1fr));column-gap:1.5rem}
+  .gal{column-gap:1.5rem}
   .gal-c{grid-auto-rows:auto minmax(2.5rem,auto)}
   .gal>li{margin-bottom:1.5rem}
-  .g-1{grid-template-columns:minmax(0,1fr)}
   .print img{padding:.5rem}
   .print figcaption{padding-top:.625rem;font-size:1.0625rem}
   .letter{padding:3.25rem 3.5rem 3rem}
@@ -480,10 +479,9 @@ summary::-webkit-details-marker{display:none}
   .fq img{aspect-ratio:12/5}
 }
 @media (48rem <= width < 64rem){
-  /* Two prints a row: an odd count opens with one full-width print, so no row holds a print alone. */
-  .gal>li:first-child:nth-last-child(odd){grid-column:1/-1}
-  /* A last card that would sit alone on its row is centred. */
-  .qg-3>.qc:last-child,.qg-n>.qc:last-child:nth-child(odd){grid-column:1/-1;justify-self:center;width:calc(50% - .625rem)}
+  /* Review cards in two CSS columns, each at its own height, so no short card leaves a hole in a row; three stack in one
+     column (two columns would leave one card alone under a long one). */
+  .qg-2,.qg-n{display:block;columns:2;column-gap:1.25rem}
 }
 
 /* ---------- 56rem ---------- */
@@ -535,18 +533,23 @@ summary::-webkit-details-marker{display:none}
   .tr-lift .tg{padding:1.75rem 2.25rem;border:1px solid var(--aw-refined-line);border-radius:var(--aw-refined-radius-paper);background:var(--aw-refined-surface);box-shadow:var(--sh)}
   .tr-lift .ti{justify-content:center;align-items:center}
   .tr-lift.tg-many .ti{justify-content:flex-start;align-items:flex-start}
-  .solo{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.55fr);column-gap:4.5rem;align-items:center}
+  .solo{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.55fr);column-gap:4.5rem;align-items:start}
   .solo>.sh{margin-bottom:0}
   .cl-p{grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);column-gap:4.5rem;align-items:center;padding:3.5rem 4rem}
+  .dots-r>.eb-y6{display:none}
   .letter .seal{width:7rem;height:7rem;top:-2.5rem;right:-1rem}
   .letter .seal-y{font-size:1.875rem}
-  /* With the owner's photo, the letter and the framed photo side by side. */
-  .ab-ph{grid-template-columns:minmax(0,1.2fr) minmax(0,1fr);column-gap:4.5rem;align-items:start}
+  /* With the owner's photo, the letter and the framed photo side by side, the photo centred on a long letter. */
+  .ab-ph{grid-template-columns:minmax(0,1.2fr) minmax(0,1fr);column-gap:4.5rem;align-items:center}
   .ab-m{margin:1.5rem 1.25rem 0 0}
+  /* The facts are centred on the form beside them, as the hero's words are on its photo, so a shorter column never
+     stops at the form's top third. */
   .contact{grid-template-columns:minmax(0,1fr) minmax(0,1.25fr);gap:5rem;align-items:start}
+  .c-info{align-self:center}
   .c-ph{font-size:2.125rem}
   .c-list{gap:1.5rem}
-  .c-list .c-more{display:flex}
+  .c-list .c-sub{display:flex}
+  .af{display:none}
   .fcard textarea{height:6.75rem}
   /* An owner with little on file: heading, phone, the other facts and the form, stacked and centred. */
   .c-stack{grid-template-columns:minmax(0,44rem);justify-content:center;gap:2.5rem}
@@ -586,6 +589,7 @@ summary::-webkit-details-marker{display:none}
 
 /* ---------- 64rem and wider ---------- */
 @media (min-width:64rem){
+  .qg-2{grid-template-columns:repeat(2,minmax(0,1fr))}
   .qg-3,.qg-n{grid-template-columns:repeat(3,minmax(0,1fr))}
   .qg-n>.qc:last-child:nth-child(3n+1){grid-column:2}
   /* A pull quote and one card share a row, instead of a lone card under the pull quote. */
@@ -608,6 +612,9 @@ summary::-webkit-details-marker{display:none}
   .g-lead>li:first-child img,.g-wide>li:first-child img,.g-5>li:first-child img{height:0;min-height:100%;aspect-ratio:auto}
   .ft-grid{grid-template-columns:1.4fr 1fr 1fr}
   .ft-grid>:first-child{grid-column:auto}
+  /* A letter without a photo takes the page's width: the story in its measure, the credentials in a column beside it. */
+  .lt-w{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,19rem);column-gap:4rem;max-width:none}
+  .lt-w .ledger{grid-column:2;grid-row:1/span 2;grid-template-columns:minmax(0,1fr);align-content:start;margin:0;padding:2.25rem 0 0 2.25rem;border-top:0;border-left:1px solid var(--aw-refined-line)}
 }
 @media (min-width:72rem){
   .tg-5{grid-template-columns:repeat(5,minmax(0,1fr))}

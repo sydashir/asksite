@@ -1,8 +1,9 @@
 // Classic's gallery, the Gallery page's one section: the owner's photos as framed prints, each caption under its own
 // print. Zero JavaScript, lazy-loaded. The page exists to show the work, so the prints are page-sized: one per row on
-// phones, two per row on tablets (an odd count opens with one full-width print), and on desktops a plan by count so no
-// row ends with one print alone: 2 and 4 in two big columns, 3, 6, 9 and 12 open with a lead print, 5 opens with a
-// lead print and a stacked pair over two halves, 7 and 10 with one wide print; one print sits beside the heading.
+// phones, two per row from 36rem (small tablets, phones held sideways; an odd count opens with one full-width print),
+// and on desktops a plan by count so no row ends with one print alone: 2 and 4 in two big columns, 3, 6, 9 and 12 open
+// with a lead print, 5 opens with a lead print and a stacked pair over two halves, 7 and 10 with one wide print; one
+// print sits beside the heading, both top-aligned, so the page opens where every inner page does.
 // When any print has a caption, every print keeps a caption line, so rows keep one rhythm.
 import type { RenderContext } from "../../context.ts";
 import { html, safeUrl, type SafeHtml } from "../../html.ts";

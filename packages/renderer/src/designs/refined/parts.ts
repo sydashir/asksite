@@ -31,7 +31,8 @@ export function icon(name: ClassicIcon, cls = "i"): SafeHtml {
 /**
  * A line of short facts joined by a centred dot. Each dot is its item's ::before, in a column the row
  * pushes out past its clip box, so no line starts or ends with a dot. An item's `cls` (a whole class from this
- * folder) may show it at some widths only: the eyebrow's year (eyebrow()).
+ * folder) may show it at some widths only: the eyebrow's year (eyebrow()). An item may be a dots() line itself, a
+ * group that wraps as one (the eyebrow's town and year).
  */
 export function dots(items: ReadonlyArray<{ text: Value; cls?: string }>): SafeHtml {
   const item = ({ text, cls }: { text: Value; cls?: string }) => (cls ? html`<span class="${cls}"><span>${text}</span></span>` : html`<span><span>${text}</span></span>`);
@@ -83,12 +84,12 @@ export function ctaLong(doc: SiteDocument): string {
   return isBooking(cta) ? "Book a visit" : "Get in touch";
 }
 
-/** The longest short label that fits the phone call bar at 320 px. */
+/** The longest short label that fits the header's quote button beside Call. */
 const SHORT_MAX = 13;
 
 /**
- * One short label for the header and the call bar: the owner's own when it fits; otherwise the free
- * offer, only with the owner's free-estimates fact; then a booking or quote label.
+ * One short label for the header's quote button: the owner's own when it fits; otherwise the free offer, only with
+ * the owner's free-estimates fact; then a booking or quote label.
  */
 export function ctaShort(doc: SiteDocument): string {
   const cta = ctaLong(doc);
@@ -122,6 +123,18 @@ export function groupedHours(hours: readonly OpeningHours[]): Array<{ label: str
   return rows.map(({ from, to, span, time }) => ({ label: span === 1 ? from : span === 2 ? `${from} & ${to}` : `${from} – ${to}`, time }));
 }
 
+/** More open rows than this make the hours too long for one line: the Service area section lists them. */
+const SHORT_HOURS_ROWS = 2;
+
+/**
+ * The open hours in one line of dots ("Monday – Friday 7:30 AM – 6:00 PM · Saturday 8:00 AM – 2:00 PM"), for the
+ * closing band and the contact band; false with no hours or more than two open rows.
+ */
+export function shortHours(facts: Facts): SafeHtml | false {
+  const open = groupedHours(facts.hours).filter((row) => row.time !== "Closed");
+  return open.length > 0 && open.length <= SHORT_HOURS_ROWS && dots(open.map((row) => ({ text: `${row.label} ${row.time}` })));
+}
+
 /** The hours as rows, each one element, so its dotted rule runs unbroken across the row. */
 export const hoursList = (hours: readonly OpeningHours[]): SafeHtml[] =>
   groupedHours(hours).map((row) => html`<div><dt>${row.label}</dt><dd>${row.time}</dd></div>`);
@@ -149,29 +162,19 @@ const TRADE_PERSON: Readonly<Record<Trade, string>> = {
 export const needLine = (facts: Facts): string => `Need ${TRADE_PERSON[facts.trade]} in ${facts.location.city}?`;
 
 /**
- * The phone widths below which the eyebrow with its year would wrap, by its length in characters: a phone row holds
- * (width - 80 px) / 10 px characters in the widest lettering (Sturdy, measured in Chromium and WebKit). Tier n is
- * below 24, 30, 40 and 48rem for n = 1 to 4; up to 24 characters never wrap.
- */
-const EYEBROW_TIERS: readonly number[] = [24, 30, 40, 56];
-
-/**
  * The trade, the town and, with the owner's year, "Since 1998", joined by dots: the eyebrow of the hero and of every
- * inner page, never with the year alone on a line. `year` places the year: "phones" keeps it to phones, where a seal
- * shows it from 48rem (Home's hero), and where the line would wrap the trade takes the first line, the town and year
- * the second ("eb-bN"); "fit" shows it wherever the line stays one row and leaves it out below ("eb-fN"); "none" leaves
- * it to a seal (About).
+ * inner page. The town and the year are one group, so where the whole line does not fit the trade takes the first line
+ * and the town and year wrap together onto the second: the browser breaks it only where it really overflows, in every
+ * lettering, and never leaves the year alone on a line (unless the town and year alone overflow a phone row). `year`
+ * places the year: "always"; "phones" leaves it to a seal from 48rem (Home's hero); "tablets" from 60rem (About's
+ * photo, under the letter until then); "none" to a seal at every width (About's letter without a photo).
  */
-export function eyebrow(facts: Facts, year: "phones" | "fit" | "none"): SafeHtml {
+export function eyebrow(facts: Facts, year: "always" | "phones" | "tablets" | "none"): SafeHtml {
   const trade = TRADE_LABEL[facts.trade];
   const place = `${facts.location.city}, ${facts.location.state}`;
   if (facts.yearFounded === undefined || year === "none") return dots([{ text: trade }, { text: place }]);
-  const text = `Since ${facts.yearFounded}`;
-  const length = `${trade} · ${place} · ${text}`.length;
-  const tier = EYEBROW_TIERS.findIndex((most) => length <= most);
-  const wraps = tier === -1 ? 4 : tier;
-  if (year === "phones") return dots([{ text: trade, ...(wraps > 0 && { cls: `eb-b${wraps}` }) }, { text: place }, { text, cls: "eb-y" }]);
-  return dots([{ text: trade }, { text: place }, { text, ...(wraps > 0 && { cls: `eb-f${wraps}` }) }]);
+  const since = { text: `Since ${facts.yearFounded}`, ...(year === "phones" && { cls: "eb-y" }), ...(year === "tablets" && { cls: "eb-y6" }) };
+  return dots([{ text: trade }, { text: dots([{ text: place }, since]) }]);
 }
 
 /** A block's heading: the accent rule, the h2 (id `${domId}-title`) and an optional intro. */
@@ -186,8 +189,8 @@ ${intro && html`<p>${intro}</p>`}
  * The opening of an inner page (A16), as Home's hero opens Home: the eyebrow, the page's one <h1> (with the id
  * `${domId}-title` when given), set larger, an optional intro and what follows it (a credential line, actions).
  */
-export function pageHead(ctx: RenderContext, title: Value, options: { id?: string; intro?: string | undefined; after?: Value; year?: "fit" | "none" } = {}): SafeHtml {
-  const { id, intro, after, year = "fit" } = options;
+export function pageHead(ctx: RenderContext, title: Value, options: { id?: string; intro?: string | undefined; after?: Value; year?: "always" | "tablets" | "none" } = {}): SafeHtml {
+  const { id, intro, after, year = "always" } = options;
   return html`<div class="sh sh-pg">
 <p class="eb">${eyebrow(ctx.doc.facts, year)}</p>
 ${id === undefined ? html`<h1 class="st">${title}</h1>` : html`<h1 id="${id}" class="st">${title}</h1>`}

@@ -12,7 +12,7 @@ import { heroQuoteIndex } from "../../../src/designs/refined/plan.ts";
 import { PALETTES, variables } from "../../../src/designs/refined/tokens.ts";
 import { render, renderDocument } from "../../../src/render.ts";
 import { invariantProblems } from "../../support/design-invariants.ts";
-import { squash, squashedText } from "../../support/page-text.ts";
+import { countInText, squash, squashedText } from "../../support/page-text.ts";
 import { classicPage, classicPages, classicSite, options } from "./site.ts";
 
 const OPTIONS = options(stubStylesheets());
@@ -187,7 +187,12 @@ describe("a one-town owner's Service area", () => {
     expect(area).not.toContain('class="area"');
     expect(squashedText(area).match(/Boise/g)).toHaveLength(1);
     expect(squashedText(section(html, "services"))).not.toContain(squashedText("Ready to book?"));
-    expect(squashedText(section(html, "contact"))).not.toContain("Serving");
+    // From 60rem the band lists the same line under the email, beside the form, and the section steps aside (sheet): one
+    // line at each width.
+    const band = section(html, "contact");
+    const email = band.indexOf('href="mailto:');
+    expect(band.slice(email, band.indexOf("</ul>", email))).toMatch(/<li class="c-sub">.*Serving Boise, ID/);
+    expect(countInText(band, "Serving Boise")).toBe(1);
   });
 
   it("keeps the shared invariants in each one-line form (the town is the base, another town, a street address)", () => {
@@ -249,12 +254,16 @@ describe("Classic's pages (A16)", () => {
   };
   const h1 = (html: string) => squashedText(html.slice(html.indexOf("<h1"), html.indexOf("</h1>")));
 
-  it("previews the first three services under the owner's intro, Price on request where no price is given, and says how many services the link leads to", () => {
+  // Moderator ruling (a): a service without a price shows its name only in the preview; A16 2.3: one link, "More about
+  // our services", whatever the count.
+  it("previews the first three services under the owner's intro, a price only where the owner gave one, and links to the Services page", () => {
     const roofing = loadFixture("roofing-extreme");
     expect(rows(preview(roofing))).toEqual(roofing.facts.services.slice(0, 3).map((s) => squashedText(`${escapeText(s.name)}From $${s.startingPrice?.toLocaleString("en-US")}`)));
-    expect(preview(roofing)).toContain('<a class="bt bt-out" href="/services">See all 12 services</a>');
+    expect(preview(roofing)).toContain('<a class="bt bt-out" href="/services">More about our services</a>');
     const two = preview(withServices([{ name: "Deep clean", startingPrice: 180 }, { name: "Move-out clean" }]));
-    expect(rows(two)).toEqual([squashedText("Deep cleanFrom $180"), squashedText("Move-out cleanPrice on request")]);
+    expect(rows(two)).toEqual([squashedText("Deep cleanFrom $180"), squashedText("Move-out clean")]);
+    expect(two).not.toContain("Price on request");
+    expect(rows(preview(withServices([{ name: "Deep clean" }])))).toEqual([squashedText("Deep clean")]);
     expect(two).toContain('<a class="bt bt-out" href="/services">More about our services</a>');
     expect(squashedText(preview(plumber))).toContain(squashedText(plumber.copy.sectionIntros?.services ?? "missing"));
   });
@@ -280,27 +289,37 @@ describe("Classic's pages (A16)", () => {
     expect(band(moved(cleaning, "contact", "serviceArea"))).toContain('<div class="wr contact c-stack">');
   });
 
-  it("opens each inner page with the eyebrow and the page's h1 (About's year on its seal), and closes every page but Contact with the closing band", () => {
+  it("opens each inner page with the eyebrow and the page's h1, and closes every page but Contact with the closing band", () => {
     for (const { page: id, html } of classicSite(plumber, OPTIONS.stylesheets).pages) {
       const first = html.slice(html.indexOf("<main"), html.indexOf("</section>", html.indexOf("<main")));
-      if (id !== "home") expect(squashedText(first), id).toContain(squash(id === "about" ? "PlumbingAustin, TX" : "Plumbing Austin, TX Since 1998"));
+      if (id !== "home") expect(squashedText(first), id).toContain(squash("Plumbing Austin, TX Since 1998"));
       expect(first, id).toContain("<h1 ");
       expect(html.includes('<section id="get-in-touch"'), id).toBe(id !== "contact");
     }
-    const about = section(pageOf(plumber, "about"), "about");
-    expect(squashedText(about.slice(about.indexOf('<p class="eb">'), about.indexOf("</p>", about.indexOf('<p class="eb">'))))).not.toContain("Since");
-    expect(about).toContain('<p class="seal">');
   });
 
-  it("drops a long eyebrow's year on the phones it would wrap on, by its length (the Sturdy lettering's widest letters)", () => {
-    const yearClass = (input: SiteDocumentInput) => /<span class="(eb-f\d)"><span>Since/.exec(section(pageOf(input, "services"), "services"))?.[1];
-    expect(yearClass(plumber)).toBe("eb-f2"); // "Plumbing · Austin, TX · Since 1998": 34 characters
-    expect(yearClass(hvac)).toBe("eb-f3"); // "Heating & Cooling · Phoenix, AZ · Since 2011": 44 characters
-    expect(yearClass(loadFixture("roofing-extreme"))).toBe("eb-f4");
-    expect(yearClass({ ...plumber, facts: { ...plumber.facts, location: { city: "Al", state: "TX" } } })).toBe("eb-f1"); // 30 characters
-    // Home's hero keeps the year on phones (no seal there): where the line would wrap, the trade takes the first line.
-    const tradeClass = (input: SiteDocumentInput) => /<span class="dots-r"><span class="(eb-b\d)"><span>/.exec(section(pageOf(input, "home"), "top"))?.[1];
-    expect([tradeClass(plumber), tradeClass(hvac), tradeClass(cleaning)]).toEqual(["eb-b2", "eb-b3", undefined]);
+  /** The eyebrow's markup in a page's first section. */
+  const eyebrowOf = (html: string) => {
+    const at = html.indexOf('<p class="eb">');
+    return html.slice(at, html.indexOf("</p>", at));
+  };
+
+  it("wraps the eyebrow's town and year as one group, and shows the year wherever no seal near it does", () => {
+    // The town and the year are one item of the line, itself a line of dots: where the whole line does not fit, the
+    // browser moves them on together, so the year is never left alone (sheet-free, so the break is exact in every lettering).
+    const group = '<span><span><span class="dots"><span class="dots-r"><span><span>Austin, TX</span></span> <span';
+    expect(eyebrowOf(pageOf(plumber, "services"))).toContain(`${group}><span>Since 1998</span></span></span></span></span></span>`);
+    // Home's hero: on phones only (the seal shows it from 48rem); About: until its photo sits beside the letter (60rem).
+    expect(eyebrowOf(pageOf(plumber, "home"))).toContain(`${group} class="eb-y"><span>Since 1998</span></span>`);
+    expect(eyebrowOf(pageOf(plumber, "about"))).toContain(`${group} class="eb-y6"><span>Since 1998</span></span>`);
+    // Without a photo, About's seal sits on the letter's corner, under the h1, at every width: the eyebrow leaves it out.
+    const { heroPhoto: _photo, ...noPhoto } = plumber.facts;
+    const letter = pageOf({ ...plumber, facts: noPhoto }, "about");
+    expect(squashedText(eyebrowOf(letter))).toBe(squash("Plumbing Austin, TX"));
+    expect(section(letter, "about")).toContain('<p class="seal">');
+    // No year, no group.
+    const { yearFounded: _year, ...noYear } = hvac.facts;
+    expect(eyebrowOf(pageOf({ ...hvac, facts: noYear }, "services"))).not.toContain('<span class="dots"><span class="dots-r"><span><span>Phoenix');
   });
 
   it("ends every page but Contact on a closing band built from the owner's facts, in the hero's words", () => {
@@ -315,10 +334,14 @@ describe("Classic's pages (A16)", () => {
     expect(band(cleaning)).toContain(squashedText("Need a cleaner in Boise?"));
     // Without the owner's own contact line, plain house words that claim nothing (never a bare heading on a phone).
     expect(band(cleaning, "home")).toContain(squashedText("Tell us what you need, or give us a call."));
-    // Without the Service area section, no hours and no towns; on a Home with the business card, never twice.
+    // Without the Service area section, no hours and no towns; with it, on every page, Home's business card or not.
     expect(band({ ...plumber, hidden: ["serviceArea"] })).not.toMatch(/Serving|Monday/);
-    expect(band(hvac, "home")).not.toMatch(/Serving|Monday/);
-    expect(band(hvac, "services")).toContain("Serving");
+    expect(band(hvac, "home")).toContain(squashedText("Monday – Friday 7:00 AM – 7:00 PM"));
+    expect(band(hvac, "home")).toContain("Serving");
+    // The number to tap (phones, where the call bar carries the buttons), on every band, the owner's facts or none.
+    for (const input of [plumber, hvac, cleaning, { ...plumber, hidden: ["serviceArea" as const] }]) {
+      expect(section(pageOf(input, "home"), "get-in-touch")).toMatch(/<li class="cl-n">.*<a class="c-ph whitespace-nowrap" href="tel:\+1\d{10}">\(\d{3}\) \d{3}-\d{4}<\/a><\/li>/);
+    }
   });
 
   it("leads from the footer of every page to every page, the current one marked", () => {
@@ -351,13 +374,23 @@ describe("Classic's pages (A16)", () => {
     // With the owner's hero photo it is framed beside the letter, the seal on it; without one the seal is on the letter.
     expect(section(about, "about")).toContain('<div class="ab ab-ph">');
     const { heroPhoto: _photo, ...noPhoto } = plumber.facts;
-    expect(section(pageOf({ ...plumber, facts: noPhoto }, "about"), "about")).toContain('<div class="letter letter-sl">');
+    // From 64rem a letter without a photo takes the page's width, its credentials in a column beside the story (sheet).
+    expect(section(pageOf({ ...plumber, facts: noPhoto }, "about"), "about")).toContain('<div class="letter letter-sl lt-w">');
+    expect(section(pageOf({ ...plumber, facts: noPhoto, hidden: ["trust"] }, "about"), "about")).toContain('<div class="letter letter-sl">');
   });
 
   it("gives the address and the towns one home on Contact, and opens an area-first Contact page with Call and the call to action", () => {
     const band = squashedText(section(pageOf(plumber, "contact"), "contact"));
     expect(band).not.toContain(squashedText("4100 S Congress Ave"));
     expect(band).not.toContain("Serving");
+    // The proof at every width; beside the form that opens the page, the hours in one line under the number (from 60rem,
+    // sheet), never when the Service area section is hidden or comes first.
+    const desktopOnly = (input: SiteDocumentInput) => [...section(pageOf(input, "contact"), "contact").matchAll(/<li class="c-sub">(.*?)<\/li>/g)].map((m) => squashedText(m[1]!));
+    expect(band).toContain(squashedText("License M-40123 Insured"));
+    expect(desktopOnly(plumber)).toEqual([squash("Monday – Friday 7:30 AM – 6:00 PM Saturday 8:00 AM – 2:00 PM")]);
+    expect(section(pageOf(plumber, "contact"), "contact")).toMatch(/c-note">24\/7 emergency service<\/span><\/span><\/li>\n<li class="c-sub">/);
+    expect(desktopOnly({ ...plumber, hidden: ["serviceArea"] })).toEqual([]);
+    expect(desktopOnly(moved(plumber, "contact", "serviceArea"))).toEqual([]);
     expect(squashedText(section(pageOf({ ...plumber, hidden: ["serviceArea"] }, "contact"), "contact"))).toContain(squashedText("4100 S Congress Ave"));
     const areaFirst = pageOf(moved(plumber, "contact", "serviceArea"), "contact");
     const opening = section(areaFirst, "service-area");
