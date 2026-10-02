@@ -7738,11 +7738,11 @@ Expected: the diff shows only the domain, the database id, the sender name and t
 - [ ] **Step 5: Apply the schema to the real database**
 
 Run: `pnpm exec wrangler d1 migrations apply asksite --remote -c apps/sites/wrangler.jsonc`
-Expected: `0001_init.sql` listed with ✅.
+Expected: every file in `packages/core/migrations/` at the deployed commit (list them with `ls packages/core/migrations`) is applied in order and listed with ✅, through `0006` at least.
 
 Then check that production D1 made every table STRICT (A9; local D1 is proven by `migration.workerd.test.ts`):
 Run: `pnpm exec wrangler d1 execute asksite --remote -c apps/sites/wrangler.jsonc --json --command "PRAGMA table_list"`
-Expected: each of the 12 tables of `0001_init.sql` (`owners` … `dev_outbox`) has `"strict": 1`. If any has `0`, stop and tell the moderator before deploying.
+Expected: every table those migrations create has `"strict": 1`; derive the list from the `CREATE TABLE` statements of the files at the deployed commit: `grep -hoiE '^[[:space:]]*create[[:space:]]+table([[:space:]]+if[[:space:]]+not[[:space:]]+exists)?[[:space:]]+"?[a-z0-9_]+' packages/core/migrations/*.sql | awk '{print $NF}' | tr -d '"'` (it reads one-line CREATE TABLE statements, the style every migration uses; a table created any other way, or renamed later, must be added to the list by hand). If any has `0`, stop and tell the moderator before deploying.
 
 - [ ] **Step 6: DNS records (Cloudflare dashboard → DNS)**
 
@@ -7810,18 +7810,22 @@ PHOTO=$(curl -s --compressed "https://smoke-test.$DOMAIN/" | grep -o "https://me
 curl -sI "$PHOTO" | grep -iE '^HTTP|content-type|cache-control'
 ```
 
-Expected: the audit rows `version.requested` and `version.approved`, one each (production D1 writes the `INSERT … WHERE changes() = 1` audit rows as local D1 does, Decision 11); the page `HTTP/2 200`, `x-robots-tag: noindex` (approved with `--noindex`), `cache-control: public, max-age=60`; the photo's `https://media.$DOMAIN/…webp` address; the photo `HTTP/2 200`, `content-type: image/webp`, `cache-control: public, max-age=86400, s-maxage=300`.
+Expected: the audit rows `version.requested` and `version.approved`, one each (production D1 writes the `INSERT … WHERE changes() = 1` audit rows as local D1 does, Decision 11); the page `HTTP/2 200`, `x-robots-tag: noindex` (approved with `--noindex`), `cache-control: no-cache` (browsers revalidate on every view; the edge's own copy is `public, s-maxage=60`, which a visitor never sees); the photo's `https://media.$DOMAIN/…webp` address; the photo `HTTP/2 200`, `content-type: image/webp`, `cache-control: public, max-age=86400, s-maxage=300`.
 
-Visitors must get exactly the approved bytes, with nothing injected (Step 6):
+Visitors must get exactly the approved bytes of every page, with nothing injected (Step 6). A version has 1 to 5 pages (Home, Services, About, Gallery, Contact; A16); `pages_json` lists the live version's pages with the SHA-256 of each page's exact bytes, and a page's path is `/` for Home and `/<page id>` for the others:
 
 ```bash
-pnpm exec wrangler d1 execute asksite --remote -c apps/sites/wrangler.jsonc --command "SELECT v.html_sha256 FROM sites s JOIN site_versions v ON v.id = s.live_version_id WHERE s.id = '$SITE'"
-curl -s --compressed "https://smoke-test.$DOMAIN/" | shasum -a 256
-curl -s --compressed "https://smoke-test.$DOMAIN/" | grep -c '/cdn-cgi/'
+pnpm exec wrangler d1 execute asksite --remote -c apps/sites/wrangler.jsonc --json --command "SELECT v.pages_json FROM sites s JOIN site_versions v ON v.id = s.live_version_id WHERE s.id = '$SITE'" > .wrangler/smoke-pages.json
+node -e 'for (const p of JSON.parse(JSON.parse(require("node:fs").readFileSync(".wrangler/smoke-pages.json", "utf8"))[0].results[0].pages_json)) console.log(p.page, p.sha256, p.page === "home" ? "/" : "/" + p.page)' | tee .wrangler/smoke-pages.txt
+while read -r PAGE SHA PAGEPATH; do
+  printf '%s ' "$PAGE"
+  curl -s --compressed "https://smoke-test.$DOMAIN$PAGEPATH" | shasum -a 256 | cut -d' ' -f1 | grep -qx "$SHA" && printf 'same hash, ' || printf 'DIFFERENT HASH, '
+  printf '/cdn-cgi/ matches: '; curl -s --compressed "https://smoke-test.$DOMAIN$PAGEPATH" | grep -c '/cdn-cgi/'
+done < .wrangler/smoke-pages.txt
 ASKSITE_SMOKE_URL="https://smoke-test.$DOMAIN/" pnpm exec playwright test -c apps/sites/e2e/smoke.config.ts
 ```
 
-Expected: the same 64-character hash from D1 and from `shasum` (the edge served exactly the bytes the admin approved); `0`; `1 passed` (in a real browser with real TLS the photo loads under the production CSP, zero CSP violations, nothing requested from `/cdn-cgi/`). If the hashes differ or `/cdn-cgi/` appears, a zone feature is rewriting pages: find it in Step 6's list, turn it off and repeat. Never invite an owner while pages are rewritten.
+Expected: one line per page of the live version (`cleaning-minimal` has three: `home`, `services` and `contact`), each `same hash` (the edge served exactly the bytes the admin approved; the version's `html_sha256` is a digest over all the pages, so it is not compared with one `shasum`) and `/cdn-cgi/ matches: 0`; `1 passed` (the smoke spec loads the Home address only: in a real browser with real TLS the photo loads under the production CSP, zero CSP violations, nothing requested from `/cdn-cgi/`). If a hash differs or `/cdn-cgi/` appears, a zone feature is rewriting pages: find it in Step 6's list, turn it off and repeat. Never invite an owner while pages are rewritten. The two scratch files stay until the cleanup below (the takedown loop reads the page list).
 
 The contact form and the lead email:
 
@@ -7837,21 +7841,21 @@ Now the takedown timing on the real edge (Decision 7; design §7.3 asks for proo
 
 ```bash
 pnpm exec wrangler d1 execute asksite --remote -c apps/sites/wrangler.jsonc --command "UPDATE sites SET taken_down_at = 1 WHERE id = '$SITE'"
-for i in $(seq 1 12); do printf '%s ' "$(date +%T)"; curl -s -o /dev/null -w "page %{http_code} " "https://smoke-test.$DOMAIN/"; curl -s -o /dev/null -w "photo %{http_code}\n" "$PHOTO"; sleep 30; done
+for i in $(seq 1 12); do printf '%s ' "$(date +%T)"; while read -r PAGE SHA PAGEPATH; do curl -s -o /dev/null -w "$PAGE %{http_code} " "https://smoke-test.$DOMAIN$PAGEPATH"; done < .wrangler/smoke-pages.txt; curl -s -o /dev/null -w "photo %{http_code}\n" "$PHOTO"; sleep 30; done
 ```
 
-Expected: `page 404` within about 60 s and `photo 404` within 300 s of the update (edge TTLs 60 s and 300 s, per data centre). Record the times in the moderator's journal. If the photo is still 200 after 330 s, stop: the edge is not honouring `s-maxage` and the media cache rule must change before any real site goes live.
+Expected: every page (`home`, `services` and `contact`) `404` within about 60 s and `photo 404` within 300 s of the update (edge TTLs 60 s and 300 s, per data centre). Record the times in the moderator's journal. If the photo is still 200 after 330 s, stop: the edge is not honouring `s-maxage` and the media cache rule must change before any real site goes live.
 
-Clean up (removes every trace of the test site: its R2 objects, then its rows):
+Clean up (removes every trace of the test site: its R2 objects, then its rows). The objects are the LIVE pointer (the bare slug), every LIVE page under `<slug>/` (each version of the site times each page in its `pages_json`: `<slug>/<versionId>/<page>.html`), the WORK page of each of those (`versionPageKey`: Home's is the version's `html_key`, the others are `versions/<siteId>/<versionId>/<page>.html`) and the photo [`json_each` is part of the JSON functions D1 documents; its use here is inferred until this runs]:
 
 ```bash
-pnpm exec wrangler d1 execute asksite --remote -c apps/sites/wrangler.jsonc --json --command "SELECT 'asksite-live/' || slug || '.html' AS object FROM sites WHERE id = '$SITE' UNION ALL SELECT 'asksite-work/' || html_key FROM site_versions WHERE site_id = '$SITE' UNION ALL SELECT 'asksite-media/' || site_id || '/' || id || '.webp' FROM uploads WHERE site_id = '$SITE'" > .wrangler/smoke-objects.json
+pnpm exec wrangler d1 execute asksite --remote -c apps/sites/wrangler.jsonc --json --command "SELECT 'asksite-live/' || slug AS object FROM sites WHERE id = '$SITE' UNION ALL SELECT 'asksite-live/' || s.slug || '/' || v.id || '/' || json_extract(j.value, '\$.page') || '.html' FROM sites s JOIN site_versions v ON v.site_id = s.id, json_each(v.pages_json) j WHERE s.id = '$SITE' UNION ALL SELECT 'asksite-work/' || CASE WHEN json_extract(j.value, '\$.page') = 'home' THEN v.html_key ELSE 'versions/' || v.site_id || '/' || v.id || '/' || json_extract(j.value, '\$.page') || '.html' END FROM site_versions v, json_each(v.pages_json) j WHERE v.site_id = '$SITE' UNION ALL SELECT 'asksite-media/' || site_id || '/' || id || '.webp' FROM uploads WHERE site_id = '$SITE'" > .wrangler/smoke-objects.json
 for object in $(node -e 'for (const row of JSON.parse(require("node:fs").readFileSync(".wrangler/smoke-objects.json", "utf8"))[0].results) console.log(row.object)'); do pnpm exec wrangler r2 object delete "$object" --remote -c apps/sites/wrangler.jsonc; done
 pnpm exec wrangler d1 execute asksite --remote -c apps/sites/wrangler.jsonc --command "DELETE FROM audit_log WHERE site_id = '$SITE'; DELETE FROM leads WHERE site_id = '$SITE'; DELETE FROM site_versions WHERE site_id = '$SITE'; DELETE FROM uploads WHERE site_id = '$SITE'; DELETE FROM sites WHERE id = '$SITE'; DELETE FROM owners WHERE email = '$MY_EMAIL' AND id NOT IN (SELECT owner_id FROM sites);"
-rm .wrangler/smoke-objects.json
+rm .wrangler/smoke-objects.json .wrangler/smoke-pages.json .wrangler/smoke-pages.txt
 ```
 
-Expected: `Deleting object "…" from bucket "…".` and `Delete complete.` for each of the three objects (the page in `asksite-live`, its stored version in `asksite-work`, the photo in `asksite-media`), then `🚣 6 commands executed successfully.`; afterwards `https://smoke-test.$DOMAIN/` answers 404. (This step was rehearsed against `pnpm dev` while revising this plan, with `--local --persist-to .wrangler/state` instead of `--remote`, `localhost:8789` as the domain and `curl -k`: the seed, the two audit rows, the page and photo headers, the equal hashes, `0`, `1 passed`, the 303 and `sent`, and the cleanup all behaved as written. HTTP/2, real TLS, the edge cache timing, Resend delivery and DMARC can only be seen on the real edge.)
+Expected: `Deleting object "…" from bucket "…".` and `Delete complete.` for each object: with the three pages of `cleaning-minimal`, eight (the pointer and the three pages in `asksite-live`, the three stored pages in `asksite-work`, the photo in `asksite-media`; with N pages, 2N + 2), then `🚣 6 commands executed successfully.`; afterwards `https://smoke-test.$DOMAIN/` and each page path answer 404. (The single-page form of this step was rehearsed against `pnpm dev` while revising this plan, with `--local --persist-to .wrangler/state` instead of `--remote`, `localhost:8789` as the domain and `curl -k`: the seed, the two audit rows, the page and photo headers, the equal hashes, `0`, `1 passed`, the 303 and `sent`, and the cleanup all behaved as written. The per-page form above (A16-5) was written from the code and its SQL and `node` lines were checked on sample data only: rehearse it against `pnpm dev` first. HTTP/2, real TLS, the edge cache timing, Resend delivery and DMARC can only be seen on the real edge.)
 
 If any smoke check fails: `pnpm exec wrangler rollback -c apps/sites/wrangler.jsonc` returns to the previous version (none on the first deploy: then remove the routes in the dashboard), and report to the moderator with the failing command and output.
 

@@ -90,12 +90,13 @@ describe("publish, approve, serve, contact", () => {
     expect(live.sent).toContain('<h1>Thanks! Your message was sent to Reliable Rooter Plumbing.</h1>\n<p>They will get back to you soon.</p>\n<p><a href="/">Back to Reliable Rooter Plumbing</a></p>');
     expect(live.missing).toContain('<p><a href="/">Go to Reliable Rooter Plumbing\'s page</a></p>');
 
-    await takeDown(tools, { siteId: site.siteId, reviewer: "admin@example.com", reason: "Test", purgeMedia: false, now: Date.now() });
+    const downAt = Date.now();
+    await takeDown(tools, { siteId: site.siteId, reviewer: "admin@example.com", reason: "Test", purgeMedia: false, now: downAt });
     const down = await pages();
     expect(down.sent).toContain("<h1>Thanks! Your message was sent.</h1>");
     expect(down.missing).not.toContain("<a ");
 
-    await restore({ ...tools, ROOT_DOMAIN: ROOT }, { siteId: site.siteId, reviewer: "admin@example.com", now: Date.now() });
+    await restore({ ...tools, ROOT_DOMAIN: ROOT }, { siteId: site.siteId, reviewer: "admin@example.com", expectedTakenDownAt: downAt, now: Date.now() });
     expect(await pages()).toEqual(live);
   });
 
@@ -119,11 +120,12 @@ describe("publish, approve, serve, contact", () => {
     expect(await answers()).toEqual(live); // every page is now cached
     expect(await answers()).toEqual(live);
 
-    await takeDown(tools, { siteId: site.siteId, reviewer: "admin@example.com", reason: "Test", purgeMedia: false, now: Date.now() });
+    const downAt = Date.now();
+    await takeDown(tools, { siteId: site.siteId, reviewer: "admin@example.com", reason: "Test", purgeMedia: false, now: downAt });
     expect(await answers()).toEqual([404, 404, 404, 404, 404]);
     expect((await tools.LIVE.list({ prefix: site.slug })).objects.map((o) => o.key)).toEqual([]);
 
-    await restore({ ...tools, ROOT_DOMAIN: ROOT }, { siteId: site.siteId, reviewer: "admin@example.com", now: Date.now() });
+    await restore({ ...tools, ROOT_DOMAIN: ROOT }, { siteId: site.siteId, reviewer: "admin@example.com", expectedTakenDownAt: downAt, now: Date.now() });
     expect(await answers()).toEqual(live);
     expect(await (await harness.server.fetch(at(site.slug))).text()).toBe(await (await tools.WORK.get(versionKey(site.siteId, site.versionId)))?.text());
   });

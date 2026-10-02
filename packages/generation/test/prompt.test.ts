@@ -135,6 +135,17 @@ describe("SYSTEM_PROMPT", () => {
     expect(SYSTEM_PROMPT).toContain("even if it holds a digit");
   });
 
+  it("tells the model to name a page, never below or above, when it points elsewhere on the site", () => {
+    expect(SYSTEM_PROMPT).toContain(
+      "- The site spreads its sections over separate pages, so never point to another part of it by position (below, above, further down). Name the page instead, for example our Contact page.",
+    );
+  });
+
+  it("never calls the site one page", () => {
+    expect(SYSTEM_PROMPT).not.toMatch(/\b(one|single)[- ]page\b|\bthe page already\b/i);
+    expect(SYSTEM_PROMPT).toContain("The site already shows");
+  });
+
   it("applies its rules to the names the copy repeats", () => {
     expect(SYSTEM_PROMPT).toContain(
       "- These rules apply to every word you write, also when you repeat the business name, a service name or a place. If a name holds a digit or a word these rules forbid, do not repeat it in your wording.",
