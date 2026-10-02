@@ -651,7 +651,7 @@ export const LIMITS = {
 export const ERROR_STATUS = {
   bad_request: 400, unauthenticated: 401, forbidden: 403, owner_disabled: 403, not_found: 404,
   conflict: 409, slug_taken: 409, slug_locked: 409, generation_in_progress: 409,
-  nothing_pending: 409, version_not_pending: 409,
+  nothing_pending: 409, version_not_pending: 409, wording_changed: 409,
   invite_invalid: 410, token_invalid: 410,
   payload_too_large: 413, unsupported_media_type: 415,
   validation_failed: 422, not_ready: 422, publish_invalid: 422, slug_invalid: 422, image_rejected: 422,
@@ -884,7 +884,7 @@ Emails are trimmed and lower-cased before use. A request body that fails its sch
 | `POST /api/auth/logout` | session (or none) | — | `204`; deletes the session row and expires the cookie | — |
 | `GET /api/me` | session | — | `200 { owner: OwnerView, sites: SiteSummary[] }` | 401 |
 | `GET /api/sites/:siteId` | session | — | `200 SiteView` | 401, 404 |
-| `PATCH /api/sites/:siteId/draft` | session | `PatchDraftBody` | `200 { rev, issues: SiteView["issues"] }`; each given part replaces that part | 409 `conflict` (`currentRev`), 413, 422, 423 `site_taken_down` |
+| `PATCH /api/sites/:siteId/draft` | session | `PatchDraftBody` | `200 { rev, issues: SiteView["issues"] }`; each given part replaces that part | 409 `conflict` (`currentRev`), 409 `wording_changed` (the edits' copy or order changes carry a stale `baseGenerationId`: they belong to an older generation), 413, 422, 423 `site_taken_down` |
 | `PUT /api/sites/:siteId/slug` | session | `SetSlugBody` | `200 { rev, slug }` | 409 `slug_taken` / `slug_locked` / `conflict`, 422 `slug_invalid` (`issues[0].code`: `invalid` / `reserved` / `blocked`) |
 | `GET /api/slugs/:slug/availability` | session | — | `200 { available: boolean, reason: "taken" \| "invalid" \| "reserved" \| "blocked" \| null }` | 401 |
 | `POST /api/sites/:siteId/uploads` | session | multipart, field `file` | `201 UploadView` | 413, 415 `unsupported_media_type`, 422 `image_rejected` (too small, too many pixels, undecodable), 429 `upload_limit_reached` |

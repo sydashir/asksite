@@ -343,6 +343,8 @@ describe("constants", () => {
     expect(ERROR_STATUS.site_taken_down).toBe(423);
     expect(ERROR_STATUS.email_failed).toBe(502);
     expect(ERROR_STATUS.rate_limited).toBe(429);
+    // A draft PATCH whose copy or order edits carry a stale baseGenerationId (Plan 4's wording guard).
+    expect(ERROR_STATUS.wording_changed).toBe(409);
   });
 
   it("every look is a valid Plan 1 theme, and the four looks use four palettes", () => {
