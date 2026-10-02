@@ -78,8 +78,11 @@ export const LEASE_HELD = "EXISTS (SELECT 1 FROM sites WHERE id = ? AND admin_lo
  * (approve's deletes after its takedown re-read, restore's pointerBack) are deliberately NOT lease-checked: they
  * remove a pointer from a site that must stay down, and a check there could leave the pointer on a taken-down site.
  * RESIDUAL: if the lease runs out between this check and the R2 call (only an action over ADMIN_LEASE_MS), that
- * R2 write can land after another action's. The D1 fence still keeps D1 right, and the sites Worker serves only
- * when the pointer's version equals D1's live version (a mismatch is a 503, never wrong bytes).
+ * R2 write can land after another action's. The D1 fence still keeps D1 right. On a cache miss the sites Worker
+ * serves only when D1 says the site is live and not taken down and the pointer's version equals D1's live version
+ * (a mismatch is a 503, never wrong bytes); a page already in the edge cache under the pointer's version is served
+ * with no D1 check, for up to its 60 s s-maxage (apps/sites/src/page.ts), so a late pointer write on a taken-down site
+ * is served from the cache for that long, and the pointer's business name and phone are read on any not-found page.
  */
 export async function assertLease(db: D1Database, siteId: string, token: string): Promise<void> {
   const row = await db.prepare("SELECT admin_lock FROM sites WHERE id = ?").bind(siteId).first<{ admin_lock: string | null }>();

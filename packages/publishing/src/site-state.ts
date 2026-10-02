@@ -93,16 +93,20 @@ function auditLaterPurge(
  * site_taken_down (taken_down_again) before any R2 write; a site that is not taken down is already restored and comes
  * back with the normal result, nothing changed. Otherwise: copies every page of the live version, verified, back to LIVE and
  * writes the pointer (not served yet: D1 still says taken down), then clears taken_down_at, fenced on the expected
- * time, the copied version and the lease. If the clear changes nothing or throws, the pointer is taken back out; a
- * rejected pointer write takes it back out too and answers live_copy_failed (the site stays down: call it again).
- * Retry-safe. Takes ROOT_DOMAIN (not in the design's signature) because it returns the live URL, and MEDIA to
+ * time, the copied version and the lease. If the clear changes nothing, the pointer is taken back out; if it throws,
+ * D1 is asked (it can commit a batch and still throw): a committed clear keeps the pointer and succeeds, a clear that
+ * is not there (or a D1 that cannot answer) takes the pointer back out and rethrows; a rejected pointer write takes
+ * it back out too and answers live_copy_failed (the site stays down: call it again).
+ * Retry-safe: a retry after a failure is the same call again; a site that is already restored is checked, and a missing
+ * or wrong pointer is healed (the pages copied again, the pointer written: `healed` is true), a right one is left alone.
+ * Takes ROOT_DOMAIN (not in the design's signature) because it returns the live URL, and MEDIA to
  * count the page's photos a purge deleted (Decision 29): the page still goes back up. A live site's pages are
  * copied again by copyLivePagesAgain.
  */
 export async function restore(
   env: { DB: D1Database; LIVE: R2Bucket; WORK: R2Bucket; MEDIA: R2Bucket; ROOT_DOMAIN: string },
   input: { siteId: string; reviewer: string; expectedTakenDownAt: number; now: number },
-): Promise<{ liveUrl: string; missingPhotos: number }> {
+): Promise<{ liveUrl: string; missingPhotos: number; healed: boolean }> {
   const { siteId, now } = input;
   const token = await acquireLease(env.DB, siteId, now, "site_not_found");
   try {
@@ -133,15 +137,21 @@ function readLiveSite(db: D1Database, siteId: string): Promise<LiveSiteRow | nul
 async function restoreUnderLease(
   env: { DB: D1Database; LIVE: R2Bucket; WORK: R2Bucket; MEDIA: R2Bucket; ROOT_DOMAIN: string },
   input: { siteId: string; reviewer: string; expectedTakenDownAt: number; now: number; token: string },
-): Promise<{ liveUrl: string; missingPhotos: number }> {
+): Promise<{ liveUrl: string; missingPhotos: number; healed: boolean }> {
   const { siteId, reviewer, expectedTakenDownAt, now, token } = input;
   const db = env.DB;
   const site = await readLiveSite(db, siteId);
   if (site === null) throw new PublishError("site_not_found");
   const { slug, live_version_id: versionId, html_key: key, html_sha256: sha256, pages_json: pagesJson, document_json: documentJson } = site;
   if (slug === null || versionId === null || key === null || sha256 === null || pagesJson === null || documentJson === null) throw new PublishError("not_live");
-  // Already restored (by this admin's earlier call or another's): the normal result, nothing changed.
-  if (site.taken_down_at === null) return { liveUrl: siteUrl(env.ROOT_DOMAIN, slug), missingPhotos: await missingPhotos(env.MEDIA, env.ROOT_DOMAIN, documentJson) };
+  // Already restored (by this admin's earlier call or another's, or by a clear that committed and threw): the normal
+  // result. The pointer is checked first (under the lease): a missing or wrong one is healed, or the site would stay dark.
+  if (site.taken_down_at === null) {
+    const pointer = await env.LIVE.head(livePointerKey(slug));
+    const healed = pointer === null || pointer.customMetadata?.["versionId"] !== versionId;
+    if (healed) await copyAndPoint(env, { siteId, slug, versionId, key, sha256, pagesJson, documentJson, token });
+    return { liveUrl: siteUrl(env.ROOT_DOMAIN, slug), missingPhotos: await missingPhotos(env.MEDIA, env.ROOT_DOMAIN, documentJson), healed };
+  }
   // Taken down again since the admin's page was shown: the admin decides again, on a fresh page.
   if (site.taken_down_at !== expectedTakenDownAt) throw new PublishError("site_taken_down", { reason: "taken_down_again" });
 
@@ -164,7 +174,7 @@ async function restoreUnderLease(
     await pointerBack(); // the write may have landed before it rejected
     throw new PublishError("live_copy_failed", { versionId });
   }
-  let cleared: D1Result[];
+  let cleared: D1Result[] | null;
   try {
     cleared = await db.batch([
       db.prepare("UPDATE sites SET taken_down_at = NULL, takedown_reason = NULL, updated_at = ? WHERE id = ? AND taken_down_at = ? AND live_version_id = ? AND admin_lock = ?")
@@ -172,22 +182,82 @@ async function restoreUnderLease(
       auditIfChanged(db, { at: now, actor: `admin:${reviewer}`, action: "site.restored", siteId, detail: { versionId } }),
     ]);
   } catch (error) {
-    await pointerBack();
-    throw error;
+    // D1 can commit a batch and still throw (versions.ts): ask before taking the pointer out of a site that may be live.
+    let after: { taken_down_at: number | null; live_version_id: string | null } | null = null;
+    try {
+      after = await db.prepare("SELECT taken_down_at, live_version_id FROM sites WHERE id = ?").bind(siteId).first<{ taken_down_at: number | null; live_version_id: string | null }>();
+    } catch {
+      // Unconfirmed: treated as not committed (the admin restores again, which heals a pointer taken out of a live site).
+    }
+    if (after === null || after.taken_down_at !== null) {
+      await pointerBack();
+      throw error;
+    }
+    // Live with another version: only after a lost lease. That action's own pointer write decides, not this one.
+    if (after.live_version_id !== versionId) throw new PublishError("site_busy", { reason: "lease_lost" });
+    cleared = null; // the clear committed: keep the pointer
   }
-  if (cleared[0]?.meta.changes !== 1) {
+  if (cleared !== null && cleared[0]?.meta.changes !== 1) {
     await pointerBack();
     throw new PublishError("site_busy", { reason: "lease_lost" });
   }
   await removeOtherVersions(env.LIVE, db, slug, { siteId, versionId }, token);
-  return { liveUrl: siteUrl(env.ROOT_DOMAIN, slug), missingPhotos: await missingPhotos(env.MEDIA, env.ROOT_DOMAIN, documentJson) };
+  return { liveUrl: siteUrl(env.ROOT_DOMAIN, slug), missingPhotos: await missingPhotos(env.MEDIA, env.ROOT_DOMAIN, documentJson), healed: false };
+}
+
+/**
+ * The copy-and-point sequence of a LIVE site (copyLivePagesAgain, and restore's heal of an already-restored site), under
+ * the lease: the live version's pages, verified, back to LIVE; the lease checked; the pointer written; then, as approve
+ * does, a takedown re-read. A rejected put may still have landed (putRejected). A takedown by another admin can commit
+ * after the lease ran out: the re-read throws or says the site is down or gone: the pointer is taken back out (not
+ * lease-checked, as everywhere; logged ids-only if that fails) and the answer is live_copy_failed or site_taken_down.
+ * A put that landed and rejected on a live site leaves the pointer in place (the site is live and it names its live
+ * version): live_copy_failed, call it again.
+ */
+async function copyAndPoint(
+  env: { DB: D1Database; LIVE: R2Bucket; WORK: R2Bucket },
+  input: { siteId: string; slug: string; versionId: string; key: string; sha256: string; pagesJson: string; documentJson: string; token: string },
+): Promise<void> {
+  const { siteId, slug, versionId, key, sha256, pagesJson, documentJson, token } = input;
+  const db = env.DB;
+  const pages = await verifiedPages(env.WORK, { site_id: siteId, id: versionId, pages_json: pagesJson, html_key: key, html_sha256: sha256 });
+  await copyLivePages(env.LIVE, slug, { siteId, versionId }, pages);
+  await assertLease(db, siteId, token); // R2 cannot be conditioned on D1 (residual: see assertLease)
+  let putRejected = false;
+  try {
+    await writeLivePointer(env.LIVE, slug, { siteId, versionId, ...liveMetadata(documentJson) });
+  } catch {
+    putRejected = true; // the write may still have landed: the read below decides, in both cases
+  }
+  let after: { taken_down_at: number | null } | null;
+  try {
+    after = await db.prepare("SELECT taken_down_at FROM sites WHERE id = ?").bind(siteId).first<{ taken_down_at: number | null }>();
+  } catch {
+    try {
+      await env.LIVE.delete(livePointerKey(slug));
+    } catch {
+      console.error(JSON.stringify({ code: "pointer_unconfirmed", siteId, versionId }));
+    }
+    throw new PublishError("live_copy_failed", { versionId });
+  }
+  if (after === null || after.taken_down_at !== null) {
+    try {
+      await env.LIVE.delete(livePointerKey(slug));
+    } catch {
+      console.error(JSON.stringify({ code: "takedown_pointer_left", siteId, versionId }));
+    }
+    throw new PublishError("site_taken_down");
+  }
+  if (putRejected) throw new PublishError("live_copy_failed", { versionId });
+  await removeOtherVersions(env.LIVE, db, slug, { siteId, versionId }, token);
 }
 
 /**
  * Plan 4's "Copy the live pages again", under the site's lease (A16-4c): copies every page of the live version,
  * verified, back to LIVE and rewrites the pointer, for a site that is live (a taken-down site is site_taken_down:
  * Plan 4 answers 409; this never touches taken_down_at). It changes no D1 state and writes no audit row (Plan 4
- * may record the admin action itself). A rejected pointer write is live_copy_failed: call it again.
+ * may record the admin action itself). A rejected pointer write is live_copy_failed: call it again. After the pointer
+ * write it re-reads takedown (copyAndPoint): a site taken down meanwhile loses the pointer again.
  */
 export async function copyLivePagesAgain(
   env: { DB: D1Database; LIVE: R2Bucket; WORK: R2Bucket; ROOT_DOMAIN: string },
@@ -203,15 +273,7 @@ export async function copyLivePagesAgain(
     if (site.taken_down_at !== null) throw new PublishError("site_taken_down");
     if (slug === null || versionId === null || key === null || sha256 === null || pagesJson === null || documentJson === null) throw new PublishError("not_live");
 
-    const pages = await verifiedPages(env.WORK, { site_id: siteId, id: versionId, pages_json: pagesJson, html_key: key, html_sha256: sha256 });
-    await copyLivePages(env.LIVE, slug, { siteId, versionId }, pages);
-    await assertLease(db, siteId, token); // R2 cannot be conditioned on D1 (residual: see assertLease)
-    try {
-      await writeLivePointer(env.LIVE, slug, { siteId, versionId, ...liveMetadata(documentJson) });
-    } catch {
-      throw new PublishError("live_copy_failed", { versionId });
-    }
-    await removeOtherVersions(env.LIVE, db, slug, { siteId, versionId }, token);
+    await copyAndPoint(env, { siteId, slug, versionId, key, sha256, pagesJson, documentJson, token });
     return { liveUrl: siteUrl(env.ROOT_DOMAIN, slug) };
   } finally {
     await releaseLease(db, siteId, token);

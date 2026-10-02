@@ -399,6 +399,48 @@ describe("every fenced statement and every pointer re-check", () => {
       expect(await liveKeysOf(env.LIVE, p.slug)).toEqual([]);
     });
 
+    describe("a clear that throws (D1 can commit a batch and still throw)", () => {
+      const clears = (sql: string) => sql.includes("taken_down_at = NULL");
+      const timesOut = async ({ method, sql }: { method: string; sql: string }) => {
+        if (method === "batch" && clears(sql)) throw new Error("D1 timed out");
+      };
+
+      it("a clear that committed and then threw keeps the pointer and succeeds: live, one site.restored row, lease released", async () => {
+        const p = await downSite();
+        const db = watchDb(env.DB, async () => {}, timesOut);
+        const result = await back(p.siteId, 50, T0, { ...env, DB: db });
+        expect(result).toEqual({ liveUrl: `https://${p.slug}.asksite.example/`, missingPhotos: 0, healed: false });
+        expect((await env.LIVE.head(livePointerKey(p.slug)))?.customMetadata?.["versionId"]).toBe(p.versionId);
+        expect(await siteRow(env.DB, p.siteId)).toMatchObject({ taken_down_at: null, live_version_id: p.versionId });
+        expect((await auditActions(env.DB, p.siteId)).filter((a) => a === "site.restored")).toHaveLength(1);
+        expect(await lockOf(p.siteId)).toEqual({ admin_lock: null, admin_lock_until: null });
+      });
+
+      it("a clear that threw and a re-read that throws too: the pointer is taken back out, still down (it may have committed: the retry heals), the original error", async () => {
+        const p = await downSite();
+        const db = watchDb(env.DB, async ({ method, sql }) => {
+          if (method === "batch" && clears(sql)) throw new Error("D1 timed out");
+          if (method === "first" && sql.startsWith("SELECT taken_down_at, live_version_id FROM sites")) throw new Error("D1 is unavailable");
+        });
+        await expect(back(p.siteId, 50, T0, { ...env, DB: db })).rejects.toThrow("D1 timed out");
+        expect(await env.LIVE.head(livePointerKey(p.slug))).toBeNull();
+        expect(await siteRow(env.DB, p.siteId)).toMatchObject({ taken_down_at: 50 });
+      });
+
+      it("a clear that committed under a lost lease, with another version live: the pointer is left alone and it throws lease_lost", async () => {
+        const p = await downSite();
+        const other = newId();
+        const db = watchDb(env.DB, async () => {}, async ({ method, sql }) => {
+          if (method === "batch" && clears(sql)) {
+            await env.DB.prepare("UPDATE sites SET live_version_id = ? WHERE id = ?").bind(other, p.siteId).run();
+            throw new Error("D1 timed out");
+          }
+        });
+        expect(detailOf(await failure(back(p.siteId, 50, T0, { ...env, DB: db })))).toEqual(lost);
+        expect((await env.LIVE.head(livePointerKey(p.slug)))?.customMetadata?.["versionId"]).toBe(p.versionId);
+      });
+    });
+
     describe("a pointer write that rejects", () => {
       /** The pointer put runs on the real bucket (landing or not) and then rejects, as a timeout after the write would. */
       const rejectingPut = (slug: string, lands: boolean): R2Bucket => {
@@ -458,6 +500,71 @@ describe("every fenced statement and every pointer re-check", () => {
       expect(detailOf(await failure(again(p.siteId, T0, { ...env, DB: stealAtCheck(p.siteId, 1), LIVE: watchBucket(env.LIVE, undefined, calls) })))).toEqual(lost);
       expect(calls.filter((c) => c.call === "put" && isPointerKey(p.slug, c.arg))).toEqual([]);
     });
+
+    it("a takedown that commits between the pointer put and the re-read: the pointer is taken back out and it is site_taken_down", async () => {
+      const p = await liveSite();
+      const live = watchBucket(env.LIVE, async (call, arg) => {
+        if (call === "put" && isPointerKey(p.slug, arg)) await take(p.siteId, EXPIRED); // the lease outlived: the takedown's deletes ran before this put lands
+      });
+      expect((await failure(again(p.siteId, T0, { ...env, LIVE: live }))).code).toBe("site_taken_down");
+      expect(await env.LIVE.head(livePointerKey(p.slug))).toBeNull();
+      expect(await siteRow(env.DB, p.siteId)).toMatchObject({ taken_down_at: EXPIRED });
+    });
+
+    it("a re-read that throws takes the pointer out and is live_copy_failed", async () => {
+      const p = await liveSite();
+      const db = watchDb(env.DB, async ({ method, sql }) => {
+        if (method === "first" && sql.startsWith("SELECT taken_down_at FROM sites")) throw new Error("D1 is unavailable");
+      });
+      expect(detailOf(await failure(again(p.siteId, T0, { ...env, DB: db })))).toEqual({ code: "live_copy_failed", detail: { versionId: p.versionId } });
+      expect(await env.LIVE.head(livePointerKey(p.slug))).toBeNull();
+    });
+
+    it("a put that lands and rejects on a live site is live_copy_failed, and the pointer that landed stays (the site is live and it names its live version)", async () => {
+      const p = await liveSite();
+      const live = {
+        ...watchBucket(env.LIVE),
+        put: async (...args: Parameters<R2Bucket["put"]>) => {
+          const stored = await env.LIVE.put(...args);
+          if (isPointerKey(p.slug, args[0])) throw new Error("R2 timed out");
+          return stored;
+        },
+      } as unknown as R2Bucket;
+      expect(detailOf(await failure(again(p.siteId, T0, { ...env, LIVE: live })))).toEqual({ code: "live_copy_failed", detail: { versionId: p.versionId } });
+      expect((await env.LIVE.head(livePointerKey(p.slug)))?.customMetadata?.["versionId"]).toBe(p.versionId);
+    });
+  });
+});
+
+describe("restore of an already-restored site heals its pointer", () => {
+  const pointerOf = async (slug: string) => (await env.LIVE.head(livePointerKey(slug)))?.customMetadata;
+
+  it("a live site whose pointer is missing: the pointer is back with the right version and business, healed, no D1 change, no audit row", async () => {
+    const p = await liveSite();
+    const meta = await pointerOf(p.slug);
+    const before = await snapshot(p);
+    await env.LIVE.delete(livePointerKey(p.slug));
+    const result = await back(p.siteId, 12345, 70);
+    expect(await pointerOf(p.slug)).toEqual(meta);
+    expect(meta?.["versionId"]).toBe(p.versionId);
+    expect(result).toEqual({ liveUrl: `https://${p.slug}.asksite.example/`, missingPhotos: 0, healed: true });
+    expect(await snapshot(p)).toEqual(before);
+  });
+
+  it("a live site whose pointer names another version: rewritten, healed", async () => {
+    const p = await liveSite();
+    const meta = await pointerOf(p.slug);
+    await env.LIVE.put(livePointerKey(p.slug), "", { customMetadata: { ...meta, versionId: newId() } });
+    const result = await back(p.siteId, 1, 70);
+    expect(await pointerOf(p.slug)).toEqual(meta);
+    expect(result.healed).toBe(true);
+  });
+
+  it("a live site with a correct pointer: healed false and no LIVE write", async () => {
+    const p = await liveSite();
+    const calls: Array<{ call: string; arg: unknown }> = [];
+    expect((await back(p.siteId, 1, 70, { ...env, LIVE: watchBucket(env.LIVE, undefined, calls) })).healed).toBe(false);
+    expect(calls).toEqual([]);
   });
 });
 

@@ -14,22 +14,25 @@ interface Watched {
 /**
  * A D1 that runs `before` ahead of every call (and awaits it), then runs the call on the real database. The seam
  * is where a test runs the competing real function or changes a row, at an exact point of the action under test.
+ * `after` runs once the real call has resolved (its write is done) and may throw, as a D1 timeout after a commit would.
  */
-export function watchDb(db: D1Database, before: (call: D1Call) => Promise<void>): D1Database {
+export function watchDb(db: D1Database, before: (call: D1Call) => Promise<void>, after: (call: D1Call) => Promise<void> = async () => {}): D1Database {
+  const settle = async <T>(call: D1Call, result: T): Promise<T> => (await after(call), result);
   const wrap = (real: D1PreparedStatement, sql: string): D1PreparedStatement & Watched =>
     ({
       real,
       sql,
       bind: (...values: unknown[]) => wrap(real.bind(...values), sql),
-      run: async () => (await before({ sql, method: "run" }), real.run()),
-      first: async (column?: string) => (await before({ sql, method: "first" }), column === undefined ? real.first() : real.first(column)),
-      all: async () => (await before({ sql, method: "all" }), real.all()),
+      run: async () => (await before({ sql, method: "run" }), settle({ sql, method: "run" }, await real.run())),
+      first: async (column?: string) => (await before({ sql, method: "first" }), settle({ sql, method: "first" }, await (column === undefined ? real.first() : real.first(column)))),
+      all: async () => (await before({ sql, method: "all" }), settle({ sql, method: "all" }, await real.all())),
     }) as unknown as D1PreparedStatement & Watched;
   return {
     prepare: (sql: string) => wrap(db.prepare(sql), sql),
     batch: async (statements: Array<D1PreparedStatement & Watched>) => {
-      await before({ sql: statements.map((s) => s.sql).join(" ; "), method: "batch" });
-      return db.batch(statements.map((s) => s.real));
+      const call: D1Call = { sql: statements.map((s) => s.sql).join(" ; "), method: "batch" };
+      await before(call);
+      return settle(call, await db.batch(statements.map((s) => s.real)));
     },
   } as unknown as D1Database;
 }
