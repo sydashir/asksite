@@ -24,7 +24,7 @@ export function reviewRoutes(deps: AdminDeps): Hono<AdminEnv> {
   const reviews = new Hono<AdminEnv>();
 
   const publishError = (err: unknown): ApiError | null =>
-    err instanceof deps.publishing.PublishError ? publishApiError((err as PublishErrorLike).code, "review") : null;
+    err instanceof deps.publishing.PublishError ? publishApiError((err as PublishErrorLike).code, "review", (err as PublishErrorLike).detail) : null;
 
   /**
    * The owner email's mailer and APP_ORIGIN, checked before approve or reject changes anything, so a configuration

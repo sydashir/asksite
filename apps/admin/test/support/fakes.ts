@@ -1,7 +1,7 @@
 import type { Mailer } from "@asksite/app-common";
 import { livePageKey, livePointerKey, liveSitePrefix, pagesDigest, sha256Hex, siteUrl, versionPageKey, VersionPages, type SiteVersionRow } from "@asksite/core";
 import { formatPhone } from "@asksite/renderer";
-import { acquireLease, PublishError as RealPublishError, releaseLease, TAKEDOWN_REVIEW_NOTE } from "@asksite/publishing";
+import { acquireLease, assertLease, PublishError as RealPublishError, releaseLease, TAKEDOWN_REVIEW_NOTE } from "@asksite/publishing";
 import type { SiteDocument } from "@asksite/site-schema";
 import { fakeCreateMailer, toGenerationView } from "../../../app/test/support/fakes.ts";
 import type { AdminDeps, AdminGenerationDeps, AdminPublishingDeps, MailerEnv, PublishErrorCode } from "../../src/worker/deps.ts";
@@ -26,20 +26,31 @@ class FakePublishError extends Error {
 /**
  * A16-4c: one admin action per site at a time. The REAL lease functions (@asksite/publishing's acquireLease and releaseLease,
  * on the sites row's admin_lock) so a test can hold a site by writing admin_lock / admin_lock_until, as another action would;
- * the real PublishError is turned into this file's fake, which the admin routes recognise. Used by restore and copyLivePagesAgain.
+ * the real PublishError is turned into this file's fake, which the admin routes recognise. Used by approve, restore and
+ * copyLivePagesAgain; `run` gets the lease's token.
  */
-async function underLease<T>(db: D1Database, siteId: string, now: number, run: () => Promise<T>): Promise<T> {
+async function underLease<T>(db: D1Database, siteId: string, now: number, run: (token: string) => Promise<T>, missing: "site_not_found" | "version_not_pending" = "site_not_found"): Promise<T> {
   let token: string;
   try {
-    token = await acquireLease(db, siteId, now, "site_not_found");
+    token = await acquireLease(db, siteId, now, missing);
   } catch (err) {
     if (err instanceof RealPublishError) throw new FakePublishError(err.code, err.detail);
     throw err;
   }
   try {
-    return await run();
+    return await run(token);
   } finally {
     await releaseLease(db, siteId, token);
+  }
+}
+
+/** The real assertLease, as the fake's own error: a write to R2 is preceded by it (the real approve does so before its pointer write). */
+async function holdsLease(db: D1Database, siteId: string, token: string): Promise<void> {
+  try {
+    await assertLease(db, siteId, token);
+  } catch (err) {
+    if (err instanceof RealPublishError) throw new FakePublishError(err.code, err.detail);
+    throw err;
   }
 }
 
@@ -141,53 +152,63 @@ async function missingPhotos(env: { MEDIA: R2Bucket; ROOT_DOMAIN: string }, docu
   return (await Promise.all(keys.map((key) => env.MEDIA.head(key)))).filter((o) => o === null).length;
 }
 
+/** Approve's work once the site's lease is held (Plan 2's approveUnderLease). */
+async function approveUnderLease(env: Parameters<AdminPublishingDeps["approveVersion"]>[0], input: Parameters<AdminPublishingDeps["approveVersion"]>[1], token: string): ReturnType<AdminPublishingDeps["approveVersion"]> {
+  const row = await env.DB.prepare(
+    `SELECT v.id, v.site_id, v.html_sha256, v.pages_json, v.document_json, v.status, s.slug, s.pending_version_id, s.live_version_id, s.taken_down_at
+     FROM site_versions v JOIN sites s ON s.id = v.site_id WHERE v.id = ?`,
+  )
+    .bind(input.versionId)
+    .first<SiteVersionRow & { slug: string; pending_version_id: string | null; live_version_id: string | null; taken_down_at: number | null }>();
+  if (row === null) throw new FakePublishError("version_not_pending");
+  if (input.htmlSha256 !== row.html_sha256) throw new FakePublishError("integrity");
+  // As Plan 2: a version that will be refused copies nothing; the accepted retry is approved, live and not taken down.
+  const pendingOne = row.status === "pending" && row.pending_version_id === row.id;
+  const acceptedRetry = row.status === "approved" && row.live_version_id === row.id;
+  if (row.taken_down_at !== null) throw new FakePublishError("site_taken_down");
+  if (!pendingOne && !acceptedRetry) throw new FakePublishError("version_not_pending");
+  const ids = { siteId: row.site_id, versionId: row.id };
+  await copyPages(env.LIVE, row.slug, ids, await verifiedPages(env.WORK, row));
+  const [, version] = await env.DB.batch([
+    env.DB.prepare("UPDATE sites SET live_version_id = ?, pending_version_id = NULL, indexable = ?, updated_at = ? WHERE id = ? AND pending_version_id = ? AND taken_down_at IS NULL AND admin_lock = ?")
+      .bind(row.id, input.indexable ? 1 : 0, input.now, row.site_id, row.id, token),
+    env.DB.prepare("UPDATE site_versions SET status = 'approved', reviewed_by = ?, reviewed_at = ?, review_note = ? WHERE id = ? AND status = 'pending' AND EXISTS (SELECT 1 FROM sites WHERE id = ? AND live_version_id = ? AND admin_lock = ?)")
+      .bind(input.reviewer, input.now, input.note, row.id, row.site_id, row.id, token),
+    // Written only when the statement before it changed a row, so a retry logs nothing (Plan 2's auditIfChanged).
+    env.DB.prepare("INSERT INTO audit_log (at, actor, action, site_id, detail_json) SELECT ?, ?, ?, ?, ? WHERE changes() = 1")
+      .bind(input.now, `admin:${input.reviewer}`, "version.approved", row.site_id, JSON.stringify({ versionId: row.id, indexable: input.indexable })),
+  ]);
+  if (version?.meta.changes !== 1) {
+    await holdsLease(env.DB, row.site_id, token); // a fenced write that changed nothing under a lost lease is not "already live"
+    const now = await env.DB.prepare("SELECT v.status, s.live_version_id, s.taken_down_at FROM site_versions v JOIN sites s ON s.id = v.site_id WHERE v.id = ?")
+      .bind(row.id)
+      .first<{ status: string; live_version_id: string | null; taken_down_at: number | null }>();
+    const alreadyLive = now !== null && now.status === "approved" && now.live_version_id === row.id && now.taken_down_at === null;
+    if (!alreadyLive) throw new FakePublishError(now !== null && now.taken_down_at !== null ? "site_taken_down" : "version_not_pending");
+  }
+  await holdsLease(env.DB, row.site_id, token); // R2 cannot be conditioned on D1: the lease is checked right before the pointer write
+  // The approval is recorded: a failed pointer write now is live_copy_failed, and approving again finishes it.
+  try {
+    await writePointer(env.LIVE, row.slug, ids, row.document_json);
+  } catch {
+    throw new FakePublishError("live_copy_failed", { versionId: row.id });
+  }
+  const after = await env.DB.prepare("SELECT taken_down_at FROM sites WHERE id = ?").bind(row.site_id).first<{ taken_down_at: number | null }>();
+  if (after === null || after.taken_down_at !== null) {
+    await env.LIVE.delete(livePointerKey(row.slug)).catch(() => undefined);
+    throw new FakePublishError("site_taken_down");
+  }
+  await removeOtherVersions(env.LIVE, row.slug, row.id);
+  return { siteId: row.site_id, slug: row.slug, liveUrl: siteUrl(env.ROOT_DOMAIN, row.slug) };
+}
+
 export const fakeAdminPublishing: AdminPublishingDeps = {
   PublishError: FakePublishError,
   async approveVersion(env, input) {
-    const row = await env.DB.prepare(
-      `SELECT v.id, v.site_id, v.html_sha256, v.pages_json, v.document_json, v.status, s.slug, s.pending_version_id, s.live_version_id, s.taken_down_at
-       FROM site_versions v JOIN sites s ON s.id = v.site_id WHERE v.id = ?`,
-    )
-      .bind(input.versionId)
-      .first<SiteVersionRow & { slug: string; pending_version_id: string | null; live_version_id: string | null; taken_down_at: number | null }>();
-    if (row === null) throw new FakePublishError("version_not_pending");
-    if (input.htmlSha256 !== row.html_sha256) throw new FakePublishError("integrity");
-    // As Plan 2: a version that will be refused copies nothing; the accepted retry is approved, live and not taken down.
-    const pendingOne = row.status === "pending" && row.pending_version_id === row.id;
-    const acceptedRetry = row.status === "approved" && row.live_version_id === row.id;
-    if (row.taken_down_at !== null) throw new FakePublishError("site_taken_down");
-    if (!pendingOne && !acceptedRetry) throw new FakePublishError("version_not_pending");
-    const ids = { siteId: row.site_id, versionId: row.id };
-    await copyPages(env.LIVE, row.slug, ids, await verifiedPages(env.WORK, row));
-    const [, version] = await env.DB.batch([
-      env.DB.prepare("UPDATE sites SET live_version_id = ?, pending_version_id = NULL, indexable = ?, updated_at = ? WHERE id = ? AND pending_version_id = ? AND taken_down_at IS NULL")
-        .bind(row.id, input.indexable ? 1 : 0, input.now, row.site_id, row.id),
-      env.DB.prepare("UPDATE site_versions SET status = 'approved', reviewed_by = ?, reviewed_at = ?, review_note = ? WHERE id = ? AND status = 'pending' AND EXISTS (SELECT 1 FROM sites WHERE id = ? AND live_version_id = ?)")
-        .bind(input.reviewer, input.now, input.note, row.id, row.site_id, row.id),
-      // Written only when the statement before it changed a row, so a retry logs nothing (Plan 2's auditIfChanged).
-      env.DB.prepare("INSERT INTO audit_log (at, actor, action, site_id, detail_json) SELECT ?, ?, ?, ?, ? WHERE changes() = 1")
-        .bind(input.now, `admin:${input.reviewer}`, "version.approved", row.site_id, JSON.stringify({ versionId: row.id, indexable: input.indexable })),
-    ]);
-    if (version?.meta.changes !== 1) {
-      const now = await env.DB.prepare("SELECT v.status, s.live_version_id, s.taken_down_at FROM site_versions v JOIN sites s ON s.id = v.site_id WHERE v.id = ?")
-        .bind(row.id)
-        .first<{ status: string; live_version_id: string | null; taken_down_at: number | null }>();
-      const alreadyLive = now !== null && now.status === "approved" && now.live_version_id === row.id && now.taken_down_at === null;
-      if (!alreadyLive) throw new FakePublishError(now !== null && now.taken_down_at !== null ? "site_taken_down" : "version_not_pending");
-    }
-    // The approval is recorded: a failed pointer write now is live_copy_failed, and approving again finishes it.
-    try {
-      await writePointer(env.LIVE, row.slug, ids, row.document_json);
-    } catch {
-      throw new FakePublishError("live_copy_failed", { versionId: row.id });
-    }
-    const after = await env.DB.prepare("SELECT taken_down_at FROM sites WHERE id = ?").bind(row.site_id).first<{ taken_down_at: number | null }>();
-    if (after === null || after.taken_down_at !== null) {
-      await env.LIVE.delete(livePointerKey(row.slug)).catch(() => undefined);
-      throw new FakePublishError("site_taken_down");
-    }
-    await removeOtherVersions(env.LIVE, row.slug, row.id);
-    return { siteId: row.site_id, slug: row.slug, liveUrl: siteUrl(env.ROOT_DOMAIN, row.slug) };
+    // As Plan 2: the site's lease is taken first (a held site is site_busy), and every write below carries its token.
+    const owner = await env.DB.prepare("SELECT site_id FROM site_versions WHERE id = ?").bind(input.versionId).first<{ site_id: string }>();
+    if (owner === null) throw new FakePublishError("version_not_pending");
+    return underLease(env.DB, owner.site_id, input.now, (token) => approveUnderLease(env, input, token), "version_not_pending");
   },
   async rejectVersion(env, input) {
     const version = await env.DB.prepare("SELECT site_id FROM site_versions WHERE id = ? AND status = 'pending'").bind(input.versionId).first<{ site_id: string }>();

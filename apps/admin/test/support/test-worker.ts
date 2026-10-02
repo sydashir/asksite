@@ -1,4 +1,4 @@
-import { newId } from "@asksite/core";
+import { livePageKey, livePointerKey, newId } from "@asksite/core";
 import { Facts, SiteDocument } from "@asksite/site-schema";
 import { Hono } from "hono";
 import { createLocalJWKSet, type JSONWebKeySet } from "jose";
@@ -91,6 +91,19 @@ helpers.post("/__test/sites", async (c) => {
   return c.json({ ownerId, siteId, versionId: version.id, htmlSha256: row?.html_sha256 });
 });
 
+/**
+ * What the sites Worker would find in LIVE for a slug: the pointer's version id (null when there is no pointer: every page is then
+ * "not found") and whether that version's home page is stored under its own LIVE key. There is no sites Worker in these e2e runs, so
+ * this reads the same two objects it reads (pointer, then page), nothing else.
+ */
+helpers.get("/__test/live/:slug", async (c) => {
+  const slug = c.req.param("slug");
+  const pointer = await c.env.LIVE.head(livePointerKey(slug));
+  const versionId = pointer?.customMetadata?.["versionId"] ?? null;
+  const home = versionId === null ? null : await c.env.LIVE.head(livePageKey(slug, versionId, "home"));
+  return c.json({ pointerVersionId: versionId, homeStored: home !== null });
+});
+
 // The Worker's types declare no `process` (tsconfig.worker.json has no Node types), so the probe below
 // declares it for this file only; the bundler erases the declaration and the name is looked up in the runtime.
 declare const process: unknown;
@@ -159,7 +172,7 @@ function disablingBeforeTokenInsert(db: D1Database, ownerId: string): D1Database
 }
 
 /** The faults a request can be given (header X-Test-Takedown-Fault), each thrown as a plain Error, never a PublishError. */
-type TakedownFault = "pointer-delete" | "before-commit" | "prefix-delete" | "prefix-delete-once" | "prefix-delete-reread" | "pointer-write";
+type TakedownFault = "pointer-delete" | "before-commit" | "prefix-delete" | "prefix-delete-once" | "prefix-delete-reread" | "pointer-write" | "lease-lost-after-batch";
 
 /**
  * Faults at the real failure points of Plan 2's takeDown order (pointer delete, D1 batch, prefix delete) and of approve's
@@ -168,6 +181,8 @@ type TakedownFault = "pointer-delete" | "before-commit" | "prefix-delete" | "pre
  * LIVE.delete of a list of keys (the prefix delete, which runs AFTER the D1 batch committed); "prefix-delete-once" fails only
  * the first of them (the route's retry succeeds); "prefix-delete-reread" is "prefix-delete" and also fails the route's re-read
  * of taken_down_at; "pointer-write" fails the LIVE.put of a pointer (a key with no "/"), which approve reports as live_copy_failed.
+ * "lease-lost-after-batch" runs the D1 batch and then frees the site's admin lease, as an action that ran past its lease would find it
+ * (approve then answers lease_lost with the approval committed and no pointer written).
  * Every other call passes through.
  */
 function withFault(env: TestEnv, fault: TakedownFault): TestEnv {
@@ -195,6 +210,13 @@ function withFault(env: TestEnv, fault: TakedownFault): TestEnv {
   const db = new Proxy(env.DB, {
     get(target, key) {
       if (key === "batch" && fault === "before-commit") return () => Promise.reject(new Error("D1 batch failed"));
+      if (key === "batch" && fault === "lease-lost-after-batch") {
+        return async (statements: D1PreparedStatement[]) => {
+          const results = await target.batch(statements);
+          await target.prepare("UPDATE sites SET admin_lock = NULL, admin_lock_until = NULL").run();
+          return results;
+        };
+      }
       if (key === "prepare" && fault === "prefix-delete-reread") {
         return (sql: string) => {
           if (sql.startsWith("SELECT taken_down_at FROM sites")) throw new Error("D1 read failed");

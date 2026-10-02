@@ -48,6 +48,10 @@ describe("publishApiError", () => {
       expect(publishApiError("site_taken_down", "copy")).toMatchObject({ code: "conflict", message: "This site is taken down, so there is nothing to copy. Reload to see where it stands now." });
     });
 
+    it("Copy the live pages again on a site that is not live is a 409 with its final period", () => {
+      expect(publishApiError("not_live", "copy")).toMatchObject({ code: "conflict", message: "This site is not live, so there is nothing to copy." });
+    });
+
     it("live_copy_failed has its own text for Restore and for Copy the live pages again", () => {
       expect(publishApiError("live_copy_failed", "restore")?.message).toBe("The site is still offline: its pages could not be put back. Press Restore again.");
       expect(publishApiError("live_copy_failed", "copy")?.message).toBe("The pages could not be copied again. Press Copy the live pages again.");

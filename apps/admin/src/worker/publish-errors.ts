@@ -34,7 +34,7 @@ export function publishApiError(code: PublishErrorCode, action: PublishAction, d
       if (action === "copy") return new ApiError("conflict", "This site is taken down, so there is nothing to copy. Reload to see where it stands now.");
       return new ApiError("site_taken_down", action === "restore" && detailField(detail, "reason") === "taken_down_again" ? TAKEN_DOWN_AGAIN : "This site is taken down");
     case "not_live":
-      return new ApiError("conflict", action === "copy" ? "This site is not live, so there is nothing to copy" : "This site was never live, so there is nothing to restore");
+      return new ApiError("conflict", action === "copy" ? "This site is not live, so there is nothing to copy." : "This site was never live, so there is nothing to restore");
     case "integrity":
       if (action === "copy") return new ApiError("internal", "The stored pages don't match what was approved, so nothing was copied.");
       return new ApiError(
