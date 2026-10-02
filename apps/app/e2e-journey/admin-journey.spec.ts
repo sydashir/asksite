@@ -69,7 +69,7 @@ async function build(page: Page, siteId: string): Promise<Generation> {
 }
 
 test("the admin rejects, approves twice, takes the site down with its photos, and restores it", async ({ browser }, testInfo) => {
-  test.setTimeout(300_000); // the restore step waits out the sites Worker's 60 s edge copy once
+  test.setTimeout(300_000); // the chromium project's restore step waits out the sites Worker's 60 s edge copy
   const context = await browser.newContext({ ignoreHTTPSErrors: true, viewport: testInfo.project.use.viewport ?? null });
   const owner = await context.newPage();
   const adminContext = await browser.newContext({ ignoreHTTPSErrors: true });
@@ -144,8 +144,11 @@ test("the admin rejects, approves twice, takes the site down with its photos, an
   // sites Worker keeps a copy of each for 60 s; wait that out, so every 200 below comes from the restored pages.
   const restored = await json<{ liveUrl: string; missingPhotos: number }>(await adminApi(admin, "POST", `/api/admin/sites/${siteId}/restore`, {}));
   expect(restored).toEqual({ liveUrl: live, missingPhotos: 2 });
-  await waitOutEdgeCopy(liveV3.fetchedAt);
-  await expectLive(owner.request, slug, v3.pages);
+  // The wait and the hash check are about the sites Worker, not the browser: one project does them, once per run.
+  if (testInfo.project.name === "chromium-1280") {
+    await waitOutEdgeCopy(liveV3.fetchedAt);
+    await expectLive(owner.request, slug, v3.pages);
+  }
 
   await context.close();
   await adminContext.close();
