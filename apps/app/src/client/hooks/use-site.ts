@@ -43,6 +43,10 @@ export function useSite(siteId: string) {
   // The AI draft the editor shows: the generation an edit's wording and order are bound to.
   const aiRef = useRef<CurrentAi | null>(null);
   const [locked, setLocked] = useState(false);
+  // A rewrite the server named when it refused a wording save: the editor takes it (clearFoundRewrite) and follows it.
+  const [foundRewrite, setFoundRewrite] = useState<string | null>(null);
+  // Set when a save during a rewrite was sent without the wording the owner's draft still holds (the server replaces its edits whole).
+  const wordingHeldBack = useRef(false);
 
   /**
    * Takes only the AI's wording (and the counters beside it) from the server's newest view. The owner's local draft and the
@@ -73,17 +77,25 @@ export function useSite(siteId: string) {
   /** Resolves true once the AI's wording is refreshed (refreshFresh). */
   const refreshAi = useCallback(async (): Promise<boolean> => (await refreshFresh()) !== null, [refreshFresh]);
 
-  /** Taken only after a refused save: refreshes the AI wording (refreshFresh) and tries once more without the stale wording and order. */
+  /**
+   * Taken only after a refused save: refreshes the AI wording (refreshFresh) and tries once more without the refused wording and order.
+   * Two refusals carry that meaning: wording_changed (new wording has landed since this tab last loaded) and generation_in_progress
+   * (new wording is being written; the server keeps no wording or order change until it lands). In the second the rewrite is
+   * handed to the editor (foundRewrite), which locks wording and order and follows it like one started in this tab.
+   */
   const saveDraft = useCallback<SendPatch>(async (rev, patch) => {
     const send = (body: DraftPatch) => api<{ rev: number; issues: SiteView["issues"] }>("PATCH", `/api/sites/${siteId}/draft`, { rev, ...body });
     let saved = await send(patch);
     let wordingDropped = false;
-    // New wording arrived since this tab last loaded: the server refused the wording or order change and stored nothing (the rev is untouched).
-    // Hidden sections and the look carry over, so the rest of the save goes through on the new wording; the owner is told the change is gone.
-    if (!saved.ok && saved.error.code === "wording_changed" && patch.edits !== undefined) {
+    // The server stored nothing and left the rev untouched. Hidden sections and the look carry over, so the rest of the save goes
+    // through on the newest wording; the owner is told the wording or order change is gone.
+    if (!saved.ok && (saved.error.code === "wording_changed" || saved.error.code === "generation_in_progress") && patch.edits !== undefined) {
+      const rewriting = saved.error.code === "generation_in_progress";
       const fresh = await refreshFresh();
       if (fresh !== null && fresh.ai !== null) {
-        saved = await send({ ...patch, edits: editsForAi({ generationId: fresh.ai.generationId, draft: fresh.ai.draft }, patch.edits) });
+        if (rewriting && fresh.activeGeneration?.kind === "regenerate") setFoundRewrite(fresh.activeGeneration.id);
+        if (rewriting) wordingHeldBack.current = true;
+        saved = await send({ ...patch, edits: { ...patch.edits, baseGenerationId: fresh.ai.generationId, copy: {}, order: null } });
         wordingDropped = true;
       }
     }
@@ -98,9 +110,9 @@ export function useSite(siteId: string) {
   const reload = useCallback(async () => {
     // Save what is typed first (after a conflict this does nothing: the reload shows the newer version on purpose).
     // A save that failed keeps the draft and the saver as they are: the not-saved warning stays and nothing is replaced.
+    // saveNow, never flush: a reload is not a leave, so it never uses up the stop a drop owes the owner (the notice is carried instead).
     const current = saverRef.current;
-    // A save that dropped the owner's wording stops this once ("dropped"): the notice shows, and the next Reload goes on.
-    if (current !== null && !mayReplaceDraft((await current.flush()) === true, current.currentStatus)) return null;
+    if (current !== null && !mayReplaceDraft(await current.saveNow(), current.currentStatus)) return null;
     // Wait for a save the previous page started as it closed.
     await leaving.get(siteId);
     const res = await api<SiteView>("GET", `/api/sites/${siteId}`);
@@ -108,10 +120,12 @@ export function useSite(siteId: string) {
       setLoad({ state: "error", message: res.error.message, status: res.status });
       return null;
     }
+    // A drop the owner has not seen (also one found just before a conflict) is carried to the new saver, which shows it first.
+    const carried = saverRef.current?.hasUnseenDrop === true;
     saverRef.current?.dispose();
     saverRef.current = new AutoSaver(res.data.rev, saveDraft, setSaverState);
     setSaverState({ status: "idle", rev: res.data.rev, issues: res.data.issues });
-    if (droppedOnLeave.delete(siteId)) saverRef.current.restoreDrop();
+    if (droppedOnLeave.delete(siteId) || carried) saverRef.current.restoreDrop();
     draftRef.current = { facts: res.data.facts, brief: res.data.brief, edits: res.data.edits };
     aiRef.current = res.data.ai === null ? null : { generationId: res.data.ai.generationId, draft: res.data.ai.draft };
     setDraft(draftRef.current);
@@ -167,9 +181,17 @@ export function useSite(siteId: string) {
   const retry = useCallback(async (): Promise<boolean> => (saverRef.current === null ? true : saverRef.current.saveNow()), []);
   /** The owner has seen the "wording wasn't applied" notice. */
   const dismissDrop = useCallback(() => saverRef.current?.acknowledgeDrop(), []);
+  /** The editor took the rewrite the server named (foundRewrite). */
+  const clearFoundRewrite = useCallback(() => setFoundRewrite(null), []);
+  /** A rewrite failed: wording edits that a save during it left out are saved again, so the owner's earlier wording is not lost. */
+  const restoreWording = useCallback(() => {
+    if (!wordingHeldBack.current) return;
+    wordingHeldBack.current = false;
+    update((current) => ({ edits: current.edits }));
+  }, [update]);
   const rev = () => saverRef.current?.currentRev ?? 0;
 
-  return { load, draft, saver, locked, update, exclusive, flush, retry, dismissDrop, reload, refreshAi, rev };
+  return { load, draft, saver, locked, update, exclusive, flush, retry, dismissDrop, reload, refreshAi, rev, foundRewrite, clearFoundRewrite, restoreWording };
 }
 
 export type SiteState = ReturnType<typeof useSite>;

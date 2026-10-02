@@ -153,3 +153,34 @@ describe("useSite wording_changed with another change in the same run", () => {
     await unmount();
   });
 });
+
+// STRICT (customer data), R2: a drop, then a conflict in the same run. The conflict's Reload replaces the saver, so the notice the owner
+// has not seen must be carried to the new one.
+describe("useSite.reload after a dropped wording change", () => {
+  it("carries the unseen notice to the reloaded draft, when the run went on to a conflict", async () => {
+    let patches = 0;
+    const { site, unmount } = await mount((method) => {
+      if (method !== "PATCH") return json(seenBy("g2", {}));
+      patches += 1;
+      if (patches === 1) return json({ error: { code: "wording_changed", message: "New wording arrived." } }, 409);
+      if (patches === 2) return json({ rev: 2, issues: NO_ISSUES });
+      return json({ error: { code: "conflict", message: "Changed elsewhere." } }, 409);
+    }, seenBy("g1", {}));
+    act(() => site().update((current) => ({ edits: { ...current.edits, copy: { ctaText: "Mine" } } })));
+    await act(async () => {
+      await site().retry();
+    });
+    expect(site().saver).toMatchObject({ status: "saved", wordingDropped: true });
+    act(() => site().update(() => ({ facts: { typed: "later" } })));
+    await act(async () => {
+      await site().retry();
+    });
+    expect(site().saver.status).toBe("conflict");
+
+    await act(async () => {
+      await site().reload();
+    });
+    expect(site().saver).toMatchObject({ status: "idle", wordingDropped: true });
+    await unmount();
+  });
+});

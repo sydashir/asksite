@@ -88,17 +88,25 @@ export class AutoSaver {
 
   /**
    * saveNow for an action that leaves the editor (Publish, Messages, reload, a link). When the owner's wording change was dropped
-   * and they have not been told yet, it answers "dropped" ONCE so the action stops; the next attempt clears the notice and goes on.
+   * and they have not been told yet, it answers "dropped" so the action stops; an attempt that STARTS after the owner was stopped once
+   * (and is not itself the one that found the drop) clears the notice and goes on. Whether this is the second attempt is decided
+   * before anything is awaited: a double click runs two flushes over one save, and both of them stop.
    */
   async flush(): Promise<FlushResult> {
+    const secondAttempt = this.wordingDropped && this.stopped;
     if (!(await this.saveNow())) return false;
     if (!this.wordingDropped) return true;
-    if (!this.stopped) {
-      this.stopped = true;
-      return "dropped";
+    if (secondAttempt) {
+      this.acknowledgeDrop();
+      return true;
     }
-    this.acknowledgeDrop();
-    return true;
+    this.stopped = true;
+    return "dropped";
+  }
+
+  /** Whether a drop is up that the owner has not dismissed: a replacement saver must carry it (restoreDrop) or it is lost. */
+  get hasUnseenDrop(): boolean {
+    return this.wordingDropped;
   }
 
   /** The owner has seen the notice (dismissed it, or tried again): it goes, and nothing stops them again for this drop. */

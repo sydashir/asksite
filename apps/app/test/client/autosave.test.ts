@@ -203,4 +203,18 @@ describe("AutoSaver wording notice", () => {
     fail = false;
     expect(await saver.flush()).toBe("dropped");
   });
+
+  // R1: a double click runs two flushes over one save. Both are "already in flight" when the drop is found, so both stop; the second
+  // never reads the first's stop as "the owner has seen it".
+  it("two flushes over one in-flight save that drops the wording both answer 'dropped', and the next attempt goes on", async () => {
+    let release!: (r: SaveResult) => void;
+    const { saver } = setup(() => new Promise<SaveResult>((r) => (release = r)));
+    saver.change({ facts: { a: 1 } });
+    const first = saver.flush();
+    const second = saver.flush();
+    await Promise.resolve();
+    release({ ok: true, rev: 2, issues: NO_ISSUES, wordingDropped: true });
+    expect([await first, await second]).toEqual(["dropped", "dropped"]);
+    expect(await saver.flush()).toBe(true);
+  });
 });

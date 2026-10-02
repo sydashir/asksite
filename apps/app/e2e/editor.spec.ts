@@ -1,7 +1,7 @@
 import { PALETTES } from "@asksite/renderer";
 import { expect, test, type Browser, type Page } from "@playwright/test";
 import { sheetsChunk } from "./dist-assets.ts";
-import { acceptInvite, apiCall, APP, BRIEF, builtSite, expectAccessible, expectNoSidewaysScroll, FACTS, finishGeneration, showPreview, watchCsp } from "./support.ts";
+import { acceptInvite, apiCall, APP, BRIEF, builtSite, expectAccessible, expectNoSidewaysScroll, FACTS, finishGeneration, showPreview, uniqueSlug, watchCsp } from "./support.ts";
 
 const FRAME = 'iframe[title="Preview of your website"]';
 const previewHtml = (page: Page) => page.locator(FRAME).getAttribute("srcdoc");
@@ -818,4 +818,129 @@ test("a failed rewrite lifts the lock and says so", async ({ page }) => {
   await expect(page.getByText(WRITING_LOCK)).toHaveCount(0);
   await headlineField(page).fill("Typed after the failure");
   await expect(savedStatus(page)).toBeVisible();
+});
+
+// STRICT (customer data, guard round 3): one rule for a dropped wording change. Nothing leaves over it unseen, on any page, and no action
+// says "not saved yet" for it.
+const NOT_SAVED_YET = /not saved yet/;
+
+/** Leaves the editor the way the browser's Back does (no leave guard), by the app's own route change. */
+const goBackTo = (page: Page, path: string) =>
+  page.evaluate((to) => {
+    history.pushState(null, "", to);
+    window.dispatchEvent(new PopStateEvent("popstate"));
+  }, path);
+
+/** Tab A's headline change is refused (tab B's new wording landed); its notice is up. */
+async function staleTabDropped(page: Page, browser: Browser) {
+  const stale = await staleTab(page, browser);
+  await headlineField(page).fill("My own headline");
+  await expect(page.getByRole("status").filter({ hasText: WORDING_DROPPED })).toBeVisible();
+  return stale;
+}
+
+// R6 (server refusal, two tabs): a tab opened BEFORE the rewrite started saves wording while it runs; the server refuses it.
+test("a tab opened before another tab's rewrite cannot save wording while it runs: it is locked, told, and nothing is stored", async ({ page, browser }) => {
+  const siteId = await openEditor(page);
+  const first = await aiGenerationId(page, siteId);
+  const other = await browser.newContext({ baseURL: APP, ignoreHTTPSErrors: true, storageState: await page.context().storageState() });
+  const tabB = await other.newPage();
+  await tabB.goto(`/sites/${siteId}/edit`);
+  const id = await askNewWording(tabB, siteId); // queued: the new wording has not landed
+
+  await headlineField(page).fill("My own headline");
+  await expect(page.getByText(WRITING_LOCK)).toBeVisible();
+  await expect(page.getByRole("status").filter({ hasText: WORDING_DROPPED })).toBeVisible();
+  await expect(savedStatus(page)).toHaveCount(0);
+  const stored = (await siteView(page, siteId))["edits"] as { baseGenerationId: string | null; copy: object };
+  expect(stored.baseGenerationId).toBe(first);
+  expect(stored.copy).toEqual({});
+  // Words are locked now: typing changes nothing.
+  const typed = headlineField(page);
+  await typed.focus();
+  const shown = await typed.inputValue();
+  await page.keyboard.type("Lost");
+  await expect(typed).toHaveValue(shown);
+
+  await finishGeneration(tabB.request, id);
+  await expect(page.getByText("New wording is ready.")).toBeVisible({ timeout: 15_000 });
+  await other.close();
+  await page.getByRole("button", { name: "Dismiss" }).click();
+  await headlineField(page).fill("Typed when it was ready");
+  await expect(savedStatus(page)).toBeVisible();
+  const again = (await siteView(page, siteId))["edits"] as { baseGenerationId: string | null; copy: { heroHeadline?: string } };
+  expect(again.baseGenerationId).not.toBe(first);
+  expect(again.copy.heroHeadline).toBe("Typed when it was ready");
+});
+
+// R3: the Details tab's address Save is not a leave. It saves the address and never uses up the stop owed to the owner.
+test("saving the web address after a dropped wording change saves it, keeps the notice, and Publish still stops once", async ({ page, browser }) => {
+  const { siteId } = await staleTabDropped(page, browser);
+  const slug = uniqueSlug("moved");
+  await page.getByRole("tab", { name: "Details" }).click();
+  await page.getByLabel("Which answers?").selectOption({ label: "Your web address" });
+  await page.getByLabel("Web address").fill(slug);
+  await expect(page.getByText("This address is free. Save it to keep it.")).toBeVisible();
+  await page.getByRole("button", { name: "Save this web address" }).click();
+  await expect.poll(async () => (await siteView(page, siteId))["slug"]).toBe(slug);
+  await expect(page.getByText(NOT_SAVED_YET)).toHaveCount(0);
+  const notice = page.getByRole("status").filter({ hasText: WORDING_DROPPED });
+  await expect(notice).toBeVisible();
+
+  const publish = page.getByRole("link", { name: "Publish" });
+  await publish.click();
+  await expect(notice).toBeFocused();
+  expect(new URL(page.url()).pathname).toBe(`/sites/${siteId}/edit`);
+  await publish.click();
+  await page.waitForURL(`${APP}/sites/${siteId}/publish`);
+});
+
+// R4 (Publish): a drop carried out of the editor is shown on the Publish page, which stops once and never says "not saved yet".
+test("a dropped wording change carried to the Publish page is shown there with Dismiss, stops Publish once, and the second press goes on", async ({ page, browser }) => {
+  const { siteId } = await staleTabDropped(page, browser);
+  const posts: string[] = [];
+  page.on("request", (r) => r.method() === "POST" && r.url().endsWith("/publish-requests") && posts.push(r.url()));
+  await goBackTo(page, `/sites/${siteId}/publish`);
+  const notice = page.getByRole("status").filter({ hasText: WORDING_DROPPED });
+  await expect(notice).toBeVisible();
+  await expect(page.getByRole("button", { name: "Dismiss" })).toBeVisible();
+
+  const send = page.getByRole("button", { name: "Send for review" });
+  await send.click();
+  await expect(notice).toBeFocused();
+  await expect(page.getByText(NOT_SAVED_YET)).toHaveCount(0);
+  expect(posts).toEqual([]);
+
+  await send.click();
+  await expect(page.getByRole("status").filter({ hasText: "Sent for review." })).toBeVisible();
+  expect(posts).toHaveLength(1);
+});
+
+// R4 (Questionnaire): the same on a questionnaire step, which had no Dismiss.
+test("a dropped wording change carried to the questionnaire is shown there with Dismiss, and the first Save and continue stops", async ({ page, browser }) => {
+  const { siteId } = await staleTabDropped(page, browser);
+  await goBackTo(page, `/sites/${siteId}/setup/business`);
+  const notice = page.getByRole("status").filter({ hasText: WORDING_DROPPED });
+  await expect(notice).toBeVisible();
+  await expect(page.getByRole("button", { name: "Dismiss" })).toBeVisible();
+
+  const next = page.getByRole("button", { name: "Save and continue" });
+  await next.click();
+  await expect(notice).toBeFocused();
+  await expect(page.getByText(NOT_SAVED_YET)).toHaveCount(0);
+  expect(new URL(page.url()).pathname).toBe(`/sites/${siteId}/setup/business`);
+  await next.click();
+  await page.waitForURL(`${APP}/sites/${siteId}/setup/**`, { timeout: 15_000 });
+  expect(new URL(page.url()).pathname).not.toBe(`/sites/${siteId}/setup/business`);
+});
+
+// R5 (decision 37): the header link leaves on an ordinary failed save. In a conflict it must not be stuck.
+test("the header link home still works when saving has stopped on a conflict", async ({ page }) => {
+  const siteId = await openEditor(page);
+  const rev = (await siteView(page, siteId))["rev"] as number;
+  expect((await apiCall(page, "PATCH", `/api/sites/${siteId}/draft`, { rev, brief: { tone: "professional", goal: "call" } })).status).toBe(200);
+  await headlineField(page).fill("Typed in a stale tab");
+  await expect(page.getByText("This site changed in another tab or window.")).toBeVisible();
+  await page.getByRole("link", { name: "Your website", exact: true }).click();
+  await expect(page.getByRole("heading", { level: 1, name: "Your websites" })).toBeVisible();
 });

@@ -27,7 +27,7 @@ export function useRoute(): Route {
 const plainClick = (event: MouseEvent<HTMLAnchorElement>): boolean =>
   event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey;
 
-/** Set by a page that holds an unsaved draft: every plain link click (onLinkClick) waits for it, and goes only when it answers true. */
+/** Set by a page that holds an unsaved draft: every plain link click (onLinkClick) waits for it, and goes unless it answers false. */
 let leaveGuard: (() => Promise<boolean>) | null = null;
 export function setLeaveGuard(guard: (() => Promise<boolean>) | null): void {
   leaveGuard = guard;

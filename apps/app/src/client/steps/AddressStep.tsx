@@ -55,8 +55,9 @@ export function AddressStep({ siteId, view, site, facts, errors }: StepProps) {
     if (cannotSave) return;
     setSaving(true);
     await site.exclusive(async () => {
-      // The address is saved against the newest rev: if the owner's latest answers did not save, say so and stop.
-      if ((await site.flush()) !== true) {
+      // The address is saved against the newest rev: if the owner's latest answers did not save, say so and stop. Not a leave, so it
+      // uses saveNow: it never uses up the stop owed for a dropped wording change (the notice is carried through the reload instead).
+      if (!(await site.retry())) {
         setUnsaved(true);
         return;
       }

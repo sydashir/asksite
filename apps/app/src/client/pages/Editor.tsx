@@ -87,18 +87,27 @@ function EditorScreen(props: { siteId: string; site: SiteState; view: SiteView; 
     } else setLeaveMessage(NOT_SAVED);
   };
   const leave = linkAfter(site.flush, stopped);
-  // The header's link home leaves the editor too: the same save and stop first.
+  // The header's link home leaves the editor too: the same save first, and the same stop for a dropped wording change. An ordinary failed
+  // save does not stop it (decision 37: any other way of leaving still sends the unsaved changes), so "Your website" works in a conflict.
   const { flush } = site;
   const stoppedRef = useRef(stopped);
   stoppedRef.current = stopped;
   useEffect(() => {
     setLeaveGuard(async () => {
       const result = await flush();
-      if (result !== true) stoppedRef.current(result);
-      return result === true;
+      if (result === "dropped") stoppedRef.current(result);
+      return result !== "dropped";
     });
     return () => setLeaveGuard(null);
   }, [flush]);
+  // A save refused because another tab started a rewrite: this tab follows it and locks wording and order like the tab that started it.
+  const { foundRewrite, clearFoundRewrite, restoreWording } = site;
+  useEffect(() => {
+    if (foundRewrite === null) return;
+    clearFoundRewrite();
+    setRewriteMessage(REWRITING);
+    setRewriteId((current) => current ?? foundRewrite);
+  }, [foundRewrite, clearFoundRewrite]);
   const { generation } = useGeneration(siteId, rewriteId);
   const { props: stepProps } = useStepProps(siteId, site, view, draft, true, me.state === "ready" ? me.owner.email : null);
 
@@ -154,8 +163,9 @@ function EditorScreen(props: { siteId: string; site: SiteState; view: SiteView; 
     } else if (generation.status === "failed") {
       setRewriteId(null);
       setRewriteMessage("We could not write new wording this time. Your current wording is unchanged.");
+      restoreWording();
     }
-  }, [generation, rewriteId, refreshAi]);
+  }, [generation, rewriteId, refreshAi, restoreWording]);
 
   async function rewrite() {
     setConfirming(false);
