@@ -1,42 +1,121 @@
 import type { Mailer } from "@asksite/app-common";
-import { liveKey, sha256Hex, siteUrl, versionKey, type SiteVersionRow } from "@asksite/core";
+import { livePageKey, livePointerKey, liveSitePrefix, pagesDigest, sha256Hex, siteUrl, versionPageKey, VersionPages, type SiteVersionRow } from "@asksite/core";
+import { formatPhone } from "@asksite/renderer";
+import { TAKEDOWN_REVIEW_NOTE } from "@asksite/publishing";
+import type { SiteDocument } from "@asksite/site-schema";
 import { FakePublishError, fakeCreateMailer, toGenerationView } from "../../../app/test/support/fakes.ts";
 import type { AdminDeps, AdminGenerationDeps, AdminPublishingDeps, MailerEnv } from "../../src/worker/deps.ts";
 
-// Test stand-ins for the Plan 2 functions the admin calls (§7.2), following the documented steps
-// closely enough for this Worker's tests. The integration task swaps in @asksite/publishing.
+// Test stand-ins for the Plan 2 functions the admin calls (§7.2), following the documented steps (the A16 pointer
+// model: every page copied to its own LIVE key, one pointer per site switches them all) closely enough for this
+// Worker's tests, with the real core helpers for every key and hash so they cannot drift from Plan 2. The integration
+// task swaps in @asksite/publishing.
 
 const audit = (db: D1Database, at: number, reviewer: string, action: string, siteId: string, detail: Record<string, unknown> = {}) =>
   db.prepare("INSERT INTO audit_log (at, actor, action, site_id, detail_json) VALUES (?, ?, ?, ?, ?)").bind(at, `admin:${reviewer}`, action, siteId, JSON.stringify(detail));
 
-async function storedBytes(work: R2Bucket, key: string): Promise<string | null> {
-  const object = await work.get(key);
-  return object === null ? null : object.text();
+/** Every stored page of the version, proved against its row as Plan 2's verifiedPages does (the digest, then each page's bytes). */
+async function verifiedPages(work: R2Bucket, row: { site_id: string; id: string; pages_json: string; html_sha256: string }): Promise<Array<{ page: VersionPages[number]["page"]; sha256: string; bytes: string }>> {
+  const listed = VersionPages.safeParse(JSON.parse(row.pages_json || "null"));
+  if (!listed.success || (await pagesDigest(listed.data)) !== row.html_sha256) throw new FakePublishError("integrity");
+  return Promise.all(
+    listed.data.map(async ({ page, sha256 }) => {
+      const object = await work.get(versionPageKey(row.site_id, row.id, page));
+      const bytes = object === null ? null : await object.text();
+      if (bytes === null || (await sha256Hex(bytes)) !== sha256) throw new FakePublishError("integrity");
+      return { page, sha256, bytes };
+    }),
+  );
+}
+
+async function copyPages(live: R2Bucket, slug: string, ids: { siteId: string; versionId: string }, pages: Awaited<ReturnType<typeof verifiedPages>>): Promise<void> {
+  await Promise.all(
+    pages.map((p) =>
+      live.put(livePageKey(slug, ids.versionId, p.page), p.bytes, {
+        httpMetadata: { contentType: "text/html; charset=utf-8" },
+        customMetadata: { siteId: ids.siteId, versionId: ids.versionId, page: p.page, sha256: p.sha256 },
+      }),
+    ),
+  );
+}
+
+/** The one write that switches the site to a version: an empty object whose metadata names it and the business (Plan 2's writeLivePointer). */
+async function writePointer(live: R2Bucket, slug: string, ids: { siteId: string; versionId: string }, documentJson: string): Promise<void> {
+  const { facts } = JSON.parse(documentJson) as SiteDocument;
+  await live.put(livePointerKey(slug), "", { customMetadata: { ...ids, businessName: facts.businessName, phoneText: formatPhone(facts.phone), phoneTel: facts.phone } });
+}
+
+/** Deletes every object under the prefix, a listing page at a time, one array delete per page (as Plan 2's deletePrefix). */
+async function deletePrefix(bucket: R2Bucket, prefix: string, keep: (key: string) => boolean = () => false): Promise<number> {
+  let cursor: string | undefined;
+  let deleted = 0;
+  do {
+    const page = await bucket.list(cursor === undefined ? { prefix } : { prefix, cursor });
+    const doomed = page.objects.map((o) => o.key).filter((key) => !keep(key));
+    if (doomed.length > 0) await bucket.delete(doomed);
+    deleted += doomed.length;
+    cursor = page.truncated ? page.cursor : undefined;
+  } while (cursor !== undefined);
+  return deleted;
+}
+
+/** Best effort, as Plan 2's removeOtherVersions: the other versions' LIVE pages go; a failure leaves harmless orphans. */
+async function removeOtherVersions(live: R2Bucket, slug: string, versionId: string): Promise<void> {
+  const kept = `${liveSitePrefix(slug)}${versionId}/`;
+  try {
+    await deletePrefix(live, liveSitePrefix(slug), (key) => key.startsWith(kept));
+  } catch {
+    // orphans only
+  }
 }
 
 export const fakeAdminPublishing: AdminPublishingDeps = {
   PublishError: FakePublishError,
   async approveVersion(env, input) {
-    const version = await env.DB.prepare("SELECT v.*, s.slug FROM site_versions v JOIN sites s ON s.id = v.site_id WHERE v.id = ?")
+    const row = await env.DB.prepare(
+      `SELECT v.id, v.site_id, v.html_sha256, v.pages_json, v.document_json, v.status, s.slug, s.pending_version_id, s.live_version_id, s.taken_down_at
+       FROM site_versions v JOIN sites s ON s.id = v.site_id WHERE v.id = ?`,
+    )
       .bind(input.versionId)
-      .first<SiteVersionRow & { slug: string }>();
-    if (version === null) throw new FakePublishError("version_not_pending");
-    const html = await storedBytes(env.WORK, versionKey(version.site_id, version.id));
-    if (input.htmlSha256 !== version.html_sha256 || html === null || (await sha256Hex(html)) !== version.html_sha256) throw new FakePublishError("integrity");
-    const [site] = await env.DB.batch([
+      .first<SiteVersionRow & { slug: string; pending_version_id: string | null; live_version_id: string | null; taken_down_at: number | null }>();
+    if (row === null) throw new FakePublishError("version_not_pending");
+    if (input.htmlSha256 !== row.html_sha256) throw new FakePublishError("integrity");
+    // As Plan 2: a version that will be refused copies nothing; the accepted retry is approved, live and not taken down.
+    const pendingOne = row.status === "pending" && row.pending_version_id === row.id;
+    const acceptedRetry = row.status === "approved" && row.live_version_id === row.id;
+    if (row.taken_down_at !== null) throw new FakePublishError("site_taken_down");
+    if (!pendingOne && !acceptedRetry) throw new FakePublishError("version_not_pending");
+    const ids = { siteId: row.site_id, versionId: row.id };
+    await copyPages(env.LIVE, row.slug, ids, await verifiedPages(env.WORK, row));
+    const [, version] = await env.DB.batch([
       env.DB.prepare("UPDATE sites SET live_version_id = ?, pending_version_id = NULL, indexable = ?, updated_at = ? WHERE id = ? AND pending_version_id = ? AND taken_down_at IS NULL")
-        .bind(version.id, input.indexable ? 1 : 0, input.now, version.site_id, version.id),
+        .bind(row.id, input.indexable ? 1 : 0, input.now, row.site_id, row.id),
       env.DB.prepare("UPDATE site_versions SET status = 'approved', reviewed_by = ?, reviewed_at = ?, review_note = ? WHERE id = ? AND status = 'pending' AND EXISTS (SELECT 1 FROM sites WHERE id = ? AND live_version_id = ?)")
-        .bind(input.reviewer, input.now, input.note, version.id, version.site_id, version.id),
-      audit(env.DB, input.now, input.reviewer, "version.approved", version.site_id, { versionId: version.id }),
+        .bind(input.reviewer, input.now, input.note, row.id, row.site_id, row.id),
+      // Written only when the statement before it changed a row, so a retry logs nothing (Plan 2's auditIfChanged).
+      env.DB.prepare("INSERT INTO audit_log (at, actor, action, site_id, detail_json) SELECT ?, ?, ?, ?, ? WHERE changes() = 1")
+        .bind(input.now, `admin:${input.reviewer}`, "version.approved", row.site_id, JSON.stringify({ versionId: row.id, indexable: input.indexable })),
     ]);
-    if (site?.meta.changes !== 1) {
-      const now = await env.DB.prepare("SELECT live_version_id, taken_down_at FROM sites WHERE id = ?").bind(version.site_id).first<{ live_version_id: string | null; taken_down_at: number | null }>();
-      if (now?.taken_down_at !== null) throw new FakePublishError("site_taken_down");
-      if (now.live_version_id !== version.id) throw new FakePublishError("version_not_pending");
+    if (version?.meta.changes !== 1) {
+      const now = await env.DB.prepare("SELECT v.status, s.live_version_id, s.taken_down_at FROM site_versions v JOIN sites s ON s.id = v.site_id WHERE v.id = ?")
+        .bind(row.id)
+        .first<{ status: string; live_version_id: string | null; taken_down_at: number | null }>();
+      const alreadyLive = now !== null && now.status === "approved" && now.live_version_id === row.id && now.taken_down_at === null;
+      if (!alreadyLive) throw new FakePublishError(now !== null && now.taken_down_at !== null ? "site_taken_down" : "version_not_pending");
     }
-    await env.LIVE.put(liveKey(version.slug), html, { httpMetadata: { contentType: "text/html; charset=utf-8" }, customMetadata: { siteId: version.site_id, versionId: version.id, sha256: version.html_sha256 } });
-    return { siteId: version.site_id, slug: version.slug, liveUrl: siteUrl(env.ROOT_DOMAIN, version.slug) };
+    // The approval is recorded: a failed pointer write now is live_copy_failed, and approving again finishes it.
+    try {
+      await writePointer(env.LIVE, row.slug, ids, row.document_json);
+    } catch {
+      throw new FakePublishError("live_copy_failed", { versionId: row.id });
+    }
+    const after = await env.DB.prepare("SELECT taken_down_at FROM sites WHERE id = ?").bind(row.site_id).first<{ taken_down_at: number | null }>();
+    if (after === null || after.taken_down_at !== null) {
+      await env.LIVE.delete(livePointerKey(row.slug)).catch(() => undefined);
+      throw new FakePublishError("site_taken_down");
+    }
+    await removeOtherVersions(env.LIVE, row.slug, row.id);
+    return { siteId: row.site_id, slug: row.slug, liveUrl: siteUrl(env.ROOT_DOMAIN, row.slug) };
   },
   async rejectVersion(env, input) {
     const version = await env.DB.prepare("SELECT site_id FROM site_versions WHERE id = ? AND status = 'pending'").bind(input.versionId).first<{ site_id: string }>();
@@ -51,10 +130,13 @@ export const fakeAdminPublishing: AdminPublishingDeps = {
   async takeDown(env, input) {
     const site = await env.DB.prepare("SELECT slug, pending_version_id FROM sites WHERE id = ?").bind(input.siteId).first<{ slug: string | null; pending_version_id: string | null }>();
     if (site === null) throw new FakePublishError("site_not_found");
-    // As Plan 2 (main 1f7e86c, site-state.ts): the UPDATE only takes the site down while it is up, so the first reason is kept,
+    // Plan 2's order: (1) the LIVE pointer goes first, so every page stops at once (a failure here changes nothing in D1);
+    // (2) the D1 batch; (3) the pointer again and every LIVE object under <slug>/; (4) the media purge.
+    if (site.slug) await env.LIVE.delete(livePointerKey(site.slug));
+    // As Plan 2 (site-state.ts): the UPDATE only takes the site down while it is up, so the first reason is kept,
     // and the audit row is written only when that UPDATE changed a row (auditIfChanged, WHERE changes() = 1).
     const [, takenDown] = await env.DB.batch([
-      env.DB.prepare("UPDATE site_versions SET status = 'rejected', review_note = 'Site taken down' WHERE site_id = ? AND status = 'pending'").bind(input.siteId),
+      env.DB.prepare("UPDATE site_versions SET status = 'rejected', review_note = ? WHERE site_id = ? AND status = 'pending'").bind(TAKEDOWN_REVIEW_NOTE, input.siteId),
       env.DB.prepare("UPDATE sites SET taken_down_at = ?, takedown_reason = ?, pending_version_id = NULL WHERE id = ? AND taken_down_at IS NULL").bind(input.now, input.reason, input.siteId),
       env.DB.prepare("INSERT INTO audit_log (at, actor, action, site_id, detail_json) SELECT ?, ?, ?, ?, ? WHERE changes() = 1").bind(
         input.now,
@@ -64,7 +146,10 @@ export const fakeAdminPublishing: AdminPublishingDeps = {
         JSON.stringify({ reason: input.reason, purgeMedia: input.purgeMedia }),
       ),
     ]);
-    if (site?.slug) await env.LIVE.delete(liveKey(site.slug));
+    if (site.slug) {
+      await env.LIVE.delete(livePointerKey(site.slug));
+      await deletePrefix(env.LIVE, liveSitePrefix(site.slug));
+    }
     if (input.purgeMedia) {
       const listed = await env.MEDIA.list({ prefix: `${input.siteId}/` });
       await Promise.all(listed.objects.map((o) => env.MEDIA.delete(o.key)));
@@ -89,18 +174,21 @@ export const fakeAdminPublishing: AdminPublishingDeps = {
     }
   },
   async restore(env, input) {
-    const site = await env.DB.prepare("SELECT s.slug, v.id, v.html_sha256, v.document_json FROM sites s LEFT JOIN site_versions v ON v.id = s.live_version_id WHERE s.id = ?")
+    const site = await env.DB.prepare("SELECT s.slug, s.live_version_id, v.html_sha256, v.pages_json, v.document_json FROM sites s LEFT JOIN site_versions v ON v.id = s.live_version_id WHERE s.id = ?")
       .bind(input.siteId)
-      .first<{ slug: string; id: string | null; html_sha256: string | null; document_json: string | null }>();
+      .first<{ slug: string; live_version_id: string | null; html_sha256: string | null; pages_json: string | null; document_json: string | null }>();
     if (site === null) throw new FakePublishError("site_not_found");
-    if (site.id === null || site.document_json === null) throw new FakePublishError("not_live");
-    const html = await storedBytes(env.WORK, versionKey(input.siteId, site.id));
-    if (html === null || (await sha256Hex(html)) !== site.html_sha256) throw new FakePublishError("integrity");
-    await env.LIVE.put(liveKey(site.slug), html);
+    if (site.live_version_id === null || site.document_json === null || site.pages_json === null || site.html_sha256 === null) throw new FakePublishError("not_live");
+    // As Plan 2: verify every page, copy them, write the pointer (not served yet: D1 still says taken down), then clear taken_down_at.
+    // On a live site that is not taken down the batch changes nothing and logs nothing: it only copies the pages again.
+    const ids = { siteId: input.siteId, versionId: site.live_version_id };
+    await copyPages(env.LIVE, site.slug, ids, await verifiedPages(env.WORK, { site_id: input.siteId, id: site.live_version_id, pages_json: site.pages_json, html_sha256: site.html_sha256 }));
+    await writePointer(env.LIVE, site.slug, ids, site.document_json);
     await env.DB.batch([
-      env.DB.prepare("UPDATE sites SET taken_down_at = NULL, takedown_reason = NULL WHERE id = ?").bind(input.siteId),
-      audit(env.DB, input.now, input.reviewer, "site.restored", input.siteId),
+      env.DB.prepare("UPDATE sites SET taken_down_at = NULL, takedown_reason = NULL WHERE id = ? AND taken_down_at IS NOT NULL").bind(input.siteId),
+      env.DB.prepare("INSERT INTO audit_log (at, actor, action, site_id, detail_json) SELECT ?, ?, ?, ?, ? WHERE changes() = 1").bind(input.now, `admin:${input.reviewer}`, "site.restored", input.siteId, JSON.stringify({ versionId: site.live_version_id })),
     ]);
+    await removeOtherVersions(env.LIVE, site.slug, site.live_version_id);
     // As Plan 2 decision 29: count the page's photos that a takedown with purgeMedia deleted.
     const { facts } = JSON.parse(site.document_json) as { facts: { heroPhoto?: { url: string }; photos?: Array<{ url: string }> } };
     const prefix = `https://media.${env.ROOT_DOMAIN}/`;

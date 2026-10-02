@@ -1,6 +1,6 @@
 import { MAX_ISSUES } from "@asksite/app-common";
-import { Brief, composeDocument, photoRefIssues, toIssues, utcDayStart, type SiteView, type VersionSummary } from "@asksite/core";
-import { SiteDocument } from "@asksite/site-schema";
+import { Brief, composeDocument, photoRefIssues, toIssues, utcDayStart, versionPageKey, type SiteView, type VersionSummary } from "@asksite/core";
+import { PAGE_IDS, SiteDocument, type PageId } from "@asksite/site-schema";
 import { describe, expect, it } from "vitest";
 import { VALID_BRIEF, VALID_FACTS } from "../support/facts.ts";
 import { FAKE_PUBLISH_CAP } from "../support/limits.ts";
@@ -294,7 +294,6 @@ describe("POST /api/sites/:siteId/publish-requests", () => {
     // A's own request is pending: B can neither withdraw it nor list A's versions.
     const published = await h.call("POST", `/api/sites/${a.siteId}/publish-requests`, { cookie: a.cookie, body: { rev: a.rev } });
     expect(published.status).toBe(201);
-    const { version: aVersion } = await json<{ version: VersionSummary }>(published);
     const withdraw = await h.call("DELETE", `/api/sites/${a.siteId}/publish-requests/pending`, { cookie: b.cookie });
     expect(withdraw.status).toBe(404);
     expect((await json<ErrorJson>(withdraw)).error.code).toBe("not_found");
@@ -303,10 +302,6 @@ describe("POST /api/sites/:siteId/publish-requests", () => {
     expect(list.status).toBe(404);
     expect((await json<ErrorJson>(list)).error.code).toBe("not_found");
 
-    // Nor read A's stored page through B's OWN site: its site check passes, so only the version's site_id stops it.
-    const page = await h.call("GET", `/api/sites/${b.siteId}/versions/${aVersion.id}/page`, { cookie: b.cookie });
-    expect(page.status).toBe(404);
-    expect((await json<ErrorJson>(page)).error.code).toBe("not_found");
   });
 
   it("refuses more publish requests than Plan 2 allows per site per day with 429 and Retry-After, and alerts the reviewers once", async () => {
@@ -336,23 +331,6 @@ describe("POST /api/sites/:siteId/publish-requests", () => {
     const third = await publishAndSettle(owner);
     expect(third.number).toBe(3);
     expect(await sentAlerts("burst-plumbing")).toEqual([{ subject: "Website waiting for review: burst-plumbing (version 1)" }]);
-  });
-
-  it("serves the stored page for the owner with the §7.4 review headers", async () => {
-    const owner = await withSlug(await builtOwner(h, VALID_FACTS, VALID_BRIEF), "page-check-plumbing");
-    const { version } = await json<{ version: VersionSummary }>(await h.call("POST", `/api/sites/${owner.siteId}/publish-requests`, { cookie: owner.cookie, body: { rev: owner.rev } }));
-    const page = await h.call("GET", `/api/sites/${owner.siteId}/versions/${version.id}/page`, { cookie: owner.cookie });
-    expect(page.status).toBe(200);
-    expect(page.headers.get("Content-Security-Policy")).toBe(
-      `sandbox; default-src 'none'; style-src 'unsafe-inline'; font-src data:; img-src https://media.${ROOT}; form-action 'none'; frame-ancestors 'self'`,
-    );
-    expect(page.headers.get("X-Frame-Options")).toBe("SAMEORIGIN");
-    expect(page.headers.get("Cache-Control")).toBe("no-store");
-    const html = await page.text();
-    expect(html).toContain("<!DOCTYPE html>");
-    expect(html).toContain(`action="https://page-check-plumbing.${ROOT}/_f/${owner.siteId}"`);
-    const stranger = await h.signIn();
-    expect((await h.call("GET", `/api/sites/${owner.siteId}/versions/${version.id}/page`, { cookie: stranger.cookie })).status).toBe(404);
   });
 
   it("shows 'unpublished changes' once live and the draft differs", async () => {
@@ -436,6 +414,98 @@ describe("POST /api/sites/:siteId/publish-requests", () => {
 
 // Last in this file: its ANALYZE leaves statistics behind, so no other test runs with them. It needs no alert to go
 // out (the one above fills the day's allowance): the alert check reads the day's count whether or not it alerts.
+describe("GET /api/sites/:siteId/versions/:versionId/pages/:pageId (A16: one page of a stored version)", () => {
+  const pagesOf = async (versionId: string) =>
+    (JSON.parse((await (await h.db()).prepare("SELECT pages_json FROM site_versions WHERE id = ?").bind(versionId).first<{ pages_json: string }>())?.pages_json ?? "[]") as Array<{ page: PageId }>).map((p) => p.page);
+  const pageUrl = (siteId: string, versionId: string, page: string) => `/api/sites/${siteId}/versions/${versionId}/pages/${page}`;
+
+  /** An owner with a sent version; the draft has no photos, so its pages are Home, Services, About and Contact (no Gallery). */
+  async function sentVersion(slug: string) {
+    const owner = await withSlug(await builtOwner(h, VALID_FACTS, VALID_BRIEF), slug);
+    const { version } = await json<{ version: VersionSummary }>(await h.call("POST", `/api/sites/${owner.siteId}/publish-requests`, { cookie: owner.cookie, body: { rev: owner.rev } }));
+    return { owner, version, pages: await pagesOf(version.id) };
+  }
+
+  it("serves every listed page for the owner with the §7.4 review headers, each page its own bytes, and the form action on the Contact page", async () => {
+    const { owner, version, pages } = await sentVersion("page-check-plumbing");
+    expect(pages).toEqual(["home", "services", "about", "contact"]);
+    const html: Record<string, string> = {};
+    for (const page of pages) {
+      const res = await h.call("GET", pageUrl(owner.siteId, version.id, page), { cookie: owner.cookie });
+      expect(res.status).toBe(200);
+      expect(res.headers.get("Content-Security-Policy")).toBe(
+        `sandbox; default-src 'none'; style-src 'unsafe-inline'; font-src data:; img-src https://media.${ROOT}; form-action 'none'; frame-ancestors 'self'`,
+      );
+      expect(res.headers.get("X-Frame-Options")).toBe("SAMEORIGIN");
+      expect(res.headers.get("Cache-Control")).toBe("no-store");
+      html[page] = await res.text();
+      expect(html[page]).toContain("<!DOCTYPE html>");
+    }
+    expect(new Set(Object.values(html)).size).toBe(pages.length);
+    expect(html["contact"]).toContain(`action="https://page-check-plumbing.${ROOT}/_f/${owner.siteId}"`);
+    expect(html["home"]).toContain("Plumbing done right");
+  });
+
+  it("answers 404 for a page id that is not one of the five, including look-alikes and traversal", async () => {
+    const { owner, version } = await sentVersion("odd-ids-plumbing");
+    for (const id of ["nope", "Home", "HOME", "home.html", "__proto__", "constructor", "toString", "..%2Fhome", "%2e%2e%2fhome", "home%00", "home%2F..%2Fabout"]) {
+      const res = await h.call("GET", pageUrl(owner.siteId, version.id, id), { cookie: owner.cookie });
+      expect([id, res.status]).toEqual([id, 404]);
+      expect([id, (await json<ErrorJson>(res)).error.code]).toEqual([id, "not_found"]);
+    }
+  });
+
+  it("answers 404 for a page the version lacks, even when an object sits at that page's key", async () => {
+    const { owner, version, pages } = await sentVersion("lacks-gallery-plumbing");
+    const lacking = PAGE_IDS.filter((id) => !pages.includes(id));
+    expect(lacking).toEqual(["gallery"]);
+    // A stray object at the key a listed page would use: only the version's own list decides what is served.
+    await (await h.work()).put(versionPageKey(owner.siteId, version.id, "gallery"), "<p>not part of this version</p>");
+    const res = await h.call("GET", pageUrl(owner.siteId, version.id, "gallery"), { cookie: owner.cookie });
+    expect(res.status).toBe(404);
+    expect(await res.text()).not.toContain("not part of this version");
+  });
+
+  it("lists the version's pages in the owner's site view, in page order; a row that lists none gives []", async () => {
+    const { owner, version } = await sentVersion("page-list-plumbing");
+    expect((await view(owner)).pendingVersion?.pages).toEqual(["home", "services", "about", "contact"]);
+    await (await h.db()).prepare("UPDATE site_versions SET pages_json = '[]' WHERE id = ?").bind(version.id).run();
+    expect((await view(owner)).pendingVersion?.pages).toEqual([]);
+  });
+
+  it("answers 404 for every page of a version that lists none (a row from before A16: '[]')", async () => {
+    const { owner, version, pages } = await sentVersion("old-row-plumbing");
+    await (await h.db()).prepare("UPDATE site_versions SET pages_json = '[]' WHERE id = ?").bind(version.id).run();
+    await (await h.work()).put(versionPageKey(owner.siteId, version.id, "gallery"), "<p>stray</p>");
+    expect(pages).toHaveLength(4);
+    for (const page of PAGE_IDS) expect([page, (await h.call("GET", pageUrl(owner.siteId, version.id, page), { cookie: owner.cookie })).status]).toEqual([page, 404]);
+  });
+
+  it("answers 404 on another owner's version, by the owner's site or by the stranger's own (the IDOR test)", async () => {
+    const { owner: a, version } = await sentVersion("owner-a-pages");
+    const b = await h.signIn();
+    for (const page of ["home", "contact"]) {
+      // Through A's site: the site check stops it. Through B's OWN site: its site check passes, so only the version's site_id stops it.
+      for (const siteId of [a.siteId, b.siteId]) {
+        const res = await h.call("GET", pageUrl(siteId, version.id, page), { cookie: b.cookie });
+        expect([siteId, page, res.status]).toEqual([siteId, page, 404]);
+        expect((await res.text()).includes("Plumbing done right")).toBe(false);
+      }
+    }
+    expect((await h.call("GET", pageUrl(a.siteId, version.id, "home"), { cookie: a.cookie })).status).toBe(200);
+  });
+
+  it("requires a signed-in owner", async () => {
+    const { owner, version } = await sentVersion("signed-out-plumbing");
+    expect((await h.call("GET", pageUrl(owner.siteId, version.id, "home"))).status).toBe(401);
+  });
+
+  it("no longer serves the old single-page address", async () => {
+    const { owner, version } = await sentVersion("old-address-plumbing");
+    expect((await h.call("GET", `/api/sites/${owner.siteId}/versions/${version.id}/page`, { cookie: owner.cookie })).status).toBe(404);
+  });
+});
+
 describe("the review alert's daily count uses the covering index (P4-21 item 1)", () => {
   /** The query plan of the alert check a publish request ran, one detail line per step. */
   async function alertCheckPlan(sql: string, site: { siteId: string }): Promise<string[]> {

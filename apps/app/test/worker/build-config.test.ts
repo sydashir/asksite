@@ -32,12 +32,30 @@ describe("build-config", () => {
     expect(csp).toContain("frame-ancestors 'none'");
     expect(headersFile("asksite.example", false)).toContain("Content-Security-Policy: default-src 'self'");
   });
+
+  // STRICT (CSP): the editor's preview is a srcdoc frame, which inherits this policy. The Bold design embeds its font as a
+  // data: URI, so font-src allows 'self' and data:, and nothing else about the policy widens (moderator, task-17-extra B).
+  it("lets the preview's embedded font (a data: URI) load, and widens nothing else", () => {
+    const csp = contentSecurityPolicy("asksite.example");
+    const directives: Record<string, string[]> = Object.fromEntries(
+      csp.split("; ").map((d) => {
+        const [name = "", ...sources] = d.split(" ");
+        return [name, sources];
+      }),
+    );
+    expect(directives["font-src"]).toEqual(["'self'", "data:"]);
+    // data: is allowed for images and fonts only: never for scripts, styles, frames, connections or the default.
+    const withData = Object.entries(directives).filter(([, sources]) => sources.includes("data:")).map(([name]) => name);
+    expect(withData.sort()).toEqual(["font-src", "img-src"]);
+    expect(Object.keys(directives)).toEqual(["default-src", "script-src", "style-src", "img-src", "font-src", "connect-src", "frame-src", "form-action", "base-uri", "object-src", "frame-ancestors"]);
+    expect(directives["default-src"]).toEqual(["'self'"]);
+  });
 });
 
 // F14: the whole _headers file, line by line, so deleting or changing any single header turns a test red (the CSP
 // directives are also checked one by one above). The static file is the only place the SPA's headers come from (§9.1).
 const CSP =
-  "default-src 'self'; script-src 'self' https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline'; img-src 'self' https://media.asksite.example blob: data:; connect-src 'self'; frame-src 'self' https://challenges.cloudflare.com; form-action 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'";
+  "default-src 'self'; script-src 'self' https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline'; img-src 'self' https://media.asksite.example blob: data:; font-src 'self' data:; connect-src 'self'; frame-src 'self' https://challenges.cloudflare.com; form-action 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'";
 const COMMON_HEADERS = ["  X-Content-Type-Options: nosniff", "  Referrer-Policy: no-referrer", "  X-Frame-Options: DENY", "  X-Robots-Tag: noindex"];
 
 describe("headersFile (F14)", () => {

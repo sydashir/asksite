@@ -4,9 +4,11 @@ import { api } from "./lib/api.ts";
 import type { Route } from "./lib/route.ts";
 import { AcceptInvite } from "./pages/AcceptInvite.tsx";
 import { Build } from "./pages/Build.tsx";
+import { Editor } from "./pages/Editor.tsx";
 import { Home } from "./pages/Home.tsx";
 import { Leads } from "./pages/Leads.tsx";
 import { NotFound } from "./pages/NotFound.tsx";
+import { Publish } from "./pages/Publish.tsx";
 import { Questionnaire } from "./pages/Questionnaire.tsx";
 import { VerifyLogin } from "./pages/VerifyLogin.tsx";
 
@@ -23,8 +25,9 @@ function page(route: Route) {
     case "build":
       return <Build key={route.siteId} siteId={route.siteId} />;
     case "edit":
+      return <Editor key={route.siteId} siteId={route.siteId} />;
     case "publish":
-      return <NotFound />;
+      return <Publish key={route.siteId} siteId={route.siteId} />;
     case "leads":
       return <Leads key={route.siteId} siteId={route.siteId} />;
     case "notFound":

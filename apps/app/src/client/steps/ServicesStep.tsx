@@ -5,10 +5,20 @@ import { focusSoon, type StepProps } from "./types.ts";
 
 const MAX_SERVICES = 12;
 
+const moveId = (index: number, direction: "up" | "down") => `service-move-${direction}-${index}`;
+
 export function ServicesStep({ facts, setFacts, errors }: StepProps) {
   const stored = asArray(facts["services"]).map(asRecord);
   // Show one empty row before the first service is typed; it is saved once the owner types.
   const services = stored.length > 0 ? stored : [{}];
+
+  /** Moves a service; a button that just reached the end of the list is disabled, so focus goes to the opposite one. */
+  function move(index: number, by: -1 | 1) {
+    setFacts(["services"], moveItem(stored, index, by));
+    const target = index + by;
+    const atEnd = by === -1 ? target === 0 : target === stored.length - 1;
+    focusSoon(moveId(target, (by === -1) !== atEnd ? "up" : "down"));
+  }
   return (
     <>
       <Group
@@ -38,10 +48,10 @@ export function ServicesStep({ facts, setFacts, errors }: StepProps) {
               onChange={(v) => setFacts(["services", i, "startingPrice"], priceToFacts(v))}
             />
             <div className="mt-3 flex flex-wrap gap-2">
-              <button type="button" className="btn-small" disabled={i === 0} onClick={() => setFacts(["services"], moveItem(stored, i, -1))}>
+              <button id={moveId(i, "up")} type="button" className="btn-small" disabled={i === 0} onClick={() => move(i, -1)}>
                 Move service {i + 1} up
               </button>
-              <button type="button" className="btn-small" disabled={i >= stored.length - 1} onClick={() => setFacts(["services"], moveItem(stored, i, 1))}>
+              <button id={moveId(i, "down")} type="button" className="btn-small" disabled={i >= stored.length - 1} onClick={() => move(i, 1)}>
                 Move service {i + 1} down
               </button>
               <button

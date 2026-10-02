@@ -20,13 +20,13 @@
   "layout": [
     { "id": "hero", "variant": "photo" },
     { "id": "trust", "variant": "light" },
-    { "id": "services", "variant": "cards" },
     { "id": "testimonials", "variant": "grid" },
-    { "id": "gallery", "variant": "grid" },
-    { "id": "about", "variant": "plain" },
-    { "id": "serviceArea", "variant": "split" },
+    { "id": "services", "variant": "cards" },
     { "id": "faq", "variant": "accordion" },
-    { "id": "contact", "variant": "card" }
+    { "id": "about", "variant": "plain" },
+    { "id": "gallery", "variant": "grid" },
+    { "id": "contact", "variant": "card" },
+    { "id": "serviceArea", "variant": "split" }
   ],
   "theme": { "palette": "green-amber", "font": "clean", "design": "modern" }
 }

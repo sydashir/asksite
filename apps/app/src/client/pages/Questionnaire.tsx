@@ -17,8 +17,8 @@ import { STEP_BODY } from "../steps/index.tsx";
 
 export function Questionnaire({ siteId, step }: { siteId: string; step: StepId }) {
   const site = useSite(siteId);
-  if (site.load.state === "loading" || site.draft === null) return <p role="status">Loading your answers…</p>;
   if (site.load.state === "error") return <Notice tone="error">{site.load.message}</Notice>;
+  if (site.load.state === "loading" || site.draft === null) return <p role="status">Loading your answers…</p>;
   return <StepPage siteId={siteId} step={step} site={site} view={site.load.view} draft={site.draft} />;
 }
 
@@ -70,15 +70,23 @@ function StepPage({ siteId, step, site, view, draft }: { siteId: string; step: S
     setMessage(res.error.message);
   }
 
+  /** A draft already exists: save step 7 and open the editor. Never starts a generation (rewriting is the editor's own action). */
+  async function openEditor() {
+    if (await site.flush()) navigate(paths.edit(siteId));
+    else setMessage("Your latest answers are not saved yet. Please try again in a moment.");
+  }
+
   function onSubmit(event: FormEvent) {
     event.preventDefault();
+    // Enter in a read-only field still submits: ignore it while a save runs.
+    if (busy || site.locked) return;
     if (blocking.length > 0) {
       setShowErrors(true);
       setFocusSignal((n) => n + 1);
       return;
     }
     const next = nextStep(step);
-    if (next === null) void build();
+    if (next === null) void (view.ai === null ? build() : openEditor());
     else
       void site.flush().then((saved) => {
         if (saved) navigate(paths.setup(siteId, next));
@@ -91,7 +99,7 @@ function StepPage({ siteId, step, site, view, draft }: { siteId: string; step: S
   // Links to other steps save first and stay here if that fails (decision 37).
   const leave = linkAfter(site.flush, () => setMessage("Your latest answers are not saved yet. Please try again in a moment."));
   return (
-    <form noValidate onSubmit={onSubmit} className="mx-auto max-w-2xl">
+    <form noValidate onSubmit={onSubmit} aria-busy={site.locked || undefined} className="mx-auto max-w-2xl">
       <p className="text-slate-700">
         Step {number} of {STEPS.length}
       </p>
@@ -111,16 +119,20 @@ function StepPage({ siteId, step, site, view, draft }: { siteId: string; step: S
       </nav>
       <ErrorSummary items={showErrors ? blocking.map((i) => summaryItem(siteId, step, i, draft.facts)) : []} focusSignal={focusSignal} />
       <div className="card mt-6">
-        <Body {...props} />
-        <TextArea
-          id={fieldId(["brief", "comments", step])}
-          label="Anything we should know about this?"
-          optional
-          max={500}
-          value={asString(comments[step])}
-          errors={props.errors(["brief", "comments", step])}
-          onChange={(v) => props.setBrief(["comments", step], v === "" ? undefined : v)}
-        />
+        {/* Read-only while a change that bypasses the autosaver runs (the web address): see useSite.exclusive. Not disabled: that drops keyboard focus. */}
+        <div>
+          <Body {...props} />
+          <TextArea
+            id={fieldId(["brief", "comments", step])}
+            label="Anything we should know about this?"
+            optional
+            max={500}
+            readOnly={site.locked}
+            value={asString(comments[step])}
+            errors={props.errors(["brief", "comments", step])}
+            onChange={(v) => props.setBrief(["comments", step], v === "" ? undefined : v)}
+          />
+        </div>
       </div>
       {message !== null ? (
         <div role="alert">
@@ -135,8 +147,8 @@ function StepPage({ siteId, step, site, view, draft }: { siteId: string; step: S
               Back
             </a>
           ) : null}
-          <button type="submit" className="btn-primary" disabled={busy}>
-            {last ? (busy ? "Starting…" : "Build my website") : "Save and continue"}
+          <button type="submit" className="btn-primary" aria-disabled={busy || site.locked}>
+            {last ? (view.ai !== null ? "Go to the editor" : busy ? "Starting…" : "Build my website") : "Save and continue"}
           </button>
         </div>
       </div>

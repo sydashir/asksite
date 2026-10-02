@@ -12,6 +12,10 @@ interface Common {
   optional?: boolean;
   /** Shown under the errors, e.g. a button that opens the fact that fixes the error. */
   after?: ReactNode;
+  /** Blocks typing but keeps keyboard focus (a disabled control would drop it). */
+  readOnly?: boolean;
+  /** Called when the control gains focus (the editor's preview follows the owner to the field's page). */
+  onFocus?: () => void;
 }
 
 function describedBy(id: string, hint: string | undefined, errors: readonly string[], counter: boolean): string | undefined {
@@ -77,6 +81,8 @@ export function TextInput(
         className={INPUT}
         type={props.type ?? "text"}
         value={props.value}
+        readOnly={props.readOnly}
+        onFocus={props.onFocus}
         onChange={(e) => props.onChange(e.target.value)}
         autoComplete={props.autoComplete ?? "off"}
         inputMode={props.inputMode}
@@ -84,7 +90,7 @@ export function TextInput(
         aria-invalid={errors.length > 0 ? true : undefined}
         aria-describedby={describedBy(props.id, props.hint, errors, counted)}
       />
-      {counted ? <Counter id={props.id} length={props.value.length} max={props.max!} /> : null}
+      {counted ? <Counter id={props.id} length={[...props.value].length} max={props.max!} /> : null}
       <Errors id={props.id} errors={errors} />
       {props.after}
     </div>
@@ -103,11 +109,13 @@ export function TextArea(props: Common & { value: string; onChange: (value: stri
         className={INPUT}
         rows={props.rows ?? 3}
         value={props.value}
+        readOnly={props.readOnly}
+        onFocus={props.onFocus}
         onChange={(e) => props.onChange(e.target.value)}
         aria-invalid={errors.length > 0 ? true : undefined}
         aria-describedby={describedBy(props.id, props.hint, errors, counted)}
       />
-      {counted ? <Counter id={props.id} length={props.value.length} max={props.max!} /> : null}
+      {counted ? <Counter id={props.id} length={[...props.value].length} max={props.max!} /> : null}
       <Errors id={props.id} errors={errors} />
       {props.after}
     </div>

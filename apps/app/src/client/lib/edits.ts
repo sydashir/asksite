@@ -20,7 +20,7 @@ export function withCopy(ai: CurrentAi, edits: OwnerEdits, change: (copy: CopyEd
  * Whether OwnerEdits accepts this service name as a description key. Asked of core's own schema (never a copy of its
  * limit, so the length measure cannot drift): the empty string is always valid text (EditText, draft.ts), so only the key decides.
  */
-const isAllowedKey = (key: string): boolean => CopyEditsSchema.safeParse({ serviceDescriptions: { [key]: "" } }).success;
+export const isAllowedKey = (key: string): boolean => CopyEditsSchema.safeParse({ serviceDescriptions: { [key]: "" } }).success;
 
 /**
  * Sets the owner's description of one service. `services` are the current (trimmed) service names, the

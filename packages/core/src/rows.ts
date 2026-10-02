@@ -107,6 +107,7 @@ export interface SiteVersionRow {
   reviewed_by: string | null;
   reviewed_at: number | null;
   review_note: string | null;
+  pages_json: string; // A16 (0005): canonicalJson(VersionPages); '[]' on rows from before A16
 }
 
 export interface LeadRow {

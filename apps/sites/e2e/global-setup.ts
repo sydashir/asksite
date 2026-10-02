@@ -1,6 +1,8 @@
 import { execFileSync } from "node:child_process";
+import { rmSync } from "node:fs";
 import { resolve } from "node:path";
 import { DESIGN_IDS, type DesignId } from "@asksite/site-schema";
+import { LIFECYCLE_ENGINES, lifecycleSlug } from "./lifecycle.ts";
 
 // Publishes and approves every Plan 1 fixture in every page design (A12) into the running server's local
 // state through the real publishing functions (apps/sites/dev/seed.ts), with photos served from
@@ -14,6 +16,7 @@ export const e2eSlug = (design: DesignId, fixture: E2eFixture): string => `e2e-$
 const REPO = resolve(import.meta.dirname, "../../..");
 
 export default function globalSetup(): void {
+  rmSync(resolve(REPO, ".wrangler/e2e-operate.lock"), { recursive: true, force: true }); // a lock a killed run left (sites.spec.ts, operate)
   const seeded: Record<string, { siteId: string; url: string }> = {};
   for (const design of DESIGN_IDS) {
     for (const fixture of E2E_FIXTURES) {
@@ -24,5 +27,9 @@ export default function globalSetup(): void {
       seeded[slug] = JSON.parse(line) as { siteId: string; url: string };
     }
   }
+  // The sites the lifecycle tests change (approve a second version, take down, restore), one per design and engine,
+  // so no other test ever sees them change; seeded in one call (operate.ts) to start wrangler's bindings once.
+  const lifecycle = DESIGN_IDS.flatMap((design) => LIFECYCLE_ENGINES.map((engine) => `${lifecycleSlug(design, engine)}:plumber-austin:${design}`));
+  execFileSync("node", ["apps/sites/e2e/operate.ts", "seed", ...lifecycle], { cwd: REPO, encoding: "utf8" });
   process.env["ASKSITE_E2E_SITES"] = JSON.stringify(seeded);
 }

@@ -28,7 +28,8 @@ export function Build({ siteId }: { siteId: string }) {
         if (res.ok) {
           if (res.data.activeGeneration !== null) setGenerationId(res.data.activeGeneration.id);
           else if (res.data.ai !== null) navigate(paths.edit(siteId), { replace: true });
-          else navigate(paths.setup(siteId, "business"), { replace: true });
+          // No draft and nothing running: a first build that failed (or never started). The last step holds "Build my website".
+          else navigate(paths.setup(siteId, "address"), { replace: true });
           return;
         }
         // A dropped connection or a server error is often gone a moment later, so it is tried again

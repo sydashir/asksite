@@ -23,7 +23,7 @@ describe("sites and owners", () => {
     await h.call("POST", `/api/admin/versions/${site.versionId}/approve`, { body: { htmlSha256: site.htmlSha256 } });
     const down = await h.call("POST", `/api/admin/sites/${site.siteId}/takedown`, { body: { reason: "Phishing report", ownerMessage: "We received a report about your page." } });
     expect(down.status).toBe(200);
-    expect(await (await h.r2("LIVE")).get(`${site.slug}.html`)).toBeNull();
+    expect(await h.liveKeys(site.slug)).toEqual([]); // no pointer and nothing under <slug>/
     const notices = (await h.outbox(site.email)).filter((m) => m.tag === "site_notice");
     expect(notices[0]?.text).toContain("We received a report about your page.");
     const restored = await h.call("POST", `/api/admin/sites/${site.siteId}/restore`, { body: {} });

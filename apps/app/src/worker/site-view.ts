@@ -1,4 +1,4 @@
-import { MAX_ISSUES } from "@asksite/app-common";
+import { MAX_ISSUES, storedPages } from "@asksite/app-common";
 import {
   AiDraft,
   Brief,
@@ -13,6 +13,7 @@ import {
   type CurrentAi,
   type GenerationRow,
   type Issue,
+  type OwnerVersionSummary,
   type SiteRow,
   type SiteVersionRow,
   type SiteView,
@@ -162,6 +163,11 @@ export function toVersionSummary(row: VersionSummaryRow): VersionSummary {
   };
 }
 
+/** A version for the owner's site view: its summary plus the pages its pages_json lists, in page order ([] when it lists none). */
+function toOwnerVersionSummary(row: SiteVersionRow): OwnerVersionSummary {
+  return { ...toVersionSummary(row), pages: (storedPages(row.pages_json) ?? []).map((entry) => entry.page) };
+}
+
 async function versionRow(db: D1Database, id: string | null): Promise<SiteVersionRow | null> {
   return id === null ? null : db.prepare("SELECT * FROM site_versions WHERE id = ?").bind(id).first<SiteVersionRow>();
 }
@@ -200,8 +206,8 @@ export async function buildSiteView(env: Env, deps: AppDeps, site: SiteRow, now:
     edits: draft.edits,
     ai: current === null ? null : { generationId: current.ai.generationId, draft: current.ai.draft, usedFallback: current.usedFallback },
     activeGeneration: active === null ? null : deps.generation.toGenerationView(active),
-    pendingVersion: pending === null ? null : toVersionSummary(pending),
-    liveVersion: live === null ? null : toVersionSummary(live),
+    pendingVersion: pending === null ? null : toOwnerVersionSummary(pending),
+    liveVersion: live === null ? null : toOwnerVersionSummary(live),
     draftDiffersFromLive: await differsFromLive(draft, ai, live),
     uploads: uploads.map((u) => ({ id: u.id, url: mediaUrl(env.ROOT_DOMAIN, site.id, u.id), width: u.width, height: u.height, bytes: u.bytes, createdAt: u.created_at })),
     limits,

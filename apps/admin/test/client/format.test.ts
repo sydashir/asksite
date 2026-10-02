@@ -23,7 +23,7 @@ describe("admin messages", () => {
 // never claims the business name is hidden.
 describe("takedownResult", () => {
   const BASE = "Site taken down. It stops being served within about a minute.";
-  const CLEANUP = "Clean-up did not finish. The business name and phone may still show at its address until you finish it.";
+  const CLEANUP = "Clean-up did not finish. The site is offline; old page files stay in storage until you finish it.";
   const NOT_EMAILED = "Owner not emailed — contact them.";
 
   it("a clean takedown is a success, whether the owner was emailed (true) or no notice was due (null)", () => {

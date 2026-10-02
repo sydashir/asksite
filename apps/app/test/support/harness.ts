@@ -168,6 +168,12 @@ export function useAppHarness(options: { vars?: Record<string, string> } = {}) {
     return env.DB;
   }
 
+  /** The WORK bucket (stored pages), as far as the tests write to it. */
+  async function work(): Promise<BucketLike> {
+    const env = (await server.getWorker().getEnv()) as { WORK: BucketLike };
+    return env.WORK;
+  }
+
   async function invite(email: string): Promise<string> {
     const res = await call("POST", "/__test/invites", { body: { email } });
     return ((await res.json()) as { token: string }).token;
@@ -189,7 +195,7 @@ export function useAppHarness(options: { vars?: Record<string, string> } = {}) {
     await (await db()).prepare("DELETE FROM login_tokens").bind().run();
   }
 
-  return { server, call, db, invite, signIn, login, siteverifyCalls, waitUntilCount, backgroundDone, clearLoginTokens, logLines, recordSql, recordedSql };
+  return { server, call, db, work, invite, signIn, login, siteverifyCalls, waitUntilCount, backgroundDone, clearLoginTokens, logLines, recordSql, recordedSql };
 }
 
 /** Polls `read` every 100 ms until `done` accepts its value (at most 5 s). */
@@ -211,6 +217,11 @@ export interface D1Like {
       all<T = Record<string, unknown>>(): Promise<{ results: T[] }>;
     };
   };
+}
+
+/** The part of R2Bucket the tests use (the Worker's own types stay out of the Node test build). */
+export interface BucketLike {
+  put(key: string, value: string): Promise<unknown>;
 }
 
 export async function json<T>(res: Response): Promise<T> {

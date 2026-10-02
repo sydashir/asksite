@@ -28,12 +28,12 @@ export interface TakedownResult {
 }
 
 const NOT_EMAILED = "Owner not emailed — contact them.";
-const CLEANUP_FAILED = "Clean-up did not finish. The business name and phone may still show at its address until you finish it.";
+const CLEANUP_FAILED = "Clean-up did not finish. The site is offline; old page files stay in storage until you finish it.";
 
 /**
  * What to tell the admin after a takedown, or after "Finish the takedown" (`previous` is then the earlier result). The
- * "owner not emailed" line shows only for false, never for null (no notice was due). Never claims the business name is hidden
- * while the clean-up is unfinished: it can still show on the 404, thank-you and 429 pages.
+ * "owner not emailed" line shows only for false, never for null (no notice was due). An unfinished clean-up is only
+ * storage: the site's LIVE pointer is deleted first (A16), so the site is already offline and nothing is shown.
  */
 export function takedownResult(view: TakedownView, previous: TakedownResult | null): TakedownResult {
   const cleanupFailed = view.cleanupFailed === true;

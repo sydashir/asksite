@@ -1,5 +1,6 @@
 import { reviewPageHeaders } from "@asksite/app-common";
-import { newId, versionKey, type AdminVersionDetail } from "@asksite/core";
+import { livePageKey, livePointerKey, newId, pagesDigest, versionPageKey, type AdminVersionDetail } from "@asksite/core";
+import { PAGE_IDS, PAGES, type PageId } from "@asksite/site-schema";
 import { describe, expect, it } from "vitest";
 import { REVIEW_QUEUE } from "../../src/worker/queries.ts";
 import { json, useAdminHarness, VALID_FACTS } from "../support/harness.ts";
@@ -7,6 +8,12 @@ import { json, useAdminHarness, VALID_FACTS } from "../support/harness.ts";
 const h = useAdminHarness();
 
 type ErrorJson = { error: { code: string; message: string } };
+
+/** The pages the version's row lists, with their hashes (what the detail must show). */
+async function listedPages(versionId: string): Promise<Array<{ page: PageId; sha256: string }>> {
+  const row = await (await h.db()).prepare("SELECT pages_json FROM site_versions WHERE id = ?").bind(versionId).first<{ pages_json: string }>();
+  return JSON.parse(row?.pages_json ?? "[]") as Array<{ page: PageId; sha256: string }>;
+}
 
 describe("review", () => {
   it("lists pending versions oldest first", async () => {
@@ -23,7 +30,13 @@ describe("review", () => {
     const site = await h.pendingSite(facts, { reviewsAreReal: true });
     const detail = await json<AdminVersionDetail>(await h.call("GET", `/api/admin/versions/${site.versionId}`));
     expect(detail.version).toMatchObject({ id: site.versionId, siteId: site.siteId, htmlSha256: site.htmlSha256, status: "pending", number: 1 });
-    expect(detail.pageUrl).toBe(`/api/admin/versions/${site.versionId}/page`);
+    // Every page the version has, in page order, with its label, its own address and the hash the admin's browser checks it against;
+    // the digest of those hashes is the htmlSha256 that Approve sends back.
+    const listed = await listedPages(site.versionId);
+    expect(listed.map((p) => p.page)).toEqual(["home", "services", "about", "contact"]);
+    expect(detail.pages).toEqual(listed.map(({ page, sha256 }) => ({ page, label: PAGES[page].label, url: `/api/admin/versions/${site.versionId}/pages/${page}`, sha256 })));
+    expect(await pagesDigest(listed as Parameters<typeof pagesDigest>[0])).toBe(detail.version.htmlSha256);
+    expect(detail).not.toHaveProperty("pageUrl");
     expect(detail.ownerEditedPaths).toEqual(["copy.ctaText"]);
     expect(detail.liveDocument).toBeNull();
     expect(detail.checks).toMatchObject({
@@ -83,9 +96,9 @@ describe("review", () => {
     await db
       .prepare(
         `INSERT INTO site_versions (id, site_id, number, status, document_json, document_sha256, edits_json, generation_id,
-           html_key, html_sha256, stylesheet_sha256, requested_by, requested_at)
+           pages_json, html_key, html_sha256, stylesheet_sha256, requested_by, requested_at)
          SELECT ?, site_id, 2, 'pending', ?, document_sha256, edits_json, generation_id,
-           html_key, html_sha256, stylesheet_sha256, requested_by, requested_at + 1
+           pages_json, html_key, html_sha256, stylesheet_sha256, requested_by, requested_at + 1
          FROM site_versions WHERE id = ?`,
       )
       .bind(next, JSON.stringify(document), site.versionId)
@@ -136,14 +149,6 @@ describe("review", () => {
     expect((await json<AdminVersionDetail>(res)).checks.textFlags).toEqual(paths.flatMap((path) => reasons.map((reason) => ({ path: `facts.${path}`, reason }))));
   });
 
-  it("serves the stored page framable only by the admin origin", async () => {
-    const site = await h.pendingSite();
-    const page = await h.call("GET", `/api/admin/versions/${site.versionId}/page`);
-    expect(page.headers.get("X-Frame-Options")).toBe("SAMEORIGIN");
-    expect(page.headers.get("Content-Security-Policy")).toContain("frame-ancestors 'self'");
-    expect(await page.text()).toContain("Call Joe today");
-  });
-
   it("still opens a version whose stored data a later rule refuses (decision 36)", async () => {
     const site = await h.pendingSite();
     const db = await h.db();
@@ -168,7 +173,14 @@ describe("review", () => {
     const ok = await h.call("POST", `/api/admin/versions/${site.versionId}/approve`, { body: { htmlSha256: site.htmlSha256, note: "Looks good", indexable: false } });
     expect(ok.status).toBe(200);
     expect(await ok.json()).toEqual({ siteId: site.siteId, liveUrl: `https://${site.slug}.localhost:8789/` });
-    expect(await (await (await h.r2("LIVE")).get(`${site.slug}.html`))?.text()).toContain("Call Joe today");
+    // Every page at its own immutable key, and one pointer (the slug itself, an empty object) naming the live version and the business.
+    const live = await h.r2("LIVE");
+    const pages = await listedPages(site.versionId);
+    expect(await h.liveKeys(site.slug)).toEqual([livePointerKey(site.slug), ...pages.map(({ page }) => livePageKey(site.slug, site.versionId, page))].sort());
+    expect(await (await live.get(livePageKey(site.slug, site.versionId, "home")))?.text()).toContain("Call Joe today");
+    const pointer = await live.get(livePointerKey(site.slug));
+    expect(await pointer?.text()).toBe("");
+    expect(pointer?.customMetadata).toEqual({ siteId: site.siteId, versionId: site.versionId, businessName: "Joe's Plumbing", phoneText: "(512) 555-0142", phoneTel: "+15125550142" });
     const row = await (await h.db()).prepare("SELECT live_version_id, indexable FROM sites WHERE id = ?").bind(site.siteId).first<{ live_version_id: string; indexable: number }>();
     expect(row).toEqual({ live_version_id: site.versionId, indexable: 0 });
     expect((await h.outbox(site.email))[0]).toMatchObject({ subject: "Your website is live", tag: "review_result" });
@@ -192,25 +204,48 @@ describe("review", () => {
     await h.backgroundDone(path);
   });
 
+  // A16: the approval is recorded and then the LIVE pointer is written; if that write fails the site answers 503 until
+  // Approve is pressed again, which finishes it and leaves exactly one audit row.
+  it("answers live_copy_failed when the pointer write fails after the approval, and approving again finishes it with one audit row", async () => {
+    const site = await h.pendingSite();
+    const approve = (headers?: Record<string, string>) =>
+      h.call("POST", `/api/admin/versions/${site.versionId}/approve`, { body: { htmlSha256: site.htmlSha256 }, ...(headers === undefined ? {} : { headers }) });
+    const failed = await approve({ "X-Test-Takedown-Fault": "pointer-write" });
+    expect(failed.status).toBe(500);
+    expect(await json<ErrorJson>(failed)).toEqual({ error: { code: "internal", message: "Approved, but the new pages are not live yet. Press Approve again." } });
+    const db = await h.db();
+    // The approval is in D1, the pages are copied, and no pointer exists: no visitor sees anything yet.
+    expect(await db.prepare("SELECT status FROM site_versions WHERE id = ?").bind(site.versionId).first()).toEqual({ status: "approved" });
+    expect(await db.prepare("SELECT live_version_id FROM sites WHERE id = ?").bind(site.siteId).first()).toEqual({ live_version_id: site.versionId });
+    expect(await h.liveKeys(site.slug)).not.toContain(livePointerKey(site.slug));
+    expect((await h.liveKeys(site.slug)).length).toBeGreaterThan(0);
+
+    const healed = await approve();
+    expect(healed.status).toBe(200);
+    expect(await h.liveKeys(site.slug)).toContain(livePointerKey(site.slug));
+    expect((await (await h.r2("LIVE")).get(livePointerKey(site.slug)))?.customMetadata?.["versionId"]).toBe(site.versionId);
+    const audits = await db.prepare("SELECT action FROM audit_log WHERE site_id = ? AND action = 'version.approved'").bind(site.siteId).all();
+    expect(audits.results).toHaveLength(1);
+  });
+
   // P4-23 item 4, option (a) (web-maker-f4, 2026-09-30): the approval is done before the owner's email is built, so
   // an email that cannot be built (reviewApprovedEmail refuses a live address that is not a safe https URL) skips
-  // only the email; the admin gets the usual answer. Plan 2 builds the live address from ROOT_DOMAIN and the site's
-  // stored slug, and a stored slug with a space in it gives an address the email refuses.
+  // only the email; the admin gets the usual answer. Plan 2 builds the live address from ROOT_DOMAIN and the site's slug, and
+  // since A16 its keys refuse a malformed slug (the approval then fails before it changes anything), so this test Worker
+  // has the fake approve answer an address the email refuses (X-Test-Unsafe-Live-Url) instead of a bad slug.
   it("keeps the approval and answers as usual when the owner email cannot be built", async () => {
     const site = await h.pendingSite();
-    const slug = `${site.slug} x`;
     const db = await h.db();
-    await db.prepare("UPDATE sites SET slug = ? WHERE id = ?").bind(slug, site.siteId).run();
     h.server.clearLogs();
-    const res = await h.call("POST", `/api/admin/versions/${site.versionId}/approve`, { body: { htmlSha256: site.htmlSha256 } });
+    const res = await h.call("POST", `/api/admin/versions/${site.versionId}/approve`, { body: { htmlSha256: site.htmlSha256 }, headers: { "X-Test-Unsafe-Live-Url": "1" } });
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ siteId: site.siteId, liveUrl: `https://${slug}.localhost:8789/` });
+    expect(await res.json()).toEqual({ siteId: site.siteId, liveUrl: "http://unsafe.example/" });
     expect(await db.prepare("SELECT status FROM site_versions WHERE id = ?").bind(site.versionId).first()).toEqual({ status: "approved" });
     expect(await db.prepare("SELECT live_version_id, pending_version_id FROM sites WHERE id = ?").bind(site.siteId).first()).toEqual({
       live_version_id: site.versionId,
       pending_version_id: null,
     });
-    expect(await (await (await h.r2("LIVE")).get(`${slug}.html`))?.text()).toContain("Call Joe today");
+    expect(await (await (await h.r2("LIVE")).get(livePageKey(site.slug, site.versionId, "home")))?.text()).toContain("Call Joe today");
     expect((await db.prepare("SELECT action FROM audit_log WHERE site_id = ? ORDER BY id").bind(site.siteId).all()).results).toEqual([
       { action: "version.requested" },
       { action: "version.approved" },
@@ -239,28 +274,76 @@ describe("review", () => {
   });
 });
 
-// P4-18b (web-maker-d3, 2026-09-30): the admin SPA FETCHES the stored page (same-origin, cors, empty) and
+// P4-18b (web-maker-d3, 2026-09-30): the admin SPA FETCHES a stored page (same-origin, cors, empty) and
 // shows its bytes in <iframe sandbox srcdoc>; no frame ever navigates to /api/admin/*. A browser sends no
 // Origin on a GET fetch like this one, so neither request below carries one.
-describe("the stored page behind the Fetch Metadata gate", () => {
+describe("a stored page behind the Fetch Metadata gate (A16: one route per page)", () => {
   const fetchFrom = (site: string) => ({ origin: null, headers: { "Sec-Fetch-Site": site, "Sec-Fetch-Mode": "cors", "Sec-Fetch-Dest": "empty" } });
+  const pageUrl = (versionId: string, page: string) => `/api/admin/versions/${versionId}/pages/${page}`;
 
-  it("answers the admin SPA's same-origin fetch with the stored bytes and the review page headers", async () => {
+  it("answers the admin SPA's same-origin fetch with each page's stored bytes and the review page headers (framable only by the admin origin)", async () => {
     const site = await h.pendingSite();
-    const res = await h.call("GET", `/api/admin/versions/${site.versionId}/page`, fetchFrom("same-origin"));
-    expect(res.status).toBe(200);
-    const stored = await (await (await h.r2("WORK")).get(versionKey(site.siteId, site.versionId)))?.text();
-    expect(stored).toContain("Call Joe today");
-    expect(await res.text()).toBe(stored);
     const { ROOT_DOMAIN } = (await h.server.getWorker().getEnv()) as { ROOT_DOMAIN: string };
-    for (const [name, value] of Object.entries(reviewPageHeaders(ROOT_DOMAIN))) expect(res.headers.get(name), name).toBe(value);
+    const listed = await listedPages(site.versionId);
+    expect(listed.length).toBeGreaterThan(1);
+    const bodies = new Set<string>();
+    for (const { page } of listed) {
+      const res = await h.call("GET", pageUrl(site.versionId, page), fetchFrom("same-origin"));
+      expect([page, res.status]).toEqual([page, 200]);
+      const stored = await (await (await h.r2("WORK")).get(versionPageKey(site.siteId, site.versionId, page)))?.text();
+      const body = await res.text();
+      expect(body).toBe(stored);
+      bodies.add(body);
+      for (const [name, value] of Object.entries(reviewPageHeaders(ROOT_DOMAIN))) expect(res.headers.get(name), name).toBe(value);
+      expect(res.headers.get("X-Frame-Options")).toBe("SAMEORIGIN");
+      expect(res.headers.get("Content-Security-Policy")).toContain("frame-ancestors 'self'");
+    }
+    expect(bodies.size).toBe(listed.length);
+    expect([...bodies].some((html) => html.includes("Call Joe today"))).toBe(true);
   });
 
   it("refuses the same fetch from another site", async () => {
     const site = await h.pendingSite();
-    const res = await h.call("GET", `/api/admin/versions/${site.versionId}/page`, fetchFrom("cross-site"));
-    expect(res.status).toBe(403);
-    expect(await json<ErrorJson>(res)).toEqual({ error: { code: "forbidden", message: "This request is not allowed from another site" } });
+    for (const page of ["home", "contact"]) {
+      const res = await h.call("GET", pageUrl(site.versionId, page), fetchFrom("cross-site"));
+      expect(res.status).toBe(403);
+      expect(await json<ErrorJson>(res)).toEqual({ error: { code: "forbidden", message: "This request is not allowed from another site" } });
+    }
+  });
+
+  // The page-id parameter (STRICT: an unlisted page or a key built from a request must never be served).
+  it("answers 404 for an id that is not one of the five pages, including look-alikes and traversal", async () => {
+    const site = await h.pendingSite();
+    for (const id of ["nope", "Home", "HOME", "home.html", "__proto__", "constructor", "toString", "..%2Fhome", "%2e%2e%2fhome", "home%00", "home%2F..%2Fabout"]) {
+      const res = await h.call("GET", pageUrl(site.versionId, id), fetchFrom("same-origin"));
+      expect([id, res.status]).toEqual([id, 404]);
+      expect([id, (await json<ErrorJson>(res)).error.code]).toEqual([id, "not_found"]);
+    }
+  });
+
+  it("answers 404 for a page the version lacks, even when an object sits at that page's key", async () => {
+    const site = await h.pendingSite();
+    const listed = (await listedPages(site.versionId)).map((p) => p.page);
+    expect(PAGE_IDS.filter((id) => !listed.includes(id))).toEqual(["gallery"]);
+    await (await h.r2("WORK")).put(versionPageKey(site.siteId, site.versionId, "gallery"), "<p>not part of this version</p>");
+    const res = await h.call("GET", pageUrl(site.versionId, "gallery"), fetchFrom("same-origin"));
+    expect(res.status).toBe(404);
+    expect(await res.text()).not.toContain("not part of this version");
+  });
+
+  it("answers 404 for every page of a version that lists none (a row from before A16), and lists no pages in its detail", async () => {
+    const site = await h.pendingSite();
+    await (await h.db()).prepare("UPDATE site_versions SET pages_json = '[]' WHERE id = ?").bind(site.versionId).run();
+    await (await h.r2("WORK")).put(versionPageKey(site.siteId, site.versionId, "gallery"), "<p>stray</p>");
+    for (const page of PAGE_IDS) expect([page, (await h.call("GET", pageUrl(site.versionId, page), fetchFrom("same-origin"))).status]).toEqual([page, 404]);
+    const detail = await json<AdminVersionDetail>(await h.call("GET", `/api/admin/versions/${site.versionId}`));
+    expect(detail.pages).toEqual([]);
+  });
+
+  it("answers 404 for a version that does not exist, and no longer serves the old single-page address", async () => {
+    const site = await h.pendingSite();
+    expect((await h.call("GET", pageUrl(newId(), "home"), fetchFrom("same-origin"))).status).toBe(404);
+    expect((await h.call("GET", `/api/admin/versions/${site.versionId}/page`, fetchFrom("same-origin"))).status).toBe(404);
   });
 });
 

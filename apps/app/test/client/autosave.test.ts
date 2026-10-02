@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { AutoSaver, type DraftPatch, type SaveResult, type SaverState } from "../../src/client/lib/autosave.ts";
+import { AutoSaver, mayReplaceDraft, type DraftPatch, type SaveResult, type SaverState } from "../../src/client/lib/autosave.ts";
 
 const NO_ISSUES = { facts: [], brief: [], photos: [], document: [] };
 
@@ -128,5 +128,15 @@ describe("AutoSaver", () => {
     saver.dispose();
     await vi.advanceTimersByTimeAsync(5000);
     expect(sent).toEqual([]);
+  });
+});
+
+// STRICT (customer data): a reload never replaces the draft after a failed save.
+describe("mayReplaceDraft", () => {
+  it("replaces only after a full save or a conflict, never after a failed save", () => {
+    expect(mayReplaceDraft(true, "saved")).toBe(true);
+    expect(mayReplaceDraft(false, "conflict")).toBe(true);
+    expect(mayReplaceDraft(false, "error")).toBe(false);
+    expect(mayReplaceDraft(false, "pending")).toBe(false);
   });
 });

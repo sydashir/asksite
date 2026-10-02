@@ -5,7 +5,7 @@ import { createLocalJWKSet, type JSONWebKeySet } from "jose";
 import { errorName, fakeAiDraft, fakePublishing } from "../../../app/test/support/fakes.ts";
 import { createAdminWorker } from "../../src/worker/worker.ts";
 import { withClock } from "./clock.ts";
-import { fakeAdminDeps } from "./fakes.ts";
+import { fakeAdminDeps, fakeAdminPublishing } from "./fakes.ts";
 
 // The admin Worker wired to test fakes. Access tokens are checked against a key the test makes
 // (TEST_ACCESS_JWKS), instead of Cloudflare's key endpoint. /__test/sites creates an owner with a
@@ -13,6 +13,18 @@ import { fakeAdminDeps } from "./fakes.ts";
 type TestEnv = Env & { TEST_ACCESS_JWKS?: string };
 
 const worker = createAdminWorker(fakeAdminDeps, (env) => createLocalJWKSet(JSON.parse((env as TestEnv).TEST_ACCESS_JWKS ?? '{"keys":[]}') as JSONWebKeySet));
+
+/** An address the owner's approval email refuses (not https): what a Plan 2 that answered a bad live address would give. */
+const UNSAFE_LIVE_URL = "http://unsafe.example/";
+
+/** The same Worker whose approve answers UNSAFE_LIVE_URL (header X-Test-Unsafe-Live-Url): the approval itself is the fake's, unchanged. */
+const unsafeUrlWorker = createAdminWorker(
+  {
+    ...fakeAdminDeps,
+    publishing: { ...fakeAdminPublishing, approveVersion: async (env, input) => ({ ...(await fakeAdminPublishing.approveVersion(env, input)), liveUrl: UNSAFE_LIVE_URL }) },
+  },
+  (env) => createLocalJWKSet(JSON.parse((env as TestEnv).TEST_ACCESS_JWKS ?? '{"keys":[]}') as JSONWebKeySet),
+);
 
 // The waitUntil count below is lane A's seam (apps/app/test/support/test-worker.ts:16-35 and its /__test/wait-until
 // route), copied as the moderator ruled for the approve route's runToEnd (web-maker-f4, 2026-09-30).
@@ -146,32 +158,44 @@ function disablingBeforeTokenInsert(db: D1Database, ownerId: string): D1Database
   });
 }
 
-/** The faults a takedown request can be given (header X-Test-Takedown-Fault), each thrown as a plain Error, never a PublishError. */
-type TakedownFault = "live-delete" | "live-delete-once" | "live-delete-reread" | "before-commit";
+/** The faults a request can be given (header X-Test-Takedown-Fault), each thrown as a plain Error, never a PublishError. */
+type TakedownFault = "pointer-delete" | "before-commit" | "prefix-delete" | "prefix-delete-once" | "prefix-delete-reread" | "pointer-write";
 
 /**
- * A fault seam for the takedown's post-commit path. "live-delete" fails LIVE.delete, which real takeDown runs AFTER its
- * D1 batch committed; "live-delete-once" fails only the first LIVE.delete of the request (the route's retry succeeds);
- * "live-delete-reread" also fails the route's re-read of taken_down_at; "before-commit" fails the
- * D1 batch itself, so the site stays up. Every other call passes through.
+ * Faults at the real failure points of Plan 2's takeDown order (pointer delete, D1 batch, prefix delete) and of approve's
+ * pointer write. "pointer-delete" fails every LIVE.delete of a single key (the pointer: step 1, before anything changed in D1);
+ * "before-commit" fails the D1 batch itself (the pointer is already gone, the site stays up in D1); "prefix-delete" fails every
+ * LIVE.delete of a list of keys (the prefix delete, which runs AFTER the D1 batch committed); "prefix-delete-once" fails only
+ * the first of them (the route's retry succeeds); "prefix-delete-reread" is "prefix-delete" and also fails the route's re-read
+ * of taken_down_at; "pointer-write" fails the LIVE.put of a pointer (a key with no "/"), which approve reports as live_copy_failed.
+ * Every other call passes through.
  */
-function withTakedownFault(env: TestEnv, fault: TakedownFault): TestEnv {
+function withFault(env: TestEnv, fault: TakedownFault): TestEnv {
   const passThrough = <T extends object>(target: T, key: string | symbol): unknown => {
     const value: unknown = Reflect.get(target, key);
     return typeof value === "function" ? value.bind(target) : value;
   };
-  let deletes = 0;
+  let prefixDeletes = 0;
   const live = new Proxy(env.LIVE, {
     get(target, key) {
-      if (key !== "delete" || fault === "before-commit") return passThrough(target, key);
-      deletes += 1;
-      return fault === "live-delete-once" && deletes > 1 ? passThrough(target, key) : () => Promise.reject(new Error("LIVE delete failed"));
+      if (key === "put" && fault === "pointer-write") {
+        return (name: string, ...rest: [unknown, unknown?]) => (name.includes("/") ? (target.put as (...args: unknown[]) => Promise<unknown>)(name, ...rest) : Promise.reject(new Error("LIVE pointer write failed")));
+      }
+      if (key !== "delete") return passThrough(target, key);
+      return (keys: string | string[]) => {
+        const several = Array.isArray(keys);
+        if (fault === "pointer-delete" && !several) return Promise.reject(new Error("LIVE delete failed"));
+        if (several && (fault === "prefix-delete" || fault === "prefix-delete-reread" || (fault === "prefix-delete-once" && (prefixDeletes += 1) === 1))) {
+          return Promise.reject(new Error("LIVE delete failed"));
+        }
+        return target.delete(keys as string);
+      };
     },
   });
   const db = new Proxy(env.DB, {
     get(target, key) {
       if (key === "batch" && fault === "before-commit") return () => Promise.reject(new Error("D1 batch failed"));
-      if (key === "prepare" && fault === "live-delete-reread") {
+      if (key === "prepare" && fault === "prefix-delete-reread") {
         return (sql: string) => {
           if (sql.startsWith("SELECT taken_down_at FROM sites")) throw new Error("D1 read failed");
           return target.prepare(sql);
@@ -191,8 +215,9 @@ export default {
     // X-Test-Disable-Owner-Before-Token: <owner id> runs the race seam above for this request only.
     const raced = local ? request.headers.get("X-Test-Disable-Owner-Before-Token") : null;
     const fault = local ? (request.headers.get("X-Test-Takedown-Fault") as TakedownFault | null) : null;
-    const requestEnv = raced !== null ? { ...env, DB: disablingBeforeTokenInsert(env.DB, raced) } : fault !== null ? withTakedownFault(env, fault) : env;
+    const requestEnv = raced !== null ? { ...env, DB: disablingBeforeTokenInsert(env.DB, raced) } : fault !== null ? withFault(env, fault) : env;
     // X-Test-Now pins Date.now() while the Worker handles this request (./clock.ts).
-    return withClock(request, local, async () => worker.fetch!(request, requestEnv, counting(ctx, path)));
+    const handler = local && request.headers.has("X-Test-Unsafe-Live-Url") ? unsafeUrlWorker : worker;
+    return withClock(request, local, async () => handler.fetch!(request, requestEnv, counting(ctx, path)));
   },
 } satisfies ExportedHandler<TestEnv>;
