@@ -317,6 +317,13 @@ describe("Classic's pages (A16)", () => {
     const letter = pageOf({ ...plumber, facts: noPhoto }, "about");
     expect(squashedText(eyebrowOf(letter))).toBe(squash("Plumbing Austin, TX"));
     expect(section(letter, "about")).toContain('<p class="seal">');
+    // A town too long to share one phone row with the year (in the widest lettering) leaves the year out below the width
+    // where they fit, so it is never alone on a line: "Albuquerque, NM · Since 1998" is 28 characters (below 24rem).
+    const yearClass = (input: SiteDocumentInput) => /<span class="([^"]*)"><span>Since/.exec(eyebrowOf(pageOf(input, "services")))?.[1];
+    const town = (city: string, state: string) => ({ ...plumber, facts: { ...plumber.facts, location: { ...plumber.facts.location, city, state } } });
+    expect([yearClass(plumber), yearClass(town("Albuquerque", "NM")), yearClass(town("North Richland Hills", "TX"))]).toEqual([undefined, "eb-g1", "eb-g2"]);
+    expect([yearClass(loadFixture("electrical-xss")), yearClass(loadFixture("roofing-extreme"))]).toEqual(["eb-g3", "eb-g4"]);
+    expect(/<span class="([^"]*)"><span>Since/.exec(eyebrowOf(pageOf(town("North Richland Hills", "TX"), "home")))?.[1]).toBe("eb-y eb-g2");
     // No year, no group.
     const { yearFounded: _year, ...noYear } = hvac.facts;
     expect(eyebrowOf(pageOf({ ...hvac, facts: noYear }, "services"))).not.toContain('<span class="dots"><span class="dots-r"><span><span>Phoenix');

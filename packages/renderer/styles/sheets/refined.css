@@ -372,6 +372,12 @@ summary::-webkit-details-marker{display:none}
   /* The email leaves the card (it sits where the call bar covers the first screen); the hero keeps only its quote button. */
   .bc-m .bc-e,.ha>.bt-act{display:none}
 }
+/* A town so long that it and the year cannot share one phone row (parts.ts GROUP_TIERS): the year steps aside below
+   the width where they fit, so it is never alone on a line. */
+@media (width < 24rem){.dots-r>.eb-g1{display:none}}
+@media (width < 30rem){.dots-r>.eb-g2{display:none}}
+@media (width < 40rem){.dots-r>.eb-g3{display:none}}
+@media (width < 48rem){.dots-r>.eb-g4{display:none}}
 
 /* ---------- 30rem ---------- */
 @media (min-width:30rem){

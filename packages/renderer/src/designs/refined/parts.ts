@@ -162,19 +162,30 @@ const TRADE_PERSON: Readonly<Record<Trade, string>> = {
 export const needLine = (facts: Facts): string => `Need ${TRADE_PERSON[facts.trade]} in ${facts.location.city}?`;
 
 /**
+ * How many characters of the town and the year, "Austin, TX · Since 1998", fit one phone row in the widest lettering
+ * (Sturdy: about 10 px a character after the rule and the gutters, measured in Chromium and WebKit) below 24, 30, 40
+ * and 48rem. Up to 24 fit every phone.
+ */
+const GROUP_TIERS: readonly number[] = [24, 30, 40, 56];
+
+/**
  * The trade, the town and, with the owner's year, "Since 1998", joined by dots: the eyebrow of the hero and of every
  * inner page. The town and the year are one group, so where the whole line does not fit the trade takes the first line
  * and the town and year wrap together onto the second: the browser breaks it only where it really overflows, in every
- * lettering, and never leaves the year alone on a line (unless the town and year alone overflow a phone row). `year`
- * places the year: "always"; "phones" leaves it to a seal from 48rem (Home's hero); "tablets" from 60rem (About's
- * photo, under the letter until then); "none" to a seal at every width (About's letter without a photo).
+ * lettering. A town so long that the group itself cannot fit one row leaves the year out below the width where it
+ * does ("eb-gN"), so the year is never alone on a line. `year` places the year: "always"; "phones" leaves it to a seal
+ * from 48rem (Home's hero); "tablets" from 60rem (About's photo, under the letter until then); "none" to a seal at
+ * every width (About's letter without a photo).
  */
 export function eyebrow(facts: Facts, year: "always" | "phones" | "tablets" | "none"): SafeHtml {
   const trade = TRADE_LABEL[facts.trade];
   const place = `${facts.location.city}, ${facts.location.state}`;
   if (facts.yearFounded === undefined || year === "none") return dots([{ text: trade }, { text: place }]);
-  const since = { text: `Since ${facts.yearFounded}`, ...(year === "phones" && { cls: "eb-y" }), ...(year === "tablets" && { cls: "eb-y6" }) };
-  return dots([{ text: trade }, { text: dots([{ text: place }, since]) }]);
+  const text = `Since ${facts.yearFounded}`;
+  const tier = GROUP_TIERS.findIndex((most) => `${place} · ${text}`.length <= most);
+  const fits = tier === -1 ? "eb-g4" : tier > 0 ? `eb-g${tier}` : undefined;
+  const cls = [year === "phones" ? "eb-y" : year === "tablets" ? "eb-y6" : undefined, fits].filter(Boolean).join(" ");
+  return dots([{ text: trade }, { text: dots([{ text: place }, cls ? { text, cls } : { text }]) }]);
 }
 
 /** A block's heading: the accent rule, the h2 (id `${domId}-title`) and an optional intro. */
