@@ -3,7 +3,8 @@ import { contentSecurityPolicy as appPolicy } from "../../../app/build-config.ts
 import { adminContentSecurityPolicy, adminHeadersFile, LOCAL_BUILD_WORKER_NAME, undeployableLocalConfig } from "../../build-config.ts";
 
 // §9.1 / security area: the admin's document policy. The review screen shows the stored page in a srcdoc iframe, which
-// inherits this policy, so the Bold font (a data: URI) needs font-src data:. Nothing else may widen.
+// inherits this policy, so the Bold font (a data: URI) needs font-src data:. The owner app has the same font-src, so the
+// admin adds no directive the app lacks and every shared directive matches, except script-src and frame-src (Turnstile).
 const ROOT = "asksite.example";
 
 const directives = (policy: string) => new Map(policy.split("; ").map((d) => [d.slice(0, d.indexOf(" ")), d] as const));
@@ -15,15 +16,17 @@ describe("adminContentSecurityPolicy", () => {
     );
   });
 
-  it("widens nothing against the owner app's policy: only font-src is added, and Turnstile is absent", () => {
+  it("widens nothing against the owner app's policy, and Turnstile is absent", () => {
     const admin = directives(adminContentSecurityPolicy(ROOT));
     const app = directives(appPolicy(ROOT));
     expect(adminContentSecurityPolicy(ROOT)).not.toContain("challenges.cloudflare.com");
-    expect([...admin.keys()].filter((name) => !app.has(name))).toEqual(["font-src"]);
+    expect([...admin.keys()].filter((name) => !app.has(name))).toEqual([]);
     for (const [name, value] of app) {
       if (name === "script-src" || name === "frame-src") continue; // the app's list adds Turnstile; the admin's is the same without it
       expect(admin.get(name)).toBe(value);
     }
+    expect(admin.get("font-src")).toBe("font-src 'self' data:");
+    expect(app.get("font-src")).toBe("font-src 'self' data:");
     expect(admin.get("script-src")).toBe("script-src 'self'");
     expect(admin.get("frame-src")).toBe("frame-src 'self'");
   });
