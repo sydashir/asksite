@@ -143,7 +143,7 @@ test("Continue with missing answers shows a focused error summary that links to 
   await expectNoSidewaysScroll(page);
 });
 
-test("answers are saved automatically and survive a reload", async ({ page }) => {
+test("answers are saved automatically and survive a reload @firefox", async ({ page }) => {
   const siteId = await acceptInvite(page);
   await page.getByLabel("Business name").fill("Autosave Plumbing");
   await expect(page.getByRole("status").filter({ hasText: "All changes saved." })).toBeVisible();

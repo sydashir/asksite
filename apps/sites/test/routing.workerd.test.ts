@@ -20,7 +20,7 @@ function expectFixedPage(response: HarnessResponse, status: number) {
   expect(response.headers.get("x-robots-tag")).toBe("noindex");
   expect(response.headers.get("cache-control")).toBe("no-store");
   expect(response.headers.get("content-security-policy")).toBe(
-    `default-src 'none'; style-src 'unsafe-inline'; img-src https://media.${ROOT}; form-action 'self'; base-uri 'none'; frame-ancestors 'none'`,
+    `default-src 'none'; style-src 'unsafe-inline'; img-src https://media.${ROOT}; font-src data:; form-action 'self'; base-uri 'none'; frame-ancestors 'none'`,
   );
   expect(response.headers.get("x-content-type-options")).toBe("nosniff");
 }
@@ -92,8 +92,28 @@ describe("hosts we do not serve", () => {
     expectFixedPage(await get(`https://${host}/`), 404);
   });
 
-  it("a site host has only /, /favicon.ico and the form routes", async () => {
-    expectFixedPage(await get(at("joes", "/wp-admin")), 404);
+  it("a site host has only the 5 page paths, /favicon.ico and the form routes", async () => {
+    for (const path of ["/", "/services", "/about", "/gallery", "/contact"]) {
+      const response = await get(at("joes", path));
+      expect(response.status, path).not.toBe(301);
+      expect(response.headers.get("location"), path).toBeNull();
+    }
+    expect((await get(at("joes", "/favicon.ico"))).status).toBe(204);
     expectFixedPage(await get(at("joes", "/_f/not-an-id/sent")), 404);
+    for (const path of ["/wp-admin", "/index.html", "/Services", "//services", "/services//", "/home", "/old-page"]) {
+      expectFixedPage(await get(at("joes", path)), 404);
+    }
+  });
+
+  it("sends a trailing slash on a non-Home page path to the page, uncached", async () => {
+    for (const path of ["/services", "/about", "/gallery", "/contact"]) {
+      for (const method of ["GET", "HEAD"]) {
+        const response = await get(at("joes", `${path}/`), { method });
+        expect(response.status, path).toBe(301);
+        expect(response.headers.get("location"), path).toBe(at("joes", path));
+        expect(response.headers.get("cache-control"), path).toBe("no-store");
+        expect(response.headers.get("x-robots-tag"), path).toBe("noindex");
+      }
+    }
   });
 });

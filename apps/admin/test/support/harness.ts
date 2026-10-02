@@ -79,6 +79,12 @@ export function useAdminHarness(vars: Record<string, string> = {}) {
     return ((await server.getWorker().getEnv()) as Record<string, R2Like>)[name]!;
   }
 
+  /** Every LIVE key of the site: its pointer (the slug itself) and its pages (under "<slug>/"), sorted. */
+  async function liveKeys(slug: string): Promise<string[]> {
+    const { objects } = await (await r2("LIVE")).list({ prefix: slug });
+    return objects.map((o) => o.key).filter((key) => key === slug || key.startsWith(`${slug}/`)).sort();
+  }
+
   /** An owner with a site waiting for review. */
   async function pendingSite(facts: object = VALID_FACTS, extra: { reviewsAreReal?: boolean } = {}) {
     const email = `owner${Math.random().toString(36).slice(2, 9)}@example.com`;
@@ -126,7 +132,7 @@ export function useAdminHarness(vars: Record<string, string> = {}) {
     await eventually(() => waitUntilSeen(path), (seen) => seen.pending === 0, `the background work of ${path}`);
   }
 
-  return { server, call, db, r2, pendingSite, outbox, logLines, waitUntilCount, backgroundDone };
+  return { server, call, db, r2, liveKeys, pendingSite, outbox, logLines, waitUntilCount, backgroundDone };
 }
 
 /** Polls `read` every 100 ms until `done` accepts its value (at most 5 s); lane A's harness helper of the same name. */
@@ -152,6 +158,8 @@ export interface D1Like {
 export interface R2Like {
   get(key: string): Promise<{ text(): Promise<string>; customMetadata?: Record<string, string> } | null>;
   put(key: string, value: string): Promise<unknown>;
+  list(options: { prefix: string }): Promise<{ objects: Array<{ key: string }> }>;
+  delete(key: string): Promise<unknown>;
 }
 
 export async function json<T>(res: Response): Promise<T> {

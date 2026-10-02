@@ -1,4 +1,4 @@
-import { hashIp, ipRateKey, isId, LIMITS, liveKey, newId, siteUrl, utcDayStart } from "@asksite/core";
+import { hashIp, ipRateKey, isId, LIMITS, livePointerKey, newId, siteUrl, utcDayStart } from "@asksite/core";
 import { createMailer, MailerError } from "@asksite/mailer";
 import { businessOf, formBusiness } from "./business.ts";
 import { leadEmailsPerDay } from "./config.ts";
@@ -80,9 +80,10 @@ export async function handleForm(
   const read = readLead(fields);
   if (!read.ok) return { response: formProblems(root, read.problems.map((p) => PROBLEM_TEXT[p])), code: "validation_failed" };
 
-  // R2 first: a form for a site with no approved page never reaches D1 (Decision 24).
-  const page = await env.LIVE.head(liveKey(hostSlug));
-  if (page === null || page.customMetadata?.["siteId"] !== siteId) return { response: notFound(root) };
+  // R2 first: a form for a site with no pointer never reaches D1 (Decision 24). The pointer is written only after
+  // every page is copied, so a visitor who can see /contact always has a working form.
+  const pointer = await env.LIVE.head(livePointerKey(hostSlug));
+  if (pointer === null || pointer.customMetadata?.["siteId"] !== siteId) return { response: notFound(root) };
 
   const site = await env.DB.prepare(
     "SELECT s.slug, s.live_version_id, s.taken_down_at, o.email FROM sites s JOIN owners o ON o.id = s.owner_id WHERE s.id = ?",
@@ -96,7 +97,7 @@ export async function handleForm(
   const emailsPerDay = leadEmailsPerDay(env.LEAD_EMAILS_PER_DAY);
   const status = await insertLead(env.DB, { leadId, siteId, now, lead: read.lead, spam, ipHash, emailsPerDay });
   // Nothing was stored, so nothing is emailed or counted; the page gives the visitor the phone number.
-  if (status === "site_daily_cap" || status === "network_daily_limit") return { response: siteBusy(root, now, businessOf(page.customMetadata).phone), code: status };
+  if (status === "site_daily_cap" || status === "network_daily_limit") return { response: siteBusy(root, now, businessOf(pointer.customMetadata).phone), code: status };
   // The same request again (a second tap on Send): stored and emailed once already, so only thanked.
   if (status === "duplicate") return { response: seeOther(sent), code: "duplicate" };
   if (status === "skipped") return { response: seeOther(sent), code: "spam" };

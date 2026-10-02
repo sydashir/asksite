@@ -1,6 +1,6 @@
-import { hashIp, LIMITS, newId } from "@asksite/core";
+import { hashIp, LIMITS, livePointerKey, newId } from "@asksite/core";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { at, BUSINESS_METADATA, linesWith, PHONE_METADATA, putLive, seedSite, settledLeads, sitesHarness, TEST_SECRETS, type SeededSite, type ToolsEnv } from "./support/harness.ts";
+import { at, BUSINESS_METADATA, linesWith, PHONE_METADATA, putLive, putPointer, seedSite, settledLeads, sitesHarness, TEST_SECRETS, type SeededSite, type ToolsEnv } from "./support/harness.ts";
 
 const harness = sitesHarness();
 let tools: ToolsEnv;
@@ -98,7 +98,7 @@ describe("POST /_f/<siteId>", () => {
     expect(body).toContain("<li>Please shorten your message to 2,000 characters or fewer.</li>");
     expect(body).not.toContain("script");
     expect(body).not.toContain("not-an-email");
-    expect(body).toContain('href="/#contact"');
+    expect(body).toContain('href="/contact#quote"');
     expect(await leads(fresh.siteId)).toEqual([]);
   });
 
@@ -116,7 +116,7 @@ describe("POST /_f/<siteId>", () => {
     const body = await response.text();
     expect(body).toContain("<h1>Your message is too long</h1>");
     expect(body).toContain("Please shorten your message and send it again, or call the business instead.");
-    expect(body).toContain('href="/#contact"');
+    expect(body).toContain('href="/contact#quote"');
   });
 
   // A15 minor 1: the form allows 2,000 characters (maxlength and lead.ts). A character of a 3-byte
@@ -163,6 +163,24 @@ describe("POST /_f/<siteId>", () => {
     for (let i = 1; i <= 6; i++) pages.push(await pageOf(await post(busy, { ...GOOD, name: `Dana ${i}` }, { ip: `2001:db8:4:7::${i}` })));
     expect(pages).toEqual(["303", "303", "303", "429 Please call instead", "429 Please call instead", "429 Please wait"]);
     expect((await post(busy, GOOD, { ip: "2001:db8:4:8::1" })).status).toBe(303);
+  });
+
+  // A16 + U2: the pointer is written only after every page is copied, so a visitor who can see /contact always
+  // has a working form: the form's "R2 first" check reads the pointer.
+  it("needs the site's LIVE pointer: with it the lead is stored, without it or with another site's, 404 and nothing stored", async () => {
+    const withPointer = await seedSite(tools);
+    expect((await post(withPointer, GOOD)).status).toBe(303);
+    expect(await leads(withPointer.siteId)).toHaveLength(1);
+
+    const noPointer = await seedSite(tools);
+    await tools.LIVE.delete(livePointerKey(noPointer.slug));
+    const other = await seedSite(tools);
+    const foreign = await seedSite(tools);
+    await putPointer(tools, { ...foreign, siteId: other.siteId });
+    for (const target of [noPointer, foreign]) expect((await post(target, GOOD)).status, target.slug).toBe(404);
+    expect(await leads(noPointer.siteId)).toEqual([]);
+    expect(await leads(foreign.siteId)).toEqual([]);
+    expect(await leads(other.siteId)).toEqual([]);
   });
 
   it("returns 404 for a form that is not this live site's", async () => {
@@ -303,12 +321,12 @@ describe("form edges", () => {
     expect(lead?.["ip_hash"]).not.toBe(await hashIp(TEST_SECRETS.IP_HASH_KEY, "2001:db8:9:1::abcd"));
   });
 
-  it("lets D1 decide: a LIVE object for a site D1 does not call live, or under another slug, gets 404 and stores nothing", async () => {
+  it("lets D1 decide: a pointer for a site D1 does not call live, or under another slug, gets 404 and stores nothing", async () => {
     const draft = await seedSite(tools, { live: false, withObject: true });
     expect((await post(draft, GOOD)).status).toBe(404);
     const moved = await seedSite(tools);
     const oldSlug = `${moved.slug}-old`;
-    await putLive(tools, { ...moved, slug: oldSlug });
+    await putPointer(tools, { ...moved, slug: oldSlug });
     expect((await post({ slug: oldSlug, siteId: moved.siteId }, GOOD)).status).toBe(404);
     expect(await leads(draft.siteId)).toEqual([]);
     expect(await leads(moved.siteId)).toEqual([]);
@@ -423,7 +441,7 @@ describe("the 'Please call instead' page and the business phone", () => {
       ...["", "5125550142", "+1 512 555 0142", "+05125550142", "+1234567890123456", "javascript:alert(1)", '+15125550142"'].map((phoneTel) => ({ phoneText: "(512) 555-0142", phoneTel })),
     ];
     for (const metadata of odd) {
-      await putLive(tools, site, metadata);
+      await putPointer(tools, site, metadata);
       const body = await (await post(site, GOOD)).text();
       expect({ metadata, fallback: body.includes(ON_THE_WEBSITE), link: body.includes("tel:") }).toEqual({ metadata, fallback: true, link: false });
     }

@@ -1,7 +1,7 @@
 import { Parser, TokenizerMode, type DefaultTreeAdapterMap, type Token } from "parse5";
 import { describe, expect, it } from "vitest";
 import * as htmlModule from "../src/html.ts";
-import { advance, fragment, html, safeUrl, SafeHtml, START, trusted, type Context } from "../src/html.ts";
+import { advance, fragment, html, pagePath, safeUrl, SafeHtml, START, trusted, type Context } from "../src/html.ts";
 
 const PAYLOAD = `<img src=x onerror="alert(1)">'&`;
 const JS = "javascript:alert(1)";
@@ -658,8 +658,8 @@ describe("safeUrl", () => {
   });
   it("cannot be minted at runtime through safeUrl(x).constructor", () => {
     const SafeUrlClass = safeUrl("https://example.com/").constructor as new (...args: unknown[]) => unknown;
-    expect(() => new SafeUrlClass(JS)).toThrow("Only safeUrl() and fragment() can make a SafeUrl");
-    expect(() => new SafeUrlClass(Symbol("SafeUrl"), JS)).toThrow("Only safeUrl() and fragment() can make a SafeUrl");
+    expect(() => new SafeUrlClass(JS)).toThrow("Only safeUrl(), fragment() and pagePath() can make a SafeUrl");
+    expect(() => new SafeUrlClass(Symbol("SafeUrl"), JS)).toThrow("Only safeUrl(), fragment() and pagePath() can make a SafeUrl");
   });
   it("cannot be switched off by patching the class that safeUrl(x).constructor exposes", () => {
     const SafeUrlClass = safeUrl("https://example.com/").constructor as unknown as Record<string, unknown>;
@@ -688,9 +688,46 @@ describe("safeUrl", () => {
   });
 });
 
+describe("pagePath (A16)", () => {
+  it.each([
+    ["home", "/"],
+    ["services", "/services"],
+    ["about", "/about"],
+    ["gallery", "/gallery"],
+    ["contact", "/contact"],
+  ] as const)("builds the root-relative link to the %s page, with and without a fragment", (page, path) => {
+    expect(String(html`<a href="${pagePath(page)}">x</a>`)).toBe(`<a href="${path}">x</a>`);
+    expect(String(html`<a href="${pagePath(page, "quote")}">x</a>`)).toBe(`<a href="${path}#quote">x</a>`);
+    expect(String(pagePath(page, "service-area"))).toBe(`${path}#service-area`);
+  });
+  it.each(["x", "Home", "__proto__", "constructor", "toString", "", "/services", 7, null, undefined, {}])("refuses %j as a page", (page) => {
+    expect(() => pagePath(page as never)).toThrow("Invalid page");
+  });
+  it.each([`x" onclick="y`, "/", "..", "a/b", "../x", "Quote", "a b", "", "9a", "-a", "a#b", "a?b", " a"])("refuses the fragment %j", (id) => {
+    expect(() => pagePath("contact", id)).toThrow("Invalid fragment id");
+  });
+  it("is a real SafeUrl: a forged one is still refused, and a plain path string never is accepted", () => {
+    expect(() => html`<a href="${"/services" as never}">x</a>`).toThrow("needs a SafeUrl");
+    const forged: unknown = Object.assign(Object.create(Object.getPrototypeOf(pagePath("home")) as object) as object, { toString: () => "/services" });
+    expect(() => html`<a href="${forged as ReturnType<typeof pagePath>}">x</a>`).toThrow("needs a SafeUrl");
+  });
+});
+
+// A value that passes the id pattern on its first coercion and says something else on its second.
+const shapeShifter = () => {
+  let calls = 0;
+  return { toString: () => (calls++ === 0 ? "quote" : "x/../y") };
+};
+
 describe("fragment", () => {
   it("builds an in-page link to one of our ids", () => {
     expect(String(html`<a href="${fragment("service-area")}">x</a>`)).toBe(`<a href="#service-area">x</a>`);
+  });
+  it("refuses a fragment that is not a string, even one that passes the id pattern once", () => {
+    for (const id of [7, null, {}, ["quote"], shapeShifter()]) {
+      expect(() => fragment(id as never)).toThrow("Invalid fragment id");
+      expect(() => pagePath("contact", id as never)).toThrow("Invalid fragment id");
+    }
   });
   it("rejects anything that is not a plain id", () => {
     expect(() => fragment(`x" onclick="y`)).toThrow("Invalid fragment id");

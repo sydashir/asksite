@@ -1,3 +1,4 @@
+import type { PageId } from "@asksite/site-schema";
 import type { AiDraft, OwnerEdits } from "./draft.ts";
 import type { FallbackReason, GenerationErrorCode } from "./generation.ts";
 import type { Issue } from "./issues.ts";
@@ -15,6 +16,9 @@ export interface VersionSummary {
   id: string; number: number; status: "pending" | "approved" | "rejected" | "withdrawn" | "superseded";
   requestedAt: number; reviewedAt: number | null; reviewNote: string | null;
 }
+// A16: the owner's site view also lists the version's pages (from its stored pages_json, in page order; [] for a row from before A16),
+// so the owner's preview asks only for pages the version has.
+export interface OwnerVersionSummary extends VersionSummary { pages: PageId[] }
 export interface UploadView { id: string; url: string; width: number; height: number; bytes: number; createdAt: number }
 export interface SiteView {
   id: string; slug: string | null; rev: number;
@@ -22,7 +26,7 @@ export interface SiteView {
   facts: unknown; brief: unknown; edits: OwnerEdits;
   ai: { generationId: string; draft: AiDraft; usedFallback: boolean } | null;
   activeGeneration: GenerationView | null;
-  pendingVersion: VersionSummary | null; liveVersion: VersionSummary | null;
+  pendingVersion: OwnerVersionSummary | null; liveVersion: OwnerVersionSummary | null;
   draftDiffersFromLive: boolean;
   uploads: UploadView[];
   limits: { generationsLeftToday: number; generationsLeftTotal: number };
@@ -42,7 +46,10 @@ export interface ReviewChecks {
 export interface AdminVersionDetail {
   version: VersionSummary & { siteId: string; htmlSha256: string; generationId: string | null; requestedBy: string };
   site: AdminSiteRow; document: unknown; ownerEditedPaths: string[];
-  liveDocument: unknown | null; checks: ReviewChecks; pageUrl: string; // "/api/admin/versions/<id>/page"
+  liveDocument: unknown | null; checks: ReviewChecks;
+  // A16: every page the version has, in page order, from its stored pages_json ([] for a row from before A16). `url` is
+  // "/api/admin/versions/<id>/pages/<page>"; `sha256` is the hash the page's stored bytes must have (the digest of all of them is version.htmlSha256).
+  pages: Array<{ page: PageId; label: string; url: string; sha256: string }>;
 }
 export interface AdminSettings {
   generationEnabled: boolean; envGenerationEnabled: boolean; dailyModelLimit: number;

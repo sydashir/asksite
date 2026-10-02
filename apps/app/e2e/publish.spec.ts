@@ -1,5 +1,8 @@
 import { expect, test, type Page } from "@playwright/test";
-import { APP, apiCall, builtSite, expectAccessible, FACTS } from "./support.ts";
+import { expectFrameTitle, expectLinksStayInFrame, JOES_TITLE, LINKS_OFF } from "./frame-links.ts";
+import { APP, apiCall, builtSite, expectAccessible, expectNoSidewaysScroll, FACTS } from "./support.ts";
+
+const PREVIEW_FRAME = 'iframe[title="Preview of the pages we are reviewing"]';
 
 test("send for review, see what is reviewed, withdraw, send again, then see it live", async ({ page }) => {
   const siteId = await builtSite(page);
@@ -10,13 +13,26 @@ test("send for review, see what is reviewed, withdraw, send again, then see it l
   await page.getByRole("button", { name: "Send for review" }).click();
   await expect(page.getByRole("heading", { name: "Waiting for approval" })).toBeVisible();
   await expect(page.getByText(/^Version 1, sent/)).toBeVisible();
-  const link = page.getByRole("link", { name: "See what we are reviewing (opens in a new tab)" });
-  const href = await link.getAttribute("href");
-  expect(href).toMatch(new RegExp(`^/api/sites/${siteId}/versions/[0-9a-f-]{36}/page$`));
-  const stored = await page.request.get(`${APP}${href}`);
+  // The pages of the sent version, inline: a "Page" group outside the frame, one button per page the version has.
+  await expect(page.getByRole("heading", { name: "See what we are reviewing" })).toBeVisible();
+  const pageButtons = page.getByRole("group", { name: "Page", exact: true }).getByRole("button");
+  await expect(pageButtons).toHaveText(["Home", "Services", "About", "Contact"]);
+  await expect(pageButtons.first()).toHaveAttribute("aria-pressed", "true");
+  const frame = page.frameLocator(PREVIEW_FRAME);
+  await expect(page.locator(PREVIEW_FRAME)).toHaveAttribute("sandbox", "");
+  await expectFrameTitle(frame, JOES_TITLE.home);
+  await pageButtons.nth(1).click();
+  await expect(pageButtons.nth(1)).toHaveAttribute("aria-pressed", "true");
+  await expectFrameTitle(frame, JOES_TITLE.services);
+  await page.getByRole("group", { name: "Page", exact: true }).getByRole("button", { name: "Contact" }).click();
+  await expect(frame.locator("form#quote")).toBeAttached();
+  const sent = (await apiCall(page, "GET", `/api/sites/${siteId}`)).json?.["pendingVersion"] as { id: string };
+  const stored = await page.request.get(`${APP}/api/sites/${siteId}/versions/${sent.id}/pages/home`);
   expect(stored.headers()["content-security-policy"]).toContain("sandbox");
   expect(await stored.text()).toContain("Plumbing done right");
   await expectAccessible(page);
+  await page.setViewportSize({ width: 320, height: 700 });
+  await expectNoSidewaysScroll(page);
 
   await page.getByRole("button", { name: "Withdraw this request" }).click();
   await page.getByRole("dialog", { name: "Withdraw your request?" }).getByRole("button", { name: "Withdraw" }).click();
@@ -31,6 +47,56 @@ test("send for review, see what is reviewed, withdraw, send again, then see it l
   await page.reload();
   await expect(page.getByText("Your website is live at")).toBeVisible();
   await expect(page.getByRole("link", { name: /^https:\/\/joes-[a-z0-9]+\.localhost:8789\/$/ })).toBeVisible();
+});
+
+test("links in the preview frame go nowhere: the frame stays on the shown page and the status line says so, by click and by Enter", async ({ page }) => {
+  const siteId = await builtSite(page);
+  await page.goto(`/sites/${siteId}/publish`);
+  await page.getByRole("button", { name: "Send for review" }).click();
+  await expect(page.getByRole("heading", { name: "Waiting for approval" })).toBeVisible();
+  await expectLinksStayInFrame(page, PREVIEW_FRAME, async () => {
+    await page.reload();
+    await expect(page.getByRole("heading", { name: "Waiting for approval" })).toBeVisible();
+  });
+});
+
+test("moving Home, Services, Home in the preview says nothing about links, and one real link click says it once", async ({ page }) => {
+  const siteId = await builtSite(page);
+  await page.goto(`/sites/${siteId}/publish`);
+  await page.getByRole("button", { name: "Send for review" }).click();
+  await expect(page.getByRole("heading", { name: "Waiting for approval" })).toBeVisible();
+  const group = page.getByRole("group", { name: "Page", exact: true });
+  const frame = page.frameLocator(PREVIEW_FRAME);
+  await expectFrameTitle(frame, JOES_TITLE.home);
+
+  // Count every "Links are turned off" the preview's status line ever inserts. The line is found by structure (the role="status"
+  // right after the buttons' row), not by text. Counting starts before the first switch.
+  await page.evaluate((text) => {
+    const box = document.querySelector('[role="group"][aria-label="Page"]')?.parentElement?.nextElementSibling;
+    if (box?.getAttribute("role") !== "status") throw new Error("the preview's status line is not where it was");
+    const seen = { count: 0 };
+    (window as unknown as { linksOffSeen: typeof seen }).linksOffSeen = seen;
+    new MutationObserver((records) => {
+      for (const record of records) for (const node of record.addedNodes) if (node.textContent === text) seen.count += 1;
+    }).observe(box, { childList: true, subtree: true });
+  }, LINKS_OFF);
+
+  for (const [name, title] of [["Home", JOES_TITLE.home], ["Services", JOES_TITLE.services], ["Home", JOES_TITLE.home]] as const) {
+    await group.getByRole("button", { name }).click();
+    await expect(group.getByRole("button", { name })).toHaveAttribute("aria-pressed", "true");
+    await expectFrameTitle(frame, title, `the frame shows ${name}`);
+  }
+
+  // The barrier: this real click makes a later load event than any switch above, and React renders the updates of one lane
+  // together and in order (react-dom 19.3.0: "load" has no case in getEventPriority, cjs/react-dom-client.development.js:26252-26340,
+  // so every load's update is DefaultEventPriority). When its announcement is visible, any earlier one is committed too.
+  const target = frame.getByRole("link", { name: "Get a quote", exact: true }).first();
+  // Below 1024 px the renderer's menu is a <details>: its links are hidden until the menu is opened.
+  if ((await target.count()) === 0) await frame.locator("details > summary").click();
+  await target.click();
+  await expect(page.getByText(LINKS_OFF)).toBeVisible();
+  await expectFrameTitle(frame, JOES_TITLE.home, "the frame stays on Home");
+  expect(await page.evaluate(() => (window as unknown as { linksOffSeen: { count: number } }).linksOffSeen.count)).toBe(1);
 });
 
 test("publishing with reviews but no attestation lists the fix, with a link to it", async ({ page }) => {

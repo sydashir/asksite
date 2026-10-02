@@ -1,4 +1,5 @@
-import { newId } from "@asksite/core";
+import { livePageKey, livePointerKey, newId } from "@asksite/core";
+import { PAGE_IDS } from "@asksite/site-schema";
 import { describe, expect, it } from "vitest";
 import { GENERATION_HISTORY, SITE_AUDIT, SITE_LIST, VERSION_HISTORY } from "../../src/worker/queries.ts";
 import { json, useAdminHarness } from "../support/harness.ts";
@@ -10,6 +11,13 @@ async function handedOver(method: string, path: string, body?: unknown): Promise
   const before = await h.waitUntilCount(path);
   const { status } = await h.call(method, path, body === undefined ? {} : { body });
   return { status, waitUntil: (await h.waitUntilCount(path)) - before };
+}
+
+/** A site that is live: approved, so its pointer and pages are in LIVE (a takedown's clean-up has something to delete). */
+async function liveSite() {
+  const site = await h.pendingSite();
+  expect((await h.call("POST", `/api/admin/versions/${site.versionId}/approve`, { body: { htmlSha256: site.htmlSha256 } })).status).toBe(200);
+  return site;
 }
 
 describe("list queries read only what their views output (moderator ruling, 2026-09-30)", () => {
@@ -26,9 +34,9 @@ describe("list queries read only what their views output (moderator ruling, 2026
     for (let number = 2; number <= 60; number += 1) {
       await db
         .prepare(
-          "INSERT INTO site_versions (id, site_id, number, status, document_json, document_sha256, edits_json, generation_id, html_key, html_sha256, stylesheet_sha256, requested_by, requested_at) VALUES (?, ?, ?, 'rejected', ?, ?, ?, NULL, ?, ?, ?, ?, ?)",
+          "INSERT INTO site_versions (id, site_id, number, status, document_json, document_sha256, edits_json, generation_id, pages_json, html_key, html_sha256, stylesheet_sha256, requested_by, requested_at) VALUES (?, ?, ?, 'rejected', ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?)",
         )
-        .bind(newId(), site.siteId, number, pending?.["document_json"], pending?.["document_sha256"], pending?.["edits_json"], pending?.["html_key"], pending?.["html_sha256"], pending?.["stylesheet_sha256"], site.ownerId, number)
+        .bind(newId(), site.siteId, number, pending?.["document_json"], pending?.["document_sha256"], pending?.["edits_json"], pending?.["pages_json"], pending?.["html_key"], pending?.["html_sha256"], pending?.["stylesheet_sha256"], site.ownerId, number)
         .run();
     }
     const detail = await json<{ versions: Array<Record<string, unknown>> }>(await h.call("GET", `/api/admin/sites/${site.siteId}`));
@@ -121,16 +129,16 @@ describe("the takedown notice (web-maker-f4, 2026-09-30: awaited after the commi
   });
 });
 
-describe("the takedown's post-commit throw path (web-maker-f4, 2026-09-30, option b)", () => {
+describe("the takedown's throw paths in the pointer-first order (web-maker-f4, 2026-09-30, option b; A16 order)", () => {
   const takedown = (siteId: string) => `/api/admin/sites/${siteId}/takedown`;
   const notices = async (email: string) => (await h.outbox(email)).filter((m) => m.tag === "site_notice");
   const downAt = async (siteId: string) =>
     (await (await h.db()).prepare("SELECT taken_down_at FROM sites WHERE id = ?").bind(siteId).first<{ taken_down_at: number | null }>())?.taken_down_at;
 
   it("still tells the owner when cleanup throws after the commit: 200 noticeSent true, cleanupFailed true, one log line with the site id only", async () => {
-    const site = await h.pendingSite();
+    const site = await liveSite();
     h.server.clearLogs();
-    const res = await h.call("POST", takedown(site.siteId), { body: { reason: "Spam report" }, headers: { "X-Test-Takedown-Fault": "live-delete" } });
+    const res = await h.call("POST", takedown(site.siteId), { body: { reason: "Spam report" }, headers: { "X-Test-Takedown-Fault": "prefix-delete" } });
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ noticeSent: true, cleanupFailed: true });
     expect(await notices(site.email)).toHaveLength(1);
@@ -141,28 +149,52 @@ describe("the takedown's post-commit throw path (web-maker-f4, 2026-09-30, optio
   });
 
   it("says both when cleanup throws and the email fails: 200 noticeSent false, cleanupFailed true, the site stays down", async () => {
-    const site = await h.pendingSite();
+    const site = await liveSite();
     await (await h.db()).prepare("UPDATE owners SET email = ? WHERE id = ?").bind("cleanup@mail-fails.example", site.ownerId).run();
-    const res = await h.call("POST", takedown(site.siteId), { body: { reason: "Spam report" }, headers: { "X-Test-Takedown-Fault": "live-delete" } });
+    const res = await h.call("POST", takedown(site.siteId), { body: { reason: "Spam report" }, headers: { "X-Test-Takedown-Fault": "prefix-delete" } });
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ noticeSent: false, cleanupFailed: true });
     expect(await downAt(site.siteId)).not.toBeNull();
     await h.backgroundDone(takedown(site.siteId));
   });
 
-  it("rethrows a non-PublishError when the site is NOT down: 500, no notice, site untouched", async () => {
+  it("rethrows a non-PublishError when the D1 batch fails (the site is NOT down): 500, no notice, and the pointer is already gone, so the site shows nothing", async () => {
     const site = await h.pendingSite();
+    await h.call("POST", `/api/admin/versions/${site.versionId}/approve`, { body: { htmlSha256: site.htmlSha256 } });
+    const before = await h.liveKeys(site.slug);
+    expect(before).toContain(livePointerKey(site.slug));
     const res = await h.call("POST", takedown(site.siteId), { body: { reason: "Spam report" }, headers: { "X-Test-Takedown-Fault": "before-commit" } });
     expect(res.status).toBe(500);
     expect(await downAt(site.siteId)).toBeNull();
     expect(await notices(site.email)).toHaveLength(0);
+    // The pointer went first: D1 still says live, but every page already stopped; the pages themselves wait for the retry.
+    expect(await h.liveKeys(site.slug)).toEqual(before.filter((key) => key !== livePointerKey(site.slug)));
+    await h.backgroundDone(takedown(site.siteId));
+    // The admin's retry finishes it: down in D1, nothing left in LIVE, one notice.
+    expect((await h.call("POST", takedown(site.siteId), { body: { reason: "Spam report" } })).status).toBe(200);
+    expect(await downAt(site.siteId)).not.toBeNull();
+    expect(await h.liveKeys(site.slug)).toEqual([]);
+    expect(await notices(site.email)).toHaveLength(1);
+    await h.backgroundDone(takedown(site.siteId));
+  });
+
+  it("changes nothing when the pointer delete fails (step 1): 500, no notice, the site stays up in D1 with its pointer and pages", async () => {
+    const site = await h.pendingSite();
+    await h.call("POST", `/api/admin/versions/${site.versionId}/approve`, { body: { htmlSha256: site.htmlSha256 } });
+    const before = await h.liveKeys(site.slug);
+    const res = await h.call("POST", takedown(site.siteId), { body: { reason: "Spam report" }, headers: { "X-Test-Takedown-Fault": "pointer-delete" } });
+    expect(res.status).toBe(500);
+    expect(await downAt(site.siteId)).toBeNull();
+    expect(await notices(site.email)).toHaveLength(0);
+    expect(await h.liveKeys(site.slug)).toEqual(before);
+    expect((await (await h.db()).prepare("SELECT action FROM audit_log WHERE site_id = ? AND action = 'site.taken_down'").bind(site.siteId).all()).results).toEqual([]);
     await h.backgroundDone(takedown(site.siteId));
   });
 
   it("rethrows the ORIGINAL error (500, no notice) when the re-read itself throws", async () => {
-    const site = await h.pendingSite();
+    const site = await liveSite();
     h.server.clearLogs();
-    const res = await h.call("POST", takedown(site.siteId), { body: { reason: "Spam report" }, headers: { "X-Test-Takedown-Fault": "live-delete-reread" } });
+    const res = await h.call("POST", takedown(site.siteId), { body: { reason: "Spam report" }, headers: { "X-Test-Takedown-Fault": "prefix-delete-reread" } });
     expect(res.status).toBe(500);
     expect(await notices(site.email)).toHaveLength(0);
     // The line names the original error's class (a plain Error from LIVE.delete), not the re-read's.
@@ -176,9 +208,9 @@ describe("the takedown clean-up retry and the single notice (web-maker-f4, 2026-
   const notices = async (email: string) => (await h.outbox(email)).filter((m) => m.tag === "site_notice");
 
   it("retries the takedown once in the same call: the first LIVE delete throws, the second works -> no cleanupFailed, exactly one notice", async () => {
-    const site = await h.pendingSite();
+    const site = await liveSite();
     h.server.clearLogs();
-    const res = await h.call("POST", takedown(site.siteId), { body: { reason: "Spam report" }, headers: { "X-Test-Takedown-Fault": "live-delete-once" } });
+    const res = await h.call("POST", takedown(site.siteId), { body: { reason: "Spam report" }, headers: { "X-Test-Takedown-Fault": "prefix-delete-once" } });
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ noticeSent: true });
     expect(await notices(site.email)).toHaveLength(1);
@@ -187,8 +219,8 @@ describe("the takedown clean-up retry and the single notice (web-maker-f4, 2026-
   });
 
   it("a re-run on an already-down site sends no notice and answers noticeSent null; its clean-up now works so no cleanupFailed", async () => {
-    const site = await h.pendingSite();
-    const first = await h.call("POST", takedown(site.siteId), { body: { reason: "Spam report" }, headers: { "X-Test-Takedown-Fault": "live-delete" } });
+    const site = await liveSite();
+    const first = await h.call("POST", takedown(site.siteId), { body: { reason: "Spam report" }, headers: { "X-Test-Takedown-Fault": "prefix-delete" } });
     expect(await first.json()).toEqual({ noticeSent: true, cleanupFailed: true });
     const again = await h.call("POST", takedown(site.siteId), { body: { reason: "Spam report" } });
     expect(again.status).toBe(200);
@@ -198,9 +230,11 @@ describe("the takedown clean-up retry and the single notice (web-maker-f4, 2026-
   });
 
   it("a re-run on an already-down site whose clean-up still fails answers cleanupFailed true and still sends no notice", async () => {
-    const site = await h.pendingSite();
+    const site = await liveSite();
     await h.call("POST", takedown(site.siteId), { body: { reason: "Spam report" } });
-    const again = await h.call("POST", takedown(site.siteId), { body: { reason: "Spam report" }, headers: { "X-Test-Takedown-Fault": "live-delete" } });
+    // A page left behind (a clean-up that failed earlier): the re-run has something to delete, and the fault stops it.
+    await (await h.r2("LIVE")).put(`${site.slug}/${newId()}/home.html`, "<p>left</p>");
+    const again = await h.call("POST", takedown(site.siteId), { body: { reason: "Spam report" }, headers: { "X-Test-Takedown-Fault": "prefix-delete" } });
     expect(again.status).toBe(200);
     expect(await again.json()).toEqual({ noticeSent: null, cleanupFailed: true });
     expect(await notices(site.email)).toHaveLength(1);
@@ -256,6 +290,61 @@ describe("the takedown audit rows (web-maker-f4, 2026-09-30: a re-run is recorde
     expect(all).toHaveLength(4);
     expect(all.filter((r) => r.detail["repeat"] === true)).toHaveLength(3);
     await h.backgroundDone(takedown(site.siteId));
+  });
+});
+
+describe("takedown and restore on the pointer model (A16)", () => {
+  const takedown = (siteId: string) => `/api/admin/sites/${siteId}/takedown`;
+  const restore = (siteId: string) => `/api/admin/sites/${siteId}/restore`;
+  const audits = async (siteId: string) => (await (await h.db()).prepare("SELECT action FROM audit_log WHERE site_id = ? ORDER BY id").bind(siteId).all<{ action: string }>()).results.map((r) => r.action);
+
+  it("a takedown leaves no pointer and nothing under <slug>/, including an older version's page; a restore brings every page and the pointer back", async () => {
+    const site = await liveSite();
+    const neighbour = await liveSite();
+    const live = await h.liveKeys(site.slug);
+    expect(live).toHaveLength(1 + 4); // the pointer and the version's four pages (Home, Services, About, Contact)
+    expect(live).toContain(livePointerKey(site.slug));
+    for (const page of ["home", "services", "about", "contact"] as const) expect(live).toContain(livePageKey(site.slug, site.versionId, page));
+    const neighbourKeys = await h.liveKeys(neighbour.slug);
+    // A page left over from an older version (a failed clean-up earlier) goes too.
+    await (await h.r2("LIVE")).put(`${site.slug}/${newId()}/home.html`, "<p>old</p>");
+
+    expect((await h.call("POST", takedown(site.siteId), { body: { reason: "Spam report" } })).status).toBe(200);
+    expect(await h.liveKeys(site.slug)).toEqual([]);
+    expect(await h.liveKeys(neighbour.slug)).toEqual(neighbourKeys);
+
+    const restored = await h.call("POST", restore(site.siteId), { body: {} });
+    expect(restored.status).toBe(200);
+    expect(await h.liveKeys(site.slug)).toEqual(live);
+    const row = await (await h.db()).prepare("SELECT taken_down_at FROM sites WHERE id = ?").bind(site.siteId).first<{ taken_down_at: number | null }>();
+    expect(row?.taken_down_at).toBeNull();
+    expect((await (await h.r2("LIVE")).get(livePointerKey(site.slug)))?.customMetadata?.["versionId"]).toBe(site.versionId);
+    await h.backgroundDone(takedown(site.siteId));
+  });
+
+  it("restoring a live site that is not taken down copies its pages again, with no D1 change, no audit row and no email (Copy the live pages again)", async () => {
+    const site = await liveSite();
+    const live = await h.liveKeys(site.slug);
+    const before = await audits(site.siteId);
+    // A page went missing from LIVE (a failed copy): the site would answer 503 there until it is copied again.
+    const lost = livePageKey(site.slug, site.versionId, "about");
+    await (await h.r2("LIVE")).delete(lost);
+    expect(await h.liveKeys(site.slug)).not.toContain(lost);
+    const emails = (await h.outbox(site.email)).length;
+    expect((await h.call("POST", restore(site.siteId), { body: {} })).status).toBe(200);
+    expect(await h.liveKeys(site.slug)).toEqual(live);
+    expect(await audits(site.siteId)).toEqual(before);
+    expect((await h.outbox(site.email)).length).toBe(emails);
+    expect(PAGE_IDS.length).toBe(5);
+  });
+
+  it("restoring a version from before A16 (its list of pages is empty) is refused: 500 integrity, nothing copied", async () => {
+    const site = await liveSite();
+    await h.call("POST", takedown(site.siteId), { body: { reason: "Spam report" } });
+    await (await h.db()).prepare("UPDATE site_versions SET pages_json = '[]' WHERE id = ?").bind(site.versionId).run();
+    const res = await h.call("POST", restore(site.siteId), { body: {} });
+    expect(res.status).toBe(500);
+    expect(await h.liveKeys(site.slug)).toEqual([]);
   });
 });
 

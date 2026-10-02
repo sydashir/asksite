@@ -4,9 +4,17 @@ import { fixedPageHeaders, livePageHeaders, mediaHeaders, pageCsp, rootHostname 
 describe("headers", () => {
   it("builds the page CSP from the root, port included", () => {
     expect(pageCsp("asksite.example")).toBe(
-      "default-src 'none'; style-src 'unsafe-inline'; img-src https://media.asksite.example; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
+      "default-src 'none'; style-src 'unsafe-inline'; img-src https://media.asksite.example; font-src data:; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
     );
     expect(pageCsp("localhost:8789")).toContain("img-src https://media.localhost:8789;");
+  });
+
+  // Bold (impact) embeds its heading font as a data: URI in its sheet (user decision 2026-09-27; A12). The page may
+  // load fonts from data: URIs and from nowhere else: no host, no 'self', no wildcard, one font-src directive only.
+  it("allows fonts from data: URIs only", () => {
+    const directives = pageCsp("asksite.example").split("; ");
+    expect(directives.filter((d) => d.startsWith("font-src"))).toEqual(["font-src data:"]);
+    expect(directives.filter((d) => /\bdata:/.test(d))).toEqual(["font-src data:"]);
   });
 
   it("sends HSTS in production only", () => {

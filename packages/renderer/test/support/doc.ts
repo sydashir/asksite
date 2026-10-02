@@ -1,7 +1,7 @@
-import { SiteDocument, type SiteDocumentInput } from "@asksite/site-schema";
+import { SiteDocument, type PageId, type SiteDocumentInput } from "@asksite/site-schema";
 import type { RenderContext } from "../../src/context.ts";
 import { safeUrl } from "../../src/html.ts";
-import { visibleSections } from "../../src/visibility.ts";
+import { sitePages } from "../../src/visibility.ts";
 
 /** A complete, valid plumber document with every optional fact filled in. */
 export const FULL: SiteDocumentInput = {
@@ -56,13 +56,13 @@ export const FULL: SiteDocumentInput = {
   layout: [
     { id: "hero", variant: "photo" },
     { id: "trust", variant: "band" },
-    { id: "services", variant: "cards" },
     { id: "testimonials", variant: "grid" },
-    { id: "gallery", variant: "grid" },
-    { id: "about", variant: "plain" },
-    { id: "serviceArea", variant: "split" },
+    { id: "services", variant: "cards" },
     { id: "faq", variant: "accordion" },
+    { id: "about", variant: "plain" },
+    { id: "gallery", variant: "grid" },
     { id: "contact", variant: "card" },
+    { id: "serviceArea", variant: "split" },
   ],
   theme: { palette: "navy-orange", font: "clean" },
 };
@@ -88,7 +88,11 @@ export const MINIMAL: SiteDocumentInput = {
   theme: { palette: "green-amber", font: "friendly" },
 };
 
-export function makeContext(input: SiteDocumentInput): RenderContext {
+/** The context of one page of the site (Home unless told otherwise); throws when the site has no such page. */
+export function makeContext(input: SiteDocumentInput, pageId: PageId = "home"): RenderContext {
   const doc = SiteDocument.parse(input);
-  return { doc, sections: visibleSections(doc), formAction: safeUrl("https://forms.example.com/submit") };
+  const pages = sitePages(doc);
+  const page = pages.find((p) => p.id === pageId);
+  if (page === undefined) throw new Error(`The site has no ${pageId} page`);
+  return { doc, page, pages, formAction: safeUrl("https://forms.example.com/submit") };
 }

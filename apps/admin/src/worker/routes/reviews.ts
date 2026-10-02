@@ -1,5 +1,6 @@
-import { ApiError, checkEmailOrigin, readJson, reviewApprovedEmail, reviewRejectedEmail, reviewPageHeaders, runToEnd, trySend } from "@asksite/app-common";
+import { ApiError, checkEmailOrigin, readJson, reviewApprovedEmail, reviewRejectedEmail, reviewPageHeaders, runToEnd, storedPageKey, storedPages, trySend } from "@asksite/app-common";
 import { ApproveBody, RejectBody, type AdminVersionDetail, type GenerationRow, type SiteVersionRow } from "@asksite/core";
+import { PAGES } from "@asksite/site-schema";
 import { Hono } from "hono";
 import { mailerEnv, siteWithOwner, toAdminSiteRow, toVersionSummary, versionRow, type AdminSiteColumns } from "../db.ts";
 import type { AdminDeps, PublishErrorLike } from "../deps.ts";
@@ -67,14 +68,17 @@ export function reviewRoutes(deps: AdminDeps): Hono<AdminEnv> {
       ownerEditedPaths: editedPaths(version, generation?.output_json ?? null),
       liveDocument: live === null ? null : storedDocument(live.document_json),
       checks: reviewChecks({ site, document, usedFallback: generation?.used_fallback === 1 }),
-      pageUrl: `/api/admin/versions/${version.id}/page`,
+      pages: (storedPages(version.pages_json) ?? []).map(({ page, sha256 }) => ({ page, label: PAGES[page].label, url: `/api/admin/versions/${version.id}/pages/${page}`, sha256 })),
     };
     return c.json(detail);
   });
 
-  reviews.get("/versions/:versionId/page", async (c) => {
+  // One page of a stored version (the Fetch-Metadata gate runs before every admin route): the page id must be one of the five and
+  // listed in the version's pages_json, the key is versionPageKey's (storedPageKey); anything else is 404.
+  reviews.get("/versions/:versionId/pages/:pageId", async (c) => {
     const version = await versionRow(c.env.DB, c.req.param("versionId"));
-    const object = await c.env.WORK.get(version.html_key);
+    const key = storedPageKey(version, c.req.param("pageId"));
+    const object = key === null ? null : await c.env.WORK.get(key);
     if (object === null) throw new ApiError("not_found", "Not found");
     return new Response(object.body, { headers: reviewPageHeaders(c.env.ROOT_DOMAIN) });
   });

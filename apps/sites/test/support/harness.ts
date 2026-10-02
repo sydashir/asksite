@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { liveKey, mediaKey, newId } from "@asksite/core";
+import { livePageKey, livePointerKey, mediaKey, newId } from "@asksite/core";
+import type { PageId } from "@asksite/site-schema";
 import { createTestHarness } from "wrangler";
 import type { Env } from "../../src/env.ts";
 
@@ -98,14 +99,17 @@ let counter = 0;
 
 export interface SeededSite { ownerId: string; ownerEmail: string; siteId: string; slug: string; html: string; versionId: string | null }
 
-/** The business phone approveVersion adds to the LIVE object's metadata (A15), here plumber-austin's. */
+/** The business phone approveVersion adds to the LIVE pointer's metadata (A15), here plumber-austin's. */
 export const PHONE_METADATA = { phoneText: "(512) 555-0142", phoneTel: "+15125550142" };
 /** Everything approveVersion adds about the business: the phone and the name (QA-2 RU(2)), plumber-austin's. */
 export const BUSINESS_METADATA = { businessName: "Reliable Rooter Plumbing", ...PHONE_METADATA };
 
-/** An owner and a site. By default the site is live (a live version id and a LIVE object) and indexable.
- *  The LIVE object carries the metadata approveVersion writes, which the Worker checks (Decision 24), plus
- *  `metadata` (e.g. PHONE_METADATA); without the phone it is an object approved before A15 stored it. */
+/** The version a pointer and pages name when the site has no live version in D1 (a draft whose LIVE objects exist anyway). */
+export const DRAFT_VERSION_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+
+/** An owner and a site. By default the site is live (a live version id, a LIVE pointer and Home's page) and indexable.
+ *  The pointer carries the metadata approveVersion writes, which the Worker checks (Decision 24), plus
+ *  `metadata` (e.g. PHONE_METADATA); without the phone it is a pointer written before A15 stored it. */
 export async function seedSite(
   env: ToolsEnv,
   options: { live?: boolean; indexable?: boolean; takenDown?: boolean; withObject?: boolean; metadata?: Record<string, string> } = {},
@@ -124,16 +128,35 @@ export async function seedSite(
       .bind(siteId, ownerId, slug, versionId, indexable ? 1 : 0, takenDown ? 5 : null),
   ]);
   const site = { ownerId, ownerEmail, siteId, slug, html, versionId };
-  if (withObject) await putLive(env, site, metadata);
+  if (withObject) {
+    await putLive(env, site);
+    await putPointer(env, site, metadata);
+  }
   return site;
 }
 
-/** Stores a site's page in LIVE the way approveVersion does: content type and { siteId, versionId } metadata, plus `metadata`. */
-export async function putLive(env: ToolsEnv, site: Pick<SeededSite, "slug" | "siteId" | "versionId" | "html">, metadata: Record<string, string> = {}): Promise<void> {
-  await env.LIVE.put(liveKey(site.slug), site.html, {
+/** Stores one page of a site's version in LIVE the way approveVersion does (Home unless `page` says otherwise):
+ *  at the immutable key under the version id, with the content type and { siteId, versionId, page } metadata. */
+export async function putLive(
+  env: ToolsEnv,
+  site: Pick<SeededSite, "slug" | "siteId" | "versionId" | "html">,
+  page: PageId = "home",
+): Promise<void> {
+  const versionId = site.versionId ?? DRAFT_VERSION_ID;
+  await env.LIVE.put(livePageKey(site.slug, versionId, page), site.html, {
     httpMetadata: { contentType: "text/html; charset=utf-8" },
-    customMetadata: { siteId: site.siteId, versionId: site.versionId ?? "", ...metadata },
+    customMetadata: { siteId: site.siteId, versionId, page },
   });
+}
+
+/** Writes the site's LIVE pointer: empty, naming the site's live version (or `versionId`), plus `metadata` (the business). */
+export async function putPointer(
+  env: ToolsEnv,
+  site: Pick<SeededSite, "slug" | "siteId" | "versionId">,
+  metadata: Record<string, string> = {},
+  versionId: string = site.versionId ?? DRAFT_VERSION_ID,
+): Promise<void> {
+  await env.LIVE.put(livePointerKey(site.slug), "", { customMetadata: { siteId: site.siteId, versionId, ...metadata } });
 }
 
 /** A site's leads once none is still 'pending': the lead email runs after the 303 (ctx.waitUntil, Decision 26). */

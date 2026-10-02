@@ -3,10 +3,10 @@ import { isSafeUrl } from "@asksite/site-schema";
 import { useRef, useState, type FormEvent } from "react";
 import { Checkbox, TextArea } from "../../../../app/src/client/components/fields.tsx";
 import { Notice } from "../../../../app/src/client/components/feedback.tsx";
+import { PagePreview } from "../../../../app/src/client/components/page-preview.tsx";
 import { usePageHeading } from "../../../../app/src/client/hooks/use-page-heading.ts";
 import { onLinkClick } from "../../../../app/src/client/hooks/use-route.ts";
 import { api } from "../../../../app/src/client/lib/api.ts";
-import { ReviewPreview } from "../ReviewPreview.tsx";
 import { useResource } from "../hooks.ts";
 import { flatten, textChanges } from "../lib/diff.ts";
 import { FLAG_REASON, when } from "../lib/format.ts";
@@ -52,7 +52,6 @@ function ReviewScreen({ detail, onDone }: { detail: AdminVersionDetail; onDone: 
   const { version, site, checks } = detail;
   const title = `Review ${site.businessName ?? site.slug ?? "site"} (version ${version.number})`;
   const heading = usePageHeading<HTMLHeadingElement>(title, "Admin");
-  const [phone, setPhone] = useState(false);
   const [approveNote, setApproveNote] = useState("");
   const [indexable, setIndexable] = useState(true);
   const [rejectNote, setRejectNote] = useState("");
@@ -128,18 +127,12 @@ function ReviewScreen({ detail, onDone }: { detail: AdminVersionDetail; onDone: 
 
       <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,24rem)]">
         <div className="min-w-0">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <h2 className="text-lg font-semibold">The exact page that will go live</h2>
-            <div className="flex gap-2" role="group" aria-label="Page width">
-              <button type="button" className="btn-small" aria-pressed={!phone} onClick={() => setPhone(false)}>
-                Desktop width
-              </button>
-              <button type="button" className="btn-small" aria-pressed={phone} onClick={() => setPhone(true)}>
-                Phone width
-              </button>
-            </div>
-          </div>
-          <ReviewPreview src={detail.pageUrl} phone={phone} />
+          <h2 className="text-lg font-semibold">The exact pages that will go live</h2>
+          {detail.pages.length === 0 ? (
+            <Notice tone="warning">This version has no stored pages (it was sent before sites had several pages), so it cannot be approved.</Notice>
+          ) : (
+            <PagePreview pages={detail.pages.map(({ page, url }) => ({ page, url }))} frameTitle="Page under review" />
+          )}
         </div>
 
         <div className="min-w-0 space-y-6">

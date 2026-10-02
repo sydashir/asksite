@@ -1,4 +1,4 @@
-import { formActionUrl, versionKey } from "@asksite/core";
+import { formActionUrl, siteUrl, versionKey } from "@asksite/core";
 import { render } from "@asksite/renderer";
 import { DESIGN_CSS } from "@asksite/site-css";
 import { DESIGN_IDS, type SiteDocument } from "@asksite/site-schema";
@@ -44,9 +44,9 @@ describe("createPendingVersion with a different stylesheet per design", () => {
     const document: SiteDocument = { ...plumber, theme: { ...plumber.theme, design } };
     const summary = await createPendingVersion(env, { siteId, ownerId, slug, document, edits: EDITS, generationId: null, now: 1 });
 
-    const page = render(document, { stylesheets: DESIGN_CSS, formAction: formActionUrl(ROOT, slug, siteId) });
+    const page = render(document, { stylesheets: DESIGN_CSS, formAction: formActionUrl(ROOT, slug, siteId), siteUrl: siteUrl(ROOT, slug) });
     const stored = await (await env.WORK.get(versionKey(siteId, summary.id)))?.text();
-    expect(stored).toBe(page.html);
+    expect(stored).toBe(page.pages[0]!.html);
     expect(stored).toContain(`<style>${DESIGN_CSS[design].css}</style>`);
     expect((await versionRow(env.DB, summary.id))?.stylesheet_sha256).toBe(DESIGN_CSS[design].sha256);
   });

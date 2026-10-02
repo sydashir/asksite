@@ -11,17 +11,28 @@ describe("header", () => {
     expect(out).toContain('href="tel:+15125550142" aria-label="Call (512) 555-0142"');
   });
 
-  it("links only to visible sections, in page order", () => {
-    const hrefs = [...out.matchAll(/<li><a class="inline-flex[^"]*" href="(#[a-z-]+)"/g)].map((m) => m[1]);
-    expect(hrefs).toEqual(["#services", "#reviews", "#our-work", "#about", "#service-area", "#faq", "#contact"]);
+  it("links to every page the site renders, in page order, and no section", () => {
+    const hrefs = [...out.matchAll(/<li><a class="inline-flex[^"]*" href="([^"]+)"/g)].map((m) => m[1]);
+    expect(hrefs).toEqual(["/", "/services", "/about", "/gallery", "/contact"]);
     const minimal = String(renderHeader(makeContext(MINIMAL)));
-    const minimalHrefs = [...minimal.matchAll(/<li><a class="inline-flex[^"]*" href="(#[a-z-]+)"/g)].map((m) => m[1]);
-    expect(minimalHrefs).toEqual(["#services", "#service-area", "#contact"]);
+    const minimalLinks = [...minimal.matchAll(/<li><a class="inline-flex[^"]*" href="([^"]+)"[^>]*>([^<]*)</g)].map((m) => `${m[1]} ${m[2]}`);
+    expect(minimalLinks).toEqual(["/ Home", "/services Services", "/contact Contact"]);
+  });
+
+  it("links the brand to Home, and marks only the current page's link, in the desktop list and the phone menu, with more than colour", () => {
+    expect(out).toContain('href="/">Reliable Rooter</a>');
+    const services = String(renderHeader(makeContext(FULL, "services")));
+    expect(services.match(/ aria-current="page"/g)).toHaveLength(2); // the desktop list and the phone menu
+    const current = [...services.matchAll(/<a class="([^"]*)" href="([^"]+)" aria-current="page">([^<]*)</g)];
+    expect(current.map((m) => `${m[2]} ${m[3]}`)).toEqual(["/services Services", "/services Services"]);
+    for (const m of current) expect(m[1]).toContain("underline");
+    expect(out.match(/ aria-current="page"/g)).toHaveLength(2);
+    expect(out).toContain('href="/" aria-current="page">Home<');
   });
 
   it("keeps each desktop nav label on one line, and the links compact below 1280 px", () => {
-    const classes = [...out.matchAll(/<li><a class="(inline-flex[^"]*)" href="#/g)].map((m) => (m[1] ?? "").split(" "));
-    expect(classes).toHaveLength(7);
+    const classes = [...out.matchAll(/<li><a class="(inline-flex[^"]*)" href="\//g)].map((m) => (m[1] ?? "").split(" "));
+    expect(classes).toHaveLength(5);
     for (const list of classes) expect(list).toEqual(expect.arrayContaining(["whitespace-nowrap", "px-2", "text-sm", "xl:text-base"]));
   });
 
@@ -60,13 +71,28 @@ describe("footer", () => {
 });
 
 describe("call bar", () => {
-  it("is a phone-only sticky tel: button in its own landmark", () => {
+  it("is a phone-only sticky bar in its own landmark: Call, and Get a quote to the form", () => {
     const out = String(renderCallBar(makeContext(FULL)));
     expect(out).toMatch(/^<aside aria-label="Call us" class="sticky bottom-0 /);
     expect(out).toContain("sticky bottom-0");
     expect(out).toContain("md:hidden");
     expect(out).toContain("focus-outside:static");
     expect(out).toContain('href="tel:+15125550142"');
-    expect(out).toContain("Call (512) 555-0142</a>");
+    expect(out).toContain('<div class="grid grid-cols-2 gap-2">');
+    // The visible word starts the accessible name (WCAG 2.5.3).
+    expect(out).toMatch(/<a class="btn-primary whitespace-nowrap" href="tel:\+15125550142" aria-label="Call \(512\) 555-0142"><svg[^>]*>.*<\/svg>Call<\/a>/);
+    expect(out).toContain('<a class="btn-secondary" href="/contact#quote">Get a quote</a>');
+    expect(out.match(/<aside/g)).toHaveLength(1);
+  });
+
+  it("is static, at the end of the page, on /contact only (Send never sits under it)", () => {
+    const out = String(renderCallBar(makeContext(FULL, "contact")));
+    expect(out).toMatch(/^<aside aria-label="Call us" class="border-t /);
+    expect(out).not.toMatch(/sticky|bottom-0|z-10/);
+    expect(out).toContain("md:hidden");
+    expect(out).toContain("focus-outside:static");
+    expect(out).toContain('href="tel:+15125550142"');
+    expect(out).toContain('<a class="btn-secondary" href="/contact#quote">Get a quote</a>');
+    for (const page of ["services", "about", "gallery"] as const) expect(String(renderCallBar(makeContext(FULL, page)))).toContain("sticky bottom-0");
   });
 });

@@ -11,17 +11,17 @@ import { describe, expect, it } from "vitest";
 const USED = {
   core: [
     "AcceptInviteBody", "AiDraft", "ApproveBody", "AUDIT_ACTIONS", "Brief", "canonicalJson", "composeDocument", "CreateInviteBody",
-    "DESIGN_FOR_TRADE", "designForTrade", "DisableOwnerBody", "documentSha256", "EMPTY_EDITS", "ERROR_STATUS", "formActionUrl", "hashIp",
-    "IndexableBody", "ipRateKey", "isId", "LIMITS", "liveKey", "LoginBody", "LOOKS", "mediaKey", "mediaUrl", "newId", "newToken",
+    "DESIGN_FOR_TRADE", "designForTrade", "hashPages", "pageCacheUrl", "pagesDigest", "previewSiteUrl", "publicPageUrl", "versionPageKey", "VersionPages", "DisableOwnerBody", "documentSha256", "EMPTY_EDITS", "ERROR_STATUS", "formActionUrl", "hashIp",
+    "IndexableBody", "ipRateKey", "isId", "LIMITS", "livePageKey", "livePointerKey", "liveSitePrefix", "LoginBody", "LOOKS", "mediaKey", "mediaUrl", "newId", "newToken",
     "OwnerEdits", "ownerEditedPaths", "PAGE_DESIGNS", "PatchDraftBody", "photoRefIssues", "previewFormActionUrl", "PublishBody",
     "RejectBody", "RESERVED_SLUGS", "SECTION_IDS", "SetSlugBody", "SettingsBody", "sha256Hex", "siteUrl", "slugIssue", "TakedownBody",
     "toIssues", "TOKEN_PATTERN", "TTL", "VerifyLoginBody", "versionKey",
   ],
   schema: [
     "COPY_LIMITS", "DAYS", "DEFAULT_DESIGN", "DESIGN_IDS", "Facts", "factSections", "HIDEABLE_SECTIONS", "isSafeUrl", "OwnerHidden",
-    "SECTION_VARIANTS", "SiteDocument", "ThemeChoice",
+    "SECTION_VARIANTS", "SiteDocument", "ThemeChoice", "ALWAYS_PAGES", "DEFAULT_SECTION_ORDER", "isPageId", "PAGE_IDS", "PAGES", "pageForPath", "QUOTE_HREF", "QUOTE_ID", "SECTION_PAGE",
   ],
-  renderer: ["escapeAttr", "escapeText", "FONTS", "PALETTES", "render"],
+  renderer: ["escapeAttr", "escapeText", "FONTS", "PALETTES", "pageTitle", "render", "sitePages"],
   siteCss: ["DESIGN_CSS"],
 } as const;
 
@@ -46,6 +46,18 @@ describe("contracts Plan 4 consumes", () => {
     expect(core.EMPTY_EDITS).toEqual({ baseGenerationId: null, copy: {}, order: null, hidden: [], theme: null });
     expect([core.ipRateKey("203.0.113.9"), core.ipRateKey("2001:db8:77:1::a")]).toEqual(["203.0.113.9", "2001:db8:77:1::/64"]);
     for (const id of schema.DESIGN_IDS) expect(siteCss.DESIGN_CSS[id].sha256).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it("the multi-page contract (A16): five pages, pointer keys, and liveKey is gone", () => {
+    expect([...schema.PAGE_IDS]).toEqual(["home", "services", "about", "gallery", "contact"]);
+    expect(schema.QUOTE_HREF).toBe("/contact#quote");
+    expect(core).not.toHaveProperty("liveKey");
+    const id = "11111111-1111-4111-8111-111111111111";
+    expect(core.livePointerKey("joes")).toBe("joes");
+    expect(core.livePageKey("joes", id, "about")).toBe(`joes/${id}/about.html`);
+    expect(core.versionPageKey(id, id, "home")).toBe(core.versionKey(id, id));
+    expect(core.versionPageKey(id, id, "gallery")).toBe(`versions/${id}/${id}/gallery.html`);
+    expect(core.previewSiteUrl("localhost:8789", null)).toBe("https://preview.localhost:8789/");
   });
 
   it("the page designs, colour names and starting designs Plan 4 shows match A12", () => {

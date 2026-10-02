@@ -1,14 +1,14 @@
 import { expect, test } from "@playwright/test";
 import { acceptInvite, APP, expectAccessible, expectNoSidewaysScroll, stubTurnstile, turnstileRenders, uniqueEmail, waitForSecurityCheck, watchCsp } from "./support.ts";
 
-test("sign in with an emailed link; the button, not the page load, uses the token @mobile", async ({ page }) => {
+test("sign in with an emailed link; the button, not the page load, uses the token @mobile @firefox", async ({ page }) => {
   const email = uniqueEmail("signin");
   await acceptInvite(page, email);
 
   // The same page, now a stranger: no cookies, so the app shows the sign-in form.
   await page.context().clearCookies();
   await stubTurnstile(page);
-  const violations = watchCsp(page);
+  const violations = await watchCsp(page);
   await page.goto("/");
   await expect(page.getByRole("heading", { level: 1, name: "Sign in" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Sign out" })).toHaveCount(0);
@@ -19,7 +19,7 @@ test("sign in with an emailed link; the button, not the page load, uses the toke
   await page.getByRole("button", { name: "Email me a sign-in link" }).click();
   await expect(page.getByText("If that email has an account, we've sent a link. It can take a few minutes. Didn't get it? Email", { exact: false })).toBeVisible();
   await expect(page.getByRole("status").getByRole("link", { name: "help@example.com" })).toHaveAttribute("href", "mailto:help@example.com");
-  expect(violations).toEqual([]);
+  expect(await violations()).toEqual([]);
 
   let text = "";
   await expect

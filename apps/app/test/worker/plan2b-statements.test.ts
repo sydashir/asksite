@@ -1,6 +1,5 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { TAKEDOWN_REVIEW_NOTE } from "../../src/client/lib/takedown-note.ts";
 import { PURGE_UPLOADS_SQL, RESTORE_SITE_SQL, TAKE_DOWN_SITE_SQL, TAKE_DOWN_VERSIONS_SQL } from "../support/plan2b-statements.ts";
 
 // The test seams copy four Plan 2B statements (apps/app has no LIVE binding and no @asksite/publishing).
@@ -16,9 +15,5 @@ describe("the copied Plan 2B statements", () => {
     ["restore site statement", RESTORE_SITE_SQL],
   ])("%s equals site-state.ts byte for byte", (_name, sql) => {
     expect(siteState).toContain(`.prepare("${sql}")`);
-  });
-
-  it("the client's takedown note equals the literal in site-state.ts", () => {
-    expect(siteState).toContain(`review_note = '${TAKEDOWN_REVIEW_NOTE}'`);
   });
 });

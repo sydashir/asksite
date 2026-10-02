@@ -20,7 +20,7 @@ async function refusedAsInternal(h: Harness, action: "approve" | "reject"): Prom
     pending_version_id: site.versionId,
   });
   expect((await db.prepare("SELECT action FROM audit_log WHERE site_id = ? ORDER BY id").bind(site.siteId).all()).results).toEqual([{ action: "version.requested" }]);
-  expect(await (await h.r2("LIVE")).get(`${site.slug}.html`)).toBeNull();
+  expect(await h.liveKeys(site.slug)).toEqual([]);
 }
 
 describe("approve and reject when MAILER is neither resend nor log", () => {

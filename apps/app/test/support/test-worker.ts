@@ -1,5 +1,6 @@
 import { ApiError } from "@asksite/app-common";
 import { newId, newToken, sha256Hex, TTL } from "@asksite/core";
+import { TAKEDOWN_REVIEW_NOTE } from "@asksite/publishing";
 import { Hono } from "hono";
 import type { Siteverify } from "../../src/worker/deps.ts";
 import { requireTurnstile, SITEVERIFY_TIMEOUT_MS } from "../../src/worker/turnstile.ts";
@@ -623,7 +624,7 @@ helpers.post("/__test/versions/:versionId/reject", async (c) => {
 helpers.post("/__test/sites/:siteId/take-down", async (c) => {
   const now = Date.now();
   const siteId = c.req.param("siteId");
-  await run(c.env.DB, TAKE_DOWN_VERSIONS_SQL, "test-admin", now, siteId);
+  await run(c.env.DB, TAKE_DOWN_VERSIONS_SQL, "test-admin", now, TAKEDOWN_REVIEW_NOTE, siteId);
   await run(c.env.DB, TAKE_DOWN_SITE_SQL, now, TEST_TAKEDOWN_REASON, now, siteId);
   return c.json({ ok: true });
 });

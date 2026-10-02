@@ -8,12 +8,14 @@ import type { SafeHtml } from "./html.ts";
 import { renderAbout } from "./sections/about.ts";
 import { renderContact } from "./sections/contact.ts";
 import { renderFaq } from "./sections/faq.ts";
+import { renderClosingBand } from "./sections/closing-band.ts";
 import { renderCallBar, renderFooter } from "./sections/footer.ts";
 import { renderGallery } from "./sections/gallery.ts";
 import { renderHeader } from "./sections/header.ts";
 import { renderHero } from "./sections/hero.ts";
 import { renderServiceArea } from "./sections/service-area.ts";
 import { renderServices } from "./sections/services.ts";
+import { renderServicesPreview } from "./sections/services-preview.ts";
 import { renderTestimonials } from "./sections/testimonials.ts";
 import { renderTrust } from "./sections/trust.ts";
 
@@ -51,6 +53,8 @@ export const BASELINE: Design = Object.freeze({
   variables: () => ({}),
   header: renderHeader,
   section: renderSection,
+  servicesTeaser: renderServicesPreview,
+  closingBand: renderClosingBand,
   footer: renderFooter,
   callBar: renderCallBar,
 });

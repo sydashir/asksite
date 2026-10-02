@@ -1,4 +1,4 @@
-import { adminAlertEmail, ApiError, logLine, MAX_ISSUES, readJson, reviewPageHeaders, slugProblem, trySend } from "@asksite/app-common";
+import { adminAlertEmail, ApiError, logLine, MAX_ISSUES, readJson, reviewPageHeaders, slugProblem, storedPageKey, trySend } from "@asksite/app-common";
 import { Brief, composeDocument, photoRefIssues, PublishBody, toIssues, type Issue } from "@asksite/core";
 import { SiteDocument } from "@asksite/site-schema";
 import { Hono } from "hono";
@@ -139,12 +139,16 @@ export function publishRoutes(deps: AppDeps): Hono<AppEnv> {
     return c.json({ versions: results.map(toVersionSummary) });
   });
 
-  publish.get("/sites/:siteId/versions/:versionId/page", requireOwner, async (c) => {
+  // One page of a stored version, for the "See what we are reviewing" preview. The site must be the owner's and the version
+  // that site's (another owner's version is 404, never 403); storedPageKey does the rest: a page id of the five that the
+  // version lists, its key from versionPageKey. Anything else is the same 404.
+  publish.get("/sites/:siteId/versions/:versionId/pages/:pageId", requireOwner, async (c) => {
     const site = await ownedSite(c.env.DB, c.req.param("siteId"), c.get("owner").id);
-    const version = await c.env.DB.prepare("SELECT html_key FROM site_versions WHERE id = ? AND site_id = ?")
+    const version = await c.env.DB.prepare("SELECT id, site_id, pages_json FROM site_versions WHERE id = ? AND site_id = ?")
       .bind(c.req.param("versionId"), site.id)
-      .first<{ html_key: string }>();
-    const object = version === null ? null : await c.env.WORK.get(version.html_key);
+      .first<{ id: string; site_id: string; pages_json: string }>();
+    const key = version === null ? null : storedPageKey(version, c.req.param("pageId"));
+    const object = key === null ? null : await c.env.WORK.get(key);
     if (object === null) throw new ApiError("not_found", "Not found");
     return new Response(object.body, { headers: reviewPageHeaders(c.env.ROOT_DOMAIN) });
   });
