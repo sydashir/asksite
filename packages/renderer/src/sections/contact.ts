@@ -25,8 +25,8 @@ const SELECT_WRAPPER = "relative mt-1 text-default";
 const SELECT = "block min-h-12 w-full appearance-none truncate rounded-lg border border-muted bg-white py-3 pr-12 pl-4 text-base text-default";
 const SELECT_ARROW = "pointer-events-none absolute top-1/2 right-4 h-5 w-5 -translate-y-1/2";
 
-// The heading says more than a one-word label; the hero and closing-band buttons keep copy.ctaText, so every
-// link to /contact#quote carries one label (WCAG 3.2.4).
+// The heading says more than a one-word label; the hero and closing-band quote buttons keep copy.ctaText, so those
+// buttons carry the same label on every page (WCAG 3.2.4). The call bar's quote link keeps its own fixed "Get a quote".
 export function renderContact(ctx: RenderContext, _variant: VariantOf<"contact">): SafeHtml {
   const { facts, copy } = ctx.doc;
 
