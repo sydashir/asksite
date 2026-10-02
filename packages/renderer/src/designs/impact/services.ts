@@ -1,9 +1,9 @@
 // The Bold services: a menu board. Every row shares the same grid, so the dividers line up: the name, then the
 // price cell in one style ("From $89", or a link to the form: "Free estimate" only when the owner gives them), then
-// the description. Beside a list of more than three services (under it on phones) a card offers the call and the call
-// to action; a shorter list is the board alone, as the closing band with the same pair follows close below. When the
-// section names the Services page its heading is the page's <h1>, so the service names are h2s (A16: no heading
-// level skipped). Home's preview (teaser.ts) draws the names and prices on the same board.
+// the description. From 64rem a card beside the list, whatever its length, offers the call and the call to action
+// (below 64rem the call bar carries both, so the card hides there: impact.css). When the section names the Services
+// page its heading is the page's <h1>, so the service names are h2s (A16: no heading level skipped). Home's preview
+// (teaser.ts) draws the names and prices on the same board.
 import type { Facts } from "@asksite/site-schema";
 import { quoteLink, type RenderContext } from "../../context.ts";
 import { formatPrice } from "../../format.ts";
@@ -31,21 +31,17 @@ ${itemHeading(level, "h3", "Not sure what you need?")}
 </div>`;
 }
 
-/** The longest list drawn without the card beside it. */
-const SHORT_LIST = 3;
-
 export function renderServices(ctx: RenderContext): SafeHtml {
   const { facts, copy } = ctx.doc;
   const level = itemLevel(ctx, "services");
   // SiteDocument guarantees serviceDescriptions[i] names facts.services[i].
   const rows = facts.services.map((service, i) => serviceRow(ctx, service, copy.serviceDescriptions[i]?.description, level));
-  const card = rows.length > SHORT_LIST;
   return band(
     ctx,
     "services",
     { eyebrow: "Services", title: "What we do", pageTitle: "Our services", intro: copy.sectionIntros.services },
-    card ? "wrap svc-layout" : "wrap svc-layout svc-layout--solo",
+    "wrap svc-layout",
     html`<div class="svc-main"><ul class="board">${rows}</ul></div>
-${card && ctaCard(ctx, level)}`,
+${ctaCard(ctx, level)}`,
   );
 }

@@ -1,7 +1,7 @@
 // The Bold credentials band, drawn when the section is not straight under the hero (there the hero draws it as its
-// card, and only there: each fact shows once). Owner facts only: licences exactly as entered, Insured, the founding
-// year, and 24/7 service unless the hero's chip already says it. Several licences get a row of their own, so long
-// numbers never squeeze into one column.
+// card; here the hero keeps only a compact line, with no licence numbers). Owner facts only: licences exactly as
+// entered, Insured, the founding year, and 24/7 service unless the hero's chip already says it. Several licences get
+// a row of their own, so long numbers never squeeze into one column.
 import type { RenderContext } from "../../context.ts";
 import { html, type SafeHtml } from "../../html.ts";
 import { DOM_ID } from "../../sections/ids.ts";

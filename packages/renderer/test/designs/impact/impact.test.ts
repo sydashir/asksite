@@ -6,7 +6,6 @@ import {
   brandClass,
   buttonCase,
   capsWidth,
-  contactHeading,
   galleryClass,
   groupedHours,
   headlineClass,
@@ -17,6 +16,7 @@ import {
   yearClass,
   type Band,
 } from "../../../src/designs/impact/rules.ts";
+import * as rules from "../../../src/designs/impact/rules.ts";
 import type { RenderContext } from "../../../src/context.ts";
 import { contrastRatio, hexToRgb } from "../../../src/contrast.ts";
 import { boldPage } from "../../../src/designs/impact/parts.ts";
@@ -74,11 +74,14 @@ describe("Bold page rules", () => {
     expect(buttonCase(wide)).toBe("sentence");
   });
 
-  it("words the contact heading when the band is not the page's h1", () => {
-    expect(contactHeading("Get a free quote")).toBe("Get a free quote");
-    expect(contactHeading("Book")).toBe("Request a booking");
-    expect(contactHeading("Quote.")).toBe("Request a quote");
-    expect(contactHeading("Hello")).toBe("Send us a request");
+  // A16 contract tweak (moderator ruling 2026-10-02): the /contact heading comes from the shared contactHeading()
+  // (packages/renderer/src/contact-heading.ts, lifted from Bold's own copy, which goes); nothing else uses it.
+  it("has no contact-heading rule of its own: the /contact heading is the shared helper's", () => {
+    expect(Object.keys(rules)).not.toContain("contactHeading");
+    const minimal = fixture("cleaning-minimal");
+    expect(bold(minimal, "contact")).toContain('<h1 id="contact-title" class="pt display">Request a booking</h1>');
+    expect(bold(moved(minimal, "contact", "serviceArea"), "contact")).toContain('<h2 id="contact-title" class="h2 display">Request a booking</h2>');
+    for (const page of ["home", "services"] as const) expect(bold(minimal, page), page).not.toContain("Request a booking");
   });
 
   it("sets an inner page's h1 in capitals up to 40 characters, then in a mixed-case step", () => {
@@ -229,6 +232,26 @@ describe("the Bold page", () => {
       expect(heroOf(home)).not.toContain("proof");
       expect(home).toMatch(/<section id="credentials" class="sec [a-z -]*sec--rail" aria-label="Credentials">/);
     }
+  });
+
+  // Round 4 (A16 judges): with the credentials after the reviews the first screen lost every trust cue but the 24/7
+  // chip; licence, insurance and years first showed about 1,500 px down. The hero keeps a compact line of them (no
+  // licence numbers: those stay in the band), owner facts only.
+  it("keeps a compact credentials line in the hero when the owner puts the credentials further down Home", () => {
+    const LI = String.raw`<li><svg[^]*?<\/svg>`;
+    const line = (input: SiteDocumentInput) => /<ul class="hero-creds">[^]*?<\/ul>/.exec(heroOf(bold(input)))?.[0];
+    expect(line(fixture("roofing-extreme"))).toMatch(new RegExp(String.raw`^<ul class="hero-creds">${LI}Licensed<\/li>${LI}Insured<\/li>${LI}Since 1850<\/li><\/ul>$`));
+    const reordered = moved(plumber, "trust", "testimonials");
+    expect(line(reordered)).toMatch(new RegExp(String.raw`^<ul class="hero-creds">${LI}Licensed<\/li>${LI}Insured<\/li>${LI}Since 1998<\/li><\/ul>$`));
+    expect(line(reordered)).not.toContain("M-40123");
+    // Each item follows its fact (the fixture's subheadline says "licensed", which only a licensed owner may say).
+    const { yearFounded: _year, ...noYear } = reordered.facts;
+    const unlicensed = { ...reordered, copy: { ...reordered.copy, heroSubheadline: "From clogged drains to burst pipes, we get your water flowing again." } };
+    expect(line({ ...unlicensed, facts: { ...noYear, licences: [], insured: false } })).toBeUndefined();
+    expect(line({ ...unlicensed, facts: { ...noYear, licences: [] } })).toMatch(new RegExp(String.raw`^<ul class="hero-creds">${LI}Insured<\/li><\/ul>$`));
+    // Straight under the hero they are the hero's card, and while the owner hides them there is no line.
+    expect(line(plumber)).toBeUndefined();
+    expect(line({ ...reordered, hidden: ["trust"] })).toBeUndefined();
   });
 
   // Round 3 (A16 judges): the Home band squeezed five licences into one column beside tall empty dividers, and
@@ -417,9 +440,11 @@ describe("the Bold pages", () => {
   });
 
   // Round 3 (A16 judges): the band led with the generic "Get in touch" and one line repeated on every page, and Home
-  // ended on light grey where the approved page ended on an ink quote band. Now it leads with the owner's call to
-  // action and the number in display type, as Contact's head does, with a line of its own on each page.
-  it("ends every page but Contact on the closing band: the owner's call to action as its lead, a line for the page, the number and the call-to-action button", () => {
+  // ended on light grey where the approved page ended on an ink quote band. Now it leads in display type, with a line
+  // of its own on each page, then the number and the call-to-action button.
+  // Round 4 (A16 judges): the lead said the button's own words ("Get a free quote" over "Get a free quote"). It now
+  // adds something: the owner's 24/7 promise, or the page's own question; the button keeps the owner's words.
+  it("ends every page but Contact on the closing band: a lead that adds to the button, a line for the page, the number and the call-to-action button", () => {
     const lines = new Set<string>();
     for (const { page, html } of all) {
       const start = html.indexOf('<section id="get-in-touch"');
@@ -431,7 +456,8 @@ describe("the Bold pages", () => {
       // Light right after Home's ink reviews (so the two never merge), with the band's content on an ink panel there.
       expect(band, page).toMatch(page === "home" ? /^<section id="get-in-touch" class="sec tint seam-up" / : /^<section id="get-in-touch" class="sec ink" /);
       expect(band, page).toContain(`<div class="wrap"><div class="${page === "home" ? "close close--panel ink" : "close"}">`);
-      expect(band, page).toContain('<h2 id="get-in-touch-title" class="kicker eyebrow">Get in touch</h2><p class="close-lead h2 display">Get a free quote</p>');
+      expect(band, page).toContain('<h2 id="get-in-touch-title" class="kicker eyebrow">Get in touch</h2><p class="close-lead h2 display">Emergency? Call us 24/7.</p>');
+      expect(band, page).not.toContain("close-chip");
       lines.add(/<p class="sec-intro">([^<]*)<\/p>/.exec(band)?.[1] ?? "");
       expect(band, page).toMatch(/<p class="kicker">Prefer to talk\?<\/p><p><a class="big-call whitespace-nowrap" href="tel:\+15125550142"><span class="big-call-ic"><svg[^]*?<\/svg><\/span><span class="display">\(512\) 555-0142<\/span><\/a><\/p>/);
       expect(band, page).toContain('href="/contact#quote">Get a free quote</a>');
@@ -439,15 +465,24 @@ describe("the Bold pages", () => {
     }
     expect([...lines].filter((line) => line !== "")).toHaveLength(4);
     expect(bold(plumber)).toMatch(/<section id="reviews" class="sec ink" /);
-    // A one-word label leads as a fuller line; the button keeps the owner's word.
-    const cleaning = bold(fixture("cleaning-minimal"));
-    expect(cleaning).toContain('<p class="close-lead h2 display">Request a booking</p>');
-    expect(cleaning).toMatch(/href="\/contact#quote">Book<\/a>/);
+    // An owner without 24/7 service: the page's own question leads; the button keeps the owner's word.
+    const minimal = fixture("cleaning-minimal");
+    const leads = pagesOf(minimal)
+      .filter((p) => p.page !== "contact")
+      .map((p) => /<p class="close-lead h2 display">([^<]*)<\/p><p class="sec-intro">([^<]*)<\/p><\/div>/.exec(p.html)?.slice(1));
+    expect(leads).toEqual([
+      ["Questions, or a job in mind?", "Call us, or send a quick request."],
+      ["Found what you need?", "Call us, or send a quick request."],
+    ]);
+    expect(bold(minimal)).toMatch(/<p><a class="bt bt-ghost bt-lg" href="\/contact#quote">Book<\/a><\/p>/);
   });
 
   // Round 3 (A16 judges): /services stacked three Call and quote pairs in its first desktop screen; About's chips
   // repeated its credentials right below them; on phones the chips wrapped and left the year alone on a line.
-  it("opens each inner page on a short ink head: its h1, the owner's standing and, from 64rem, Call and the call to action (Services leaves them to its card)", () => {
+  // Round 4 (A16 judges): About's and Gallery's heads still had Call and a quote button right under the header's pair,
+  // unlike Services'. Every inner head is one system now: the title and the owner's standing; the header, the call
+  // bar and the closing band carry the calls to action.
+  it("opens each inner page on a short ink head: its h1 and the owner's standing, with no Call or quote pair", () => {
     for (const { page, html } of all.filter((p) => p.page !== "home")) {
       const main = html.slice(html.indexOf('<main id="main">'));
       if (page === "contact") {
@@ -465,11 +500,11 @@ describe("the Bold pages", () => {
         expect(head, page).toContain("Insured</li>");
         expect(head, page).toContain("Since 1998</li>");
       }
-      expect(head.includes('<div class="ph-acts">'), page).toBe(page !== "services");
-      if (page !== "services") expect(head, page).toMatch(/<div class="ph-acts"><a class="bt bt-action whitespace-nowrap" href="tel:\+15125550142"[^]*href="\/contact#quote">Get a free quote<\/a><\/div>/);
+      expect(head, page).not.toMatch(/ph-acts|href="tel:|href="\/contact#quote"/);
     }
+    expect(DESIGN_CSS.impact.css).not.toContain("ph-acts");
     // With the credentials hidden, About keeps the 24/7 chip: nothing else on the page states it then.
-    expect(bold({ ...plumber, hidden: ["trust"] }, "about")).toMatch(/<ul class="ph-chips"><li class="chip"><svg[^]*?<\/svg>24\/7 emergency/);
+    expect(bold({ ...plumber, hidden: ["trust"] }, "about")).toMatch(/<ul class="ph-chips"><li class="chip"><svg[^]*?<\/svg><span>24\/7 emergency/);
   });
 
   // Round 2 (judges): with the FAQ first, Services was titled "Questions & answers" under the active Services link.
@@ -483,18 +518,19 @@ describe("the Bold pages", () => {
   });
 
   // Round 3 (A16 judges): on a short list the card's Call and quote pair sat a screen above the closing band's same
-  // pair. The card shows beside a longer list only; a short one is the board alone, with the closing band right below.
-  it("shows the \"Not sure what you need?\" card beside a list of more than three services only", () => {
+  // pair, so a short list became the board alone.
+  // Round 4 (A16 judges): alone, a short board stopped at two thirds of the width with nothing beside it, and the page
+  // body had no call or quote. Every list has the card beside it again (from 64rem; the sheet test above), so a short
+  // board sits in the same column as a long one.
+  it("puts the \"Not sure what you need?\" card beside every list of services", () => {
     const services = (input: SiteDocumentInput) => {
       const page = bold(input, "services");
       return page.slice(page.indexOf('<section id="services"'), page.indexOf("</section>", page.indexOf('<section id="services"')));
     };
-    expect(services(plumber)).toContain('<div class="wrap svc-layout">');
-    expect(services(plumber)).toContain('<div class="cta-card ink">');
     const short = { ...plumber, facts: { ...plumber.facts, services: plumber.facts.services.slice(0, 3) }, copy: { ...plumber.copy, serviceDescriptions: plumber.copy.serviceDescriptions.slice(0, 3) } };
-    for (const input of [short, fixture("cleaning-minimal")]) {
-      expect(services(input)).toContain('<div class="wrap svc-layout svc-layout--solo">');
-      expect(services(input)).not.toContain("cta-card");
+    for (const input of [plumber, short, fixture("cleaning-minimal")]) {
+      expect(services(input)).toContain('<div class="wrap svc-layout">');
+      expect(services(input)).toMatch(/<div class="cta-card ink">[^]*href="tel:[^]*href="\/contact#quote"/);
     }
   });
 
@@ -527,18 +563,21 @@ describe("the Bold pages", () => {
   // Round 2 (judges): About was all type, repeated the name and place three times, left half the band empty without a
   // year and squeezed several licences into a third of a row.
   // Round 3 (A16 judges): About showed the same van photo the visitor had just seen full-bleed on Home.
-  it("shows an owner photo on About that Home has not shown, with the year on its tab, and no signature", () => {
+  // Round 4 (A16 judges): About's photo was the one that opens /gallery, so About then Gallery showed it twice.
+  it("shows an owner photo on About that neither Home's hero nor the Gallery's lead shows, with the year on its tab, and no signature", () => {
     const about = bold(plumber, "about");
-    expect(about).toMatch(/<div class="wrap about about--photo">\n<figure class="about-media"><img src="https:\/\/picsum\.photos\/seed\/rooter-1\/1200\/900" width="1200" height="900" alt="[^"]+" loading="eager" decoding="async"><p class="year"><span class="kicker">Since<\/span> <span class="year-n display year-n--1">1998<\/span><\/p><\/figure><div class="about-body">/);
+    expect(about).toMatch(/<div class="wrap about about--photo">\n<figure class="about-media"><img src="https:\/\/picsum\.photos\/seed\/rooter-2\/1200\/900" width="1200" height="900" alt="[^"]+" loading="eager" decoding="async"><p class="year"><span class="kicker">Since<\/span> <span class="year-n display year-n--1">1998<\/span><\/p><\/figure><div class="about-body">/);
     expect(about).not.toContain('class="sign');
-    // A gallery photo that is the hero's own is passed over.
+    // The hero's own photo leads the gallery: the first other photo is new to the visitor.
     const hero = plumber.facts.heroPhoto!;
     expect(bold({ ...plumber, facts: { ...plumber.facts, photos: [{ ...hero, caption: "Our van" }, ...(plumber.facts.photos ?? [])] } }, "about")).toContain('<img src="https://picsum.photos/seed/rooter-1/1200/900"');
+    // One photo besides the hero: it leads the gallery, and About still shows it rather than the hero again.
+    expect(bold({ ...plumber, facts: { ...plumber.facts, photos: (plumber.facts.photos ?? []).slice(0, 1) } }, "about")).toContain('<img src="https://picsum.photos/seed/rooter-1/1200/900"');
     // The gallery hidden: the hero photo is the only one, so About shows it.
     expect(bold({ ...plumber, hidden: ["gallery"] }, "about")).toContain('<img src="https://picsum.photos/seed/rooter-van/1600/900"');
-    // No hero photo: the first gallery photo, while the gallery shows.
+    // No hero photo: a gallery photo other than its lead, while the gallery shows.
     const { heroPhoto: _hero, ...facts } = plumber.facts;
-    expect(bold({ ...plumber, facts }, "about")).toContain('<img src="https://picsum.photos/seed/rooter-1/1200/900"');
+    expect(bold({ ...plumber, facts }, "about")).toContain('<img src="https://picsum.photos/seed/rooter-2/1200/900"');
     expect(bold({ ...plumber, facts, hidden: ["gallery"] }, "about")).not.toContain("<img");
   });
 
@@ -582,13 +621,20 @@ describe("the Bold pages", () => {
     expect(bold({ ...plumber, hidden: ["serviceArea"] }, "contact")).toContain("<li>4100 S Congress Ave, Austin, TX 78745</li>");
   });
 
+  // Round 4 (A16 judges): About's footer repeated the licence and "Insured" its credentials showed a scroll above.
+  it("leaves the credentials out of the footer on About while its own credentials show them", () => {
+    const credentials = (html: string) => html.slice(html.indexOf("<footer")).includes('<h2 class="kicker">Credentials</h2>');
+    expect(all.map((p) => [p.page, credentials(p.html)])).toEqual(all.map((p) => [p.page, p.page !== "about"]));
+    expect(credentials(bold({ ...plumber, hidden: ["trust"] }, "about"))).toBe(true);
+  });
+
   it("links the hero card's towns to the service area on the Contact page", () => {
     const roofing = withoutPhotos(fixture("roofing-extreme"));
     expect(heroOf(bold(roofing))).toContain('and <a href="/contact#service-area">27 more</a>');
   });
 
-  it("words a fixed line under the Contact heading when the owner's copy has no intro (a lone \"Book\" never stands alone)", () => {
-    expect(bold(fixture("cleaning-minimal"), "contact")).toMatch(/<h1 id="contact-title" class="pt display">Book<\/h1><p class="sec-intro">Send a quick request, or call us\.<\/p>/);
+  it("words a fixed line under the Contact heading when the owner's copy has no intro", () => {
+    expect(bold(fixture("cleaning-minimal"), "contact")).toMatch(/<h1 id="contact-title" class="pt display">Request a booking<\/h1><p class="sec-intro">Send a quick request, or call us\.<\/p>/);
   });
 
   // Round 3 (A16 judges): the form had no trust beside it, and the number (the phone's only call control on the page
@@ -654,8 +700,8 @@ describe("the Bold sheet carries the round-4 must-fixes", () => {
   // Round 3: round 2 forced the licence and "+N more" onto a line each at every width, which stacked the desktop
   // strip into 2-3 lines where one fits (review2 I-2). Now the strip wraps whole groups (the markup test above).
   it("wraps the credentials strip by whole groups and forces no item onto a line of its own", () => {
-    expect(rule(".proof")).toContain("display:flex");
-    expect(rule(".proof")).toContain("flex-wrap:wrap");
+    expect(rule(".proof,.hero-creds")).toContain("display:flex");
+    expect(rule(".proof,.hero-creds")).toContain("flex-wrap:wrap");
     expect(rule(".proof-list")).toContain("flex-wrap:wrap");
     expect(css).not.toMatch(/\.proof-(?:lic|more-li)\{[^}]*flex-basis:100%/);
     // On the desktop photo card the licences keep their ruled block above Insured and Since.
@@ -667,13 +713,6 @@ describe("the Bold sheet carries the round-4 must-fixes", () => {
   it("balances a long email's lines and breaks inside a part only as the last resort", () => {
     for (const selector of [".mail>span", ".foot-email"]) expect(rule(selector)).toContain("text-wrap:balance");
     for (const selector of [".mail", ".foot-email"]) expect(rule(selector)).toContain("overflow-wrap:anywhere");
-  });
-
-  it("splits the call bar in two halves, the Call half never narrower than its number, with \"Call\" over the number on phones", () => {
-    expect(rule(".callbar")).toContain("grid-template-columns:repeat(2,minmax(min-content,1fr))");
-    expect(rule(".cb-txt")).toContain("flex-direction:column");
-    expect(rule(".cb-txt", "@media (min-width:36rem)")).toContain("flex-direction:row");
-    expect(css).not.toContain(".cb-num");
   });
 
   // A16: the current page is marked by more than colour (WCAG 1.4.1): the house slanted bar, in the action colour,
@@ -720,20 +759,49 @@ describe("the Bold sheet carries the round-4 must-fixes", () => {
     expect(rule(".cta-actions .bt")).toContain("overflow-wrap:anywhere");
   });
 
-  // Round 3 (A16-4's journey "Get a quote on Home" clicks the hero's quote link in a 390 px window too): below 64rem
-  // the hero ends with the owner's call to action under the subheadline, full width on phones as in the closing band;
-  // Call stays the call bar's (it shows the number there), so the hero never repeats the bar's pair.
-  it("ends the hero with the owner's call to action below 64rem, and leaves Call to the call bar there", () => {
-    expect(css).not.toMatch(/\.hero-actions\{display:none\}/);
+  // Round 4 (A16 judges; the shared Home journey now clicks the call bar's quote link on phones): on phones the hero
+  // had a full-width quote button over the call bar's "Get a quote" (two names for one action in one screen, and cut
+  // by the bar at 320x568). Below 48rem the hero has no buttons, as on the approved page: the call bar carries Call
+  // with the number and "Get a quote". From 48rem the owner's call to action ends the hero (the contract's desktop
+  // journey), and from 64rem Call joins it (the call bar hides there).
+  it("ends the hero on its line below 48rem, with the owner's call to action from 48rem and Call from 64rem", () => {
     expect(rule(".hero-actions")).toContain("display:flex");
+    expect(rule(".hero-actions", "@media (max-width:47.99rem)")).toContain("display:none");
     expect(rule(".hero-actions .bt-action", "@media (max-width:63.99rem)")).toContain("display:none");
-    expect(rule(".hero-actions .bt", "@media (max-width:39.99rem)")).toContain("width:100%");
-    // The phone photo hero is the first screen above the call bar plus the button's 5.25rem, and any room the capped
-    // photo leaves goes above the button, so the button starts at the bar and the first screen never ends on a strip
-    // of it (measured at 320x568 to 430x932 in WebKit and Chromium).
-    const phone = "@media (max-width:47.99rem)";
-    expect(rule(".hero--photo .hero-grid", phone)).toContain("min-height:calc(100svh - 3.125rem - env(safe-area-inset-bottom))");
-    expect(rule(".hero--photo .hero-copy", phone)).toContain("flex:1 0 auto");
-    expect(rule(".hero--photo .hero-actions", phone)).toContain("margin-top:auto");
+    // No fold rule is left: nothing in the phone hero reaches the call bar.
+    expect(css).not.toMatch(/min-height:calc\(100s?vh - 3\.125rem/);
+  });
+
+  it("sets the hero's credentials line as the strip is set", () => {
+    expect(rule(".proof,.hero-creds")).toContain("display:flex");
+    expect(rule(".proof,.hero-creds")).toContain("flex-wrap:wrap");
+    expect(rule(".proof-list>li,.hero-creds>li")).toContain("display:inline-flex");
+  });
+
+  // Round 4 (A16 judges): the build split the call bar 50/50 and Call no longer led as on the approved bar (about 63%
+  // of its width). Call takes three fifths again, with the number at its full size under the small "Call".
+  it("gives Call three fifths of the call bar, its number at full size, each half never narrower than its words", () => {
+    expect(rule(".callbar")).toContain("grid-template-columns:minmax(min-content,3fr) minmax(min-content,2fr)");
+    expect(rule(".callbar .cb-call")).toContain("font-size:min(1.25rem,5.2vw)");
+    expect(rule(".cb-txt")).toContain("flex-direction:column");
+    expect(rule(".cb-txt", "@media (min-width:36rem)")).toContain("flex-direction:row");
+  });
+
+  // Round 4 (A16 judges): /services on phones stacked the card's Call and quote, the FAQ's Call and the closing band's
+  // pair over a call bar that carries the same two; on desktop a list of three or fewer had no call or quote beside it.
+  it("shows the services card and the FAQ's call prompt from 64rem only (below, the call bar carries them)", () => {
+    expect(rule(".cta-card")).toContain("display:none");
+    expect(rule(".cta-card", "@media (min-width:64rem)")).toContain("display:block");
+    expect(rule(".faq-call")).toContain("display:none");
+    expect(rule(".faq-call", "@media (min-width:64rem)")).toContain("display:flex");
+    expect(css).not.toContain("svc-layout--solo");
+  });
+
+  // Round 4 (A16 judges): on phones About's Insurance | Availability row left "service" alone on a line, and the
+  // gallery's 2-up tiles were too small to judge the work.
+  it("stacks About's credentials and shows each gallery photo full width on phones", () => {
+    expect(css).toMatch(/\.about-specs\{grid-template-columns:minmax\(0,1fr\)\}/);
+    expect(rule(".gal")).toContain("grid-template-columns:minmax(0,1fr)");
+    expect(rule(".gal", "@media (min-width:40rem)")).toContain("grid-template-columns:repeat(2,minmax(0,1fr))");
   });
 });

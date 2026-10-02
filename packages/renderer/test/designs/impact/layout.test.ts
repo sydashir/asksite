@@ -77,10 +77,10 @@ const columnsOf = (decls: ReadonlyMap<string, string>): string | undefined =>
   decls.get("grid-template-columns") ?? decls.get("grid-template")?.split("/")[1]?.trim();
 
 // Deliberate content-sized minimums, each holding bounded house text, never free owner text.
-const ALLOWED: Readonly<Record<string, string>> = {
-  // The Call button: a formatted phone number that never wraps. It keeps its width; the short label gives way.
-  ".callbar": "minmax(min-content, 1fr)",
-  ".menu-acts": "minmax(min-content, 1fr)",
+const ALLOWED: Readonly<Record<string, readonly string[]>> = {
+  // The call bar: Call (a formatted phone number that never wraps) and the fixed "Get a quote", each kept whole.
+  ".callbar": ["minmax(min-content, 3fr)", "minmax(min-content, 2fr)"],
+  ".menu-acts": ["minmax(min-content, 1fr)"],
 };
 
 /** Every grid rule that leaves a column's width to its longest word. */
@@ -95,7 +95,7 @@ function trackProblems(css: string): string[] {
       }
       const columns = columnsOf(rule.decls);
       if (columns === undefined) continue;
-      const loose = contentSizedTracks(columns).filter((track) => ALLOWED[selector]?.replace(/\s+/g, "") !== track.replace(/\s+/g, ""));
+      const loose = contentSizedTracks(columns).filter((track) => !(ALLOWED[selector] ?? []).some((allowed) => allowed.replace(/\s+/g, "") === track.replace(/\s+/g, "")));
       if (loose.length > 0) problems.push(`${selector}${rule.context === "" ? "" : ` (${rule.context})`}: ${loose.join(", ")}`);
     }
   }
@@ -121,9 +121,10 @@ describe("the Bold sheet's grids never size a column by its longest word", () =>
     expect(trackProblems(".d{display:grid;grid-template-columns:repeat(2,minmax(min-content,1fr))}")).toEqual([".d: minmax(min-content,1fr)"]);
     expect(trackProblems('.e{display:grid;grid-template:"a b" auto/minmax(0,1fr) max-content}')).toEqual([".e: max-content"]);
     expect(trackProblems(".f{display:grid}@media (min-width:40rem){.f{grid-template-columns:minmax(0,1fr)}}")).toEqual([".f: a grid with no column list"]);
-    // The allow-list names a track, not only a selector: the call bar may keep its one listed track, no other (review2 M1).
+    // The allow-list names tracks, not only a selector: the call bar may keep its listed tracks, no other (review2 M1).
     expect(trackProblems(".callbar{display:grid;grid-template-columns:auto 1fr}")).toEqual([".callbar: auto, 1fr"]);
-    expect(trackProblems(".callbar{display:grid;grid-template-columns:minmax(min-content,1fr) minmax(0,max-content)}")).toEqual([]);
+    expect(trackProblems(".callbar{display:grid;grid-template-columns:minmax(min-content,1fr) minmax(min-content,2fr)}")).toEqual([".callbar: minmax(min-content,1fr)"]);
+    expect(trackProblems(".callbar{display:grid;grid-template-columns:minmax(min-content,3fr) minmax(min-content,2fr)}")).toEqual([]);
   });
 
   it("allows fixed minimums, repeat() and auto-fit tracks with a fixed minimum", () => {

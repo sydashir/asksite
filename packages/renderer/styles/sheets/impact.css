@@ -590,7 +590,8 @@
     text-wrap: pretty;
   }
   /* The hero ends with its buttons. Below 64rem the call bar carries Call with the number, so there the hero ends with
-     the owner's call to action only, under the subheadline (full width on phones, as in the closing band). */
+     the owner's call to action only; below 48rem (phones) the bar's "Get a quote" is in the same first screen, so the
+     hero ends on its line, as the approved page did. */
   .hero-actions {
     display: flex;
     flex-wrap: wrap;
@@ -602,45 +603,19 @@
       display: none;
     }
   }
-  @media (max-width: 39.99rem) {
-    .hero-actions {
-      align-self: stretch;
-    }
-    .hero-actions .bt {
-      width: 100%;
-      padding-inline: 0.75rem;
-      font-size: 1.0625rem;
-    }
-  }
-  /* Phones: the photo hero's text reaches the call bar (header 3.75rem + 1px, call bar 3.25rem + 2 x .625rem + 1px)
-     and its button starts there (5.25rem more: the 1.5rem gap, the 3.5rem button, the 1.75rem padding, less the
-     1.5rem left above the bar), so the first screen never ends on a thin strip of the button or the next section.
-     The photo takes any spare room first, up to its cap; the rest goes above the button. */
   @media (max-width: 47.99rem) {
-    .hero--photo .hero-grid {
-      display: flex;
-      flex-direction: column;
-      min-height: calc(100vh - 3.125rem - env(safe-area-inset-bottom));
-      min-height: calc(100svh - 3.125rem - env(safe-area-inset-bottom));
-    }
-    .hero--photo .hero-media {
-      flex: 100 0 auto;
-      max-height: 24rem;
-    }
-    .hero--photo .hero-copy {
-      flex: 1 0 auto;
-    }
-    .hero--photo .hero-actions {
-      margin-top: auto;
-      padding-top: 1.5rem;
+    .hero-actions {
+      display: none;
     }
   }
 
   /* Credentials under the headline: a strip in the text column; on desktop photo heroes a card on the photo.
      The strip holds two lists it never splits, the licences (the first, then "+N more") and the owner's standing
      (Insured, Since), and moves a list to the next line whole: one line where everything fits, else the licences
-     over "Insured  Since 1998". A list breaks inside only when it alone is wider than the line. */
-  .proof {
+     over "Insured  Since 1998". A list breaks inside only when it alone is wider than the line. The compact line
+     ("Licensed  Insured  Since 1998", when the credentials sit further down Home) is set the same way. */
+  .proof,
+  .hero-creds {
     display: flex;
     flex-wrap: wrap;
     gap: 0.375rem 1.125rem;
@@ -656,7 +631,8 @@
     gap: 0.375rem 1.125rem;
     min-width: 0;
   }
-  .proof-list > li {
+  .proof-list > li,
+  .hero-creds > li {
     display: inline-flex;
     align-items: center;
     gap: 0.4375rem;
@@ -667,7 +643,8 @@
   .proof-more-li:has(details[open]) {
     flex-basis: 100%;
   }
-  .proof .ic {
+  .proof .ic,
+  .hero-creds .ic {
     width: 1.125rem;
     height: 1.125rem;
     color: var(--fg-m);
@@ -720,7 +697,8 @@
     .hero-sub {
       font-size: 1.1875rem;
     }
-    .proof {
+    .proof,
+    .hero-creds {
       margin-top: 1.125rem;
     }
   }
@@ -1265,9 +1243,6 @@
       font-size: 0.75rem;
     }
   }
-  .ph-acts {
-    display: none;
-  }
   .ph-talk {
     container-type: inline-size;
     margin-top: 1.25rem;
@@ -1302,11 +1277,6 @@
       grid-template-columns: minmax(0, 1fr) minmax(0, 21rem);
       column-gap: 4rem;
       align-items: end;
-    }
-    .ph-acts {
-      display: grid;
-      grid-template-columns: minmax(0, 1fr);
-      gap: 0.75rem;
     }
     .ph-talk {
       margin-top: 0;
@@ -1363,6 +1333,10 @@
   .specs--lics .spec-lic,
   .about-specs .spec-lic {
     grid-column: 1/-1;
+  }
+  /* About's facts read one per row on phones, so "24/7 emergency service" never leaves a word alone. */
+  .about-specs {
+    grid-template-columns: minmax(0, 1fr);
   }
   @media (min-width: 48rem) {
     .specs {
@@ -1531,10 +1505,9 @@
       align-self: start;
     }
   }
-  /* The call-to-action card: under the list on phones, beside it from 64rem. */
+  /* The call-to-action card beside the list, from 64rem only: below, the call bar carries Call and "Get a quote". */
   .cta-card {
-    margin-top: 2.5rem;
-    padding: 1.5rem 1rem;
+    display: none;
     border-radius: 0.75rem;
   }
   .sec.ink .cta-card {
@@ -1558,17 +1531,6 @@
   .cta-actions .bt {
     padding-inline: 0.75rem;
     overflow-wrap: anywhere;
-  }
-  /* Phones: a size the owner's label fits on one line at 320 px (rules.ts LABEL_SLOTS). */
-  @media (max-width: 39.99rem) {
-    .cta-actions .bt {
-      font-size: 1.0625rem;
-    }
-  }
-  @media (min-width: 40rem) {
-    .cta-card {
-      padding-inline: 1.5rem;
-    }
   }
   @media (min-width: 64rem) {
     .pv {
@@ -1608,14 +1570,6 @@
       grid-column: 2;
       grid-row: 1 / span 2;
     }
-    /* A short list without the card: the board alone, at a width its rows read across. */
-    .svc-layout--solo {
-      grid-template-columns: minmax(0, 52rem);
-    }
-    .svc-layout--solo .svc-main {
-      grid-column: 1;
-      grid-row: auto;
-    }
     .svc-name {
       font-size: 1.4375rem;
     }
@@ -1626,15 +1580,14 @@
       align-self: start;
       position: sticky;
       top: 6.5rem;
-      margin-top: 0;
       padding: 2rem;
     }
   }
 
-  /* The closing band: "Get in touch" as its eyebrow over the owner's call to action at h2 scale and the page's own
-     line at the left; "Prefer to talk?" with the number as a call control and the call-to-action button at the right
-     from 64rem (a 26rem column, rules.ts LABEL_SLOTS), stacked full width on phones. After Home's ink reviews the band
-     is light and holds the same content on an ink panel. */
+  /* The closing band: "Get in touch" as its eyebrow over its lead at h2 scale and the page's own line at the left;
+     "Prefer to talk?" with the number as a call control and the call-to-action button at the right from 64rem (a
+     26rem column, rules.ts LABEL_SLOTS), stacked full width on phones. After Home's ink reviews the band is light and
+     holds the same content on an ink panel. */
   .close {
     display: grid;
     grid-template-columns: minmax(0, 1fr);
@@ -1652,9 +1605,6 @@
   }
   .close-lead {
     font-size: clamp(2.25rem, 1.6rem + 2.8vw, 3.75rem);
-  }
-  .close-chip {
-    margin-top: 1.25rem;
   }
   .close-acts {
     container-type: inline-size;
@@ -1903,16 +1853,17 @@
     }
   }
 
-  /* Gallery: picked by photo count (rules.ts galleryClass). Phones: 2 columns, the first photo (and a last odd
-     one) full width. Desktop: 6 tracks, a tile spans 2; one photo spans the row. Tiles are 4:3 on phones, 3:2 on
-     desktop. A tile is no link: the photo stays on the page, with the header and the call bar. */
+  /* Gallery: picked by photo count (rules.ts galleryClass). Phones: one photo per row, full width, so the work can
+     be judged. Tablets: 2 columns, the first photo (and a last odd one) full width. Desktop: 6 tracks, a tile spans
+     2; one photo spans the row. Tiles are 4:3 below 64rem, 3:2 from there. A tile is no link: the photo stays on the
+     page, with the header and the call bar. */
   .gal {
     display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 1.25rem 0.75rem;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 1.25rem;
     align-items: start;
   }
-  @media (max-width: 63.99rem) {
+  @media (min-width: 40rem) and (max-width: 63.99rem) {
     .gal > li:first-child,
     .gal > li:last-child:nth-child(even) {
       grid-column: 1/-1;
@@ -1952,6 +1903,7 @@
   }
   @media (min-width: 40rem) {
     .gal {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
       gap: 1.75rem 1.25rem;
     }
     .gal figcaption {
@@ -2259,7 +2211,7 @@
     }
   }
 
-  /* FAQ: phones read the heading, the questions, then the call prompt; from 64rem the heading and the call
+  /* FAQ: phones read the heading and the questions (the call bar carries Call); from 64rem the heading and a call
      prompt sit at the left edge like every other section, the questions beside them. */
   .faq-layout {
     display: grid;
@@ -2275,11 +2227,7 @@
   }
   .faq-call {
     grid-area: call;
-    display: flex;
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 0.75rem;
-    margin-top: 2.25rem;
+    display: none;
     color: var(--fg-m);
   }
   .faq-call > span {
@@ -2335,14 +2283,6 @@
     padding: 0 3.5rem 1.5rem 0;
     color: var(--fg-t);
   }
-  @media (min-width: 40rem) {
-    .faq-call {
-      flex-direction: row;
-      align-items: center;
-      justify-content: space-between;
-      gap: 1.5rem;
-    }
-  }
   @media (min-width: 64rem) {
     .faq-layout {
       grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
@@ -2355,6 +2295,7 @@
       margin-bottom: 0;
     }
     .faq-call {
+      display: flex;
       flex-direction: column;
       align-items: flex-start;
       gap: 0.875rem;
@@ -2655,16 +2596,16 @@
     }
   }
 
-  /* The phone call bar (below 64rem): Call with the number in the action colour, then "Get a quote", in two halves;
-     the Call half never narrower than its number. It sticks (the sticky utility; static on Contact) with a hairline
-     and a tight shadow, and stops sticking while keyboard focus is elsewhere (focus-outside:static). It stacks below
-     the form's Send button (styles/shared.css). On phones a small "Call" sits over the number; from 36rem they share
-     one line. */
+  /* The phone call bar (below 64rem): Call with the number in the action colour, then "Get a quote". Call leads, as
+     on the approved bar: three fifths of the width, its number at full size; neither half is ever narrower than its
+     words. It sticks (the sticky utility; static on Contact) with a hairline and a tight shadow, and stops sticking
+     while keyboard focus is elsewhere (focus-outside:static). It stacks below the form's Send button
+     (styles/shared.css). On phones a small "Call" sits over the number; from 36rem they share one line. */
   .callbar {
     bottom: 0;
     z-index: 10;
     display: grid;
-    grid-template-columns: repeat(2, minmax(min-content, 1fr));
+    grid-template-columns: minmax(min-content, 3fr) minmax(min-content, 2fr);
     gap: 0.5rem;
     padding: 0.625rem 1rem calc(0.625rem + env(safe-area-inset-bottom));
     background: var(--aw-impact-ink);
@@ -2679,8 +2620,12 @@
     font-size: 1.125rem;
     letter-spacing: 0.02em;
   }
-  .cb-call {
+  .callbar .bt {
+    white-space: nowrap;
+  }
+  .callbar .cb-call {
     padding-block: 0.375rem;
+    font-size: min(1.25rem, 5.2vw);
   }
   .cb-txt {
     display: flex;

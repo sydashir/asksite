@@ -58,11 +58,10 @@ const TRACKING = 0.025; // em between capitals on a button
 const FIT_MARGIN = 1.03; // kerning and rounding
 
 // The narrowest content box, in px, of each button that shows the owner's call-to-action label, with its font
-// size in px (impact.css): the hero pair at 64rem, the header button, the services card from 64rem, and at 320 px
-// the services card and the closing band (A16; Home's closing panel is the narrower: 288 px less its 1rem padding,
-// the button's 0.75rem padding and its border). Wider ones need no slot: the closing band's from 64rem (a 26rem
-// column), the inner page head's from 64rem, the phone menu's, Contact's head button and the hero's (260 px at 17 px)
-// at 320 px.
+// size in px (impact.css): the hero pair at 64rem, the header button, the services card from 64rem (it shows from
+// there only), and the closing band at 320 px (A16; Home's closing panel: 288 px less its 1rem padding, the button's
+// 0.75rem padding and its border). Wider ones need no slot: the closing band's from 64rem (a 26rem column), the
+// phone menu's, Contact's head button at 320 px and the hero's from 48rem (it has none below).
 const LABEL_SLOTS = [
   { width: 455, size: 20 },
   { width: 240, size: 17 },
@@ -82,26 +81,6 @@ export function capsWidth(label: string, size: number): number {
  */
 export function buttonCase(ctaText: string): "caps" | "sentence" {
   return LABEL_SLOTS.every(({ width, size }) => capsWidth(ctaText, size) * FIT_MARGIN <= width) ? "caps" : "sentence";
-}
-
-// A one-word label is fine on a button ("Book") but reads as a bare template label as a heading.
-const ONE_WORD_HEADING: Readonly<Record<string, string>> = {
-  book: "Request a booking",
-  quote: "Request a quote",
-  estimate: "Request an estimate",
-  schedule: "Request a visit",
-  contact: "Send us a request",
-  enquire: "Send us a request",
-  inquire: "Send us a request",
-  call: "Send us a request",
-};
-
-/** The contact section's heading: the owner's label when it has two or more words, else a fuller fixed heading. */
-export function contactHeading(cta: string): string {
-  const label = cta.trim();
-  if (label.split(/\s+/).length >= 2) return label;
-  const key = label.replace(/[.!]+$/, "").toLowerCase();
-  return ONE_WORD_HEADING[key] ?? "Send us a request";
 }
 
 const SHORT_DAY: Readonly<Record<Day, string>> = {

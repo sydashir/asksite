@@ -1,6 +1,7 @@
 // Pieces every Bold section shares: the page model (which band is ink, the button case), the band shell with its
 // heading, and the markup of buttons, licences and addresses.
 import type { Facts, PageId, SectionId } from "@asksite/site-schema";
+import { contactHeading } from "../../contact-heading.ts";
 import { headingLevel, onSite, quoteLink, type RenderContext } from "../../context.ts";
 import { formatPhone, telUrl, TRADE_LABEL } from "../../format.ts";
 import { html, type SafeHtml } from "../../html.ts";
@@ -77,8 +78,6 @@ export interface BandHead {
   readonly pageTitle?: string;
   /** The AI's intro, or the owner's own note. */
   readonly intro?: string | undefined;
-  /** Shown under the heading (the closing band's 24/7 chip). */
-  readonly extra?: SafeHtml | false;
 }
 
 /**
@@ -86,7 +85,7 @@ export interface BandHead {
  * the h2 and the intro when there is one.
  */
 export function sectionHead(domId: string, head: BandHead, classes = "sec-head"): SafeHtml {
-  return html`<div class="${classes}"><p class="kicker eyebrow">${head.eyebrow}</p><h2 id="${domId}-title" class="h2 display">${head.title}</h2>${head.intro && html`<p class="sec-intro">${head.intro}</p>`}${head.extra}</div>`;
+  return html`<div class="${classes}"><p class="kicker eyebrow">${head.eyebrow}</p><h2 id="${domId}-title" class="h2 display">${head.title}</h2>${head.intro && html`<p class="sec-intro">${head.intro}</p>`}</div>`;
 }
 
 /**
@@ -141,28 +140,25 @@ export function trustChips(ctx: RenderContext): SafeHtml | false {
 
 /**
  * The head band an inner page opens with (A16), on ink like Home's hero: the trade and the town over the page's
- * <h1>, the intro and the owner's standing; from 64rem Call and the owner's call to action stacked at its right
- * (below, the call bar carries them), except on Services, whose card beside the list carries them already. On
- * Contact (the owner put the service area first) it carries the number as a call control and the owner's call to
- * action, a jump to the form below, at every width: the call bar there sits at the end of the page (moderator ruling
- * b), so a phone visitor can still call or ask for a quote from the first screen.
+ * <h1>, the intro and the owner's standing. Every inner head is the same: the header right above, the call bar and
+ * the closing band carry Call and the call to action. Only on Contact (the owner put the service area first) does it
+ * carry the number as a call control and the owner's call to action, a jump to the form below, at every width: the
+ * call bar there sits at the end of the page (moderator ruling b), so a phone visitor can still call or ask for a
+ * quote from the first screen.
  */
 function pageHead(ctx: RenderContext, title: string, titleId: string | undefined, intro: string | undefined): SafeHtml {
   const h1 = titleId === undefined ? html`<h1 class="${pageTitleClass(title)}">${title}</h1>` : html`<h1 id="${titleId}" class="${pageTitleClass(title)}">${title}</h1>`;
-  const { id } = ctx.page;
-  const acts =
-    id === "contact"
-      ? html`<div class="ph-talk"><p class="kicker">Prefer to talk?</p><p>${bigCall(ctx)}</p><p>${ctaButton(ctx)}</p></div>`
-      : id !== "services" && html`<div class="ph-acts">${callButton(ctx, "action")}${ctaButton(ctx)}</div>`;
-  return html`<div class="page-head ink"><div class="wrap ph"><div class="page-title">${pageKicker(ctx)}${h1}${intro && html`<p class="sec-intro">${intro}</p>`}${trustChips(ctx)}</div>${acts}</div></div>`;
+  const talk = ctx.page.id === "contact" && html`<div class="ph-talk"><p class="kicker">Prefer to talk?</p><p>${bigCall(ctx)}</p><p>${ctaButton(ctx)}</p></div>`;
+  return html`<div class="page-head ink"><div class="wrap ph"><div class="page-title">${pageKicker(ctx)}${h1}${intro && html`<p class="sec-intro">${intro}</p>`}${trustChips(ctx)}</div>${talk}</div></div>`;
 }
 
 /**
- * The contact band's own heading when the form opens the Contact page: the page's <h1>, the owner's call to action,
- * with the owner's standing beside the form as on every other inner page's head.
+ * The contact band's own heading when the form opens the Contact page: the page's <h1>, the shared contact heading
+ * (the owner's call to action, a one-word label in fuller words), with the owner's standing beside the form as on
+ * every other inner page's head.
  */
 export function contactPageHeading(ctx: RenderContext, domId: string, intro: string | undefined): SafeHtml {
-  const title = ctx.doc.copy.ctaText;
+  const title = contactHeading(ctx.doc.copy.ctaText);
   return html`<div class="sec-head contact-head">${pageKicker(ctx)}<h1 id="${domId}-title" class="${pageTitleClass(title)}">${title}</h1>${intro && html`<p class="sec-intro">${intro}</p>`}${trustChips(ctx)}</div>`;
 }
 

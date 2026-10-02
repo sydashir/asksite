@@ -1,9 +1,10 @@
 // The Bold contact band: the heading with the owner's standing, "Prefer to talk?" with the number as a call control,
 // then the form on a white card (the form is the "/contact#quote" target), then the licences and the email; from 64rem
 // the form sits beside them all. A phone visitor sees the call control and the form's start in the first screen, in
-// reading order. When the band opens the Contact page its heading is the page's <h1>, the owner's call to action as
-// written (A16), and the band starts where every inner page's head does. When the owner puts the service area first,
-// its head band carries the standing and the number (parts.ts pageHead), so this band does not repeat them.
+// reading order. Its heading is the shared contact heading (the owner's call to action, a one-word label in fuller
+// words); when the band opens the Contact page that is the page's <h1> (A16), and the band starts where every inner
+// page's head does. When the owner puts the service area first, its head band carries the standing and the number
+// (parts.ts pageHead), so this band does not repeat them.
 // The <form> is today's form, field for field, with only its classes changed (A12 §7: the fields, names,
 // limits, "Send request" and the honeypot are shared; src/sections/contact.ts, ported from AstroWind). Its own
 // opening tag is today's exactly, with no class (the sites Worker's tests read the action from it); the sheet
@@ -11,6 +12,7 @@
 // Nothing around the form makes a stacking context, so its Send button stays above the call bar
 // (styles/shared.css).
 import type { VariantOf } from "@asksite/site-schema";
+import { contactHeading } from "../../contact-heading.ts";
 import { headingLevel, onSite, type RenderContext } from "../../context.ts";
 import { mailtoUrl } from "../../format.ts";
 import { html, type SafeHtml } from "../../html.ts";
@@ -18,11 +20,10 @@ import { icon as sharedIcon } from "../../icons.ts";
 import { DOM_ID } from "../../sections/ids.ts";
 import { icon } from "./icons.ts";
 import { addressMarkup, bandClass, bigCall, buttonClass, contactPageHeading, licenceMarkup, sectionHead } from "./parts.ts";
-import { contactHeading } from "./rules.ts";
 
 export function renderContact(ctx: RenderContext, _variant: VariantOf<"contact">): SafeHtml {
   const { facts, copy } = ctx.doc;
-  // The AI's intro, or a fixed house line, so a short call to action ("Book") never stands alone as the page's title.
+  // The AI's intro, or a fixed house line, so the title never stands alone.
   const intro = copy.sectionIntros.contact ?? "Send a quick request, or call us.";
   const opens = headingLevel(ctx, "contact") === 1;
   const head = opens

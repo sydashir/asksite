@@ -3,9 +3,10 @@
 // full height beyond), with the credentials card on it. Without a photo the right side holds a card of the
 // facts a caller checks first (hours and the towns served); with nothing new for a card the hero is type only. The
 // text ends with Call and the owner's call to action; below 64rem the call bar carries Call, so there it ends with
-// the call to action alone (impact.css).
+// the call to action alone, and below 48rem (phones) with its line, as on the approved page: the bar carries both
+// there (impact.css).
 import type { VariantOf } from "@asksite/site-schema";
-import { onSite, sectionLink, type RenderContext } from "../../context.ts";
+import { onPage, onSite, sectionLink, type RenderContext } from "../../context.ts";
 import { TRADE_LABEL } from "../../format.ts";
 import { html, safeUrl, type SafeHtml } from "../../html.ts";
 import { DOM_ID } from "../../sections/ids.ts";
@@ -25,7 +26,7 @@ interface ProofGroups {
 function proofGroups(ctx: RenderContext): ProofGroups {
   const { facts } = ctx.doc;
   // The credentials are the hero's card only while the owner keeps their section straight under the hero. Anywhere
-  // else on Home (U1) they are the band there, so each fact shows once (credentials.ts).
+  // else on Home (U1) they are the band there (credentials.ts), with a compact line here (credentialsLine).
   if (!boldPage(ctx).trustInHero) return { licences: [], standing: [] };
   const [first, ...rest] = facts.licences;
   const licences: SafeHtml[] = [];
@@ -50,6 +51,23 @@ function proofGroups(ctx: RenderContext): ProofGroups {
 function proof({ licences, standing }: ProofGroups): SafeHtml | false {
   if (licences.length + standing.length === 0) return false;
   return html`<section id="${DOM_ID.trust}" class="proof" aria-label="Credentials">${licences.length > 0 && html`<ul class="proof-list proof-lics">${licences}</ul>`}${standing.length > 0 && html`<ul class="proof-list">${standing}</ul>`}</section>`;
+}
+
+/**
+ * The owner's standing in one compact line under the headline when the credentials section sits further down Home
+ * (U1: the owner put it after the reviews), so the first screen still says who the visitor is calling: "Licensed",
+ * "Insured", "Since <year>", owner facts only and no licence numbers (the band shows those). None while the section
+ * is straight under the hero (there it is the hero's card) or hidden.
+ */
+function credentialsLine(ctx: RenderContext): SafeHtml | false {
+  const { facts } = ctx.doc;
+  if (boldPage(ctx).trustInHero || !onPage(ctx, "trust")) return false;
+  const items = [
+    facts.licences.length > 0 && html`<li>${icon("certificate")}Licensed</li>`,
+    facts.insured && html`<li>${icon("shield-check")}Insured</li>`,
+    facts.yearFounded !== undefined && html`<li>${icon("calendar")}Since ${facts.yearFounded}</li>`,
+  ].filter((item): item is SafeHtml => item !== false);
+  return items.length > 0 && html`<ul class="hero-creds">${items}</ul>`;
 }
 
 /** The towns served: the first three, then "and N more", a link to the service area on the Contact page. */
@@ -92,7 +110,7 @@ export function renderHero(ctx: RenderContext, variant: VariantOf<"hero">): Safe
   const copyBlock = html`<div class="hero-copy">
 <p class="hero-kicker">${facts.emergency247 && !chipInProof && html`<span class="chip">${icon("clock")}24/7 emergency service</span>`}<span class="hero-where">${TRADE_LABEL[facts.trade]} · ${facts.location.city}, ${facts.location.state}</span></p>
 <h1 id="${DOM_ID.hero}-title" class="${headlineClass(copy.heroHeadline)}">${copy.heroHeadline}</h1>
-${proof(groups)}
+${proof(groups)}${credentialsLine(ctx)}
 <p class="hero-sub">${copy.heroSubheadline}</p>
 <div class="hero-actions">${callButton(ctx, "action", true)}${boldPage(ctx).contact && ctaButton(ctx, true)}</div>
 </div>`;
