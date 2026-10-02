@@ -1,19 +1,36 @@
 // Classic's real journeys (A16): a visitor on any page reaches every other page from the header (the link row on a
 // desktop, the menu on a phone; WCAG 2.4.5), asks for a quote and lands on the form with the Name field in view,
-// never under the sticky header, and finds a Call link on the first screen of every page. The plumber's whole site
-// with the real Classic sheet, served on the fixtures' origin from memory (Playwright 1.63 BrowserContext.route and
-// Route.fulfill; photos are a gray tile, anything else is aborted), in Chromium at 1280x800 and in WebKit's iPhone 13.
+// never under the sticky header, and finds a Call link on the first screen of every page, in the default order and in
+// the owner's own (the plumber with every section moved, and roofing-extreme, whose Contact page opens with the
+// service area). Each whole site with the real Classic sheet, served on the fixtures' origin from memory (Playwright
+// 1.63 BrowserContext.route and Route.fulfill; photos are a gray tile, anything else is aborted), in Chromium at
+// 1280x800 and in WebKit's iPhone 13.
 // The pages run no JavaScript; the checks are script text, since the renderer's TypeScript program has no DOM types.
 import { chromium, devices, webkit, type Browser, type Page } from "@playwright/test";
-import { PAGES, type PageId } from "@asksite/site-schema";
+import { PAGES, type PageId, type SiteDocumentInput } from "@asksite/site-schema";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { FIXTURE_SITE_URL, loadFixture } from "../../../../../fixtures/index.ts";
 import { classicSite } from "./site.ts";
 
 const ORIGIN = new URL(FIXTURE_SITE_URL).origin;
 const GRAY_PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAQAAAADCAIAAAA7ljmRAAAAEUlEQVR42mM4ffUhHDHg5AAASSceDT8mdlEAAAAASUVORK5CYII=", "base64");
-const site = classicSite(loadFixture("plumber-austin"));
-const IDS: readonly PageId[] = site.pages.map((p) => p.page);
+const plumber = loadFixture("plumber-austin");
+/** The owner's order inside each page: reviews before credentials, the questions before the prices, the service area before the form. */
+function reordered(input: SiteDocumentInput): SiteDocumentInput {
+  const move = (layout: SiteDocumentInput["layout"], id: string, after: string) => {
+    const rest = layout.filter((s) => s.id !== id);
+    const at = rest.findIndex((s) => s.id === after) + 1;
+    return [...rest.slice(0, at), ...layout.filter((s) => s.id === id), ...rest.slice(at)];
+  };
+  return { ...input, layout: move(move(move(input.layout, "trust", "testimonials"), "services", "faq"), "contact", "serviceArea") };
+}
+const SITES = {
+  plumber: classicSite(plumber),
+  reordered: classicSite(reordered(plumber)),
+  roofing: classicSite(loadFixture("roofing-extreme")),
+} as const;
+let site: (typeof SITES)[keyof typeof SITES] = SITES.plumber;
+const IDS: readonly PageId[] = SITES.plumber.pages.map((p) => p.page);
 
 const SETUPS = {
   "Chromium at 1280x800": { engine: chromium, options: { viewport: { width: 1280, height: 800 } }, phone: false },
@@ -89,12 +106,16 @@ describe.each(Object.keys(SETUPS) as Array<keyof typeof SETUPS>)("Classic's jour
     expect(problems).toEqual([]);
   }, 120_000);
 
-  it("shows a Call link on the first screen of every page", async () => {
+  it("shows a Call link on the first screen of every page, whatever the owner's order", async () => {
     const without: string[] = [];
-    for (const id of IDS) {
-      await visit(id);
-      if (!(await page.evaluate(CALL_ON_FIRST_SCREEN))) without.push(id);
+    for (const [name, each] of Object.entries(SITES)) {
+      site = each;
+      for (const { page: id } of each.pages) {
+        await visit(id);
+        if (!(await page.evaluate(CALL_ON_FIRST_SCREEN))) without.push(`${name} ${id}`);
+      }
     }
+    site = SITES.plumber;
     expect(without).toEqual([]);
-  }, 60_000);
+  }, 120_000);
 });

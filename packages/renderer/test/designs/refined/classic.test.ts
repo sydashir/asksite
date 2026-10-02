@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { FONT_IDS, PALETTE_IDS, SiteDocument, Theme, type SiteDocumentInput } from "@asksite/site-schema";
+import { FONT_IDS, PAGES, PALETTE_IDS, SiteDocument, Theme, type PageId, type SiteDocumentInput } from "@asksite/site-schema";
 import { describe, expect, it } from "vitest";
 import { inDesign, loadFixture, stubStylesheets } from "../../../../../fixtures/index.ts";
 import { BASELINE } from "../../../src/baseline.ts";
@@ -231,30 +231,38 @@ describe("a one-town owner's Service area", () => {
 });
 
 // A16: Home previews the first services; every page but Contact ends with the closing band; the call bar has a fixed
-// quote label on every page and stays put on Contact; each inner page opens with the hero's eyebrow and its <h1>.
+// quote label on every page and stays put on Contact; each inner page opens with the hero's eyebrow and its <h1>; the
+// footer leads to every page; About, Services and Contact keep their identity and the owner's proof in any order.
 describe("Classic's pages (A16)", () => {
-  const preview = (input: SiteDocumentInput) => section(classicPage(input, "home", OPTIONS.stylesheets), "services-preview");
+  const pageOf = (input: SiteDocumentInput, id: PageId) => classicPage(input, id, OPTIONS.stylesheets);
+  const preview = (input: SiteDocumentInput) => section(pageOf(input, "home"), "services-preview");
   const withServices = (services: SiteDocumentInput["facts"]["services"]): SiteDocumentInput => ({
     ...plumber,
     facts: { ...plumber.facts, services },
     copy: { ...plumber.copy, serviceDescriptions: services.map((s) => ({ service: s.name, description: "Done with care." })) },
   });
   const rows = (markup: string) => [...markup.matchAll(/<li class="svc">([\s\S]*?)<\/li>/g)].map((m) => squashedText(m[1] ?? ""));
+  const moved = (input: SiteDocumentInput, id: string, after: string): SiteDocumentInput => {
+    const rest = input.layout.filter((s) => s.id !== id);
+    const at = rest.findIndex((s) => s.id === after) + 1;
+    return { ...input, layout: [...rest.slice(0, at), ...input.layout.filter((s) => s.id === id), ...rest.slice(at)] };
+  };
+  const h1 = (html: string) => squashedText(html.slice(html.indexOf("<h1"), html.indexOf("</h1>")));
 
-  it("previews the first three services in the owner's order, a price only where the owner gave one, and links to the Services page", () => {
+  it("previews the first three services under the owner's intro, Price on request where no price is given, and says how many services the link leads to", () => {
     const roofing = loadFixture("roofing-extreme");
     expect(rows(preview(roofing))).toEqual(roofing.facts.services.slice(0, 3).map((s) => squashedText(`${escapeText(s.name)}From $${s.startingPrice?.toLocaleString("en-US")}`)));
+    expect(preview(roofing)).toContain('<a class="bt bt-out" href="/services">See all 12 services</a>');
     const two = preview(withServices([{ name: "Deep clean", startingPrice: 180 }, { name: "Move-out clean" }]));
-    expect(rows(two)).toEqual([squashedText("Deep cleanFrom $180"), squashedText("Move-out clean")]);
-    expect(two).not.toContain("Price on request");
-    expect(rows(preview(withServices([{ name: "Deep clean" }])))).toEqual([squashedText("Deep clean")]);
+    expect(rows(two)).toEqual([squashedText("Deep cleanFrom $180"), squashedText("Move-out cleanPrice on request")]);
     expect(two).toContain('<a class="bt bt-out" href="/services">More about our services</a>');
+    expect(squashedText(preview(plumber))).toContain(squashedText(plumber.copy.sectionIntros?.services ?? "missing"));
   });
 
-  it("offers the booking box after the price list only when another section, not the closing band, comes next", () => {
-    expect(section(classicPage(plumber, "services", OPTIONS.stylesheets), "services")).toContain('class="svc-more"');
-    expect(section(classicPage({ ...plumber, hidden: ["faq"] }, "services", OPTIONS.stylesheets), "services")).not.toContain('class="svc-more"');
-    expect(section(classicPage(cleaning, "services", OPTIONS.stylesheets), "services")).not.toContain('class="svc-more"');
+  it("offers the light booking box after the price list only when another section, not the closing band, comes next", () => {
+    expect(section(pageOf(plumber, "services"), "services")).toContain('class="svc-more"');
+    expect(section(pageOf({ ...plumber, hidden: ["faq"] }, "services"), "services")).not.toContain('class="svc-more"');
+    expect(section(pageOf(cleaning, "services"), "services")).not.toContain('class="svc-more"');
   });
 
   it("gives every page a call bar with Call and the fixed words Get a quote, sticky but on Contact", () => {
@@ -267,18 +275,106 @@ describe("Classic's pages (A16)", () => {
   });
 
   it("keeps the form beside the facts when the contact band opens /contact, and stacks a thin owner's band lower on the page", () => {
-    const band = (input: SiteDocumentInput) => section(classicPage(input, "contact", OPTIONS.stylesheets), "contact");
+    const band = (input: SiteDocumentInput) => section(pageOf(input, "contact"), "contact");
     for (const input of [hvac, cleaning]) expect(band(input)).toContain('<div class="wr contact">');
-    const areaFirst = { ...cleaning, layout: [...cleaning.layout.filter((s) => s.id !== "contact"), ...cleaning.layout.filter((s) => s.id === "contact")] };
-    expect(band(areaFirst)).toContain('<div class="wr contact c-stack">');
+    expect(band(moved(cleaning, "contact", "serviceArea"))).toContain('<div class="wr contact c-stack">');
   });
 
-  it("opens each inner page with the hero's eyebrow and the page's h1, and closes every page but Contact with the closing band", () => {
+  it("opens each inner page with the eyebrow and the page's h1 (About's year on its seal), and closes every page but Contact with the closing band", () => {
     for (const { page: id, html } of classicSite(plumber, OPTIONS.stylesheets).pages) {
       const first = html.slice(html.indexOf("<main"), html.indexOf("</section>", html.indexOf("<main")));
-      if (id !== "home" && id !== "about") expect(squashedText(first), id).toContain(squash("Plumbing Austin, TX Since 1998"));
+      if (id !== "home") expect(squashedText(first), id).toContain(squash(id === "about" ? "PlumbingAustin, TX" : "Plumbing Austin, TX Since 1998"));
       expect(first, id).toContain("<h1 ");
       expect(html.includes('<section id="get-in-touch"'), id).toBe(id !== "contact");
     }
+    const about = section(pageOf(plumber, "about"), "about");
+    expect(squashedText(about.slice(about.indexOf('<p class="eb">'), about.indexOf("</p>", about.indexOf('<p class="eb">'))))).not.toContain("Since");
+    expect(about).toContain('<p class="seal">');
+  });
+
+  it("drops a long eyebrow's year on the phones it would wrap on, by its length (the Sturdy lettering's widest letters)", () => {
+    const yearClass = (input: SiteDocumentInput) => /<span class="(eb-f\d)"><span>Since/.exec(section(pageOf(input, "services"), "services"))?.[1];
+    expect(yearClass(plumber)).toBe("eb-f2"); // "Plumbing · Austin, TX · Since 1998": 34 characters
+    expect(yearClass(hvac)).toBe("eb-f3"); // "Heating & Cooling · Phoenix, AZ · Since 2011": 44 characters
+    expect(yearClass(loadFixture("roofing-extreme"))).toBe("eb-f4");
+    expect(yearClass({ ...plumber, facts: { ...plumber.facts, location: { city: "Al", state: "TX" } } })).toBe("eb-f1"); // 30 characters
+    // Home's hero keeps the year on phones (no seal there): where the line would wrap, the trade takes the first line.
+    const tradeClass = (input: SiteDocumentInput) => /<span class="dots-r"><span class="(eb-b\d)"><span>/.exec(section(pageOf(input, "home"), "top"))?.[1];
+    expect([tradeClass(plumber), tradeClass(hvac), tradeClass(cleaning)]).toEqual(["eb-b2", "eb-b3", undefined]);
+  });
+
+  it("ends every page but Contact on a closing band built from the owner's facts, in the hero's words", () => {
+    const band = (input: SiteDocumentInput, id: PageId = "services") => squashedText(section(pageOf(input, id), "get-in-touch"));
+    expect(band(plumber)).toContain(squashedText("Need a plumber in Austin?"));
+    expect(band(plumber)).toContain(squashedText(plumber.copy.sectionIntros?.contact ?? "missing"));
+    expect(band(plumber)).toContain(squashedText("Monday – Friday 7:30 AM – 6:00 PM"));
+    expect(band(plumber)).toContain(squashedText("Serving Austin, Round Rock, Pflugerville and 4 more."));
+    expect(band(plumber)).toContain(squashedText("Get a free quote"));
+    // A one-word call to action reads as the hero and header say it.
+    expect(band(cleaning)).toContain(squashedText("Book a visit"));
+    expect(band(cleaning)).toContain(squashedText("Need a cleaner in Boise?"));
+    // Without the owner's own contact line, plain house words that claim nothing (never a bare heading on a phone).
+    expect(band(cleaning, "home")).toContain(squashedText("Tell us what you need, or give us a call."));
+    // Without the Service area section, no hours and no towns; on a Home with the business card, never twice.
+    expect(band({ ...plumber, hidden: ["serviceArea"] })).not.toMatch(/Serving|Monday/);
+    expect(band(hvac, "home")).not.toMatch(/Serving|Monday/);
+    expect(band(hvac, "services")).toContain("Serving");
+  });
+
+  it("leads from the footer of every page to every page, the current one marked", () => {
+    for (const { page: id, html } of classicSite(plumber, OPTIONS.stylesheets).pages) {
+      const nav = html.slice(html.indexOf('<nav class="ft-nav" aria-label="Pages">'), html.indexOf("</nav>", html.indexOf('class="ft-nav"')));
+      expect([...nav.matchAll(/<a href="([^"]*)"/g)].map((m) => m[1]), id).toEqual(["/", "/services", "/about", "/gallery", "/contact"]);
+      expect([...nav.matchAll(/<a href="([^"]*)" aria-current="page">/g)].map((m) => m[1]), id).toEqual([PAGES[id].path]);
+    }
+  });
+
+  it("puts the owner's proof under the Services page's h1, and opens it as the Services page when the owner puts the questions first", () => {
+    const services = squashedText(section(pageOf(plumber, "services"), "services"));
+    expect(services).toContain(squashedText("Texas master plumber License M-40123 Insured Free estimates")); // the dots are drawn by the sheet
+    expect(squashedText(section(pageOf({ ...plumber, hidden: ["trust"] }, "services"), "services"))).not.toContain("M-40123");
+    const faqFirst = pageOf(moved(plumber, "services", "faq"), "services");
+    expect(h1(faqFirst)).toBe(squashedText("Our services"));
+    expect(squashedText(section(faqFirst, "faq"))).toContain(squashedText("License M-40123"));
+    expect(section(faqFirst, "faq")).toContain('<h2 id="faq-title" class="st">Questions &amp; answers</h2>');
+    expect(section(faqFirst, "services")).toContain('<h2 id="services-title" class="st">Services &amp; prices</h2>');
+  });
+
+  it("gives About the owner's proof, the name once, and a drop cap only on a story that opens with a letter", () => {
+    const about = pageOf(plumber, "about");
+    const main = about.slice(about.indexOf("<main"), about.indexOf("</main>"));
+    expect(main.split(escapeText(plumber.facts.businessName)).length - 1).toBe(1);
+    expect(squashedText(section(about, "about"))).toContain(squashedText("License M-40123"));
+    expect(section(about, "about")).toContain('class="letter-b dc"');
+    expect(section(pageOf(loadFixture("electrical-xss"), "about"), "about")).toContain('class="letter-b"');
+    expect(section(pageOf({ ...plumber, copy: { ...plumber.copy, about: "I'm the owner, and I fix every leak myself." } }, "about"), "about")).toContain('class="letter-b"');
+    // With the owner's hero photo it is framed beside the letter, the seal on it; without one the seal is on the letter.
+    expect(section(about, "about")).toContain('<div class="ab ab-ph">');
+    const { heroPhoto: _photo, ...noPhoto } = plumber.facts;
+    expect(section(pageOf({ ...plumber, facts: noPhoto }, "about"), "about")).toContain('<div class="letter letter-sl">');
+  });
+
+  it("gives the address and the towns one home on Contact, and opens an area-first Contact page with Call and the call to action", () => {
+    const band = squashedText(section(pageOf(plumber, "contact"), "contact"));
+    expect(band).not.toContain(squashedText("4100 S Congress Ave"));
+    expect(band).not.toContain("Serving");
+    expect(squashedText(section(pageOf({ ...plumber, hidden: ["serviceArea"] }, "contact"), "contact"))).toContain(squashedText("4100 S Congress Ave"));
+    const areaFirst = pageOf(moved(plumber, "contact", "serviceArea"), "contact");
+    const opening = section(areaFirst, "service-area");
+    expect(opening.slice(0, opening.indexOf('<div class="area">'))).toMatch(/<div class="pg-a">\n<a class="bt bt-act bt-lg[^"]*" href="tel:\+15125550142">[\s\S]*<a class="bt bt-out bt-lg" href="\/contact#quote">Get a free quote<\/a>/);
+    // A page that ends on the dark contact band gets a rule above the footer.
+    expect(areaFirst).toContain('<footer class="ft ft-r">');
+    expect(pageOf(plumber, "contact")).toContain('<footer class="ft">');
+  });
+
+  it("sets the gallery by count, one print per row on phones, and keeps a caption line on every print once any has one", () => {
+    const gallery = (count: number, captions = true) => {
+      const photos = (plumber.facts.photos ?? []).slice(0, Math.min(count, 6));
+      const all = Array.from({ length: count }, (_, i) => ({ ...photos[i % photos.length]!, ...(captions ? {} : { caption: undefined }) }));
+      const html = section(pageOf({ ...plumber, facts: { ...plumber.facts, photos: all.map(({ caption, ...p }) => (caption === undefined ? p : { ...p, caption })) } }, "gallery"), "our-work");
+      return /<ul class="([^"]*)">/.exec(html)?.[1];
+    };
+    expect([1, 2, 3, 4, 5, 6, 7, 8].map((n) => gallery(n))).toEqual(["gal g-1 gal-c", "gal gal-c", "gal g-lead gal-c", "gal gal-c", "gal g-5 gal-c", "gal g-lead gal-c", "gal g-wide gal-c", "gal g-3 gal-c"]);
+    expect(gallery(4, false)).toBe("gal");
   });
 });

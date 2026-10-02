@@ -19,11 +19,11 @@
 /* ---------- Tokens and base ---------- */
 :root{--sh:0 1px 2px #0000000f,0 22px 44px -24px #00000061}
 .classic{background:var(--aw-refined-surface);color:var(--aw-refined-text);font-family:var(--aw-refined-body);font-size-adjust:var(--aw-refined-body-adjust);line-height:1.6;-webkit-font-smoothing:antialiased;overflow-wrap:anywhere}
-h1,h2,h3,.brand,.seal,.hq p,.hq::before,.bc-ph,.pr,.qm,.lq p,.qc p,.print figcaption,.letter-b,.letter-s,.svc-mt,.c-ph,.ft-name{font-family:var(--aw-refined-head);font-size-adjust:var(--aw-refined-head-adjust)}
+h1,h2,h3,.brand,.seal,.hq p,.hq::before,.bc-ph,.pr,.qm,.lq p,.qc p,.print figcaption,.letter-b,.svc-mt,.c-ph,.ft-name{font-family:var(--aw-refined-head);font-size-adjust:var(--aw-refined-head-adjust)}
 h1,h2,h3{font-weight:700;line-height:1.15;color:var(--aw-refined-ink);text-wrap:balance}
 .ht,.st{font-weight:var(--aw-refined-head-weight)}
 :focus-visible{outline:2px solid var(--aw-refined-ink);outline-offset:3px}
-.c-list :focus-visible,.ft :focus-visible,.svc-more :focus-visible,.h247 :focus-visible,.cl :focus-visible{outline-color:var(--aw-refined-on-dark)}
+.c-list :focus-visible,.ft :focus-visible,.h247 :focus-visible,.cl-p :focus-visible,.af :focus-visible{outline-color:var(--aw-refined-on-dark)}
 .wr{max-width:76rem;margin-inline:auto;padding-inline:1.25rem}
 .i{width:1.25rem;height:1.25rem;flex:none;color:var(--aw-refined-accent-text)}
 .lic{display:inline-block}
@@ -72,7 +72,8 @@ h1,h2,h3{font-weight:700;line-height:1.15;color:var(--aw-refined-ink);text-wrap:
 .ht{margin-top:var(--aw-refined-hero-gap);font-size:calc(clamp(2.125rem,1.45rem + 2.9vw,3.75rem)*var(--aw-refined-hero-scale)*var(--kl,1)*var(--ks,1));line-height:1.07;letter-spacing:var(--aw-refined-hero-track)}
 .ht-long{--kl:.82}
 .hs{max-width:34em;margin-top:.875rem;font-size:1.0625rem;line-height:1.55;color:var(--aw-refined-muted);text-wrap:pretty}
-.ha{display:none}
+/* The hero's actions; on phones only the quote button (the call bar under the thumb carries Call). */
+.ha{display:flex;flex-wrap:wrap;gap:.75rem;margin-top:1.25rem}
 .proof{display:flex;align-items:flex-start;gap:.5rem;margin-top:1.125rem;font-size:.9375rem;font-weight:650;line-height:1.4;color:var(--aw-refined-ink)}
 .proof .i{margin-top:.0625rem}
 /* The credential ledger (phones and tablets, when the credentials come straight after the hero), and the
@@ -134,6 +135,9 @@ h1,h2,h3{font-weight:700;line-height:1.15;color:var(--aw-refined-ink);text-wrap:
 /* An inner page opens on its first section (A16): the hero's eyebrow, then the page's <h1>, set larger. */
 main>.sec:first-child{padding-top:2.5rem}
 .sh-pg::before{content:none}
+.sh-pg .proof{margin-top:1.25rem}
+/* An area-first Contact page: Call and the call to action on its first screen. */
+.pg-a{display:flex;flex-wrap:wrap;gap:.75rem;margin-top:1.5rem}
 .sh-pg .st{margin-top:var(--aw-refined-hero-gap);font-size:calc(clamp(2.125rem,1.5rem + 2.6vw,3.375rem)*var(--aw-refined-title-scale))}
 .dark .eb{color:var(--aw-refined-accent-on-dark)}
 .dark .eb::before{background:var(--aw-refined-accent-on-dark)}
@@ -157,8 +161,8 @@ main>.sec:first-child{padding-top:2.5rem}
 .pr{margin-top:.25rem;font-size:1.0625rem;font-weight:700;line-height:1.3;color:var(--aw-refined-accent-text);white-space:nowrap}
 .pr-ask{font-family:var(--aw-refined-body);font-size-adjust:var(--aw-refined-body-adjust);font-size:.9375rem;font-weight:500;color:var(--aw-refined-muted)}
 .svc-d{max-width:34em;margin-top:.5rem;color:var(--aw-refined-muted);text-wrap:pretty}
-.svc-more{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:1rem 1.5rem;margin-top:1.75rem;padding:1.5rem;border-radius:var(--aw-refined-radius-paper);background:var(--aw-refined-dark);color:var(--aw-refined-on-dark-muted)}
-.svc-mt{font-size:1.3125rem;font-weight:700;line-height:1.25;color:var(--aw-refined-on-dark)}
+.svc-more{justify-content:space-between;gap:1rem 1.5rem;color:var(--aw-refined-muted)}
+.svc-mt{font-size:1.3125rem;font-weight:700;line-height:1.25;color:var(--aw-refined-ink)}
 .svc-mt+p{margin-top:.25rem}
 .svc-more .bt,.fcard .bt{white-space:normal}
 
@@ -170,33 +174,42 @@ main>.sec:first-child{padding-top:2.5rem}
 .lq figcaption{gap:.25rem .75rem;margin-top:1.25rem}
 .lq figcaption::before{content:"";align-self:center;width:1.5rem;height:var(--aw-refined-rule-h);background:var(--aw-refined-accent)}
 .qgrid{display:grid;grid-template-columns:minmax(0,1fr);column-gap:1.25rem;margin-top:2.5rem}
-.qc,.qc figure,.gal>li,.print{display:grid;grid-row:span 2;grid-template-rows:subgrid;row-gap:0}
-.qc{margin-bottom:1.25rem}
+.gal>li,.print{display:grid;grid-row:span 2;grid-template-rows:subgrid;row-gap:0}
+/* Each card keeps its own height, the name right under its quote, so a short review is never a tall empty card. */
+.qc{align-self:start;margin-bottom:1.25rem}
 .qc figure{padding:1.5rem 1.5rem 1.25rem;border:1px solid var(--aw-refined-line);border-radius:var(--aw-refined-radius-paper);background:var(--card)}
 .qc p{font-size:1.125rem;line-height:1.5;color:var(--aw-refined-ink)}
-.qc figcaption{align-self:start;margin-top:1.125rem;padding-top:.875rem;border-top:1px solid var(--aw-refined-line)}
+.qc figcaption{margin-top:1.125rem;padding-top:.875rem;border-top:1px solid var(--aw-refined-line)}
 .qc figcaption span{display:block}
 .qg-1{max-width:40rem}
 
-/* ---------- Home's services preview: three rows of the price list and a link to the Services page ---------- */
+/* ---------- Home's services preview: the intro, three rows of the price list and a link to the Services page ---------- */
 .pv-m{margin-top:1.75rem}
 
-/* ---------- Gallery: framed prints, each caption under its own print (subgrid) ---------- */
-.gal{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));column-gap:.75rem}
+/* ---------- Gallery: page-sized framed prints, each caption under its own print (subgrid); one per row on phones.
+   With any caption, every print keeps a caption line, so the rows keep one rhythm. ---------- */
+.gal{display:grid;grid-template-columns:minmax(0,1fr);column-gap:.75rem}
+.gal-c{grid-auto-rows:auto minmax(2.25rem,auto)}
 .gal>li{margin-bottom:1rem}
-.g-1{grid-template-columns:minmax(0,1fr)}
 .print img{padding:.375rem;border:1px solid var(--aw-refined-line);border-radius:var(--aw-refined-radius-paper);background:var(--aw-refined-surface);box-shadow:0 1px 2px #0000000d,0 16px 32px -24px #0000004d}
 .print figcaption{padding:.5rem .125rem 0;font-style:italic;line-height:1.35;color:var(--aw-refined-ink)}
 
-/* ---------- About: a letter from the business ---------- */
-.letter{position:relative;max-width:48rem;margin-inline:auto;padding:2.75rem 1.5rem 2.25rem;border:1px solid var(--aw-refined-line);border-radius:var(--aw-refined-radius-paper);background:var(--card);box-shadow:var(--sh);text-align:center}
+/* ---------- About: a letter from the business, its credentials at its foot, the seal on its corner or on the
+   owner's photo beside it ---------- */
+.ab{display:grid;grid-template-columns:minmax(0,1fr);gap:1rem}
+.letter{position:relative;max-width:52rem;padding:2rem 1.5rem 1.75rem;border:1px solid var(--aw-refined-line);border-radius:var(--aw-refined-radius-paper);background:var(--card);box-shadow:var(--sh)}
 .letter::after{inset:.5rem}
-.letter .st{font-size:calc(clamp(1.75rem,1.35rem + 1.5vw,2.5rem)*var(--aw-refined-title-scale))}
-.rule{width:7rem;height:.75rem;margin:1.25rem auto 1.5rem;color:var(--aw-refined-accent)}
-.letter-b{max-width:33em;margin-inline:auto;font-size:clamp(1.1875rem,1.05rem + .5vw,1.375rem);line-height:1.65;text-align:left;text-wrap:pretty}
-.letter-s{margin-top:1.75rem;font-size:1.125rem;font-style:italic;line-height:1.4;color:var(--aw-refined-ink)}
-.letter-s span,.ft-h{display:block;font-family:var(--aw-refined-body);font-size-adjust:var(--aw-refined-body-adjust)}
-.letter-s span{font-size:.9375rem;font-style:normal;line-height:1.5;color:var(--aw-refined-muted)}
+.rule{width:7rem;height:.75rem;margin-bottom:1.25rem;color:var(--aw-refined-accent)}
+.letter-b{max-width:36em;font-size:clamp(1.1875rem,1.05rem + .5vw,1.375rem);line-height:1.65;text-wrap:pretty}
+/* Two columns at every width (the letter is narrow), an odd count's first fact on a row of its own. */
+.letter .ledger{grid-template-columns:repeat(2,minmax(0,1fr));margin-top:1.75rem}
+.letter .ledger .ti-w{grid-column:1/-1}
+/* About's seal shows at every width (the page's eyebrow leaves the year to it). */
+.letter .seal,.ab-m .seal{display:grid}
+.letter .seal{z-index:1;top:-1.75rem;right:-.375rem;bottom:auto;left:auto}
+.letter-sl{margin-top:1.75rem}
+.ab-m{margin:1.25rem .75rem 1.25rem 0}
+.ft-h{display:block;font-family:var(--aw-refined-body);font-size-adjust:var(--aw-refined-body-adjust)}
 
 /* ---------- Service area and hours ---------- */
 .area{display:grid;grid-template-columns:minmax(0,1fr);gap:2.75rem}
@@ -219,15 +232,20 @@ main>.sec:first-child{padding-top:2.5rem}
 .h247 strong{text-wrap:balance}
 .h247 .i{position:absolute;top:1.0625rem;left:1.125rem;color:var(--aw-refined-accent-on-dark)}
 .base{margin-top:.875rem;padding-left:2.125rem;font-style:normal;font-size:1.0625rem;line-height:1.55;color:var(--aw-refined-ink)}
-/* One town and nothing else to show: a small heading and one line. */
-.af{padding-block:2.25rem}
-.af-l{display:flex;margin:.375rem 0 0 2.125rem;font-size:1.0625rem;color:var(--aw-refined-ink)}
+/* One town and nothing else to show: a small heading and one line, at the foot of the contact band in its colours. */
+.af{padding-bottom:3rem}
+.af .wr::before{content:"";display:block;height:1px;margin-bottom:1.75rem;background:#ffffff2e}
+.af .h3r{color:var(--aw-refined-on-dark)}
+.af .i{color:var(--aw-refined-accent-on-dark)}
+.af-l{display:flex;margin:.375rem 0 0 2.125rem;font-size:1.0625rem}
 
 /* ---------- FAQ: the "Still have a question?" box follows the questions on phones, sits under the heading when wide ---------- */
 .faq{display:grid;grid-template-columns:minmax(0,1fr)}
-.ask{position:relative;display:flex;flex-wrap:wrap;align-items:center;gap:.75rem 1rem;margin-top:1.75rem;padding:1.125rem 1.25rem 1.125rem 1.375rem;border:1px solid var(--aw-refined-line);border-left:0;border-radius:0 var(--aw-refined-radius-card) var(--aw-refined-radius-card) 0;background:var(--card)}
-.ask::before{content:"";position:absolute;top:-1px;bottom:-1px;left:0;width:3px;background:var(--aw-refined-accent)}
+/* A light box with an accent edge: "Still have a question?" here, "Need a price?" after the price list. */
+.ask,.svc-more{position:relative;display:flex;flex-wrap:wrap;align-items:center;gap:.75rem 1rem;margin-top:1.75rem;padding:1.125rem 1.25rem 1.125rem 1.375rem;border:1px solid var(--aw-refined-line);border-left:0;border-radius:0 var(--aw-refined-radius-card) var(--aw-refined-radius-card) 0;background:var(--card)}
+.ask::before,.svc-more::before{content:"";position:absolute;top:-1px;bottom:-1px;left:0;width:3px;background:var(--aw-refined-accent)}
 .ask p{font-weight:650;color:var(--aw-refined-ink)}
+@media (width < 56rem){.ask-l{display:none}}
 .faq-l{display:grid;gap:.75rem}
 .faq-i{border:1px solid var(--aw-refined-line);border-radius:var(--aw-refined-radius-card);background:var(--card)}
 .faq-i summary{display:flex;align-items:center;justify-content:space-between;gap:1rem;padding:1.125rem 1.125rem 1.125rem 1.375rem;border-radius:var(--aw-refined-radius-card);cursor:pointer;list-style:none}
@@ -286,8 +304,21 @@ summary::-webkit-details-marker{display:none}
 .fcall .i{width:1.0625rem;height:1.0625rem}
 .fcall-n{flex-basis:100%;margin-top:-.25rem;font-size:.875rem}
 
-/* ---------- The closing band: Call and the quote button on the dark band, at the foot of every page but Contact ---------- */
-.cl-a{display:grid;gap:.75rem}
+/* ---------- The closing band: a dark panel on the last light band, at the foot of every page but Contact. Its buttons
+   show from 48rem; on phones the call bar under the thumb carries Call and the quote button. ---------- */
+.cl{padding-block:2.5rem 3.5rem}
+.cl-p{position:relative;display:grid;gap:1.5rem;padding:2.25rem 1.5rem 2rem;border-radius:var(--aw-refined-radius-paper);background:var(--aw-refined-dark);color:var(--aw-refined-on-dark-muted);box-shadow:var(--sh)}
+.cl-p::after{content:"";position:absolute;inset:.4375rem;border:1px solid var(--aw-refined-accent-on-dark);border-radius:calc(var(--aw-refined-radius-paper)*.6);opacity:.4;pointer-events:none}
+.cl-k{display:flex;align-items:center;gap:.75rem;font:var(--aw-refined-eyebrow);letter-spacing:var(--aw-refined-eyebrow-track);text-transform:var(--aw-refined-eyebrow-case);color:var(--aw-refined-accent-on-dark)}
+.cl-k::before{content:"";flex:none;width:1.75rem;height:var(--aw-refined-rule-h);background:var(--aw-refined-accent-on-dark)}
+.cl-t{margin-top:var(--aw-refined-hero-gap);font-family:var(--aw-refined-head);font-size-adjust:var(--aw-refined-head-adjust);font-size:calc(clamp(1.75rem,1.3rem + 1.8vw,2.75rem)*var(--aw-refined-title-scale));font-weight:var(--aw-refined-head-weight);line-height:1.12;letter-spacing:var(--aw-refined-title-track);text-transform:var(--aw-refined-title-case);color:var(--aw-refined-on-dark);text-wrap:balance}
+.cl-i{max-width:32em;margin-top:.875rem;font-size:1.125rem;line-height:1.5;text-wrap:pretty}
+.cl-l{display:grid;gap:.875rem}
+.cl-l li{display:flex;gap:.75rem;min-width:0}
+.cl-l .i{margin-top:.1875rem;color:var(--aw-refined-accent-on-dark)}
+.cl-l .dots{flex:1 1 auto}
+.cl-l a{font-weight:600;color:var(--aw-refined-on-dark);text-decoration:underline var(--aw-refined-accent-on-dark);text-underline-offset:.25em}
+.cl-a{display:none}
 .cl .bt-out{border-color:var(--aw-refined-on-dark);color:var(--aw-refined-on-dark)}
 
 /* ---------- Footer ---------- */
@@ -295,6 +326,13 @@ summary::-webkit-details-marker{display:none}
 .ft-grid{display:grid;grid-template-columns:minmax(0,1fr);gap:2rem;padding-block:3.25rem 2.25rem}
 .ft-name{font-size:1.375rem;font-weight:700;line-height:1.2;color:var(--aw-refined-on-dark)}
 .ft-trade{margin-top:.375rem}
+/* Every page again, so the end of a long phone page leads on without scrolling back up; the current one marked as in the menu. */
+.ft-nav ul{display:flex;flex-wrap:wrap;column-gap:1.25rem;margin-top:.75rem}
+.ft .ft-nav li{margin:0}
+.ft-nav a{display:inline-flex;align-items:center;min-height:2.75rem;font-weight:500;color:var(--aw-refined-on-dark)}
+.ft-nav [aria-current]{font-weight:650;text-decoration:underline var(--aw-refined-accent-on-dark);text-decoration-thickness:2px;text-underline-offset:.4em}
+/* A page that ends on the dark contact band: an accent rule between the band and the footer. */
+.ft-r{border-top:3px solid var(--aw-refined-accent)}
 .ft-h{font-size:.8125rem;color:var(--aw-refined-on-dark)}
 .ft-h{margin-bottom:.625rem}
 .ft li{margin-bottom:.375rem}
@@ -317,7 +355,7 @@ summary::-webkit-details-marker{display:none}
   .nav-l a:hover,.faq-i summary:hover .faq-q{color:var(--aw-refined-brand)}
   .menu summary:hover{background:var(--aw-refined-line)}
   .menu a:hover{background:var(--aw-refined-paper)}
-  .c-list a:hover,.fcall a:hover,.bc-m a:hover,.h247 a:hover{text-decoration-thickness:2px}
+  .c-list a:hover,.fcall a:hover,.bc-m a:hover,.h247 a:hover,.cl-l a:hover{text-decoration-thickness:2px}
   .ft a:hover{color:var(--aw-refined-on-dark);text-decoration:underline}
 }
 
@@ -330,11 +368,15 @@ summary::-webkit-details-marker{display:none}
   .cb .bt-act>.i{display:none}
   .cb .bt-n{font-size:.6875rem}
 }
+/* Where the eyebrow with its year would wrap (parts.ts EYEBROW_TIERS), an inner page leaves the year out, so it opens on
+   one clean line, and Home's hero gives the trade the first line, so no line holds the year alone. */
+@media (width < 24rem){.dots-r>.eb-f1{display:none}.dots-r>.eb-b1{flex-basis:100%}}
+@media (width < 30rem){.dots-r>.eb-f2{display:none}.dots-r>.eb-b2{flex-basis:100%}}
+@media (width < 40rem){.dots-r>.eb-f3{display:none}.dots-r>.eb-b3{flex-basis:100%}}
+@media (width < 48rem){.dots-r>.eb-f4{display:none}.dots-r>.eb-b4{flex-basis:100%}}
 @media (width < 48rem){
-  /* The email leaves the card (it sits where the call bar covers the first screen); the gallery is in pairs, and an
-     odd count opens with one full-width print, so no row holds a print alone (the approved mockup). */
-  .bc-m .bc-e{display:none}
-  .gal>li:first-child:nth-last-child(odd){grid-column:1/-1}
+  /* The email leaves the card (it sits where the call bar covers the first screen); the hero keeps only its quote button. */
+  .bc-m .bc-e,.ha>.bt-act{display:none}
 }
 
 /* ---------- 30rem ---------- */
@@ -357,7 +399,6 @@ summary::-webkit-details-marker{display:none}
 
 /* ---------- 40rem ---------- */
 @media (min-width:40rem){
-  .cl-a{display:flex;flex-wrap:wrap}
   .fcard form{grid-template-columns:repeat(2,minmax(0,1fr))}
   .f-w{grid-column:1/-1}
   .fcard{padding:2.25rem}
@@ -377,7 +418,7 @@ summary::-webkit-details-marker{display:none}
   .nav-l a{min-height:2.5rem}
   .hero{padding-block:2rem 4rem}
   .hs{margin-top:1.125rem;font-size:1.1875rem}
-  .ha{display:flex;flex-wrap:wrap;gap:.75rem;margin-top:1.5rem}
+  .ha{margin-top:1.5rem}
   .proof{margin-top:1.375rem}
   .ledger{grid-template-columns:repeat(3,minmax(0,1fr));margin-top:1.5rem;padding-top:1.125rem}
   .lg-1{grid-template-columns:minmax(0,1fr)}
@@ -399,28 +440,27 @@ summary::-webkit-details-marker{display:none}
   .bc-sealed .bc-ph{--seal-clear:3rem}
   .sec{padding-block:5.5rem}
   main>.sec:first-child{padding-top:4rem}
-  .cl{padding-block:4.5rem}
+  .cl{padding-block:3.5rem 5rem}
+  .cl-p{padding:3rem}
+  .cl-p::after{inset:.5625rem}
+  .cl-a{display:flex;flex-wrap:wrap;gap:.75rem;margin-top:1.75rem}
   .sh{margin-bottom:3rem}
   .ti{font-size:1rem}
   .ti .i{width:1.5rem;height:1.5rem}
   .tsub{font-size:.875rem}
   .qg-2,.qg-3,.qg-n{grid-template-columns:repeat(2,minmax(0,1fr))}
-  .gal{grid-template-columns:repeat(3,minmax(0,1fr));column-gap:1.5rem}
+  .gal{grid-template-columns:repeat(2,minmax(0,1fr));column-gap:1.5rem}
+  .gal-c{grid-auto-rows:auto minmax(2.5rem,auto)}
   .gal>li{margin-bottom:1.5rem}
   .g-1{grid-template-columns:minmax(0,1fr)}
-  .g-2,.g-4{grid-template-columns:repeat(2,minmax(0,1fr))}
   .print img{padding:.5rem}
   .print figcaption{padding-top:.625rem;font-size:1.0625rem}
-  /* The lead print spans two columns and two items' rows; its photo fills photo, caption and photo. */
-  .g-lead>li:first-child{grid-column:span 2;grid-row:span 4}
-  .g-lead>li:first-child .print{grid-row:span 4}
-  .g-lead>li:first-child img{grid-row:1/4}
-  .g-lead>li:first-child figcaption{grid-row:4}
-  .g-wide>li:first-child{grid-column:span 2}
-  .g-lead>li:first-child img,.g-wide>li:first-child img{height:0;min-height:100%;aspect-ratio:auto}
-  .letter{padding:4.25rem 4rem 3.25rem}
+  .letter{padding:3.25rem 3.5rem 3rem}
   .letter::after{inset:.75rem}
-  .letter-b::first-letter{float:left;margin:.28rem .5rem 0 0;font-size:4.25rem;font-weight:700;line-height:.8;color:var(--aw-refined-accent-text)}
+  .letter .seal{width:6rem;height:6rem;top:-2.25rem;right:-.5rem}
+  .letter .seal-y{font-size:1.625rem}
+  /* The drop cap only on a story that opens with a letter (about.ts), so it is never a quote mark or bracket. */
+  .dc::first-letter{float:left;margin:.28rem .5rem 0 0;font-size:4.25rem;font-weight:700;line-height:.8;color:var(--aw-refined-accent-text)}
   .ft-grid{grid-template-columns:repeat(2,minmax(0,1fr));column-gap:2.5rem}
   .ft-grid>:first-child{grid-column:1/-1}
   .cb{justify-content:center}
@@ -440,6 +480,8 @@ summary::-webkit-details-marker{display:none}
   .fq img{aspect-ratio:12/5}
 }
 @media (48rem <= width < 64rem){
+  /* Two prints a row: an odd count opens with one full-width print, so no row holds a print alone. */
+  .gal>li:first-child:nth-last-child(odd){grid-column:1/-1}
   /* A last card that would sit alone on its row is centred. */
   .qg-3>.qc:last-child,.qg-n>.qc:last-child:nth-child(odd){grid-column:1/-1;justify-self:center;width:calc(50% - .625rem)}
 }
@@ -453,9 +495,13 @@ summary::-webkit-details-marker{display:none}
   .area{grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);gap:5rem}
   .hcard{padding:2.25rem 2rem 2rem}
   .faq,.pv{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.55fr);grid-template-rows:auto 1fr;column-gap:4.5rem;align-items:start}
-  .faq>.sh,.pv>.sh{grid-column:1;grid-row:1}
-  .faq>.faq-l,.faq>.faq-o,.pv-l{grid-column:2;grid-row:1/span 2}
-  .faq>.ask,.pv-m{grid-column:1;grid-row:2;margin-top:0}
+  .faq>.sh{grid-column:1;grid-row:1}
+  .faq>.faq-l,.faq>.faq-o{grid-column:2;grid-row:1/span 2}
+  .faq>.ask{grid-column:1;grid-row:2;margin-top:0}
+  /* The preview: the heading and intro beside the rows, the link under them. */
+  .pv>.sh{grid-column:1;grid-row:1/span 2;margin-bottom:0}
+  .pv-l{grid-column:2;grid-row:1}
+  .pv-m{grid-column:2;grid-row:2}
 }
 
 /* ---------- 60rem: desktops ---------- */
@@ -474,7 +520,7 @@ summary::-webkit-details-marker{display:none}
   .h-copy .hq::before{top:.625rem}
   .h-copy .hq p{font-size:1.0625rem;line-height:1.42}
   .h-copy .hq figcaption{margin-top:.375rem}
-  .ledger{display:none}
+  .h-copy .ledger{display:none}
   .bc{padding:2.5rem 2.375rem 2.125rem}
   .hm-card .seal{width:7rem;height:7rem;top:-2.5rem;right:-.9375rem}
   .hm-card .seal-l{font-size:.9375rem}
@@ -491,8 +537,12 @@ summary::-webkit-details-marker{display:none}
   .tr-lift.tg-many .ti{justify-content:flex-start;align-items:flex-start}
   .solo{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.55fr);column-gap:4.5rem;align-items:center}
   .solo>.sh{margin-bottom:0}
-  .cl-w{display:flex;align-items:center;justify-content:space-between;gap:2rem 4rem}
-  .cl .sh{margin-bottom:0}
+  .cl-p{grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);column-gap:4.5rem;align-items:center;padding:3.5rem 4rem}
+  .letter .seal{width:7rem;height:7rem;top:-2.5rem;right:-1rem}
+  .letter .seal-y{font-size:1.875rem}
+  /* With the owner's photo, the letter and the framed photo side by side. */
+  .ab-ph{grid-template-columns:minmax(0,1.2fr) minmax(0,1fr);column-gap:4.5rem;align-items:start}
+  .ab-m{margin:1.5rem 1.25rem 0 0}
   .contact{grid-template-columns:minmax(0,1fr) minmax(0,1.25fr);gap:5rem;align-items:start}
   .c-ph{font-size:2.125rem}
   .c-list{gap:1.5rem}
@@ -542,7 +592,20 @@ summary::-webkit-details-marker{display:none}
   .qpair{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,1fr);column-gap:4.5rem;align-items:center}
   .qpair .qgrid{max-width:none;margin-top:0}
   .qpair .qc{margin-bottom:0}
-  .g-4{grid-template-columns:repeat(4,minmax(0,1fr))}
+  /* Three prints a row from 6 up (2 and 4 stay two big columns): the lead print spans two columns and two items'
+     rows, its photo filling photo, caption and photo; 7 and 10 open with one wide print. Five: a lead print and a
+     stacked pair, then two halves (a six-column grid). */
+  .g-lead,.g-wide,.g-3{grid-template-columns:repeat(3,minmax(0,1fr))}
+  .g-5{grid-template-columns:repeat(6,minmax(0,1fr))}
+  .g-5>li{grid-column:span 3}
+  .g-5>li:nth-child(2),.g-5>li:nth-child(3){grid-column:span 2}
+  .g-lead>li:first-child,.g-5>li:first-child{grid-column:span 4;grid-row:span 4}
+  .g-lead>li:first-child{grid-column:span 2}
+  .g-lead>li:first-child .print,.g-5>li:first-child .print{grid-row:span 4}
+  .g-lead>li:first-child img,.g-5>li:first-child img{grid-row:1/4}
+  .g-lead>li:first-child figcaption,.g-5>li:first-child figcaption{grid-row:4}
+  .g-wide>li:first-child{grid-column:span 2}
+  .g-lead>li:first-child img,.g-wide>li:first-child img,.g-5>li:first-child img{height:0;min-height:100%;aspect-ratio:auto}
   .ft-grid{grid-template-columns:1.4fr 1fr 1fr}
   .ft-grid>:first-child{grid-column:auto}
 }

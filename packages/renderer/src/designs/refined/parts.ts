@@ -6,6 +6,7 @@ import { TRADE_LABEL, telUrl, weeklyHours } from "../../format.ts";
 import { html, trusted, type SafeHtml, type Value } from "../../html.ts";
 import { icon as sharedIcon, type IconName } from "../../icons.ts";
 import { DOM_ID } from "../../sections/ids.ts";
+import { plan } from "./plan.ts";
 
 // Tabler Icons 3.x (MIT, see NOTICES.md): the Classic icons the shared set lacks, bodies copied
 // from @iconify-json/tabler (receipt-2, calendar, building-store, mail, plus, arrow-up-right).
@@ -29,12 +30,11 @@ export function icon(name: ClassicIcon, cls = "i"): SafeHtml {
 
 /**
  * A line of short facts joined by a centred dot. Each dot is its item's ::before, in a column the row
- * pushes out past its clip box, so no line starts or ends with a dot. An item marked `phone` shows on
- * phones only (the founded year, which the seal shows from 48rem).
+ * pushes out past its clip box, so no line starts or ends with a dot. An item's `cls` (a whole class from this
+ * folder) may show it at some widths only: the eyebrow's year (eyebrow()).
  */
-export function dots(items: ReadonlyArray<{ text: Value; phone?: boolean }>): SafeHtml {
-  const item = ({ text, phone }: { text: Value; phone?: boolean }) =>
-    phone === true ? html`<span class="eb-y"><span>${text}</span></span>` : html`<span><span>${text}</span></span>`;
+export function dots(items: ReadonlyArray<{ text: Value; cls?: string }>): SafeHtml {
+  const item = ({ text, cls }: { text: Value; cls?: string }) => (cls ? html`<span class="${cls}"><span>${text}</span></span>` : html`<span><span>${text}</span></span>`);
   return html`<span class="dots"><span class="dots-r">${items.map((each, i) => html`${i > 0 ? " " : ""}${item(each)}`)}</span></span>`;
 }
 
@@ -100,6 +100,9 @@ export function ctaShort(doc: SiteDocument): string {
   return "Get a quote";
 }
 
+/** The line under a contact heading (the contact band, the closing band): the owner's own, or plain house words that claim nothing. */
+export const contactLine = (doc: SiteDocument): string => doc.copy.sectionIntros.contact ?? "Tell us what you need, or give us a call.";
+
 /** True when the owner's call to action books a visit rather than asks for a price. */
 export const booksVisits = (doc: SiteDocument): boolean => isBooking(ctaLong(doc));
 
@@ -133,16 +136,42 @@ export const TRADE_WORD: Readonly<Record<Trade, string>> = {
   landscaping: "landscaping",
 };
 
+/** Who a visitor is looking for, in a question: "Need a plumber in Austin?" (the closing band's lead). */
+const TRADE_PERSON: Readonly<Record<Trade, string>> = {
+  plumbing: "a plumber",
+  hvac: "heating or cooling help",
+  electrical: "an electrician",
+  roofing: "a roofer",
+  cleaning: "a cleaner",
+  landscaping: "a landscaper",
+};
+
+export const needLine = (facts: Facts): string => `Need ${TRADE_PERSON[facts.trade]} in ${facts.location.city}?`;
+
 /**
- * The trade, the town and, with the owner's year, "Since 1998", joined by dots: the hero's eyebrow (the year on
- * phones only, as the seal shows it from 48rem) and the one that opens each inner page.
+ * The phone widths below which the eyebrow with its year would wrap, by its length in characters: a phone row holds
+ * (width - 80 px) / 10 px characters in the widest lettering (Sturdy, measured in Chromium and WebKit). Tier n is
+ * below 24, 30, 40 and 48rem for n = 1 to 4; up to 24 characters never wrap.
  */
-export function eyebrow(facts: Facts, yearOnPhones = false): SafeHtml {
-  return dots([
-    { text: TRADE_LABEL[facts.trade] },
-    { text: `${facts.location.city}, ${facts.location.state}` },
-    ...(facts.yearFounded === undefined ? [] : [{ text: `Since ${facts.yearFounded}`, phone: yearOnPhones }]),
-  ]);
+const EYEBROW_TIERS: readonly number[] = [24, 30, 40, 56];
+
+/**
+ * The trade, the town and, with the owner's year, "Since 1998", joined by dots: the eyebrow of the hero and of every
+ * inner page, never with the year alone on a line. `year` places the year: "phones" keeps it to phones, where a seal
+ * shows it from 48rem (Home's hero), and where the line would wrap the trade takes the first line, the town and year
+ * the second ("eb-bN"); "fit" shows it wherever the line stays one row and leaves it out below ("eb-fN"); "none" leaves
+ * it to a seal (About).
+ */
+export function eyebrow(facts: Facts, year: "phones" | "fit" | "none"): SafeHtml {
+  const trade = TRADE_LABEL[facts.trade];
+  const place = `${facts.location.city}, ${facts.location.state}`;
+  if (facts.yearFounded === undefined || year === "none") return dots([{ text: trade }, { text: place }]);
+  const text = `Since ${facts.yearFounded}`;
+  const length = `${trade} · ${place} · ${text}`.length;
+  const tier = EYEBROW_TIERS.findIndex((most) => length <= most);
+  const wraps = tier === -1 ? 4 : tier;
+  if (year === "phones") return dots([{ text: trade, ...(wraps > 0 && { cls: `eb-b${wraps}` }) }, { text: place }, { text, cls: "eb-y" }]);
+  return dots([{ text: trade }, { text: place }, { text, ...(wraps > 0 && { cls: `eb-f${wraps}` }) }]);
 }
 
 /** A block's heading: the accent rule, the h2 (id `${domId}-title`) and an optional intro. */
@@ -154,17 +183,47 @@ ${intro && html`<p>${intro}</p>`}
 }
 
 /**
- * A section's heading. The first section of an inner page opens the page (A16): the eyebrow, then the page's one
- * <h1>, set larger, as Home's hero opens Home. Every other section has the accent rule and an h2.
+ * The opening of an inner page (A16), as Home's hero opens Home: the eyebrow, the page's one <h1> (with the id
+ * `${domId}-title` when given), set larger, an optional intro and what follows it (a credential line, actions).
  */
-export function sectionTitle(ctx: RenderContext, id: SectionId, title: Value, intro?: string): SafeHtml {
-  if (headingLevel(ctx, id) === 2) return sectionHead(DOM_ID[id], title, intro);
+export function pageHead(ctx: RenderContext, title: Value, options: { id?: string; intro?: string | undefined; after?: Value; year?: "fit" | "none" } = {}): SafeHtml {
+  const { id, intro, after, year = "fit" } = options;
   return html`<div class="sh sh-pg">
-<p class="eb">${eyebrow(ctx.doc.facts)}</p>
-<h1 id="${DOM_ID[id]}-title" class="st">${title}</h1>
+<p class="eb">${eyebrow(ctx.doc.facts, year)}</p>
+${id === undefined ? html`<h1 class="st">${title}</h1>` : html`<h1 id="${id}" class="st">${title}</h1>`}
 ${intro && html`<p>${intro}</p>`}
+${after}
 </div>`;
 }
+
+/**
+ * A section's heading: the page's opening when the section opens an inner page (its title the page's <h1>), and
+ * otherwise the accent rule and an h2. `after` follows the intro on the opening only.
+ */
+export function sectionTitle(ctx: RenderContext, id: SectionId, title: Value, intro?: string, after?: Value): SafeHtml {
+  if (headingLevel(ctx, id) === 2) return sectionHead(DOM_ID[id], title, intro);
+  return pageHead(ctx, title, { id: `${DOM_ID[id]}-title`, intro, after });
+}
+
+/**
+ * The owner's proof in one line: the first license (its name and number), Insured and, when asked, Free estimates.
+ * Only while the Credentials section renders on the site (an owner who hides it hides its facts, amendment A6).
+ */
+export function credentialLine(ctx: RenderContext, withFree: boolean): SafeHtml | false {
+  const { facts } = ctx.doc;
+  if (!plan(ctx).trustShown) return false;
+  const first = facts.licences[0];
+  const items: Array<{ text: Value }> = [
+    ...(first ? [{ text: first.label }, { text: html`License ${lic(first.number)}` }] : []),
+    ...(facts.insured ? [{ text: "Insured" }] : []),
+    ...(withFree && facts.freeEstimates ? [{ text: "Free estimates" }] : []),
+  ];
+  return items.length > 0 && html`<p class="proof">${icon("shield-check")}${dots(items)}</p>`;
+}
+
+/** The founded year as a round seal: Classic's stamp on the hero's print or card, and on About. */
+export const seal = (facts: Facts): SafeHtml | false =>
+  facts.yearFounded !== undefined && html`<p class="seal"><span class="seal-l">Since</span> <span class="seal-y">${facts.yearFounded}</span></p>`;
 
 /** An item heading inside section `id`: an h3 under its h2, an h2 under the page's h1, so no level is skipped. */
 export function itemHeading(ctx: RenderContext, id: SectionId, cls: string, content: Value): SafeHtml {

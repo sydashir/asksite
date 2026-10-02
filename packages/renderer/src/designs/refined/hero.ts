@@ -1,13 +1,13 @@
-// Classic's hero: an eyebrow (trade, town, year), the headline, the Call and quote buttons, the owner's
-// credentials, and beside them the owner's photo as a framed print or, with no photo, a business card
-// (phone, hours, towns, email). A round seal stamps the founded year; one short review sits under the
-// print or the buttons. No text ever sits on a photo.
+// Classic's hero: an eyebrow (trade, town, year), the headline, the Call and quote buttons (on phones the quote
+// button only, as the call bar under the thumb carries Call), the owner's credentials, and beside them the owner's
+// photo as a framed print or, with no photo, a business card (phone, hours, towns, email). A round seal stamps the
+// founded year; one short review sits under the print or the buttons. No text ever sits on a photo.
 import type { Facts } from "@asksite/site-schema";
 import { quoteLink, type RenderContext } from "../../context.ts";
 import { formatPhone, mailtoUrl, telUrl } from "../../format.ts";
 import { html, safeUrl, type SafeHtml } from "../../html.ts";
 import { DOM_ID } from "../../sections/ids.ts";
-import { callButton, ctaLong, dots, email, eyebrow, groupedHours, hoursTitle, icon, lic, reviewer, townSummary, type ClassicIcon } from "./parts.ts";
+import { callButton, ctaLong, dots, email, eyebrow, groupedHours, hoursTitle, icon, lic, reviewer, seal, townSummary, type ClassicIcon } from "./parts.ts";
 import { plan } from "./plan.ts";
 
 /** A headline longer than this gets the smaller hero size. */
@@ -20,11 +20,8 @@ function heroQuote(ctx: RenderContext, plate: boolean): SafeHtml | false {
   return html`<figure class="${plate ? "hq plate" : "hq"}"><blockquote><p>${review.quote}</p></blockquote><figcaption>${reviewer(review)}</figcaption></figure>`;
 }
 
-const seal = (facts: Facts): SafeHtml | false =>
-  facts.yearFounded !== undefined && html`<p class="seal"><span class="seal-l">Since</span> <span class="seal-y">${facts.yearFounded}</span></p>`;
-
-/** The credential rows the hero shows when the credentials section comes straight after it. */
-function ledger(facts: Facts): SafeHtml {
+/** The credential rows the hero shows when the credentials section comes straight after it (and About's letter). */
+export function ledger(facts: Facts): SafeHtml {
   const items: Array<{ icon: ClassicIcon; main: string; sub?: SafeHtml }> = facts.licences.map((l) => ({
     icon: "certificate",
     main: l.label,
@@ -86,7 +83,7 @@ export function renderHero(ctx: RenderContext): SafeHtml {
   return html`<section id="${DOM_ID.hero}" class="${classes}" aria-labelledby="${DOM_ID.hero}-title">
 <div class="wr h-grid">
 <div class="h-copy">
-<p class="eb">${eyebrow(facts, true)}</p>
+<p class="eb">${eyebrow(facts, "phones")}</p>
 <h1 id="${DOM_ID.hero}-title" class="${copy.heroHeadline.length > LONG_HEADLINE ? "ht ht-long" : "ht"}">${copy.heroHeadline}</h1>
 <p class="hs">${copy.heroSubheadline}</p>
 <div class="ha">

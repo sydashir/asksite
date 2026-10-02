@@ -1,12 +1,14 @@
 // Classic's service area: the owner's towns in balanced columns beside a paper card with the hours (or, with no
 // hours on file, the owner's base) and the 24/7 note. It sits on the Contact page, so a visitor sees the hours
-// there at every width (A16). Everything here is an owner fact; the intro is the owner's own area note. One town
-// with nothing else to show is one line (Plan.areaFold).
-import type { RenderContext } from "../../context.ts";
+// there at every width (A16). Everything here is an owner fact; the intro is the owner's own area note. When the
+// owner puts it first, the page still opens as the Contact page should: Call and the call to action (a jump to the
+// form below) come right under the heading, on the first screen. One town with nothing else to show is one line at
+// the foot of the contact band, in its colours (Plan.areaFold).
+import { quoteLink, type RenderContext } from "../../context.ts";
 import { formatPhone, telUrl } from "../../format.ts";
 import { html, type SafeHtml } from "../../html.ts";
 import { DOM_ID } from "../../sections/ids.ts";
-import { dots, hoursList, hoursTitle, icon, itemHeading, sectionTitle } from "./parts.ts";
+import { callButton, ctaLong, dots, hoursList, hoursTitle, icon, itemHeading, sectionTitle } from "./parts.ts";
 import { bandClass, plan } from "./plan.ts";
 
 /**
@@ -42,7 +44,7 @@ function areaLine(ctx: RenderContext): SafeHtml {
   const street = location.streetAddress;
   const base = street ? (home ? street : `${street}, ${cityLine}${location.postalCode ? ` ${location.postalCode}` : ""}`) : home ? undefined : `Based in ${cityLine}`;
   const items = [{ text: `Serving ${home ? cityLine : place}` }, ...(base === undefined ? [] : [{ text: base }])];
-  return html`<section id="${DOM_ID.serviceArea}" class="af ${bandClass(ctx, "serviceArea")}" aria-labelledby="${DOM_ID.serviceArea}-title">
+  return html`<section id="${DOM_ID.serviceArea}" class="af dark" aria-labelledby="${DOM_ID.serviceArea}-title">
 <div class="wr">
 <h2 id="${DOM_ID.serviceArea}-title" class="h3r">${icon("map-pin")}Service area</h2>
 <p class="af-l">${dots(items)}</p>
@@ -76,9 +78,15 @@ ${location.streetAddress ? html`<address class="base">${location.streetAddress}<
 ${note247}
 </div>`;
 
+  // Shown only on the page's opening (sectionTitle), where the area comes before the form.
+  const actions = html`<div class="pg-a">
+${callButton(facts, "bt bt-act bt-lg", `Call ${formatPhone(facts.phone)}`)}
+<a class="bt bt-out bt-lg" href="${quoteLink()}">${ctaLong(ctx.doc)}</a>
+</div>`;
+
   return html`<section id="${DOM_ID.serviceArea}" class="sec ${bandClass(ctx, "serviceArea")}" aria-labelledby="${DOM_ID.serviceArea}-title">
 <div class="wr">
-${sectionTitle(ctx, "serviceArea", hasHours ? "Service area & hours" : "Service area", serviceArea.note)}
+${sectionTitle(ctx, "serviceArea", hasHours ? "Service area & hours" : "Service area", serviceArea.note, actions)}
 <div class="area">
 <div>
 ${itemHeading(ctx, "serviceArea", "h3r", html`${icon("map-pin")}Areas we serve`)}

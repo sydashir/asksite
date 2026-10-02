@@ -1,10 +1,11 @@
-// Classic's footer (name, contact, credentials with license numbers, which several states require in
-// all advertising, and the owner's social links) and the phone call bar.
+// Classic's footer (name, every page of the site, contact, credentials with license numbers, which several states
+// require in all advertising, and the owner's social links) and the phone call bar.
 import type { SocialLink } from "@asksite/site-schema";
-import { quoteLink, type RenderContext } from "../../context.ts";
+import { navItems, quoteLink, type RenderContext } from "../../context.ts";
 import { formatPhone, mailtoUrl, telUrl, TRADE_LABEL } from "../../format.ts";
-import { html, safeUrl, type SafeHtml } from "../../html.ts";
+import { html, safeUrl, trusted, type SafeHtml } from "../../html.ts";
 import { callButton, email, icon, lic } from "./parts.ts";
+import { plan } from "./plan.ts";
 
 const SOCIAL_LABEL: Readonly<Record<SocialLink["network"], string>> = {
   facebook: "Facebook",
@@ -21,11 +22,18 @@ export function renderFooter(ctx: RenderContext): SafeHtml {
   const { location } = facts;
   const hasCredentials = facts.licences.length > 0 || facts.insured;
 
-  return html`<footer class="ft">
+  // Every page again at the foot of the page: on phones the header scrolls away, so the end of a long page still
+  // leads to every other page (WCAG 2.4.5), with no JavaScript. A page that ends on a dark band gets an accent rule.
+  return html`<footer class="${plan(ctx).endsDark ? "ft ft-r" : "ft"}">
 <div class="wr ft-grid">
 <div>
 <p class="ft-name">${facts.businessName}</p>
 <p class="ft-trade">${TRADE_LABEL[facts.trade]} · ${location.city}, ${location.state}</p>
+<nav class="ft-nav" aria-label="Pages">
+<ul>
+${navItems(ctx).map((l) => html`<li><a href="${l.href}"${l.current && trusted(' aria-current="page"')}>${l.label}</a></li>`)}
+</ul>
+</nav>
 </div>
 <div>
 <h2 class="ft-h">Contact</h2>

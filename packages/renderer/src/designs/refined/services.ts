@@ -1,13 +1,16 @@
 // Classic's services: a price list. Each name runs into a dotted leader that ends at its price. The name
 // takes the whole width left beside the price, and the dots are drawn along its last line behind the
 // name's own words, so they always start where the words end, even when a long name wraps, and always
-// run at least 3rem. An unpriced service says "Price on request"; one box after the list offers the
-// owner's call to action for any other job, unless the closing band comes right after the list.
-import { quoteLink, type RenderContext } from "../../context.ts";
+// run at least 3rem. An unpriced service says "Price on request"; one light box after the list offers the
+// owner's call to action for any other job, unless the closing band comes right after the list. Opening the
+// Services page, the list's heading is the page's <h1> with the owner's proof (license, Insured, Free estimates)
+// under the intro, where a visitor weighs the prices; when the owner puts the questions first, they open the page
+// under "Our services" (faq.ts) and the list is "Services & prices".
+import { headingLevel, quoteLink, type RenderContext } from "../../context.ts";
 import { formatPrice } from "../../format.ts";
 import { html, type SafeHtml } from "../../html.ts";
 import { DOM_ID } from "../../sections/ids.ts";
-import { booksVisits, ctaLong, itemHeading, sectionTitle, TRADE_WORD } from "./parts.ts";
+import { booksVisits, credentialLine, ctaLong, itemHeading, sectionHead, sectionTitle, TRADE_WORD } from "./parts.ts";
 import { bandClass, plan } from "./plan.ts";
 
 export function renderServices(ctx: RenderContext): SafeHtml {
@@ -29,7 +32,7 @@ export function renderServices(ctx: RenderContext): SafeHtml {
 
   return html`<section id="${DOM_ID.services}" class="sec ${bandClass(ctx, "services")}" aria-labelledby="${DOM_ID.services}-title">
 <div class="wr">
-${sectionTitle(ctx, "services", "Our services", copy.sectionIntros.services)}
+${opensAfterQuestions(ctx) ? sectionHead(DOM_ID.services, "Services & prices") : sectionTitle(ctx, "services", "Our services", copy.sectionIntros.services, credentialLine(ctx, true))}
 <ul class="svc-list">
 ${items}
 ${more}
@@ -37,3 +40,6 @@ ${more}
 </div>
 </section>`;
 }
+
+/** The owner put the questions before the price list on the Services page: they open it under "Our services". */
+export const opensAfterQuestions = (ctx: RenderContext): boolean => ctx.page.id === "services" && headingLevel(ctx, "faq") === 1;

@@ -167,7 +167,7 @@ describe.each(Object.keys(ENGINES) as Array<keyof typeof ENGINES>)("Classic's ca
     expect((await hoverProblems(".bt.bt-out:hover{background:none!important}")).join("\n")).toMatch(/ha \.bt-out: 1\.\d\d/);
   }, 120_000);
 
-  /** The recap rows phones leave out: the business card's email on Home, the contact band's towns and credentials on /contact. */
+  /** The recap rows phones leave out: the business card's email on Home, the contact band's credentials on /contact. */
   async function phoneRows(width: number, css = ""): Promise<string[]> {
     const found: string[] = [];
     for (const [id, selector] of [["home", ".bc-m .bc-e"], ["contact", ".c-list .c-more"]] as const) {
@@ -179,7 +179,7 @@ describe.each(Object.keys(ENGINES) as Array<keyof typeof ENGINES>)("Classic's ca
 
   it("leaves the contact band's recap rows and the card's email out on phones, and shows them from 60rem", async () => {
     const phone = await phoneRows(390);
-    expect(phone.length).toBeGreaterThanOrEqual(3);
+    expect(phone.length).toBeGreaterThanOrEqual(2);
     expect(phone.filter((d) => !d.endsWith("=none"))).toEqual([]);
     expect((await phoneRows(1280)).filter((d) => d.endsWith("=none"))).toEqual([]);
   }, 60_000);
@@ -188,13 +188,13 @@ describe.each(Object.keys(ENGINES) as Array<keyof typeof ENGINES>)("Classic's ca
     expect((await phoneRows(390, ".c-list li{display:flex!important}")).filter((d) => !d.endsWith("=none"))).not.toEqual([]);
   }, 60_000);
 
-  const LINKS = [".bc-m a", ".h247 a", ".c-list a", ".fcall a"];
+  const LINKS = [".bc-m a", ".h247 a", ".c-list a", ".fcall a", ".cl-l a"];
 
-  it("underlines the links in running text: the business card's, the 24/7 box's call link and the contact band's", async () => {
+  it("underlines the links in running text: the business card's, the 24/7 box's call link, the contact band's and the closing band's", async () => {
     for (const width of [390, 1280]) {
-      for (const id of ["home", "contact"] as const) {
+      for (const id of ["home", "contact", "services"] as const) {
         await open(refined(hvac), width, "", id);
-        expect(await page.evaluate(`document.querySelectorAll(".bc-m a, .h247 a").length`)).toBeGreaterThanOrEqual(1);
+        expect(await page.evaluate(`document.querySelectorAll(".bc-m a, .h247 a, .cl-l a").length`)).toBeGreaterThanOrEqual(1);
         expect(await page.evaluate(`(${NOT_UNDERLINED})(${JSON.stringify(LINKS)})`)).toEqual([]);
       }
     }
@@ -232,18 +232,14 @@ describe.each(Object.keys(ENGINES) as Array<keyof typeof ENGINES>)("Classic's ca
     expect(await callBarProblems(".cw{position:static!important;width:auto!important;height:auto!important;clip-path:none!important}")).not.toEqual([]);
   }, 120_000);
 
-  it("sets the About letter's title, the About page's h1, quieter than a section title: 40 px on desktops, 28 px on phones", async () => {
-    const size = (selector: string) => `parseFloat(getComputedStyle(document.querySelector(${JSON.stringify(selector)})).fontSize)`;
-    const sizes = async (width: number) => {
-      await open(refined(plumber, { font: "clean" }), width);
-      const section = (await page.evaluate(size("#reviews .st"))) as number;
-      await open(refined(plumber, { font: "clean" }), width, "", "about");
-      return [section, (await page.evaluate(size("#about h1.st"))) as number];
-    };
-    expect(await sizes(1280)).toEqual([44, 40]);
-    const [section, letter] = await sizes(390);
-    expect(letter).toBe(28);
-    expect(section).toBeGreaterThan(28);
+  it("opens About as every inner page opens: its h1 at the Services page's h1 size and left edge, on phones and desktops", async () => {
+    const h1 = `(() => { const box = document.querySelector("h1").getBoundingClientRect(); return [parseFloat(getComputedStyle(document.querySelector("h1")).fontSize), Math.round(box.left)]; })()`;
+    for (const width of [390, 1280]) {
+      await open(refined(plumber), width, "", "services");
+      const services = await page.evaluate(h1);
+      await open(refined(plumber), width, "", "about");
+      expect(await page.evaluate(h1), `${width} px`).toEqual(services);
+    }
   }, 60_000);
 
   /**
@@ -289,25 +285,21 @@ describe.each(Object.keys(ENGINES) as Array<keyof typeof ENGINES>)("Classic's ca
 
   const photos = plumber.facts.photos ?? [];
 
-  /** For 1-6 photos on a phone, the positions (1-based) of the prints that span the whole row. */
-  async function widePrints(css = ""): Promise<Record<number, number[]>> {
+  /** For 1-6 photos at a width, the positions (1-based) of the prints that span the whole row. */
+  async function widePrints(width: number): Promise<Record<number, number[]>> {
     const wide: Record<number, number[]> = {};
     for (let count = 1; count <= photos.length; count++) {
-      await open(refined({ ...plumber, facts: { ...plumber.facts, photos: photos.slice(0, count) } }), 390, css, "gallery");
+      await open(refined({ ...plumber, facts: { ...plumber.facts, photos: photos.slice(0, count) } }), width, "", "gallery");
       wide[count] = (await page.evaluate(WIDE_PRINTS)) as number[];
     }
     return wide;
   }
 
-  it("sets the phone gallery in pairs, with the first print alone only when the count is odd (the approved mockup)", async () => {
+  it("shows the Gallery page's prints one per row on phones, and two a row on tablets with an odd count's first print alone", async () => {
     expect(photos.length).toBe(6);
-    expect(await widePrints()).toEqual({ 1: [1], 2: [], 3: [1], 4: [], 5: [1], 6: [] });
-  }, 60_000);
-
-  // RED proof: round 2's rule (the first print always alone, and an even count's last one too) is caught.
-  it("RED: catches a phone gallery that spans prints across the row with an even count", async () => {
-    const wide = await widePrints("@media (width < 48rem){.gal>li:first-child,.gal>li:last-child:nth-child(even){grid-column:1/-1!important}}");
-    expect([wide[2], wide[4], wide[6]]).toEqual([[1, 2], [1, 4], [1, 6]]);
+    const every = (n: number) => Array.from({ length: n }, (_, i) => i + 1);
+    expect(await widePrints(390)).toEqual({ 1: every(1), 2: every(2), 3: every(3), 4: every(4), 5: every(5), 6: every(6) });
+    expect(await widePrints(800)).toEqual({ 1: [1], 2: [], 3: [1], 4: [], 5: [1], 6: [] });
   }, 60_000);
 
   it("keeps the sticky desktop header above the form's Send button (z-index 20)", async () => {
@@ -353,6 +345,33 @@ describe.each(Object.keys(ENGINES) as Array<keyof typeof ENGINES>)("Classic's ca
     }
     expect(below).toEqual([]);
   }, 60_000);
+
+  /**
+   * The text of the blocks added for the pages (the closing band's panel, the footer's page links with the current one,
+   * the one-line area at the foot of the contact band, the light "Need a price?" box, the proof line under the Services
+   * page's h1, About's credentials) under AA 4.5:1, per palette and lettering, read where the cascade paints them.
+   */
+  async function newBlockContrast(): Promise<string[]> {
+    const found: string[] = [];
+    const pages: Array<[PageId, SiteDocumentInput, string[]]> = [
+      ["services", plumber, [".cl-k", ".cl-t", ".cl-i", ".cl-l li span", ".cl-l a", ".ft-nav a:not([aria-current])", ".ft-nav [aria-current]", ".svc-mt", ".svc-more p + p", ".sh-pg .proof"]],
+      ["about", plumber, [".letter .tm", ".letter .tsub", ".letter-b"]],
+      ["contact", cleaning, [".af .h3r", ".af-l"]],
+    ];
+    for (const palette of PALETTE_IDS) {
+      for (const font of FONT_IDS) {
+        for (const [id, doc, selectors] of pages) {
+          await open(refined(doc, { palette, font }), 1280, NO_TRANSITIONS, id);
+          found.push(...((await page.evaluate(`(${LOW_CONTRAST})(${JSON.stringify([selectors, 4.5])})`)) as string[]).map((p) => `${palette} ${font} ${id} ${p}`));
+        }
+      }
+    }
+    return found;
+  }
+
+  it("keeps the new blocks' text at AA contrast in every palette and lettering, the footer's current page included", async () => {
+    expect(await newBlockContrast()).toEqual([]);
+  }, 120_000);
 
   it("shows the opening hours on the Contact page at every width, for an owner with no photo too (Home's card lists them there)", async () => {
     for (const width of [320, 390, 768, 1024, 1280, 1920]) {

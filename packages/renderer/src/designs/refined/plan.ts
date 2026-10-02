@@ -1,6 +1,7 @@
 // What Classic decides once per page, from the blocks the page draws (its sections in the owner's order, Home's
 // services preview, the closing band): which band each block sits on, whether the credentials lift into the hero,
-// which review the hero shows, and which facts other pages hold. Every block reads it.
+// which review the hero shows, which facts other pages hold, and whether the page ends on a dark band. Every block
+// reads it.
 import type { Facts, SectionId } from "@asksite/site-schema";
 import { onPage, onSite, type RenderContext } from "../../context.ts";
 
@@ -21,7 +22,7 @@ export interface Plan {
   readonly trustShown: boolean;
   /**
    * One town, no area note and no hours: the approved mockup folds the Service area section away. The shared
-   * contract keeps the section, so it is one short line instead; never when it opens the page.
+   * contract keeps the section, so it is one short line at the foot of the contact band; never when it opens the page.
    */
   readonly areaFold: boolean;
   /** Home's business card lists the hours (no hero photo). */
@@ -32,10 +33,12 @@ export interface Plan {
   readonly lift: boolean;
   /** In a short desktop window the hero's ledger shows those facts in one row instead of the card. */
   readonly liftSwap: boolean;
-  /** Light bands alternate over the light blocks; the contact band and the closing band are dark. */
+  /** Light bands alternate over the light blocks, the closing band's included (its dark panel sits on one); the contact band is dark. */
   readonly band: Readonly<Partial<Record<Block, Band>>>;
   /** The page's last section: the closing band comes right after it (on every page but Contact). */
   readonly last: SectionId | undefined;
+  /** The page ends on a dark band (Contact's contact band, or its one-line Service area folded into it): the footer opens with a rule. */
+  readonly endsDark: boolean;
 }
 
 /** The longest review the hero may show. */
@@ -74,24 +77,26 @@ function makePlan(ctx: RenderContext): Plan {
   const band: Partial<Record<Block, Band>> = {};
   let previous: Band = hero !== undefined ? "paper" : "white";
   for (const id of blocks(ctx)) {
-    if (id === "hero" || id === "contact" || id === "closing") continue;
+    if (id === "hero" || id === "contact") continue;
     if (id === "trust" && lift) band[id] = "paper";
     else band[id] = previous = previous === "paper" ? "white" : "paper";
   }
 
   const areaShown = onSite(ctx, "serviceArea");
   const { places, note } = facts.serviceArea;
+  const areaFold = onPage(ctx, "serviceArea") && ids[0] !== "serviceArea" && places.length === 1 && note === undefined && facts.hours.length === 0;
   return {
     photo,
     areaShown,
     trustShown: onSite(ctx, "trust"),
-    areaFold: onPage(ctx, "serviceArea") && ids[0] !== "serviceArea" && places.length === 1 && note === undefined && facts.hours.length === 0,
+    areaFold,
     cardHours: hero !== undefined && !photo && areaShown && facts.hours.length > 0,
     heroQuote: onPage(ctx, "testimonials") ? heroQuoteIndex(facts.testimonials) : -1,
     lift,
     liftSwap: lift && liftFacts <= 4,
     band,
     last: ctx.page.id === "contact" ? undefined : ids.at(-1),
+    endsDark: ctx.page.id === "contact" && (ids.at(-1) === "contact" || areaFold),
   };
 }
 
