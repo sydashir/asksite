@@ -36,6 +36,7 @@ Facts rule. The page already shows the owner's phone number, prices, hours, serv
 
 Shape rule.
 - Each field is one paragraph: no line breaks or tabs.
+- The site spreads its sections over separate pages, so never point to another part of it by position (below, above, further down). Name the page instead, for example our Contact page.
 - heroHeadline: at most ${L.heroHeadline} characters; aim for 30 to 60. Say what the business does, in plain words.
 - heroSubheadline: at most ${L.heroSubheadline} characters.
 - ctaText: at most ${L.ctaText} characters. It labels the button that opens the contact form (the phone button is added for you), for example Request a quote.
