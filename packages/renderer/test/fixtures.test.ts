@@ -5,6 +5,7 @@ import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { FIXTURES, loadFixture, renderFixture, renderFixturePage, stubStylesheets, type FixtureName } from "../../../fixtures/index.ts";
+import { contactHeading } from "../src/contact-heading.ts";
 import { escapeText } from "../src/escape.ts";
 import { loadCompiledCss, missingClasses } from "./support/css-classes.ts";
 import { startTags } from "./support/page-safety.ts";
@@ -161,7 +162,7 @@ describe.each(DESIGN_IDS)("content resilience in the %s design", (design) => {
     expect(facts.serviceArea.places.filter((place) => !places.includes(escapeText(place)))).toEqual([]);
     expect(html).toContain('<form id="quote" ');
     expect(h1Text(html)).toBe(squash("Service area & hours".replace("&", "&amp;")));
-    expect(squashedText(sectionOf(html, "contact"))).toContain(squash(escapeText(copy.ctaText)));
+    expect(squashedText(sectionOf(html, "contact"))).toContain(squash(escapeText(contactHeading(copy.ctaText))));
   });
 
   it("extreme: About shows the name in the h1", () => {
@@ -175,7 +176,7 @@ describe.each(DESIGN_IDS)("content resilience in the %s design", (design) => {
       services: "Our services",
       about: `About ${escapeText(facts.businessName)}`,
       gallery: "Our work",
-      contact: escapeText(copy.ctaText),
+      contact: escapeText(contactHeading(copy.ctaText)),
     };
     const pages = renderFixture(name, STUB_CSS, design);
     expect(pages.map((p) => [p.page, p.html.match(/<h1\b/g)?.length, h1Text(p.html)])).toEqual(pages.map((p) => [p.page, 1, squash(p.page === "contact" && name === "roofing-extreme" ? "Service area &amp; hours" : wanted[p.page])]));

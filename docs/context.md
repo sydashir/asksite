@@ -17,7 +17,7 @@ Status labels used below:
 
 ## The product
 
-A small business answers a questionnaire. The Claude API returns structured JSON describing their site (which sections, order, all copy, palette, fonts). Our renderer fills pre-built sections with it and produces one static HTML page. The page is uploaded to Cloudflare R2 and served by one Cloudflare Worker that routes by Host header, live at `customer.<our-domain>`. A custom domain is the paid upgrade.
+A small business answers a questionnaire. The Claude API returns structured JSON describing their site (which sections, order, all copy, palette, fonts). Our renderer fills pre-built sections with it and produces up to 5 static HTML pages per site (Home, Services, About, Gallery, Contact; A16, user decision 2026-10-01). The pages are uploaded to Cloudflare R2 and served by one Cloudflare Worker that routes by Host header, live at `customer.<our-domain>`. A custom domain is the paid upgrade.
 
 ## User decisions (2026-09-23)
 
