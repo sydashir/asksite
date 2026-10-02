@@ -9,14 +9,14 @@ import { usePageHeading } from "../../../../app/src/client/hooks/use-page-headin
 import { onLinkClick } from "../../../../app/src/client/hooks/use-route.ts";
 import { api } from "../../../../app/src/client/lib/api.ts";
 import { useResource } from "../hooks.ts";
-import { COPIED_AGAIN, COPY_LIVE_COPY_FAILED, LEASE_LOST } from "../../messages.ts";
+import { COPIED_AGAIN } from "../../messages.ts";
 import type { TakedownView } from "../../settings-view.ts";
 import { CapNote } from "../CapNote.tsx";
 import { dollars, restoredText, takedownResult, when, type TakedownResult } from "../lib/format.ts";
 
 type TakedownBody = { reason: string; ownerMessage: string; purgeMedia: boolean };
 
-type Message = { tone: "success" | "warning" | "error"; text: string; copyAgain?: boolean };
+type Message = { tone: "success" | "warning" | "error"; text: string };
 
 interface SiteDetailData {
   site: AdminSiteRow;
@@ -68,8 +68,8 @@ function SiteScreen({ data, reload }: { data: SiteDetailData; reload: () => Prom
   async function restoreSite(expectedTakenDownAt: number) {
     setTakedown(null);
     const res = await api<{ liveUrl: string; missingPhotos: number }>("POST", `/api/admin/sites/${site.id}/restore`, { expectedTakenDownAt });
-    // A lost lease: the reload below shows where the site stands, and a live one is offered "Copy the live pages again" (a taken-down one still has Restore).
-    if (!res.ok) show({ tone: "error", text: res.error.message, copyAgain: res.error.message === LEASE_LOST });
+    // A lost lease: the reload below shows where the site stands (a live site always has "Copy the live pages again", a taken-down one has Restore).
+    if (!res.ok) show({ tone: "error", text: res.error.message });
     else show({ tone: res.data.missingPhotos === 0 ? "success" : "warning", text: restoredText(res.data.missingPhotos) });
     reload();
   }
@@ -78,7 +78,7 @@ function SiteScreen({ data, reload }: { data: SiteDetailData; reload: () => Prom
   async function copyAgain() {
     const res = await api("POST", `/api/admin/sites/${site.id}/copy-pages`, {});
     if (res.ok) show({ tone: "success", text: COPIED_AGAIN });
-    else show({ tone: "error", text: res.error.message, copyAgain: res.error.message === COPY_LIVE_COPY_FAILED || res.error.message === LEASE_LOST });
+    else show({ tone: "error", text: res.error.message });
     reload();
   }
 
@@ -156,11 +156,6 @@ function SiteScreen({ data, reload }: { data: SiteDetailData; reload: () => Prom
               : "The takedown did not go through. Try again."}
           </Notice>
         ) : null}
-        {message?.copyAgain === true && site.live ? (
-          <button type="button" className="btn-primary mt-3" onClick={() => void copyAgain()}>
-            Copy the live pages again
-          </button>
-        ) : null}
         {takedown?.result.cleanupFailed === true && site.takenDown ? (
           <button type="button" className="btn-primary mt-3" onClick={() => void takeDown(takedown.body, takedown.result)}>
             Finish the takedown
@@ -187,6 +182,16 @@ function SiteScreen({ data, reload }: { data: SiteDetailData; reload: () => Prom
               </button>
             </form>
           )}
+          {site.live ? (
+            <div className="mt-4">
+              <button type="button" className="btn-secondary" aria-describedby="copy-again-hint" onClick={() => void copyAgain()}>
+                Copy the live pages again
+              </button>
+              <p id="copy-again-hint" className="mt-1 text-sm text-slate-700">
+                Use this if the live site shows 'page not found' or older pages.
+              </p>
+            </div>
+          ) : null}
           <div className="mt-4">
             <button
               type="button"

@@ -258,6 +258,26 @@ test("Approve answers 'approved but not live yet' when the pointer write fails (
   await expect(page.getByRole("button", { name: "Copy the live pages again" })).toHaveCount(0);
 });
 
+// STRICT (honesty: what was approved is what is live): an approve that lost its lease AFTER the approval committed leaves D1 live with no
+// pointer, so the site answers "not found". A reload must offer the way back, and it must heal.
+test("Approve loses its lease after the approval committed: the site is live in D1 with no pointer; after a reload, Copy the live pages again is offered and heals it", async ({ page }) => {
+  const site = await pendingSite(page.request);
+  const live = async () => (await (await page.request.get(`${ADMIN}/__test/live/${site.slug}`)).json()) as { pointerVersionId: string | null; homeStored: boolean };
+  await page.route("**/api/admin/versions/*/approve", (route, request) => route.continue({ headers: { ...request.headers(), "x-test-takedown-fault": "lease-lost-after-batch" } }));
+  await page.goto(`/reviews/${site.versionId}`);
+  await showEveryPage(page);
+  await page.getByRole("button", { name: "Approve and publish" }).click();
+  await expect(page.getByText("This action ran too long and was stopped before it finished. Reload to see where the site stands now, then try again.")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Approve and publish" })).toHaveAttribute("aria-disabled", "false"); // Approve stays after a lost lease
+  expect((await live()).pointerVersionId).toBeNull(); // the visitor's site is broken: pages copied, no pointer
+  await page.goto(`/sites/${site.siteId}`); // the admin reloads
+  await expect(page.getByText("live", { exact: false }).first()).toBeVisible();
+  await expect(page.getByText("Use this if the live site shows 'page not found' or older pages.")).toBeVisible();
+  await page.getByRole("button", { name: "Copy the live pages again" }).click();
+  await expect(page.getByText("The live pages were copied again.")).toBeVisible();
+  expect(await live()).toEqual({ pointerVersionId: site.versionId, homeStored: true });
+});
+
 test("Copy the live pages again says when it fails, and offers itself again", async ({ page }) => {
   const site = await pendingSite(page.request);
   await page.route("**/api/admin/versions/*/approve", (route, request) => route.continue({ headers: { ...request.headers(), "x-test-takedown-fault": "pointer-write" } }));
@@ -327,7 +347,6 @@ test("a restore that lost its lease on a site that is live by the time the page 
   await expect(page.getByText("This action ran too long and was stopped before it finished.", { exact: false })).toBeVisible();
   await page.getByRole("button", { name: "Copy the live pages again" }).click(); // the reload showed a live site, which has no Restore
   await expect(page.getByText("The live pages were copied again.")).toBeVisible();
-  await expect(page.getByRole("button", { name: "Copy the live pages again" })).toHaveCount(0);
 });
 
 // TODO: when Bold's real face lands (an embedded data: font in the page's own stylesheet), prove it here instead of this synthetic one.
