@@ -8,7 +8,7 @@ import { join, resolve } from "node:path";
 import { EMPTY_EDITS } from "@asksite/core";
 import { approveVersion, createPendingVersion, restore, takeDown } from "@asksite/publishing";
 import { DESIGN_IDS, SiteDocument, type DesignId, type SiteDocumentInput } from "@asksite/site-schema";
-import { localStatePath, seedDemoSite, seedDocument, type ToolsEnv } from "../dev/seed.ts";
+import { checkLocalToolsConfig, localStatePath, seedDemoSite, seedDocument, type ToolsEnv } from "../dev/seed.ts";
 import { V2_COPY } from "./lifecycle.ts";
 
 const REPO = resolve(import.meta.dirname, "../../..");
@@ -44,10 +44,9 @@ async function siteId(env: Env, slug: string): Promise<string> {
 async function main(): Promise<void> {
   const [command, ...args] = process.argv.slice(2);
   const { getPlatformProxy } = await import("wrangler");
-  const proxy = await getPlatformProxy<ToolsEnv>({
-    configPath: join(REPO, "apps/sites/wrangler.tools.jsonc"),
-    persist: { path: localStatePath(PERSIST_TO) },
-  });
+  const configPath = join(REPO, "apps/sites/wrangler.tools.jsonc");
+  checkLocalToolsConfig(configPath);
+  const proxy = await getPlatformProxy<ToolsEnv>({ configPath, persist: { path: localStatePath(PERSIST_TO) }, remoteBindings: false });
   try {
     const env: Env = { ...proxy.env, ROOT_DOMAIN: ROOT };
     if (command === "seed") {
@@ -63,7 +62,11 @@ async function main(): Promise<void> {
       const slug = args[0] ?? "";
       if (command === "approve-v2") await approveV2(env, slug);
       else if (command === "take-down") await takeDown(env, { siteId: await siteId(env, slug), reviewer: REVIEWER, reason: "E2E takedown", purgeMedia: false, now: Date.now() });
-      else if (command === "restore") await restore(env, { siteId: await siteId(env, slug), reviewer: REVIEWER, now: Date.now() });
+      else if (command === "restore") {
+        const id = await siteId(env, slug);
+        const down = await env.DB.prepare("SELECT taken_down_at FROM sites WHERE id = ?").bind(id).first<{ taken_down_at: number | null }>();
+        await restore(env, { siteId: id, reviewer: REVIEWER, expectedTakenDownAt: down?.taken_down_at ?? 0, now: Date.now() });
+      }
       else throw new Error(`Unknown command ${command}`);
     }
   } finally {

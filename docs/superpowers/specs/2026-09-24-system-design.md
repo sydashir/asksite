@@ -259,9 +259,10 @@ export const LOOKS = [
 ### 2.5 Draft, versions, live
 
 - **Draft:** the site row's `facts_json`, `brief_json` and `edits_json`, plus the newest succeeded generation. Every draft write increments `sites.rev`, which gives optimistic concurrency. There is one draft per site. Drafts may be invalid while the owner is editing; validation issues are returned and shown, and publishing is blocked until they are fixed.
-- **Version:** created when the owner clicks Publish. It is an immutable `site_versions` row plus the exact rendered HTML at `WORK: versions/<siteId>/<versionId>.html`. **The admin approves those exact bytes, and the same bytes go live.** The approve request carries the `htmlSha256` the admin was shown, and the server refuses if it no longer matches (§7.2).
+- **Version:** created when the owner clicks Publish. It is an immutable `site_versions` row plus the exact rendered HTML of each of its pages: **a version is 1 to 5 pages, Home first** (§2.9). WORK holds one object per page, at `versionPageKey` (§2.7). `site_versions.pages_json` (migration 0005) is `canonicalJson` of `[{ page, sha256 }]`, in page order, one `sha256` per page's exact bytes (`VersionPages`, `@asksite/core`); `html_sha256` is `pagesDigest` over every page, the SHA-256 of `canonicalJson` of those ids and hashes; `html_key` stays Home's WORK key. A row from before A16 holds `'[]'`, which `VersionPages` refuses, so such a version can never be approved or restored. **The admin approves those exact bytes, and the same bytes go live.** The approve request carries the `htmlSha256` (the digest) the admin was shown, and the server refuses if it no longer matches (§7.2).
 - **Stored document:** `site_versions.document_json` is `canonicalJson` of the **parsed** `SiteDocument` (the `SiteDocument.safeParse(...).data` output: trimmed, NFKC-normalised copy, defaults filled, hero variant forced). `document_sha256` is `sha256Hex` of that string. The same function computes the draft's hash for "Unpublished changes", so whitespace-only or key-order differences never show as a change. `render()` re-parses the stored document; parsing a parsed document is a no-op [inferred: trim, NFKC and the hero overwrite are idempotent; Stage 0 adds a test on every Plan 1 fixture].
-- **Live:** `sites.live_version_id`, plus a byte copy at `LIVE: <slug>.html`. The copy is served only while D1 says the site is live (§7.3).
+- **Live:** `sites.live_version_id`, plus in LIVE one **pointer** per site (the object at the bare slug, an empty object whose metadata names the live version) and immutable copies of that version's pages at `<slug>/<versionId>/<page>.html` (§2.7). The switch to a new version is **one pointer write, so all pages change together** and a visitor never sees two versions mixed (U2, user decision 2026-10-01). Pages are served only through the pointer and only while D1 says the site is live (§7.3).
+- **Admin lease (A16-4c):** one admin action per site at a time. Migration 0006 adds `sites.admin_lock` (a random token) and `sites.admin_lock_until` (epoch ms), both NULL while no action runs. `approveVersion`, `takeDown`, `restore` and `copyLivePagesAgain` each take the lease for `ADMIN_LEASE_MS` (120 s), and §7.2 says how they use it.
 - Display status is derived from these columns and never stored separately:
   - `live = live_version_id IS NOT NULL AND taken_down_at IS NULL`
   - `inReview = pending_version_id IS NOT NULL`
@@ -276,7 +277,7 @@ pending --owner withdraws--> withdrawn
 pending --owner publishes again--> superseded  (the new request replaces it; at most one pending version per site)
 ```
 
-The slug can be changed only while `live_version_id IS NULL AND pending_version_id IS NULL`. After that it is locked, because the form action and the live key contain it.
+The slug can be changed only while `live_version_id IS NULL AND pending_version_id IS NULL`. After that it is locked, because the form action and the live pointer and page keys contain it.
 
 ### 2.6 D1 schema: `packages/core/migrations/0001_init.sql`
 
@@ -453,11 +454,14 @@ CREATE TABLE dev_outbox (               -- written only by LogMailer (developmen
 
 | Bucket | Key | Writer | Reader | Metadata |
 |---|---|---|---|---|
-| `asksite-work` | `versions/<siteId>/<versionId>.html` | app (publish request) | admin (review, approve), app (owner's view of what is in review) | `httpMetadata.contentType = "text/html; charset=utf-8"`; `customMetadata = { siteId, versionId, sha256 }` |
+| `asksite-work` | Home: `versions/<siteId>/<versionId>.html`; every other page: `versions/<siteId>/<versionId>/<page>.html` (both from `versionPageKey`) | app (publish request) | admin (review, approve), app (owner's view of what is in review) | `httpMetadata.contentType = "text/html; charset=utf-8"`; `customMetadata = { siteId, versionId, page, sha256 }` (`sha256` is that page's) |
 | `asksite-media` | `<siteId>/<uploadId>.webp` | app (upload) | sites (`media.<root>`); admin deletes on purge | `contentType = "image/webp"`; `customMetadata = { siteId, uploadId }` |
-| `asksite-live` | `<slug>.html` | **admin only** | sites | `contentType = "text/html; charset=utf-8"`; `customMetadata = { siteId, versionId, sha256 }`. Whether to add `noindex` is read from D1 (`sites.indexable`), not from R2 |
+| `asksite-live` | the **pointer**: the bare slug (`livePointerKey`) | **admin only** (`@asksite/publishing`) | sites | an empty object; `customMetadata = { siteId, versionId, businessName, phoneText, phoneTel }`: the live version and what the sites Worker's fixed pages say about the business (its name and phone, both already public on the page) |
+| `asksite-live` | a page: `<slug>/<versionId>/<page>.html` (`livePageKey`), `<page>` one of `home`, `services`, `about`, `gallery`, `contact` | **admin only** | sites | `contentType = "text/html; charset=utf-8"`; `customMetadata = { siteId, versionId, page, sha256 }`. Whether to add `noindex` is read from D1 (`sites.indexable`), not from R2 |
 
-Key helpers live in `@asksite/core/keys.ts` (§2.8). No other code builds keys by hand.
+The pointer is not under the prefix `<slug>/`, so deleting the prefix (`liveSitePrefix`) removes every page and leaves the pointer; a takedown deletes the pointer itself first (§7.2). The page objects of a version are immutable, so a cached or half-copied page can never be another version's.
+
+Key helpers live in `@asksite/core/keys.ts` (§2.8): `livePointerKey`, `liveSitePrefix`, `livePageKey`, `versionPageKey`, `publicPageUrl`, `previewSiteUrl` and `pageCacheUrl`, beside `versionKey`, `mediaKey`, `siteUrl`, `formActionUrl`, `previewFormActionUrl` and `mediaUrl`. No other code builds keys by hand. `livePointerKey`, `liveSitePrefix`, `livePageKey`, `versionPageKey` and `pageCacheUrl` are guarded (`publicPageUrl` checks only the page id, and `previewSiteUrl`, like `siteUrl`, checks nothing), so that a request path or a damaged pointer can never shape a key or a takedown's prefix delete: a page must be one of the 5 page ids (`isPageId`: an own key of the page map, never an inherited name such as `constructor`); a slug must be a string of the right shape (`slugIssue` is not `"invalid"`, so not `/` or `.`; a *reserved* word is accepted, so a site whose slug later became reserved can still be taken down and its LIVE objects managed, though the Worker no longer serves that host); an id must pass `isId`. Each throws (`Invalid slug`, `Unknown page id`, `Unknown site id`, `Unknown version id`) instead of returning a key. So no key of one site is another site's key, its pointer, or under its prefix.
 
 ### 2.8 `@asksite/core`: the shared contract (Stage 0)
 
@@ -481,8 +485,17 @@ export const utcDay = (now: number): string => new Date(now).toISOString().slice
 export const TTL = { inviteMs: 7 * 86_400_000, loginTokenMs: 15 * 60_000, sessionMs: 30 * 86_400_000 } as const;
 
 // keys.ts
-export const liveKey = (slug: string) => `${slug}.html`;
-export const versionKey = (siteId: string, versionId: string) => `versions/${siteId}/${versionId}.html`;
+export const versionKey = (siteId: string, versionId: string) => `versions/${siteId}/${versionId}.html`; // Home's WORK key
+// A16: LIVE holds one pointer per site and the pages under the slug (§2.7). Guarded as §2.7 says, except publicPageUrl (page id only) and previewSiteUrl (nothing).
+export const livePointerKey = (slug: string) => slug;                   // the pointer: the bare slug
+export const liveSitePrefix = (slug: string) => `${slug}/`;             // every LIVE page of the site; not the pointer
+export const livePageKey = (slug: string, versionId: string, page: PageId) => `${slug}/${versionId}/${page}.html`;
+export function versionPageKey(siteId: string, versionId: string, page: PageId): string; // Home: versionKey; else versions/<siteId>/<versionId>/<page>.html
+/** A page's public URL, also its canonical URL: siteUrl for Home, else https://<slug>.<root>/<page>. */
+export const publicPageUrl = (root: string, slug: string, page: PageId) => `https://${slug}.${root}${PAGES[page].path}`;
+/** The edge-cache key of a page of a version: the version id is in the PATH (not a query a cache setting could strip). */
+export const pageCacheUrl = (root: string, slug: string, versionId: string, page: PageId) => `https://${slug}.${root}/__v/${versionId}${PAGES[page].path}`;
+export const previewSiteUrl = (root: string, slug: string | null) => siteUrl(root, slug ?? "preview");
 export const mediaKey = (siteId: string, uploadId: string) => `${siteId}/${uploadId}.webp`; // in MEDIA
 export const siteUrl = (root: string, slug: string) => `https://${slug}.${root}/`;
 export const formActionUrl = (root: string, slug: string, siteId: string) => `https://${slug}.${root}/_f/${siteId}`;
@@ -589,12 +602,14 @@ export interface CurrentAi { generationId: string; draft: AiDraft }
  *   owner to write it). If facts.services is not an array, the result is []. Record lookups use
  *   Object.hasOwn, so a service named "constructor" or "__proto__" behaves like any other name.
  * - faq: edits.copy.faq ?? ai.copy.faq.
- * - layout: start from the AI layout, then add every SectionId it lacks (variant SECTION_VARIANTS[id][0])
- *   directly before "contact" (at the end if there is none), in SECTION_IDS order. Every section is
- *   therefore always in the layout and Plan 1's visibleSections shows only those with content. This keeps the document valid when the owner
- *   adds a first photo, review or licence after generation (factSections grows) and lets owner-written
- *   about or FAQ text appear even if the AI wrote none. If edits.order applies, the entries are then
- *   sorted into that order (variants unchanged). The AI output contract (§6.1) is unchanged.
+ * - layout (A16, U1: user decision 2026-10-01): every SectionId once. The order is the owner's (edits.order) when
+ *   edits.order applies (see the first bullet), else DEFAULT_SECTION_ORDER, the page map's order (hero first, then
+ *   each page's sections in turn, §2.9). The AI's layout only picks the VARIANTS of the sections it lists; its order
+ *   decides nothing. Every section it lacks is added with its first variant (SECTION_VARIANTS[id][0]), so the layout
+ *   always holds every section and Plan 1's visibleSections shows only those with content and not in edits.hidden
+ *   (this keeps the document valid when the owner adds a first photo, review or licence after generation, and lets
+ *   owner-written about or FAQ text appear even if the AI wrote none). A section never leaves its page: each lives on
+ *   one fixed page (§2.9) and the order only places sections within it. The AI output contract (§6.1) is unchanged.
  * - hidden: edits.hidden. theme: edits.theme ?? ai.theme.
  * - The result is typed `ComposedDocument` (SiteDocumentInput with `facts: unknown`), because facts may be
  *   incomplete while drafting. Callers validate it with SiteDocument.safeParse and use `.data` from then on.
@@ -636,7 +651,7 @@ export const LIMITS = {
 export const ERROR_STATUS = {
   bad_request: 400, unauthenticated: 401, forbidden: 403, owner_disabled: 403, not_found: 404,
   conflict: 409, slug_taken: 409, slug_locked: 409, generation_in_progress: 409,
-  nothing_pending: 409, version_not_pending: 409,
+  nothing_pending: 409, version_not_pending: 409, wording_changed: 409,
   invite_invalid: 410, token_invalid: 410,
   payload_too_large: 413, unsupported_media_type: 415,
   validation_failed: 422, not_ready: 422, publish_invalid: 422, slug_invalid: 422, image_rejected: 422,
@@ -668,6 +683,24 @@ export const AUDIT_ACTIONS = ["invite.created", "invite.revoked", "invite.accept
 `views.ts` and `api.ts` (request schemas) are specified in §4.
 
 ---
+
+### 2.9 Pages (A16)
+
+A site has up to 5 pages (user decision 2026-10-01). The page map `PAGES` (`@asksite/site-schema`) is fixed, and each section lives on exactly one page:
+
+| Page id | Path | Label | Sections, in the page's own order |
+|---|---|---|---|
+| `home` | `/` | Home | hero, trust, testimonials; plus a services preview (right before testimonials, or after the last section when there are none) and the closing band |
+| `services` | `/services` | Services | services, faq; plus the closing band |
+| `about` | `/about` | About | about; plus the closing band |
+| `gallery` | `/gallery` | Gallery | gallery; plus the closing band |
+| `contact` | `/contact` | Contact | the contact form, then the service area and hours; **no** closing band |
+
+- **A page exists if and only if at least one of its sections is visible** (it has content and the owner did not hide it, §2.3). Home, Services and Contact therefore always exist, because each holds a section that always has content and can never be hidden (hero, services, contact). About, Gallery and the trust and testimonials sections come and go with the owner's content. `sitePages(doc)` returns the pages in map order, Home first; the order of sections within a page follows the document's layout (§2.8).
+- **Per page:** the title is `Name | Plumbing in Austin, TX` on Home (just the name when that is over 70 characters once escaped, clipped if even that is) and `<Label> | Name` elsewhere (the name clipped to fit); the meta description is built from facts and fixed words (Services, Gallery and Contact), is the hero subheadline on Home, and is the claim-checked `copy.about` clipped to 160 characters on About (no section intro is used: they are optional, so three pages of a small site would share one); the canonical URL is the site URL plus the page's path; `LocalBusiness` JSON-LD is on Home only and `FAQPage` JSON-LD on Services only (when the FAQ is on the page). Each inner page's first section carries its one `<h1>`.
+- **The call bar** (phone-only, hidden from `md` up): "Call" and "Get a quote". It is sticky at the bottom of every page except `/contact`, where it is static at the end of the page (moderator ruling: Send, stacked above a sticky bar, covered its buttons on phone windows about 915-1040 px tall, WCAG 2.5.8).
+- **Every "Get a quote" link** goes to `QUOTE_HREF`, `/contact#quote`; the contact `<form>` carries `id="quote"` (`QUOTE_ID`). The sites Worker's fixed error pages link to the same address.
+- Owners reorder sections only within a page (U1, §2.8); the navigation lists every rendered page.
 
 ## 3. Journeys
 
@@ -737,7 +770,7 @@ export const AUDIT_ACTIONS = ["invite.created", "invite.revoked", "invite.accept
 - **Request and response bodies:** JSON (`application/json; charset=utf-8`) except the upload (`multipart/form-data`) and the public form (`application/x-www-form-urlencoded`). The server checks `Content-Length` first and stops reading past the limit. Limits: 256 KB for JSON bodies, 10 MB for uploads, 16 KB for the public form. Larger bodies get `413 payload_too_large`. **One exception:** `PATCH /api/sites/:siteId/draft` reads up to 1 MiB (`DRAFT_JSON_MAX_BYTES`, A8c). It is the only request whose body carries a whole Facts, Brief or OwnerEdits, and those parts may reach `LIMITS.factsJsonMaxBytes` + `briefJsonMaxBytes` + `editsJsonMaxBytes` = 818,176 bytes (§2.8). A test pins `DRAFT_JSON_MAX_BYTES` at or above that sum plus 4 KiB, so the body limit never refuses a draft whose parts fit their own limits, and a part over its limit gets that part's own 413. The three parts together stay under D1's 2,000,000-byte row limit.
 - **Errors:** `ErrorBody` (§2.8) with `ERROR_STATUS[code]`. `validation_failed`, `not_ready` and `publish_invalid` include `issues`. `conflict` includes `currentRev`. Every 429 includes `retryAfter` (seconds) and the `Retry-After` header.
 - **CSRF defence:** every state-changing `/api/*` request must carry `Origin` equal to `APP_ORIGIN` (or `ADMIN_ORIGIN` on the admin Worker) and the expected content type. Otherwise the server returns `403 forbidden`. Cookies are `SameSite=Lax`.
-- **Response headers on every API response:** `Cache-Control: no-store`, `X-Robots-Tag: noindex`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, `X-Frame-Options: DENY`. **One exception:** the two stored-version page routes (`…/versions/:versionId/page`) send `X-Frame-Options: SAMEORIGIN` and the §7.4 review CSP (which has `frame-ancestors 'self'`), because the admin review screen shows them in an iframe; `DENY` would blank that iframe.
+- **Response headers on every API response:** `Cache-Control: no-store`, `X-Robots-Tag: noindex`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, `X-Frame-Options: DENY`. **One exception:** the two stored-version page routes send `X-Frame-Options: SAMEORIGIN` and the §7.4 review CSP (which has `frame-ancestors 'self'`), because the admin review screen shows them in an iframe; `DENY` would blank that iframe. **PLANNED (Plan 4's A16 adapt, not built):** the two routes become per-page, `…/versions/:versionId/pages/:pageId`, because a version is up to 5 pages (§2.9); the exception applies to them.
 - **Owner authorisation:** every `/api/sites/:siteId/...` handler loads the site with `WHERE id = ? AND owner_id = ?`. A site belonging to someone else returns `404 not_found`, never 403, so site IDs cannot be probed. A disabled owner returns `403 owner_disabled` on every authenticated route.
 - **Rate-limit bindings** (per location, approximate):
 
@@ -793,7 +826,9 @@ export interface ReviewChecks {
 export interface AdminVersionDetail {
   version: VersionSummary & { siteId: string; htmlSha256: string; generationId: string | null; requestedBy: string };
   site: AdminSiteRow; document: unknown; ownerEditedPaths: string[];
-  liveDocument: unknown | null; checks: ReviewChecks; pageUrl: string; // "/api/admin/versions/<id>/page"
+  liveDocument: unknown | null; checks: ReviewChecks; pageUrl: string; // "/api/admin/versions/<id>/page" (one-page form)
+  // PLANNED (Plan 4's A16 adapt, not built): pageUrl is replaced by
+  //   pages: Array<{ page: PageId; label: string; url: string; sha256: string }>, Home first, each url "/api/admin/versions/<id>/pages/<page>".
 }
 export interface AdminSettings {
   generationEnabled: boolean; envGenerationEnabled: boolean; dailyModelLimit: number;
@@ -849,7 +884,7 @@ Emails are trimmed and lower-cased before use. A request body that fails its sch
 | `POST /api/auth/logout` | session (or none) | — | `204`; deletes the session row and expires the cookie | — |
 | `GET /api/me` | session | — | `200 { owner: OwnerView, sites: SiteSummary[] }` | 401 |
 | `GET /api/sites/:siteId` | session | — | `200 SiteView` | 401, 404 |
-| `PATCH /api/sites/:siteId/draft` | session | `PatchDraftBody` | `200 { rev, issues: SiteView["issues"] }`; each given part replaces that part | 409 `conflict` (`currentRev`), 413, 422, 423 `site_taken_down` |
+| `PATCH /api/sites/:siteId/draft` | session | `PatchDraftBody` | `200 { rev, issues: SiteView["issues"] }`; each given part replaces that part | 409 `conflict` (`currentRev`), 409 `wording_changed` (the edits' copy or order changes carry a stale `baseGenerationId`: they belong to an older generation), 413, 422, 423 `site_taken_down` |
 | `PUT /api/sites/:siteId/slug` | session | `SetSlugBody` | `200 { rev, slug }` | 409 `slug_taken` / `slug_locked` / `conflict`, 422 `slug_invalid` (`issues[0].code`: `invalid` / `reserved` / `blocked`) |
 | `GET /api/slugs/:slug/availability` | session | — | `200 { available: boolean, reason: "taken" \| "invalid" \| "reserved" \| "blocked" \| null }` | 401 |
 | `POST /api/sites/:siteId/uploads` | session | multipart, field `file` | `201 UploadView` | 413, 415 `unsupported_media_type`, 422 `image_rejected` (too small, too many pixels, undecodable), 429 `upload_limit_reached` |
@@ -859,7 +894,7 @@ Emails are trimmed and lower-cased before use. A request body that fails its sch
 | `POST /api/sites/:siteId/publish-requests` | session | `PublishBody` | `201 { version: VersionSummary }` | 409 `conflict`, 422 `publish_invalid` (issues; codes include `attestation_required`, `slug_missing`, `photo_ref`), 423 |
 | `DELETE /api/sites/:siteId/publish-requests/pending` | session | — | `204` | 409 `nothing_pending` |
 | `GET /api/sites/:siteId/versions` | session | — | `200 { versions: VersionSummary[] }`, newest first | 404 |
-| `GET /api/sites/:siteId/versions/:versionId/page` | session | — | `200` stored HTML with the review headers (§7.4) | 404 |
+| `GET /api/sites/:siteId/versions/:versionId/page` (**PLANNED A16 adapt, Plan 4 builds it:** `…/versions/:versionId/pages/:pageId`, one route per page) | session | — | `200` stored HTML with the review headers (§7.4) | 404 |
 | `GET /api/sites/:siteId/leads?before=<ms>&limit=<1-100>` | session | — | `200 { leads: LeadView[], nextBefore: number \| null }`, newest first, `spam = 0` only | 404 |
 | `GET /api/dev/outbox?to=<email>` | **development only** | — | `200 { messages: Array<{ at, to, subject, text, tag }> }` | route is not registered unless `ENVIRONMENT === "development"` and the request hostname ends in `localhost` |
 
@@ -879,7 +914,7 @@ Every route requires Access plus the allowlist (§5.3), and every response carri
 | `GET /api/admin/sites?filter=live\|in_review\|taken_down\|draft\|all` | — | `200 { sites: AdminSiteRow[] }` | — |
 | `GET /api/admin/sites/:siteId` | — | `200 { site: AdminSiteRow, versions: VersionSummary[], generations: Array<GenerationView & { provider, model, costMicrousd, attempts }>, leadCount, audit: Array<{ at, actor, action, detail }> }` | 404 |
 | `GET /api/admin/versions/:versionId` | — | `200 AdminVersionDetail` | 404 |
-| `GET /api/admin/versions/:versionId/page` | — | `200` stored HTML with the review headers (§7.4) | 404 |
+| `GET /api/admin/versions/:versionId/page` (**PLANNED A16 adapt, Plan 4 builds it:** `…/versions/:versionId/pages/:pageId`) | — | `200` stored HTML with the review headers (§7.4) | 404 |
 | `POST /api/admin/versions/:versionId/approve` | `ApproveBody` | `200 { siteId, liveUrl }` (idempotent, §7.2) | 409 `version_not_pending`, 423 `site_taken_down`, 500 `internal` (`PublishError("integrity")`: the stored bytes or the reviewed `htmlSha256` do not match; audited and never expected in normal operation) |
 | `POST /api/admin/versions/:versionId/reject` | `RejectBody` | `200 { siteId }` | 409 `version_not_pending` |
 | `POST /api/admin/sites/:siteId/takedown` | `TakedownBody` | `200 {}` (idempotent) | 404 |
@@ -892,12 +927,16 @@ Every route requires Access plus the allowlist (§5.3), and every response carri
 
 Every state change writes one `audit_log` row with `actor = 'admin:<email>'`.
 
+**PLANNED, not built (Plan 4's A16 adapt).** `@asksite/publishing` (§7.2) already refuses a second action on a site with `site_busy`; Plan 4 maps it to `409` with `Retry-After` set from `detail.retryAfter` when present (a lease lost mid-action is `site_busy` with `detail.reason = "lease_lost"`). The restore request carries `expectedTakenDownAt`, the `taken_down_at` the admin's page showed (so `{}` in the table above becomes `{ expectedTakenDownAt }`); a takedown by someone else since is `site_taken_down` with `detail.reason = "taken_down_again"`. "Copy the live pages again" (`copyLivePagesAgain`) gets an admin route for a live site, and a taken-down site is `site_taken_down`, which Plan 4 answers `409`. Plan 4's per-page review routes and `AdminVersionDetail.pages` are in §4.1 and §4.2.
+
 ### 4.6 Public endpoints (`asksite-sites`)
 
 | Request | Response |
 |---|---|
-| `GET` or `HEAD` `https://<slug>.<root>/` | `200` the `LIVE` object `<slug>.html` with the page headers (§7.4) when D1 says the site is live and not taken down; `404` noindex page otherwise; `503` noindex with `Retry-After: 60` if D1 fails (§7.3) |
-| any other path on `<slug>.<root>` (except `/_f/*`) | `404` noindex page |
+| `GET` or `HEAD` `https://<slug>.<root>` + exactly one of `/`, `/services`, `/about`, `/gallery`, `/contact` (a query string is ignored; no trailing slash, case folding or decoding) | `200` the page with the §7.4 headers when the site's LIVE pointer exists, D1 says the site is live and not taken down, and the pointer's version is D1's live version; `404` noindex page when there is no pointer, or D1 says not live or taken down; `404` naming the business when the pointer's version has no object for that page (a page the site does not have; a missing Home is `503`); `503` noindex with `Retry-After: 60` if R2 or D1 fails, the pointer is damaged, or it names a version other than D1's (§7.3) |
+| `GET` or `HEAD` `https://<slug>.<root>/services/` (likewise `/about/`, `/gallery/`, `/contact/`) | `301` to the canonical `https://<slug>.<root>/services`; Home has no such form. No R2 or D1 read |
+| any other path on `<slug>.<root>` (except `/_f/*`, `/favicon.ico`), and any other method | `404` noindex page; for `GET` and `HEAD` on a live site it links the business's page, named from the pointer alone (no D1) |
+| `GET` `https://<slug>.<root>/favicon.ico` | `204`, cacheable for a week |
 | `POST https://<slug>.<root>/_f/<siteId>` | `303` to `/_f/<siteId>/sent`, or an error page (§7.5) |
 | `GET https://<slug>.<root>/_f/<siteId>/sent` | `200` fixed thank-you page (noindex) |
 | `GET https://media.<root>/<siteId>/<uploadId>.webp` | `200 image/webp` from `MEDIA: mediaKey` when the upload row exists for that site and the site is not taken down; otherwise `404` (§7.3) |
@@ -1090,84 +1129,144 @@ The detailed, source-checked comparison is `docs/superpowers/specs/2026-09-24-mo
 
 ### 7.1 Rendering a version
 
-The app Worker receives the publish request, composes the document and validates it. It then calls `createPendingVersion` with the **parsed** document (`SiteDocument.safeParse(...).data`, §2.5), which renders the page with Plan 1's `render()`:
-- `stylesheet` is `SITE_CSS` from `@asksite/site-css`.
-- `formAction` is `formActionUrl(ROOT_DOMAIN, slug, siteId)`. Plan 1 `render()` requires `https:`, and the local development setup is https too (§10).
-- `render()` is pure and deterministic. The version stores `stylesheet_sha256 = SITE_CSS_SHA256` for audit.
+The app Worker receives the publish request, composes the document and validates it. It then calls `createPendingVersion` with the **parsed** document (`SiteDocument.safeParse(...).data`, §2.5), which renders the site with Plan 1's `render()`:
+- `stylesheets` is `DESIGN_CSS` from `@asksite/site-css`: one compiled sheet per design (A12). `render()` inlines the sheet of the document's own design, so a caller can never pair a page with another design's sheet.
+- `formAction` is `formActionUrl(ROOT_DOMAIN, slug, siteId)`. Plan 1 `render()` requires `https:`, and the local development setup is https too (§10). `siteUrl` is `siteUrl(ROOT_DOMAIN, slug)`: an https origin with its final `/` and nothing else (it builds each page's canonical URL).
+- `render()` is synchronous, pure and deterministic. It returns a `RenderedSite`: `{ design, stylesheetSha256, pages }`, where `pages` is `{ page, path, html }[]`, Home first, one per page the site has (§2.9). It does not hash: publishing hashes each page (`hashPages`, then `pagesDigest`, §2.5). The version stores `stylesheet_sha256 = stylesheetSha256` for audit.
 
 ### 7.2 `@asksite/publishing` (Plan 2)
 
-Every function takes `now`. Every function writes its audit row.
+Every function takes `now`. Every function that changes a site's state writes its audit row.
 
 ```ts
 export class PublishError extends Error {
-  constructor(readonly code: "render_failed" | "nothing_pending" | "version_not_pending" | "site_taken_down" | "integrity" | "not_live", readonly detail?: unknown) { super(code) }
+  constructor(readonly code: "render_failed" | "nothing_pending" | "version_not_pending" | "site_taken_down" | "integrity" | "not_live"
+    | "publish_cap_reached" | "site_not_found"
+    | "live_copy_failed"  // A16: the pointer write failed or is unconfirmed; the same action again finishes it
+    | "site_busy",        // A16-4c: another admin action on the site is running ({ retryAfter }), or this one's lease ran out ({ reason: "lease_lost" })
+    readonly detail?: unknown) { super(code) }
 }
 export async function createPendingVersion(
   env: { DB: D1Database; WORK: R2Bucket; ROOT_DOMAIN: string },
   input: { siteId: string; ownerId: string; slug: string; document: SiteDocument; edits: OwnerEdits; generationId: string | null; now: number },
 ): Promise<VersionSummary>;
-// 1) html = render(document, …); on throw -> PublishError("render_failed", issues).
+// 1) Cheap refusals first (the site is the owner's, not taken down, under the day's publish cap, still has this slug, the
+//    generation is this site's): a refused request renders and stores nothing.
+// 2) site = render(document, …) (RenderedSite, §7.1); on throw -> PublishError("render_failed", issues). Each page is hashed;
+//    pages_json = canonicalJson of [{ page, sha256 }]; html_sha256 = pagesDigest(pages).
 //    document_json = canonicalJson(document); document_sha256 = documentSha256(document) (§2.5).
-// 2) PUT WORK versionKey (orphans are harmless)
-// 3) batch(): current pending -> 'superseded'; INSERT the new version (number = max + 1) 'pending';
-//    sites.pending_version_id = id, updated_at = now; audit version.requested
+// 3) PUT WORK versionPageKey(siteId, versionId, page) for every page, with metadata { siteId, versionId, page, sha256 }.
+// 4) batch(): current pending -> 'superseded'; INSERT the new version (number = max + 1) 'pending', with pages_json, html_key
+//    (Home's WORK key) and html_sha256 (the digest); sites.pending_version_id = id, updated_at = now; audit version.requested.
+//    The batch re-checks the owner, slug, takedown and cap. If it refuses, the stored pages are deleted again (only when no
+//    version row names them; orphans are harmless: nothing serves WORK publicly) and the refusal is explained.
 export async function withdrawPending(env: { DB: D1Database }, input: { siteId: string; ownerId: string; now: number }): Promise<void>;
 export async function approveVersion(
   env: { DB: D1Database; WORK: R2Bucket; LIVE: R2Bucket; ROOT_DOMAIN: string },
   input: { versionId: string; htmlSha256: string; reviewer: string; note: string | null; indexable: boolean; now: number },
 ): Promise<{ siteId: string; slug: string; liveUrl: string }>;
-// 1) input.htmlSha256 must equal the row's html_sha256, and the sha256 of GET WORK versionKey must equal it too;
-//    else PublishError("integrity") (nothing changed yet). So what the admin was shown is what goes live.
-// 2) D1, conditional, in one batch():
-//    UPDATE sites SET live_version_id = ?, pending_version_id = NULL, indexable = ?, updated_at = ?
-//      WHERE id = ? AND pending_version_id = ? AND taken_down_at IS NULL
-//    UPDATE site_versions SET status = 'approved', reviewed_by = ?, reviewed_at = ?, review_note = ?
-//      WHERE id = ? AND status = 'pending' AND EXISTS (SELECT 1 FROM sites WHERE id = ? AND live_version_id = ?)
-//    If nothing changed and the version is already approved, is the live version and the site is not taken
-//    down -> continue (idempotent retry after a failed step 3); otherwise -> version_not_pending or site_taken_down.
-// 3) PUT LIVE liveKey(slug) with the same bytes and customMetadata { siteId, versionId, sha256 }. A failure here
-//    is retried by calling approveVersion again (step 2 then takes the idempotent branch). A takedown racing this
-//    PUT is harmless: the sites Worker serves LIVE only while D1 says "not taken down" (§7.3).
+// What the admin was shown is what goes live, every page of it at once (U2). Under the site's lease (below):
+// 1) input.htmlSha256 must equal the row's html_sha256 (the digest), else PublishError("integrity", { reason: "reviewed_hash_mismatch" }).
+// 2) A version that will be refused copies nothing: it must be the site's pending version (or the accepted retry: approved,
+//    live and not taken down), else version_not_pending; a taken-down site is site_taken_down.
+// 3) Verify: pages_json must parse as VersionPages, hash (pagesDigest) to html_sha256 and start with the page html_key names, and
+//    every page's stored WORK bytes must still hash to its sha256; else PublishError("integrity", { reason: "pages_invalid" |
+//    "pages_digest_mismatch" | "stored_bytes_mismatch" }), with nothing changed yet.
+// 4) Copy every verified page to its own immutable LIVE key livePageKey(slug, versionId, page). Nothing is served from them yet.
+// 5) D1, conditional, in one batch(), fenced by the lease token: sites.live_version_id = this version, pending cleared,
+//    indexable set; the version -> 'approved'; audit version.approved. If nothing changed and the version is already approved,
+//    is the live version and the site is not taken down -> continue (idempotent retry after a failed step 6); otherwise ->
+//    version_not_pending or site_taken_down (or site_busy if the lease was lost).
+// 6) ONE write of the LIVE pointer livePointerKey(slug) (an empty object with metadata { siteId, versionId, businessName,
+//    phoneText, phoneTel }) switches every page at once. If it fails after step 5, live_copy_failed is thrown and approving
+//    the same version again, or "Copy the live pages again", finishes it.
+// 7) The post-write takedown re-check: taken_down_at is read again, whether the write resolved or rejected. If a takedown
+//    committed meanwhile (only possible once the lease ran out), the pointer is taken back out and site_taken_down is thrown.
+//    A rejected write on a site that is not down is live_copy_failed, and so is a failed read (after a best-effort pointer delete).
+// 8) The other versions' LIVE pages are removed (best effort, logged, never thrown): see "the cleanup" below.
 export async function rejectVersion(env: { DB: D1Database }, input: { versionId: string; reviewer: string; note: string; now: number }): Promise<{ siteId: string }>;
 export async function takeDown(env: { DB: D1Database; LIVE: R2Bucket; MEDIA: R2Bucket }, input: { siteId: string; reviewer: string; reason: string; purgeMedia: boolean; now: number }): Promise<void>;
-// D1 batch: taken_down_at, takedown_reason, pending_version_id = NULL; the pending version (if any) -> 'rejected'
-// (review_note = "Site taken down"). This D1 write alone stops the page and its photos being served (§7.3,
-// within the cache TTLs). Then DELETE LIVE liveKey (defence in depth).
-// If purgeMedia, list and delete MEDIA <siteId>/ and set uploads.deleted_at. Idempotent.
-export async function restore(env: { DB: D1Database; LIVE: R2Bucket; WORK: R2Bucket }, input: { siteId: string; reviewer: string; now: number }): Promise<{ liveUrl: string }>;
-// Requires live_version_id (else PublishError("not_live")). GET WORK versionKey(live_version_id), check its sha256
-// against html_sha256 (else "integrity"), PUT LIVE (not yet served: D1 still says taken down), then clear
-// taken_down_at. Retry-safe.
+// Under the lease. In order: 1) DELETE the LIVE pointer: it stops every page at once, cached ones included (§7.3). If that fails
+// the takedown fails with nothing changed in D1, and the admin retries. 2) the D1 batch: taken_down_at, takedown_reason,
+// pending_version_id = NULL; the pending version (if any) -> 'rejected' (review_note = TAKEDOWN_REVIEW_NOTE, "Site taken
+// down", exported from @asksite/core); audit. 3) DELETE the pointer again (an approve that wrote a pointer in between, once its
+// lease ran out, is undone), then 4) delete every object under liveSitePrefix(slug): every LIVE page. 5) If purgeMedia, list and
+// delete MEDIA <siteId>/ and set uploads.deleted_at. Idempotent: call it again to retry the deletes. Only the first call writes
+// the takedown audit row; a later call whose purge deletes anything writes its own.
+export async function restore(
+  env: { DB: D1Database; LIVE: R2Bucket; WORK: R2Bucket; MEDIA: R2Bucket; ROOT_DOMAIN: string },
+  input: { siteId: string; reviewer: string; expectedTakenDownAt: number; now: number },
+): Promise<{ liveUrl: string; missingPhotos: number; healed: boolean }>;
+// Of a TAKEN-DOWN site only. expectedTakenDownAt is the taken_down_at the admin's page showed: a different one (restored and
+// taken down again since) is PublishError("site_taken_down", { reason: "taken_down_again" }) before any R2 write; a site that is
+// not taken down is already restored and comes back with the normal result (and its pointer checked, a missing or wrong one healed: see below). Requires a live version (else
+// "not_live"). Verify the live version's pages as approve's step 3, copy every page to LIVE, write the pointer (D1 still says taken down: on an
+// edge-cache MISS the Worker checks D1 and does not serve it, but a page copy already in the edge cache under that version, s-maxage=60 from
+// before the takedown, can be served with no D1 check once the pointer exists), then clear taken_down_at, fenced on the expected time, the copied version and the lease. If the
+// clear changes nothing, D1 is asked before the pointer goes: a site still down (or gone, or a read that throws) has the pointer taken
+// back out, a site that is live (another restore made it live after this one outlived its lease) keeps it; either way site_busy (lease_lost).
+// If the clear throws, D1 is asked (it can commit a batch and still throw): a committed clear keeps the pointer and succeeds; a site
+// still down, or a read that throws too, takes the pointer back out and rethrows; a live site with another version (only after a lost
+// lease) is left alone and is site_busy (lease_lost). A REJECTED pointer write asks D1 the same way: still down or unreadable, the pointer
+// is taken back out and the answer is live_copy_failed, the site not served (call restore again); live, the pointer is left and the
+// answer is site_busy (lease_lost). All three take-backs are one helper. RESIDUAL: if this action's re-read lands BEFORE another
+// restore's clear commits (that restore has already written its pointer), it still says down, the take-back removes that pointer, and
+// the other restore's clear then makes the site live with no pointer; only possible when this action outlived its lease
+// (over ADMIN_LEASE_MS). Likewise a re-read that THROWS after another restore made the site live is treated as down, so the
+// pointer is taken out of a live site. In both cases Restore again or Copy the live pages again heals it (`healed: true`). Then the
+// cleanup. missingPhotos counts photos a purge deleted: the page still goes back up. Retry-safe: an already-restored site's
+// pointer is HEAD-checked under the lease; a missing one, or one naming another version, is healed (the same copy-and-point
+// sequence as copyLivePagesAgain) and `healed` is true; a right pointer is left alone, `healed` false (as on a normal restore).
+export async function copyLivePagesAgain(
+  env: { DB: D1Database; LIVE: R2Bucket; WORK: R2Bucket; ROOT_DOMAIN: string },
+  input: { siteId: string; reviewer: string; now: number },
+): Promise<{ liveUrl: string }>;
+// NEW (A16-4c): "Copy the live pages again" on a LIVE site: verify the live version's pages, copy every page back to LIVE,
+// rewrite the pointer, re-read taken_down_at (as approve's step 7: a site taken down meanwhile loses the pointer again and is
+// site_taken_down; a failed read is live_copy_failed after a best-effort pointer delete), then the cleanup. It writes no D1 state and no audit row (Plan 4 may record the admin action itself). A
+// taken-down site is site_taken_down (it never touches taken_down_at); no live version is not_live; a rejected pointer write
+// is live_copy_failed (call it again).
 export async function setIndexable(env: { DB: D1Database }, input: { siteId: string; reviewer: string; indexable: boolean; now: number }): Promise<void>;
 // D1 update only; the sites Worker reads sites.indexable (§7.3).
 ```
 
+**The per-site admin lease (A16-4c).** Two admins' actions (or an action and its retry) on one site must not interleave their R2 and D1 writes, so `approveVersion`, `takeDown`, `restore` and `copyLivePagesAgain` each take a lease on the `sites` row (migration 0006, §2.5):
+- `acquireLease` is one conditional `UPDATE sites SET admin_lock = <random token>, admin_lock_until = now + ADMIN_LEASE_MS WHERE id = ? AND (admin_lock IS NULL OR admin_lock_until < now)`. `ADMIN_LEASE_MS` is 120 s, assumed to be longer than any admin action. A site held by another action is `site_busy { retryAfter }` (seconds to wait); a site that does not exist is the action's own error (`version_not_pending` for approve, `site_not_found` for the others). An action that dies frees the site when its lease runs out, and a takedown may wait up to that long behind a hung action (accepted: it answers `site_busy` and the admin retries).
+- **The state writes carry the token**: the `sites` updates are conditioned on `admin_lock = <token>` directly, and the `site_versions` and `uploads` writes on an `EXISTS` over the `sites` row: `EXISTS (SELECT 1 FROM sites WHERE id = ? AND admin_lock = ?)` for takedown's and the purge's, and approve's `site_versions` update `EXISTS (SELECT 1 FROM sites WHERE id = ? AND live_version_id = ? AND admin_lock = ?)`. Each audit row is written only when the fenced statement before it changed a row, except a repeat takedown's purge row, which is written whenever the purge deleted objects. When a fenced write changes no row, `assertLease` tells "already done" from a lost lease: it throws `site_busy { reason: "lease_lost" }` unless the token still holds the site.
+- **R2 cannot be conditioned on D1**, so `assertLease` is also called right before each pointer write or delete and before the LIVE prefix delete (the MEDIA purge is not lease-checked). The take-back deletes (approve's deletes after its takedown re-read, restore's pointer take-back, and those of the shared copy-and-point step used by copyLivePagesAgain and restore's heal) are deliberately NOT re-checked: they remove a pointer from a site D1 says is down (or whose state cannot be read), and a check there could leave the pointer on a taken-down site. Restore's take-backs ask D1 first and leave the pointer of a site that is live.
+- The release (`releaseLease`) clears only its own token, so a lease another action took over is left alone; a failed release is logged (`lease_release_failed`, ids only) and never masks the action's result.
+- **The cleanup** (`removeOtherVersions`, after approve, restore and `copyLivePagesAgain`) deletes every LIVE page that is not the kept version's, a listing page at a time (R2 lists and deletes at most 1,000 keys a call), and re-reads D1 before each delete: it goes on only while D1 still names the kept version as live and the action's lease is still its own, else it stops and logs `live_cleanup_skipped`. A failure is logged (`live_cleanup_failed`), never thrown; the next approval or restore removes the orphans.
+- **Residuals, as the code states them** (`packages/publishing/src/shared.ts`, `site-state.ts`): (1) if the lease runs out between an `assertLease` check and the R2 call (only an action longer than `ADMIN_LEASE_MS`), that R2 write can land after another action's; the D1 fence still keeps D1 right. On a cache miss the sites Worker serves only when D1 says the site is live and not taken down and the pointer's version equals D1's live version (a mismatch is a `503`, never wrong bytes, §7.3); a page already in the edge cache under the pointer's version is served with no D1 check, for up to its 60 s `s-maxage`, so a late pointer write on a taken-down site can be served for that long. `approveVersion`, `restore`'s heal and `copyLivePagesAgain` re-read `taken_down_at` after their pointer write and take the pointer back out of a site that went down. (2) Pages of a version that approve copied and that never became live (approve failed or was refused before its D1 batch made it live: `lease_lost`, `site_taken_down`, `version_not_pending`, an R2 error), and other versions' pages a stopped cleanup left, stay in LIVE unserved (the pointer never names them) until the next approval's or restore's cleanup or a takedown removes them. Pages `restore` or `copyLivePagesAgain` copied before a refusal are the live version's own: no cleanup removes them, and the next successful call serves them.
+- `ADMIN_LEASE_MS`, `acquireLease`, `assertLease` and `releaseLease` are exported by `@asksite/publishing` for Plan 4's ops sweep, which must take the lease with them and never copy the SQL.
+- **PLANNED, not built (Plan 4):** the HTTP mapping of `site_busy` (`409` with `Retry-After`), the restore page sending `expectedTakenDownAt` and the admin route for "Copy the live pages again" (§4.5).
+
 ### 7.3 The sites Worker
 
-1. Parse the Host with `parseHost(url.host, ROOT_DOMAIN)`.
-2. **Page** (`GET` or `HEAD /`, any query string ignored). D1 decides whether to serve; R2 holds the bytes:
-   - Look in `caches.default` under the key `https://<slug>.<root>/`. On a hit, return it.
-   - On a miss: `SELECT indexable FROM sites WHERE slug = ? AND live_version_id IS NOT NULL AND taken_down_at IS NULL`. No row: return a 404 noindex page, not cached. D1 error: return a 503 noindex page with `Retry-After: 60`, not cached (a 503 tells search engines the outage is temporary).
-   - Then `LIVE.get(liveKey(slug))`. Missing (for example, the seconds between an approval's D1 write and its R2 write): 404 noindex, not cached.
-   - Otherwise build the response with the §7.4 headers. `X-Robots-Tag: noindex` is added when `sites.indexable = 0`.
-   - `cache.put` with `Cache-Control: public, max-age=60`.
-   - Cache API entries stay in the originating data centre, and `cache.delete` purges only that one. [verified] A change (approve, takedown, search-engine switch) therefore spreads within the TTL: about 60 s at the edge, plus up to 60 s in a visitor's browser.
-   - Cost: one indexed D1 read per site per data centre per minute of traffic; D1 Paid includes 25 billion rows read a month (§1.3).
+1. Parse the Host with `parseHost(url.host, ROOT_DOMAIN)`. On a site host, `GET` or `HEAD` of `/favicon.ico` is a `204`.
+2. **Page** (`GET` or `HEAD` of exactly one of the 5 paths in the page map, §2.9: `/`, `/services`, `/about`, `/gallery`, `/contact`; any query string is ignored). The site's **LIVE pointer** says which version is live, D1 decides whether to serve, and R2 holds the bytes (`apps/sites/src/page.ts`):
+   - `LIVE.head(livePointerKey(slug))`. An R2 error: a `503` noindex page with `Retry-After: 60`. No pointer (never approved, unknown, or taken down: a takedown deletes it first): a `404` noindex page, not cached, **and no D1 read** (Decision 24). A pointer whose `versionId` is not a valid id is damaged: `503`; it never chooses a key.
+   - Look in `caches.default` under `pageCacheUrl(root, slug, versionId, page)`: the version id is in the PATH, so a cached page can only be served for the version the pointer names, and a cached page of a replaced version is never read again. On a hit, return it with the browser headers below (no D1 read).
+   - On a miss, `LIVE.get(livePageKey(slug, versionId, page))`. If the object is missing, the pointer is **re-read once** (A16-4c: an approval switches the pointer and then deletes the replaced version's pages, so a view that read the old pointer can find its page gone); if it now names another valid version, that version is served the same way (its own cache key, the same D1 check). If it is still missing: for Home a `503` (a broken state); for another page a `404` noindex page that links Home, named from the pointer's metadata (a page the site does not have), not cached, no D1 read.
+   - Then `SELECT indexable, live_version_id FROM sites WHERE slug = ? AND live_version_id IS NOT NULL AND taken_down_at IS NULL`. No row: a `404` noindex page, not cached. D1 error: a `503` noindex page with `Retry-After: 60`, not cached (a 503 tells search engines the outage is temporary). A pointer version other than D1's `live_version_id` (an approval or restore half-way, or a late write of an older version) is a `503`, never served, not cached.
+   - Otherwise respond `200` with the §7.4 headers. `X-Robots-Tag: noindex` is added when `sites.indexable = 0`.
+   - `cache.put` of a copy with `Cache-Control: public, s-maxage=60` (Cloudflare does not cache a response marked `no-cache`; `s-maxage` sets the edge TTL). **Browsers get `Cache-Control: no-cache`**, a cached copy included: a page cached by a browser could otherwise sit next to a newer one (U2), and every revalidation goes through the pointer.
+   - Cache API entries stay in the originating data centre, and `cache.delete` purges only that one. [verified] An approval or a takedown goes through the pointer, which is read on every request, so it takes effect at once; a change only D1 knows (the search-engine switch, a takedown written to D1 alone) spreads within the edge TTL of about 60 s.
+   - **Redirect:** `GET` or `HEAD` of `/services/`, `/about/`, `/gallery/` or `/contact/` is a `301` to the canonical `publicPageUrl` (Home has no such form). Every other path is the `404` noindex page, which on a live site links the business's page, named from the pointer alone (never D1: Decision 24); a `POST` to any of these paths is that `404` too.
+   - **Cost** (Decision 24): a wrong path, a missing page, an unknown slug or a redirect reaches no D1. A real page view costs one R2 `head` of the pointer, and on an edge-cache miss one `get` and one indexed D1 read, at most once per page of the version per data centre per minute of traffic; D1 Paid includes 25 billion rows read a month (§1.3).
 3. **Media:** after checking `isId` on both parts, look in `caches.default`; on a miss, `SELECT 1 FROM uploads u JOIN sites s ON s.id = u.site_id WHERE u.id = ? AND u.site_id = ? AND s.taken_down_at IS NULL`, then `MEDIA.get(mediaKey(siteId, uploadId))`. No row or no object: 404. Soft-deleted uploads are still served (a live or pending version may show them); a takedown stops them without a purge.
    - Unapproved photos are reachable by anyone who has their unguessable URL (two random UUIDs), because the owner's preview and the admin review need them. The residual abuse risk (free image hosting on our domain) is bounded by invite-only access, re-encoding, the per-site upload caps and takedown. [inferred]
    - Headers: `Content-Type: image/webp` (always set by the Worker, never from object metadata), `X-Content-Type-Options: nosniff`, `Content-Security-Policy: default-src 'none'`, `Cross-Origin-Resource-Policy: cross-origin`, `Cache-Control: public, max-age=86400`.
    - Edge cache TTL is 300 s. Plan 2 verifies which directive the Cache API honours for a different edge and browser TTL, and must prove that a taken-down site's photos stop being served from the edge within 5 minutes.
-4. **Forms:** §7.5.
+4. **Forms:** §7.5. The form reads the LIVE pointer first (`LIVE.head`, and the pointer's `siteId` must equal the form's), so a form for a site with no pointer never reaches D1; the pointer is written only after every page is copied, so a visitor who can see `/contact` always has a working form.
 5. **Cron** (`0 7 * * *`): delete leads older than `leadRetentionDays`.
 
 ### 7.4 Headers
 
-**Live page:**
+**Live page** (every page of a site, §2.9):
 ```text
 Content-Type: text/html; charset=utf-8
-Cache-Control: public, max-age=60
-Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'; img-src https://media.<root>; form-action 'self'; base-uri 'none'; frame-ancestors 'none'
+Cache-Control: no-cache
+Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'; img-src https://media.<root>; font-src data:; form-action 'self'; base-uri 'none'; frame-ancestors 'none'
 X-Content-Type-Options: nosniff
 Referrer-Policy: strict-origin-when-cross-origin
 Strict-Transport-Security: max-age=31536000; includeSubDomains
@@ -1177,6 +1276,8 @@ Permissions-Policy: camera=(), microphone=(), geolocation=()
 
 Why the CSP looks like this:
 - `style-src 'unsafe-inline'` is needed for Plan 1's inline stylesheet and theme block.
+- `font-src data:` only: the CSP allows `data:` fonts ahead of time for the one embedded heading font the Bold (impact) design build will add (user decision 2026-09-27; the impact row in `sheet-rules.ts` allows it). No page at head loads any font.
+- `Cache-Control: no-cache` is what a browser gets; the copy kept at the edge is `public, s-maxage=60` (§7.3).
 - The pages contain no scripts. JSON-LD blocks are data and are not run. [inferred: Plan 2's browser test asserts zero CSP violations on every fixture]
 
 **Stored version shown for review** (admin and owner):
@@ -1206,7 +1307,7 @@ Cache-Control: no-store
    - `service`: optional, at most 60 characters.
    - `message`: optional, at most 2,000 characters.
    - Control characters are removed; `\n` is kept in `message`.
-   - Any failure returns a `400` page listing the problems in plain words, with a "Go back" link to `/#contact`. The page is built from fixed messages only and **never echoes a submitted value**.
+   - Any failure returns a `400` page listing the problems in plain words, with a "Go back" link to `/contact#quote` (the form, §2.9). The page is built from fixed messages only and **never echoes a submitted value**.
    - Field names match Plan 1 Task 13 exactly: `name`, `phone`, `email`, `service`, `message`, `website`.
 6. Look up the site:
    ```sql

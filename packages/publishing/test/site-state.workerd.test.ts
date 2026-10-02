@@ -1,7 +1,7 @@
 import { livePageKey, livePointerKey, mediaKey, mediaUrl, newId, versionKey, versionPageKey } from "@asksite/core";
 import { SiteDocument } from "@asksite/site-schema";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { approveVersion, createPendingVersion, restore, setIndexable, TAKEDOWN_REVIEW_NOTE, takeDown } from "../src/index.ts";
+import { approveVersion, copyLivePagesAgain, createPendingVersion, restore, setIndexable, TAKEDOWN_REVIEW_NOTE, takeDown } from "../src/index.ts";
 import { publishFailure as failure } from "./support/errors.ts";
 import { auditActions, doc, EDITS, flakyBucket, liveKeysOf, pendingWithPages, publishingHarness, ROOT, seedSite, siteRow, versionRow, type PublishEnv } from "./support/harness.ts";
 
@@ -72,7 +72,7 @@ describe("an unknown site id", () => {
   it("gets site_not_found from takeDown, restore and setIndexable (Plan 4 answers 404)", async () => {
     const siteId = newId();
     expect((await failure(takeDown(env, { siteId, reviewer: ADMIN, reason: "x", purgeMedia: false, now: 1 }))).code).toBe("site_not_found");
-    expect((await failure(restore(env, { siteId, reviewer: ADMIN, now: 1 }))).code).toBe("site_not_found");
+    expect((await failure(restore(env, { siteId, reviewer: ADMIN, expectedTakenDownAt: 0, now: 1 }))).code).toBe("site_not_found");
     expect((await failure(setIndexable(env, { siteId, reviewer: ADMIN, indexable: false, now: 1 }))).code).toBe("site_not_found");
   });
 });
@@ -81,7 +81,7 @@ describe("restore", () => {
   it("puts the live version's pages and pointer back, then clears the takedown", async () => {
     const s = await liveSite();
     await takeDown(env, { siteId: s.siteId, reviewer: ADMIN, reason: "Mistake", purgeMedia: false, now: 50 });
-    expect(await restore(env, { siteId: s.siteId, reviewer: ADMIN, now: 60 })).toEqual({ liveUrl: `https://${s.slug}.asksite.example/`, missingPhotos: 0 });
+    expect(await restore(env, { siteId: s.siteId, reviewer: ADMIN, expectedTakenDownAt: 50, now: 60 })).toEqual({ liveUrl: `https://${s.slug}.asksite.example/`, missingPhotos: 0, healed: false });
     const work = await (await env.WORK.get(versionKey(s.siteId, s.liveVersionId)))?.text();
     expect(await (await env.LIVE.get(livePageKey(s.slug, s.liveVersionId, "home")))?.text()).toBe(work);
     expect((await env.LIVE.head(livePointerKey(s.slug)))?.customMetadata?.["versionId"]).toBe(s.liveVersionId);
@@ -92,14 +92,14 @@ describe("restore", () => {
   it("is retry-safe and audits once", async () => {
     const s = await liveSite();
     await takeDown(env, { siteId: s.siteId, reviewer: ADMIN, reason: "x", purgeMedia: false, now: 50 });
-    await restore(env, { siteId: s.siteId, reviewer: ADMIN, now: 60 });
-    await restore(env, { siteId: s.siteId, reviewer: ADMIN, now: 61 });
+    await restore(env, { siteId: s.siteId, reviewer: ADMIN, expectedTakenDownAt: 50, now: 60 });
+    await restore(env, { siteId: s.siteId, reviewer: ADMIN, expectedTakenDownAt: 50, now: 61 });
     expect((await auditActions(env.DB, s.siteId)).filter((a) => a === "site.restored")).toHaveLength(1);
   });
 
   it("refuses a site that was never live", async () => {
     const site = await seedSite(env.DB);
-    expect((await failure(restore(env, { siteId: site.siteId, reviewer: ADMIN, now: 1 }))).code).toBe("not_live");
+    expect((await failure(restore(env, { siteId: site.siteId, reviewer: ADMIN, expectedTakenDownAt: 0, now: 1 }))).code).toBe("not_live");
   });
 
   it("counts the photos a purge deleted, so the admin knows the page will show broken images", async () => {
@@ -110,7 +110,7 @@ describe("restore", () => {
     const v1 = await createPendingVersion(env, { ...site, document, edits: EDITS, generationId: null, now: 1 });
     await approveVersion(env, { versionId: v1.id, htmlSha256: String((await versionRow(env.DB, v1.id))?.html_sha256), reviewer: ADMIN, note: null, indexable: true, now: 2 });
     await takeDown(env, { siteId: site.siteId, reviewer: ADMIN, reason: "Abuse", purgeMedia: true, now: 3 });
-    expect(await restore(env, { siteId: site.siteId, reviewer: ADMIN, now: 4 })).toEqual({ liveUrl: `https://${site.slug}.asksite.example/`, missingPhotos: 2 });
+    expect(await restore(env, { siteId: site.siteId, reviewer: ADMIN, expectedTakenDownAt: 3, now: 4 })).toEqual({ liveUrl: `https://${site.slug}.asksite.example/`, missingPhotos: 2, healed: false });
     expect((await siteRow(env.DB, site.siteId))?.taken_down_at).toBeNull();
   });
 
@@ -118,7 +118,7 @@ describe("restore", () => {
     const s = await liveSite();
     await takeDown(env, { siteId: s.siteId, reviewer: ADMIN, reason: "x", purgeMedia: false, now: 50 });
     await env.WORK.put(versionKey(s.siteId, s.liveVersionId), "tampered");
-    expect((await failure(restore(env, { siteId: s.siteId, reviewer: ADMIN, now: 60 }))).code).toBe("integrity");
+    expect((await failure(restore(env, { siteId: s.siteId, reviewer: ADMIN, expectedTakenDownAt: 50, now: 60 }))).code).toBe("integrity");
     expect((await siteRow(env.DB, s.siteId))?.taken_down_at).toBe(50);
     expect(await liveKeysOf(env.LIVE, s.slug)).toEqual([]);
   });
@@ -171,7 +171,7 @@ describe("what takedown, restore and the search switch change and record (design
     const s = await liveSite();
     await takeDown(env, { siteId: s.siteId, reviewer: ADMIN, reason: "Spam", purgeMedia: true, now: 50 });
     expect(await updatedAt(s.siteId)).toBe(50);
-    await restore(env, { siteId: s.siteId, reviewer: ADMIN, now: 60 });
+    await restore(env, { siteId: s.siteId, reviewer: ADMIN, expectedTakenDownAt: 50, now: 60 });
     expect(await updatedAt(s.siteId)).toBe(60);
     await setIndexable(env, { siteId: s.siteId, reviewer: ADMIN, indexable: false, now: 70 });
     expect(await updatedAt(s.siteId)).toBe(70);
@@ -187,14 +187,14 @@ describe("what takedown, restore and the search switch change and record (design
     await takeDown(env, { siteId: s.siteId, reviewer: ADMIN, reason: "Mistake", purgeMedia: false, now: 50 });
     for (const id of [s.hero, s.gallery]) expect(await env.MEDIA.head(mediaKey(s.siteId, id))).not.toBeNull();
     expect([...(await uploadsDeletedAt(s.siteId)).values()]).toEqual([null, null]);
-    expect(await restore(env, { siteId: s.siteId, reviewer: ADMIN, now: 60 })).toEqual({ liveUrl: `https://${s.slug}.asksite.example/`, missingPhotos: 0 });
+    expect(await restore(env, { siteId: s.siteId, reviewer: ADMIN, expectedTakenDownAt: 50, now: 60 })).toEqual({ liveUrl: `https://${s.slug}.asksite.example/`, missingPhotos: 0, healed: false });
   });
 
   it("counts only the page's photos that are really gone", async () => {
     const s = await liveSiteWithPhotos();
     await takeDown(env, { siteId: s.siteId, reviewer: ADMIN, reason: "x", purgeMedia: false, now: 50 });
     await env.MEDIA.delete(mediaKey(s.siteId, s.hero));
-    expect((await restore(env, { siteId: s.siteId, reviewer: ADMIN, now: 60 })).missingPhotos).toBe(1);
+    expect((await restore(env, { siteId: s.siteId, reviewer: ADMIN, expectedTakenDownAt: 50, now: 60 })).missingPhotos).toBe(1);
   });
 
   it("a purge deletes every photo, however many pages the listing takes", async () => {
@@ -224,7 +224,7 @@ describe("what takedown, restore and the search switch change and record (design
   it("puts the page and the pointer back with the metadata the sites Worker checks (Decision 24)", async () => {
     const s = await liveSite();
     await takeDown(env, { siteId: s.siteId, reviewer: ADMIN, reason: "x", purgeMedia: false, now: 50 });
-    await restore(env, { siteId: s.siteId, reviewer: ADMIN, now: 60 });
+    await restore(env, { siteId: s.siteId, reviewer: ADMIN, expectedTakenDownAt: 50, now: 60 });
     const page = await env.LIVE.head(livePageKey(s.slug, s.liveVersionId, "home"));
     expect(page?.httpMetadata?.contentType).toBe("text/html; charset=utf-8");
     const [home] = JSON.parse(String((await versionRow(env.DB, s.liveVersionId))?.pages_json)) as Array<{ sha256: string }>;
@@ -240,9 +240,10 @@ describe("what takedown, restore and the search switch change and record (design
   it("writes the pages and the pointer before clearing the takedown: if a write fails, the site stays down", async () => {
     const s = await liveSite();
     await takeDown(env, { siteId: s.siteId, reviewer: ADMIN, reason: "x", purgeMedia: false, now: 50 });
-    for (const failing of [flakyBucket(env.LIVE, (call) => call === "put"), flakyBucket(env.LIVE, (call, key) => call === "put" && key === livePointerKey(s.slug))]) {
-      await expect(restore({ ...env, LIVE: failing }, { siteId: s.siteId, reviewer: ADMIN, now: 60 })).rejects.toThrow("R2 is unavailable");
-    }
+    const restoreThrough = (failing: R2Bucket) => restore({ ...env, LIVE: failing }, { siteId: s.siteId, reviewer: ADMIN, expectedTakenDownAt: 50, now: 60 });
+    await expect(restoreThrough(flakyBucket(env.LIVE, (call) => call === "put"))).rejects.toThrow("R2 is unavailable");
+    // A rejected pointer write is live_copy_failed (it is taken back out: see lease.workerd.test.ts).
+    await expect(restoreThrough(flakyBucket(env.LIVE, (call, key) => call === "put" && key === livePointerKey(s.slug)))).rejects.toThrow("live_copy_failed");
     expect(await siteRow(env.DB, s.siteId)).toMatchObject({ taken_down_at: 50, takedown_reason: "x" });
     expect(await auditActions(env.DB, s.siteId)).not.toContain("site.restored");
   });
@@ -254,7 +255,7 @@ describe("what takedown, restore and the search switch change and record (design
     await env.WORK.put(versionKey(tampered.siteId, tampered.liveVersionId), "tampered");
     await env.WORK.delete(versionKey(missing.siteId, missing.liveVersionId));
     for (const s of [tampered, missing]) {
-      const error = await failure(restore(env, { siteId: s.siteId, reviewer: ADMIN, now: 60 }));
+      const error = await failure(restore(env, { siteId: s.siteId, reviewer: ADMIN, expectedTakenDownAt: 50, now: 60 }));
       expect({ code: error.code, detail: error.detail }).toEqual({ code: "integrity", detail: { reason: "stored_bytes_mismatch" } });
       expect(await siteRow(env.DB, s.siteId)).toMatchObject({ taken_down_at: 50 });
     }
@@ -386,7 +387,7 @@ describe("takedown and restore on the pointer (A16)", () => {
   it("restores every page and the pointer", async () => {
     const p = await liveMultiPage();
     await taken(p.siteId);
-    await restore(env, { siteId: p.siteId, reviewer: ADMIN, now: 60 });
+    await restore(env, { siteId: p.siteId, reviewer: ADMIN, expectedTakenDownAt: 50, now: 60 });
     expect(await liveKeysOf(env.LIVE, p.slug)).toEqual([livePointerKey(p.slug), ...p.pages.map((page) => livePageKey(p.slug, p.versionId, page.page))].sort());
     for (const page of p.pages) expect(await (await env.LIVE.get(livePageKey(p.slug, p.versionId, page.page)))?.text()).toBe(page.html);
     expect(await siteRow(env.DB, p.siteId)).toMatchObject({ taken_down_at: null });
@@ -400,18 +401,18 @@ describe("takedown and restore on the pointer (A16)", () => {
     const p = await liveMultiPage();
     await taken(p.siteId);
     await damage(p);
-    expect((await failure(restore(env, { siteId: p.siteId, reviewer: ADMIN, now: 60 }))).code).toBe("integrity");
+    expect((await failure(restore(env, { siteId: p.siteId, reviewer: ADMIN, expectedTakenDownAt: 50, now: 60 }))).code).toBe("integrity");
     expect(await siteRow(env.DB, p.siteId)).toMatchObject({ taken_down_at: 50 });
     expect(await liveKeysOf(env.LIVE, p.slug)).toEqual([]);
     expect(await auditActions(env.DB, p.siteId)).not.toContain("site.restored");
   });
 
-  it("on a live site it copies the pages again and rewrites the pointer: no D1 change, no audit row", async () => {
+  it("copyLivePagesAgain on a live site copies the pages again and rewrites the pointer: no D1 change, no audit row", async () => {
     const p = await liveMultiPage();
     await env.LIVE.delete([livePointerKey(p.slug), livePageKey(p.slug, p.versionId, "about")]);
     await env.LIVE.put(livePageKey(p.slug, p.versionId, "services"), "damaged");
     const before = { site: await siteRow(env.DB, p.siteId), version: await versionRow(env.DB, p.versionId), audit: await auditActions(env.DB, p.siteId) };
-    await restore(env, { siteId: p.siteId, reviewer: ADMIN, now: 99 });
+    await copyLivePagesAgain(env, { siteId: p.siteId, reviewer: ADMIN, now: 99 });
     expect(await liveKeysOf(env.LIVE, p.slug)).toEqual([livePointerKey(p.slug), ...p.pages.map((page) => livePageKey(p.slug, p.versionId, page.page))].sort());
     for (const page of p.pages) expect(await (await env.LIVE.get(livePageKey(p.slug, p.versionId, page.page)))?.text()).toBe(page.html);
     expect({ site: await siteRow(env.DB, p.siteId), version: await versionRow(env.DB, p.versionId), audit: await auditActions(env.DB, p.siteId) }).toEqual(before);

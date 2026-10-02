@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { DESIGN_IDS, type SiteDocumentInput } from "@asksite/site-schema";
 import { describe, expect, it } from "vitest";
-import { localStatePath, parseSeedOptions, seedDocument, toolsConfig } from "../dev/seed.ts";
+import { assertLocalToolsConfig, localStatePath, parseSeedOptions, seedDocument, toolsConfig } from "../dev/seed.ts";
 
 const REPO = resolve(import.meta.dirname, "../../..");
 
@@ -97,5 +97,40 @@ describe("toolsConfig", () => {
     expect([...remote.d1_databases, ...remote.r2_buckets].map((b) => b.remote)).toEqual([true, true, true]);
     expect(remote.compatibility_flags).toEqual(NO_NODE);
     expect(JSON.stringify(toolsConfig(sites, false))).not.toContain("remote");
+  });
+});
+
+// A16-4c: operate.ts and the local seed run the real publishing functions (takeDown, restore, approve), so they must
+// never reach production through a tools config that names a remote binding, and wrangler's getPlatformProxy starts
+// remote bindings unless told remoteBindings: false (wrangler 4.138.0).
+describe("the local-only guard for the tools config", () => {
+  const sites = { compatibility_date: "2026-09-21", d1_databases: [{ binding: "DB", database_name: "asksite", database_id: "x" }], r2_buckets: [{ binding: "LIVE", bucket_name: "asksite-live" }] };
+  const guard = (config: unknown) => assertLocalToolsConfig(JSON.stringify(config));
+
+  it("accepts the local tools config", () => {
+    expect(() => guard(toolsConfig(sites, false))).not.toThrow();
+  });
+
+  it("refuses a config with a remote D1, a remote R2, a remote binding nested anywhere, or --remote's own", () => {
+    const local = toolsConfig(sites, false) as { d1_databases: object[]; r2_buckets: object[] };
+    expect(() => guard({ ...local, d1_databases: [{ ...local.d1_databases[0], remote: true }] })).toThrow(/remote binding/);
+    expect(() => guard({ ...local, r2_buckets: [{ ...local.r2_buckets[0], remote: true }] })).toThrow(/remote binding/);
+    expect(() => guard({ ...local, env: { staging: { queues: { producers: [{ binding: "Q", remote: true }] } } } })).toThrow(/remote binding/);
+    expect(() => guard(toolsConfig(sites, true))).toThrow(/remote binding/);
+  });
+
+  it("ignores remote values that are not true", () => {
+    expect(() => guard({ d1_databases: [{ binding: "DB", remote: false }], note: { remote: "true" } })).not.toThrow();
+  });
+
+  it("is applied, with remoteBindings: false, by both the local seed and operate.ts (source pin)", () => {
+    const seed = readFileSync(resolve(REPO, "apps/sites/dev/seed.ts"), "utf8");
+    const operate = readFileSync(resolve(REPO, "apps/sites/e2e/operate.ts"), "utf8");
+    expect(seed).toMatch(/if \(!options\.remote\) checkLocalToolsConfig\(\);/);
+    expect(seed).toMatch(/options\.remote \? \{\} : \{.*remoteBindings: false/);
+    expect(operate).toMatch(/checkLocalToolsConfig\(configPath\);/);
+    expect(operate).toMatch(/getPlatformProxy<ToolsEnv>\(\{.*remoteBindings: false/);
+    expect(seed.match(/getPlatformProxy<ToolsEnv>/g)).toHaveLength(1);
+    expect(operate.match(/getPlatformProxy<ToolsEnv>/g)).toHaveLength(1);
   });
 });

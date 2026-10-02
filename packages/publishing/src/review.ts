@@ -1,6 +1,6 @@
 import { livePointerKey, siteUrl } from "@asksite/core";
 import { PublishError } from "./errors.ts";
-import { auditIfChanged, copyLivePages, liveMetadata, removeOtherVersions, verifiedPages, writeLivePointer } from "./shared.ts";
+import { acquireLease, assertLease, auditIfChanged, copyLivePages, liveMetadata, releaseLease, removeOtherVersions, verifiedPages, writeLivePointer } from "./shared.ts";
 
 interface VersionForReview {
   site_id: string;
@@ -16,7 +16,9 @@ interface VersionForReview {
 }
 
 /**
- * The admin's Approve. What the admin was shown is what goes live, every page of it at once (U2):
+ * The admin's Approve. What the admin was shown is what goes live, every page of it at once (U2). It runs under the
+ * site's lease (A16-4c: one admin action per site at a time; a busy site is site_busy), every D1 write carries the
+ * lease token, and the lease is checked again right before the pointer write:
  * 1) the reviewed htmlSha256 (the digest of the pages) must equal the row's;
  * 2) a version that will be refused copies nothing: it must be the site's pending version (or the accepted
  *    retry: approved, live and not taken down);
@@ -26,8 +28,9 @@ interface VersionForReview {
  * 6) one write of the site's LIVE pointer, with the ids and the business name and phone as metadata, switches
  *    every page to the new version at once. The sites Worker serves a version only while D1 says it is live.
  *    If that write fails after step 5, live_copy_failed is thrown and approving the same version again finishes it;
- * 7) taken_down_at is read again: if another admin's takedown committed meanwhile, the pointer is taken back out
- *    and site_taken_down is thrown (the takedown also deletes the pointer after its own batch, for the other order);
+ * 7) taken_down_at is read again, whether the write resolved or rejected: if a takedown committed meanwhile (only
+ *    possible once the lease ran out), the pointer is taken back out and site_taken_down is thrown. A rejected write
+ *    on a site that is not down is live_copy_failed; so is a failed read, after a best-effort pointer delete;
  * 8) the other versions' LIVE pages are removed (best effort: nothing refers to them).
  */
 export async function approveVersion(
@@ -36,6 +39,24 @@ export async function approveVersion(
 ): Promise<{ siteId: string; slug: string; liveUrl: string }> {
   const { versionId, reviewer, note, indexable, now } = input;
   const db = env.DB;
+  const owner = await db.prepare("SELECT site_id FROM site_versions WHERE id = ?").bind(versionId).first<{ site_id: string }>();
+  if (owner === null) throw new PublishError("version_not_pending");
+  const siteId = owner.site_id;
+  const token = await acquireLease(db, siteId, now, "version_not_pending");
+  try {
+    return await approveUnderLease(env, { ...input, siteId, token });
+  } finally {
+    await releaseLease(db, siteId, token);
+  }
+}
+
+async function approveUnderLease(
+  env: { DB: D1Database; WORK: R2Bucket; LIVE: R2Bucket; ROOT_DOMAIN: string },
+  input: { versionId: string; htmlSha256: string; reviewer: string; note: string | null; indexable: boolean; now: number; siteId: string; token: string },
+): Promise<{ siteId: string; slug: string; liveUrl: string }> {
+  const { versionId, reviewer, note, indexable, now, siteId, token } = input;
+  const db = env.DB;
+  // Read after the lease is taken: what another action changed before it finished is seen.
   const row = await db
     .prepare(
       `SELECT v.site_id, v.html_key, v.html_sha256, v.pages_json, v.document_json, v.status, s.slug, s.pending_version_id, s.live_version_id, s.taken_down_at
@@ -44,7 +65,7 @@ export async function approveVersion(
     .bind(versionId)
     .first<VersionForReview>();
   if (row === null || row.slug === null) throw new PublishError("version_not_pending");
-  const { site_id: siteId, slug } = row;
+  const { slug } = row;
 
   if (input.htmlSha256 !== row.html_sha256) throw new PublishError("integrity", { reason: "reviewed_hash_mismatch" });
   // The batch below stays the authoritative check; this only keeps a refused version from copying to LIVE.
@@ -57,14 +78,15 @@ export async function approveVersion(
   await copyLivePages(env.LIVE, slug, { siteId, versionId }, pages);
 
   const results = await db.batch([
-    db.prepare("UPDATE sites SET live_version_id = ?, pending_version_id = NULL, indexable = ?, updated_at = ? WHERE id = ? AND pending_version_id = ? AND taken_down_at IS NULL")
-      .bind(versionId, indexable ? 1 : 0, now, siteId, versionId),
-    db.prepare("UPDATE site_versions SET status = 'approved', reviewed_by = ?, reviewed_at = ?, review_note = ? WHERE id = ? AND status = 'pending' AND EXISTS (SELECT 1 FROM sites WHERE id = ? AND live_version_id = ?)")
-      .bind(reviewer, now, note, versionId, siteId, versionId),
+    db.prepare("UPDATE sites SET live_version_id = ?, pending_version_id = NULL, indexable = ?, updated_at = ? WHERE id = ? AND pending_version_id = ? AND taken_down_at IS NULL AND admin_lock = ?")
+      .bind(versionId, indexable ? 1 : 0, now, siteId, versionId, token),
+    db.prepare(`UPDATE site_versions SET status = 'approved', reviewed_by = ?, reviewed_at = ?, review_note = ? WHERE id = ? AND status = 'pending' AND EXISTS (SELECT 1 FROM sites WHERE id = ? AND live_version_id = ? AND admin_lock = ?)`)
+      .bind(reviewer, now, note, versionId, siteId, versionId, token),
     auditIfChanged(db, { at: now, actor: `admin:${reviewer}`, action: "version.approved", siteId, detail: { versionId, indexable } }),
   ]);
 
   if (results[1]?.meta.changes !== 1) {
+    await assertLease(db, siteId, token); // a fenced write that changed nothing under a lost lease is not "already live"
     const state = await db
       .prepare("SELECT v.status, s.live_version_id, s.taken_down_at FROM site_versions v JOIN sites s ON s.id = v.site_id WHERE v.id = ?")
       .bind(versionId)
@@ -73,16 +95,29 @@ export async function approveVersion(
     if (!alreadyLive) throw new PublishError(state !== null && state.taken_down_at !== null ? "site_taken_down" : "version_not_pending");
   }
 
+  await assertLease(db, siteId, token); // R2 cannot be conditioned on D1 (residual: see assertLease)
+  let putRejected = false;
   try {
     await writeLivePointer(env.LIVE, slug, { siteId, versionId, ...business });
   } catch {
+    putRejected = true; // the write may still have landed: the read below decides, in both cases
+  }
+  // A takedown by another admin can commit after the batch above (the lease lasting, none can; after it ran out, one
+  // can), its pointer deletes done before this write lands. The takedown wins: take the pointer back out, so the site's
+  // pages and its business name stay off the web. If the delete fails, the pointer stays until the takedown is run
+  // again: say so in the log (ids only) and refuse.
+  let after: { taken_down_at: number | null } | null;
+  try {
+    after = await db.prepare("SELECT taken_down_at FROM sites WHERE id = ?").bind(siteId).first<{ taken_down_at: number | null }>();
+  } catch {
+    // Unconfirmed: the pointer may have landed on a site that is down. Take it out (approving again rewrites it).
+    try {
+      await env.LIVE.delete(livePointerKey(slug));
+    } catch {
+      console.error(JSON.stringify({ code: "pointer_unconfirmed", siteId, versionId }));
+    }
     throw new PublishError("live_copy_failed", { versionId });
   }
-  // A takedown by another admin can commit after the batch above, its pointer deletes done before this write lands.
-  // The takedown wins: take the pointer back out, so the site's pages and its business name stay off the web. (A
-  // takedown that commits after this read deletes the pointer itself, after its own batch.) If the delete fails, the
-  // pointer stays until the takedown is run again: say so in the log (ids only) and refuse.
-  const after = await db.prepare("SELECT taken_down_at FROM sites WHERE id = ?").bind(siteId).first<{ taken_down_at: number | null }>();
   if (after === null || after.taken_down_at !== null) {
     try {
       await env.LIVE.delete(livePointerKey(slug));
@@ -91,7 +126,8 @@ export async function approveVersion(
     }
     throw new PublishError("site_taken_down");
   }
-  await removeOtherVersions(env.LIVE, slug, { siteId, versionId });
+  if (putRejected) throw new PublishError("live_copy_failed", { versionId });
+  await removeOtherVersions(env.LIVE, db, slug, { siteId, versionId }, token);
   return { siteId, slug, liveUrl: siteUrl(env.ROOT_DOMAIN, slug) };
 }
 

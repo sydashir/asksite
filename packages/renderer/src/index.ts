@@ -1,3 +1,4 @@
+export { contactHeading } from "./contact-heading.ts";
 export { contrastRatio, hexToRgb, relativeLuminance, type Rgb } from "./contrast.ts";
 export { escapeAttr, escapeText } from "./escape.ts";
 export { formatPhone } from "./format.ts";
