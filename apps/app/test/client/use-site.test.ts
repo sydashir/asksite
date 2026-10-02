@@ -17,12 +17,12 @@ afterEach(() => {
 });
 
 /** Mounts the hook with a fake fetch; the first GET is the load, `later` answers every request after it. */
-async function mount(later: (method: string) => Response) {
+async function mount(later: (method: string, init: RequestInit) => Response, first: SiteView = VIEW) {
   const calls: string[] = [];
   vi.stubGlobal("fetch", async (_path: string, init: RequestInit) => {
     const method = init.method ?? "GET";
     calls.push(method);
-    return calls.filter((c) => c === "GET").length === 1 && method === "GET" ? json(VIEW) : later(method);
+    return calls.filter((c) => c === "GET").length === 1 && method === "GET" ? json(first) : later(method, init);
   });
   // React reads window.event to rank updates, and the active element when it commits.
   vi.stubGlobal("window", { event: undefined, document: { activeElement: null }, HTMLIFrameElement: class {} });
@@ -71,6 +71,57 @@ describe("useSite.refreshAi", () => {
     });
     expect(refreshed).toBe(false);
     expect(calls.filter((c) => c === "GET")).toHaveLength(3); // the load, the try, the one retry
+    await unmount();
+  });
+});
+
+// STRICT (customer data): the server refuses a wording or order change built on an older AI draft (wording_changed). The hook must
+// not loop on it, must keep the owner's hidden sections and look, and must say the wording change did not apply.
+const NO_ISSUES = { facts: [], brief: [], photos: [], document: [] };
+const seenBy = (generationId: string, edits: object) =>
+  ({
+    ...VIEW,
+    ai: { generationId, draft: { copy: {} } },
+    edits: { baseGenerationId: generationId, copy: {}, order: null, hidden: [], theme: null, ...edits },
+    limits: { generationsLeftToday: 1, generationsLeftTotal: 1 },
+  }) as unknown as SiteView;
+
+describe("useSite wording_changed", () => {
+  it("refreshes the AI wording, saves the rest on the new wording without the stale wording, and says so", async () => {
+    const patches: Array<{ rev: number; edits: Record<string, unknown> }> = [];
+    const { site, unmount } = await mount((method, init) => {
+      if (method !== "PATCH") return json(seenBy("g2", {}));
+      patches.push(JSON.parse(String(init.body)));
+      return patches.length === 1 ? json({ error: { code: "wording_changed", message: "New wording arrived." } }, 409) : json({ rev: 2, issues: NO_ISSUES });
+    }, seenBy("g1", { hidden: ["gallery"] }));
+    act(() => site().update((current) => ({ edits: { ...current.edits, copy: { ctaText: "Mine" } } })));
+    await act(async () => {
+      await site().flush();
+    });
+
+    expect(patches).toHaveLength(2);
+    expect(patches[0]?.edits).toMatchObject({ baseGenerationId: "g1", copy: { ctaText: "Mine" } });
+    expect(patches[1]).toMatchObject({ rev: 1, edits: { baseGenerationId: "g2", copy: {}, order: null, hidden: ["gallery"] } });
+    expect(site().saver).toMatchObject({ status: "saved", rev: 2, wordingDropped: true });
+    await unmount();
+  });
+
+  it("does not send wording left over from an older AI draft with a hidden or look change", async () => {
+    const patches: Array<{ edits: Record<string, unknown> }> = [];
+    const stale = { ...seenBy("g2", { hidden: [] }), edits: { baseGenerationId: "g1", copy: { ctaText: "Old" }, order: null, hidden: [], theme: null } } as unknown as SiteView;
+    const { site, unmount } = await mount((_method, init) => {
+      patches.push(JSON.parse(String(init.body)));
+      return json({ rev: 2, issues: NO_ISSUES });
+    }, stale);
+    act(() => site().update((current) => ({ edits: { ...current.edits, hidden: ["gallery"] } })));
+    await act(async () => {
+      await site().flush();
+    });
+
+    expect(patches).toHaveLength(1);
+    expect(patches[0]?.edits).toEqual({ baseGenerationId: "g2", copy: {}, order: null, hidden: ["gallery"], theme: null });
+    expect(site().saver).toMatchObject({ status: "saved" });
+    expect(site().saver.wordingDropped).toBeUndefined();
     await unmount();
   });
 });

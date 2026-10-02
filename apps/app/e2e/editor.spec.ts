@@ -658,3 +658,66 @@ test("new wording keeps the look the server pinned for an owner who chose none",
   await page.getByRole("tab", { name: "Look" }).click();
   await expect(page.locator("#design-impact")).toBeChecked();
 });
+
+// STRICT (customer data): the edit-binding guard. Wording is bound to the AI draft it was written on; the server refuses a wording
+// change on any other (409 wording_changed), so the editor never says "All changes saved." for a change that would be dropped.
+const WORDING_DROPPED = "New wording arrived, so your last wording change wasn't applied. Make it again on the new wording if you still want it.";
+
+test("a wording change in a tab that missed new wording is refused, said so, and never stored", async ({ page, browser }) => {
+  const siteId = await builtSite(page);
+  const rev = (await siteView(page, siteId))["rev"] as number;
+  expect((await apiCall(page, "PATCH", `/api/sites/${siteId}/draft`, { rev, facts: { ...FACTS, trade: "roofing" } })).status).toBe(200);
+  const first = ((await siteView(page, siteId))["ai"] as { generationId: string }).generationId;
+  await page.goto(`/sites/${siteId}/edit`);
+  await expect(headlineField(page)).toHaveValue("Plumbing done right");
+
+  // Tab B: the same owner in another browser context writes new wording, and it lands.
+  const other = await browser.newContext({ baseURL: APP, ignoreHTTPSErrors: true, storageState: await page.context().storageState() });
+  const tabB = await other.newPage();
+  await tabB.goto(`/sites/${siteId}/edit`);
+  await expect(headlineField(tabB)).toHaveValue("Plumbing done right");
+  const id = await askNewWording(tabB, siteId);
+  await finishGeneration(tabB.request, id);
+  await expect(tabB.getByText("New wording is ready.")).toBeVisible({ timeout: 15_000 });
+  await other.close();
+  const second = ((await siteView(page, siteId))["ai"] as { generationId: string }).generationId;
+  expect(second).not.toBe(first);
+
+  // Tab A still shows the first wording. Its owner changes the headline.
+  await headlineField(page).fill("My own headline");
+  await expect(page.getByRole("status").filter({ hasText: WORDING_DROPPED })).toBeVisible();
+  await expect(savedStatus(page)).toHaveCount(0);
+  // The server kept nothing built on the old wording, and tab A now shows the new wording.
+  const stored = (await siteView(page, siteId))["edits"] as { baseGenerationId: string | null; copy: object };
+  expect(stored.baseGenerationId).not.toBe(first);
+  expect(stored.copy).toEqual({});
+  await expect(headlineField(page)).toHaveValue("Roofing done right");
+
+  // Making the change again on the new wording works and is saved as such.
+  await headlineField(page).fill("My own headline");
+  await expect(savedStatus(page)).toBeVisible();
+  const again = (await siteView(page, siteId))["edits"] as { baseGenerationId: string | null; copy: { heroHeadline?: string } };
+  expect(again.baseGenerationId).toBe(second);
+  expect(again.copy.heroHeadline).toBe("My own headline");
+});
+
+test("an editor opened while new wording is being written follows it, and the next change lands on the new wording", async ({ page }) => {
+  const siteId = await openEditor(page);
+  const first = ((await siteView(page, siteId))["ai"] as { generationId: string }).generationId;
+  const id = await askNewWording(page, siteId);
+  await page.reload();
+  await expect(page.getByRole("heading", { level: 1, name: "Edit your website" })).toBeFocused();
+  await expect(page.getByRole("status").filter({ hasText: "Writing new wording…" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Write new wording" })).toBeDisabled();
+
+  await finishGeneration(page.request, id);
+  await expect(page.getByText("New wording is ready.")).toBeVisible({ timeout: 15_000 });
+  const second = ((await siteView(page, siteId))["ai"] as { generationId: string }).generationId;
+  expect(second).not.toBe(first);
+
+  await headlineField(page).fill("My own headline");
+  await expect(savedStatus(page)).toBeVisible();
+  const stored = (await siteView(page, siteId))["edits"] as { baseGenerationId: string | null; copy: { heroHeadline?: string } };
+  expect(stored.baseGenerationId).toBe(second);
+  expect(stored.copy.heroHeadline).toBe("My own headline");
+});

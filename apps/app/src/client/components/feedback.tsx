@@ -45,11 +45,16 @@ export function ErrorSummary({ items, focusSignal }: { items: readonly SummaryIt
   );
 }
 
+/** Said instead of "All changes saved." when the save kept the owner's other changes but not their wording change. */
+export const WORDING_DROPPED = "New wording arrived, so your last wording change wasn't applied. Make it again on the new wording if you still want it.";
+
 /** Autosave status. Only settled states are announced, so typing does not flood screen readers. */
 export function SaveStatus({ state, onRetry, onReload }: { state: SaverState; onRetry: () => void; onReload: () => void }) {
   const announce =
     state.status === "saved"
-      ? "All changes saved."
+      ? state.wordingDropped === true
+        ? WORDING_DROPPED
+        : "All changes saved."
       : state.status === "error"
         ? `Your changes are not saved yet. ${state.message ?? ""}`
         : state.status === "conflict"
@@ -57,7 +62,7 @@ export function SaveStatus({ state, onRetry, onReload }: { state: SaverState; on
           : "";
   return (
     <div className="flex flex-wrap items-center gap-3 text-sm">
-      <p role="status" className={state.status === "error" || state.status === "conflict" ? "font-medium text-red-700" : "text-slate-700"}>
+      <p role="status" className={state.status === "error" || state.status === "conflict" ? "font-medium text-red-700" : state.wordingDropped === true ? "font-medium text-slate-900" : "text-slate-700"}>
         {announce}
       </p>
       {state.status === "pending" || state.status === "saving" ? (

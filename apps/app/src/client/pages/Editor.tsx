@@ -38,6 +38,7 @@ const TABS: ReadonlyArray<{ id: EditorTab; label: string }> = [
 ];
 
 const AI_NOT_LOADED = "The new wording is ready, but we couldn't load it. Reload the page to see it.";
+const REWRITING = "Writing new wording…";
 const NOT_SAVED = "Your latest changes are not saved yet. Please try again in a moment.";
 
 export function Editor({ siteId }: { siteId: string }) {
@@ -61,8 +62,9 @@ function EditorScreen(props: { siteId: string; site: SiteState; view: SiteView; 
   const [detailsStep, setDetailsStep] = useState<StepId>("business");
   const [pane, setPane] = useState<"edit" | "preview">("edit");
   const [confirming, setConfirming] = useState(false);
-  const [rewriteId, setRewriteId] = useState<string | null>(null);
-  const [rewriteMessage, setRewriteMessage] = useState("");
+  // A rewrite already running when the editor mounts (a reload, a return from Messages, another tab) is followed like one started here.
+  const [rewriteId, setRewriteId] = useState<string | null>(() => (view.activeGeneration?.kind === "regenerate" ? view.activeGeneration.id : null));
+  const [rewriteMessage, setRewriteMessage] = useState(rewriteId === null ? "" : REWRITING);
   // Until the AI's wording is fresh, wording and order stay read-only: an edit built on the old wording is ignored by the server.
   const [aiState, setAiState] = useState<"fresh" | "refreshing" | "unloaded">("fresh");
   const copyLocked = aiState !== "fresh";
@@ -125,7 +127,7 @@ function EditorScreen(props: { siteId: string; site: SiteState; view: SiteView; 
 
   async function rewrite() {
     setConfirming(false);
-    setRewriteMessage("Writing new wording…");
+    setRewriteMessage(REWRITING);
     // The dialog gives focus back to the button that opened it as it closes; the result is announced here, so focus goes to it.
     requestAnimationFrame(() => rewriteStatus.current?.focus());
     const res = await api<{ generation: GenerationView }>("POST", `/api/sites/${siteId}/generations`, {});

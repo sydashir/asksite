@@ -14,7 +14,7 @@ export interface DraftPatch {
 export type SaveStatus = "idle" | "pending" | "saving" | "saved" | "error" | "conflict";
 
 export type SaveResult =
-  | { ok: true; rev: number; issues: SiteView["issues"] }
+  | { ok: true; rev: number; issues: SiteView["issues"]; wordingDropped?: true }
   | { ok: false; conflict: boolean; message: string };
 
 export interface SaverState {
@@ -22,6 +22,8 @@ export interface SaverState {
   rev: number;
   issues?: SiteView["issues"];
   message?: string;
+  /** This save applied, but the wording or order change in it did not: new wording had arrived (the server's wording_changed). */
+  wordingDropped?: true;
 }
 
 /**
@@ -91,7 +93,12 @@ export class AutoSaver {
       const result = await this.sendSafely(patch);
       if (result.ok) {
         this.rev = result.rev;
-        this.update({ status: Object.keys(this.pending).length > 0 ? "saving" : "saved", rev: this.rev, issues: result.issues });
+        this.update({
+          status: Object.keys(this.pending).length > 0 ? "saving" : "saved",
+          rev: this.rev,
+          issues: result.issues,
+          ...(result.wordingDropped === true ? { wordingDropped: true as const } : {}),
+        });
         continue;
       }
       // Keep the unsaved values; anything typed meanwhile is newer and wins.
