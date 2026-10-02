@@ -9,7 +9,7 @@ import { usePageHeading } from "../../../../app/src/client/hooks/use-page-headin
 import { onLinkClick } from "../../../../app/src/client/hooks/use-route.ts";
 import { api } from "../../../../app/src/client/lib/api.ts";
 import { useResource } from "../hooks.ts";
-import { COPIED_AGAIN } from "../../messages.ts";
+import { COPIED_AGAIN, TAKEDOWN_LEASE_LOST } from "../../messages.ts";
 import type { TakedownView } from "../../settings-view.ts";
 import { CapNote } from "../CapNote.tsx";
 import { dollars, restoredText, takedownResult, when, type TakedownResult } from "../lib/format.ts";
@@ -84,14 +84,15 @@ function SiteScreen({ data, reload }: { data: SiteDetailData; reload: () => Prom
 
   /** Takes the site down, or finishes a takedown that left its clean-up undone (the same call again; it never emails twice). */
   async function takeDown(body: TakedownBody, previous: TakedownResult | null) {
-    const res = await api<TakedownView>("POST", `/api/admin/sites/${site.id}/takedown`, body);
+    // After a lost lease the call that lost it never sent the owner's notice: Finish says so (notice=due), and this call sends it.
+    const res = await api<TakedownView>("POST", `/api/admin/sites/${site.id}/takedown${previous?.noticeDue === true ? "?notice=due" : ""}`, body);
     if (!res.ok) {
       // A 500 can come after the takedown committed: say so rather than a plain error, and let the reload show the truth. Keep the
       // body: if the reload shows the site down, "Finish the takedown" re-sends it. The owner notice is the route's last step and never
       // throws, so a call that answered 5xx sent none itself: keep the earlier result's owner-notice state, and with no earlier result
       // (this call may be the one that took the site down) mark the owner as not emailed.
       if (res.status >= 500) {
-        setTakedown({ body, result: { tone: "warning", text: "", cleanupFailed: true, ownerNotEmailed: previous?.ownerNotEmailed ?? true } });
+        setTakedown({ body, result: { tone: "warning", text: "", cleanupFailed: true, ownerNotEmailed: previous?.ownerNotEmailed ?? true, ...(previous?.noticeDue === true ? { noticeDue: true } : {}) } });
         // Wait for the reload, so the text below is chosen from the site's real state, not the one from before the takedown.
         await reload();
         setMessage(null);
@@ -101,6 +102,9 @@ function SiteScreen({ data, reload }: { data: SiteDetailData; reload: () => Prom
         return;
       }
       show({ tone: "error", text: res.error.message });
+      // A lost lease (409, no Retry-After): the takedown may have committed. If the reload shows the site down, Finish the takedown finishes
+      // it and tells the owner; the owner was not told by this call.
+      if (res.error.message === TAKEDOWN_LEASE_LOST) setTakedown({ body, result: { tone: "warning", text: "", cleanupFailed: true, ownerNotEmailed: false, noticeDue: true } });
     } else {
       const result = takedownResult(res.data, previous);
       setTakedown({ body, result });

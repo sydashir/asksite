@@ -267,7 +267,9 @@ test("Approve loses its lease after the approval committed: the site is live in 
   await page.goto(`/reviews/${site.versionId}`);
   await showEveryPage(page);
   await page.getByRole("button", { name: "Approve and publish" }).click();
-  await expect(page.getByText("This action ran too long and was stopped before it finished. Reload to see where the site stands now, then try again.")).toBeVisible();
+  await expect(page.getByText("This approval ran too long and was stopped before it finished. Press Approve again to finish it and tell the owner.")).toBeVisible();
+  // The reload after the answer shows the version as approved: wait for it, so the check below sees the settled page, not the one from before.
+  await expect(page.getByText(/status approved/)).toBeVisible();
   await expect(page.getByRole("button", { name: "Approve and publish" })).toHaveAttribute("aria-disabled", "false"); // Approve stays after a lost lease
   expect((await live()).pointerVersionId).toBeNull(); // the visitor's site is broken: pages copied, no pointer
   await page.goto(`/sites/${site.siteId}`); // the admin reloads
@@ -501,6 +503,27 @@ test("a takedown that errors AFTER the site went down offers Finish the takedown
   await expect(page.getByRole("button", { name: "Finish the takedown" })).toHaveCount(0);
   expect(bodies).toHaveLength(2);
   expect(bodies[1]).toEqual(bodies[0]);
+});
+
+// m6: a takedown's lease can run out after its commit. The text says so; Finish the takedown tells the owner (once) and finishes the clean-up.
+test("a takedown that loses its lease after the commit says so, and Finish the takedown tells the owner once and clears the pages", async ({ page }) => {
+  const site = await liveSite(page);
+  const notices = async () => ((await (await page.request.get(`${ADMIN}/__test/outbox?to=${encodeURIComponent(site.email)}`)).json()) as Array<{ tag: string }>).filter((m) => m.tag === "site_notice").length;
+  const urls: string[] = [];
+  await page.route("**/api/admin/sites/*/takedown*", (route, request) => {
+    urls.push(request.url());
+    return urls.length === 1 ? route.continue({ headers: { ...request.headers(), "x-test-takedown-fault": "lease-lost-after-batch" } }) : route.continue();
+  });
+  await takeDown(page, site.siteId);
+  await expect(page.getByText("This takedown ran too long and was stopped before it finished. Reload; if the site shows as taken down, press Finish the takedown.")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Restore the site" })).toBeVisible(); // the reload shows it down
+  expect(await notices()).toBe(0);
+  await page.getByRole("button", { name: "Finish the takedown" }).click();
+  await expect(page.getByText("Clean-up finished.", { exact: false })).toBeVisible();
+  await expect(page.locator("body")).not.toContainText("Owner not emailed");
+  await expect(page.getByRole("button", { name: "Finish the takedown" })).toHaveCount(0);
+  expect(await notices()).toBe(1);
+  expect(urls[1]).toContain("notice=due");
 });
 
 test("a Finish that fails after an emailed takedown never claims the owner was not emailed", async ({ page }) => {

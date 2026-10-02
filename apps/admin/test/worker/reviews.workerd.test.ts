@@ -250,7 +250,7 @@ describe("review", () => {
     expect(lost.status).toBe(409);
     expect(lost.headers.get("Retry-After")).toBeNull();
     expect(await json<ErrorJson>(lost)).toEqual({
-      error: { code: "conflict", message: "This action ran too long and was stopped before it finished. Reload to see where the site stands now, then try again." },
+      error: { code: "conflict", message: "This approval ran too long and was stopped before it finished. Press Approve again to finish it and tell the owner." },
     });
     const db = await h.db();
     expect(await db.prepare("SELECT status FROM site_versions WHERE id = ?").bind(site.versionId).first()).toEqual({ status: "approved" });

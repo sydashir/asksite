@@ -23,8 +23,8 @@ type QueueRow = AdminSiteColumns & {
 export function reviewRoutes(deps: AdminDeps): Hono<AdminEnv> {
   const reviews = new Hono<AdminEnv>();
 
-  const publishError = (err: unknown): ApiError | null =>
-    err instanceof deps.publishing.PublishError ? publishApiError((err as PublishErrorLike).code, "review", (err as PublishErrorLike).detail) : null;
+  const publishError = (err: unknown, action: "approve" | "review"): ApiError | null =>
+    err instanceof deps.publishing.PublishError ? publishApiError((err as PublishErrorLike).code, action, (err as PublishErrorLike).detail) : null;
 
   /**
    * The owner email's mailer and APP_ORIGIN, checked before approve or reject changes anything, so a configuration
@@ -102,7 +102,7 @@ export function reviewRoutes(deps: AdminDeps): Hono<AdminEnv> {
         }),
       );
     } catch (err) {
-      throw publishError(err) ?? err;
+      throw publishError(err, "approve") ?? err;
     }
     const { siteId, liveUrl } = result;
     const email = ownerEmailOrSkip(() => reviewApprovedEmail({ appOrigin, liveUrl }), { reason: "invalid_live_url", versionId: version.id, siteId });
@@ -118,7 +118,7 @@ export function reviewRoutes(deps: AdminDeps): Hono<AdminEnv> {
     try {
       result = await deps.publishing.rejectVersion(c.env, { versionId: version.id, reviewer: c.get("admin"), note, now: Date.now() });
     } catch (err) {
-      throw publishError(err) ?? err;
+      throw publishError(err, "review") ?? err;
     }
     const { siteId } = result;
     const email = ownerEmailOrSkip(() => reviewRejectedEmail({ appOrigin, note }), { reason: "email_build_failed", versionId: version.id, siteId });

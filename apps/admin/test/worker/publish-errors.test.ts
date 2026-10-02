@@ -35,6 +35,20 @@ describe("publishApiError", () => {
       expect(error?.extra).toEqual({});
     });
 
+    it("a lost lease on APPROVE says to press Approve again (the approval may have committed), and on a TAKEDOWN says to finish it; both with no Retry-After", () => {
+      const approve = publishApiError("site_busy", "approve", { reason: "lease_lost" });
+      expect(approve).toMatchObject({ code: "conflict", message: "This approval ran too long and was stopped before it finished. Press Approve again to finish it and tell the owner." });
+      expect(approve?.extra).toEqual({});
+      const takedown = publishApiError("site_busy", "takedown", { reason: "lease_lost" });
+      expect(takedown).toMatchObject({
+        code: "conflict",
+        message: "This takedown ran too long and was stopped before it finished. Reload; if the site shows as taken down, press Finish the takedown.",
+      });
+      expect(takedown?.extra).toEqual({});
+      // A held site (retryAfter) is the busy text for every action: nothing ran.
+      expect(publishApiError("site_busy", "takedown", { retryAfter: 5 })).toMatchObject({ message: "Another admin action on this site is still running. Try again in a minute.", extra: { retryAfter: 5 } });
+    });
+
     it("a taken-down-again restore says so; a site_taken_down without that reason keeps the plain text", () => {
       expect(publishApiError("site_taken_down", "restore", { reason: "taken_down_again" })).toMatchObject({
         code: "site_taken_down",

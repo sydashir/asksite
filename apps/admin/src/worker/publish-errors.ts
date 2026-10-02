@@ -1,5 +1,5 @@
 import { ApiError } from "@asksite/app-common";
-import { APPROVE_LIVE_COPY_FAILED, COPY_LIVE_COPY_FAILED, LEASE_LOST, RESTORE_LIVE_COPY_FAILED, SITE_BUSY, TAKEN_DOWN_AGAIN } from "../messages.ts";
+import { APPROVE_LEASE_LOST, APPROVE_LIVE_COPY_FAILED, COPY_LIVE_COPY_FAILED, LEASE_LOST, RESTORE_LIVE_COPY_FAILED, SITE_BUSY, TAKEDOWN_LEASE_LOST, TAKEN_DOWN_AGAIN } from "../messages.ts";
 
 /** Plan 2's codes: design §7.2 plus `publish_cap_reached` (its decision 25), `site_not_found` (decision 28), `live_copy_failed` (A16) and `site_busy` (A16-4c). */
 export type PublishErrorCode =
@@ -14,8 +14,8 @@ export type PublishErrorCode =
   | "live_copy_failed"
   | "site_busy";
 
-/** Which admin action failed: the wording of several failures depends on it. */
-export type PublishAction = "review" | "restore" | "copy" | "change";
+/** Which admin action failed: the wording of several failures depends on it ("review" is Reject; Approve and the takedown have their own). */
+export type PublishAction = "review" | "approve" | "restore" | "copy" | "change" | "takedown";
 
 const detailField = (detail: unknown, name: string): unknown => (typeof detail === "object" && detail !== null ? (detail as Record<string, unknown>)[name] : undefined);
 
@@ -47,7 +47,8 @@ export function publishApiError(code: PublishErrorCode, action: PublishAction, d
       return new ApiError("internal", APPROVE_LIVE_COPY_FAILED);
     case "site_busy": {
       // lease_lost has no retryAfter and answers no Retry-After header: waiting would not help, a reload shows where the site stands.
-      if (detailField(detail, "reason") === "lease_lost") return new ApiError("conflict", LEASE_LOST);
+      // The wording depends on what may already have happened: an approval or a takedown may have committed before the lease ran out.
+      if (detailField(detail, "reason") === "lease_lost") return new ApiError("conflict", action === "approve" ? APPROVE_LEASE_LOST : action === "takedown" ? TAKEDOWN_LEASE_LOST : LEASE_LOST);
       const retryAfter = detailField(detail, "retryAfter");
       return new ApiError("conflict", SITE_BUSY, typeof retryAfter === "number" && Number.isInteger(retryAfter) && retryAfter > 0 ? { retryAfter } : {});
     }

@@ -104,6 +104,12 @@ helpers.get("/__test/live/:slug", async (c) => {
   return c.json({ pointerVersionId: versionId, homeStored: home !== null });
 });
 
+/** The mails the dev outbox holds for an address (the fake mailer writes there), as tags: lets an e2e count the owner's notices. */
+helpers.get("/__test/outbox", async (c) => {
+  const { results } = await c.env.DB.prepare("SELECT tag FROM dev_outbox WHERE to_addr = ?").bind(c.req.query("to") ?? "").all<{ tag: string }>();
+  return c.json(results);
+});
+
 // The Worker's types declare no `process` (tsconfig.worker.json has no Node types), so the probe below
 // declares it for this file only; the bundler erases the declaration and the name is looked up in the runtime.
 declare const process: unknown;
@@ -174,6 +180,15 @@ function disablingBeforeTokenInsert(db: D1Database, ownerId: string): D1Database
 /** The faults a request can be given (header X-Test-Takedown-Fault), each thrown as a plain Error, never a PublishError. */
 type TakedownFault = "pointer-delete" | "before-commit" | "prefix-delete" | "prefix-delete-once" | "prefix-delete-reread" | "pointer-write" | "lease-lost-after-batch";
 
+/** The site an admin request acts on: /sites/<id>/... names it, /versions/<id>/... names a version whose site is looked up. null: neither. */
+async function requestSiteId(db: D1Database, path: string): Promise<string | null> {
+  const site = /\/sites\/([^/]+)\//.exec(path)?.[1];
+  if (site !== undefined) return site;
+  const version = /\/versions\/([^/]+)\//.exec(path)?.[1];
+  if (version === undefined) return null;
+  return (await db.prepare("SELECT site_id FROM site_versions WHERE id = ?").bind(version).first<{ site_id: string }>())?.site_id ?? null;
+}
+
 /**
  * Faults at the real failure points of Plan 2's takeDown order (pointer delete, D1 batch, prefix delete) and of approve's
  * pointer write. "pointer-delete" fails every LIVE.delete of a single key (the pointer: step 1, before anything changed in D1);
@@ -181,11 +196,12 @@ type TakedownFault = "pointer-delete" | "before-commit" | "prefix-delete" | "pre
  * LIVE.delete of a list of keys (the prefix delete, which runs AFTER the D1 batch committed); "prefix-delete-once" fails only
  * the first of them (the route's retry succeeds); "prefix-delete-reread" is "prefix-delete" and also fails the route's re-read
  * of taken_down_at; "pointer-write" fails the LIVE.put of a pointer (a key with no "/"), which approve reports as live_copy_failed.
- * "lease-lost-after-batch" runs the D1 batch and then frees the site's admin lease, as an action that ran past its lease would find it
- * (approve then answers lease_lost with the approval committed and no pointer written).
+ * "lease-lost-after-batch" runs the D1 batch and then frees the admin lease of the site the request acts on (and only that site), as an
+ * action that ran past its lease would find it (approve then answers lease_lost with the approval committed and no pointer written; a
+ * takedown, with the takedown committed and its LIVE clean-up not done).
  * Every other call passes through.
  */
-function withFault(env: TestEnv, fault: TakedownFault): TestEnv {
+function withFault(env: TestEnv, fault: TakedownFault, path: string): TestEnv {
   const passThrough = <T extends object>(target: T, key: string | symbol): unknown => {
     const value: unknown = Reflect.get(target, key);
     return typeof value === "function" ? value.bind(target) : value;
@@ -213,7 +229,9 @@ function withFault(env: TestEnv, fault: TakedownFault): TestEnv {
       if (key === "batch" && fault === "lease-lost-after-batch") {
         return async (statements: D1PreparedStatement[]) => {
           const results = await target.batch(statements);
-          await target.prepare("UPDATE sites SET admin_lock = NULL, admin_lock_until = NULL").run();
+          // Only the site the request acts on (an approve names a version, the others a site): another site's lease must stay held.
+          const siteId = await requestSiteId(target, path);
+          await target.prepare("UPDATE sites SET admin_lock = NULL, admin_lock_until = NULL WHERE id = ?").bind(siteId).run();
           return results;
         };
       }
@@ -237,7 +255,7 @@ export default {
     // X-Test-Disable-Owner-Before-Token: <owner id> runs the race seam above for this request only.
     const raced = local ? request.headers.get("X-Test-Disable-Owner-Before-Token") : null;
     const fault = local ? (request.headers.get("X-Test-Takedown-Fault") as TakedownFault | null) : null;
-    const requestEnv = raced !== null ? { ...env, DB: disablingBeforeTokenInsert(env.DB, raced) } : fault !== null ? withFault(env, fault) : env;
+    const requestEnv = raced !== null ? { ...env, DB: disablingBeforeTokenInsert(env.DB, raced) } : fault !== null ? withFault(env, fault, path) : env;
     // X-Test-Now pins Date.now() while the Worker handles this request (./clock.ts).
     const handler = local && request.headers.has("X-Test-Unsafe-Live-Url") ? unsafeUrlWorker : worker;
     return withClock(request, local, async () => handler.fetch!(request, requestEnv, counting(ctx, path)));

@@ -7,7 +7,7 @@ import { PagePreview } from "../../../../app/src/client/components/page-preview.
 import { usePageHeading } from "../../../../app/src/client/hooks/use-page-heading.ts";
 import { onLinkClick } from "../../../../app/src/client/hooks/use-route.ts";
 import { api } from "../../../../app/src/client/lib/api.ts";
-import { APPROVE_LIVE_COPY_FAILED, COPIED_AGAIN, COPY_LIVE_COPY_FAILED, LEASE_LOST } from "../../messages.ts";
+import { APPROVE_LEASE_LOST, APPROVE_LIVE_COPY_FAILED, COPIED_AGAIN, COPY_LIVE_COPY_FAILED } from "../../messages.ts";
 import { useResource, useVerifiedPages } from "../hooks.ts";
 import { flatten, textChanges } from "../lib/diff.ts";
 import { FLAG_REASON, when } from "../lib/format.ts";
@@ -99,7 +99,7 @@ function ReviewScreen({ detail, onDone }: { detail: AdminVersionDetail; onDone: 
     if (!canApprove) return;
     const res = await api<{ liveUrl: string }>("POST", `/api/admin/versions/${version.id}/approve`, { htmlSha256: version.htmlSha256, note: approveNote.trim(), indexable });
     // After a lost lease (409, no Retry-After) the approval may have been committed too: keep Approve so it can be pressed again.
-    setApproveFailed(!res.ok && (res.status >= 500 || res.error.message === LEASE_LOST));
+    setApproveFailed(!res.ok && (res.status >= 500 || res.error.message === APPROVE_LEASE_LOST));
     if (res.ok) showResult({ tone: "success", text: "Approved. We'll email the owner. The site goes live within about a minute:", href: res.data.liveUrl });
     else showResult({ tone: "error", text: res.error.message, copyAgain: res.error.message === APPROVE_LIVE_COPY_FAILED });
     onDone();

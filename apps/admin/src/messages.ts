@@ -10,6 +10,10 @@ export const RESTORE_LIVE_COPY_FAILED = "The site is still offline: its pages co
 export const COPY_LIVE_COPY_FAILED = "The pages could not be copied again. Press Copy the live pages again.";
 /** An action ran past its lease and was fenced out (site_busy, reason lease_lost): no Retry-After, reload and look. */
 export const LEASE_LOST = "This action ran too long and was stopped before it finished. Reload to see where the site stands now, then try again.";
+/** Approve ran past its lease: the approval may have committed (the live copy is its last step), so pressing Approve again finishes it and emails the owner. */
+export const APPROVE_LEASE_LOST = "This approval ran too long and was stopped before it finished. Press Approve again to finish it and tell the owner.";
+/** A takedown ran past its lease: it may have committed (its clean-up and the owner notice come after), so Finish the takedown completes it. */
+export const TAKEDOWN_LEASE_LOST = "This takedown ran too long and was stopped before it finished. Reload; if the site shows as taken down, press Finish the takedown.";
 /** Another admin action holds the site (site_busy with retryAfter). */
 export const SITE_BUSY = "Another admin action on this site is still running. Try again in a minute.";
 /** Restore found a different takedown than the one the page showed (site_taken_down, reason taken_down_again). */

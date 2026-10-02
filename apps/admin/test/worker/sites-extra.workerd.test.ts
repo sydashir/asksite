@@ -242,6 +242,72 @@ describe("the takedown clean-up retry and the single notice (web-maker-f4, 2026-
   });
 });
 
+// A16-4c, 23-A16 round 2 (m6): a takedown's lease can run out AFTER its D1 commit (the real takeDown asserts the lease before its second
+// pointer delete and before the prefix delete), so a lease_lost answer means "the takedown may have committed". The owner is not told by
+// that call; "Finish the takedown" (the same call again, with notice=due) tells the owner once and finishes the clean-up.
+describe("a takedown that loses its lease after the commit (23-A16 f2, m6)", () => {
+  const takedown = (siteId: string) => `/api/admin/sites/${siteId}/takedown`;
+  const notices = async (email: string) => (await h.outbox(email)).filter((m) => m.tag === "site_notice");
+  const downAt = async (siteId: string) =>
+    (await (await h.db()).prepare("SELECT taken_down_at FROM sites WHERE id = ?").bind(siteId).first<{ taken_down_at: number | null }>())?.taken_down_at;
+
+  it("answers the takedown lease-lost text (409, no Retry-After), leaves the site down with its pages and sends no notice; Finish sends the notice once and clears the pages", async () => {
+    const site = await liveSite();
+    const lost = await h.call("POST", takedown(site.siteId), { body: { reason: "Spam report" }, headers: { "X-Test-Takedown-Fault": "lease-lost-after-batch" } });
+    expect(lost.status).toBe(409);
+    expect(lost.headers.get("Retry-After")).toBeNull();
+    expect(await json<{ error: { code: string; message: string } }>(lost)).toEqual({
+      error: { code: "conflict", message: "This takedown ran too long and was stopped before it finished. Reload; if the site shows as taken down, press Finish the takedown." },
+    });
+    // The commit stood: down in D1, the pointer already gone, the pages still in LIVE, and the owner not told.
+    expect(await downAt(site.siteId)).not.toBeNull();
+    const left = await h.liveKeys(site.slug);
+    expect(left.length).toBeGreaterThan(0);
+    expect(left).not.toContain(livePointerKey(site.slug));
+    expect(await notices(site.email)).toHaveLength(0);
+    await h.backgroundDone(takedown(site.siteId));
+
+    const finished = await h.call("POST", `${takedown(site.siteId)}?notice=due`, { body: { reason: "Spam report" } });
+    expect(finished.status).toBe(200);
+    expect(await finished.json()).toEqual({ noticeSent: true });
+    expect(await notices(site.email)).toHaveLength(1);
+    expect(await h.liveKeys(site.slug)).toEqual([]);
+    await h.backgroundDone(takedown(site.siteId));
+
+    // A plain re-run (no notice due) tells nobody.
+    expect(await (await h.call("POST", takedown(site.siteId), { body: { reason: "Spam report" } })).json()).toEqual({ noticeSent: null });
+    expect(await notices(site.email)).toHaveLength(1);
+    await h.backgroundDone(takedown(site.siteId));
+  });
+
+  it("a takedown on a site another admin action holds is 409 with Retry-After and the busy text, and changes nothing", async () => {
+    const site = await liveSite();
+    const db = await h.db();
+    await db.prepare("UPDATE sites SET admin_lock = 'someone-else', admin_lock_until = ? WHERE id = ?").bind(Date.now() + 60_000, site.siteId).run();
+    const before = await h.liveKeys(site.slug);
+    const res = await h.call("POST", takedown(site.siteId), { body: { reason: "Spam report" } });
+    expect(res.status).toBe(409);
+    expect(Number(res.headers.get("Retry-After"))).toBeGreaterThan(0);
+    expect(await json<{ error: { message: string } }>(res)).toMatchObject({ error: { message: "Another admin action on this site is still running. Try again in a minute." } });
+    expect(await downAt(site.siteId)).toBeNull();
+    expect(await h.liveKeys(site.slug)).toEqual(before);
+    expect(await notices(site.email)).toHaveLength(0);
+    expect((await db.prepare("SELECT admin_lock FROM sites WHERE id = ?").bind(site.siteId).first<{ admin_lock: string }>())?.admin_lock).toBe("someone-else");
+    await h.backgroundDone(takedown(site.siteId));
+  });
+
+  it("the lease-lost fault frees only the site the request acts on: another site's lease is still held afterwards", async () => {
+    const site = await liveSite();
+    const other = await h.pendingSite();
+    const db = await h.db();
+    await db.prepare("UPDATE sites SET admin_lock = 'other-action', admin_lock_until = ? WHERE id = ?").bind(Date.now() + 60_000, other.siteId).run();
+    const lost = await h.call("POST", takedown(site.siteId), { body: { reason: "Spam report" }, headers: { "X-Test-Takedown-Fault": "lease-lost-after-batch" } });
+    expect(lost.status).toBe(409);
+    expect((await db.prepare("SELECT admin_lock FROM sites WHERE id = ?").bind(other.siteId).first<{ admin_lock: string }>())?.admin_lock).toBe("other-action");
+    await h.backgroundDone(takedown(site.siteId));
+  });
+});
+
 describe("the takedown audit rows (web-maker-f4, 2026-09-30: a re-run is recorded by the route; the fake mirrors Plan 2)", () => {
   const takedown = (siteId: string) => `/api/admin/sites/${siteId}/takedown`;
   type Row = { actor: string; detail: Record<string, unknown> };
@@ -426,6 +492,15 @@ describe("A16-4c: Restore sends the takedown it showed, and Copy the live pages 
     expect(shown).not.toBeNull();
     expect(await h.liveKeys(site.slug)).toEqual([]);
     expect(await audits(site.siteId)).toEqual(audited);
+    await h.backgroundDone(takedown(site.siteId));
+  });
+
+  it("Copy the live pages again checks taken-down BEFORE not-live, as the real one does: a taken-down site that was never live is told it is taken down", async () => {
+    const site = await h.pendingSite();
+    await h.call("POST", takedown(site.siteId), { body: { reason: "Spam report" } });
+    const res = await h.call("POST", copyAgain(site.siteId), { body: {} });
+    expect(res.status).toBe(409);
+    expect(await json<{ error: { message: string } }>(res)).toMatchObject({ error: { message: "This site is taken down, so there is nothing to copy. Reload to see where it stands now." } });
     await h.backgroundDone(takedown(site.siteId));
   });
 
