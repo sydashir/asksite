@@ -198,12 +198,12 @@ describe("page routing on a site host", () => {
       expect({ heads: heads.length, gets: gets.length, d1 }).toEqual({ heads: 1, gets: 0, d1: [] });
     });
 
-    it("a missing optional page is one head and one get, and no D1", async () => {
+    it("a missing optional page is one get, the pointer read twice (A16-4c: once more when the page is gone), and no D1", async () => {
       const { heads, gets, d1, env: siteEnv } = recording(POINTER, { [livePageKey(slug, VERSION, "home")]: "<p>home</p>" });
       const response = await request(siteEnv, "/gallery");
       expect(response.status).toBe(404);
       expect(await response.text()).toContain("Go to Joe's Plumbing's page");
-      expect({ heads: heads.length, gets, d1 }).toEqual({ heads: 1, gets: [livePageKey(slug, VERSION, "gallery")], d1: [] });
+      expect({ heads: heads.length, gets, d1 }).toEqual({ heads: 2, gets: [livePageKey(slug, VERSION, "gallery")], d1: [] });
     });
 
     it("a missing Home page behind a pointer is a 503, with no D1", async () => {
@@ -227,6 +227,69 @@ describe("page routing on a site host", () => {
       expect((await request(siteEnv, "/services")).status).toBe(200);
       expect((await request(siteEnv, "/services", "HEAD")).status).toBe(200);
       expect(d1).toHaveLength(1);
+    });
+  });
+
+  // A16-4c: an approval switches the pointer, then deletes the replaced version's pages. A view that read the old pointer
+  // meets its page gone; it reads the pointer once more and serves the version that names now.
+  describe("a page that vanished under the pointer it read", () => {
+    const NEXT = "1b2c3d4e-5f60-4a7b-8c8d-9e0fa1b2c3d4";
+    /** LIVE whose pointer names VERSION until the first page get, which first switches it to `to` and removes VERSION's pages. */
+    function switching(to: Record<string, string> | null, d1: Record<string, unknown> | null = { indexable: 1, live_version_id: NEXT }) {
+      let pointer: Record<string, string> | null = POINTER;
+      const heads: string[] = [];
+      const gets: string[] = [];
+      const pages: Record<string, string> = { [livePageKey(slug, NEXT, "services")]: "<p>services v2</p>", [livePageKey(slug, VERSION, "services")]: "<p>services v1</p>" };
+      const LIVE = {
+        head: async (key: string) => (heads.push(key), pointer === null ? null : { customMetadata: pointer }),
+        get: async (key: string) => {
+          gets.push(key);
+          if (gets.length === 1) {
+            pointer = to; // the approval switched the pointer ...
+            delete pages[livePageKey(slug, VERSION, "services")]; // ... and its cleanup removed v1's pages
+          }
+          return key in pages ? { arrayBuffer: async () => new TextEncoder().encode(pages[key]).buffer } : null;
+        },
+      };
+      const statement = { bind: () => statement, first: async () => d1 };
+      return { heads, gets, env: { ...env(), LIVE, DB: { prepare: () => statement } } as unknown as Env };
+    }
+
+    it("serves the new version's page, under its own cache key, not a 404", async () => {
+      const { heads, gets, env: siteEnv } = switching({ ...POINTER, versionId: NEXT });
+      const response = await request(siteEnv, "/services");
+      expect(response.status).toBe(200);
+      expect(await response.text()).toBe("<p>services v2</p>");
+      expect(gets).toEqual([livePageKey(slug, VERSION, "services"), livePageKey(slug, NEXT, "services")]);
+      expect(heads).toHaveLength(2);
+      expect([...cache.keys()]).toEqual([pageCacheUrl(ROOT, slug, NEXT, "services")]);
+    });
+
+    it("still checks D1 for the new version: a pointer that D1 does not confirm is a 503", async () => {
+      const { env: siteEnv } = switching({ ...POINTER, versionId: NEXT }, { indexable: 1, live_version_id: VERSION });
+      expect((await request(siteEnv, "/services")).status).toBe(503);
+      expect(cache.size).toBe(0);
+    });
+
+    it("gives today's answer when the pointer is unchanged, gone, or names no valid version (Home 503, another page the named 404)", async () => {
+      for (const [name, to] of [["unchanged", POINTER], ["gone", null], ["invalid", { ...POINTER, versionId: "../x" }]] as const) {
+        const siteEnv = switching(to).env;
+        const other = await request(siteEnv, "/services");
+        expect(other.status, name).toBe(404);
+        const home = await request(switching(to).env, "/");
+        expect(home.status, name).toBe(503);
+      }
+    });
+
+    it("reads the pointer again only once: a second vanish is today's answer", async () => {
+      let heads = 0;
+      const LIVE = {
+        head: async () => ({ customMetadata: { ...POINTER, versionId: heads++ === 0 ? VERSION : NEXT } }),
+        get: async () => null,
+      };
+      const siteEnv = { ...env(), LIVE, DB: {} } as unknown as Env;
+      expect((await request(siteEnv, "/services")).status).toBe(404);
+      expect(heads).toBe(2);
     });
   });
 
