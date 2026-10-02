@@ -1,7 +1,7 @@
 import type { CurrentAi, OwnerEdits, SiteView } from "@asksite/core";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, GENERIC_ERROR_MESSAGE } from "../lib/api.ts";
-import { AutoSaver, mayReplaceDraft, type DraftPatch, type SaverState, type SendPatch } from "../lib/autosave.ts";
+import { AutoSaver, mayReplaceDraft, type DraftPatch, type FlushResult, type SaverState, type SendPatch } from "../lib/autosave.ts";
 import { editsForAi } from "../lib/edits.ts";
 
 export interface Draft {
@@ -14,6 +14,9 @@ export type SiteLoad = { state: "loading" } | { state: "error"; message: string;
 
 /** Saves a page started as it closed, by site: the next page's first load waits for them (decision 37). */
 const leaving = new Map<string, Promise<unknown>>();
+
+/** Sites whose editor closed after a save that dropped the owner's wording: the next editor for the site says so (no screen was left to say it). */
+const droppedOnLeave = new Set<string>();
 
 const AI_RETRY_MS = 1_000;
 
@@ -96,7 +99,8 @@ export function useSite(siteId: string) {
     // Save what is typed first (after a conflict this does nothing: the reload shows the newer version on purpose).
     // A save that failed keeps the draft and the saver as they are: the not-saved warning stays and nothing is replaced.
     const current = saverRef.current;
-    if (current !== null && !mayReplaceDraft(await current.flush(), current.currentStatus)) return null;
+    // A save that dropped the owner's wording stops this once ("dropped"): the notice shows, and the next Reload goes on.
+    if (current !== null && !mayReplaceDraft((await current.flush()) === true, current.currentStatus)) return null;
     // Wait for a save the previous page started as it closed.
     await leaving.get(siteId);
     const res = await api<SiteView>("GET", `/api/sites/${siteId}`);
@@ -107,6 +111,7 @@ export function useSite(siteId: string) {
     saverRef.current?.dispose();
     saverRef.current = new AutoSaver(res.data.rev, saveDraft, setSaverState);
     setSaverState({ status: "idle", rev: res.data.rev, issues: res.data.issues });
+    if (droppedOnLeave.delete(siteId)) saverRef.current.restoreDrop();
     draftRef.current = { facts: res.data.facts, brief: res.data.brief, edits: res.data.edits };
     aiRef.current = res.data.ai === null ? null : { generationId: res.data.ai.generationId, draft: res.data.ai.draft };
     setDraft(draftRef.current);
@@ -120,7 +125,10 @@ export function useSite(siteId: string) {
       // Leaving by any route (a link, the browser's Back): send what is still unsaved instead of dropping it.
       const current = saverRef.current;
       if (current === null) return;
-      const saving: Promise<unknown> = current.flush().finally(() => {
+      // The screen is gone, so it cannot stop the leave or show the notice: remember it for the next editor of this site.
+      const saving: Promise<unknown> = current.flush().then((result) => {
+        if (result === "dropped") droppedOnLeave.add(siteId);
+      }).finally(() => {
         if (leaving.get(siteId) === saving) leaving.delete(siteId);
       });
       leaving.set(siteId, saving);
@@ -154,10 +162,14 @@ export function useSite(siteId: string) {
     }
   }, []);
 
-  const flush = useCallback(async () => (saverRef.current === null ? true : saverRef.current.flush()), []);
+  const flush = useCallback(async (): Promise<FlushResult> => (saverRef.current === null ? true : saverRef.current.flush()), []);
+  /** "Try again": saves what is unsaved, without counting as the owner having seen the wording notice. */
+  const retry = useCallback(async (): Promise<boolean> => (saverRef.current === null ? true : saverRef.current.saveNow()), []);
+  /** The owner has seen the "wording wasn't applied" notice. */
+  const dismissDrop = useCallback(() => saverRef.current?.acknowledgeDrop(), []);
   const rev = () => saverRef.current?.currentRev ?? 0;
 
-  return { load, draft, saver, locked, update, exclusive, flush, reload, refreshAi, rev };
+  return { load, draft, saver, locked, update, exclusive, flush, retry, dismissDrop, reload, refreshAi, rev };
 }
 
 export type SiteState = ReturnType<typeof useSite>;

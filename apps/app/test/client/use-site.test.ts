@@ -17,7 +17,7 @@ afterEach(() => {
 });
 
 /** Mounts the hook with a fake fetch; the first GET is the load, `later` answers every request after it. */
-async function mount(later: (method: string, init: RequestInit) => Response, first: SiteView = VIEW) {
+async function mount(later: (method: string, init: RequestInit) => Response | Promise<Response>, first: SiteView = VIEW) {
   const calls: string[] = [];
   vi.stubGlobal("fetch", async (_path: string, init: RequestInit) => {
     const method = init.method ?? "GET";
@@ -122,6 +122,34 @@ describe("useSite wording_changed", () => {
     expect(patches[0]?.edits).toEqual({ baseGenerationId: "g2", copy: {}, order: null, hidden: ["gallery"], theme: null });
     expect(site().saver).toMatchObject({ status: "saved" });
     expect(site().saver.wordingDropped).toBeUndefined();
+    await unmount();
+  });
+});
+
+// STRICT (customer data): the [409, 200, 200] shape. The refused wording change is told even when another change is saved in the same run.
+describe("useSite wording_changed with another change in the same run", () => {
+  it("keeps the notice through the later save, and the first leaving action answers 'dropped'", async () => {
+    const patches: Array<Record<string, unknown>> = [];
+    let release!: () => void;
+    const { site, unmount } = await mount((method, init) => {
+      if (method !== "PATCH") return json(seenBy("g2", {}));
+      patches.push(JSON.parse(String(init.body)));
+      if (patches.length === 1) return new Promise<Response>((resolve) => (release = () => resolve(json({ error: { code: "wording_changed", message: "New wording arrived." } }, 409))));
+      return json({ rev: patches.length, issues: NO_ISSUES });
+    }, seenBy("g1", {}));
+    act(() => site().update((current) => ({ edits: { ...current.edits, copy: { ctaText: "Mine" } } })));
+    let result: boolean | "dropped" | undefined;
+    await act(async () => {
+      const flushing = site().flush();
+      await Promise.resolve();
+      site().update(() => ({ facts: { typed: "while saving" } }));
+      release();
+      result = await flushing;
+    });
+
+    expect(patches).toHaveLength(3);
+    expect(site().saver).toMatchObject({ status: "saved", wordingDropped: true });
+    expect(result).toBe("dropped");
     await unmount();
   });
 });

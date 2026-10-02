@@ -56,7 +56,7 @@ export function AddressStep({ siteId, view, site, facts, errors }: StepProps) {
     setSaving(true);
     await site.exclusive(async () => {
       // The address is saved against the newest rev: if the owner's latest answers did not save, say so and stop.
-      if (!(await site.flush())) {
+      if ((await site.flush()) !== true) {
         setUnsaved(true);
         return;
       }

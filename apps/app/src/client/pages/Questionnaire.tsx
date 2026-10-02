@@ -51,7 +51,7 @@ function StepPage({ siteId, step, site, view, draft }: { siteId: string; step: S
   async function build() {
     setBusy(true);
     setMessage(null);
-    if (!(await site.flush())) {
+    if ((await site.flush()) !== true) {
       setBusy(false);
       setMessage("Your latest answers are not saved yet. Please try again in a moment.");
       return;
@@ -72,7 +72,7 @@ function StepPage({ siteId, step, site, view, draft }: { siteId: string; step: S
 
   /** A draft already exists: save step 7 and open the editor. Never starts a generation (rewriting is the editor's own action). */
   async function openEditor() {
-    if (await site.flush()) navigate(paths.edit(siteId));
+    if ((await site.flush()) === true) navigate(paths.edit(siteId));
     else setMessage("Your latest answers are not saved yet. Please try again in a moment.");
   }
 
@@ -89,7 +89,7 @@ function StepPage({ siteId, step, site, view, draft }: { siteId: string; step: S
     if (next === null) void (view.ai === null ? build() : openEditor());
     else
       void site.flush().then((saved) => {
-        if (saved) navigate(paths.setup(siteId, next));
+        if (saved === true) navigate(paths.setup(siteId, next));
         else setMessage("Your latest answers are not saved yet. Please try again in a moment.");
       });
   }

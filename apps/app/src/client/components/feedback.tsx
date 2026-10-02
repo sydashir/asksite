@@ -1,6 +1,7 @@
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useRef, type ReactNode, type RefObject } from "react";
 import { navigate } from "../hooks/use-route.ts";
 import type { SaverState } from "../lib/autosave.ts";
+import { saveAnnouncement } from "../lib/save-message.ts";
 
 export interface SummaryItem {
   id: string;
@@ -45,30 +46,41 @@ export function ErrorSummary({ items, focusSignal }: { items: readonly SummaryIt
   );
 }
 
-/** Said instead of "All changes saved." when the save kept the owner's other changes but not their wording change. */
-export const WORDING_DROPPED = "New wording arrived, so your last wording change wasn't applied. Make it again on the new wording if you still want it.";
-
-/** Autosave status. Only settled states are announced, so typing does not flood screen readers. */
-export function SaveStatus({ state, onRetry, onReload }: { state: SaverState; onRetry: () => void; onReload: () => void }) {
-  const announce =
-    state.status === "saved"
-      ? state.wordingDropped === true
-        ? WORDING_DROPPED
-        : "All changes saved."
-      : state.status === "error"
-        ? `Your changes are not saved yet. ${state.message ?? ""}`
-        : state.status === "conflict"
-          ? "This site changed in another tab or window. Reload to see the latest version."
-          : "";
+/**
+ * Autosave status. Only settled states are announced, so typing does not flood screen readers. The wording notice stays up through
+ * every later save until the owner dismisses it (onDismiss) or tries to leave twice; a failed save still shows its own warning first.
+ * `messageRef` lets the page move focus to the message when it stops an action for it.
+ */
+export function SaveStatus({
+  state,
+  onRetry,
+  onReload,
+  onDismiss,
+  messageRef,
+}: {
+  state: SaverState;
+  onRetry: () => void;
+  onReload: () => void;
+  onDismiss?: () => void;
+  messageRef?: RefObject<HTMLParagraphElement | null>;
+}) {
+  const failed = state.status === "error" || state.status === "conflict";
+  const dropped = state.wordingDropped === true && !failed;
+  const announce = saveAnnouncement(state);
   return (
     <div className="flex flex-wrap items-center gap-3 text-sm">
-      <p role="status" className={state.status === "error" || state.status === "conflict" ? "font-medium text-red-700" : state.wordingDropped === true ? "font-medium text-slate-900" : "text-slate-700"}>
+      <p ref={messageRef} tabIndex={-1} role="status" className={failed ? "font-medium text-red-700" : dropped ? "font-medium text-slate-900" : "text-slate-700"}>
         {announce}
       </p>
       {state.status === "pending" || state.status === "saving" ? (
         <p aria-hidden="true" className="text-slate-700">
           Saving…
         </p>
+      ) : null}
+      {dropped && onDismiss !== undefined ? (
+        <button type="button" className="btn-secondary" onClick={onDismiss}>
+          Dismiss
+        </button>
       ) : null}
       {state.status === "error" ? (
         <button type="button" className="btn-secondary" onClick={onRetry}>

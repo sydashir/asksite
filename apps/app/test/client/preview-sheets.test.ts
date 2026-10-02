@@ -88,6 +88,12 @@ describe("reloadAfterSave", () => {
     expect(reloads).toBe(0);
   });
 
+  it("never reloads when the save dropped the owner's wording: it says so, and the next try reloads", async () => {
+    let reloads = 0;
+    expect(await reloadAfterSave(async () => "dropped", () => (reloads += 1))).toBe("dropped");
+    expect(reloads).toBe(0);
+  });
+
   it("never reloads when saving itself throws", async () => {
     let reloads = 0;
     expect(await reloadAfterSave(async () => { throw new Error("offline"); }, () => (reloads += 1))).toBe(false);

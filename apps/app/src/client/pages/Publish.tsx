@@ -61,7 +61,7 @@ function PublishScreen({ siteId, site, view, facts }: { siteId: string; site: Si
     setMessage(null);
     setProblems([]);
     // Never send an older draft than the one on screen (decision 37).
-    if (!(await site.flush())) {
+    if ((await site.flush()) !== true) {
       setBusy(false);
       showResult("Your latest changes are not saved yet. Please try again in a moment.");
       return;

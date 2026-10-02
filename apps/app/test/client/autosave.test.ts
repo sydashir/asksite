@@ -140,3 +140,67 @@ describe("mayReplaceDraft", () => {
     expect(mayReplaceDraft(false, "pending")).toBe(false);
   });
 });
+
+// STRICT (customer data): a save that applied everything but the owner's wording change (wordingDropped) must be told to the owner,
+// however many saves follow it, and must stop one leaving action (flush says "dropped") so the owner sees it before going.
+describe("AutoSaver wording notice", () => {
+  const droppedFirst = (): ((rev: number) => SaveResult) => {
+    let calls = 0;
+    return (rev) => ({ ok: true, rev: rev + 1, issues: NO_ISSUES, ...(++calls === 1 ? { wordingDropped: true as const } : {}) });
+  };
+
+  it("survives a later save in the same run: no state after the drop is without it, and the last one is 'saved'", async () => {
+    let release!: (r: SaveResult) => void;
+    let calls = 0;
+    const { saver, states } = setup((rev) => (++calls === 1 ? new Promise<SaveResult>((r) => (release = r)) : { ok: true, rev: rev + 1, issues: NO_ISSUES }));
+    saver.change({ edits: {} as never });
+    await vi.advanceTimersByTimeAsync(800);
+    saver.change({ facts: { typed: "meanwhile" } });
+    release({ ok: true, rev: 2, issues: NO_ISSUES, wordingDropped: true });
+    await vi.advanceTimersByTimeAsync(800);
+    const afterDrop = states.slice(states.findIndex((s) => s.wordingDropped === true));
+    expect(afterDrop.length).toBeGreaterThanOrEqual(2);
+    expect(afterDrop.every((s) => s.wordingDropped === true)).toBe(true);
+    expect(states.at(-1)).toMatchObject({ status: "saved", wordingDropped: true });
+  });
+
+  it("flush answers 'dropped' once; the next attempt proceeds and clears the notice", async () => {
+    const { saver, states } = setup(droppedFirst());
+    saver.change({ facts: { a: 1 } });
+    expect(await saver.flush()).toBe("dropped");
+    expect(states.at(-1)?.wordingDropped).toBe(true);
+    expect(await saver.flush()).toBe(true);
+    expect(states.at(-1)?.wordingDropped).toBeUndefined();
+    expect(await saver.flush()).toBe(true);
+  });
+
+  it("dismissing the notice clears it, and the next flush proceeds at once", async () => {
+    const { saver, states } = setup(droppedFirst());
+    saver.change({ facts: { a: 1 } });
+    await saver.flush();
+    saver.acknowledgeDrop();
+    expect(states.at(-1)?.wordingDropped).toBeUndefined();
+    expect(await saver.flush()).toBe(true);
+  });
+
+  it("saveNow (Try again) neither stops nor clears the notice", async () => {
+    const { saver, states } = setup(droppedFirst());
+    saver.change({ facts: { a: 1 } });
+    expect(await saver.saveNow()).toBe(true);
+    expect(states.at(-1)?.wordingDropped).toBe(true);
+    expect(await saver.flush()).toBe("dropped");
+  });
+
+  it("a failed save answers false, not 'dropped', and keeps the stop for later", async () => {
+    let fail = false;
+    const ok = droppedFirst();
+    const { saver } = setup((rev, patch) => (fail ? { ok: false, conflict: false, message: "offline" } : ok(rev)));
+    saver.change({ facts: { a: 1 } });
+    await saver.saveNow();
+    fail = true;
+    saver.change({ facts: { a: 2 } });
+    expect(await saver.flush()).toBe(false);
+    fail = false;
+    expect(await saver.flush()).toBe("dropped");
+  });
+});

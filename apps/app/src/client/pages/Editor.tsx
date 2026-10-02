@@ -12,7 +12,7 @@ import { WordsTab } from "../editor/WordsTab.tsx";
 import { useGeneration } from "../hooks/use-generation.ts";
 import { useMe } from "../hooks/use-me.ts";
 import { usePageHeading } from "../hooks/use-page-heading.ts";
-import { linkAfter, navigate } from "../hooks/use-route.ts";
+import { linkAfter, navigate, setLeaveGuard } from "../hooks/use-route.ts";
 import { useSite, type Draft, type SiteState } from "../hooks/use-site.ts";
 import { useStepProps } from "../hooks/use-step-props.ts";
 import { useStylesheets } from "../hooks/use-stylesheets.ts";
@@ -39,6 +39,8 @@ const TABS: ReadonlyArray<{ id: EditorTab; label: string }> = [
 
 const AI_NOT_LOADED = "The new wording is ready, but we couldn't load it. Reload the page to see it.";
 const REWRITING = "Writing new wording…";
+/** Why Words and Sections are locked from the request for new wording until it is shown. */
+export const WRITING_LOCK = "Writing new wording. You can edit again when it is ready.";
 const NOT_SAVED = "Your latest changes are not saved yet. Please try again in a moment.";
 
 export function Editor({ siteId }: { siteId: string }) {
@@ -64,15 +66,39 @@ function EditorScreen(props: { siteId: string; site: SiteState; view: SiteView; 
   const [confirming, setConfirming] = useState(false);
   // A rewrite already running when the editor mounts (a reload, a return from Messages, another tab) is followed like one started here.
   const [rewriteId, setRewriteId] = useState<string | null>(() => (view.activeGeneration?.kind === "regenerate" ? view.activeGeneration.id : null));
+  // From the request for new wording until its answer: the id is not known yet, but edits already must not be made.
+  const [requesting, setRequesting] = useState(false);
   const [rewriteMessage, setRewriteMessage] = useState(rewriteId === null ? "" : REWRITING);
   // Until the AI's wording is fresh, wording and order stay read-only: an edit built on the old wording is ignored by the server.
   const [aiState, setAiState] = useState<"fresh" | "refreshing" | "unloaded">("fresh");
-  const copyLocked = aiState !== "fresh";
+  // From the request until the new wording is on screen (the id, then the refresh), wording and order edits would be replaced or refused: they are locked.
+  const writing = requesting || rewriteId !== null;
+  const copyLocked = aiState !== "fresh" || writing;
   const [leaveMessage, setLeaveMessage] = useState<string | null>(null);
   const [follow, setFollow] = useState<FollowPage | null>(null);
   const rewriteStatus = useRef<HTMLParagraphElement>(null);
-  // Publish and Messages save first and stay here if that fails, so Publish never sends an older draft (decision 37).
-  const leave = linkAfter(site.flush, () => setLeaveMessage(NOT_SAVED));
+  const saveMessage = useRef<HTMLParagraphElement>(null);
+  // Publish and Messages save first and stay here if that fails, so Publish never sends an older draft (decision 37). A save that dropped
+  // the owner's wording stops them once: the notice is shown and given focus (the next try goes on).
+  const stopped = (result: false | "dropped") => {
+    if (result === "dropped") {
+      setLeaveMessage(null);
+      requestAnimationFrame(() => saveMessage.current?.focus());
+    } else setLeaveMessage(NOT_SAVED);
+  };
+  const leave = linkAfter(site.flush, stopped);
+  // The header's link home leaves the editor too: the same save and stop first.
+  const { flush } = site;
+  const stoppedRef = useRef(stopped);
+  stoppedRef.current = stopped;
+  useEffect(() => {
+    setLeaveGuard(async () => {
+      const result = await flush();
+      if (result !== true) stoppedRef.current(result);
+      return result === true;
+    });
+    return () => setLeaveGuard(null);
+  }, [flush]);
   const { generation } = useGeneration(siteId, rewriteId);
   const { props: stepProps } = useStepProps(siteId, site, view, draft, true, me.state === "ready" ? me.owner.email : null);
 
@@ -91,12 +117,18 @@ function EditorScreen(props: { siteId: string; site: SiteState; view: SiteView; 
     [previewDoc, sheets, siteId, view.slug],
   );
   const afterReload = useMemo(pageWasReloaded, []);
-  const reloadPage = () => void reloadAfterSave(site.flush, () => location.reload()).then((reloaded) => (reloaded ? undefined : setLeaveMessage(NOT_SAVED)));
+  const reloadPage = () => void reloadAfterSave(site.flush, () => location.reload()).then((reloaded) => (reloaded === true ? undefined : stopped(reloaded)));
 
   const composed = useMemo(() => composeDocument(draft.facts, ai, draft.edits), [draft, ai]);
   const setEdits = (edits: OwnerEdits) => site.update(() => ({ edits }));
   const setCopyEdits = (edits: OwnerEdits) => {
     if (!copyLocked) setEdits(edits);
+  };
+  // Hidden sections carry over to new wording, so while only the rewrite locks wording and order, hiding a section still works (only `hidden` is taken).
+  const setHiddenEdits = (edits: OwnerEdits) => {
+    if (aiState !== "fresh") return;
+    if (!writing) setEdits(edits);
+    else site.update((current) => ({ edits: { ...current.edits, hidden: edits.hidden } }));
   };
   const errors = (path: Path) => issuesAt(issues, path).map((i) => ownerMessage(i).text);
   const fixFor = (path: Path): Fix | undefined => issuesAt(issues, path).map((i) => ownerMessage(i).fix).find((f) => f !== undefined);
@@ -128,11 +160,13 @@ function EditorScreen(props: { siteId: string; site: SiteState; view: SiteView; 
   async function rewrite() {
     setConfirming(false);
     setRewriteMessage(REWRITING);
+    setRequesting(true);
     // The dialog gives focus back to the button that opened it as it closes; the result is announced here, so focus goes to it.
     requestAnimationFrame(() => rewriteStatus.current?.focus());
     const res = await api<{ generation: GenerationView }>("POST", `/api/sites/${siteId}/generations`, {});
     if (res.ok) setRewriteId(res.data.generation.id);
     else setRewriteMessage(res.error.message);
+    setRequesting(false);
   }
 
   function goToIssue(issue: Issue) {
@@ -164,7 +198,16 @@ function EditorScreen(props: { siteId: string; site: SiteState; view: SiteView; 
           </a>
         </div>
       </div>
-      <SaveStatus state={site.saver} onRetry={() => void site.flush()} onReload={() => void site.reload()} />
+      <SaveStatus
+        state={site.saver}
+        onRetry={() => void site.retry()}
+        onReload={() => void site.reload()}
+        messageRef={saveMessage}
+        onDismiss={() => {
+          site.dismissDrop();
+          saveMessage.current?.focus();
+        }}
+      />
       {leaveMessage !== null ? (
         <div role="alert">
           <Notice tone="error">{leaveMessage}</Notice>
@@ -198,7 +241,7 @@ function EditorScreen(props: { siteId: string; site: SiteState; view: SiteView; 
           <div role="tabpanel" id={`editor-panel-${tab}`} aria-labelledby={`editor-tab-${tab}`} tabIndex={0} className="pt-2">
             {tab === "words" ? (
               <>
-                <CopyLocked state={aiState} />
+                <CopyLocked state={aiState} writing={writing} />
                 <WordsTab ai={ai} edits={draft.edits} composed={composed} facts={stepProps.facts} readOnly={copyLocked} setEdits={setCopyEdits} errors={errors} fixFor={fixFor} openFix={openFix} onSection={showSection} />
                 <div className="mt-6">
                   <button type="button" className="btn-secondary" disabled={rewriteId !== null} aria-disabled={copyLocked} onClick={() => (copyLocked ? undefined : setConfirming(true))}>
@@ -213,8 +256,8 @@ function EditorScreen(props: { siteId: string; site: SiteState; view: SiteView; 
             {tab === "look" ? <LookTab aiTheme={ai.draft.theme} edits={draft.edits} trade={stepProps.facts["trade"]} setEdits={setEdits} /> : null}
             {tab === "sections" ? (
               <>
-                <CopyLocked state={aiState} />
-                <SectionsTab ai={ai} composed={composed} edits={draft.edits} readOnly={copyLocked} setEdits={setCopyEdits} onSection={showSection} />
+                <CopyLocked state={aiState} writing={writing} />
+                <SectionsTab ai={ai} composed={composed} edits={draft.edits} readOnly={copyLocked} hideReadOnly={aiState !== "fresh"} setEdits={setCopyEdits} setHiddenEdits={setHiddenEdits} onSection={showSection} />
               </>
             ) : null}
             {tab === "photos" ? <PhotoManager {...stepProps} /> : null}
@@ -260,7 +303,8 @@ function EditorScreen(props: { siteId: string; site: SiteState; view: SiteView; 
 }
 
 /** Why wording and sections cannot be changed right now. */
-function CopyLocked({ state }: { state: "fresh" | "refreshing" | "unloaded" }) {
+function CopyLocked({ state, writing }: { state: "fresh" | "refreshing" | "unloaded"; writing: boolean }) {
+  if (writing) return <Notice tone="warning">{WRITING_LOCK}</Notice>;
   if (state === "fresh") return null;
   return <Notice tone="warning">{state === "refreshing" ? "Loading your new wording. Wording and sections can be changed again in a moment." : "Wording and sections can't be changed until the new wording is loaded."}</Notice>;
 }
