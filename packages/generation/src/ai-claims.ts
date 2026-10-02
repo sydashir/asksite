@@ -22,11 +22,11 @@ const NEVER_IN_AI_COPY: readonly RegExp[] = [
   new RegExp(`\\b(long${J}?time|seasoned)\\b`, "i"), // time in business comes from yearFounded
   /\b(raves?|raved|recommended)\b/i, // "we recommend" is advice and stays allowed
   /[\u2039\u203A\u301D-\u301F\uFF02]/, // quote marks claims.ts does not list
-  // A phrase in straight single quotes: an opening ' at a word start (after a space, a colon, a comma or a dash, not
-  // after "(" or a letter: code such as f('x') quotes nobody, and the XSS fixture holds some) before a letter, closed
+  // A phrase in straight single quotes: an opening ' at a word start (after a space, a colon, a comma or a dash, or
+  // after a "(" that no word precedes, but not after a letter: code such as f('x') quotes nobody, and the XSS fixture holds some) before a letter, closed
   // by a ' not before a letter. An apostrophe inside a word ("don't", "owner's") never opens or closes, and 'n'
   // (rock 'n' roll) is no quotation.
-  /(?:^|(?<=[\s:;,\u2012-\u2014\u2212-]))'(?!n')\p{L}(?:[^']|'(?=\p{L}))*'(?!\p{L})/u,
+  /(?<=(?:^|[\s:;,\u2012-\u2014\u2212-])\(?)'(?!n')\p{L}(?:[^']|'(?=\p{L}))*'(?!\p{L})/u,
 ];
 
 /** True when the opening hours cover all seven days: claims.ts's own backing for its seven-days rule, taken from NEEDS_A_FACT. */

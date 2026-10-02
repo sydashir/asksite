@@ -171,6 +171,8 @@ describe("AI claim check: quote marks", () => {
     ["#22 single guillemets", "\u2039Best cleaners ever\u203A Dana", ["\u2039"]],
     ["#23 straight single quotes", "'Best cleaners ever' Dana", ["'Best cleaners ever'"]],
     ["single quotes after a colon", "Dana: 'Best cleaners ever'", ["'Best cleaners ever'"]],
+    ["single quotes closing a parenthesis", "Dana ('Best cleaners ever')", ["'Best cleaners ever'"]],
+    ["single quotes opening with a parenthesis", "('Best cleaners ever') Dana", ["'Best cleaners ever'"]],
     ["#24 corner double primes", "\u301DBest cleaners ever\u301E", ["\u301D"]],
     ["U+301F", "Best cleaners ever\u301F", ["\u301F"]],
     ["single quotes round a phrase with a contraction", "Our crew: 'don't wait for it' to us", ["'don't wait for it'"]],
