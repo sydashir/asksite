@@ -4,16 +4,17 @@ import { navItems, pageLink, quoteLink, type RenderContext } from "../../context
 import { formatPhone, mailtoUrl, telUrl, TRADE_LABEL } from "../../format.ts";
 import { html, safeUrl, trusted, type SafeHtml } from "../../html.ts";
 import { icon } from "../../icons.ts";
-import { emailText, LICENSES_ID, licenseText } from "./parts.ts";
+import { emailText, LICENSES_ID, licenseText, quoteButton } from "./parts.ts";
 
 /** A business name longer than this takes the smaller brand size, so it keeps room beside the menu. */
 const LONG_NAME = 30;
 
 /**
  * The header, the same on every page: the business name (a link to Home), the site's pages (a <details> menu below
- * 1024 px, zero JavaScript; the page on screen marked aria-current), "Get a quote" from 1200 px (the Contact page
- * keeps it as a normal button, moderator ruling (f)) and a Call button from 768 px; phones have the call bar. From
- * 768 px it stays at the top while the page scrolls (styles/sheets/modern.css).
+ * 1024 px, zero JavaScript; the page on screen marked aria-current), the owner's call to action from 1200 px, in the
+ * owner's words like every quote button but the call bar's (the Contact page keeps it as a normal button, moderator
+ * ruling (f); A16 round 5) and a Call button from 768 px; phones have the call bar. From 768 px it stays at the top
+ * while the page scrolls (styles/sheets/modern.css).
  */
 export function renderHeader(ctx: RenderContext): SafeHtml {
   const { facts } = ctx.doc;
@@ -26,7 +27,7 @@ export function renderHeader(ctx: RenderContext): SafeHtml {
 <ul class="nav-links">${links}</ul>
 <details class="menu"><summary>${icon("menu-2", "i i-open")}${icon("x", "i i-close")}<span>Menu</span></summary><ul class="menu-list">${links}</ul></details>
 </nav>
-<a class="button button-line hdr-quote" href="${quoteLink()}">Get a quote</a>
+${quoteButton(ctx, "hdr-quote")}
 <a class="button button-act hdr-call whitespace-nowrap" href="${telUrl(facts.phone)}" aria-label="Call ${phone}">${icon("phone", "i")}<span>${phone}</span></a>
 </div>
 </header>`;

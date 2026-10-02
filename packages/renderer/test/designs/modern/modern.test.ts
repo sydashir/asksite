@@ -126,10 +126,12 @@ describe("Modern: every page can call or ask for a quote (A16)", () => {
     expect(line(withHidden(plain, ["serviceArea"]))).toBe("");
   });
 
-  it("from 1200 px the header carries a quote button on every page, Contact included (moderator ruling (f))", () => {
+  // Moderator rulings (f) and A16 round 5: a site-level quote button keeps the owner's words; only the call bar says
+  // "Get a quote".
+  it("from 1200 px the header carries a quote button in the owner's words on every page, Contact included (moderator ruling (f))", () => {
     for (const { html } of pages) {
       const header = element(html, "<header");
-      expect(header).toContain('<a class="button button-line hdr-quote" href="/contact#quote">Get a quote</a>');
+      expect(header).toContain('<a class="button button-line hdr-quote" href="/contact#quote">Get a free quote</a>');
       expect(header).toContain('<a class="button button-act hdr-call whitespace-nowrap" href="tel:+15125550142" aria-label="Call (512) 555-0142">');
     }
   });
@@ -295,25 +297,36 @@ describe("Modern: the Contact page (A16)", () => {
   });
 
   // A16 round 3's judges: with no credentials the call card was stretched to the form's height, a 500 px brand block
-  // with 300 px of nothing in it. It ends at its content and also names the towns the business serves.
-  it("names the towns the business serves in the call card when the owner shows no credentials, and never marks the card to stretch", () => {
+  // with 300 px of nothing in it; it ends at its content. Round 4's judges: a "Service area" row in it repeated the
+  // service area section straight under the form, under the same label, so the card names only how to reach the owner.
+  it("names the service area once: in its section, never in the call card, which never stretches, with or without credentials", () => {
     const rows = (input: SiteDocumentInput) => [...element(pageOf(input, "contact"), '<div class="call-card"').matchAll(/<li><span class="lbl">([^<]*)<\/span>([^]*?)<\/li>/g)].map((m) => `${m[1]}: ${(m[2] ?? "").replace(/<[^>]*>/g, "")}`);
     const plumber = loadFixture("plumber-austin");
-    expect(rows(loadFixture("cleaning-minimal"))).toEqual(["Email: hi@mop.example.com", "Service area: Boise, ID"]);
-    expect(rows(withHidden(plumber, ["trust"]))).toEqual(["Email: office@reliablerooter.example.com", "Emergencies: Available 24/7", "Service area: Austin, Round Rock and 5 more"]);
-    // With credentials beside it the card stays as it was; an owner who hides the service area hides its towns here too.
+    expect(rows(loadFixture("cleaning-minimal"))).toEqual(["Email: hi@mop.example.com"]);
+    expect(rows(withHidden(plumber, ["trust"]))).toEqual(["Email: office@reliablerooter.example.com", "Emergencies: Available 24/7"]);
     expect(rows(plumber)).toEqual(["Email: office@reliablerooter.example.com", "Emergencies: Available 24/7"]);
-    expect(rows(withHidden(loadFixture("cleaning-minimal"), ["serviceArea"]))).toEqual(["Email: hi@mop.example.com"]);
-    for (const input of [plumber, loadFixture("cleaning-minimal")]) expect(pageOf(input, "contact")).toContain('<div class="wrap contact">');
+    for (const input of [...FIXTURES.map(loadFixture), withHidden(plumber, ["trust"])]) {
+      const contact = pageOf(input, "contact");
+      expect(contact).toContain('<section id="service-area"');
+      expect(element(contact, '<div class="call-card"')).not.toContain("Service area");
+      expect(contact).toContain('<div class="wrap contact">');
+    }
   });
 
   // Moderator ruling (A16 contract tweak): the Contact heading is the shared contactHeading(), so a one-word call to
-  // action ("Book") becomes a phrase there, while every quote button keeps the owner's words (WCAG 3.2.4).
-  it("takes its heading from the shared contact heading, and keeps the owner's words on every quote button", () => {
+  // action ("Book") becomes a phrase there, while every quote button keeps the owner's words (WCAG 3.2.4), the
+  // header's included (A16 round 5); the call bar's fixed "Get a quote" is the one exception.
+  it("takes its heading from the shared contact heading, and keeps the owner's words on every quote button but the call bar's", () => {
     const h1 = (input: SiteDocumentInput) => /<h1 id="contact-title" class="display h1">([^<]*)<\/h1>/.exec(pageOf(input, "contact"))?.[1];
     expect(h1(loadFixture("cleaning-minimal"))).toBe("Request a booking");
     expect(h1(loadFixture("plumber-austin"))).toBe("Get a free quote");
-    expect([...fixture("cleaning-minimal").matchAll(/<a class="button button-(?:act|line)[^"]*" href="\/contact#quote">([^<]*)<\/a>/g)].map((m) => m[1]).filter((label) => label !== "Get a quote")).toEqual(["Book", "Book", "Book", "Book"]);
+    const labels = (markup: string) => [...markup.matchAll(/<a class="button button-(?:act|line)[^"]*" href="\/contact#quote">([^<]*)<\/a>/g)].map((m) => m[1]);
+    for (const { page, html } of site(loadFixture("cleaning-minimal")).pages) {
+      const bar = element(html, "<aside");
+      expect(labels(bar), page).toEqual(["Get a quote"]);
+      expect(labels(element(html, "<header")), page).toEqual(["Book"]);
+      expect(new Set(labels(html.replace(bar, ""))), page).toEqual(new Set(["Book"]));
+    }
   });
 
   // A16 round 2's judges: beside 30 places the hours board ended ~900 px above the list.
