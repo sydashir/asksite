@@ -141,6 +141,11 @@ describe("SYSTEM_PROMPT", () => {
     );
   });
 
+  it("never calls the site one page", () => {
+    expect(SYSTEM_PROMPT).not.toMatch(/\b(one|single)[- ]page\b|\bthe page already\b/i);
+    expect(SYSTEM_PROMPT).toContain("The site already shows");
+  });
+
   it("applies its rules to the names the copy repeats", () => {
     expect(SYSTEM_PROMPT).toContain(
       "- These rules apply to every word you write, also when you repeat the business name, a service name or a place. If a name holds a digit or a word these rules forbid, do not repeat it in your wording.",
