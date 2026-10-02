@@ -647,9 +647,10 @@ for (const design of DESIGN_IDS) {
           }
         });
 
-        test("Get a quote on Home lands on the form with the Name field in view", async ({ page }) => {
+        test("Get a quote on Home (the call bar on a phone, the hero above it) lands on the form with the Name field in view", async ({ page }) => {
           await open(page, "plumber-austin", design);
-          expect(await quoteLandingProblems(page, page.locator('#top a[href="/contact#quote"]').first())).toEqual([]);
+          const link = isPhoneProject(page) ? page.locator('aside[aria-label="Call us"] a[href="/contact#quote"]') : page.locator('#top a[href="/contact#quote"]').first();
+          expect(await quoteLandingProblems(page, link)).toEqual([]);
         });
 
         test("Get a quote on an inner page (the call bar on a phone, the closing band above it) lands on the form with the Name field in view", async ({ page }) => {

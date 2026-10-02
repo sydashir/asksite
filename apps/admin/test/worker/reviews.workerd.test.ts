@@ -228,6 +228,38 @@ describe("review", () => {
     expect(audits.results).toHaveLength(1);
   });
 
+  // A16-4c, 23-A16 round 1 (I1): approve runs under the site's lease, and its answers carry PublishError.detail.
+  it("approve on a site another admin action holds is 409 with Retry-After and the busy text, and changes nothing", async () => {
+    const site = await h.pendingSite();
+    const db = await h.db();
+    await db.prepare("UPDATE sites SET admin_lock = 'someone-else', admin_lock_until = ? WHERE id = ?").bind(Date.now() + 60_000, site.siteId).run();
+    const res = await h.call("POST", `/api/admin/versions/${site.versionId}/approve`, { body: { htmlSha256: site.htmlSha256 } });
+    expect(res.status).toBe(409);
+    expect(Number(res.headers.get("Retry-After"))).toBeGreaterThan(0);
+    expect(await json<ErrorJson>(res)).toMatchObject({ error: { code: "conflict", message: "Another admin action on this site is still running. Try again in a minute." } });
+    expect(await db.prepare("SELECT status FROM site_versions WHERE id = ?").bind(site.versionId).first()).toEqual({ status: "pending" });
+    expect(await h.liveKeys(site.slug)).toEqual([]);
+    expect((await db.prepare("SELECT admin_lock FROM sites WHERE id = ?").bind(site.siteId).first<{ admin_lock: string }>())?.admin_lock).toBe("someone-else");
+  });
+
+  it("approve that loses its lease after the approval committed answers the lease-lost text with NO Retry-After; D1 is live, no pointer, and approving again finishes it", async () => {
+    const site = await h.pendingSite();
+    const approve = (headers?: Record<string, string>) =>
+      h.call("POST", `/api/admin/versions/${site.versionId}/approve`, { body: { htmlSha256: site.htmlSha256 }, ...(headers === undefined ? {} : { headers }) });
+    const lost = await approve({ "X-Test-Takedown-Fault": "lease-lost-after-batch" });
+    expect(lost.status).toBe(409);
+    expect(lost.headers.get("Retry-After")).toBeNull();
+    expect(await json<ErrorJson>(lost)).toEqual({
+      error: { code: "conflict", message: "This approval ran too long and was stopped before it finished. Press Approve again to finish it and tell the owner." },
+    });
+    const db = await h.db();
+    expect(await db.prepare("SELECT status FROM site_versions WHERE id = ?").bind(site.versionId).first()).toEqual({ status: "approved" });
+    expect(await db.prepare("SELECT live_version_id FROM sites WHERE id = ?").bind(site.siteId).first()).toEqual({ live_version_id: site.versionId });
+    expect(await h.liveKeys(site.slug)).not.toContain(livePointerKey(site.slug));
+    expect((await approve()).status).toBe(200);
+    expect(await h.liveKeys(site.slug)).toContain(livePointerKey(site.slug));
+  });
+
   // P4-23 item 4, option (a) (web-maker-f4, 2026-09-30): the approval is done before the owner's email is built, so
   // an email that cannot be built (reviewApprovedEmail refuses a live address that is not a safe https URL) skips
   // only the email; the admin gets the usual answer. Plan 2 builds the live address from ROOT_DOMAIN and the site's slug, and

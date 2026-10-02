@@ -28,7 +28,7 @@ export function siteRoutes(deps: AdminDeps): Hono<AdminEnv> {
     try {
       return await run();
     } catch (err) {
-      const mapped = err instanceof deps.publishing.PublishError ? publishApiError((err as PublishErrorLike).code, action) : null;
+      const mapped = err instanceof deps.publishing.PublishError ? publishApiError((err as PublishErrorLike).code, action, (err as PublishErrorLike).detail) : null;
       throw mapped ?? err;
     }
   }
@@ -61,6 +61,8 @@ export function siteRoutes(deps: AdminDeps): Hono<AdminEnv> {
     ]);
     return c.json({
       site: toAdminSiteRow(site),
+      // The moment the takedown happened, which Restore must send back (A16-4c): a restore refuses a different takedown. AdminSiteRow (core) has no field for it.
+      takenDownAt: site.taken_down_at,
       versions: versions.results.map(toVersionSummary),
       generations: generations.results.map((g) => ({
         ...deps.generation.toGenerationView(g),
@@ -83,6 +85,10 @@ export function siteRoutes(deps: AdminDeps): Hono<AdminEnv> {
     const mailer = deps.createMailer(mailerEnv(c.env));
     // Read before takeDown runs: a re-run on a site that is already down must not email the owner a second time.
     const alreadyDown = site.taken_down_at !== null;
+    // "Finish the takedown" after a lease_lost sets notice=due: that call never reached its notice, so this one sends it (the one
+    // time the owner is told). The key names the takedown, so a second press of Finish is a repeat to the mail provider.
+    const noticeDue = c.req.query("notice") === "due";
+    const now = Date.now();
     const ownerMessage = body.ownerMessage === undefined || body.ownerMessage === "" ? null : body.ownerMessage;
     // The owner always hears about it, with the admin's message when there is one, and where to ask (decision 34).
     const email = siteNoticeEmail({ appOrigin: c.env.APP_ORIGIN, supportEmail: c.env.SUPPORT_EMAIL, ownerMessage });
@@ -93,17 +99,20 @@ export function siteRoutes(deps: AdminDeps): Hono<AdminEnv> {
         runToEnd(
           c.executionCtx,
           (async (): Promise<TakedownView> => {
-            const send = () => trySend(mailer, { to: site.owner_email, ...email, replyTo: c.env.SUPPORT_EMAIL, tag: "site_notice", idempotencyKey: `takedown:${site.id}:${Date.now()}` });
-            const takeDown = () => deps.publishing.takeDown(c.env, { siteId: site.id, reviewer: c.get("admin"), reason: body.reason, purgeMedia: body.purgeMedia, now: Date.now() });
+            // takeDown writes taken_down_at = now, so for the call that took the site down the key is this takedown's moment (a repeat uses the stored one).
+            const send = () => trySend(mailer, { to: site.owner_email, ...email, replyTo: c.env.SUPPORT_EMAIL, tag: "site_notice", idempotencyKey: `takedown:${site.id}:${site.taken_down_at ?? now}` });
+            const takeDown = (at: number) => deps.publishing.takeDown(c.env, { siteId: site.id, reviewer: c.get("admin"), reason: body.reason, purgeMedia: body.purgeMedia, now: at });
             let cleanupFailed = false;
             try {
-              await takeDown();
+              await takeDown(now);
             } catch (err) {
-              // A PublishError means nothing was taken down. Any other error may have come after the commit (LIVE delete, media purge):
-              // if the site is down, run the takedown once more (Plan 2's takeDown is idempotent) before giving up on the cleanup.
+              // A PublishError may come after the commit (A16-4c: takeDown asserts its lease again before the LIVE deletes, so a lease_lost
+              // means "the takedown may have committed"): it is rethrown as the admin's answer and the page offers Finish the takedown.
+              // Any other error may have come after the commit too (LIVE delete, media purge): if the site is down, run the takedown
+              // once more (Plan 2's takeDown is idempotent) before giving up on the cleanup.
               if (err instanceof deps.publishing.PublishError || !(await isTakenDown(c.env.DB, site.id))) throw err;
               try {
-                await takeDown();
+                await takeDown(Date.now());
               } catch {
                 cleanupFailed = true;
                 logLine({ event: "takedown_cleanup_failed", siteId: site.id });
@@ -115,20 +124,31 @@ export function siteRoutes(deps: AdminDeps): Hono<AdminEnv> {
               const detail = { reason: body.reason, purgeMedia: body.purgeMedia, repeat: true };
               await auditStatement(c.env.DB, { at: Date.now(), actor: `admin:${c.get("admin")}`, action: "site.taken_down", siteId: site.id, detail }).run();
             }
-            // The owner is told once: only the call that took the site down sends the notice, so a re-run never emails twice.
-            return { noticeSent: alreadyDown ? null : await send(), ...(cleanupFailed ? { cleanupFailed: true as const } : {}) };
+            // The owner is told once: only the call that took the site down (or a Finish after a lost lease, notice=due) sends the notice, so a re-run never emails twice.
+            return { noticeSent: alreadyDown && !noticeDue ? null : await send(), ...(cleanupFailed ? { cleanupFailed: true as const } : {}) };
           })(),
         ),
-      "change",
+      "takedown",
     );
     return c.json(view);
   });
 
   sites.post("/sites/:siteId/restore", async (c) => {
-    await readJson(c, z.strictObject({}));
+    // expectedTakenDownAt is the taken_down_at the admin's page showed: Plan 2's restore refuses a different (later) takedown.
+    const { expectedTakenDownAt } = await readJson(c, z.strictObject({ expectedTakenDownAt: z.number().int().positive() }));
     const site = await siteWithOwner(c.env.DB, c.req.param("siteId"));
     // Plan 2's restore puts the page in LIVE, then commits a D1 batch: it runs to its end even if the client goes away.
-    return c.json(await publishing(() => runToEnd(c.executionCtx, deps.publishing.restore(c.env, { siteId: site.id, reviewer: c.get("admin"), now: Date.now() })), "restore"));
+    return c.json(
+      await publishing(() => runToEnd(c.executionCtx, deps.publishing.restore(c.env, { siteId: site.id, reviewer: c.get("admin"), expectedTakenDownAt, now: Date.now() })), "restore"),
+    );
+  });
+
+  sites.post("/sites/:siteId/copy-pages", async (c) => {
+    await readJson(c, z.strictObject({}));
+    const site = await siteWithOwner(c.env.DB, c.req.param("siteId"));
+    // Copies the live version's pages to LIVE again and rewrites the pointer: it never touches taken_down_at (a taken-down site is refused),
+    // changes no D1 row and writes no audit row (Plan 2's copyLivePagesAgain). Several R2 writes, so it runs to its end like restore.
+    return c.json(await publishing(() => runToEnd(c.executionCtx, deps.publishing.copyLivePagesAgain(c.env, { siteId: site.id, reviewer: c.get("admin"), now: Date.now() })), "copy"));
   });
 
   sites.put("/sites/:siteId/indexable", async (c) => {

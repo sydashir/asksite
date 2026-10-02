@@ -85,6 +85,12 @@ export function useAdminHarness(vars: Record<string, string> = {}) {
     return objects.map((o) => o.key).filter((key) => key === slug || key.startsWith(`${slug}/`)).sort();
   }
 
+  /** What Restore sends: the taken_down_at the admin's site page shows (GET /api/admin/sites/:id answers it as takenDownAt). */
+  async function restoreBody(siteId: string): Promise<{ expectedTakenDownAt: number | null }> {
+    const detail = await json<{ takenDownAt: number | null }>(await call("GET", `/api/admin/sites/${siteId}`));
+    return { expectedTakenDownAt: detail.takenDownAt };
+  }
+
   /** An owner with a site waiting for review. */
   async function pendingSite(facts: object = VALID_FACTS, extra: { reviewsAreReal?: boolean } = {}) {
     const email = `owner${Math.random().toString(36).slice(2, 9)}@example.com`;
@@ -132,7 +138,7 @@ export function useAdminHarness(vars: Record<string, string> = {}) {
     await eventually(() => waitUntilSeen(path), (seen) => seen.pending === 0, `the background work of ${path}`);
   }
 
-  return { server, call, db, r2, liveKeys, pendingSite, outbox, logLines, waitUntilCount, backgroundDone };
+  return { server, call, db, r2, liveKeys, restoreBody, pendingSite, outbox, logLines, waitUntilCount, backgroundDone };
 }
 
 /** Polls `read` every 100 ms until `done` accepts its value (at most 5 s); lane A's harness helper of the same name. */

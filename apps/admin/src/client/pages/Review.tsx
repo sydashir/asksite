@@ -1,5 +1,5 @@
 import type { AdminVersionDetail } from "@asksite/core";
-import { isSafeUrl } from "@asksite/site-schema";
+import { isSafeUrl, type PageId } from "@asksite/site-schema";
 import { useRef, useState, type FormEvent } from "react";
 import { Checkbox, TextArea } from "../../../../app/src/client/components/fields.tsx";
 import { Notice } from "../../../../app/src/client/components/feedback.tsx";
@@ -7,9 +7,16 @@ import { PagePreview } from "../../../../app/src/client/components/page-preview.
 import { usePageHeading } from "../../../../app/src/client/hooks/use-page-heading.ts";
 import { onLinkClick } from "../../../../app/src/client/hooks/use-route.ts";
 import { api } from "../../../../app/src/client/lib/api.ts";
-import { useResource } from "../hooks.ts";
+import { APPROVE_LEASE_LOST, APPROVE_LIVE_COPY_FAILED, COPIED_AGAIN, COPY_LIVE_COPY_FAILED } from "../../messages.ts";
+import { useResource, useVerifiedPages } from "../hooks.ts";
 import { flatten, textChanges } from "../lib/diff.ts";
 import { FLAG_REASON, when } from "../lib/format.ts";
+
+/** What the result region shows. `copyAgain`: the notice says the pages are not (all) live although the version is approved, so it offers "Copy the live pages again" (A16-4c). */
+type Result = { tone: "success" | "error"; text: string; href?: string; copyAgain?: boolean };
+
+/** Said once, politely, when Approve turns on. */
+const UNLOCKED = "Every page has been looked at. You can approve now.";
 
 /** The text of an owner-edited path; service descriptions are keyed by service name (§2.8). */
 function editedText(document: unknown, path: string): string {
@@ -56,7 +63,19 @@ function ReviewScreen({ detail, onDone }: { detail: AdminVersionDetail; onDone: 
   const [indexable, setIndexable] = useState(true);
   const [rejectNote, setRejectNote] = useState("");
   const [rejectError, setRejectError] = useState<string[]>([]);
-  const [result, setResult] = useState<{ tone: "success" | "error"; text: string; href?: string } | null>(null);
+  const [result, setResult] = useState<Result | null>(null);
+  const { verified, retry } = useVerifiedPages(detail.pages);
+  /**
+   * The pages whose frame has loaded at least once. It is a process aid, not a security check: the server approves only the exact stored
+   * bytes whatever this client says (Approve sends the version's sha256, and Plan 2 proves every page's bytes). A frame that loaded does not
+   * prove anyone read the page. It survives a reload after a failed Approve, so the retry stays available.
+   */
+  const [seen, setSeen] = useState<ReadonlySet<PageId>>(new Set());
+  const onShown = (page: PageId) => setSeen((prev) => (prev.has(page) ? prev : new Set(prev).add(page)));
+  const notSeen = detail.pages.filter((p) => !seen.has(p.page));
+  // `length > 0` matters: [].every(...) is true, and a version with no stored pages cannot be approved.
+  const canApprove = verified.state === "ready" && detail.pages.length > 0 && notSeen.length === 0;
+  const gateId = detail.pages.length === 0 ? "no-pages-note" : "approve-gate";
   const resultRef = useRef<HTMLDivElement>(null);
   const changes = detail.liveDocument === null ? [] : textChanges(detail.liveDocument, detail.document);
   const pending = version.status === "pending";
@@ -69,17 +88,27 @@ function ReviewScreen({ detail, onDone }: { detail: AdminVersionDetail; onDone: 
   const email = (detail.document as { facts?: { email?: unknown } }).facts?.email;
   const publicEmail = typeof email === "string" ? email : "(none)";
   /** Approve and Reject remove their own forms: keep keyboard focus on the result. */
-  const showResult = (value: { tone: "success" | "error"; text: string; href?: string }) => {
+  const showResult = (value: Result) => {
     setResult(value);
     requestAnimationFrame(() => resultRef.current?.focus());
   };
 
   async function approve(event: FormEvent) {
     event.preventDefault();
+    // Approve is aria-disabled (it keeps focus), so a press, or Enter in a field, still arrives here.
+    if (!canApprove) return;
     const res = await api<{ liveUrl: string }>("POST", `/api/admin/versions/${version.id}/approve`, { htmlSha256: version.htmlSha256, note: approveNote.trim(), indexable });
-    setApproveFailed(!res.ok && res.status >= 500);
+    // After a lost lease (409, no Retry-After) the approval may have been committed too: keep Approve so it can be pressed again.
+    setApproveFailed(!res.ok && (res.status >= 500 || res.error.message === APPROVE_LEASE_LOST));
     if (res.ok) showResult({ tone: "success", text: "Approved. We'll email the owner. The site goes live within about a minute:", href: res.data.liveUrl });
-    else showResult({ tone: "error", text: res.error.message });
+    else showResult({ tone: "error", text: res.error.message, copyAgain: res.error.message === APPROVE_LIVE_COPY_FAILED });
+    onDone();
+  }
+
+  /** The approved version's pages are copied to live again (the site's live version is this one once it was approved). */
+  async function copyAgain() {
+    const res = await api("POST", `/api/admin/sites/${site.id}/copy-pages`, {});
+    showResult(res.ok ? { tone: "success", text: COPIED_AGAIN } : { tone: "error", text: res.error.message, copyAgain: res.error.message === COPY_LIVE_COPY_FAILED });
     onDone();
   }
 
@@ -121,6 +150,11 @@ function ReviewScreen({ detail, onDone }: { detail: AdminVersionDetail; onDone: 
             ) : (
               <span className="break-all">{result.href}</span>
             )}
+            {result.copyAgain === true ? (
+              <button type="button" className="btn-secondary mt-3" onClick={() => void copyAgain()}>
+                Copy the live pages again
+              </button>
+            ) : null}
           </Notice>
         ) : null}
       </div>
@@ -129,9 +163,24 @@ function ReviewScreen({ detail, onDone }: { detail: AdminVersionDetail; onDone: 
         <div className="min-w-0">
           <h2 className="text-lg font-semibold">The exact pages that will go live</h2>
           {detail.pages.length === 0 ? (
-            <Notice tone="warning">This version has no stored pages (it was sent before sites had several pages), so it cannot be approved.</Notice>
+            <div id="no-pages-note">
+              <Notice tone="warning">This version has no stored pages (it was sent before sites had several pages), so it cannot be approved.</Notice>
+            </div>
+          ) : verified.state === "ready" ? (
+            <PagePreview pages={verified.sources} frameTitle="Page under review" onShown={onShown} />
+          ) : verified.state === "loading" ? (
+            <p role="status" className="mt-3">
+              Loading the page…
+            </p>
           ) : (
-            <PagePreview pages={detail.pages.map(({ page, url }) => ({ page, url }))} frameTitle="Page under review" />
+            <div role="alert">
+              <Notice tone="error">
+                {verified.state === "error" ? "The page couldn't load." : `The ${verified.label} page doesn't match what was sent for review, so this version can't be approved. Try again, or reject it.`}
+              </Notice>
+              <button type="button" className="btn-secondary mt-3" onClick={retry}>
+                Try again
+              </button>
+            </div>
           )}
         </div>
 
@@ -227,9 +276,18 @@ function ReviewScreen({ detail, onDone }: { detail: AdminVersionDetail; onDone: 
                 </h2>
                 <TextArea id="approve-note" label="Internal note (optional, not shown to the owner)" max={1000} value={approveNote} onChange={setApproveNote} />
                 <Checkbox id="approve-indexable" label="Allow search engines to list this site" checked={indexable} onChange={setIndexable} />
-                <button type="submit" className="btn-primary mt-4">
+                {canApprove || detail.pages.length === 0 ? null : (
+                  <p id="approve-gate" className="mt-4">
+                    Look at every page before approving.{notSeen.length === 0 ? "" : ` Not looked at yet: ${notSeen.map((p) => p.label).join(", ")}.`}
+                  </p>
+                )}
+                {/* aria-disabled, not disabled: Approve keeps keyboard focus, and its reason is read from the line above it. */}
+                <button type="submit" className="btn-primary mt-4" aria-disabled={!canApprove} aria-describedby={canApprove ? undefined : gateId}>
                   Approve and publish
                 </button>
+                <p role="status" className="sr-only">
+                  {canApprove ? UNLOCKED : ""}
+                </p>
               </form>
               {pending ? (
                 <form className="card" noValidate onSubmit={(e) => void reject(e)} aria-labelledby="reject-title">

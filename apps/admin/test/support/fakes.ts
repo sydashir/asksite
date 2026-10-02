@@ -1,15 +1,58 @@
 import type { Mailer } from "@asksite/app-common";
 import { livePageKey, livePointerKey, liveSitePrefix, pagesDigest, sha256Hex, siteUrl, versionPageKey, VersionPages, type SiteVersionRow } from "@asksite/core";
 import { formatPhone } from "@asksite/renderer";
-import { TAKEDOWN_REVIEW_NOTE } from "@asksite/publishing";
+import { acquireLease, assertLease, PublishError as RealPublishError, releaseLease, TAKEDOWN_REVIEW_NOTE } from "@asksite/publishing";
 import type { SiteDocument } from "@asksite/site-schema";
-import { FakePublishError, fakeCreateMailer, toGenerationView } from "../../../app/test/support/fakes.ts";
-import type { AdminDeps, AdminGenerationDeps, AdminPublishingDeps, MailerEnv } from "../../src/worker/deps.ts";
+import { fakeCreateMailer, toGenerationView } from "../../../app/test/support/fakes.ts";
+import type { AdminDeps, AdminGenerationDeps, AdminPublishingDeps, MailerEnv, PublishErrorCode } from "../../src/worker/deps.ts";
 
 // Test stand-ins for the Plan 2 functions the admin calls (§7.2), following the documented steps (the A16 pointer
 // model: every page copied to its own LIVE key, one pointer per site switches them all) closely enough for this
 // Worker's tests, with the real core helpers for every key and hash so they cannot drift from Plan 2. The integration
 // task swaps in @asksite/publishing.
+
+/** The admin's own, so it can carry every code the admin knows (the app's fake has no `site_busy`): same shape as Plan 2's PublishError. */
+class FakePublishError extends Error {
+  readonly code: PublishErrorCode;
+  readonly detail: unknown;
+
+  constructor(code: PublishErrorCode, detail?: unknown) {
+    super(code);
+    this.code = code;
+    this.detail = detail;
+  }
+}
+
+/**
+ * A16-4c: one admin action per site at a time. The REAL lease functions (@asksite/publishing's acquireLease and releaseLease,
+ * on the sites row's admin_lock) so a test can hold a site by writing admin_lock / admin_lock_until, as another action would;
+ * the real PublishError is turned into this file's fake, which the admin routes recognise. Used by approve, restore and
+ * copyLivePagesAgain; `run` gets the lease's token.
+ */
+async function underLease<T>(db: D1Database, siteId: string, now: number, run: (token: string) => Promise<T>, missing: "site_not_found" | "version_not_pending" = "site_not_found"): Promise<T> {
+  let token: string;
+  try {
+    token = await acquireLease(db, siteId, now, missing);
+  } catch (err) {
+    if (err instanceof RealPublishError) throw new FakePublishError(err.code, err.detail);
+    throw err;
+  }
+  try {
+    return await run(token);
+  } finally {
+    await releaseLease(db, siteId, token);
+  }
+}
+
+/** The real assertLease, as the fake's own error: a write to R2 is preceded by it (the real approve does so before its pointer write). */
+async function holdsLease(db: D1Database, siteId: string, token: string): Promise<void> {
+  try {
+    await assertLease(db, siteId, token);
+  } catch (err) {
+    if (err instanceof RealPublishError) throw new FakePublishError(err.code, err.detail);
+    throw err;
+  }
+}
 
 const audit = (db: D1Database, at: number, reviewer: string, action: string, siteId: string, detail: Record<string, unknown> = {}) =>
   db.prepare("INSERT INTO audit_log (at, actor, action, site_id, detail_json) VALUES (?, ?, ?, ?, ?)").bind(at, `admin:${reviewer}`, action, siteId, JSON.stringify(detail));
@@ -69,53 +112,139 @@ async function removeOtherVersions(live: R2Bucket, slug: string, versionId: stri
   }
 }
 
+interface LiveSite {
+  siteId: string;
+  slug: string;
+  versionId: string;
+  takenDownAt: number | null;
+  htmlSha256: string;
+  pagesJson: string;
+  documentJson: string;
+}
+
+/**
+ * The site and its live version (Plan 2's readLiveSite): site_not_found for no such site, not_live for a site with no live version.
+ * `takenDownFirst`: copyLivePagesAgain's order (site-state.ts:293-294 checks taken_down_at BEFORE not_live; restore checks not_live first, :155).
+ */
+async function liveSite(db: D1Database, siteId: string, takenDownFirst = false): Promise<LiveSite> {
+  const site = await db
+    .prepare("SELECT s.slug, s.taken_down_at, s.live_version_id, v.html_sha256, v.pages_json, v.document_json FROM sites s LEFT JOIN site_versions v ON v.id = s.live_version_id WHERE s.id = ?")
+    .bind(siteId)
+    .first<{ slug: string | null; taken_down_at: number | null; live_version_id: string | null; html_sha256: string | null; pages_json: string | null; document_json: string | null }>();
+  if (site === null) throw new FakePublishError("site_not_found");
+  if (takenDownFirst && site.taken_down_at !== null) throw new FakePublishError("site_taken_down");
+  if (site.slug === null || site.live_version_id === null || site.document_json === null || site.pages_json === null || site.html_sha256 === null) throw new FakePublishError("not_live");
+  return { siteId, slug: site.slug, versionId: site.live_version_id, takenDownAt: site.taken_down_at, htmlSha256: site.html_sha256, pagesJson: site.pages_json, documentJson: site.document_json };
+}
+
+/** Verifies every page of the live version, copies them to LIVE, checks the lease and writes the pointer; a rejected pointer write is live_copy_failed (restore's own sequence, site-state.ts:176-188). */
+async function copyAndWritePointer(env: { DB: D1Database; WORK: R2Bucket; LIVE: R2Bucket }, site: LiveSite, token: string): Promise<void> {
+  const ids = { siteId: site.siteId, versionId: site.versionId };
+  await copyPages(env.LIVE, site.slug, ids, await verifiedPages(env.WORK, { site_id: site.siteId, id: site.versionId, pages_json: site.pagesJson, html_sha256: site.htmlSha256 }));
+  await holdsLease(env.DB, site.siteId, token);
+  try {
+    await writePointer(env.LIVE, site.slug, ids, site.documentJson);
+  } catch {
+    throw new FakePublishError("live_copy_failed", { versionId: site.versionId });
+  }
+}
+
+/**
+ * The copy-and-point sequence of a LIVE site (Plan 2's copyAndPoint, site-state.ts:235-270; used by copyLivePagesAgain and restore's heal): verify, copy,
+ * lease check, pointer write (a rejection is remembered, the write may still have landed), then the takedown re-read: a read that throws, or a site down
+ * or gone, takes the pointer back out (best effort, not lease-checked) and answers live_copy_failed / site_taken_down; a rejected write on a live
+ * site is live_copy_failed with the pointer left; otherwise the other versions' pages go.
+ */
+async function copyAndPoint(env: { DB: D1Database; WORK: R2Bucket; LIVE: R2Bucket }, site: LiveSite, token: string): Promise<void> {
+  const ids = { siteId: site.siteId, versionId: site.versionId };
+  await copyPages(env.LIVE, site.slug, ids, await verifiedPages(env.WORK, { site_id: site.siteId, id: site.versionId, pages_json: site.pagesJson, html_sha256: site.htmlSha256 }));
+  await holdsLease(env.DB, site.siteId, token);
+  let putRejected = false;
+  try {
+    await writePointer(env.LIVE, site.slug, ids, site.documentJson);
+  } catch {
+    putRejected = true; // the write may still have landed: the read below decides
+  }
+  let after: { taken_down_at: number | null } | null;
+  try {
+    after = await env.DB.prepare("SELECT taken_down_at FROM sites WHERE id = ?").bind(site.siteId).first<{ taken_down_at: number | null }>();
+  } catch {
+    await env.LIVE.delete(livePointerKey(site.slug)).catch(() => undefined);
+    throw new FakePublishError("live_copy_failed", { versionId: site.versionId });
+  }
+  if (after === null || after.taken_down_at !== null) {
+    await env.LIVE.delete(livePointerKey(site.slug)).catch(() => undefined);
+    throw new FakePublishError("site_taken_down");
+  }
+  if (putRejected) throw new FakePublishError("live_copy_failed", { versionId: site.versionId });
+  await removeOtherVersions(env.LIVE, site.slug, site.versionId);
+}
+
+/** As Plan 2 decision 29: how many of the page's photos a takedown with purgeMedia deleted. */
+async function missingPhotos(env: { MEDIA: R2Bucket; ROOT_DOMAIN: string }, documentJson: string): Promise<number> {
+  const { facts } = JSON.parse(documentJson) as { facts: { heroPhoto?: { url: string }; photos?: Array<{ url: string }> } };
+  const prefix = `https://media.${env.ROOT_DOMAIN}/`;
+  const keys = [facts.heroPhoto, ...(facts.photos ?? [])].flatMap((p) => (p !== undefined && p.url.startsWith(prefix) ? [p.url.slice(prefix.length)] : []));
+  return (await Promise.all(keys.map((key) => env.MEDIA.head(key)))).filter((o) => o === null).length;
+}
+
+/** Approve's work once the site's lease is held (Plan 2's approveUnderLease). */
+async function approveUnderLease(env: Parameters<AdminPublishingDeps["approveVersion"]>[0], input: Parameters<AdminPublishingDeps["approveVersion"]>[1], token: string): ReturnType<AdminPublishingDeps["approveVersion"]> {
+  const row = await env.DB.prepare(
+    `SELECT v.id, v.site_id, v.html_sha256, v.pages_json, v.document_json, v.status, s.slug, s.pending_version_id, s.live_version_id, s.taken_down_at
+     FROM site_versions v JOIN sites s ON s.id = v.site_id WHERE v.id = ?`,
+  )
+    .bind(input.versionId)
+    .first<SiteVersionRow & { slug: string; pending_version_id: string | null; live_version_id: string | null; taken_down_at: number | null }>();
+  if (row === null) throw new FakePublishError("version_not_pending");
+  if (input.htmlSha256 !== row.html_sha256) throw new FakePublishError("integrity");
+  // As Plan 2: a version that will be refused copies nothing; the accepted retry is approved, live and not taken down.
+  const pendingOne = row.status === "pending" && row.pending_version_id === row.id;
+  const acceptedRetry = row.status === "approved" && row.live_version_id === row.id;
+  if (row.taken_down_at !== null) throw new FakePublishError("site_taken_down");
+  if (!pendingOne && !acceptedRetry) throw new FakePublishError("version_not_pending");
+  const ids = { siteId: row.site_id, versionId: row.id };
+  await copyPages(env.LIVE, row.slug, ids, await verifiedPages(env.WORK, row));
+  const [, version] = await env.DB.batch([
+    env.DB.prepare("UPDATE sites SET live_version_id = ?, pending_version_id = NULL, indexable = ?, updated_at = ? WHERE id = ? AND pending_version_id = ? AND taken_down_at IS NULL AND admin_lock = ?")
+      .bind(row.id, input.indexable ? 1 : 0, input.now, row.site_id, row.id, token),
+    env.DB.prepare("UPDATE site_versions SET status = 'approved', reviewed_by = ?, reviewed_at = ?, review_note = ? WHERE id = ? AND status = 'pending' AND EXISTS (SELECT 1 FROM sites WHERE id = ? AND live_version_id = ? AND admin_lock = ?)")
+      .bind(input.reviewer, input.now, input.note, row.id, row.site_id, row.id, token),
+    // Written only when the statement before it changed a row, so a retry logs nothing (Plan 2's auditIfChanged).
+    env.DB.prepare("INSERT INTO audit_log (at, actor, action, site_id, detail_json) SELECT ?, ?, ?, ?, ? WHERE changes() = 1")
+      .bind(input.now, `admin:${input.reviewer}`, "version.approved", row.site_id, JSON.stringify({ versionId: row.id, indexable: input.indexable })),
+  ]);
+  if (version?.meta.changes !== 1) {
+    await holdsLease(env.DB, row.site_id, token); // a fenced write that changed nothing under a lost lease is not "already live"
+    const now = await env.DB.prepare("SELECT v.status, s.live_version_id, s.taken_down_at FROM site_versions v JOIN sites s ON s.id = v.site_id WHERE v.id = ?")
+      .bind(row.id)
+      .first<{ status: string; live_version_id: string | null; taken_down_at: number | null }>();
+    const alreadyLive = now !== null && now.status === "approved" && now.live_version_id === row.id && now.taken_down_at === null;
+    if (!alreadyLive) throw new FakePublishError(now !== null && now.taken_down_at !== null ? "site_taken_down" : "version_not_pending");
+  }
+  await holdsLease(env.DB, row.site_id, token); // R2 cannot be conditioned on D1: the lease is checked right before the pointer write
+  // The approval is recorded: a failed pointer write now is live_copy_failed, and approving again finishes it.
+  try {
+    await writePointer(env.LIVE, row.slug, ids, row.document_json);
+  } catch {
+    throw new FakePublishError("live_copy_failed", { versionId: row.id });
+  }
+  const after = await env.DB.prepare("SELECT taken_down_at FROM sites WHERE id = ?").bind(row.site_id).first<{ taken_down_at: number | null }>();
+  if (after === null || after.taken_down_at !== null) {
+    await env.LIVE.delete(livePointerKey(row.slug)).catch(() => undefined);
+    throw new FakePublishError("site_taken_down");
+  }
+  await removeOtherVersions(env.LIVE, row.slug, row.id);
+  return { siteId: row.site_id, slug: row.slug, liveUrl: siteUrl(env.ROOT_DOMAIN, row.slug) };
+}
+
 export const fakeAdminPublishing: AdminPublishingDeps = {
   PublishError: FakePublishError,
   async approveVersion(env, input) {
-    const row = await env.DB.prepare(
-      `SELECT v.id, v.site_id, v.html_sha256, v.pages_json, v.document_json, v.status, s.slug, s.pending_version_id, s.live_version_id, s.taken_down_at
-       FROM site_versions v JOIN sites s ON s.id = v.site_id WHERE v.id = ?`,
-    )
-      .bind(input.versionId)
-      .first<SiteVersionRow & { slug: string; pending_version_id: string | null; live_version_id: string | null; taken_down_at: number | null }>();
-    if (row === null) throw new FakePublishError("version_not_pending");
-    if (input.htmlSha256 !== row.html_sha256) throw new FakePublishError("integrity");
-    // As Plan 2: a version that will be refused copies nothing; the accepted retry is approved, live and not taken down.
-    const pendingOne = row.status === "pending" && row.pending_version_id === row.id;
-    const acceptedRetry = row.status === "approved" && row.live_version_id === row.id;
-    if (row.taken_down_at !== null) throw new FakePublishError("site_taken_down");
-    if (!pendingOne && !acceptedRetry) throw new FakePublishError("version_not_pending");
-    const ids = { siteId: row.site_id, versionId: row.id };
-    await copyPages(env.LIVE, row.slug, ids, await verifiedPages(env.WORK, row));
-    const [, version] = await env.DB.batch([
-      env.DB.prepare("UPDATE sites SET live_version_id = ?, pending_version_id = NULL, indexable = ?, updated_at = ? WHERE id = ? AND pending_version_id = ? AND taken_down_at IS NULL")
-        .bind(row.id, input.indexable ? 1 : 0, input.now, row.site_id, row.id),
-      env.DB.prepare("UPDATE site_versions SET status = 'approved', reviewed_by = ?, reviewed_at = ?, review_note = ? WHERE id = ? AND status = 'pending' AND EXISTS (SELECT 1 FROM sites WHERE id = ? AND live_version_id = ?)")
-        .bind(input.reviewer, input.now, input.note, row.id, row.site_id, row.id),
-      // Written only when the statement before it changed a row, so a retry logs nothing (Plan 2's auditIfChanged).
-      env.DB.prepare("INSERT INTO audit_log (at, actor, action, site_id, detail_json) SELECT ?, ?, ?, ?, ? WHERE changes() = 1")
-        .bind(input.now, `admin:${input.reviewer}`, "version.approved", row.site_id, JSON.stringify({ versionId: row.id, indexable: input.indexable })),
-    ]);
-    if (version?.meta.changes !== 1) {
-      const now = await env.DB.prepare("SELECT v.status, s.live_version_id, s.taken_down_at FROM site_versions v JOIN sites s ON s.id = v.site_id WHERE v.id = ?")
-        .bind(row.id)
-        .first<{ status: string; live_version_id: string | null; taken_down_at: number | null }>();
-      const alreadyLive = now !== null && now.status === "approved" && now.live_version_id === row.id && now.taken_down_at === null;
-      if (!alreadyLive) throw new FakePublishError(now !== null && now.taken_down_at !== null ? "site_taken_down" : "version_not_pending");
-    }
-    // The approval is recorded: a failed pointer write now is live_copy_failed, and approving again finishes it.
-    try {
-      await writePointer(env.LIVE, row.slug, ids, row.document_json);
-    } catch {
-      throw new FakePublishError("live_copy_failed", { versionId: row.id });
-    }
-    const after = await env.DB.prepare("SELECT taken_down_at FROM sites WHERE id = ?").bind(row.site_id).first<{ taken_down_at: number | null }>();
-    if (after === null || after.taken_down_at !== null) {
-      await env.LIVE.delete(livePointerKey(row.slug)).catch(() => undefined);
-      throw new FakePublishError("site_taken_down");
-    }
-    await removeOtherVersions(env.LIVE, row.slug, row.id);
-    return { siteId: row.site_id, slug: row.slug, liveUrl: siteUrl(env.ROOT_DOMAIN, row.slug) };
+    // As Plan 2: the site's lease is taken first (a held site is site_busy), and every write below carries its token.
+    const owner = await env.DB.prepare("SELECT site_id FROM site_versions WHERE id = ?").bind(input.versionId).first<{ site_id: string }>();
+    if (owner === null) throw new FakePublishError("version_not_pending");
+    return underLease(env.DB, owner.site_id, input.now, (token) => approveUnderLease(env, input, token), "version_not_pending");
   },
   async rejectVersion(env, input) {
     const version = await env.DB.prepare("SELECT site_id FROM site_versions WHERE id = ? AND status = 'pending'").bind(input.versionId).first<{ site_id: string }>();
@@ -128,73 +257,92 @@ export const fakeAdminPublishing: AdminPublishingDeps = {
     return { siteId: version.site_id };
   },
   async takeDown(env, input) {
-    const site = await env.DB.prepare("SELECT slug, pending_version_id FROM sites WHERE id = ?").bind(input.siteId).first<{ slug: string | null; pending_version_id: string | null }>();
-    if (site === null) throw new FakePublishError("site_not_found");
-    // Plan 2's order: (1) the LIVE pointer goes first, so every page stops at once (a failure here changes nothing in D1);
-    // (2) the D1 batch; (3) the pointer again and every LIVE object under <slug>/; (4) the media purge.
-    if (site.slug) await env.LIVE.delete(livePointerKey(site.slug));
-    // As Plan 2 (site-state.ts): the UPDATE only takes the site down while it is up, so the first reason is kept,
-    // and the audit row is written only when that UPDATE changed a row (auditIfChanged, WHERE changes() = 1).
-    const [, takenDown] = await env.DB.batch([
-      env.DB.prepare("UPDATE site_versions SET status = 'rejected', review_note = ? WHERE site_id = ? AND status = 'pending'").bind(TAKEDOWN_REVIEW_NOTE, input.siteId),
-      env.DB.prepare("UPDATE sites SET taken_down_at = ?, takedown_reason = ?, pending_version_id = NULL WHERE id = ? AND taken_down_at IS NULL").bind(input.now, input.reason, input.siteId),
-      env.DB.prepare("INSERT INTO audit_log (at, actor, action, site_id, detail_json) SELECT ?, ?, ?, ?, ? WHERE changes() = 1").bind(
-        input.now,
-        `admin:${input.reviewer}`,
-        "site.taken_down",
-        input.siteId,
-        JSON.stringify({ reason: input.reason, purgeMedia: input.purgeMedia }),
-      ),
-    ]);
-    if (site.slug) {
-      await env.LIVE.delete(livePointerKey(site.slug));
-      await deletePrefix(env.LIVE, liveSitePrefix(site.slug));
-    }
-    if (input.purgeMedia) {
-      const listed = await env.MEDIA.list({ prefix: `${input.siteId}/` });
-      await Promise.all(listed.objects.map((o) => env.MEDIA.delete(o.key)));
-      const markDeleted = env.DB.prepare("UPDATE uploads SET deleted_at = ? WHERE site_id = ? AND deleted_at IS NULL").bind(input.now, input.siteId);
-      // A later call's purge gets its own row, only when it marked an upload or deleted an object (Plan 2's auditLaterPurge).
-      const firstCall = takenDown?.meta.changes === 1;
-      await env.DB.batch(
-        firstCall
-          ? [markDeleted]
-          : [
-              markDeleted,
-              env.DB.prepare("INSERT INTO audit_log (at, actor, action, site_id, detail_json) SELECT ?, ?, ?, ?, ? WHERE changes() > 0 OR ? > 0").bind(
-                input.now,
-                `admin:${input.reviewer}`,
-                "site.taken_down",
-                input.siteId,
-                JSON.stringify({ reason: input.reason, purgeMedia: true, repeat: true }),
-                listed.objects.length,
-              ),
-            ],
-      );
-    }
+    // As Plan 2 (site-state.ts:23-85): under the site's lease; every D1 write is fenced on it; the lease is checked right before each R2 delete
+    // and after a batch that changed no row.
+    return underLease(env.DB, input.siteId, input.now, async (token) => {
+      const site = await env.DB.prepare("SELECT slug FROM sites WHERE id = ?").bind(input.siteId).first<{ slug: string | null }>();
+      if (site === null) throw new FakePublishError("site_not_found");
+      // Plan 2's order: (1) the LIVE pointer goes first, so every page stops at once (a failure here changes nothing in D1);
+      // (2) the D1 batch; (3) the pointer again and every LIVE object under <slug>/; (4) the media purge.
+      if (site.slug) {
+        await holdsLease(env.DB, input.siteId, token);
+        await env.LIVE.delete(livePointerKey(site.slug));
+      }
+      // As Plan 2 (site-state.ts): the UPDATE only takes the site down while it is up, so the first reason is kept,
+      // and the audit row is written only when that UPDATE changed a row (auditIfChanged, WHERE changes() = 1).
+      const [, takenDown] = await env.DB.batch([
+        env.DB.prepare("UPDATE site_versions SET status = 'rejected', review_note = ? WHERE site_id = ? AND status = 'pending' AND EXISTS (SELECT 1 FROM sites WHERE id = ? AND admin_lock = ?)").bind(TAKEDOWN_REVIEW_NOTE, input.siteId, input.siteId, token),
+        env.DB.prepare("UPDATE sites SET taken_down_at = ?, takedown_reason = ?, pending_version_id = NULL WHERE id = ? AND taken_down_at IS NULL AND admin_lock = ?").bind(input.now, input.reason, input.siteId, token),
+        env.DB.prepare("INSERT INTO audit_log (at, actor, action, site_id, detail_json) SELECT ?, ?, ?, ?, ? WHERE changes() = 1").bind(
+          input.now,
+          `admin:${input.reviewer}`,
+          "site.taken_down",
+          input.siteId,
+          JSON.stringify({ reason: input.reason, purgeMedia: input.purgeMedia }),
+        ),
+      ]);
+      if (takenDown?.meta.changes !== 1) await holdsLease(env.DB, input.siteId, token); // 0 rows: already down (fine) or the lease was lost
+      if (site.slug) {
+        await holdsLease(env.DB, input.siteId, token);
+        await env.LIVE.delete(livePointerKey(site.slug));
+        await holdsLease(env.DB, input.siteId, token);
+        await deletePrefix(env.LIVE, liveSitePrefix(site.slug));
+      }
+      if (input.purgeMedia) {
+        const listed = await env.MEDIA.list({ prefix: `${input.siteId}/` });
+        await Promise.all(listed.objects.map((o) => env.MEDIA.delete(o.key)));
+        const markDeleted = env.DB.prepare("UPDATE uploads SET deleted_at = ? WHERE site_id = ? AND deleted_at IS NULL AND EXISTS (SELECT 1 FROM sites WHERE id = ? AND admin_lock = ?)").bind(input.now, input.siteId, input.siteId, token);
+        // A later call's purge gets its own row, only when it marked an upload or deleted an object (Plan 2's auditLaterPurge).
+        const firstCall = takenDown?.meta.changes === 1;
+        const [marked] = await env.DB.batch(
+          firstCall
+            ? [markDeleted]
+            : [
+                markDeleted,
+                env.DB.prepare("INSERT INTO audit_log (at, actor, action, site_id, detail_json) SELECT ?, ?, ?, ?, ? WHERE changes() > 0 OR ? > 0").bind(
+                  input.now,
+                  `admin:${input.reviewer}`,
+                  "site.taken_down",
+                  input.siteId,
+                  JSON.stringify({ reason: input.reason, purgeMedia: true, repeat: true }),
+                  listed.objects.length,
+                ),
+              ],
+        );
+        if (marked?.meta.changes === 0) await holdsLease(env.DB, input.siteId, token);
+      }
+    }, "site_not_found");
   },
   async restore(env, input) {
-    const site = await env.DB.prepare("SELECT s.slug, s.live_version_id, v.html_sha256, v.pages_json, v.document_json FROM sites s LEFT JOIN site_versions v ON v.id = s.live_version_id WHERE s.id = ?")
-      .bind(input.siteId)
-      .first<{ slug: string; live_version_id: string | null; html_sha256: string | null; pages_json: string | null; document_json: string | null }>();
-    if (site === null) throw new FakePublishError("site_not_found");
-    if (site.live_version_id === null || site.document_json === null || site.pages_json === null || site.html_sha256 === null) throw new FakePublishError("not_live");
-    // As Plan 2: verify every page, copy them, write the pointer (not served yet: D1 still says taken down), then clear taken_down_at.
-    // On a live site that is not taken down the batch changes nothing and logs nothing: it only copies the pages again.
-    const ids = { siteId: input.siteId, versionId: site.live_version_id };
-    await copyPages(env.LIVE, site.slug, ids, await verifiedPages(env.WORK, { site_id: input.siteId, id: site.live_version_id, pages_json: site.pages_json, html_sha256: site.html_sha256 }));
-    await writePointer(env.LIVE, site.slug, ids, site.document_json);
-    await env.DB.batch([
-      env.DB.prepare("UPDATE sites SET taken_down_at = NULL, takedown_reason = NULL WHERE id = ? AND taken_down_at IS NOT NULL").bind(input.siteId),
-      env.DB.prepare("INSERT INTO audit_log (at, actor, action, site_id, detail_json) SELECT ?, ?, ?, ?, ? WHERE changes() = 1").bind(input.now, `admin:${input.reviewer}`, "site.restored", input.siteId, JSON.stringify({ versionId: site.live_version_id })),
-    ]);
-    await removeOtherVersions(env.LIVE, site.slug, site.live_version_id);
-    // As Plan 2 decision 29: count the page's photos that a takedown with purgeMedia deleted.
-    const { facts } = JSON.parse(site.document_json) as { facts: { heroPhoto?: { url: string }; photos?: Array<{ url: string }> } };
-    const prefix = `https://media.${env.ROOT_DOMAIN}/`;
-    const keys = [facts.heroPhoto, ...(facts.photos ?? [])].flatMap((p) => (p !== undefined && p.url.startsWith(prefix) ? [p.url.slice(prefix.length)] : []));
-    const missingPhotos = (await Promise.all(keys.map((key) => env.MEDIA.head(key)))).filter((o) => o === null).length;
-    return { liveUrl: siteUrl(env.ROOT_DOMAIN, site.slug), missingPhotos };
+    return underLease(env.DB, input.siteId, input.now, async (token) => {
+      const site = await liveSite(env.DB, input.siteId);
+      const ids = { siteId: input.siteId, versionId: site.versionId };
+      // As Plan 2: a site that is not taken down is "already restored": the normal result, and a missing or wrong pointer is healed.
+      if (site.takenDownAt === null) {
+        const pointer = await env.LIVE.head(livePointerKey(site.slug));
+        const healed = pointer === null || pointer.customMetadata?.["versionId"] !== site.versionId;
+        if (healed) await copyAndPoint(env, site, token);
+        return { liveUrl: siteUrl(env.ROOT_DOMAIN, site.slug), missingPhotos: await missingPhotos(env, site.documentJson), healed };
+      }
+      // Taken down again since the admin's page was shown: the admin decides again, on a fresh page.
+      if (site.takenDownAt !== input.expectedTakenDownAt) throw new FakePublishError("site_taken_down", { reason: "taken_down_again" });
+      // Verify every page, copy them, write the pointer (not served yet: D1 still says taken down), then clear taken_down_at.
+      await copyAndWritePointer(env, site, token);
+      await env.DB.batch([
+        env.DB.prepare("UPDATE sites SET taken_down_at = NULL, takedown_reason = NULL WHERE id = ? AND taken_down_at IS NOT NULL").bind(input.siteId),
+        env.DB.prepare("INSERT INTO audit_log (at, actor, action, site_id, detail_json) SELECT ?, ?, ?, ?, ? WHERE changes() = 1").bind(input.now, `admin:${input.reviewer}`, "site.restored", input.siteId, JSON.stringify({ versionId: ids.versionId })),
+      ]);
+      await removeOtherVersions(env.LIVE, site.slug, site.versionId);
+      return { liveUrl: siteUrl(env.ROOT_DOMAIN, site.slug), missingPhotos: await missingPhotos(env, site.documentJson), healed: false };
+    });
+  },
+  async copyLivePagesAgain(env, input) {
+    return underLease(env.DB, input.siteId, input.now, async (token) => {
+      // As Plan 2 (site-state.ts:289-297): taken down is checked BEFORE not live; never touches taken_down_at, changes no D1 row and writes no audit row.
+      const site = await liveSite(env.DB, input.siteId, true);
+      await copyAndPoint(env, site, token);
+      return { liveUrl: siteUrl(env.ROOT_DOMAIN, site.slug) };
+    });
   },
   async setIndexable(env, input) {
     const site = await env.DB.prepare("SELECT 1 AS found FROM sites WHERE id = ?").bind(input.siteId).first();

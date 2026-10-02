@@ -343,6 +343,8 @@ describe("constants", () => {
     expect(ERROR_STATUS.site_taken_down).toBe(423);
     expect(ERROR_STATUS.email_failed).toBe(502);
     expect(ERROR_STATUS.rate_limited).toBe(429);
+    // A draft PATCH whose copy or order edits carry a stale baseGenerationId (Plan 4's wording guard).
+    expect(ERROR_STATUS.wording_changed).toBe(409);
   });
 
   it("every look is a valid Plan 1 theme, and the four looks use four palettes", () => {
@@ -372,7 +374,7 @@ describe("row and view types", () => {
   it("describe the tables and API responses (checked by pnpm typecheck)", () => {
     const site: SiteRow = {
       id: "s", owner_id: "o", slug: null, facts_json: "{}", brief_json: "{}", edits_json: canonicalJson(EMPTY_EDITS), rev: 1,
-      live_version_id: null, pending_version_id: null, indexable: 1, taken_down_at: null, takedown_reason: null, created_at: 1, updated_at: 1,
+      live_version_id: null, pending_version_id: null, indexable: 1, taken_down_at: null, takedown_reason: null, admin_lock: null, admin_lock_until: null, created_at: 1, updated_at: 1,
     };
     const version: VersionSummary = { id: "v", number: 1, status: "pending", requestedAt: 1, reviewedAt: null, reviewNote: null };
     const lead: LeadView = { id: "l", createdAt: 1, name: "n", phone: "p", email: null, service: null, message: null, emailStatus: "sent" };

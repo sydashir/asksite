@@ -8,7 +8,10 @@ import type { GenerationRow, GenerationView } from "@asksite/core";
 // Differences from the design text, all from the owning plans: `restore` also takes ROOT_DOMAIN and
 // MEDIA and says how many of the page's photos are gone (Plan 2 decisions 3 and 29); publishing
 // adds the codes `publish_cap_reached` and `site_not_found` (Plan 2 decisions 25 and 28); and
-// `worstCaseJobMicrousd` returns null for a model with no recorded price (Plan 3 decision 11).
+// `worstCaseJobMicrousd` returns null for a model with no recorded price (Plan 3 decision 11). A16-4c
+// (asksite-pages handoff-plan4.md lines 46-69): `restore` takes the `taken_down_at` the admin's page showed
+// (`expectedTakenDownAt`) and says whether it healed a live site's pointer; `copyLivePagesAgain` is the
+// "Copy the live pages again" action; publishing adds the code `site_busy` (one admin action per site at a time).
 
 import type { PublishErrorCode } from "./publish-errors.ts";
 
@@ -33,8 +36,12 @@ export interface AdminPublishingDeps {
   ) => Promise<void>;
   restore: (
     env: { DB: D1Database; LIVE: R2Bucket; WORK: R2Bucket; MEDIA: R2Bucket; ROOT_DOMAIN: string },
+    input: { siteId: string; reviewer: string; expectedTakenDownAt: number; now: number },
+  ) => Promise<{ liveUrl: string; missingPhotos: number; healed: boolean }>;
+  copyLivePagesAgain: (
+    env: { DB: D1Database; LIVE: R2Bucket; WORK: R2Bucket; ROOT_DOMAIN: string },
     input: { siteId: string; reviewer: string; now: number },
-  ) => Promise<{ liveUrl: string; missingPhotos: number }>;
+  ) => Promise<{ liveUrl: string }>;
   setIndexable: (env: { DB: D1Database }, input: { siteId: string; reviewer: string; indexable: boolean; now: number }) => Promise<void>;
 }
 

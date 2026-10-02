@@ -9,14 +9,19 @@ import { usePageHeading } from "../../../../app/src/client/hooks/use-page-headin
 import { onLinkClick } from "../../../../app/src/client/hooks/use-route.ts";
 import { api } from "../../../../app/src/client/lib/api.ts";
 import { useResource } from "../hooks.ts";
+import { COPIED_AGAIN, TAKEDOWN_LEASE_LOST } from "../../messages.ts";
 import type { TakedownView } from "../../settings-view.ts";
 import { CapNote } from "../CapNote.tsx";
 import { dollars, restoredText, takedownResult, when, type TakedownResult } from "../lib/format.ts";
 
 type TakedownBody = { reason: string; ownerMessage: string; purgeMedia: boolean };
 
+type Message = { tone: "success" | "warning" | "error"; text: string };
+
 interface SiteDetailData {
   site: AdminSiteRow;
+  /** When the takedown happened (null while the site is up): Restore sends it back, and a different takedown is refused (A16-4c). */
+  takenDownAt: number | null;
   versions: VersionSummary[];
   generations: Array<GenerationView & { provider: string | null; model: string | null; costMicrousd: number; attempts: number }>;
   leadCount: number;
@@ -31,9 +36,9 @@ export function SiteDetail({ siteId }: { siteId: string }) {
 }
 
 function SiteScreen({ data, reload }: { data: SiteDetailData; reload: () => Promise<void> }) {
-  const { site } = data;
+  const { site, takenDownAt } = data;
   const heading = usePageHeading<HTMLHeadingElement>(site.businessName ?? site.slug ?? "Site", "Admin");
-  const [message, setMessage] = useState<{ tone: "success" | "warning" | "error"; text: string } | null>(null);
+  const [message, setMessage] = useState<Message | null>(null);
   /** The last takedown and the body it sent: "Finish the takedown" re-sends exactly that body, and keeps its owner-notice line. */
   const [takedown, setTakedown] = useState<{ body: TakedownBody; result: TakedownResult } | null>(null);
   const [reason, setReason] = useState("");
@@ -47,7 +52,7 @@ function SiteScreen({ data, reload }: { data: SiteDetailData; reload: () => Prom
   const [takedownUnsure, setTakedownUnsure] = useState(false);
   const messageRef = useRef<HTMLDivElement>(null);
   /** An action can replace the control that ran it (take down becomes restore): keep keyboard focus on the result. */
-  const show = (value: { tone: "success" | "warning" | "error"; text: string }) => {
+  const show = (value: Message) => {
     setMessage(value);
     setTakedownUnsure(false);
     requestAnimationFrame(() => messageRef.current?.focus());
@@ -59,24 +64,35 @@ function SiteScreen({ data, reload }: { data: SiteDetailData; reload: () => Prom
     reload();
   }
 
-  async function restoreSite() {
+  /** Sends the takedown moment this page showed: a restore refuses a site that was taken down again since (the answer says so). */
+  async function restoreSite(expectedTakenDownAt: number) {
     setTakedown(null);
-    const res = await api<{ liveUrl: string; missingPhotos: number }>("POST", `/api/admin/sites/${site.id}/restore`, {});
+    const res = await api<{ liveUrl: string; missingPhotos: number }>("POST", `/api/admin/sites/${site.id}/restore`, { expectedTakenDownAt });
+    // A lost lease: the reload below shows where the site stands (a live site always has "Copy the live pages again", a taken-down one has Restore).
     if (!res.ok) show({ tone: "error", text: res.error.message });
     else show({ tone: res.data.missingPhotos === 0 ? "success" : "warning", text: restoredText(res.data.missingPhotos) });
     reload();
   }
 
+  /** Copies the live version's pages to the live store again. It never changes whether the site is taken down. */
+  async function copyAgain() {
+    const res = await api("POST", `/api/admin/sites/${site.id}/copy-pages`, {});
+    if (res.ok) show({ tone: "success", text: COPIED_AGAIN });
+    else show({ tone: "error", text: res.error.message });
+    reload();
+  }
+
   /** Takes the site down, or finishes a takedown that left its clean-up undone (the same call again; it never emails twice). */
   async function takeDown(body: TakedownBody, previous: TakedownResult | null) {
-    const res = await api<TakedownView>("POST", `/api/admin/sites/${site.id}/takedown`, body);
+    // After a lost lease the call that lost it never sent the owner's notice: Finish says so (notice=due), and this call sends it.
+    const res = await api<TakedownView>("POST", `/api/admin/sites/${site.id}/takedown${previous?.noticeDue === true ? "?notice=due" : ""}`, body);
     if (!res.ok) {
       // A 500 can come after the takedown committed: say so rather than a plain error, and let the reload show the truth. Keep the
       // body: if the reload shows the site down, "Finish the takedown" re-sends it. The owner notice is the route's last step and never
       // throws, so a call that answered 5xx sent none itself: keep the earlier result's owner-notice state, and with no earlier result
       // (this call may be the one that took the site down) mark the owner as not emailed.
       if (res.status >= 500) {
-        setTakedown({ body, result: { tone: "warning", text: "", cleanupFailed: true, ownerNotEmailed: previous?.ownerNotEmailed ?? true } });
+        setTakedown({ body, result: { tone: "warning", text: "", cleanupFailed: true, ownerNotEmailed: previous?.ownerNotEmailed ?? true, ...(previous?.noticeDue === true ? { noticeDue: true } : {}) } });
         // Wait for the reload, so the text below is chosen from the site's real state, not the one from before the takedown.
         await reload();
         setMessage(null);
@@ -86,6 +102,9 @@ function SiteScreen({ data, reload }: { data: SiteDetailData; reload: () => Prom
         return;
       }
       show({ tone: "error", text: res.error.message });
+      // A lost lease (409, no Retry-After): the takedown may have committed. If the reload shows the site down, Finish the takedown finishes
+      // it and tells the owner; the owner was not told by this call.
+      if (res.error.message === TAKEDOWN_LEASE_LOST) setTakedown({ body, result: { tone: "warning", text: "", cleanupFailed: true, ownerNotEmailed: false, noticeDue: true } });
     } else {
       const result = takedownResult(res.data, previous);
       setTakedown({ body, result });
@@ -153,8 +172,8 @@ function SiteScreen({ data, reload }: { data: SiteDetailData; reload: () => Prom
           <h2 id="actions-title" className="text-lg font-semibold">
             Actions
           </h2>
-          {site.takenDown ? (
-            <button type="button" className="btn-primary mt-3" onClick={() => void restoreSite()}>
+          {takenDownAt !== null ? (
+            <button type="button" className="btn-primary mt-3" onClick={() => void restoreSite(takenDownAt)}>
               Restore the site
             </button>
           ) : (
@@ -167,6 +186,16 @@ function SiteScreen({ data, reload }: { data: SiteDetailData; reload: () => Prom
               </button>
             </form>
           )}
+          {site.live ? (
+            <div className="mt-4">
+              <button type="button" className="btn-secondary" aria-describedby="copy-again-hint" onClick={() => void copyAgain()}>
+                Copy the live pages again
+              </button>
+              <p id="copy-again-hint" className="mt-1 text-sm text-slate-700">
+                Use this if the live site shows 'page not found' or older pages.
+              </p>
+            </div>
+          ) : null}
           <div className="mt-4">
             <button
               type="button"
