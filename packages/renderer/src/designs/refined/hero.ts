@@ -1,5 +1,5 @@
-// Classic's hero: an eyebrow (trade, town, year), the headline, the Call and quote buttons (on phones the quote
-// button only, as the call bar under the thumb carries Call), the owner's credentials, and beside them the owner's
+// Classic's hero: an eyebrow (trade, town, year), the headline, the Call and quote buttons (from 48rem: on phones the
+// call bar under the thumb carries both, as on the approved Home), the owner's credentials, and beside them the owner's
 // photo as a framed print or, with no photo, a business card (phone, hours, towns, email). A round seal stamps the
 // founded year; one short review sits under the print or the buttons. No text ever sits on a photo.
 import type { Facts } from "@asksite/site-schema";
@@ -7,7 +7,7 @@ import { quoteLink, type RenderContext } from "../../context.ts";
 import { formatPhone, mailtoUrl, telUrl } from "../../format.ts";
 import { html, safeUrl, type SafeHtml } from "../../html.ts";
 import { DOM_ID } from "../../sections/ids.ts";
-import { callButton, ctaLong, dots, email, eyebrow, groupedHours, hoursTitle, icon, lic, reviewer, seal, townSummary, type ClassicIcon } from "./parts.ts";
+import { callButton, dots, email, eyebrow, groupedHours, hoursTitle, icon, lic, reviewer, seal, townSummary, type ClassicIcon } from "./parts.ts";
 import { plan } from "./plan.ts";
 
 /** A headline longer than this gets the smaller hero size. */
@@ -88,7 +88,7 @@ export function renderHero(ctx: RenderContext): SafeHtml {
 <p class="hs">${copy.heroSubheadline}</p>
 <div class="ha">
 ${callButton(facts, "bt bt-act bt-lg", `Call ${formatPhone(facts.phone)}`)}
-<a class="bt bt-out bt-lg" href="${quoteLink()}">${ctaLong(ctx.doc)}</a>
+<a class="bt bt-out bt-lg" href="${quoteLink()}">${copy.ctaText}</a>
 </div>
 ${lift ? ledger(facts) : trustShown && proofLine(facts)}
 ${!photo && quote}

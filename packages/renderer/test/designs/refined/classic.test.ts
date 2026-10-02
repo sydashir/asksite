@@ -7,7 +7,8 @@ import { contrastRatio, hexToRgb } from "../../../src/contrast.ts";
 import { escapeText } from "../../../src/escape.ts";
 import { placeColumns } from "../../../src/designs/refined/area.ts";
 import { DESIGNS } from "../../../src/designs/index.ts";
-import { ctaShort, groupedHours } from "../../../src/designs/refined/parts.ts";
+import { contactHeading } from "../../../src/contact-heading.ts";
+import { groupedHours } from "../../../src/designs/refined/parts.ts";
 import { heroQuoteIndex } from "../../../src/designs/refined/plan.ts";
 import { PALETTES, variables } from "../../../src/designs/refined/tokens.ts";
 import { render, renderDocument } from "../../../src/render.ts";
@@ -81,19 +82,6 @@ describe("Classic layout rules", () => {
       { label: "Monday – Friday", time: "7:00 AM – 7:00 PM" },
       { label: "Saturday & Sunday", time: "Open 24 hours" },
     ]);
-  });
-
-  it("says free in a short label only with the owner's free-estimates fact", () => {
-    // plumber-austin has the free-estimates fact; hvac-phoenix does not (its copy may not say "free").
-    const withCta = (input: SiteDocumentInput, ctaText: string) => SiteDocument.parse({ ...input, copy: { ...input.copy, ctaText } });
-    const hvac = loadFixture("hvac-phoenix");
-    expect(ctaShort(withCta(plumber, "Get a free quote"))).toBe("Free quote");
-    expect(ctaShort(withCta(plumber, "Schedule a free estimate"))).toBe("Free estimate");
-    expect(ctaShort(withCta(hvac, "Get a quote today"))).toBe("Get a quote");
-    expect(ctaShort(withCta(hvac, "Ask us about your system"))).toBe("Get a quote");
-    expect(ctaShort(withCta(hvac, "Schedule your service"))).toBe("Book now");
-    expect(ctaShort(withCta(hvac, "Book a visit"))).toBe("Book a visit");
-    expect(ctaShort(withCta(hvac, "Book"))).toBe("Book a visit");
   });
 
   it("puts one short review in the hero only while the Reviews section keeps another", () => {
@@ -274,6 +262,29 @@ describe("Classic's pages (A16)", () => {
     expect(section(pageOf(cleaning, "services"), "services")).not.toContain('class="svc-more"');
   });
 
+  // Moderator rulings (2026-10-02 16:47, 16:48; WCAG 3.2.4): every quote button that leads to the form, the header's,
+  // the hero's, the closing band's and the in-page ones, keeps the owner's call to action word for word, one word or
+  // more; the call bar's fixed "Get a quote" is the one exception.
+  it("labels every quote button on every page with the owner's call to action, word for word, the call bar's 'Get a quote' apart", () => {
+    const labels = (input: SiteDocumentInput) =>
+      classicSite(input, OPTIONS.stylesheets).pages.flatMap(({ page: id, html }) => {
+        const outside = html.slice(0, html.indexOf("<aside")) + html.slice(html.indexOf("</aside>"));
+        return [...outside.matchAll(/<a [^>]*href="\/contact#quote"[^>]*>([\s\S]*?)<\/a>/g)].map((m) => `${id}: ${m[1]}`);
+      });
+    for (const input of [plumber, hvac, cleaning, loadFixture("roofing-extreme"), loadFixture("electrical-xss"), moved(plumber, "contact", "serviceArea")]) {
+      const found = labels(input);
+      const wanted = escapeText(input.copy.ctaText);
+      expect(found.filter((label) => label.startsWith("home: ")).length, input.facts.businessName).toBeGreaterThanOrEqual(3); // header, hero, closing band
+      expect(found.filter((label) => !label.endsWith(`: ${wanted}`)), input.facts.businessName).toEqual([]);
+    }
+  });
+
+  it("heads the contact band with the shared contact heading, a one-word call to action lengthened, as the page's h1 or lower down", () => {
+    expect(h1(pageOf(cleaning, "contact"))).toBe(squashedText(contactHeading("Book")));
+    expect(section(pageOf(moved(cleaning, "contact", "serviceArea"), "contact"), "contact")).toContain('<h2 id="contact-title" class="st">Request a booking</h2>');
+    expect(h1(pageOf(plumber, "contact"))).toBe(squashedText("Get a free quote"));
+  });
+
   it("gives every page a call bar with Call and the fixed words Get a quote, sticky but on Contact", () => {
     for (const { page: id, html } of classicSite(plumber, OPTIONS.stylesheets).pages) {
       const bar = html.slice(html.indexOf("<aside"), html.indexOf("</aside>"));
@@ -336,8 +347,8 @@ describe("Classic's pages (A16)", () => {
     expect(band(plumber)).toContain(squashedText("Monday – Friday 7:30 AM – 6:00 PM"));
     expect(band(plumber)).toContain(squashedText("Serving Austin, Round Rock, Pflugerville and 4 more."));
     expect(band(plumber)).toContain(squashedText("Get a free quote"));
-    // A one-word call to action reads as the hero and header say it.
-    expect(band(cleaning)).toContain(squashedText("Book a visit"));
+    // The owner's call to action word for word, one word or more, as the hero and the header say it.
+    expect(section(pageOf(cleaning, "services"), "get-in-touch")).toContain('href="/contact#quote">Book</a>');
     expect(band(cleaning)).toContain(squashedText("Need a cleaner in Boise?"));
     // Without the owner's own contact line, plain house words that claim nothing (never a bare heading on a phone).
     expect(band(cleaning, "home")).toContain(squashedText("Tell us what you need, or give us a call."));

@@ -2,14 +2,14 @@
 // approved single page. A dark panel on the page's last light band (so it never runs into the dark footer): the
 // heading, a question built from the owner's trade and town, the owner's own contact line (or plain house words), the
 // hours and the towns served (only while the Service area section renders, amendment A6), then Call with the number
-// (and the owner's 24/7 fact) and the owner's call to action, in the words the hero uses. On phones the call bar under
-// the thumb carries both buttons, so the panel shows the number itself, large, to tap instead. A render.ts block, not a
-// layout section.
+// (and the owner's 24/7 fact) and the owner's call to action word for word, as the hero says it. On phones the call bar
+// under the thumb carries both buttons, so the panel shows the number itself, large, to tap instead. A render.ts block,
+// not a layout section.
 import { quoteLink, type RenderContext } from "../../context.ts";
 import { formatPhone, telUrl } from "../../format.ts";
 import { html, type SafeHtml } from "../../html.ts";
 import { CLOSING_BAND_ID } from "../../sections/ids.ts";
-import { callButton, contactLine, ctaLong, icon, needLine, shortHours, townSummary } from "./parts.ts";
+import { callButton, contactLine, icon, needLine, shortHours, townSummary } from "./parts.ts";
 import { bandClass, plan } from "./plan.ts";
 
 export function renderClosingBand(ctx: RenderContext): SafeHtml {
@@ -35,7 +35,7 @@ ${towns}
 </ul>
 <div class="cl-a">
 ${callButton(facts, "bt bt-act bt-lg", `Call ${formatPhone(facts.phone)}`)}
-<a class="bt bt-out bt-lg" href="${quoteLink()}">${ctaLong(doc)}</a>
+<a class="bt bt-out bt-lg" href="${quoteLink()}">${doc.copy.ctaText}</a>
 </div>
 </div>
 </div>

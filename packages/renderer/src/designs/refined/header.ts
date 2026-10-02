@@ -5,7 +5,7 @@
 import { navItems, pageLink, quoteLink, type RenderContext } from "../../context.ts";
 import { formatPhone } from "../../format.ts";
 import { html, trusted, type SafeHtml } from "../../html.ts";
-import { callButton, ctaShort, icon } from "./parts.ts";
+import { callButton, icon } from "./parts.ts";
 
 /** A name longer than this gets a smaller brand and the one-row header only from 90rem. */
 const LONG_NAME = 30;
@@ -31,7 +31,7 @@ ${links.map(link)}
 </ul>
 </details>
 </nav>
-<a class="bt bt-out hd-q" href="${quoteLink()}">${ctaShort(doc)}</a>
+<a class="bt bt-out hd-q" href="${quoteLink()}">${doc.copy.ctaText}</a>
 ${callButton(facts, "bt bt-act hd-c", html`<span class="sr-only">Call </span>${formatPhone(facts.phone)}`)}
 </div>
 </header>`;

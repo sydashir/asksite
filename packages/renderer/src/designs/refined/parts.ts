@@ -75,37 +75,14 @@ export function callButton(facts: Facts, cls: string, label: Value): SafeHtml {
   return html`<a class="${note ? `${cls} bt-2l whitespace-nowrap` : `${cls} whitespace-nowrap`}" href="${telUrl(facts.phone)}">${icon("phone")}<span class="bt-t"><span>${label}</span>${note && html`<span class="bt-n">24/7 emergency service</span>`}</span></a>`;
 }
 
-const isBooking = (text: string) => /^\s*(book|schedule)\b/i.test(text);
-
-/** The owner's call to action as a button or heading label; a single bare word reads as a noun alone. */
-export function ctaLong(doc: SiteDocument): string {
-  const cta = doc.copy.ctaText.trim();
-  if (/\s/.test(cta)) return cta;
-  return isBooking(cta) ? "Book a visit" : "Get in touch";
-}
-
-/** The longest short label that fits the header's quote button beside Call. */
-const SHORT_MAX = 13;
-
-/**
- * One short label for the header's quote button: the owner's own when it fits; otherwise the free offer, only with
- * the owner's free-estimates fact; then a booking or quote label.
- */
-export function ctaShort(doc: SiteDocument): string {
-  const cta = ctaLong(doc);
-  if (cta.length <= SHORT_MAX) return cta;
-  const estimate = /\bestimates?\b/i.test(cta);
-  const quote = /\bquotes?\b/i.test(cta) || /\bfree\b/i.test(cta);
-  if (doc.facts.freeEstimates && (estimate || quote || !isBooking(cta))) return estimate ? "Free estimate" : "Free quote";
-  if (isBooking(cta) && !estimate && !quote) return "Book now";
-  return "Get a quote";
-}
-
 /** The line under a contact heading (the contact band, the closing band): the owner's own, or plain house words that claim nothing. */
 export const contactLine = (doc: SiteDocument): string => doc.copy.sectionIntros.contact ?? "Tell us what you need, or give us a call.";
 
-/** True when the owner's call to action books a visit rather than asks for a price. */
-export const booksVisits = (doc: SiteDocument): boolean => isBooking(ctaLong(doc));
+/**
+ * True when the owner's call to action books a visit rather than asks for a price. Every quote button carries that
+ * call to action word for word (copy.ctaText; WCAG 3.2.4, moderator ruling 2026-10-02): only the call bar's is fixed.
+ */
+export const booksVisits = (doc: SiteDocument): boolean => /^\s*(book|schedule)\b/i.test(doc.copy.ctaText);
 
 /** With 24/7 emergency service, the owner's hours are the regular hours (never "Closed" beside 24/7). */
 export const hoursTitle = (facts: Facts): string => (facts.emergency247 ? "Regular hours" : "Hours");

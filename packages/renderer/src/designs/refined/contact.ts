@@ -1,15 +1,16 @@
-// Classic's contact band: the owner's call to action, word for word, as the heading (the Contact page's <h1> when the
-// band opens it, A16), the owner's own contact line (or a plain house line), the phone large, the email, then the
-// owner's proof (the first license and Insured) at every width. The towns, the hours and the address have one home on
-// this page, the Service area section; the band names the owner's base only when that section is hidden. When the band
-// opens the page the form always sits beside the facts, so the whole form and Send are on a desktop's first screen;
-// there, from 60rem, the facts beside the form also carry the hours in one line, next to the number, and a one-town
-// owner's area line under the email (its own small section steps aside at that width), so the column does not stop
-// at its top third. Lower on the page, an owner with too little on file to balance the form gets one centred column.
-// Every "Get a quote" link lands on the form (id "quote"). The form is today's form field for field (the shared
-// invariants compare it with every class removed): ported from AstroWind (MIT, see NOTICES.md) through
-// sections/contact.ts; only its classes are Classic's.
+// Classic's contact band: the owner's call to action as the heading, a bare one-word label made fuller by the shared
+// contactHeading ("Book" reads "Request a booking"; the Contact page's <h1> when the band opens it, A16), the owner's
+// own contact line (or a plain house line), the phone large, the email, then the owner's proof (the first license and
+// Insured) at every width. The towns, the hours and the address have one home on this page, the Service area section;
+// the band names the owner's base only when that section is hidden. When the band opens the page the form always sits
+// beside the facts, so the whole form and Send are on a desktop's first screen; there, from 60rem, the facts beside the
+// form also carry the hours in one line, next to the number, and a one-town owner's area line under the email (its own
+// small section steps aside at that width), so the column does not stop at its top third. Lower on the page, an owner
+// with too little on file to balance the form gets one centred column. Every "Get a quote" link lands on the form (id
+// "quote"). The form is today's form field for field (the shared invariants compare it with every class removed):
+// ported from AstroWind (MIT, see NOTICES.md) through sections/contact.ts; only its classes are Classic's.
 import { QUOTE_ID } from "@asksite/site-schema";
+import { contactHeading } from "../../contact-heading.ts";
 import { headingLevel, type RenderContext } from "../../context.ts";
 import { formatPhone, mailtoUrl, telUrl } from "../../format.ts";
 import { html, type SafeHtml } from "../../html.ts";
@@ -45,7 +46,7 @@ export function renderContact(ctx: RenderContext): SafeHtml {
   return html`<section id="${DOM_ID.contact}" class="sec dark" aria-labelledby="${DOM_ID.contact}-title">
 <div class="${rows < STACK_BELOW && !opens ? "wr contact c-stack" : "wr contact"}">
 <div class="c-info">
-${sectionTitle(ctx, "contact", copy.ctaText, contactLine(doc))}
+${sectionTitle(ctx, "contact", contactHeading(copy.ctaText), contactLine(doc))}
 <ul class="c-list">
 <li>${icon("phone", "i i-lg")}<span><a class="c-ph whitespace-nowrap" href="${telUrl(facts.phone)}">${formatPhone(facts.phone)}</a>${facts.emergency247 && html`<span class="c-note">24/7 emergency service</span>`}</span></li>
 ${hours && html`<li class="c-sub">${icon("clock")}${hours}</li>`}

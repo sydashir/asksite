@@ -175,7 +175,8 @@ main>.sec:first-child{padding-top:2.5rem}
 .lq figcaption::before{content:"";align-self:center;width:1.5rem;height:var(--aw-refined-rule-h);background:var(--aw-refined-accent)}
 .qgrid{display:grid;grid-template-columns:minmax(0,1fr);column-gap:1.25rem;margin-top:2.5rem}
 .gal>li,.print{display:grid;grid-row:span 2;grid-template-rows:subgrid;row-gap:0}
-/* Each card keeps its own height, the name right under its quote, so a short review is never a tall empty card. */
+/* Up to 64rem each card keeps its own height, the name right under its quote, so a short review is never a tall empty
+   card; from 64rem a row shares one height (subgrid). */
 .qc{align-self:start;margin-bottom:1.25rem;break-inside:avoid}
 .qc figure{padding:1.5rem 1.5rem 1.25rem;border:1px solid var(--aw-refined-line);border-radius:var(--aw-refined-radius-paper);background:var(--card)}
 .qc p{font-size:1.125rem;line-height:1.5;color:var(--aw-refined-ink)}
@@ -344,7 +345,8 @@ summary::-webkit-details-marker{display:none}
 
 /* ---------- Phone call bar: Call and the quote button under the thumb ---------- */
 .cb{display:flex;gap:.5rem;padding:.625rem .75rem calc(.625rem + env(safe-area-inset-bottom));border-top:1px solid var(--aw-refined-line);background:var(--aw-refined-paper);box-shadow:0 -8px 20px -14px #00000059}
-.cb .bt{min-height:3.125rem;padding-inline:.875rem}
+/* The small block padding keeps the bar at one height when the quote label takes two lines on the narrowest phones. */
+.cb .bt{min-height:3.125rem;padding:.25rem .875rem}
 .cb .bt-act{flex:1 1 auto}
 .cb .bt-out{flex:0 1 auto;background:var(--aw-refined-surface);white-space:normal;text-wrap:balance;line-height:1.15}
 
@@ -361,16 +363,17 @@ summary::-webkit-details-marker{display:none}
 }
 
 /* ---------- Phones only ---------- */
-@media (width < 24rem){
-  /* 320-383 px phones (the Android 360 and iPhone 375 widths): Call keeps its word, on a line above the number, in
-     place of the icon and the 24/7 line, so both buttons fit side by side and the bar keeps its one height. */
-  .cw{display:block}
-  .cb .bt{padding:.25rem .625rem;line-height:1.15}
-  .cb .bt-act>.i,.cb .bt-n{display:none}
+@media (width < 23.4375rem){
+  /* Below 375 px (the iPhone SE, mini and 6-8 width keeps the whole bar) only the icon steps aside: Call with the number
+     and the owner's 24/7 line keep their words, centred in the button. */
+  .cb .bt{padding-inline:.625rem}
+  .cb .bt-act>.i{display:none}
+  .cb .bt-t{align-items:center;text-align:center}
 }
 @media (width < 48rem){
-  /* The email leaves the card (it sits where the call bar covers the first screen); the hero keeps only its quote button. */
-  .bc-m .bc-e,.ha>.bt-act{display:none}
+  /* The call bar under the thumb carries Call and the quote, so the hero leaves its buttons to it (one of each on the
+     first screen, as the approved Home); the email leaves the card (it sits where the call bar covers the first screen). */
+  .bc-m .bc-e,.ha{display:none}
 }
 /* A town so long that it and the year cannot share one phone row (parts.ts GROUP_TIERS): the year steps aside below
    the width where they fit, so it is never alone on a line. */
@@ -595,6 +598,10 @@ summary::-webkit-details-marker{display:none}
 
 /* ---------- 64rem and wider ---------- */
 @media (min-width:64rem){
+  /* A row of review cards shares one height and its names one line, as the approved Home (a subgrid; a subgrid is
+     always stretched, so the cards' align-self no longer applies). */
+  .qc,.qc figure{display:grid;grid-row:span 2;grid-template-rows:subgrid;row-gap:0}
+  .qc figcaption{align-self:start}
   .qg-2{grid-template-columns:repeat(2,minmax(0,1fr))}
   .qg-3,.qg-n{grid-template-columns:repeat(3,minmax(0,1fr))}
   .qg-n>.qc:last-child:nth-child(3n+1){grid-column:2}

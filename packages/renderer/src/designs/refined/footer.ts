@@ -69,14 +69,15 @@ const CALL_BAR_CLASS = {
 
 /**
  * The phone call bar: Call and "Get a quote" under the thumb, the page's only <aside>. Call's accessible name is its
- * visible words, the number included; the quote button's label is fixed, so it always says where it goes (WCAG
- * 2.5.3). position: sticky needs no JavaScript, and it stops sticking while keyboard focus is elsewhere, so it never
- * hides the focused element (focus-outside:static). Phones only: from 48rem the sticky header carries both.
+ * visible words, the number and the owner's 24/7 line included (both on every phone; below 375 px only the icon steps
+ * aside, sheet); the quote button's label is fixed, so it always says where it goes (WCAG 2.5.3). position: sticky
+ * needs no JavaScript, and it stops sticking while keyboard focus is elsewhere, so it never hides the focused element
+ * (focus-outside:static). Phones only: from 48rem the sticky header carries both.
  */
 export function renderCallBar(ctx: RenderContext): SafeHtml {
   const { facts } = ctx.doc;
   return html`<aside aria-label="Call us" class="${CALL_BAR_CLASS[ctx.page.id === "contact" ? "static" : "sticky"]}">
-${callButton(facts, "bt bt-act", html`<span class="cw">Call </span>${formatPhone(facts.phone)}`)}
+${callButton(facts, "bt bt-act", `Call ${formatPhone(facts.phone)}`)}
 <a class="bt bt-out" href="${quoteLink()}">Get a quote</a>
 </aside>`;
 }
