@@ -1023,11 +1023,17 @@ describe.each(ENGINES)("Modern in %s", (_engine, engine) => {
 
   // A16: every page is reachable from the header at every width (WCAG 2.4.5): inline from 1024 px, beside the name and
   // the Call button without touching them, also for the longest business name; below that through the menu. From
-  // 1200 px a quote button sits beside Call (A16 round 1's judges: no quote action on a desktop's first screen).
+  // 1200 px a quote button sits beside Call (A16 round 1's judges: no quote action on a desktop's first screen), in the
+  // owner's words on one line, also the longest (A16 round 5), and the name keeps to two lines.
   it("shows every page link in the header from 1024 px, and the quote button from 1200 px, without touching the name or the Call button, in every lettering", async () => {
     const found: string[] = [];
     const header = () => {
       const box = (el: any) => el.getBoundingClientRect();
+      const lines = (el: any) => {
+        const range = document.createRange();
+        range.selectNodeContents(el);
+        return new Set([...range.getClientRects()].map((rect: any) => Math.round(rect.top))).size;
+      };
       const links = [...document.querySelectorAll(".nav-links a")].filter((a) => a.getClientRects().length > 0).map(box);
       const brand = box(document.querySelector(".brand"));
       const call = box(document.querySelector(".hdr-call"));
@@ -1040,16 +1046,18 @@ describe.each(ENGINES)("Modern in %s", (_engine, engine) => {
         total: document.querySelectorAll(".nav-links a").length,
         clear: brand.right <= nav.left && nav.right <= (shownQuote ? quoteBox.left : call.left) && (!shownQuote || quoteBox.right <= call.left),
         quote: shownQuote,
+        quoteLines: shownQuote ? lines(quote) : 0,
+        nameLines: lines(document.querySelector(".brand")),
         menu: document.querySelector(".menu").getClientRects().length,
       };
     };
     for (const name of ["plumber-austin", "roofing-extreme"] as const) {
       for (const font of FONT_IDS) {
         await open(page(name, font, "services"), 1024);
-        for (const width of [1024, 1100, 1199, 1280, 1920]) {
+        for (const width of [1024, 1100, 1199, 1200, 1240, 1280, 1920]) {
           await tab.setViewportSize({ width, height: 800 });
           const got = await tab.evaluate(header);
-          if (got.shown !== got.total || !got.clear || got.menu !== 0 || got.quote !== width >= 1200) found.push(`${name} ${font} ${width}: ${JSON.stringify(got)}`);
+          if (got.shown !== got.total || !got.clear || got.menu !== 0 || got.quote !== width >= 1200 || got.quoteLines > 1 || got.nameLines > 2) found.push(`${name} ${font} ${width}: ${JSON.stringify(got)}`);
         }
       }
     }

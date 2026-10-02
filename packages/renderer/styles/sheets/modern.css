@@ -164,9 +164,10 @@
     .nav-links { display: flex; }
     .menu { display: none; }
   }
-  /* "Get a quote" beside Call, where the row has room for it beside every page link and the longest name */
+  /* The owner's call to action beside Call, where the row has room for it beside every page link and the longest
+     name, on one line (the longest name takes its two lines a little narrower) */
   @media (min-width: 1200px) {
-    .hdr-quote { display: inline-flex; min-height: 46px; padding: 0 18px; font-size: 1rem; }
+    .hdr-quote { display: inline-flex; min-height: 46px; padding: 0 18px; font-size: 1rem; white-space: nowrap; }
   }
 
   /* ---------- hero ---------- */
