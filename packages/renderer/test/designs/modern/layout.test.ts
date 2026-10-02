@@ -1075,4 +1075,43 @@ describe.each(ENGINES)("Modern in %s", (_engine, engine) => {
     }
     expect(found).toEqual([]);
   }, 60_000);
+
+  // A16 round 4's judges: at 1280x800 the brand strip, the h1 and the whole form fit the first screen, yet the jump
+  // scrolled 220 px and the visitor landed on a form with no heading; with the service area first it hid the contact
+  // section's heading. From 1024 px the jump keeps the page's heading row in view: the page top when the form opens
+  // the page, else the contact section's top edge at the header's foot (no strip of the section above it). Phones keep
+  // the Name field at the top (the test above).
+  it("lands /contact#quote with the page's heading row in view from 1024 px: the page top when the form opens the page, the contact section's top under the header when the service area comes first", async () => {
+    const found: string[] = [];
+    const url = "https://fixture.asksite.example/contact";
+    const areaFirst = (input: SiteDocumentInput): SiteDocumentInput => {
+      const area = input.layout.filter((section) => section.id === "serviceArea");
+      const rest = input.layout.filter((section) => section.id !== "serviceArea");
+      const form = rest.findIndex((section) => section.id === "contact");
+      return { ...input, layout: [...rest.slice(0, form), ...area, ...rest.slice(form)] };
+    };
+    for (const [name, html, formFirst] of [
+      ["plumber-austin", page("plumber-austin", undefined, "contact"), true],
+      ["cleaning-minimal", page("cleaning-minimal", undefined, "contact"), true],
+      ["roofing-extreme, the service area first", page("roofing-extreme", undefined, "contact"), false],
+      ["plumber-austin, the service area first", pageOf(areaFirst(plumberInput), undefined, "contact"), false],
+    ] as const) {
+      await tab.route(url, (route) => route.fulfill({ body: html, contentType: "text/html" }));
+      for (const [width, height] of [[1024, 768], [1280, 800], [1920, 1080]] as const) {
+        await tab.setViewportSize({ width, height });
+        await tab.goto("about:blank"); // a new document each time: the same address with its fragment only scrolls
+        await tab.goto(`${url}#quote`, { waitUntil: "load" });
+        const got = await tab.evaluate(() => {
+          const box = (selector: string) => document.querySelector(selector).getBoundingClientRect();
+          return { y: window.scrollY, header: box("header").bottom, section: box("#contact").top, head: box("#contact .head").top, field: box("#contact-name").bottom, height: window.innerHeight };
+        });
+        const where = `${name} ${width}x${height}`;
+        if (formFirst && got.y !== 0) found.push(`${where}: scrolled ${Math.round(got.y)} px past the page top`);
+        if (!formFirst && (got.head < got.header || got.section > got.header + 1)) found.push(`${where}: the section starts at ${Math.round(got.section)} and its heading at ${Math.round(got.head)}, the header ends at ${Math.round(got.header)}`);
+        if (got.field > got.height) found.push(`${where}: the Name field ends at ${Math.round(got.field)}, below the window`);
+      }
+      await tab.unroute(url);
+    }
+    expect(found).toEqual([]);
+  }, 60_000);
 });

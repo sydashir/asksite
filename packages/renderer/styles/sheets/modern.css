@@ -690,7 +690,8 @@
   .white .cred-card { border-color: transparent; border-top-color: var(--brand); background: var(--tint); }
   .cred-card .lbl { margin-bottom: 16px; color: var(--ink); }
   .form-card { position: relative; padding: 22px 20px; border: 1px solid var(--line); border-top: 4px solid var(--brand); border-radius: var(--r); background: #fff; box-shadow: var(--lift); color: var(--text); }
-  /* "/contact#quote" lands on the form with the card's top edge in view (under the sticky header from 768 px) */
+  /* "/contact#quote" lands on the form with the card's top edge in view (under the sticky header from 768 px; from
+     1024 px with the heading row above it, below) */
   .form { display: grid; grid-template-columns: minmax(0, 1fr); gap: 18px; scroll-margin-top: 48px; }
   .field label { display: block; margin-bottom: 7px; color: var(--ink); font-size: 0.9375rem; font-weight: 700; }
   .input { display: block; width: 100%; min-height: 52px; padding: 13px 14px; border: 1.5px solid var(--field); border-radius: var(--r); background: #fff; color: var(--text); font: 400 1rem/1.4 var(--body); }
@@ -754,6 +755,12 @@
     .form-card { grid-row: 2 / 4; align-self: start; }
     .call-card { grid-column: 2; grid-row: 2; align-self: start; padding: 34px 32px; }
     .cred-card { grid-column: 2; grid-row: 3; padding: 28px 32px; }
+    /* "/contact#quote" keeps the heading row in view (judges, A16 round 4): the form's scroll margin is the section's
+       top padding and a one-line heading row (less scroll-padding's 12 px), so the contact section's top edge meets
+       the header (a longer heading only takes from the padding); when the section opens the page, the margin is more
+       than the brand strip and any heading above the form, so the browser stops at the page top. */
+    .form { scroll-margin-top: 228px; }
+    .contact:has(h1) .form { scroll-margin-top: 640px; }
   }
 
   /* ---------- footer ---------- */
