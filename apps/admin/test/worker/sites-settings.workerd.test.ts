@@ -26,8 +26,8 @@ describe("sites and owners", () => {
     expect(await h.liveKeys(site.slug)).toEqual([]); // no pointer and nothing under <slug>/
     const notices = (await h.outbox(site.email)).filter((m) => m.tag === "site_notice");
     expect(notices[0]?.text).toContain("We received a report about your page.");
-    const restored = await h.call("POST", `/api/admin/sites/${site.siteId}/restore`, { body: {} });
-    expect(await restored.json()).toEqual({ liveUrl: `https://${site.slug}.localhost:8789/`, missingPhotos: 0 });
+    const restored = await h.call("POST", `/api/admin/sites/${site.siteId}/restore`, { body: await h.restoreBody(site.siteId) });
+    expect(await restored.json()).toEqual({ liveUrl: `https://${site.slug}.localhost:8789/`, missingPhotos: 0, healed: false });
     const audit = await json<{ audit: Array<{ action: string; actor: string }> }>(await h.call("GET", `/api/admin/sites/${site.siteId}`));
     expect(audit.audit.map((a) => a.action)).toEqual(expect.arrayContaining(["site.taken_down", "site.restored", "version.approved"]));
     expect(audit.audit.every((a) => a.actor.startsWith("admin:") || a.actor.startsWith("owner:"))).toBe(true);
@@ -43,7 +43,7 @@ describe("sites and owners", () => {
 
   it("restoring a site that was never live is 409 conflict", async () => {
     const site = await h.pendingSite();
-    expect((await h.call("POST", `/api/admin/sites/${site.siteId}/restore`, { body: {} })).status).toBe(409);
+    expect((await h.call("POST", `/api/admin/sites/${site.siteId}/restore`, { body: { expectedTakenDownAt: 1 } })).status).toBe(409);
   });
 
   it("turns search engines off and on", async () => {

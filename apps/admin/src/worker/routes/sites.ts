@@ -28,7 +28,7 @@ export function siteRoutes(deps: AdminDeps): Hono<AdminEnv> {
     try {
       return await run();
     } catch (err) {
-      const mapped = err instanceof deps.publishing.PublishError ? publishApiError((err as PublishErrorLike).code, action) : null;
+      const mapped = err instanceof deps.publishing.PublishError ? publishApiError((err as PublishErrorLike).code, action, (err as PublishErrorLike).detail) : null;
       throw mapped ?? err;
     }
   }
@@ -61,6 +61,8 @@ export function siteRoutes(deps: AdminDeps): Hono<AdminEnv> {
     ]);
     return c.json({
       site: toAdminSiteRow(site),
+      // The moment the takedown happened, which Restore must send back (A16-4c): a restore refuses a different takedown. AdminSiteRow (core) has no field for it.
+      takenDownAt: site.taken_down_at,
       versions: versions.results.map(toVersionSummary),
       generations: generations.results.map((g) => ({
         ...deps.generation.toGenerationView(g),
@@ -125,10 +127,21 @@ export function siteRoutes(deps: AdminDeps): Hono<AdminEnv> {
   });
 
   sites.post("/sites/:siteId/restore", async (c) => {
-    await readJson(c, z.strictObject({}));
+    // expectedTakenDownAt is the taken_down_at the admin's page showed: Plan 2's restore refuses a different (later) takedown.
+    const { expectedTakenDownAt } = await readJson(c, z.strictObject({ expectedTakenDownAt: z.number().int().positive() }));
     const site = await siteWithOwner(c.env.DB, c.req.param("siteId"));
     // Plan 2's restore puts the page in LIVE, then commits a D1 batch: it runs to its end even if the client goes away.
-    return c.json(await publishing(() => runToEnd(c.executionCtx, deps.publishing.restore(c.env, { siteId: site.id, reviewer: c.get("admin"), now: Date.now() })), "restore"));
+    return c.json(
+      await publishing(() => runToEnd(c.executionCtx, deps.publishing.restore(c.env, { siteId: site.id, reviewer: c.get("admin"), expectedTakenDownAt, now: Date.now() })), "restore"),
+    );
+  });
+
+  sites.post("/sites/:siteId/copy-pages", async (c) => {
+    await readJson(c, z.strictObject({}));
+    const site = await siteWithOwner(c.env.DB, c.req.param("siteId"));
+    // Copies the live version's pages to LIVE again and rewrites the pointer: it never touches taken_down_at (a taken-down site is refused),
+    // changes no D1 row and writes no audit row (Plan 2's copyLivePagesAgain). Several R2 writes, so it runs to its end like restore.
+    return c.json(await publishing(() => runToEnd(c.executionCtx, deps.publishing.copyLivePagesAgain(c.env, { siteId: site.id, reviewer: c.get("admin"), now: Date.now() })), "copy"));
   });
 
   sites.put("/sites/:siteId/indexable", async (c) => {
