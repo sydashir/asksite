@@ -1,4 +1,4 @@
-import type { Issue, SiteView, VersionSummary } from "@asksite/core";
+import { TAKEDOWN_REVIEW_NOTE, type Issue, type SiteView, type VersionSummary } from "@asksite/core";
 import { isSafeUrl } from "@asksite/site-schema";
 import { useEffect, useRef, useState } from "react";
 import { ConfirmDialog } from "../components/dialog.tsx";
@@ -12,7 +12,6 @@ import { stepOf } from "../lib/draft-issues.ts";
 import { STEP_TITLE } from "../lib/labels.ts";
 import { issuesToShow, ownerMessage } from "../lib/messages.ts";
 import { paths } from "../lib/route.ts";
-import { TAKEDOWN_REVIEW_NOTE } from "../lib/takedown-note.ts";
 import { issueTarget } from "../lib/values.ts";
 
 const when = (ms: number) => new Date(ms).toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" });
