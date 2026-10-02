@@ -135,9 +135,11 @@ export async function verifiedPages(
 
 /**
  * Copies every verified page to its immutable LIVE key. Nothing is served from them until the pointer names the version.
- * RESIDUAL: pages copied by an action that is then refused (lease_lost, site_busy, version_not_pending, live_copy_failed)
- * or a cleanup that stops (live_cleanup_skipped) stay in LIVE unserved (the pointer never names them) until the next
- * approval's or restore's cleanup or a takedown removes them.
+ * RESIDUAL: pages of a version approve copied and that never became live (approve failed or was refused before its D1
+ * batch made it live: lease_lost, site_taken_down, version_not_pending, an R2 error), and other versions' pages a stopped
+ * cleanup left (live_cleanup_skipped), stay in LIVE unserved (the pointer never names them) until the next approval's or
+ * restore's cleanup or a takedown removes them. Pages restore or copyLivePagesAgain copied before a refusal are the live
+ * version's own: no cleanup removes them, and the next successful call serves them.
  */
 export async function copyLivePages(live: R2Bucket, slug: string, ids: { siteId: string; versionId: string }, pages: readonly VerifiedPage[]): Promise<void> {
   await Promise.all(
