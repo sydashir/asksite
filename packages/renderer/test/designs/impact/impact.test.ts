@@ -444,6 +444,8 @@ describe("the Bold pages", () => {
   // of its own on each page, then the number and the call-to-action button.
   // Round 4 (A16 judges): the lead said the button's own words ("Get a free quote" over "Get a free quote"). It now
   // adds something: the owner's 24/7 promise, or the page's own question; the button keeps the owner's words.
+  // Round 5 (A16 judges): under "Emergency? Call us 24/7." the "Prefer to talk?" kicker over the number was an echo, so
+  // it shows only under the page's question (owners without 24/7 service) and on Contact, beside the form.
   it("ends every page but Contact on the closing band: a lead that adds to the button, a line for the page, the number and the call-to-action button", () => {
     const lines = new Set<string>();
     for (const { page, html } of all) {
@@ -459,7 +461,8 @@ describe("the Bold pages", () => {
       expect(band, page).toContain('<h2 id="get-in-touch-title" class="kicker eyebrow">Get in touch</h2><p class="close-lead h2 display">Emergency? Call us 24/7.</p>');
       expect(band, page).not.toContain("close-chip");
       lines.add(/<p class="sec-intro">([^<]*)<\/p>/.exec(band)?.[1] ?? "");
-      expect(band, page).toMatch(/<p class="kicker">Prefer to talk\?<\/p><p><a class="big-call whitespace-nowrap" href="tel:\+15125550142"><span class="big-call-ic"><svg[^]*?<\/svg><\/span><span class="display">\(512\) 555-0142<\/span><\/a><\/p>/);
+      expect(band, page).toMatch(/<div class="close-acts"><p><a class="big-call whitespace-nowrap" href="tel:\+15125550142"><span class="big-call-ic"><svg[^]*?<\/svg><\/span><span class="display">\(512\) 555-0142<\/span><\/a><\/p>/);
+      expect(band, page).not.toContain("Prefer to talk?");
       expect(band, page).toContain('href="/contact#quote">Get a free quote</a>');
       expect(html.indexOf("</main>") - html.indexOf("</section>", start), page).toBeLessThan(20);
     }
@@ -474,6 +477,7 @@ describe("the Bold pages", () => {
       ["Questions, or a job in mind?", "Call us, or send a quick request."],
       ["Found what you need?", "Call us, or send a quick request."],
     ]);
+    for (const p of pagesOf(minimal).filter((p) => p.page !== "contact")) expect(p.html, p.page).toContain('<div class="close-acts"><p class="kicker">Prefer to talk?</p><p><a class="big-call');
     expect(bold(minimal)).toMatch(/<p><a class="bt bt-ghost bt-lg" href="\/contact#quote">Book<\/a><\/p>/);
   });
 
@@ -581,7 +585,10 @@ describe("the Bold pages", () => {
     expect(bold({ ...plumber, facts, hidden: ["gallery"] }, "about")).not.toContain("<img");
   });
 
-  it("lays About out by what the owner has: several licences get their own row, no photo puts the credentials under the year, neither puts them beside the story", () => {
+  // Round 5 (A16 judges): with no photo, the year and the facts stacked under it ran three times the story's height
+  // beside an empty column. The year now stands alone at the left and the facts sit under the story, laid out as with
+  // a photo (the licence's row, then Insurance | Availability); only without a year do they stack beside the story.
+  it("lays About out by what the owner has: several licences get their own row, no photo puts the year beside the story and the credentials under it, neither puts them beside the story", () => {
     const layout = (input: SiteDocumentInput) => /<div class="(wrap about[^"]*)">/.exec(bold(input, "about"))?.[1];
     const { heroPhoto: _hero, ...facts } = plumber.facts;
     const noPhotos = { ...facts, photos: [] };
@@ -591,7 +598,10 @@ describe("the Bold pages", () => {
     expect(layout({ ...plumber, facts: noPhotos })).toBe("wrap about about--year");
     expect(layout({ ...plumber, facts: noYear })).toBe("wrap about about--text");
     expect(layout({ ...plumber, facts: noYear, hidden: ["trust"] })).toBe("wrap about about--solo");
-    expect(bold({ ...plumber, facts: noPhotos }, "about")).toContain('<dl class="specs about-specs specs--stack">');
+    expect(bold({ ...plumber, facts: noPhotos }, "about")).toContain('<dl class="specs about-specs">');
+    expect(bold({ ...plumber, facts: noYear }, "about")).toContain('<dl class="specs about-specs specs--stack">');
+    const css = DESIGN_CSS.impact.css;
+    expect(css.slice(css.indexOf(".about--year{"), css.indexOf("}", css.indexOf(".about--year{")))).toContain('grid-template-areas:"year body""year specs"');
   });
 
   it("shows the owner's credentials on About too, unless the owner hides the credentials section", () => {
@@ -762,12 +772,15 @@ describe("the Bold sheet carries the round-4 must-fixes", () => {
   // Round 4 (A16 judges; the shared Home journey now clicks the call bar's quote link on phones): on phones the hero
   // had a full-width quote button over the call bar's "Get a quote" (two names for one action in one screen, and cut
   // by the bar at 320x568). Below 48rem the hero has no buttons, as on the approved page: the call bar carries Call
-  // with the number and "Get a quote". From 48rem the owner's call to action ends the hero (the contract's desktop
-  // journey), and from 64rem Call joins it (the call bar hides there).
-  it("ends the hero on its line below 48rem, with the owner's call to action from 48rem and Call from 64rem", () => {
+  // with the number and "Get a quote".
+  // Round 5 (A16 judges): from 48rem to 64rem (iPad portrait 768x1024) the hero's quote button and the fixed call bar's
+  // "Get a quote" still shared the first screen with different words. The hero now carries its buttons only where the
+  // call bar is hidden (from 64rem, the contract's desktop journey); below, the bar carries Call and the quote.
+  it("ends the hero on its line wherever the call bar shows (below 64rem), with Call and the owner's call to action from 64rem", () => {
     expect(rule(".hero-actions")).toContain("display:flex");
-    expect(rule(".hero-actions", "@media (max-width:47.99rem)")).toContain("display:none");
-    expect(rule(".hero-actions .bt-action", "@media (max-width:63.99rem)")).toContain("display:none");
+    expect(css).toContain("@media (max-width:63.99rem){.hero-actions{display:none}}");
+    expect(css).toContain("@media (min-width:64rem){.callbar{display:none}}");
+    expect(css).not.toContain(".hero-actions .bt-action{display:none}");
     // No fold rule is left: nothing in the phone hero reaches the call bar.
     expect(css).not.toMatch(/min-height:calc\(100s?vh - 3\.125rem/);
   });
@@ -803,5 +816,33 @@ describe("the Bold sheet carries the round-4 must-fixes", () => {
     expect(css).toMatch(/\.about-specs\{grid-template-columns:minmax\(0,1fr\)\}/);
     expect(rule(".gal")).toContain("grid-template-columns:minmax(0,1fr)");
     expect(rule(".gal", "@media (min-width:40rem)")).toContain("grid-template-columns:repeat(2,minmax(0,1fr))");
+  });
+});
+
+describe("the Bold sheet carries the round-5 polish", () => {
+  const css = DESIGN_CSS.impact.css;
+  /** The declaration block of `selector` that first follows `from` (the start of the sheet when omitted), or "". */
+  const block = (selector: string, from = "") => {
+    const start = css.indexOf(from);
+    const at = start === -1 ? -1 : css.indexOf(`${selector}{`, start);
+    return at === -1 ? "" : css.slice(at, css.indexOf("}", at) + 1);
+  };
+
+  // A16 judges: at 768 and 1024 px the footer's licence number split at its hyphen ("M-" / "40123"), and at 1024 the
+  // "Mon – Fri" times dropped to a second line while Sat and Sun kept one (four equal 210 px columns). The number now
+  // moves whole, as in the hero; the pages column takes only what its short links need, so the contact column (with
+  // the hours) is the widest: three columns from 48rem (the credentials under the name), four from 64rem.
+  it("keeps the footer's licence number whole and gives the hours room for each day and its times on one line from 48rem", () => {
+    expect(block(".site-footer .lic-num")).toContain("display:inline-block");
+    expect(block(".site-footer .lic-num")).toContain("max-width:100%");
+    expect(block(".foot-grid", "@media (min-width:48rem){.foot-grid")).toContain("grid-template-columns:minmax(0,5fr) minmax(0,3fr) minmax(0,6fr)");
+    expect(block(".foot-grid:has(>:nth-child(4))", "@media (min-width:64rem){.foot-grid")).toContain("grid-template-columns:minmax(0,6fr) minmax(0,4fr) minmax(0,7fr) minmax(0,6fr)");
+    expect(css).not.toContain("repeat(auto-fit,minmax(10rem,1fr))");
+  });
+
+  // A16 judges: at iPad landscape (1024x768) the form column is at its narrowest and the service select read "Choose a
+  // serv…". There the fields take a row each, so the select keeps the text fields' size and shape (the shared e2e check).
+  it("gives each form field a row of its own from 64rem to 80rem, where the form column is narrowest", () => {
+    expect(css).toContain("@media (min-width:64rem) and (max-width:79.99rem){.form-card>form{grid-template-columns:minmax(0,1fr)}}");
   });
 });

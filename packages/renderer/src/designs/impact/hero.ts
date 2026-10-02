@@ -2,9 +2,8 @@
 // band above the text; from 64rem it sits at the right behind a slanted seam (a framed 4:3 window up to 80rem,
 // full height beyond), with the credentials card on it. Without a photo the right side holds a card of the
 // facts a caller checks first (hours and the towns served); with nothing new for a card the hero is type only. The
-// text ends with Call and the owner's call to action; below 64rem the call bar carries Call, so there it ends with
-// the call to action alone, and below 48rem (phones) with its line, as on the approved page: the bar carries both
-// there (impact.css).
+// text ends with Call and the owner's call to action where the call bar is hidden (from 64rem); below, it ends with
+// its line, as on the approved page, and the fixed bar carries Call and "Get a quote" (impact.css).
 import type { VariantOf } from "@asksite/site-schema";
 import { onPage, onSite, sectionLink, type RenderContext } from "../../context.ts";
 import { TRADE_LABEL } from "../../format.ts";

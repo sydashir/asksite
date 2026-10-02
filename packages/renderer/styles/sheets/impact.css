@@ -589,9 +589,9 @@
     color: var(--fg-t);
     text-wrap: pretty;
   }
-  /* The hero ends with its buttons. Below 64rem the call bar carries Call with the number, so there the hero ends with
-     the owner's call to action only; below 48rem (phones) the bar's "Get a quote" is in the same first screen, so the
-     hero ends on its line, as the approved page did. */
+  /* The hero ends with its buttons only where the call bar is hidden (from 64rem). Below, the fixed bar carries Call
+     with the number and "Get a quote" in every first screen, phones and tablets alike, so the hero ends on its line,
+     as the approved page did on phones, and no screen shows two quote buttons with different words. */
   .hero-actions {
     display: flex;
     flex-wrap: wrap;
@@ -599,11 +599,6 @@
     margin-top: 1.5rem;
   }
   @media (max-width: 63.99rem) {
-    .hero-actions .bt-action {
-      display: none;
-    }
-  }
-  @media (max-width: 47.99rem) {
     .hero-actions {
       display: none;
     }
@@ -1955,8 +1950,9 @@
   }
 
   /* About (rules in about.ts): the owner's photo with the founding year on an ink tab, or the year as a large
-     numeral with the credentials under it, or the story beside the credentials. A leading 1 or 2 of the numeral is
-     pulled left by its measured side bearing in the display face, so its ink starts on the column's edge. */
+     numeral beside the story with the credentials under the story, or the story beside the credentials. A leading 1
+     or 2 of the numeral is pulled left by its measured side bearing in the display face, so its ink starts on the
+     column's edge. */
   .about {
     display: grid;
     grid-template-columns: minmax(0, 1fr);
@@ -2036,8 +2032,9 @@
     .about--wide {
       grid-template-areas: "media body" "specs specs";
     }
+    /* No photo: the year alone at the left, the credentials under the story (laid out as with a photo). */
     .about--year {
-      grid-template-areas: "year body" "specs body";
+      grid-template-areas: "year body" "year specs";
     }
     /* One row: no empty second row (and its gap) under the story. */
     .about--text {
@@ -2499,6 +2496,13 @@
       margin-top: 1.5rem;
     }
   }
+  /* Up to 80rem the form's column is at its narrowest (about 200 px a field at 1024 px wide, where "Choose a service"
+     was cut): each field takes a row of its own, so the select keeps the text fields' size and shows its words whole. */
+  @media (min-width: 64rem) and (max-width: 79.99rem) {
+    .form-card > form {
+      grid-template-columns: minmax(0, 1fr);
+    }
+  }
 
   /* Footer: one tone deeper, with a straight edge and the ink hairline where it meets the band above. */
   .site-footer {
@@ -2537,7 +2541,11 @@
     color: var(--aw-impact-on-ink-soft);
     text-decoration: none;
   }
+  /* A licence number moves to the next line whole, as in the hero; it breaks inside only when it alone is wider than
+     the column. */
   .site-footer .lic-num {
+    display: inline-block;
+    max-width: 100%;
     color: var(--aw-impact-on-ink-soft);
   }
   .foot-email {
@@ -2584,15 +2592,23 @@
   .foot-hours dt {
     color: var(--aw-impact-on-ink-soft);
   }
+  /* From 48rem the name, the pages and how to reach the business (with the hours) side by side, the credentials under
+     the name; from 64rem the credentials make a fourth column. The pages column takes only what its short links need,
+     so the contact column is the widest and each day keeps its times on one line. */
   @media (min-width: 48rem) {
     .foot-grid {
-      grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+      grid-template-columns: minmax(0, 5fr) minmax(0, 3fr) minmax(0, 6fr);
       gap: 2.5rem;
       padding-block: 4rem;
     }
     .site-footer nav ul {
       flex-direction: column;
       gap: 0.375rem;
+    }
+  }
+  @media (min-width: 64rem) {
+    .foot-grid:has(> :nth-child(4)) {
+      grid-template-columns: minmax(0, 6fr) minmax(0, 4fr) minmax(0, 7fr) minmax(0, 6fr);
     }
   }
 

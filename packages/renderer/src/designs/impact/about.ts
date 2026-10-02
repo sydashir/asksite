@@ -2,9 +2,10 @@
 // The page shows who the visitor is about to let in: one of the owner's own photos beside the story when there is
 // one, with the founding year on a tab over it. It prefers a photo neither Home's hero nor the Gallery's lead shows
 // (while the gallery shows), so each page adds new proof; the hero photo only when it is the one photo. Without a
-// photo the founding year as a large numeral leads, with the credentials under it; without either the story sits
-// beside the credentials. The licence (while the owner shows the credentials) has a row of its own,
-// so its number never squeezes. Owner facts and the AI's checked about text only.
+// photo the founding year as a large numeral stands beside the story, with the credentials under the story as with a
+// photo, so the two columns stay in balance; without either the story sits beside the credentials, stacked. The
+// licence (while the owner shows the credentials) has a row of its own, so its number never squeezes. Owner facts and
+// the AI's checked about text only.
 import { onSite, type RenderContext } from "../../context.ts";
 import { html, safeUrl, type SafeHtml } from "../../html.ts";
 import { credentialSpecs } from "./credentials.ts";
@@ -43,6 +44,6 @@ export function renderAbout(ctx: RenderContext): SafeHtml {
     { eyebrow: "About", title: "Who we are", pageTitle: `About ${facts.businessName}` },
     layout,
     html`${media || numeral}<div class="about-body"><p class="about-text">${copy.about}</p></div>
-${specs.length > 0 && html`<dl class="${photo === undefined ? "specs about-specs specs--stack" : "specs about-specs"}">${specs}</dl>`}`,
+${specs.length > 0 && html`<dl class="${layout === "wrap about about--text" ? "specs about-specs specs--stack" : "specs about-specs"}">${specs}</dl>`}`,
   );
 }
