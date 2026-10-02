@@ -151,19 +151,20 @@ const GROUP_TIERS: readonly number[] = [24, 30, 40, 56];
  * and the town and year wrap together onto the second: the browser breaks it only where it really overflows, in every
  * lettering. A town so long that the group itself cannot fit one row leaves the year out below the width where it
  * does ("eb-gN"), so the year is never alone on a line. `year` places the year: "always"; "phones" leaves it to a seal
- * from 48rem (Home's hero); "tablets" from 60rem (About's photo, under the letter until then); "none" to a seal at
- * every width (About's letter without a photo).
+ * from 48rem (Home's hero); "none" to a seal at every width (About's, on the owner's photo or on the letter).
  */
-export function eyebrow(facts: Facts, year: "always" | "phones" | "tablets" | "none"): SafeHtml {
-  const trade = TRADE_LABEL[facts.trade];
+export function eyebrow(facts: Facts, year: "always" | "phones" | "none"): SafeHtml {
+  if (facts.yearFounded === undefined || year === "none") return tradeAndTown(facts);
   const place = `${facts.location.city}, ${facts.location.state}`;
-  if (facts.yearFounded === undefined || year === "none") return dots([{ text: trade }, { text: place }]);
   const text = `Since ${facts.yearFounded}`;
   const tier = GROUP_TIERS.findIndex((most) => `${place} · ${text}`.length <= most);
   const fits = tier === -1 ? "eb-g4" : tier > 0 ? `eb-g${tier}` : undefined;
-  const cls = [year === "phones" ? "eb-y" : year === "tablets" ? "eb-y6" : undefined, fits].filter(Boolean).join(" ");
-  return dots([{ text: trade }, { text: dots([{ text: place }, cls ? { text, cls } : { text }]) }]);
+  const cls = [year === "phones" ? "eb-y" : undefined, fits].filter(Boolean).join(" ");
+  return dots([{ text: TRADE_LABEL[facts.trade] }, { text: dots([{ text: place }, cls ? { text, cls } : { text }]) }]);
 }
+
+/** The trade and the town joined by a dot, "Plumbing · Austin, TX": the eyebrow without a year, and the letter's sign-off. */
+export const tradeAndTown = (facts: Facts): SafeHtml => dots([{ text: TRADE_LABEL[facts.trade] }, { text: `${facts.location.city}, ${facts.location.state}` }]);
 
 /** A block's heading: the accent rule, the h2 (id `${domId}-title`) and an optional intro. */
 export function sectionHead(domId: string, title: Value, intro?: string): SafeHtml {
@@ -177,7 +178,7 @@ ${intro && html`<p>${intro}</p>`}
  * The opening of an inner page (A16), as Home's hero opens Home: the eyebrow, the page's one <h1> (with the id
  * `${domId}-title` when given), set larger, an optional intro and what follows it (a credential line, actions).
  */
-export function pageHead(ctx: RenderContext, title: Value, options: { id?: string; intro?: string | undefined; after?: Value; year?: "always" | "tablets" | "none" } = {}): SafeHtml {
+export function pageHead(ctx: RenderContext, title: Value, options: { id?: string; intro?: string | undefined; after?: Value; year?: "always" | "none" } = {}): SafeHtml {
   const { id, intro, after, year = "always" } = options;
   return html`<div class="sh sh-pg">
 <p class="eb">${eyebrow(ctx.doc.facts, year)}</p>

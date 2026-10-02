@@ -1,6 +1,6 @@
 // Classic's sheet in a real browser, where the cascade decides which rule wins (the pairs test checks tokens, not
 // rule order or specificity): hover colours, the rows phones leave out, link underlines, the phone call bar, the
-// About title, the header's stacking and its name's line, the gallery's rows on phones and small tablets, the current
+// About title and photo, the closing band's buttons, the header's stacking and its name's line, the gallery's rows on phones and small tablets, the current
 // page's mark in the menu, the hours on the Contact page and the eyebrow's line break. Laid out by the repo's own Playwright Chromium and WebKit with the real
 // Classic sheet, each check on the page that draws what it checks. No check waits on the clock: transitions are off
 // where a state is read.
@@ -17,6 +17,7 @@ const refined = (doc: SiteDocumentInput, theme: Partial<SiteDocumentInput["theme
 const plumber = loadFixture("plumber-austin");
 const hvac = loadFixture("hvac-phoenix");
 const cleaning = loadFixture("cleaning-minimal");
+const roofing = loadFixture("roofing-extreme");
 
 /**
  * Run in the page, so written as script text (the renderer's TypeScript program has no DOM types). The contrast of
@@ -296,6 +297,41 @@ describe.each(Object.keys(ENGINES) as Array<keyof typeof ENGINES>)("Classic's ca
     }
   }, 60_000);
 
+  it("keeps About's photo in proportion to the letter: at most 34rem wide and centred under it up to 60rem, beside it from there", async () => {
+    // [left, right, top, bottom] of the letter and of the framed photo. The photo's offset frame runs .75rem past its
+    // right edge, so the pair is centred when the photo sits that half-step left of the letter's centre.
+    const boxes = `[".letter", ".ab-m .frame"].map((s) => { const b = document.querySelector(s).getBoundingClientRect(); return [b.left, b.right, b.top, b.bottom].map(Math.round); })`;
+    for (const width of [768, 900, 959]) {
+      await open(refined(plumber), width, "", "about");
+      const [letter, photo] = (await page.evaluate(boxes)) as number[][];
+      expect(photo![1]! - photo![0]!, `${width} px`).toBeLessThanOrEqual(34 * 16);
+      expect(Math.abs((photo![0]! + photo![1]!) / 2 + 6 - (letter![0]! + letter![1]!) / 2), `${width} px`).toBeLessThanOrEqual(2);
+      expect(photo![2]!, `${width} px`).toBeGreaterThan(letter![3]!);
+    }
+    await open(refined(plumber), 1280, "", "about");
+    const [letter, photo] = (await page.evaluate(boxes)) as number[][];
+    expect(photo![0]!).toBeGreaterThan(letter![1]!);
+  }, 60_000);
+
+  it("gives the closing band's Call and quote buttons one width where they stack on a desktop", async () => {
+    // [left, top, width] of each button: plumber-austin's pair stacks from 960 to about 1240 px, roofing-extreme's long
+    // call to action at 1280 too.
+    const buttons = `[...document.querySelectorAll("#get-in-touch .cl-a .bt")].map((a) => { const b = a.getBoundingClientRect(); return [b.left, b.top, b.width].map(Math.round); })`;
+    const found: string[] = [];
+    let stacked = 0;
+    for (const [doc, id] of [[plumber, "about"], [roofing, "services"]] as const) {
+      for (const width of [960, 1024, 1180, 1280]) {
+        await open(refined(doc), width, "", id);
+        const [call, quote] = (await page.evaluate(buttons)) as number[][];
+        if (call![1] === quote![1]) continue;
+        stacked += 1;
+        if (call![0] !== quote![0] || call![2] !== quote![2]) found.push(`${doc.facts.businessName} ${width}: ${call![2]} px over ${quote![2]} px`);
+      }
+    }
+    expect(stacked).toBeGreaterThanOrEqual(4);
+    expect(found).toEqual([]);
+  }, 60_000);
+
   /**
    * How far the header name's capitals sit from the header row's centre line, per lettering and window, where it is
    * more than 1 px: the ink of its first letter (an H: flat top, flat foot) against the menu button's centre on
@@ -450,7 +486,7 @@ describe.each(Object.keys(ENGINES) as Array<keyof typeof ENGINES>)("Classic's ca
     const pages: Array<[PageId, SiteDocumentInput, string[], number]> = [
       ["services", plumber, [".cl-k", ".cl-t", ".cl-i", ".cl-l li span", ".cl-l a", ".ft-nav a:not([aria-current])", ".ft-nav [aria-current]", ".svc-mt", ".svc-more p + p", ".sh-pg .proof"], 1280],
       ["services", plumber, [".cl-n a", ".cl-l li span"], 390],
-      ["about", plumber, [".letter .tm", ".letter .tsub", ".letter-b"], 1280],
+      ["about", plumber, [".letter .tm", ".letter .tsub", ".letter-b", ".letter-s", ".letter-s span"], 1280],
       ["about", { ...plumber, facts: noPhoto }, [".lt-w .tm", ".lt-w .tsub"], 1280],
       ["contact", plumber, [".c-list .c-sub", "#contact .c-list li:has(.lic)"], 1280],
       ["contact", cleaning, [".af .h3r", ".af-l"], 390],

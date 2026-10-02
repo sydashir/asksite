@@ -303,7 +303,8 @@ describe("Classic's pages (A16)", () => {
   it("opens each inner page with the eyebrow and the page's h1, and closes every page but Contact with the closing band", () => {
     for (const { page: id, html } of classicSite(plumber, OPTIONS.stylesheets).pages) {
       const first = html.slice(html.indexOf("<main"), html.indexOf("</section>", html.indexOf("<main")));
-      if (id !== "home") expect(squashedText(first), id).toContain(squash("Plumbing Austin, TX Since 1998"));
+      // About's seal carries the year (eyebrow test below), so its eyebrow is the trade and the town.
+      if (id !== "home") expect(squashedText(first), id).toContain(squash(id === "about" ? "Plumbing Austin, TX About" : "Plumbing Austin, TX Since 1998"));
       expect(first, id).toContain("<h1 ");
       expect(html.includes('<section id="get-in-touch"'), id).toBe(id !== "contact");
     }
@@ -320,10 +321,12 @@ describe("Classic's pages (A16)", () => {
     // browser moves them on together, so the year is never left alone (sheet-free, so the break is exact in every lettering).
     const group = '<span><span><span class="dots"><span class="dots-r"><span><span>Austin, TX</span></span> <span';
     expect(eyebrowOf(pageOf(plumber, "services"))).toContain(`${group}><span>Since 1998</span></span></span></span></span></span>`);
-    // Home's hero: on phones only (the seal shows it from 48rem); About: until its photo sits beside the letter (60rem).
+    // Home's hero: on phones only (the seal shows it from 48rem). About: never, as its seal shows the year at every
+    // width, on the owner's photo (under the letter until 60rem, beside it from there) or on the letter's corner.
     expect(eyebrowOf(pageOf(plumber, "home"))).toContain(`${group} class="eb-y"><span>Since 1998</span></span>`);
-    expect(eyebrowOf(pageOf(plumber, "about"))).toContain(`${group} class="eb-y6"><span>Since 1998</span></span>`);
-    // Without a photo, About's seal sits on the letter's corner, under the h1, at every width: the eyebrow leaves it out.
+    expect(squashedText(eyebrowOf(pageOf(plumber, "about")))).toBe(squash("Plumbing Austin, TX"));
+    expect(section(pageOf(plumber, "about"), "about")).toMatch(/<div class="hm ab-m">.*<p class="seal">/);
+    // Without a photo, About's seal sits on the letter's corner, under the h1: the eyebrow leaves the year out too.
     const { heroPhoto: _photo, ...noPhoto } = plumber.facts;
     const letter = pageOf({ ...plumber, facts: noPhoto }, "about");
     expect(squashedText(eyebrowOf(letter))).toBe(squash("Plumbing Austin, TX"));
@@ -381,10 +384,16 @@ describe("Classic's pages (A16)", () => {
     expect(section(faqFirst, "services")).toContain('<h2 id="services-title" class="st">Services &amp; prices</h2>');
   });
 
-  it("gives About the owner's proof, the name once, and a drop cap only on a story that opens with a letter", () => {
+  it("gives About the owner's proof, a signed letter, and a drop cap only on a story that opens with a letter", () => {
     const about = pageOf(plumber, "about");
     const main = about.slice(about.indexOf("<main"), about.indexOf("</main>"));
-    expect(main.split(escapeText(plumber.facts.businessName)).length - 1).toBe(1);
+    // The name in the h1 and in the letter's sign-off (the approved r3 letter): the business name, then the trade and
+    // the town, between the story and the credentials. Owner facts only.
+    expect(main.split(escapeText(plumber.facts.businessName)).length - 1).toBe(2);
+    const letter = section(about, "about");
+    const at = (needle: string) => letter.indexOf(needle);
+    expect(squashedText(/<p class="letter-s">(.*?)<\/p>/.exec(letter)?.[1] ?? "")).toBe(squash("Reliable Rooter Plumbing Plumbing Austin, TX"));
+    expect([at('class="letter-b'), at('class="letter-s"'), at('<ul class="ledger')].every((i, n, all) => i > (all[n - 1] ?? -1))).toBe(true);
     expect(squashedText(section(about, "about"))).toContain(squashedText("License M-40123"));
     expect(section(about, "about")).toContain('class="letter-b dc"');
     expect(section(pageOf(loadFixture("electrical-xss"), "about"), "about")).toContain('class="letter-b"');

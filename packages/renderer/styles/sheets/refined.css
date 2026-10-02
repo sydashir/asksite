@@ -19,7 +19,7 @@
 /* ---------- Tokens and base ---------- */
 :root{--sh:0 1px 2px #0000000f,0 22px 44px -24px #00000061}
 .classic{background:var(--aw-refined-surface);color:var(--aw-refined-text);font-family:var(--aw-refined-body);font-size-adjust:var(--aw-refined-body-adjust);line-height:1.6;-webkit-font-smoothing:antialiased;overflow-wrap:anywhere}
-h1,h2,h3,.brand,.seal,.hq p,.hq::before,.bc-ph,.pr,.qm,.lq p,.qc p,.print figcaption,.letter-b,.svc-mt,.c-ph,.ft-name{font-family:var(--aw-refined-head);font-size-adjust:var(--aw-refined-head-adjust)}
+h1,h2,h3,.brand,.seal,.hq p,.hq::before,.bc-ph,.pr,.qm,.lq p,.qc p,.print figcaption,.letter-b,.letter-s,.svc-mt,.c-ph,.ft-name{font-family:var(--aw-refined-head);font-size-adjust:var(--aw-refined-head-adjust)}
 h1,h2,h3{font-weight:700;line-height:1.15;color:var(--aw-refined-ink);text-wrap:balance}
 .ht,.st{font-weight:var(--aw-refined-head-weight)}
 :focus-visible{outline:2px solid var(--aw-refined-ink);outline-offset:3px}
@@ -195,13 +195,16 @@ main>.sec:first-child{padding-top:2.5rem}
 .print img{padding:.375rem;border:1px solid var(--aw-refined-line);border-radius:var(--aw-refined-radius-paper);background:var(--aw-refined-surface);box-shadow:0 1px 2px #0000000d,0 16px 32px -24px #0000004d}
 .print figcaption{padding:.5rem .125rem 0;font-style:italic;line-height:1.35;color:var(--aw-refined-ink)}
 
-/* ---------- About: a letter from the business, its credentials at its foot, the seal on its corner or on the
-   owner's photo beside it ---------- */
+/* ---------- About: a letter from the business, signed as the approved letter, its credentials at its foot, the seal on
+   its corner or on the owner's photo ---------- */
 .ab{display:grid;grid-template-columns:minmax(0,1fr);gap:1rem}
 .letter{position:relative;max-width:52rem;padding:2rem 1.5rem 1.75rem;border:1px solid var(--aw-refined-line);border-radius:var(--aw-refined-radius-paper);background:var(--card);box-shadow:var(--sh)}
 .letter::after{inset:.5rem}
 .rule{width:7rem;height:.75rem;margin-bottom:1.25rem;color:var(--aw-refined-accent)}
 .letter-b{max-width:36em;font-size:clamp(1.1875rem,1.05rem + .5vw,1.375rem);line-height:1.65;text-wrap:pretty}
+/* The sign-off: the business name, then the trade and the town (clear of a drop cap on a one-line story). */
+.letter-s{clear:both;margin-top:1.75rem;font-size:1.125rem;font-style:italic;line-height:1.4;color:var(--aw-refined-ink)}
+.letter-s>span{font-size:.9375rem;font-style:normal;line-height:1.5;color:var(--aw-refined-muted)}
 /* Two columns at every width (the letter is narrow), an odd count's first fact on a row of its own. */
 .letter .ledger{grid-template-columns:repeat(2,minmax(0,1fr));margin-top:1.75rem}
 .letter .ledger .ti-w{grid-column:1/-1}
@@ -210,7 +213,13 @@ main>.sec:first-child{padding-top:2.5rem}
 .letter .seal{z-index:1;top:-1.75rem;right:-.375rem;bottom:auto;left:auto}
 .letter-sl{margin-top:1.75rem}
 .ab-m{margin:1.25rem .75rem 1.25rem 0}
-.ft-h{display:block;font-family:var(--aw-refined-body);font-size-adjust:var(--aw-refined-body-adjust)}
+/* Under the letter (up to 60rem) the photo is at most 34rem wide, centred on the letter with its offset frame, so the
+   letter stays the page's subject on a tablet; from 60rem they sit side by side. */
+@media (width < 60rem){
+  .ab-ph{max-width:52rem}
+  .ab-m{justify-self:center;width:min(100% - .75rem,34rem)}
+}
+.letter-s>span,.ft-h{display:block;font-family:var(--aw-refined-body);font-size-adjust:var(--aw-refined-body-adjust)}
 
 /* ---------- Service area and hours ---------- */
 .area{display:grid;grid-template-columns:minmax(0,1fr);gap:2.75rem}
@@ -545,7 +554,8 @@ summary::-webkit-details-marker{display:none}
   .solo{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.55fr);column-gap:4.5rem;align-items:start}
   .solo>.sh{margin-bottom:0}
   .cl-p{grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);column-gap:4.5rem;align-items:center;padding:3.5rem 4rem}
-  .dots-r>.eb-y6{display:none}
+  /* The buttons fill the panel's narrow column: one width when they stack, the row's width when they share it. */
+  .cl-a>.bt{flex:1 1 0}
   .letter .seal{width:7rem;height:7rem;top:-2.5rem;right:-1rem}
   .letter .seal-y{font-size:1.875rem}
   /* With the owner's photo, the letter and the framed photo side by side, the photo centred on a long letter. */
@@ -627,7 +637,7 @@ summary::-webkit-details-marker{display:none}
   .ft-grid>:first-child{grid-column:auto}
   /* A letter without a photo takes the page's width: the story in its measure, the credentials in a column beside it. */
   .lt-w{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,19rem);column-gap:4rem;max-width:none}
-  .lt-w .ledger{grid-column:2;grid-row:1/span 2;grid-template-columns:minmax(0,1fr);align-content:start;margin:0;padding:2.25rem 0 0 2.25rem;border-top:0;border-left:1px solid var(--aw-refined-line)}
+  .lt-w .ledger{grid-column:2;grid-row:1/span 3;grid-template-columns:minmax(0,1fr);align-content:start;margin:0;padding:2.25rem 0 0 2.25rem;border-top:0;border-left:1px solid var(--aw-refined-line)}
 }
 @media (min-width:72rem){
   .tg-5{grid-template-columns:repeat(5,minmax(0,1fr))}
