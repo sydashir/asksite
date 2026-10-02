@@ -5,6 +5,7 @@
 // unique id; autocomplete tokens (WCAG 1.3.5); an off-screen honeypot field; text-md (no CSS in
 // Tailwind 4.3.3) replaced by text-base; 48px inputs; borders that meet 3:1 non-text contrast.
 import { QUOTE_ID, type VariantOf } from "@asksite/site-schema";
+import { contactHeading } from "../contact-heading.ts";
 import { headingLevel, type RenderContext } from "../context.ts";
 import { formatPhone, mailtoUrl, telUrl } from "../format.ts";
 import { html, type SafeHtml } from "../html.ts";
@@ -24,12 +25,14 @@ const SELECT_WRAPPER = "relative mt-1 text-default";
 const SELECT = "block min-h-12 w-full appearance-none truncate rounded-lg border border-muted bg-white py-3 pr-12 pl-4 text-base text-default";
 const SELECT_ARROW = "pointer-events-none absolute top-1/2 right-4 h-5 w-5 -translate-y-1/2";
 
+// The heading says more than a one-word label; the hero and closing-band buttons keep copy.ctaText, so every
+// link to /contact#quote carries one label (WCAG 3.2.4).
 export function renderContact(ctx: RenderContext, _variant: VariantOf<"contact">): SafeHtml {
   const { facts, copy } = ctx.doc;
 
   // The email moves to the next line whole and is split only when longer than a line
   // (wrap-anywhere); break-all split addresses that fit ("s / ervice@…").
-  return sectionShell(DOM_ID.contact, "7xl", html`${headline(DOM_ID.contact, copy.ctaText, copy.sectionIntros.contact, headingLevel(ctx, "contact"))}
+  return sectionShell(DOM_ID.contact, "7xl", html`${headline(DOM_ID.contact, contactHeading(copy.ctaText), copy.sectionIntros.contact, headingLevel(ctx, "contact"))}
 <div class="relative mx-auto flex w-full max-w-xl flex-col rounded-lg border border-gray-200 bg-white p-4 shadow sm:p-6 lg:p-8">
 <p class="mb-6 text-default">Prefer to talk? Call <a class="font-semibold whitespace-nowrap text-link underline" href="${telUrl(facts.phone)}">${formatPhone(facts.phone)}</a> or email <a class="font-semibold wrap-anywhere text-link underline" href="${mailtoUrl(facts.email)}">${facts.email}</a>.</p>
 <form id="${QUOTE_ID}" action="${ctx.formAction}" method="post">
