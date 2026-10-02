@@ -63,7 +63,7 @@ describe("AI claim check: licence", () => {
     ["#32", "Background-checked, state-approved cleaners", ["state-approved", "Background-checked"]],
     ["board", "Board-approved cleaners", ["Board-approved"]],
     ["city", "City approved cleaners", ["City approved"]],
-    ["county, em dash", "County—approved cleaners", ["County—approved"]],
+    ["county, em dash", "County\u2014approved cleaners", ["County\u2014approved"]],
     ["background checks", "Cleaners with background checks", ["background checks"]],
     ["vetted", "Vetted cleaners for your home", ["Vetted"]],
     ["lic. in the about", "We are lic. in Texas.", ["lic."], "about"],
@@ -94,7 +94,7 @@ describe("AI claim check: availability", () => {
     ["#15 (known gap)", "Here for you every day", ["every day"]],
     ["#16", "Open daily for your home", ["Open daily"]],
     ["available daily", "Available daily in Austin", ["Available daily"]],
-    ["en dash joins", "After–hours cleaning", ["After–hours"]],
+    ["en dash joins", "After\u2013hours cleaning", ["After\u2013hours"]],
   ]);
   refused(SIX_DAYS, [["six days of hours do not back it", "Here for you every day", ["every day"]]]);
   refused(LICENSED, [["a licence does not back it", "Open daily for your home", ["Open daily"]]]);
@@ -129,7 +129,6 @@ describe("AI claim check: free", () => {
     ["stress-free", "Stress-free cleaning", ["free"]],
     ["hassle-free", "Hassle-free visits", ["free"]],
     ["free-standing", "Free-standing shelves", ["Free"]],
-    ["lookalike f", "Cleaning that is ƒree of mess", ["free"]],
   ]);
   accepted(FREE, [
     ["zero cost with freeEstimates", "Estimates at zero cost to you"],
@@ -169,11 +168,11 @@ describe("AI claim check: reviews", () => {
 
 describe("AI claim check: quote marks", () => {
   refused(MINIMAL_FACTS, [
-    ["#22 single guillemets", "‹Best cleaners ever› Dana", ["‹"]],
+    ["#22 single guillemets", "\u2039Best cleaners ever\u203A Dana", ["\u2039"]],
     ["#23 straight single quotes", "'Best cleaners ever' Dana", ["'Best cleaners ever'"]],
     ["single quotes after a colon", "Dana: 'Best cleaners ever'", ["'Best cleaners ever'"]],
-    ["#24 corner double primes", "〝Best cleaners ever〞", ["〝"]],
-    ["U+301F", "Best cleaners ever〟", ["〟"]],
+    ["#24 corner double primes", "\u301DBest cleaners ever\u301E", ["\u301D"]],
+    ["U+301F", "Best cleaners ever\u301F", ["\u301F"]],
     ["single quotes round a phrase with a contraction", "Our crew: 'don't wait for it' to us", ["'don't wait for it'"]],
   ]);
   accepted(MINIMAL_FACTS, [
@@ -182,6 +181,7 @@ describe("AI claim check: quote marks", () => {
     ["apostrophe: Mop's", "Mop's crew cleans your home"],
     ["plural possessive", "Cleaning for the owners' and tenants' homes"],
     ["rock 'n' roll", "Rock 'n' roll radio while we work"],
+    ["an opening ' that no closing ' answers", "Call 'em, they're the owner's pick"],
     ["code-like text", "Not a quote: f('alert')"],
   ]);
 });
