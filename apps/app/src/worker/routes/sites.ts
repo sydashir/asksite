@@ -35,6 +35,9 @@ export function siteRoutes(deps: AppDeps): Hono<AppEnv> {
     ) {
       throw new ApiError("payload_too_large", "That is more text than a website can hold. Please shorten it.");
     }
+    // Copy and order edits apply only on the generation they were built on (compose ignores them on any other), so
+    // a save that carries them is bound to the newest one; hidden and look edits carry over and are never bound.
+    const wordingBound = body.edits !== undefined && (Object.keys(body.edits.copy).length > 0 || body.edits.order !== null);
     const db = c.env.DB;
     // One conditional write: the rev check makes a stale tab fail instead of overwriting newer work. What the
     // answer reports is read in the same batch (one transaction, A10), so it is this save's rev and issues even
@@ -42,6 +45,8 @@ export function siteRoutes(deps: AppDeps): Hono<AppEnv> {
     // the look pinned before a rebuild stays, even when a tab that still holds no theme saves its edits. The stored
     // edits are read only once json_valid passed them, inside a CASE: sqlite.org/lang_expr.html documents CASE as
     // lazy, but not the order AND evaluates its operands in (P4-21 item 6).
+    // The edit-binding guard is the last test of the same WHERE: a refused wording save stores nothing, not even its facts. IS
+    // (not =) so a site with no AI yet (no succeeded generation) accepts edits bound to null, as an empty draft does.
     const [write, siteRead, aiRead, uploadsRead] = await db.batch([
       db
         .prepare(
@@ -52,9 +57,10 @@ export function siteRoutes(deps: AppDeps): Hono<AppEnv> {
                  THEN json_set(?3,'$.theme', json(json_extract(edits_json,'$.theme')))
                ELSE ?3 END,
              rev = rev + 1, updated_at = ?4
-           WHERE id = ?5 AND owner_id = ?6 AND rev = ?7 AND taken_down_at IS NULL`,
+           WHERE id = ?5 AND owner_id = ?6 AND rev = ?7 AND taken_down_at IS NULL
+             AND (?8 = 0 OR ?9 IS (SELECT id FROM generations WHERE site_id = ?5 AND status = 'succeeded' ORDER BY created_at DESC LIMIT 1))`,
         )
-        .bind(facts, brief, edits, Date.now(), siteId, owner.id, body.rev),
+        .bind(facts, brief, edits, Date.now(), siteId, owner.id, body.rev, wordingBound ? 1 : 0, body.edits?.baseGenerationId ?? null),
       ownedSiteQuery(db, siteId, owner.id),
       currentAiQuery(db, siteId),
       liveUploadsQuery(db, siteId),
@@ -62,7 +68,10 @@ export function siteRoutes(deps: AppDeps): Hono<AppEnv> {
     const site = foundSite(siteRead?.results[0] as SiteRow | undefined);
     if (write?.meta.changes !== 1) {
       if (site.taken_down_at !== null) throw new ApiError("site_taken_down", "This website has been taken offline. Contact us to restore it.");
-      throw new ApiError("conflict", "This site changed in another tab or window", { currentRev: site.rev });
+      // The rev is checked first: a rev that is not the site's means this tab's whole view is stale (its wording too), and
+      // the reload it prompts fixes both. With the rev current, the write failed on the wording guard (the only other test).
+      if (site.rev !== body.rev) throw new ApiError("conflict", "This site changed in another tab or window", { currentRev: site.rev });
+      throw new ApiError("wording_changed", "New wording arrived. Your wording change was not saved.");
     }
     const note = storedJsonNote(c);
     const current = toCurrentAi(aiRead?.results[0] as CurrentAiRow | undefined, note);

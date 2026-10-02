@@ -4,7 +4,7 @@ import { DEFAULT_DESIGN, Facts, SiteDocument } from "@asksite/site-schema";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { VALID_BRIEF, VALID_FACTS } from "../support/facts.ts";
-import { json, readyOwner, ROOT, useAppHarness } from "../support/harness.ts";
+import { builtOwner, json, readyOwner, ROOT, useAppHarness } from "../support/harness.ts";
 
 const h = useAppHarness();
 
@@ -395,6 +395,72 @@ describe("PATCH /api/sites/:siteId/draft", () => {
     const res = await h.call("PATCH", `/api/sites/${owner.siteId}/draft`, { cookie: owner.cookie, body: { rev: 1, facts } });
     expect(res.status).toBe(413);
     expect((await json<ErrorJson>(res)).error).toEqual({ code: "payload_too_large", message: "That is too large to save." });
+  });
+
+  // STRICT (customer data): copy and order edits are bound to an AI generation (compose ignores them on any other), so a save
+  // built on an older generation is refused with 409 wording_changed instead of being stored and silently dropped.
+  describe("the edit-binding guard (wording_changed)", () => {
+    const ORDER = ["hero", "trust", "testimonials", "faq", "services", "about", "gallery", "serviceArea", "contact"];
+    const CHARCOAL = { palette: "charcoal-red", font: "friendly", design: "refined" } as const;
+
+    /** A built owner, then a rewrite that lands: edits bound to `first` are stale, edits bound to `current` are not. */
+    async function rewritten() {
+      const owner = await builtOwner(h, VALID_FACTS, VALID_BRIEF);
+      const started = await h.call("POST", `/api/sites/${owner.siteId}/generations`, { cookie: owner.cookie, body: {} });
+      const current = (await json<{ generation: { id: string } }>(started)).generation.id;
+      expect((await h.call("POST", `/__test/generations/${current}/finish`, { body: { status: "succeeded" } })).status).toBe(200);
+      const read = async () => json<SiteView>(await h.call("GET", `/api/sites/${owner.siteId}`, { cookie: owner.cookie }));
+      const save = (body: object) => h.call("PATCH", `/api/sites/${owner.siteId}/draft`, { cookie: owner.cookie, body });
+      return { first: owner.generationId, current, read, save, rev: (await read()).rev };
+    }
+
+    it("refuses copy edits built on an older generation, stores nothing and keeps the rev", async () => {
+      const { first, read, save, rev } = await rewritten();
+      const before = (await read()).edits;
+      const res = await save({ rev, edits: { ...EMPTY_EDITS, baseGenerationId: first, copy: { ctaText: "Call Joe" } } });
+      expect(res.status).toBe(409);
+      expect((await json<ErrorJson>(res)).error).toMatchObject({ code: "wording_changed" });
+      const view = await read();
+      expect(view.rev).toBe(rev);
+      expect(view.edits).toEqual(before);
+    });
+
+    it("refuses order edits built on an older generation, and the same order on the current one is saved", async () => {
+      const { first, current, read, save, rev } = await rewritten();
+      const stale = await save({ rev, edits: { ...EMPTY_EDITS, baseGenerationId: first, order: ORDER } });
+      expect(stale.status).toBe(409);
+      expect((await json<ErrorJson>(stale)).error).toMatchObject({ code: "wording_changed" });
+      expect((await save({ rev, edits: { ...EMPTY_EDITS, baseGenerationId: current, order: ORDER } })).status).toBe(200);
+      expect((await read()).edits).toMatchObject({ baseGenerationId: current, order: ORDER });
+    });
+
+    it("saves copy edits built on the current generation", async () => {
+      const { current, read, save, rev } = await rewritten();
+      expect((await save({ rev, edits: { ...EMPTY_EDITS, baseGenerationId: current, copy: { ctaText: "Call Joe" } } })).status).toBe(200);
+      expect((await read()).edits.copy).toEqual({ ctaText: "Call Joe" });
+    });
+
+    it("saves hidden-only and look-only edits built on an older generation: they carry over", async () => {
+      const { first, read, save, rev } = await rewritten();
+      expect((await save({ rev, edits: { ...EMPTY_EDITS, baseGenerationId: first, hidden: ["gallery"] } })).status).toBe(200);
+      expect((await save({ rev: rev + 1, edits: { ...EMPTY_EDITS, baseGenerationId: first, hidden: ["gallery"], theme: CHARCOAL } })).status).toBe(200);
+      expect((await read()).edits).toMatchObject({ hidden: ["gallery"], theme: CHARCOAL });
+    });
+
+    it("answers a save that is stale in both ways with conflict: an old rev means the whole view is stale, so the rev is checked first", async () => {
+      const { first, save, rev } = await rewritten();
+      const res = await save({ rev: rev - 1, edits: { ...EMPTY_EDITS, baseGenerationId: first, copy: { ctaText: "Call Joe" } } });
+      expect(res.status).toBe(409);
+      expect((await json<ErrorJson>(res)).error).toMatchObject({ code: "conflict", currentRev: rev });
+    });
+
+    it("never lets a refused wording save take facts or brief with it", async () => {
+      const { first, read, save, rev } = await rewritten();
+      const brief = { ...VALID_BRIEF, tone: "professional" };
+      const res = await save({ rev, brief, edits: { ...EMPTY_EDITS, baseGenerationId: first, copy: { ctaText: "Call Joe" } } });
+      expect(res.status).toBe(409);
+      expect((await read()).brief).toEqual(VALID_BRIEF);
+    });
   });
 
   it("refuses edits to a taken-down site with 423", async () => {
