@@ -832,10 +832,13 @@ describe.each(ENGINES)("Modern in %s", (_engine, engine) => {
       const placesEnd = places?.querySelector(".board-body > :last-child")?.getBoundingClientRect().bottom;
       const placesPad = places === null ? 0 : parseFloat(getComputedStyle(places.querySelector(".board-body")).paddingBottom) + 1;
       const boards = [...document.querySelectorAll("#service-area .board")].map((b) => b.getBoundingClientRect().bottom);
+      // The call card's own height: what it measures when it is neither stretched nor pushed apart.
       const card = document.querySelector(".call-card");
-      const cardStyle = getComputedStyle(card);
+      card.style.cssText = "align-self: start; grid-row: 2; display: block";
+      const natural = card.getBoundingClientRect().height;
+      card.style.cssText = "";
       return {
-        callContent: card.lastElementChild.getBoundingClientRect().bottom + parseFloat(cardStyle.paddingBottom) - card.getBoundingClientRect().top,
+        natural,
         call: box(".call-card"),
         creds: box(".cred-card"),
         form: box(".form-card"),
@@ -857,7 +860,7 @@ describe.each(ENGINES)("Modern in %s", (_engine, engine) => {
         if (got.creds !== undefined && (got.creds.top < got.call.bottom || Math.abs(got.creds.left - got.call.left) > 1 || Math.abs(got.creds.width - got.call.width) > 1)) found.push(`${where}: credentials ${JSON.stringify(got.creds)} vs call card ${JSON.stringify(got.call)}`);
         if (Math.abs(got.call.top - got.form.top) > 1) found.push(`${where}: the call card starts ${Math.round(got.call.top - got.form.top)} px off the form`);
         if (got.creds !== undefined && got.creds.bottom < got.form.bottom - 1) found.push(`${where}: the credentials end ${Math.round(got.form.bottom - got.creds.bottom)} px above the form`);
-        if (got.creds === undefined && Math.abs(got.call.height - got.callContent) > 1) found.push(`${where}: the lone call card is ${Math.round(got.call.height - got.callContent)} px taller than its content`);
+        if (got.creds === undefined && Math.abs(got.call.height - got.natural) > 1) found.push(`${where}: the lone call card is ${Math.round(got.call.height - got.natural)} px taller than its content`);
         if (SIDE_BY_SIDE.includes(name) && (got.boards.length !== 2 || Math.abs(got.boards[0]! - got.boards[1]!) > 1)) found.push(`${where}: boards end at ${got.boards.map(Math.round).join(",")}`);
         if (SIDE_BY_SIDE.includes(name) && Math.abs(got.hollow) > 1) found.push(`${where}: ${Math.round(got.hollow)} px hollow at the foot of the areas board`);
       }
