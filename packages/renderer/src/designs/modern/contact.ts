@@ -1,6 +1,7 @@
 // Modern's service area, questions and contact sections.
 import { QUOTE_ID, type Facts, type VariantOf } from "@asksite/site-schema";
-import { headingLevel, type RenderContext } from "../../context.ts";
+import { contactHeading } from "../../contact-heading.ts";
+import { headingLevel, onSite, type RenderContext } from "../../context.ts";
 import { formatPhone, mailtoUrl, telUrl } from "../../format.ts";
 import { html, trusted, type SafeHtml } from "../../html.ts";
 import { icon } from "../../icons.ts";
@@ -8,7 +9,7 @@ import { DOM_ID } from "../../sections/ids.ts";
 import { itemHeading } from "../../ui.ts";
 import { BUILDING } from "./icons.ts";
 import { callButton, credentialList, emailText, emergencyNote, head, hoursTable, keepParts, pageBand, quoteButton } from "./parts.ts";
-import { cityLine, fewPlaces } from "./text.ts";
+import { areaSummary, cityLine, fewPlaces } from "./text.ts";
 
 /**
  * The street address with the building icon, or "Based in …": always at the foot of the places board, so a short list
@@ -90,12 +91,14 @@ ${!last && html`<div class="faq-more"><p class="faq-more-q">Still have a questio
 }
 
 /**
- * The heading (the owner's call to action, with the owner's contact intro, else the hero's subheadline, as its line:
- * a bare "Book" looked unfinished), the call card, the form and the owner's credentials. On phones a compact call card
- * comes first, so calling is one tap from the top of the page (the Contact page's call bar is not sticky, A16) and
- * the form's first fields still share the first screen, and the credentials follow the form; from 1024 px the
- * heading's line sits beside it, the form takes the wide column under it at its own height, and the call card and the
- * credentials sit beside it (the call card alone fills the column when the owner shows no credentials: contact--call).
+ * The heading (the shared contact heading, which turns a one-word call to action into a phrase, with the owner's contact
+ * intro, else the hero's subheadline, as its line: a bare "Book" looked unfinished), the call card, the form and the
+ * owner's credentials. On phones a compact call card comes first, so calling is one tap from the top of the page (the
+ * Contact page's call bar is not sticky, A16) and the form's first fields still share the first screen, and the
+ * credentials follow the form; from 1024 px the heading's line sits beside it, the form takes the wide column under it
+ * at its own height, and the call card and the credentials sit beside it. The call card is never stretched: without
+ * credentials it ends at its content, level with the form's top, and also names the towns the business serves
+ * (judges, A16 round 3: a stretched card was a tall, empty brand block beside the form).
  * The <form> is today's field for field (the shared invariant compares it with its class attributes removed): only
  * the classes differ.
  */
@@ -105,14 +108,14 @@ export function renderContact(ctx: RenderContext, _variant: VariantOf<"contact">
   const credentials = credentialList(ctx);
   return html`<section id="${DOM_ID.contact}" class="sec ${tone}" aria-labelledby="${DOM_ID.contact}-title">
 ${pageBand(ctx, "contact")}
-<div class="${credentials ? "wrap contact" : "wrap contact contact--call"}">
-${head(DOM_ID.contact, copy.ctaText, copy.sectionIntros.contact ?? copy.heroSubheadline, headingLevel(ctx, "contact"))}
+<div class="wrap contact">
+${head(DOM_ID.contact, contactHeading(copy.ctaText), copy.sectionIntros.contact ?? copy.heroSubheadline, headingLevel(ctx, "contact"))}
 <div class="call-card">
 <p class="lbl">Prefer to talk?</p>
 <a class="big whitespace-nowrap" href="${telUrl(facts.phone)}">${icon("phone", "i")}<span><span class="sr-only">Call </span>${keepParts(phone.split(" "))}</span></a>
 <ul>
 <li><span class="lbl">Email</span><a href="${mailtoUrl(facts.email)}">${emailText(facts.email)}</a></li>
-${facts.emergency247 && html`<li><span class="lbl">Emergencies</span>Available 24/7</li>`}
+${facts.emergency247 && html`<li><span class="lbl">Emergencies</span>Available 24/7</li>`}${!credentials && onSite(ctx, "serviceArea") && html`<li><span class="lbl">Service area</span>${areaSummary(facts)}</li>`}
 </ul>
 </div>
 <div class="form-card">

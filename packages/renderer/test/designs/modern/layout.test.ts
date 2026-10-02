@@ -51,6 +51,11 @@ const withServices = (input: SiteDocumentInput, count: number): SiteDocumentInpu
   facts: { ...input.facts, services: input.facts.services.slice(0, count) },
   copy: { ...input.copy, serviceDescriptions: input.copy.serviceDescriptions.slice(0, count) },
 });
+/** `input` with no hero photo and no gallery photos. */
+function withoutPhotos(input: SiteDocumentInput): SiteDocumentInput {
+  const { heroPhoto: _photo, ...facts } = input.facts;
+  return { ...input, facts: { ...facts, photos: [] } };
+}
 /** One word of `length` letters: no break chance in it. */
 const word = (length: number, first: string): string => (first + "ordwithoutabreak".repeat(6)).slice(0, length);
 
@@ -258,27 +263,44 @@ describe.each(ENGINES)("Modern in %s", (_engine, engine) => {
     expect(found).toEqual([]);
   }, 60_000);
 
-  // A16-4's journey "Get a quote on Home" clicks the hero's quote button, also in a 390 px window. On phones the hero
-  // now ends with Call and the call to action under the subheadline, and the first screen still holds the headline
-  // and the credentials above the sticky call bar (the approved phone hero).
-  it("ends the hero with Call and the call to action on phones, under the subheadline, the credentials still above the call bar", async () => {
+  // A16 round 3's judges: on phones the hero ended with Call and the quote button under the subheadline, so at most
+  // phone heights the sticky call bar cut one of them (an orange strip over the bar's own Call at 390x664), and the
+  // first screen showed no phone number. On phones Call, with the number, comes straight under the headline and the
+  // call bar carries the quote link (the shared A16-4 journey clicks the bar's link on phones; moderator ruling).
+  it("puts the hero's Call, with the number, under the headline on phones, never partly under the call bar, from 320 to 430 px wide and 560 to 940 px tall", async () => {
     const found: string[] = [];
-    for (const name of ["plumber-austin", "hvac-phoenix"] as const) {
-      await open(page(name), 390);
-      for (const [width, height] of [[320, 568], [375, 667], [390, 664], [412, 839]] as const) {
-        await tab.setViewportSize({ width, height });
-        const got = await tab.evaluate(() => {
-          const box = (selector: string) => document.querySelector(selector).getBoundingClientRect();
-          const buttons = [...document.querySelectorAll("#top .hero-actions > a")].map((a) => a.getBoundingClientRect());
-          return { sub: box("#top .hero-sub").bottom, proof: box("#top .proof").bottom, bar: box("aside").top, buttons: buttons.map((b) => ({ top: b.top, width: b.width })) };
-        });
-        const where = `${name} ${width}x${height}`;
-        if (got.buttons.length !== 2 || got.buttons.some((b) => b.width === 0 || b.top < got.sub)) found.push(`${where}: the buttons are not under the subheadline ${JSON.stringify(got)}`);
-        if (got.proof > got.bar) found.push(`${where}: the credentials end at ${Math.round(got.proof)}, under the call bar at ${Math.round(got.bar)}`);
+    const heights = Array.from({ length: 20 }, (_, i) => 560 + 20 * i);
+    const DOCS: ReadonlyArray<readonly [string, SiteDocumentInput]> = [
+      ...FIXTURES.map((name) => [name, loadFixture(name)] as const),
+      ["plumber-austin without photos", withoutPhotos(plumberInput)],
+      ["plumber-austin, credentials later", trustLater(plumberInput)],
+    ];
+    for (const [name, input] of DOCS) {
+      await open(pageOf(input), 390);
+      for (const width of [320, 360, 390, 412, 430]) {
+        for (const height of [...heights, 664, 839]) {
+          await tab.setViewportSize({ width, height });
+          const got = await tab.evaluate(() => {
+            const shown = [...document.querySelectorAll("#top .button")].filter((b) => b.checkVisibility());
+            const r = (el: { getBoundingClientRect(): { top: number; bottom: number } }) => el.getBoundingClientRect();
+            return {
+              bar: r(document.querySelector("aside")).top,
+              h1: r(document.querySelector("#top h1")).bottom,
+              sub: r(document.querySelector("#top .hero-sub")).top,
+              buttons: shown.map((b) => ({ text: b.textContent.trim(), top: r(b).top, bottom: r(b).bottom })),
+            };
+          });
+          const where = `${name} ${width}x${height}`;
+          const [call, ...rest] = got.buttons;
+          if (call === undefined || !/^Call \(\d{3}\) \d{3}-\d{4}$/.test(call.text) || rest.length > 0) found.push(`${where}: the hero shows ${JSON.stringify(got.buttons.map((b) => b.text))}, not Call with the number alone`);
+          else if (call.top < got.h1 || call.bottom > got.sub) found.push(`${where}: Call is not between the headline and the subheadline`);
+          for (const b of got.buttons) if (b.top < got.bar - 0.5 && b.bottom > got.bar + 0.5) found.push(`${where}: "${b.text}" is cut by the call bar at ${Math.round(got.bar)}`);
+          if (call !== undefined && call.bottom > got.bar + 0.5) found.push(`${where}: Call ends at ${Math.round(call.bottom)}, under the call bar at ${Math.round(got.bar)}`);
+        }
       }
     }
     expect(found).toEqual([]);
-  }, 60_000);
+  }, 300_000);
 
   // Round 2's review and attack I-1: owner text in a flex row keeps its automatic minimum (its min-content), and the
   // page's overflow-wrap: break-word does not lower that, so one long word pushed the page sideways (the footer's
@@ -625,6 +647,37 @@ describe.each(ENGINES)("Modern in %s", (_engine, engine) => {
     expect(found).toEqual([]);
   }, 60_000);
 
+  // A16 round 3's judges: on phones a name on two lines had its tick and price pill centred on the whole name, so the
+  // tick floated between the lines. Both sit on the name's first line at every width.
+  it("centres the preview's tick and price pill on the first line of the service's name, however many lines it takes", async () => {
+    const found: string[] = [];
+    for (const name of ["plumber-austin", "roofing-extreme"] as const) {
+      await open(page(name), 320);
+      for (const width of [320, 390, 768, 1280]) {
+        await tab.setViewportSize({ width, height: 800 });
+        const rows = await tab.evaluate(() =>
+          [...document.querySelectorAll(".teaser-list > li")].map((li) => {
+            const range = document.createRange();
+            range.selectNodeContents(li.querySelector("h3"));
+            const first = [...range.getClientRects()].sort((a: { top: number }, b: { top: number }) => a.top - b.top)[0];
+            const middle = (r: { top: number; bottom: number }) => (r.top + r.bottom) / 2;
+            const price = li.querySelector(".price");
+            return {
+              lines: new Set([...range.getClientRects()].map((r: { top: number }) => Math.round(r.top))).size,
+              tick: middle(li.querySelector(".i").getBoundingClientRect()) - middle(first),
+              price: price === null ? 0 : middle(price.getBoundingClientRect()) - middle(first),
+            };
+          }),
+        );
+        for (const [i, row] of rows.entries()) {
+          if (Math.abs(row.tick) > 2) found.push(`${name} ${width}: row ${i + 1}'s tick is ${Math.round(row.tick)} px off its name's first line (${row.lines} lines)`);
+          if (width < 768 && Math.abs(row.price) > 2) found.push(`${name} ${width}: row ${i + 1}'s price is ${Math.round(row.price)} px off its name's first line (${row.lines} lines)`);
+        }
+      }
+    }
+    expect(found).toEqual([]);
+  }, 60_000);
+
   // review1 I-1: the preview's link took the class "more", which is the hero's "See all N licenses" item too, and its
   // top margin moved that item 24 px below the credential beside it on phones and tablets.
   it("keeps the hero's 'See all N licenses' item without a top margin at every width (review1 I-1)", async () => {
@@ -664,25 +717,50 @@ describe.each(ENGINES)("Modern in %s", (_engine, engine) => {
     expect(found).toEqual([]);
   }, 60_000);
 
-  // A16 round 1's judges: a service card that shares the call-to-action card's row was stretched to that card's height,
-  // a half-empty box (cleaning-minimal's two services). It keeps its own height.
-  it("keeps the service cards in the call-to-action card's row at their own height", async () => {
+  // A16 round 1's judges: cleaning-minimal's two service cards were stretched to the call-to-action card beside them,
+  // half-empty boxes; round 3's judges: kept at their own height, the page's only row ended 67 px ragged. The cards of
+  // the row end level, and from 1200 px the call-to-action card keeps its button beside its words, so it is no taller
+  // than the service cards (none of them has empty space under its line).
+  it("ends the call-to-action card's row level, and on the thin page no service card is taller than its content from 1200 px", async () => {
     const found: string[] = [];
-    // Each service card on the call-to-action card's row (the same top) ends where its own content ends.
-    const stretched = () => {
+    const measure = () => {
       const ask = document.querySelector("#services .ask").getBoundingClientRect();
       return [...document.querySelectorAll("#services .card:not(.ask)")].flatMap((card) => {
         const box = card.getBoundingClientRect();
         const style = getComputedStyle(card);
         const content = card.lastElementChild.getBoundingClientRect().bottom + parseFloat(style.paddingBottom) + parseFloat(style.borderBottomWidth);
-        return Math.abs(box.top - ask.top) <= 1 && Math.abs(box.bottom - content) > 1 ? [card.querySelector("h2, h3").textContent] : [];
+        return Math.abs(box.top - ask.top) <= 1 ? [{ title: card.querySelector("h2, h3").textContent, ragged: box.bottom - ask.bottom, hollow: box.bottom - content }] : [];
       });
     };
     for (const [name, html] of [["cleaning-minimal", page("cleaning-minimal", undefined, "services")], ["plumber-austin", page("plumber-austin", undefined, "services")]] as const) {
       await open(html, 700);
-      for (const width of [700, 1024, 1280, 1920]) {
+      for (const width of [700, 1024, 1200, 1280, 1920]) {
         await tab.setViewportSize({ width, height: 800 });
-        for (const title of await tab.evaluate(stretched)) found.push(`${name} ${width}: "${title}" is stretched`);
+        for (const card of await tab.evaluate(measure)) {
+          if (Math.abs(card.ragged) > 1) found.push(`${name} ${width}: "${card.title}" ends ${Math.round(card.ragged)} px off the call-to-action card`);
+          if (name === "cleaning-minimal" && width >= 1200 && card.hollow > 1) found.push(`${name} ${width}: "${card.title}" has ${Math.round(card.hollow)} px of nothing under its line`);
+        }
+      }
+    }
+    expect(found).toEqual([]);
+  }, 60_000);
+
+  // A16 round 3's judges: beside the questions the heading broke as "Questions" / "& answers" in two of the three
+  // letterings, so a line started with the ampersand.
+  it("keeps 'Questions & answers' on one line beside the questions from 1024 px, in every lettering", async () => {
+    const found: string[] = [];
+    for (const font of FONT_IDS) {
+      await open(page("plumber-austin", font, "services"), 1024);
+      for (const width of [1024, 1100, 1280, 1440, 1920]) {
+        await tab.setViewportSize({ width, height: 800 });
+        const got = await tab.evaluate(() => {
+          const h2 = document.querySelector("#faq-title");
+          const range = document.createRange();
+          range.selectNodeContents(h2);
+          const lines = new Set([...range.getClientRects()].map((r: { top: number }) => Math.round(r.top))).size;
+          return { lines, right: range.getBoundingClientRect().right, list: document.querySelector("#faq .qa-list").getBoundingClientRect().left };
+        });
+        if (got.lines !== 1 || got.right > got.list) found.push(`${font} ${width}: ${JSON.stringify(got)}`);
       }
     }
     expect(found).toEqual([]);
@@ -740,9 +818,10 @@ describe.each(ENGINES)("Modern in %s", (_engine, engine) => {
 
   // A16 round 1's judges: on Contact the right column ended ~240 px above the form and the areas and hours boards ended
   // at different heights. Round 2's judges: never by padding the form (empty white under Send), nor a hollow areas
-  // board, nor a lone call card 290 px short of the form. The form ends at its button; the credentials (or a lone call
-  // card) end level with it when it is the taller column; the two boards end level, the address at the board's foot.
-  it("lines the Contact page up from 1024 px: the form at its own height, the column beside it ending level with it, the boards level with no hollow", async () => {
+  // board. Round 3's judges: nor a lone call card stretched into a tall, empty brand block. The form ends at its
+  // button; the credentials end level with it when theirs is the shorter column; a lone call card ends at its content;
+  // the two boards end level, the address at the board's foot.
+  it("lines the Contact page up from 1024 px: the form at its own height, the credentials ending level with it, a lone call card at its own height, the boards level with no hollow", async () => {
     const found: string[] = [];
     const measure = () => {
       const box = (selector: string) => document.querySelector(selector)?.getBoundingClientRect().toJSON();
@@ -753,7 +832,10 @@ describe.each(ENGINES)("Modern in %s", (_engine, engine) => {
       const placesEnd = places?.querySelector(".board-body > :last-child")?.getBoundingClientRect().bottom;
       const placesPad = places === null ? 0 : parseFloat(getComputedStyle(places.querySelector(".board-body")).paddingBottom) + 1;
       const boards = [...document.querySelectorAll("#service-area .board")].map((b) => b.getBoundingClientRect().bottom);
+      const card = document.querySelector(".call-card");
+      const cardStyle = getComputedStyle(card);
       return {
+        callContent: card.lastElementChild.getBoundingClientRect().bottom + parseFloat(cardStyle.paddingBottom) - card.getBoundingClientRect().top,
         call: box(".call-card"),
         creds: box(".cred-card"),
         form: box(".form-card"),
@@ -772,10 +854,10 @@ describe.each(ENGINES)("Modern in %s", (_engine, engine) => {
         const got = await tab.evaluate(measure);
         const where = `${name} ${width}`;
         if (Math.abs(got.under) > 1) found.push(`${where}: ${Math.round(got.under)} px of empty form under Send`);
-        const side = got.creds ?? got.call;
         if (got.creds !== undefined && (got.creds.top < got.call.bottom || Math.abs(got.creds.left - got.call.left) > 1 || Math.abs(got.creds.width - got.call.width) > 1)) found.push(`${where}: credentials ${JSON.stringify(got.creds)} vs call card ${JSON.stringify(got.call)}`);
         if (Math.abs(got.call.top - got.form.top) > 1) found.push(`${where}: the call card starts ${Math.round(got.call.top - got.form.top)} px off the form`);
-        if (side.bottom < got.form.bottom - 1) found.push(`${where}: the column beside the form ends ${Math.round(got.form.bottom - side.bottom)} px above it`);
+        if (got.creds !== undefined && got.creds.bottom < got.form.bottom - 1) found.push(`${where}: the credentials end ${Math.round(got.form.bottom - got.creds.bottom)} px above the form`);
+        if (got.creds === undefined && Math.abs(got.call.height - got.callContent) > 1) found.push(`${where}: the lone call card is ${Math.round(got.call.height - got.callContent)} px taller than its content`);
         if (SIDE_BY_SIDE.includes(name) && (got.boards.length !== 2 || Math.abs(got.boards[0]! - got.boards[1]!) > 1)) found.push(`${where}: boards end at ${got.boards.map(Math.round).join(",")}`);
         if (SIDE_BY_SIDE.includes(name) && Math.abs(got.hollow) > 1) found.push(`${where}: ${Math.round(got.hollow)} px hollow at the foot of the areas board`);
       }

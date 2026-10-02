@@ -20,19 +20,11 @@ export const cardColumns = (count: number, most: number): number => Math.min(mos
 const CARD_COLUMNS = { 2: "cards--c2", 3: "cards--c3", 4: "cards--c4" } as const;
 
 /**
- * True when service `i` of `count` shares the last row with the call-to-action card in rows of `columns`: the card
- * fills the places the last row leaves.
- */
-const sharesCardRow = (i: number, count: number, columns: number): boolean => count % columns !== 0 && i >= count - (count % columns);
-
-// A service card's classes: card--t2 when it shares the call-to-action card's row in the two columns below 1024 px,
-// card--t3 when it does in the grid's own columns from there; such a card keeps its own height (judges, A16 round 1).
-const CARD = ["card", "card card--t2", "card card--t3", "card card--t2 card--t3"] as const;
-
-/**
  * Services as cards, each price on its own line under the service's name, and the owner's credentials under the
  * heading, beside the prices where a visitor checks who the business is. The owner's call to action closes the grid
- * as a brand card that fills its last row (judges' must-fix: no empty cell beside the last service).
+ * as a brand card that fills its last row (judges' must-fix: no empty cell beside the last service); the cards of a row
+ * end level (judges, A16 round 3), and the call-to-action card keeps its button beside its words where they fit, so
+ * it is no taller than the services beside it.
  */
 export function renderServices(ctx: RenderContext, variant: VariantOf<"services">, tone: string): SafeHtml {
   const { facts, copy } = ctx.doc;
@@ -41,15 +33,14 @@ export function renderServices(ctx: RenderContext, variant: VariantOf<"services"
   const items = facts.services.map((service, i) => ({ ...service, description: copy.serviceDescriptions[i]?.description }));
   const columns = cardColumns(items.length, variant === "compact" ? 4 : 3) as keyof typeof CARD_COLUMNS;
   const anyPrice = facts.services.some((s) => s.startingPrice !== undefined);
-  const askCard = html`<li class="card ask on-brand"><div><p class="ask-q">${anyPrice ? "Not sure which service you need?" : "Ask us for a price."}</p><p>${anyPrice ? "Tell us about the job." : "Tell us what you need."}</p></div><a class="button button-act" href="${quoteLink()}">${copy.ctaText}</a></li>`;
+  const askCard = html`<li class="card ask on-brand"><div><p class="ask-q">${anyPrice ? "Not sure which service you need?" : "Ask us for a price"}</p>${anyPrice && html`<p>Tell us about the job.</p>`}</div><a class="button button-act" href="${quoteLink()}">${copy.ctaText}</a></li>`;
 
-  const cardClass = (i: number) => CARD[(sharesCardRow(i, items.length, 2) ? 1 : 0) + (sharesCardRow(i, items.length, columns) ? 2 : 0)];
   return html`<section id="${DOM_ID.services}" class="sec ${tone}" aria-labelledby="${DOM_ID.services}-title">
 ${pageBand(ctx, "services")}
 <div class="wrap">
 ${head(DOM_ID.services, "Our services", copy.sectionIntros.services, level, credentialLine(pageCredentials(ctx)))}
 <ul class="cards ${CARD_COLUMNS[columns]}${variant === "compact" ? " cards--compact" : ""}">
-${items.map((s, i) => html`<li class="${cardClass(i)}">${itemHeading(level, "h3", s.name)}${priceLine(facts, s.startingPrice)}${s.description && html`<p class="card-desc">${s.description}</p>`}</li>`)}
+${items.map((s) => html`<li class="card">${itemHeading(level, "h3", s.name)}${priceLine(facts, s.startingPrice)}${s.description && html`<p class="card-desc">${s.description}</p>`}</li>`)}
 ${askCard}
 </ul>
 </div>

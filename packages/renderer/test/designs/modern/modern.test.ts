@@ -246,12 +246,15 @@ describe("Modern: the Services page (A16)", () => {
     expect(element(pageOf(faqFirst(plumber), "services"), '<section id="faq"')).toContain("Still have a question?");
   });
 
-  it("marks the service cards that share a row with the call-to-action card (2 columns below 1024 px, the grid's own from there), so they keep their own height", () => {
+  // A16 round 3's judges: the service cards beside the call-to-action card kept their own height, so the thin page's
+  // only row ended 67 px ragged; and "Ask us for a price." was the design's one heading with a full stop.
+  it("draws every service card alike, so the cards of a row end level, and asks for a price in one short heading when no service has one", () => {
     const classes = (input: SiteDocumentInput) => [...element(pageOf(input, "services"), '<ul class="cards').matchAll(/<li class="(card[^"]*)"/g)].map((m) => m[1]);
-    // 5 services in 3 columns: the last two share the card's row from 1024 px, the last one below it.
-    expect(classes(plumber)).toEqual(["card", "card", "card", "card card--t3", "card card--t2 card--t3", "card ask on-brand"]);
-    // 2 services in 3 columns: both share it from 1024 px; in 2 columns the card has a row of its own.
-    expect(classes(loadFixture("cleaning-minimal"))).toEqual(["card card--t3", "card card--t3", "card ask on-brand"]);
+    expect(classes(plumber)).toEqual(["card", "card", "card", "card", "card", "card ask on-brand"]);
+    expect(classes(loadFixture("cleaning-minimal"))).toEqual(["card", "card", "card ask on-brand"]);
+    expect(element(pageOf(loadFixture("cleaning-minimal"), "services"), '<li class="card ask')).toBe(
+      '<li class="card ask on-brand"><div><p class="ask-q">Ask us for a price</p></div><a class="button button-act" href="/contact#quote">Book</a></li>',
+    );
   });
 });
 
@@ -291,12 +294,26 @@ describe("Modern: the Contact page (A16)", () => {
     expect(lede(loadFixture("cleaning-minimal"))).toBe("Careful cleaners for busy Boise households.");
   });
 
-  // A16 round 2's judges: with no credentials the call card stood 290 px short of the form beside it.
-  it("lets the call card fill the column beside the form when the owner shows no credentials", () => {
-    const wrap = (input: SiteDocumentInput) => /<div class="(wrap contact[^"]*)">/.exec(pageOf(input, "contact"))?.[1];
-    expect(wrap(loadFixture("plumber-austin"))).toBe("wrap contact");
-    expect(wrap(loadFixture("cleaning-minimal"))).toBe("wrap contact contact--call");
-    expect(wrap(withHidden(loadFixture("plumber-austin"), ["trust"]))).toBe("wrap contact contact--call");
+  // A16 round 3's judges: with no credentials the call card was stretched to the form's height, a 500 px brand block
+  // with 300 px of nothing in it. It ends at its content and also names the towns the business serves.
+  it("names the towns the business serves in the call card when the owner shows no credentials, and never marks the card to stretch", () => {
+    const rows = (input: SiteDocumentInput) => [...element(pageOf(input, "contact"), '<div class="call-card"').matchAll(/<li><span class="lbl">([^<]*)<\/span>([^]*?)<\/li>/g)].map((m) => `${m[1]}: ${(m[2] ?? "").replace(/<[^>]*>/g, "")}`);
+    const plumber = loadFixture("plumber-austin");
+    expect(rows(loadFixture("cleaning-minimal"))).toEqual(["Email: hi@mop.example.com", "Service area: Boise, ID"]);
+    expect(rows(withHidden(plumber, ["trust"]))).toEqual(["Email: office@reliablerooter.example.com", "Emergencies: Available 24/7", "Service area: Austin, Round Rock and 5 more"]);
+    // With credentials beside it the card stays as it was; an owner who hides the service area hides its towns here too.
+    expect(rows(plumber)).toEqual(["Email: office@reliablerooter.example.com", "Emergencies: Available 24/7"]);
+    expect(rows(withHidden(loadFixture("cleaning-minimal"), ["serviceArea"]))).toEqual(["Email: hi@mop.example.com"]);
+    for (const input of [plumber, loadFixture("cleaning-minimal")]) expect(pageOf(input, "contact")).toContain('<div class="wrap contact">');
+  });
+
+  // Moderator ruling (A16 contract tweak): the Contact heading is the shared contactHeading(), so a one-word call to
+  // action ("Book") becomes a phrase there, while every quote button keeps the owner's words (WCAG 3.2.4).
+  it("takes its heading from the shared contact heading, and keeps the owner's words on every quote button", () => {
+    const h1 = (input: SiteDocumentInput) => /<h1 id="contact-title" class="display h1">([^<]*)<\/h1>/.exec(pageOf(input, "contact"))?.[1];
+    expect(h1(loadFixture("cleaning-minimal"))).toBe("Request a booking");
+    expect(h1(loadFixture("plumber-austin"))).toBe("Get a free quote");
+    expect([...fixture("cleaning-minimal").matchAll(/<a class="button button-(?:act|line)[^"]*" href="\/contact#quote">([^<]*)<\/a>/g)].map((m) => m[1]).filter((label) => label !== "Get a quote")).toEqual(["Book", "Book", "Book", "Book"]);
   });
 
   // A16 round 2's judges: beside 30 places the hours board ended ~900 px above the list.
@@ -587,7 +604,7 @@ describe("Modern: services are priced cards", () => {
     expect(services.match(/<\/h2><p class="price price--ask">Price on request<\/p>/g)).toHaveLength(2);
     expect(services.match(/<\/h2><p class="price"><small>From<\/small>/g)).toHaveLength(3);
     expect(fixture("cleaning-minimal")).not.toContain("Price on request");
-    expect(fixture("cleaning-minimal")).toContain("Ask us for a price.");
+    expect(fixture("cleaning-minimal")).toContain('<p class="ask-q">Ask us for a price</p>');
   });
 
   it("end with the call-to-action card, which fills the grid's last row (judges' must-fix: no empty cell)", () => {

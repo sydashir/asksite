@@ -5,9 +5,9 @@
 // - Without one: the brand band with the 24/7 line, then the headline beside a card: the opening hours, or,
 //   for an owner without them, where the business works and its email.
 // - The credentials (the trust section) sit inside the hero, under the headline, when the trust section comes
-//   straight after it; on phones they come before the subheadline, so they share the first screen with the
-//   call bar. Anywhere else in the layout they are a band of their own on the brand colour, and the hero keeps
-//   one short line with the licenses and insurance.
+//   straight after it; on phones they come after the Call button and before the subheadline, so they share the
+//   first screen with the call bar. Anywhere else in the layout they are a band of their own on the brand colour,
+//   and the hero keeps one short line with the licenses and insurance.
 import type { Facts, VariantOf } from "@asksite/site-schema";
 import { onPage, onSite, type RenderContext } from "../../context.ts";
 import { mailtoUrl } from "../../format.ts";
@@ -94,8 +94,10 @@ function proofLine(ctx: RenderContext): SafeHtml | false {
 }
 
 /**
- * The headline, subheadline and the Call and quote buttons (on phones the buttons end the hero, under the subheadline:
- * the first screen keeps the headline and the credentials above the call bar, which offers both).
+ * The headline, subheadline and the Call and quote buttons. On phones Call, which shows the number, comes straight
+ * under the headline, high enough that the sticky call bar never covers part of it on any phone screen, and the quote
+ * button is left to the call bar (judges, A16 round 3; moderator ruling: the call bar keeps "Call" and "Get a quote",
+ * and the hero's Call shows the number on the first screen).
  */
 function panel(ctx: RenderContext, line: SafeHtml | false): SafeHtml {
   const { facts, copy } = ctx.doc;
