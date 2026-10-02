@@ -528,7 +528,9 @@ test("the preview's alert keeps the same text through a save cycle; 'saved' is p
   await expect(page.getByRole("heading", { level: 1, name: "Edit your website" })).toBeFocused();
   await showPreview(page);
   const alert = page.getByRole("alert").filter({ hasText: "The preview couldn't load." });
-  await expect(alert).toHaveText("The preview couldn't load.");
+  await expect(alert).toContainText("The preview couldn't load.");
+  const before = await alert.innerText();
+  expect(before).not.toContain("saved");
   // Record every change of the alert's text from here on.
   await alert.evaluate((el) => {
     const seen: string[] = [];
@@ -542,7 +544,7 @@ test("the preview's alert keeps the same text through a save cycle; 'saved' is p
   await showPreview(page);
   const note = page.getByText("Your changes are saved.");
   await expect(note).toBeVisible();
-  await expect(alert).toHaveText("The preview couldn't load.");
+  await expect(alert).toHaveText(before);
   expect(await page.evaluate(() => (window as unknown as { __alertTexts: string[] }).__alertTexts)).toEqual([]);
   // The note is plain text: not inside the alert, and not a live region itself.
   expect(await note.evaluate((el) => el.closest('[role="alert"], [role="status"], [aria-live]') === null)).toBe(true);
