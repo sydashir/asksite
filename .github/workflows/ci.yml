@@ -2,7 +2,7 @@
 # per-page browser matrix took one combined job past 30 minutes): `check` = typecheck plus unit and
 # integration tests (workerd through wrangler's test harness, no Cloudflare account); `e2e` = Plan 1's
 # browser tests without its macOS-only screenshots, in 2 shards; `sites` = the sites Worker's browser tests over
-# https. Third-party actions are pinned to commit SHAs.
+# https; `apps` = the owner and admin apps' browser tests. Third-party actions are pinned to commit SHAs.
 name: ci
 
 on:
@@ -162,6 +162,21 @@ jobs:
   apps:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    permissions:
+      contents: read
+    # The same image as e2e and sites. The apps are served from app.localhost and admin.localhost; the e2e
+    # Worker configs also name media.localhost (the media origin is media.<ROOT_DOMAIN>) and mail.localhost
+    # (the sender address). --add-host maps all four, so every engine resolves them (no sudo as --user 1001).
+    container:
+      image: mcr.microsoft.com/playwright:v1.63.0-noble@sha256:eff16c30e6f3f4af0a03fa4b706120d5e9b0891c344a27d64559aff5900a4a27
+      options: >-
+        --user 1001
+        --ipc=host
+        --init
+        --add-host app.localhost:127.0.0.1
+        --add-host admin.localhost:127.0.0.1
+        --add-host media.localhost:127.0.0.1
+        --add-host mail.localhost:127.0.0.1
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -173,11 +188,10 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm build:css
-      - run: pnpm exec playwright install --with-deps --only-shell chromium webkit
-      - run: pnpm exec playwright install --with-deps firefox
-      # The apps are served from app.localhost and admin.localhost (the e2e Worker configs also name
-      # media.localhost and mail.localhost); make sure every engine resolves them on Linux.
-      - run: echo "127.0.0.1 app.localhost admin.localhost media.localhost mail.localhost" | sudo tee -a /etc/hosts
+      # One app name and one admin name resolve to loopback before any test runs (getent fails on an unknown name).
+      - run: |
+          getent hosts app.localhost
+          getent hosts admin.localhost
       - run: pnpm --filter @asksite/app test:e2e
       - run: pnpm --filter @asksite/admin test:e2e
       - run: pnpm --filter @asksite/app check:floor
