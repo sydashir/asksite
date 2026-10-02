@@ -22,6 +22,23 @@ export async function pendingSite(request: APIRequestContext, facts: object = FA
   return { ...((await res.json()) as { siteId: string; versionId: string; ownerId: string }), slug: `joes-${suffix}`, email };
 }
 
+/** What the review says, once, when Approve turns on. */
+export const UNLOCKED = "Every page has been looked at. You can approve now.";
+
+/**
+ * Shows every page of the version in the review's preview, one by one, and waits until each one counts as looked at: the gate line
+ * under Approve stops naming it. Approve is then on. (Waiting on that line, never on a timer, so a slow machine never clicks on before a frame loaded.)
+ */
+export async function showEveryPage(page: Page) {
+  const group = page.getByRole("group", { name: "Page", exact: true });
+  await expect(group).toBeVisible();
+  for (const name of await group.getByRole("button").allTextContents()) {
+    await group.getByRole("button", { name, exact: true }).click();
+    await expect(page.getByText(new RegExp(`Not looked at yet:.*\\b${name}\\b`))).toHaveCount(0);
+  }
+  await expect(page.getByRole("button", { name: "Approve and publish" })).toHaveAttribute("aria-disabled", "false");
+}
+
 export async function expectAccessible(page: Page) {
   const results = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"]).exclude("iframe").analyze();
   expect(results.violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(" ")).join(", ")}`)).toEqual([]);

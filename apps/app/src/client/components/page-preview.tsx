@@ -30,8 +30,10 @@ type Load = { state: "loading" } | { state: "error" } | { state: "ready"; html: 
  * address), and CSS cannot stop Enter on a focused link. So any `load` of the frame after its first is taken as a
  * navigation away: the frame is mounted again on the page that was shown, and the status line says links are off.
  * If the page on screen leaves `pages` (the owner hid About), the preview falls back to Home and says so.
+ * `onShown` (optional; only the admin's review passes it) is called with a page when its document has loaded in the frame: the
+ * first `load` of each document, which means it rendered there, not that anyone read it.
  */
-export function PagePreview({ pages, frameTitle, follow = null }: { pages: readonly PreviewPageSource[]; frameTitle: string; follow?: FollowPage | null }) {
+export function PagePreview({ pages, frameTitle, follow = null, onShown }: { pages: readonly PreviewPageSource[]; frameTitle: string; follow?: FollowPage | null; onShown?: (page: PageId) => void }) {
   const [wanted, setWanted] = useState<PageId>(pages[0]?.page ?? "home");
   const [phone, setPhone] = useState(false);
   const [status, setStatus] = useState<{ text: string; n: number } | null>(null);
@@ -77,7 +79,7 @@ export function PagePreview({ pages, frameTitle, follow = null }: { pages: reado
       <div role="status" className="mt-2 min-h-6 text-sm text-slate-700">
         {status === null ? null : <span key={status.n}>{status.text}</span>}
       </div>
-      {source === undefined ? null : <PageFrame key={source.page} source={source} size={size} frameTitle={frameTitle} onLeftPage={() => announce(LINKS_OFF)} />}
+      {source === undefined ? null : <PageFrame key={source.page} source={source} size={size} frameTitle={frameTitle} onLeftPage={() => announce(LINKS_OFF)} onShown={() => onShown?.(source.page)} />}
     </div>
   );
 }
@@ -85,7 +87,7 @@ export function PagePreview({ pages, frameTitle, follow = null }: { pages: reado
 /**
  * One page in its frame: it fetches a stored page (or takes the html it was given) and hands the document to `LoadedFrame`.
  */
-function PageFrame({ source, size, frameTitle, onLeftPage }: { source: PreviewPageSource; size: string; frameTitle: string; onLeftPage: () => void }) {
+function PageFrame({ source, size, frameTitle, onLeftPage, onShown }: { source: PreviewPageSource; size: string; frameTitle: string; onLeftPage: () => void; onShown: () => void }) {
   const [load, setLoad] = useState<Load>("html" in source ? { state: "ready", html: source.html } : { state: "loading" });
   const [attempt, setAttempt] = useState(0);
   const url = "url" in source ? source.url : null;
@@ -131,15 +133,16 @@ function PageFrame({ source, size, frameTitle, onLeftPage }: { source: PreviewPa
       </div>
     );
   }
-  return <LoadedFrame html={load.html} size={size} frameTitle={frameTitle} onLeftPage={onLeftPage} />;
+  return <LoadedFrame html={load.html} size={size} frameTitle={frameTitle} onLeftPage={onLeftPage} onShown={onShown} />;
 }
 
 /**
  * One document in an iframe. Any `load` after the first of that document is the frame leaving the page: it is mounted again
  * and the parent says so. Giving the inserted iframe a NEW srcdoc fires `load` too, but that is the new document arriving, so
  * the count starts again whenever `html` changes (a layout effect runs in the commit itself, so before that load can arrive).
+ * The first `load` of a document also says the page was shown (`onShown`): it means the document rendered in the frame, not that anyone read it.
  */
-function LoadedFrame({ html, size, frameTitle, onLeftPage }: { html: string; size: string; frameTitle: string; onLeftPage: () => void }) {
+function LoadedFrame({ html, size, frameTitle, onLeftPage, onShown }: { html: string; size: string; frameTitle: string; onLeftPage: () => void; onShown: () => void }) {
   const [mount, setMount] = useState(0);
   const loads = useRef(0);
   useLayoutEffect(() => {
@@ -154,6 +157,7 @@ function LoadedFrame({ html, size, frameTitle, onLeftPage }: { html: string; siz
       className={`mt-3 rounded-lg border border-slate-400 bg-white ${size}`}
       onLoad={() => {
         loads.current += 1;
+        if (loads.current === 1) onShown();
         if (loads.current > 1) {
           loads.current = 0;
           setMount((n) => n + 1);

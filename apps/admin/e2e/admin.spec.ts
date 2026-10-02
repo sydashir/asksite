@@ -1,6 +1,7 @@
+import { createHash } from "node:crypto";
 import { expect, test, type Page } from "@playwright/test";
 import { expectFrameTitle, expectLinksStayInFrame, JOES_TITLE } from "../../app/e2e/frame-links.ts";
-import { ADMIN, expectAccessible, expectNoSidewaysScroll, FACTS, pendingSite, tabTo, watchCsp } from "./support.ts";
+import { ADMIN, expectAccessible, expectNoSidewaysScroll, FACTS, pendingSite, showEveryPage, tabTo, UNLOCKED, watchCsp } from "./support.ts";
 
 const FRAME = 'iframe[title="Page under review"]';
 
@@ -8,6 +9,7 @@ const FRAME = 'iframe[title="Page under review"]';
 async function liveSite(page: Page, options: { emailDomain?: string } = {}) {
   const site = await pendingSite(page.request, FACTS, options);
   await page.goto(`/reviews/${site.versionId}`);
+  await showEveryPage(page);
   await page.getByRole("button", { name: "Approve and publish" }).click();
   await expect(page.getByText("Approved.", { exact: false })).toBeVisible();
   return site;
@@ -41,6 +43,7 @@ test("review a site: the stored page shows in a sandboxed frame, flags are liste
   await expect(desktop).toHaveAttribute("aria-pressed", "true");
 
   await page.getByLabel("Allow search engines to list this site").uncheck();
+  await showEveryPage(page);
   await page.getByRole("button", { name: "Approve and publish" }).click();
   await expect(page.getByText("Approved. We'll email the owner. The site goes live within about a minute:")).toBeVisible();
   await expect(page.getByRole("link", { name: `https://${site.slug}.localhost:8789/` })).toBeVisible();
@@ -93,6 +96,9 @@ test("the review page says when the stored page could not load, and loads it on 
 test("rejecting needs a note, which is then sent", async ({ page }) => {
   const site = await pendingSite(page.request);
   await page.goto(`/reviews/${site.versionId}`);
+  // WebKit moves focus into an iframe that finishes loading after the textarea was focused: let the preview arrive first. (It now arrives
+  // after every page was fetched and proved, so a click straight after goto can come first.)
+  await expect(page.frameLocator(FRAME).getByRole("link", { name: "Call Joe today" }).first()).toBeAttached();
   await page.getByRole("button", { name: "Reject and email the owner" }).click();
   await expect(page.getByLabel("Reason (the owner sees this)")).toBeFocused();
   await expect(page.getByText("Write a note for the owner.")).toBeVisible();
@@ -111,6 +117,7 @@ test("a live address that is not safe to link shows as plain text", async ({ pag
   const site = await pendingSite(page.request);
   await page.route("**/api/admin/versions/*/approve", (route) => route.fulfill({ json: { siteId: site.siteId, liveUrl: "javascript:alert(1)" } }));
   await page.goto(`/reviews/${site.versionId}`);
+  await showEveryPage(page);
   await page.getByRole("button", { name: "Approve and publish" }).click();
   await expect(page.getByText("javascript:alert(1)", { exact: false })).toBeVisible();
   await expect(page.locator('a[href^="javascript"]')).toHaveCount(0);
@@ -120,6 +127,7 @@ test("when approving fails with a server error, Approve stays available to try a
   const site = await pendingSite(page.request);
   await page.route("**/api/admin/versions/*/approve", (route) => route.fulfill({ status: 500, json: { error: { code: "internal", message: "Something went wrong. Please try again." } } }));
   await page.goto(`/reviews/${site.versionId}`);
+  await showEveryPage(page);
   await page.getByRole("button", { name: "Approve and publish" }).click();
   await expect(page.getByText("Something went wrong. Please try again.")).toBeVisible();
   await expect(page.getByRole("button", { name: "Approve and publish" })).toBeEnabled();
@@ -132,6 +140,7 @@ test("when approving fails with a server error AFTER the version was approved, A
     await route.fulfill({ status: 500, json: { error: { code: "internal", message: "Something went wrong. Please try again." } } });
   });
   await page.goto(`/reviews/${site.versionId}`);
+  await showEveryPage(page);
   await page.getByRole("button", { name: "Approve and publish" }).click();
   await expect(page.getByText("Something went wrong. Please try again.")).toBeVisible();
   await expect(page.getByText(/status approved/)).toBeVisible(); // the reload shows the version approved
@@ -141,6 +150,211 @@ test("when approving fails with a server error AFTER the version was approved, A
   await page.getByRole("button", { name: "Approve and publish" }).click();
   await expect(page.getByText("Approved. We'll email the owner.", { exact: false })).toBeVisible();
   await expect(page.getByRole("button", { name: "Approve and publish" })).toHaveCount(0);
+});
+
+// STRICT (honesty: "The exact pages that will go live"): a page is shown only if its raw bytes hash to ITS OWN listed sha256.
+test("a page whose bytes do not match is not shown and cannot be approved; Reject still works, and Try again shows the right page", async ({ page }) => {
+  const site = await pendingSite(page.request);
+  const detail = (await (await page.request.get(`${ADMIN}/api/admin/versions/${site.versionId}`)).json()) as { pages: Array<{ page: string; url: string }> };
+  const urlOf = (name: string) => detail.pages.find((p) => p.page === name)?.url ?? "";
+  const home = await page.request.get(`${ADMIN}${urlOf("home")}`);
+  const homeBytes = await home.body();
+  // The Services address answers with Home's page: a real stored page, but not the one that was sent for review as Services.
+  await page.route(`**${urlOf("services")}`, (route) => route.fulfill({ status: 200, contentType: "text/html; charset=utf-8", body: homeBytes }));
+  await page.goto(`/reviews/${site.versionId}`);
+  await expect(page.getByText("The Services page doesn't match what was sent for review, so this version can't be approved. Try again, or reject it.")).toBeVisible();
+  await expect(page.locator(FRAME)).toHaveCount(0);
+  const approve = page.getByRole("button", { name: "Approve and publish" });
+  await expect(approve).toHaveAttribute("aria-disabled", "true");
+  await expect(page.getByRole("button", { name: "Reject and email the owner" })).toBeEnabled();
+  let approveRequests = 0;
+  await page.route("**/api/admin/versions/*/approve", (route) => {
+    approveRequests += 1;
+    return route.continue();
+  });
+  await approve.focus();
+  await page.keyboard.press("Enter");
+  expect(approveRequests).toBe(0);
+  await page.unroute(`**${urlOf("services")}`);
+  await page.getByRole("button", { name: "Try again" }).click();
+  await expect(page.frameLocator(FRAME).getByRole("link", { name: "Call Joe today" }).first()).toBeAttached();
+  await expect(page.getByText("doesn't match what was sent for review")).toHaveCount(0);
+});
+
+// STRICT (admin gate / honesty): the gate is a process aid, but it must hold: no approve request leaves while a page is unseen.
+test("Approve stays off until every page has been shown: it keeps focus, says why, does nothing when pressed, and says once when it turns on", async ({ page }) => {
+  const site = await pendingSite(page.request);
+  let approveRequests = 0;
+  await page.route("**/api/admin/versions/*/approve", (route) => {
+    approveRequests += 1;
+    return route.continue();
+  });
+  await page.goto(`/reviews/${site.versionId}`);
+  const approve = page.getByRole("button", { name: "Approve and publish" });
+  const gate = page.locator("#approve-gate");
+  // Home is on screen and its frame loads by itself; the others have not been looked at.
+  await expect(gate).toHaveText("Look at every page before approving. Not looked at yet: Services, About, Contact.");
+  await expect(approve).toHaveAttribute("aria-disabled", "true");
+  await expect(approve).toHaveAttribute("aria-describedby", "approve-gate");
+  await expect(page.getByText(UNLOCKED)).toHaveCount(0);
+  await approve.focus();
+  await page.keyboard.press("Enter");
+  await page.keyboard.press("Space");
+  await expect(approve).toBeFocused();
+  expect(approveRequests).toBe(0);
+  await expect(page.getByText("Approved. We'll email the owner", { exact: false })).toHaveCount(0);
+
+  const pages = page.getByRole("group", { name: "Page", exact: true });
+  await pages.getByRole("button", { name: "Services", exact: true }).click();
+  await expect(gate).toHaveText("Look at every page before approving. Not looked at yet: About, Contact.");
+  await pages.getByRole("button", { name: "About", exact: true }).click();
+  await expect(gate).toHaveText("Look at every page before approving. Not looked at yet: Contact.");
+  await expect(approve).toHaveAttribute("aria-disabled", "true");
+  await pages.getByRole("button", { name: "Contact", exact: true }).click();
+  await expect(gate).toHaveCount(0);
+  await expect(approve).toHaveAttribute("aria-disabled", "false");
+  await expect(approve).not.toHaveAttribute("aria-describedby", /.*/);
+  await expect(page.getByText(UNLOCKED)).toHaveCount(1);
+  await approve.click();
+  await expect(page.getByText("Approved. We'll email the owner.", { exact: false })).toBeVisible();
+  expect(approveRequests).toBe(1);
+});
+
+test("a version with no stored pages cannot be approved: Approve is off and described by the notice, and Reject works", async ({ page }) => {
+  const site = await pendingSite(page.request);
+  await page.route(`**/api/admin/versions/${site.versionId}`, async (route) => {
+    const json = (await (await route.fetch()).json()) as object;
+    await route.fulfill({ json: { ...json, pages: [] } });
+  });
+  await page.goto(`/reviews/${site.versionId}`);
+  const note = "This version has no stored pages (it was sent before sites had several pages), so it cannot be approved.";
+  await expect(page.getByText(note)).toBeVisible();
+  const approve = page.getByRole("button", { name: "Approve and publish" });
+  await expect(approve).toHaveAttribute("aria-disabled", "true");
+  await expect(approve).toHaveAttribute("aria-describedby", "no-pages-note");
+  await expect(page.locator("#no-pages-note")).toContainText(note);
+  await approve.focus();
+  await page.keyboard.press("Enter");
+  await expect(page.getByText("Approved. We'll email the owner", { exact: false })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Reject and email the owner" })).toBeEnabled();
+});
+
+test("Approve answers 'approved but not live yet' when the pointer write fails (the real seam); Copy the live pages again finishes it", async ({ page }) => {
+  const site = await pendingSite(page.request);
+  let faulted = false;
+  await page.route("**/api/admin/versions/*/approve", (route, request) => {
+    if (faulted) return route.continue();
+    faulted = true;
+    return route.continue({ headers: { ...request.headers(), "x-test-takedown-fault": "pointer-write" } });
+  });
+  await page.goto(`/reviews/${site.versionId}`);
+  await showEveryPage(page);
+  await page.getByRole("button", { name: "Approve and publish" }).click();
+  await expect(page.getByText("Approved, but the new pages are not live yet. Press Approve again.")).toBeVisible();
+  await expect(page.getByText(/status approved/)).toBeVisible();
+  await expect(page.getByRole("button", { name: "Approve and publish" })).toHaveAttribute("aria-disabled", "false"); // Approve stays, and so does the seen set
+  await page.getByRole("button", { name: "Copy the live pages again" }).click();
+  await expect(page.getByText("The live pages were copied again.")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Copy the live pages again" })).toHaveCount(0);
+});
+
+test("Copy the live pages again says when it fails, and offers itself again", async ({ page }) => {
+  const site = await pendingSite(page.request);
+  await page.route("**/api/admin/versions/*/approve", (route, request) => route.continue({ headers: { ...request.headers(), "x-test-takedown-fault": "pointer-write" } }));
+  const copies: string[] = [];
+  await page.route("**/api/admin/sites/*/copy-pages", (route, request) => {
+    copies.push("copy");
+    return copies.length === 1 ? route.continue({ headers: { ...request.headers(), "x-test-takedown-fault": "pointer-write" } }) : route.continue();
+  });
+  await page.goto(`/reviews/${site.versionId}`);
+  await showEveryPage(page);
+  await page.getByRole("button", { name: "Approve and publish" }).click();
+  await page.getByRole("button", { name: "Copy the live pages again" }).click();
+  await expect(page.getByText("The pages could not be copied again. Press Copy the live pages again.")).toBeVisible();
+  await page.getByRole("button", { name: "Copy the live pages again" }).click();
+  await expect(page.getByText("The live pages were copied again.")).toBeVisible();
+});
+
+// STRICT (admin gate: a restore must be of the takedown the admin saw): the page sends back the taken_down_at it showed.
+test("Restore on a stale page, after the site was restored and taken down AGAIN, is refused with the taken-down-again text and the site stays down", async ({ page }) => {
+  const site = await liveSite(page);
+  await takeDown(page, site.siteId);
+  await expect(page.getByRole("button", { name: "Restore the site" })).toBeVisible(); // this page shows the first takedown
+  const shown = ((await (await page.request.get(`${ADMIN}/api/admin/sites/${site.siteId}`)).json()) as { takenDownAt: number }).takenDownAt;
+  const headers = { Origin: ADMIN };
+  // Another admin restores it, and takes it down again, while this page stays open.
+  expect((await page.request.post(`${ADMIN}/api/admin/sites/${site.siteId}/restore`, { data: { expectedTakenDownAt: shown }, headers })).status()).toBe(200);
+  expect((await page.request.post(`${ADMIN}/api/admin/sites/${site.siteId}/takedown`, { data: { reason: "Second report", ownerMessage: "", purgeMedia: false }, headers })).status()).toBe(200);
+  await page.getByRole("button", { name: "Restore the site" }).click();
+  await expect(page.getByText("This site was taken down again since you opened this page. Reload to see where it stands now.")).toBeVisible();
+  const after = ((await (await page.request.get(`${ADMIN}/api/admin/sites/${site.siteId}`)).json()) as { takenDownAt: number | null }).takenDownAt;
+  expect(after).toBeGreaterThan(shown); // still down, by the second takedown
+  // The page reloaded itself: it now shows the second takedown, and Restore of THAT works.
+  await page.getByRole("button", { name: "Restore the site" }).click();
+  await expect(page.getByText("Site restored.")).toBeVisible();
+});
+
+test("Restore answers busy and lost-lease and failed-pointer in the admin's words", async ({ page }) => {
+  const site = await liveSite(page);
+  await takeDown(page, site.siteId);
+  const answers = [
+    { status: 409, headers: { "Retry-After": "42" }, json: { error: { code: "conflict", message: "Another admin action on this site is still running. Try again in a minute.", retryAfter: 42 } } },
+    { status: 409, json: { error: { code: "conflict", message: "This action ran too long and was stopped before it finished. Reload to see where the site stands now, then try again." } } },
+    { status: 500, json: { error: { code: "internal", message: "The site is still offline: its pages could not be put back. Press Restore again." } } },
+  ];
+  await page.route("**/api/admin/sites/*/restore", (route) => route.fulfill(answers.shift() ?? { status: 500, json: {} }));
+  const restore = page.getByRole("button", { name: "Restore the site" });
+  await restore.click();
+  await expect(page.getByText("Another admin action on this site is still running. Try again in a minute.")).toBeVisible();
+  await restore.click();
+  await expect(page.getByText("This action ran too long and was stopped before it finished.", { exact: false })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Copy the live pages again" })).toHaveCount(0); // the site is down: Restore is the way, not Copy
+  await restore.click();
+  await expect(page.getByText("The site is still offline: its pages could not be put back. Press Restore again.")).toBeVisible();
+  await expect(restore).toBeVisible(); // Restore stays active
+});
+
+test("a restore that lost its lease on a site that is live by the time the page reloads offers Copy the live pages again, which works", async ({ page }) => {
+  const site = await liveSite(page);
+  await takeDown(page, site.siteId); // this page shows the takedown and Restore
+  const shown = ((await (await page.request.get(`${ADMIN}/api/admin/sites/${site.siteId}`)).json()) as { takenDownAt: number }).takenDownAt;
+  // Another admin's restore went through meanwhile; this page's own Restore is answered "lost its lease" (the rare case in the contract).
+  expect((await page.request.post(`${ADMIN}/api/admin/sites/${site.siteId}/restore`, { data: { expectedTakenDownAt: shown }, headers: { Origin: ADMIN } })).status()).toBe(200);
+  await page.route("**/api/admin/sites/*/restore", (route) =>
+    route.fulfill({ status: 409, json: { error: { code: "conflict", message: "This action ran too long and was stopped before it finished. Reload to see where the site stands now, then try again." } } }),
+  );
+  await page.getByRole("button", { name: "Restore the site" }).click();
+  await expect(page.getByText("This action ran too long and was stopped before it finished.", { exact: false })).toBeVisible();
+  await page.getByRole("button", { name: "Copy the live pages again" }).click(); // the reload showed a live site, which has no Restore
+  await expect(page.getByText("The live pages were copied again.")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Copy the live pages again" })).toHaveCount(0);
+});
+
+// TODO: when Bold's real face lands (an embedded data: font in the page's own stylesheet), prove it here instead of this synthetic one.
+// The admin's CSP has `font-src 'self' data:` and the srcdoc frame inherits it: this proves a data: font really LOADS inside the frame.
+const SYNTHETIC_WOFF2 = "d09GMgABAAAAAAEkAAoAAAAAApQAAADeAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAABmAANAo4QAE2AiQDBgsGAAQgBWYHJhvfAQAuCuyGG4f4hpVcm7/GoeLUhXg+f287d95safT4KjSWrNDU+C6E/85S4vHoNi3oPuLvqeMKlRTCI9Zh83xB0sv/euDCeXaD44gGkIHGSQfigJftRaeFdx4SUUeMbMe9jUY9JzNNEuBWC3td3TkoDJwZgjPtHK0F+3/pkQAo0CgssQY0iHRvZjvEy9SEaRCEz6fRPOTlGL/w/WU984LyVxOGAmGcQz0TkgUAkO2NgtICymDtRkCs6LwsrAzplThx1Ek5cHmXAVM4v4/6AC0pgFHg2KSO79qeCnbj1w==";
+
+test("an embedded data: font loads inside the review's preview frame (the admin policy allows font-src data:)", async ({ page }) => {
+  const violations = await watchCsp(page);
+  const site = await pendingSite(page.request);
+  const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Font proof</title><style>@font-face{font-family:"Synthetic";src:url(data:font/woff2;base64,${SYNTHETIC_WOFF2}) format("woff2")}p{font-family:"Synthetic"}</style></head><body><p>A</p></body></html>`;
+  // The page is the one the review proves by hash, so the listed hash is made to match it: nothing about the check is bypassed.
+  const sha256 = createHash("sha256").update(html).digest("hex");
+  await page.route(`**/api/admin/versions/${site.versionId}`, async (route) => {
+    const json = (await (await route.fetch()).json()) as { pages: Array<{ page: string; sha256: string }> };
+    await route.fulfill({ json: { ...json, pages: json.pages.map((p) => (p.page === "home" ? { ...p, sha256 } : p)) } });
+  });
+  await page.route("**/api/admin/versions/*/pages/home", (route) => route.fulfill({ status: 200, contentType: "text/html; charset=utf-8", body: html }));
+  await page.goto(`/reviews/${site.versionId}`);
+  await expect(page.frameLocator(FRAME).getByText("A", { exact: true })).toBeAttached();
+  const frame = page.frames().find((f) => f !== page.mainFrame() && f.url() === "about:srcdoc");
+  expect(frame).toBeDefined();
+  const statuses = await frame!.evaluate(async () => {
+    await document.fonts.load('16px "Synthetic"', "A");
+    return [...document.fonts].map((face) => `${face.family}:${face.status}`);
+  });
+  expect(statuses).toEqual(["Synthetic:loaded"]);
+  expect(await violations()).toEqual([]);
 });
 
 test("send and revoke an invite; the link is never shown", async ({ page }) => {
