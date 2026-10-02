@@ -142,8 +142,10 @@ test("the admin rejects, approves twice, takes the site down with its photos, an
 
   // 5. Restore: the admin is told that its two photos are gone. The pages were fetched a moment ago and the
   // sites Worker keeps a copy of each for 60 s; wait that out, so every 200 below comes from the restored pages.
-  const restored = await json<{ liveUrl: string; missingPhotos: number }>(await adminApi(admin, "POST", `/api/admin/sites/${siteId}/restore`, {}));
-  expect(restored).toEqual({ liveUrl: live, missingPhotos: 2 });
+  // Restore names the takedown it undoes: the admin page's takenDownAt (A16-4c). A fresh restore is not a heal.
+  const { takenDownAt } = await json<{ takenDownAt: number }>(await adminApi(admin, "GET", `/api/admin/sites/${siteId}`));
+  const restored = await json<{ liveUrl: string; missingPhotos: number; healed: boolean }>(await adminApi(admin, "POST", `/api/admin/sites/${siteId}/restore`, { expectedTakenDownAt: takenDownAt }));
+  expect(restored).toEqual({ liveUrl: live, missingPhotos: 2, healed: false });
   // The wait and the hash check are about the sites Worker, not the browser: one project does them, once per run.
   if (testInfo.project.name === "chromium-1280") {
     await waitOutEdgeCopy(liveV3.fetchedAt);
