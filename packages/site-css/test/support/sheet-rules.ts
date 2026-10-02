@@ -2,11 +2,26 @@ import { posix } from "node:path";
 import { gzipSync } from "node:zlib";
 import type { DesignId } from "@asksite/site-schema";
 
+/** One row of the budget table: the sheet's raw and gzip-9 budget, and the one @font-face it may embed, if any. */
+export interface SheetBudget {
+  readonly raw: number;
+  readonly gzip: number;
+  /** The only @font-face this design's sheet may hold (matched whole); every other design has none. */
+  readonly font?: RegExp;
+}
+
+// USER DECISION 2026-09-27 (A12.md): Bold (impact) embeds one heading font, Archivo Condensed ExtraBold, as a data:
+// woff2 in its own sheet: the family Archivo Condensed, one src that is a base64 data:font/woff2 URI, and plain
+// descriptors (no other url(), no local(), no second source). Anything else is left in the sheet and refused.
+const ARCHIVO_CONDENSED_FACE =
+  /@font-face\s*\{\s*font-family:\s*(?:"Archivo Condensed"|Archivo Condensed)\s*;\s*src:\s*url\(\s*data:font\/woff2;base64,[A-Za-z0-9+/]+={0,2}\s*\)\s*format\(\s*"woff2"\s*\)\s*(?:;\s*(?:font-weight|font-style|font-stretch|font-display)\s*:\s*[a-z0-9%. ]+\s*)*;?\s*\}/i;
+
 // The budget of each compiled design sheet, every page inlines it (moderator rulings 2026-09-26 and M4, A16, 2026-10-01):
-// one row per design. Refined and Modern get 9 KiB gzip for the page-level markup A16 adds; Bold's own sync sets its
-// 64/24 KiB row with its font exception. Today's baseline sheet is 26 KB raw, 5.7 KB gzip-9, inside every row.
-export const SHEET_BUDGET: Readonly<Record<DesignId, { readonly raw: number; readonly gzip: number }>> = {
-  impact: { raw: 40 * 1024, gzip: 8 * 1024 },
+// one row per design. Refined and Modern get 9 KiB gzip for the page-level markup A16 adds; Bold's row (its sync,
+// moderator ruling 2026-10-01) is 64 KiB raw / 24 KiB gzip with its one embedded font. Today's baseline sheet is
+// 26 KB raw, 5.7 KB gzip-9, inside every row.
+export const SHEET_BUDGET: Readonly<Record<DesignId, SheetBudget>> = {
+  impact: { raw: 64 * 1024, gzip: 24 * 1024, font: ARCHIVO_CONDENSED_FACE },
   refined: { raw: 40 * 1024, gzip: 9 * 1024 },
   modern: { raw: 40 * 1024, gzip: 9 * 1024 },
 };
@@ -18,7 +33,8 @@ export const FOCUS_OUTSIDE_RULE = String.raw`html:has(:focus-visible:not(aside *
 /**
  * What is wrong with a compiled sheet that every page inlines: it must not close its <style>, must fetch
  * nothing (no url(), @import, image-set() or @font-face: the page's CSP and html_sha256 cover only the
- * page), must carry the focus-outside rule and must fit its design's budget row.
+ * page), must carry the focus-outside rule and must fit its design's budget row. A row's one embedded font is
+ * the only exception: that one @font-face, once (the page's CSP then needs font-src data:).
  *
  * KNOWN LIMIT: a CSS-escaped url( (for example `u\72l(`) is not seen here. Backstops: every sheet byte is
  * locked (packages/site-css/sheets/<id>.sha256) and reviewed, and the public page and the admin review
@@ -26,6 +42,8 @@ export const FOCUS_OUTSIDE_RULE = String.raw`html:has(:focus-visible:not(aside *
  * packages/app-common/src/http.ts), so such a url() fetches nothing there.
  */
 export function sheetProblems(css: string, design: DesignId): string[] {
+  const budget = SHEET_BUDGET[design];
+  const checked = budget.font === undefined ? css : css.replace(budget.font, "");
   const problems: string[] = [];
   if (/<\/style/i.test(css)) problems.push("</style");
   for (const [label, pattern] of [
@@ -34,10 +52,9 @@ export function sheetProblems(css: string, design: DesignId): string[] {
     ["image-set(", /image-set\(/i],
     ["@font-face", /@font-face/i],
   ] as const) {
-    if (pattern.test(css)) problems.push(label);
+    if (pattern.test(checked)) problems.push(label);
   }
   if (!css.includes(FOCUS_OUTSIDE_RULE)) problems.push("no focus-outside rule");
-  const budget = SHEET_BUDGET[design];
   const raw = Buffer.byteLength(css, "utf8");
   if (raw > budget.raw) problems.push(`${raw} B raw > ${budget.raw}`);
   const gzip = gzipSync(css, { level: 9 }).length;

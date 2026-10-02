@@ -1,6 +1,8 @@
-# Every push and pull request: typecheck, unit + integration tests (workerd through wrangler's test
-# harness, no Cloudflare account), Plan 1's browser tests without its macOS-only screenshots, and
-# the sites Worker's browser tests over https. Third-party actions are pinned to commit SHAs.
+# Every push and pull request, as three parallel jobs, each under its own 30-minute limit (A16's
+# per-page browser matrix took one combined job past 30 minutes): `check` = typecheck plus unit and
+# integration tests (workerd through wrangler's test harness, no Cloudflare account); `e2e` = Plan 1's
+# browser tests without its macOS-only screenshots, in 2 shards; `sites` = the sites Worker's browser tests over
+# https. Third-party actions are pinned to commit SHAs.
 name: ci
 
 on:
@@ -19,6 +21,8 @@ jobs:
   check:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -31,19 +35,122 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
       - run: pnpm test
-      - run: pnpm exec playwright install --with-deps --only-shell chromium webkit
-      # Customer hostnames are <slug>.localhost; make sure every engine resolves the e2e ones on Linux
-      # (apps/sites/e2e/global-setup.ts seeds e2e-<design>-<fixture> for every design and fixture).
+
+  # The browser jobs run in Playwright's own image, which already holds the browsers and their system
+  # libraries (playwright.dev/docs/ci, "via Containers"), instead of installing them with apt on every run
+  # (an e2e shard timed out in that install). The image is pinned by tag AND digest (the digest of the
+  # tag's multi-platform index, like the action SHAs); tag and digest MUST match @playwright/test in
+  # pnpm-lock.yaml (1.63.0): bump all three together, or Playwright cannot find the browsers
+  # (playwright.dev/docs/docker). Per that page: --ipc=host, or Chromium can run out of memory and crash;
+  # --init, so no test process runs as PID 1; a non-root --user, since root disables Chromium's sandbox.
+  # Run steps use `sh` inside a container. Customer hostnames are <slug>.localhost; the container's
+  # /etc/hosts maps the e2e ones through --add-host (no sudo as --user 1001): media and www, then
+  # e2e-<design>-<fixture> for every design and fixture (apps/sites/e2e/global-setup.ts seeds them).
+
+  # Plan 1's browser tests in 2 shards (25 of 30 minutes as one job). playwright.config.ts sets fullyParallel,
+  # so each shard gets an even share of the tests, not whole files (playwright.dev/docs/test-sharding).
+  e2e:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    container:
+      image: mcr.microsoft.com/playwright:v1.63.0-noble@sha256:eff16c30e6f3f4af0a03fa4b706120d5e9b0891c344a27d64559aff5900a4a27
+      options: >-
+        --user 1001
+        --ipc=host
+        --init
+        --add-host media.localhost:127.0.0.1
+        --add-host www.localhost:127.0.0.1
+        --add-host e2e-impact-plumber-austin.localhost:127.0.0.1
+        --add-host e2e-impact-hvac-phoenix.localhost:127.0.0.1
+        --add-host e2e-impact-roofing-extreme.localhost:127.0.0.1
+        --add-host e2e-impact-cleaning-minimal.localhost:127.0.0.1
+        --add-host e2e-impact-electrical-xss.localhost:127.0.0.1
+        --add-host e2e-refined-plumber-austin.localhost:127.0.0.1
+        --add-host e2e-refined-hvac-phoenix.localhost:127.0.0.1
+        --add-host e2e-refined-roofing-extreme.localhost:127.0.0.1
+        --add-host e2e-refined-cleaning-minimal.localhost:127.0.0.1
+        --add-host e2e-refined-electrical-xss.localhost:127.0.0.1
+        --add-host e2e-modern-plumber-austin.localhost:127.0.0.1
+        --add-host e2e-modern-hvac-phoenix.localhost:127.0.0.1
+        --add-host e2e-modern-roofing-extreme.localhost:127.0.0.1
+        --add-host e2e-modern-cleaning-minimal.localhost:127.0.0.1
+        --add-host e2e-modern-electrical-xss.localhost:127.0.0.1
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0 (reads packageManager from package.json)
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # One name of each kind resolves to loopback before any test runs (getent fails on an unknown name).
       - run: |
-          hosts="media.localhost www.localhost"
-          for design in impact refined modern; do
-            for fixture in plumber-austin hvac-phoenix roofing-extreme cleaning-minimal electrical-xss; do
-              hosts="$hosts e2e-$design-$fixture.localhost"
-            done
-          done
-          echo "127.0.0.1 $hosts" | sudo tee -a /etc/hosts
+          getent hosts media.localhost
+          getent hosts www.localhost
+          getent hosts e2e-refined-cleaning-minimal.localhost
       # Plan 1's screenshot baselines are named *-darwin.png, so Linux ignores them; every other check runs.
-      - run: pnpm test:e2e --ignore-snapshots
+      - run: pnpm test:e2e --shard=${{ matrix.shard }}/2 --ignore-snapshots
+
+  sites:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    # The same image and hosts as e2e, plus e2e-life-<design>-<engine> for the lifecycle tests
+    # (apps/sites/e2e/lifecycle.ts).
+    container:
+      image: mcr.microsoft.com/playwright:v1.63.0-noble@sha256:eff16c30e6f3f4af0a03fa4b706120d5e9b0891c344a27d64559aff5900a4a27
+      options: >-
+        --user 1001
+        --ipc=host
+        --init
+        --add-host media.localhost:127.0.0.1
+        --add-host www.localhost:127.0.0.1
+        --add-host e2e-impact-plumber-austin.localhost:127.0.0.1
+        --add-host e2e-impact-hvac-phoenix.localhost:127.0.0.1
+        --add-host e2e-impact-roofing-extreme.localhost:127.0.0.1
+        --add-host e2e-impact-cleaning-minimal.localhost:127.0.0.1
+        --add-host e2e-impact-electrical-xss.localhost:127.0.0.1
+        --add-host e2e-refined-plumber-austin.localhost:127.0.0.1
+        --add-host e2e-refined-hvac-phoenix.localhost:127.0.0.1
+        --add-host e2e-refined-roofing-extreme.localhost:127.0.0.1
+        --add-host e2e-refined-cleaning-minimal.localhost:127.0.0.1
+        --add-host e2e-refined-electrical-xss.localhost:127.0.0.1
+        --add-host e2e-modern-plumber-austin.localhost:127.0.0.1
+        --add-host e2e-modern-hvac-phoenix.localhost:127.0.0.1
+        --add-host e2e-modern-roofing-extreme.localhost:127.0.0.1
+        --add-host e2e-modern-cleaning-minimal.localhost:127.0.0.1
+        --add-host e2e-modern-electrical-xss.localhost:127.0.0.1
+        --add-host e2e-life-impact-chromium.localhost:127.0.0.1
+        --add-host e2e-life-impact-webkit.localhost:127.0.0.1
+        --add-host e2e-life-refined-chromium.localhost:127.0.0.1
+        --add-host e2e-life-refined-webkit.localhost:127.0.0.1
+        --add-host e2e-life-modern-chromium.localhost:127.0.0.1
+        --add-host e2e-life-modern-webkit.localhost:127.0.0.1
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0 (reads packageManager from package.json)
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # One name of each kind resolves to loopback before any test runs (getent fails on an unknown name).
+      - run: |
+          getent hosts media.localhost
+          getent hosts www.localhost
+          getent hosts e2e-refined-cleaning-minimal.localhost
+          getent hosts e2e-life-modern-webkit.localhost
       - run: pnpm test:e2e:sites
 
   # The owner app's and the admin app's browser suites and the browser-floor check. Runs in parallel with

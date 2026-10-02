@@ -118,6 +118,23 @@ describe("render", () => {
     expect(() => renderHtml(FULL, { ...OPTIONS, siteUrl })).toThrow();
   });
 
+  // Since A16 render() also runs in the owner's browser (the editor preview), whose floor is iOS 16.4 Safari: it has
+  // no URL.canParse (Safari 17). The guard must work without it, with the same answers (A9 rule for site-schema).
+  it("checks siteUrl the same way in a browser without URL.canParse", () => {
+    const canParse = Object.getOwnPropertyDescriptor(URL, "canParse");
+    Reflect.deleteProperty(URL, "canParse");
+    try {
+      expect("canParse" in URL).toBe(false);
+      expect(() => renderHtml(FULL, OPTIONS)).not.toThrow();
+      for (const siteUrl of ["fixture.asksite.example", "", "http://fixture.asksite.example/", "https://fixture.asksite.example/shop/"]) {
+        expect(() => renderHtml(FULL, { ...OPTIONS, siteUrl })).toThrow(/siteUrl must be an https origin/);
+      }
+    } finally {
+      if (canParse !== undefined) Object.defineProperty(URL, "canParse", canParse);
+    }
+    expect(typeof URL.canParse).toBe("function");
+  });
+
   it("accepts an https origin with a port and a final slash", () => {
     expect(() => renderHtml(FULL, { ...OPTIONS, siteUrl: "https://joes.asksite.example:8443/" })).not.toThrow();
   });
