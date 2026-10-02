@@ -81,7 +81,7 @@ describe("restore", () => {
   it("puts the live version's pages and pointer back, then clears the takedown", async () => {
     const s = await liveSite();
     await takeDown(env, { siteId: s.siteId, reviewer: ADMIN, reason: "Mistake", purgeMedia: false, now: 50 });
-    expect(await restore(env, { siteId: s.siteId, reviewer: ADMIN, expectedTakenDownAt: 50, now: 60 })).toEqual({ liveUrl: `https://${s.slug}.asksite.example/`, missingPhotos: 0 });
+    expect(await restore(env, { siteId: s.siteId, reviewer: ADMIN, expectedTakenDownAt: 50, now: 60 })).toEqual({ liveUrl: `https://${s.slug}.asksite.example/`, missingPhotos: 0, healed: false });
     const work = await (await env.WORK.get(versionKey(s.siteId, s.liveVersionId)))?.text();
     expect(await (await env.LIVE.get(livePageKey(s.slug, s.liveVersionId, "home")))?.text()).toBe(work);
     expect((await env.LIVE.head(livePointerKey(s.slug)))?.customMetadata?.["versionId"]).toBe(s.liveVersionId);
@@ -110,7 +110,7 @@ describe("restore", () => {
     const v1 = await createPendingVersion(env, { ...site, document, edits: EDITS, generationId: null, now: 1 });
     await approveVersion(env, { versionId: v1.id, htmlSha256: String((await versionRow(env.DB, v1.id))?.html_sha256), reviewer: ADMIN, note: null, indexable: true, now: 2 });
     await takeDown(env, { siteId: site.siteId, reviewer: ADMIN, reason: "Abuse", purgeMedia: true, now: 3 });
-    expect(await restore(env, { siteId: site.siteId, reviewer: ADMIN, expectedTakenDownAt: 3, now: 4 })).toEqual({ liveUrl: `https://${site.slug}.asksite.example/`, missingPhotos: 2 });
+    expect(await restore(env, { siteId: site.siteId, reviewer: ADMIN, expectedTakenDownAt: 3, now: 4 })).toEqual({ liveUrl: `https://${site.slug}.asksite.example/`, missingPhotos: 2, healed: false });
     expect((await siteRow(env.DB, site.siteId))?.taken_down_at).toBeNull();
   });
 
@@ -187,7 +187,7 @@ describe("what takedown, restore and the search switch change and record (design
     await takeDown(env, { siteId: s.siteId, reviewer: ADMIN, reason: "Mistake", purgeMedia: false, now: 50 });
     for (const id of [s.hero, s.gallery]) expect(await env.MEDIA.head(mediaKey(s.siteId, id))).not.toBeNull();
     expect([...(await uploadsDeletedAt(s.siteId)).values()]).toEqual([null, null]);
-    expect(await restore(env, { siteId: s.siteId, reviewer: ADMIN, expectedTakenDownAt: 50, now: 60 })).toEqual({ liveUrl: `https://${s.slug}.asksite.example/`, missingPhotos: 0 });
+    expect(await restore(env, { siteId: s.siteId, reviewer: ADMIN, expectedTakenDownAt: 50, now: 60 })).toEqual({ liveUrl: `https://${s.slug}.asksite.example/`, missingPhotos: 0, healed: false });
   });
 
   it("counts only the page's photos that are really gone", async () => {
