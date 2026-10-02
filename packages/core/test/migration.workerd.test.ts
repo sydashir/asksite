@@ -175,3 +175,18 @@ describe("0005_version_pages.sql", () => {
     await expect(insertVersion(other.site, other.owner, null)).rejects.toThrow(/NOT NULL constraint failed: site_versions.pages_json/);
   });
 });
+
+// A16-4c: one admin action per site at a time. Numbered 0006 by the moderator; Plan 4's next migration is 0007.
+describe("0006_site_admin_lock.sql", () => {
+  it("adds the lease columns, empty by default", async () => {
+    const { site } = await newSite();
+    expect(await db.prepare("SELECT admin_lock, admin_lock_until FROM sites WHERE id = ?").bind(site).first()).toEqual({ admin_lock: null, admin_lock_until: null });
+  });
+
+  it("keeps the table STRICT: a lease of the wrong type is refused", async () => {
+    const { site } = await newSite();
+    await db.prepare("UPDATE sites SET admin_lock = ?, admin_lock_until = ? WHERE id = ?").bind("token", 5, site).run();
+    await expect(db.prepare("UPDATE sites SET admin_lock_until = ? WHERE id = ?").bind("soon", site).run()).rejects.toThrow(/SQLITE_CONSTRAINT_DATATYPE/);
+    await expect(db.prepare("UPDATE sites SET admin_lock_until = ? WHERE id = ?").bind(1.5, site).run()).rejects.toThrow(/SQLITE_CONSTRAINT_DATATYPE/);
+  });
+});

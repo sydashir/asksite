@@ -16,6 +16,9 @@ const LIVE_SITE = "SELECT indexable, live_version_id FROM sites WHERE slug = ? A
  * the one D1 says is live. Browsers are told to revalidate on every view (no-cache); the edge keeps a copy for
  * 60 s, so a takedown or the search-engine switch spreads within about a minute (an approval or a takedown goes
  * through the pointer, which is read on every request).
+ * An approval switches the pointer and then deletes the replaced version's pages (A16-4c), so a view that read the old
+ * pointer can find its page gone: it reads the pointer once more, and if that now names another valid version it
+ * serves that version (its own cache key, the same D1 check).
  */
 export async function servePage(env: Env, ctx: ExecutionContext, slug: string, page: PageId): Promise<Response> {
   const root = env.ROOT_DOMAIN;
@@ -27,6 +30,11 @@ export async function servePage(env: Env, ctx: ExecutionContext, slug: string, p
   }
   // Never approved, unknown, or taken down (the takedown deletes the pointer first). Not cached.
   if (pointer === null) return notFound(root);
+  return serveVersion(env, ctx, slug, page, pointer, true);
+}
+
+async function serveVersion(env: Env, ctx: ExecutionContext, slug: string, page: PageId, pointer: R2Object, rereadPointer: boolean): Promise<Response> {
+  const root = env.ROOT_DOMAIN;
   const versionId = pointer.customMetadata?.["versionId"];
   // A damaged pointer never chooses a key.
   if (versionId === undefined || !isId(versionId)) return unavailable(root);
@@ -40,6 +48,11 @@ export async function servePage(env: Env, ctx: ExecutionContext, slug: string, p
   let site: { indexable: number; live_version_id: string } | null;
   try {
     const object = await env.LIVE.get(livePageKey(slug, versionId, page));
+    if (object === null && rereadPointer) {
+      const latest = await env.LIVE.head(livePointerKey(slug));
+      const latestId = latest?.customMetadata?.["versionId"];
+      if (latest !== null && latestId !== undefined && latestId !== versionId && isId(latestId)) return await serveVersion(env, ctx, slug, page, latest, false);
+    }
     // Home missing behind a pointer is a broken state. Another page missing is a page the site does not have: the
     // 404 links Home, named from the pointer (no extra read, no D1). Not cached.
     if (object === null) return page === "home" ? unavailable(root) : notFound(root, businessOf(pointer.customMetadata).name);

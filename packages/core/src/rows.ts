@@ -22,6 +22,8 @@ export interface SiteRow {
   indexable: 0 | 1;
   taken_down_at: number | null;
   takedown_reason: string | null;
+  admin_lock: string | null; // A16-4c: the token of the admin action that holds the site
+  admin_lock_until: number | null; // A16-4c: when that lease runs out (epoch ms)
   created_at: number;
   updated_at: number;
 }
