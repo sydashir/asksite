@@ -155,6 +155,9 @@ test("the admin rejects, approves twice, takes the site down with its photos, an
 });
 
 test("the kill switch gives a first build the starter wording and refuses a rewrite", async ({ browser }, testInfo) => {
+  // The switch turns the AI off for every owner, so no other test may run beside this one. A caller's
+  // --workers arrives after the script's own (pnpm appends it) and wins, so the run checks itself.
+  expect(testInfo.config.workers, "run the journey with exactly one worker: this test switches the AI off for every owner").toBe(1);
   test.skip(testInfo.project.name !== "chromium-1280", "Switches the AI off for every owner for a moment: one project is enough.");
   const context = await browser.newContext({ ignoreHTTPSErrors: true, viewport: testInfo.project.use.viewport ?? null });
   const owner = await context.newPage();
