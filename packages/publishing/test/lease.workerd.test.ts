@@ -533,6 +533,24 @@ describe("every fenced statement and every pointer re-check", () => {
       expect(detailOf(await failure(again(p.siteId, T0, { ...env, LIVE: live })))).toEqual({ code: "live_copy_failed", detail: { versionId: p.versionId } });
       expect((await env.LIVE.head(livePointerKey(p.slug)))?.customMetadata?.["versionId"]).toBe(p.versionId);
     });
+
+    it("a put that lands, meets a takedown, then rejects: the pointer is taken back out and it is site_taken_down", async () => {
+      const p = await liveSite();
+      const live = {
+        ...watchBucket(env.LIVE),
+        put: async (...args: Parameters<R2Bucket["put"]>) => {
+          const stored = await env.LIVE.put(...args);
+          if (isPointerKey(p.slug, args[0])) {
+            await take(p.siteId, EXPIRED); // the lease outlived: the takedown's deletes ran before this put landed
+            throw new Error("R2 timed out");
+          }
+          return stored;
+        },
+      } as unknown as R2Bucket;
+      expect((await failure(again(p.siteId, T0, { ...env, LIVE: live }))).code).toBe("site_taken_down");
+      expect(await env.LIVE.head(livePointerKey(p.slug))).toBeNull();
+      expect(await siteRow(env.DB, p.siteId)).toMatchObject({ taken_down_at: EXPIRED });
+    });
   });
 });
 
