@@ -16,7 +16,7 @@ import { formatPhone, mailtoUrl, telUrl } from "../../format.ts";
 import { html, type SafeHtml } from "../../html.ts";
 import { DOM_ID } from "../../sections/ids.ts";
 import { foldLine } from "./area.ts";
-import { contactLine, dots, email, icon, lic, sectionTitle, shortHours } from "./parts.ts";
+import { contactLine, dots, email, icon, lic, phoneParts, sectionTitle, shortHours } from "./parts.ts";
 import { plan } from "./plan.ts";
 
 /** Fewer rows than this beside the form cannot balance it, so a band lower on the page stacks (from 60rem). */
@@ -48,7 +48,7 @@ export function renderContact(ctx: RenderContext): SafeHtml {
 <div class="c-info">
 ${sectionTitle(ctx, "contact", contactHeading(copy.ctaText), contactLine(doc))}
 <ul class="c-list">
-<li>${icon("phone", "i i-lg")}<span><a class="c-ph whitespace-nowrap" href="${telUrl(facts.phone)}">${formatPhone(facts.phone)}</a>${facts.emergency247 && html`<span class="c-note">24/7 emergency service</span>`}</span></li>
+<li>${icon("phone", "i i-lg")}<span><a class="c-ph whitespace-nowrap" href="${telUrl(facts.phone)}">${phoneParts(facts.phone)}</a>${facts.emergency247 && html`<span class="c-note">24/7 emergency service</span>`}</span></li>
 ${hours && html`<li class="c-sub">${icon("clock")}${hours}</li>`}
 <li>${icon("mail")}<a href="${mailtoUrl(facts.email)}">${email(facts.email)}</a></li>
 ${areaFold && html`<li class="c-sub">${icon("map-pin")}${foldLine(ctx)}</li>`}

@@ -9,7 +9,7 @@ import { quoteLink, type RenderContext } from "../../context.ts";
 import { formatPhone, telUrl } from "../../format.ts";
 import { html, type SafeHtml } from "../../html.ts";
 import { CLOSING_BAND_ID } from "../../sections/ids.ts";
-import { callButton, contactLine, icon, needLine, shortHours, townSummary } from "./parts.ts";
+import { callButton, contactLine, icon, needLine, phoneParts, shortHours, townSummary } from "./parts.ts";
 import { bandClass, plan } from "./plan.ts";
 
 export function renderClosingBand(ctx: RenderContext): SafeHtml {
@@ -29,7 +29,7 @@ export function renderClosingBand(ctx: RenderContext): SafeHtml {
 </div>
 <div>
 <ul class="cl-l">
-<li class="cl-n">${icon("phone", "i i-lg")}<a class="c-ph whitespace-nowrap" href="${telUrl(facts.phone)}">${formatPhone(facts.phone)}</a></li>
+<li class="cl-n">${icon("phone", "i i-lg")}<a class="c-ph whitespace-nowrap" href="${telUrl(facts.phone)}">${phoneParts(facts.phone)}</a></li>
 ${hours}
 ${towns}
 </ul>

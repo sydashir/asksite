@@ -2,7 +2,7 @@
 // literal markup from this file is marked as trusted.
 import type { Facts, OpeningHours, SectionId, SiteDocument, Trade } from "@asksite/site-schema";
 import { headingLevel, sectionLink, type RenderContext } from "../../context.ts";
-import { TRADE_LABEL, telUrl, weeklyHours } from "../../format.ts";
+import { TRADE_LABEL, formatPhone, telUrl, weeklyHours } from "../../format.ts";
 import { html, trusted, type SafeHtml, type Value } from "../../html.ts";
 import { icon as sharedIcon, type IconName } from "../../icons.ts";
 import { DOM_ID } from "../../sections/ids.ts";
@@ -66,9 +66,20 @@ export function email(address: string): SafeHtml[] {
 }
 
 /**
+ * A phone number as its parts, "(512)" and "555-0142", each of which never breaks. Where the sheet lets a tel: link wrap
+ * (the big number and the Service area's Call button, with bigger default text on a phone; moderator 2026-10-05) the
+ * only break is the space between them, in every engine. The text is the number exactly as formatPhone writes it.
+ */
+export const phoneParts = (e164: string): SafeHtml[] =>
+  formatPhone(e164)
+    .split(" ")
+    .map((part, i) => html`${i > 0 && " "}<span class="whitespace-nowrap">${part}</span>`);
+
+/**
  * A Call button. With the owner's 24/7 fact it carries that fact as a small second line; the words
  * shown are the accessible name, so name and label always match. Every tel: link carries
- * whitespace-nowrap: a phone number never breaks across lines (html-validate tel-non-breaking).
+ * whitespace-nowrap: a phone number never breaks across lines (html-validate tel-non-breaking), except where
+ * the sheet lets it wrap between the parts of phoneParts().
  */
 export function callButton(facts: Facts, cls: string, label: Value): SafeHtml {
   const note = facts.emergency247;

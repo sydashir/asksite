@@ -68,6 +68,12 @@ const QUOTE_LABELS = `[...new Set([...document.querySelectorAll('a[href="/contac
 const BIGGER_TEXT = "html{font-size:125%!important}*,::before,::after{transition:none!important}";
 /** Every <details> open but the phone menu (the questions' accordion leaves its group first, so all stay open). */
 const OPEN_DETAILS = `for (const d of document.querySelectorAll("details:not(.menu)")) { d.removeAttribute("name"); d.open = true; }`;
+/**
+ * Plain wrapping forced on the big number and the Service area's buttons, as an engine without text-wrap:balance would
+ * wrap them (Safari before 17.5; the floor is iOS 16.4; review rf125, addendum 3): the number must still break only
+ * between its parts.
+ */
+const PLAIN_WRAP = ".c-ph,.pg-a .bt{text-wrap:wrap!important}";
 
 /**
  * The text a visitor cannot read whole, as "problem" strings: the page scrolling sideways, a piece of text cut by a box
@@ -187,14 +193,17 @@ describe.each([
     await browser?.close();
   }, 60_000);
 
-  it("loses no text on any page of any fixture at root font size 125%: 320-430 px in every lettering, 600-1920 px in its own", async () => {
+  it.each([
+    ["as built", ""],
+    ["with plain wrapping forced where a sheet might balance", PLAIN_WRAP],
+  ])("loses no text on any page of any fixture at root font size 125%, %s: 320-430 px in every lettering, 600-1920 px in its own", async (_case, css) => {
     const problems: string[] = [];
     for (const { name, site: each, widths } of LETTERED) {
       site = each;
       for (const { page: id } of each.pages) {
         await page.setViewportSize({ width: PHONES[0], height: 800 });
         await page.goto(ORIGIN + PAGES[id].path, { waitUntil: "load" });
-        await page.addStyleTag({ content: BIGGER_TEXT });
+        await page.addStyleTag({ content: BIGGER_TEXT + css });
         await page.evaluate(OPEN_DETAILS);
         await page.evaluate("document.fonts.ready");
         for (const width of widths) {

@@ -8,7 +8,7 @@ import { quoteLink, type RenderContext } from "../../context.ts";
 import { formatPhone, telUrl } from "../../format.ts";
 import { html, type SafeHtml } from "../../html.ts";
 import { DOM_ID } from "../../sections/ids.ts";
-import { callButton, dots, hoursList, hoursTitle, icon, itemHeading, sectionTitle } from "./parts.ts";
+import { callButton, dots, hoursList, hoursTitle, icon, itemHeading, phoneParts, sectionTitle } from "./parts.ts";
 import { bandClass, plan } from "./plan.ts";
 
 /**
@@ -87,7 +87,7 @@ ${note247}
 
   // Shown only on the page's opening (sectionTitle), where the area comes before the form.
   const actions = html`<div class="pg-a">
-${callButton(facts, "bt bt-act bt-lg", `Call ${formatPhone(facts.phone)}`)}
+${callButton(facts, "bt bt-act bt-lg", html`Call ${phoneParts(facts.phone)}`)}
 <a class="bt bt-out bt-lg" href="${quoteLink()}">${ctx.doc.copy.ctaText}</a>
 </div>`;
 

@@ -289,14 +289,13 @@ summary::-webkit-details-marker{display:none}
 .bc-m a,.fcall a{text-decoration:underline var(--aw-refined-accent);text-underline-offset:.25em}
 .c-list a,.h247 a{text-decoration:underline var(--aw-refined-accent-on-dark);text-underline-offset:.25em}
 /* Bigger default text on a phone (root 125%, moderator 2026-10-05): the big number to tap (Contact, the closing band)
-   and the Call and quote buttons that open a page with the service area (.pg-a) wrap instead of running off the page,
-   and stay on one line wherever they fit. text-wrap outranks their nowrap (.bt's, and the markup's whitespace-nowrap
-   utility: this sheet is unlayered) and balances the lines, so a phone number breaks between the area code and the
-   rest, never after the dash. */
-.c-ph,.pg-a .bt{text-wrap:balance}
-/* Balancing works on a block's own lines, so the number is an inline-block (Contact's shares a line box); 10vw keeps the
-   rest of the number on one line at 320 px with the root at 125% (at 100% the cap, 1.75rem, applies from 280 px). */
-.c-ph{display:inline-block;font-size:min(1.75rem,10vw);line-height:1.2}
+   and the Call and quote buttons that open a page with the Service area (.pg-a) wrap instead of running off the page,
+   and stay on one line wherever they fit. white-space works in every engine (text-wrap:balance needs Safari 17.5, under
+   the iOS 16.4 floor); it outranks .bt's nowrap and the markup's whitespace-nowrap utility (this sheet is unlayered).
+   The number's parts are no-wrap spans (phoneParts), so it breaks only between the area code and the rest. 10vw keeps
+   the rest on one line at 320 px with the root at 125% (at 100% the cap, 1.75rem, applies from 280 px). */
+.c-ph,.pg-a .bt{white-space:normal}
+.c-ph{font-size:min(1.75rem,10vw);line-height:1.2}
 .c-note{display:block;margin-top:.25rem;font-size:.9375rem}
 /* The hours and a one-town area line beside the form, from 60rem (phones get them in the Service area section). */
 .c-list .c-sub{display:none}
