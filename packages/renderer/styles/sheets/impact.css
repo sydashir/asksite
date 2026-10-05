@@ -2376,7 +2376,11 @@
     margin-top: 0.125rem;
     color: var(--fg-m);
   }
+  /* A licence number moves to the next line whole, as in the hero and the footer; it breaks inside only when it alone is
+     wider than the line. */
   .talk-lics .lic-num {
+    display: inline-block;
+    max-width: 100%;
     color: var(--fg-h);
   }
   .mail {
