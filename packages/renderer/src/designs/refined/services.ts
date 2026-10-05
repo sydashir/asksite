@@ -2,10 +2,12 @@
 // takes the whole width left beside the price, and the dots are drawn along its last line behind the
 // name's own words, so they always start where the words end, even when a long name wraps, and always
 // run at least 3rem. An unpriced service says "Price on request"; one light box after the list offers the
-// owner's call to action for any other job, unless the closing band comes right after the list. Opening the
-// Services page, the list's heading is the page's <h1> with the owner's proof (license, Insured, Free estimates)
-// under the intro, where a visitor weighs the prices; when the owner puts the questions first, they open the page
-// under "Our services" (faq.ts) and the list is "Services & prices".
+// owner's call to action for any other job, unless the closing band comes right after the list. Wherever the call
+// bar shows (phones, and windows under 32rem tall such as a phone held sideways), the box keeps its words and its
+// quote button gives way to the bar's (sheet). Opening the Services page, the list's heading is the page's <h1>
+// with the owner's proof (license, Insured, Free estimates) under the intro, where a visitor weighs the prices; when
+// the owner puts the questions first, they open the page under "Our services" (faq.ts) and the list is "Services &
+// prices".
 import { headingLevel, quoteLink, type RenderContext } from "../../context.ts";
 import { formatPrice } from "../../format.ts";
 import { html, type SafeHtml } from "../../html.ts";

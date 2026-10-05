@@ -1,7 +1,9 @@
 // Classic's header. Phones: the name and a <details> menu, in a header that scrolls away with it. From
-// 48rem: every page link is always on show (a second row below 80rem, one row above), and the header stays on
-// screen with a quote button and the Call button. The current page's link is marked by weight and an underline,
-// not by colour alone (WCAG 1.4.1). Zero JavaScript.
+// 48rem: every page link is always on show (a second row below 80rem, one row above), and in windows at least
+// 32rem tall the header stays on screen with a quote button and the Call button. Wherever the call bar shows
+// (phones, and windows under 32rem tall such as a phone held sideways) the header's quote button gives way to the
+// bar's, and a short window's header scrolls away with Call (sheet). The current page's link is marked by weight
+// and an underline, not by colour alone (WCAG 1.4.1). Zero JavaScript.
 import { navItems, pageLink, quoteLink, type RenderContext } from "../../context.ts";
 import { formatPhone } from "../../format.ts";
 import { html, trusted, type SafeHtml } from "../../html.ts";
