@@ -12,6 +12,7 @@ import { groupedHours } from "../../../src/designs/refined/parts.ts";
 import { heroQuoteIndex } from "../../../src/designs/refined/plan.ts";
 import { PALETTES, variables } from "../../../src/designs/refined/tokens.ts";
 import { render, renderDocument } from "../../../src/render.ts";
+import { loadCompiledCss } from "../../support/css-classes.ts";
 import { invariantProblems } from "../../support/design-invariants.ts";
 import { countInText, squash, squashedText } from "../../support/page-text.ts";
 import { classicPage, classicPages, classicSite, options } from "./site.ts";
@@ -67,6 +68,25 @@ describe("Classic tokens", () => {
   it("each lettering choice has its own heading face", () => {
     const heads = FONT_IDS.map((font) => variables(Theme.parse({ palette: "navy-orange", font, design: "refined" }))["--aw-refined-head"]);
     expect(new Set(heads).size).toBe(FONT_IDS.length);
+  });
+});
+
+describe("Classic's compiled sheet", () => {
+  // The header row centres the name's box, and text-box trims that box to the capitals and the baseline, so the row
+  // centres the letters in any face. The browser check (cascade) sees a lost trim only where a face's line box sets
+  // the capitals more than 1 px off (Sturdy's Mac face), so this reads the compiled sheet itself, in every environment.
+  it("trims the header name's box to its capitals and baseline, unlayered at every width, and no other .brand rule sets it", () => {
+    const css = loadCompiledCss("refined");
+    const found: string[] = [];
+    for (const rule of css.matchAll(/([^{};]+)\{([^{}]*)\}/g)) {
+      const [, prelude = "", body = ""] = rule;
+      if (!prelude.split(",").some((selector) => /(^|[\s>+~])\.brand$/.test(selector.trim()))) continue;
+      let depth = 0;
+      for (const ch of css.slice(0, rule.index)) depth += ch === "{" ? 1 : ch === "}" ? -1 : 0;
+      for (const declaration of body.split(";").map((d) => d.trim()))
+        if (/^text-box(-trim|-edge)?:/.test(declaration)) found.push(`${depth === 0 ? "" : "nested: "}${prelude.trim()}{${declaration}}`);
+    }
+    expect(found).toEqual([".brand{text-box:cap alphabetic}"]);
   });
 });
 
