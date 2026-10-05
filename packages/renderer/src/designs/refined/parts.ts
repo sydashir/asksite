@@ -66,14 +66,18 @@ export function email(address: string): SafeHtml[] {
 }
 
 /**
- * A phone number as its parts, "(512)" and "555-0142", each of which never breaks. Where the sheet lets a tel: link wrap
- * (the big number and the Service area's Call button, with bigger default text on a phone; moderator 2026-10-05) the
- * only break is the space between them, in every engine. The text is the number exactly as formatPhone writes it.
+ * A phone number whose rest, "555-0142", is a no-wrap span after the area code "(512) ". Where the sheet lets a tel: link
+ * wrap (the big number and the Service area's Call button, with bigger default text on a phone; moderator 2026-10-05)
+ * the only break is that space, in every engine: the area code has no break opportunity of its own (an opening bracket,
+ * digits and a closing bracket stay together in Unicode line breaking). The area code stays plain text with its space,
+ * so the link's line under the number runs unbroken (Chromium draws it thinner under a lone space between two spans).
+ * The text is the number exactly as formatPhone writes it.
  */
-export const phoneParts = (e164: string): SafeHtml[] =>
-  formatPhone(e164)
-    .split(" ")
-    .map((part, i) => html`${i > 0 && " "}<span class="whitespace-nowrap">${part}</span>`);
+export function phoneParts(e164: string): SafeHtml {
+  const number = formatPhone(e164);
+  const rest = number.lastIndexOf(" ") + 1;
+  return html`${number.slice(0, rest)}<span class="whitespace-nowrap">${number.slice(rest)}</span>`;
+}
 
 /**
  * A Call button. With the owner's 24/7 fact it carries that fact as a small second line; the words

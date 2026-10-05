@@ -292,7 +292,7 @@ summary::-webkit-details-marker{display:none}
    and the Call and quote buttons that open a page with the Service area (.pg-a) wrap instead of running off the page,
    and stay on one line wherever they fit. white-space works in every engine (text-wrap:balance needs Safari 17.5, under
    the iOS 16.4 floor); it outranks .bt's nowrap and the markup's whitespace-nowrap utility (this sheet is unlayered).
-   The number's parts are no-wrap spans (phoneParts), so it breaks only between the area code and the rest. 10vw keeps
+   The rest after the area code is a no-wrap span (phoneParts), so the number breaks only at that space. 10vw keeps
    the rest on one line at 320 px with the root at 125% (at 100% the cap, 1.75rem, applies from 280 px). */
 .c-ph,.pg-a .bt{white-space:normal}
 .c-ph{font-size:min(1.75rem,10vw);line-height:1.2}

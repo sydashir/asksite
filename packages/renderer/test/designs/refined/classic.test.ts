@@ -359,11 +359,11 @@ describe("Classic's pages (A16)", () => {
     expect(band({ ...plumber, hidden: ["serviceArea"] })).not.toMatch(/Serving|Monday/);
     expect(band(hvac, "home")).toContain(squashedText("Monday – Friday 7:00 AM – 7:00 PM"));
     expect(band(hvac, "home")).toContain("Serving");
-    // The number to tap (phones, where the call bar carries the buttons), on every band, the owner's facts or none: in
-    // two parts that never break inside, so bigger default text wraps it only between them (moderator, 2026-10-05).
+    // The number to tap (phones, where the call bar carries the buttons), on every band, the owner's facts or none: the
+    // rest after the area code never breaks, so bigger default text wraps it only at that space (moderator, 2026-10-05).
     for (const input of [plumber, hvac, cleaning, { ...plumber, hidden: ["serviceArea" as const] }]) {
       expect(section(pageOf(input, "home"), "get-in-touch")).toMatch(
-        /<li class="cl-n">.*<a class="c-ph whitespace-nowrap" href="tel:\+1\d{10}"><span class="whitespace-nowrap">\(\d{3}\)<\/span> <span class="whitespace-nowrap">\d{3}-\d{4}<\/span><\/a><\/li>/,
+        /<li class="cl-n">.*<a class="c-ph whitespace-nowrap" href="tel:\+1\d{10}">\(\d{3}\) <span class="whitespace-nowrap">\d{3}-\d{4}<\/span><\/a><\/li>/,
       );
     }
   });
