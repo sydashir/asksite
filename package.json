@@ -11,6 +11,7 @@
     "typecheck": "pnpm build:css && tsc -p . && tsc -p e2e && tsc -p tsconfig.workers.json && tsc -p apps/sites/e2e",
     "test": "pnpm build:css && vitest run --project unit && vitest run --project workerd",
     "test:e2e": "pnpm build:css && playwright test",
+    "test:browser": "pnpm build:css && vitest run --project browser --passWithNoTests",
     "e2e:install": "playwright install --only-shell chromium webkit",
     "render": "pnpm build:css && node scripts/render-fixture.ts",
     "check": "pnpm typecheck && pnpm test && pnpm test:e2e && pnpm test:e2e:sites",

@@ -41,9 +41,11 @@ export function livePageHeaders(root: string, indexable: boolean): Headers {
 }
 
 /**
- * The same headers for the copy kept in this data centre's cache: Cloudflare does not cache a response marked
- * no-cache, and s-maxage sets the edge's TTL (developers.cloudflare.com/workers/runtime-apis/cache/ and
- * /cache/concepts/cache-control/). The copy is only ever read back through a key that carries the version id.
+ * The same headers for the copy kept in this data centre's cache, with a Cache-Control of their own: the Cache API follows
+ * Cloudflare's Cache-Control directives (cache.put fails when Cache-Control instructs not to cache), so the copy carries
+ * "public, s-maxage=60" instead of the browsers' no-cache, and s-maxage sets the edge's TTL
+ * (developers.cloudflare.com/workers/runtime-apis/cache/ and /cache/concepts/cache-control/). The copy is only ever read
+ * back through a key that carries the version id.
  */
 export function edgeCopyHeaders(live: Headers): Headers {
   const headers = new Headers(live);

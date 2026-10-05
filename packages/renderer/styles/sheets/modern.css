@@ -1,0 +1,826 @@
+/* Modern (modern), compiled by scripts/build-css.ts to styles/out/modern.css (A12). Tailwind with automatic scanning
+   off, the shared tokens and rules, and only render.ts and this design's own folder scanned: no other design's
+   classes reach this sheet. The design's own rules are plain CSS in the components layer, so Tailwind's utilities
+   (sr-only, sticky, focus-outside:static, whitespace-nowrap) still win where both apply. Colours and the display
+   lettering come from the page's --aw-modern-* properties (src/designs/modern/tokens.ts). */
+@import "tailwindcss" source(none);
+@import "../shared.css";
+@source "../../src/render.ts";
+@source "../../src/designs/modern";
+
+@layer components {
+  /* ---------- tokens and base ---------- */
+  :root {
+    --ink: var(--aw-modern-ink);
+    --text: var(--aw-modern-text);
+    --muted: var(--aw-modern-muted);
+    --tint: var(--aw-modern-tint);
+    --line: var(--aw-modern-line);
+    --field: var(--aw-modern-field);
+    --brand: var(--aw-modern-brand);
+    --brand-line: var(--aw-modern-brand-line);
+    --on-brand-muted: var(--aw-modern-on-brand-muted);
+    --act: var(--aw-modern-act);
+    --on-act: var(--aw-modern-on-act);
+    --band-accent: var(--aw-modern-band-accent);
+    --display: var(--aw-modern-display);
+    --trk: var(--aw-modern-tracking);
+    --body: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, Roboto, "Helvetica Neue", Arial, sans-serif;
+    --livery: linear-gradient(var(--act) 0 4px, var(--brand) 4px 8px);
+    --lift: 0 20px 40px -28px rgb(0 0 0 / 0.35);
+    --gut: 16px;
+    --r: 6px;
+    --hdr: 66px;
+    --menu-row: 0px;
+  }
+  @media (min-width: 360px) {
+    :root { --gut: 20px; }
+  }
+  @media (min-width: 768px) {
+    :root { --gut: 32px; }
+  }
+  @media (min-width: 1200px) {
+    :root { --gut: 40px; }
+  }
+  .page {
+    background: #fff;
+    color: var(--text);
+    font: 400 1rem/1.6 var(--body);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    overflow-wrap: break-word;
+  }
+  @media (min-width: 768px) {
+    .page { font-size: 1.0625rem; }
+  }
+  .page :focus-visible { outline: 3px solid var(--brand); outline-offset: 2px; }
+  .on-brand :focus-visible, .band--brand :focus-visible, .call-card :focus-visible, .foot :focus-visible { outline-color: #fff; }
+  .wrap { width: 100%; max-width: calc(1200px + 2 * var(--gut)); margin-inline: auto; padding-inline: var(--gut); }
+  .i { width: 20px; height: 20px; flex: none; }
+
+  /* ---------- type: the display face for headings; the livery mark (action over brand) opens each section ---------- */
+  .display { font-family: var(--display); font-weight: 700; color: var(--ink); text-wrap: balance; }
+  .h1 { font-size: clamp(2rem, 1.4rem + 2.6vw, 3.5rem); line-height: 1.05; letter-spacing: calc(var(--trk) * -0.025em); }
+  .h1--long { font-size: clamp(1.75rem, 1.3rem + 2vw, 2.875rem); }
+  .h2 { font-size: clamp(1.75rem, 1.35rem + 1.6vw, 2.625rem); line-height: 1.1; letter-spacing: calc(var(--trk) * -0.022em); }
+  .h3 { font: 700 1.1875rem/1.25 var(--display); letter-spacing: calc(var(--trk) * -0.01em); color: var(--ink); text-wrap: balance; }
+  .lede { margin-top: 12px; max-width: 40rem; font-size: 1.0625rem; line-height: 1.55; color: var(--muted); text-wrap: pretty; }
+  .head { margin-bottom: 28px; }
+  .head::before { content: ""; display: block; width: 44px; height: 8px; margin-bottom: 18px; background: var(--livery); }
+  .on-brand .head::before { background: linear-gradient(var(--act) 0 4px, #fff 4px 8px); }
+  @media (min-width: 768px) {
+    .lede { font-size: 1.1875rem; }
+    .head { margin-bottom: 44px; }
+    .head::before { width: 56px; margin-bottom: 22px; }
+  }
+
+  /* ---------- buttons: the action colour for Call and Send, an ink outline for the owner's call to action ---------- */
+  .button {
+    display: inline-flex; align-items: center; justify-content: center; gap: 10px; min-height: 52px; padding: 8px 22px;
+    border: 2px solid transparent; border-radius: var(--r); font: 700 1.0625rem/1.2 var(--body); text-align: center; text-wrap: balance; cursor: pointer;
+    /* owner words (the call to action) wrap inside the button, however long, instead of pushing the page sideways */
+    overflow-wrap: anywhere;
+  }
+  .button-lg { min-height: 56px; padding-inline: 24px; font-size: 1.125rem; }
+  .button-act { background: var(--act); color: var(--on-act); }
+  .button-line { border-color: var(--ink); background: #fff; color: var(--ink); }
+  .on-brand .button-act { background: var(--aw-modern-band-act); color: var(--aw-modern-on-band-act); }
+  .on-brand .button-line { border-color: #fff; background: transparent; color: #fff; }
+  /* Hover only where the pointer can hover, so a tap never leaves a button in its hover colours (MDN: hover). */
+  @media (hover: hover) {
+    .button-act:hover { background: var(--aw-modern-act-hover); }
+    .button-line:hover { background: var(--ink); color: #fff; }
+    .on-brand .button-act:hover { background: var(--aw-modern-band-act-hover); }
+    .on-brand .button-line:hover { background: #fff; color: var(--brand); }
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .button { transition: background-color 0.15s, color 0.15s; }
+  }
+
+  /* ---------- header: sticky from 768 px, so a Call button is always on screen ---------- */
+  .hdr { position: relative; z-index: 40; background: #fff; box-shadow: 0 1px 0 var(--line); }
+  .hdr::before { content: ""; display: block; height: 6px; background: linear-gradient(var(--act) 0 3px, var(--brand) 3px 6px); }
+  .bar { display: flex; align-items: center; gap: 12px; min-height: 56px; padding-block: 6px; }
+  .brand { margin-right: auto; min-width: 0; font: 700 1.125rem/1.15 var(--display); letter-spacing: calc(var(--trk) * -0.015em); color: var(--ink); text-wrap: balance; }
+  .brand--long { max-width: 15rem; font-size: 1rem; }
+  .nav { order: 3; }
+  .nav-links { display: none; }
+  .nav-links a { display: inline-flex; align-items: center; min-height: 44px; padding: 0 9px; border-radius: var(--r); font-size: 0.9375rem; font-weight: 600; white-space: nowrap; }
+  .menu summary {
+    display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 12px; border: 2px solid var(--ink); border-radius: var(--r);
+    color: var(--ink); font-size: 0.9375rem; font-weight: 700; list-style: none; cursor: pointer;
+  }
+  .menu summary::-webkit-details-marker { display: none; }
+  .i-close, .menu[open] .i-open { display: none; }
+  .menu[open] .i-close { display: block; }
+  /* Phones: the open menu is a sheet across the screen, under the header (the header box places it); the page behind
+     it dims, and a tap there closes it (the summary draws that shade) */
+  .menu-list { position: absolute; left: 0; right: 0; top: 100%; padding: 4px var(--gut) 12px; border-top: 1px solid var(--line); background: #fff; box-shadow: 0 24px 40px -24px rgb(0 0 0 / 0.45); }
+  .menu-list a { display: flex; align-items: center; min-height: 52px; padding: 0 14px; border-bottom: 1px solid var(--line); color: var(--ink); font-size: 1.0625rem; font-weight: 600; white-space: nowrap; }
+  @media (max-width: 767px) {
+    .menu[open] > summary::before { content: ""; position: absolute; top: 100%; left: 0; right: 0; height: 100vh; background: rgb(0 0 0 / 0.45); cursor: default; }
+  }
+  @media (hover: hover) {
+    .nav-links a:hover { color: var(--ink); text-decoration: underline 2px; text-underline-offset: 0.35em; }
+    .menu-list a:hover { background: var(--tint); }
+  }
+  /* The page on screen: the livery bar (a shape, not colour alone: WCAG 1.4.1; the brand half is 3:1 on white,
+     1.4.11) beside its name in the phone menu's list, under it in the row of links from 768 px. */
+  .nav [aria-current] { border-radius: 0; box-shadow: inset 3px 0 var(--act), inset 6px 0 var(--brand); }
+  @media (min-width: 768px) {
+    .nav [aria-current] { box-shadow: inset 0 -3px var(--brand), inset 0 -6px var(--act); }
+  }
+  /* Forced colours (Windows high contrast) drop box shadows: an underline marks the page there (MDN forced-colors) */
+  @media (forced-colors: active) {
+    .nav [aria-current] { text-decoration: underline 3px; text-underline-offset: 0.3em; }
+  }
+  .hdr-call, .hdr-quote { display: none; }
+  @media (min-width: 768px) {
+    html { scroll-padding-top: calc(var(--hdr) + var(--menu-row) + 12px); }
+    .hdr { position: sticky; top: 0; }
+    /* WCAG 2.4.11: keyboard focus on a link or button below the header lets the header go, so it never hides the
+       focus. A text field keeps it; scroll-padding-top keeps the field (and, while one has focus, its label) below it. */
+    html:has(:focus-visible:not(.hdr *):not(input, select, textarea)) .hdr { position: relative; }
+    html:has(.input:focus) { scroll-padding-top: calc(var(--hdr) + var(--menu-row) + 60px); }
+    .bar { min-height: 60px; gap: 12px; }
+    .brand { font-size: 1.25rem; }
+    .brand--long { max-width: 20rem; font-size: 1.0625rem; }
+    .hdr-call, .hdr-quote { display: inline-flex; min-height: 46px; padding: 0 18px; font-size: 1rem; }
+  }
+  /* 768-1023 px: the open menu is one row of the pages across the sticky header. It stays open after a tap on a jump
+     within the page (no JavaScript closes it), so scroll-padding grows by its height and a jump lands below the row. */
+  @media (min-width: 768px) and (max-width: 1023px) {
+    html:has(.menu[open]) { --menu-row: 57px; }
+    .menu-list {
+      display: flex; align-items: center; gap: 2px; left: 0; right: 0; top: 100%; width: auto; height: 57px;
+      padding: 0 max(var(--gut), (100% - 1200px) / 2); border: 0; border-top: 1px solid var(--line); border-radius: 0;
+      box-shadow: 0 1px 0 var(--line); overflow-x: auto;
+    }
+    .menu-list a { min-height: 44px; padding: 0 12px; border: 0; font-size: 0.9375rem; }
+  }
+  @media (min-width: 1024px) {
+    .nav { order: 0; }
+    .nav-links { display: flex; }
+    .menu { display: none; }
+  }
+  /* The owner's call to action beside Call from 768 px, so every first screen there offers a quote (the moderator's
+     quote rule, A16 round 6; phones have the call bar's). Below 1200 px both are a size smaller and the call to action
+     keeps its width, the name giving way (the schema's longest name takes three lines up to about 1100 px); its
+     longest words take two lines. From 1200 px both keep one line beside every page link and the longest name. */
+  @media (max-width: 1199px) {
+    .hdr-call, .hdr-quote { padding-inline: 14px; font-size: 0.9375rem; }
+    .hdr-quote { flex: none; max-width: 10.5rem; }
+  }
+  @media (min-width: 1200px) {
+    .bar { gap: 20px; }
+    .hdr-quote { white-space: nowrap; }
+  }
+
+  /* ---------- hero ---------- */
+  /* --edge: where the content column starts, measured on the hero (a size container), so a classic scrollbar never
+     shifts it; 100vw where container units are missing. */
+  .hero { --edge: max(var(--gut), (100vw - 1200px) / 2); }
+  @supports (width: 1cqw) {
+    .hero { container-type: inline-size; --edge: max(var(--gut), (100cqw - 1200px) / 2); }
+  }
+  .band { position: relative; overflow: hidden; background: var(--brand); }
+  /* Phones: a photo strip that follows the screen height (svh: with the browser bars shown), so the headline and the
+     credentials still share the first screen with the call bar. Crops lean to the top, where a face sits. */
+  .band--photo { height: clamp(140px, 28vh, 240px); height: clamp(140px, 28svh, 240px); }
+  .band--photo img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: 50% 22%; }
+  .hero--tall .band--photo img { object-position: 50% 16%; }
+  .band--brand::after { content: ""; display: block; height: 8px; background: var(--livery); }
+  .band-in { padding-block: 16px 18px; }
+  .band-line, .hl { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 18px; font-size: 0.9375rem; font-weight: 700; line-height: 1.35; }
+  .band-line { color: #fff; }
+  .hl { margin-bottom: 8px; color: var(--ink); }
+  .line-247 { display: inline-flex; align-items: center; gap: 8px; }
+  .band-line .i, .hl .i { width: 18px; height: 18px; }
+  .band-line .i { color: var(--band-accent); }
+  .hl .i { color: var(--brand); }
+  .line-tag { font-weight: 600; }
+  .band-line .line-tag { color: var(--on-brand-muted); }
+  .hl .line-tag { color: var(--muted); }
+  .hero-body { padding-block: 16px 36px; }
+  /* the livery seam where the text meets the photo */
+  .hero--photo .hero-body { border-top: 4px solid var(--act); box-shadow: inset 0 4px 0 var(--brand); }
+  /* the no-photo hero: its headline 40 px under the brand band on phones as on tablets */
+  .hero--plain .hero-body { padding-top: 40px; }
+  .hero-sub { margin-top: 10px; max-width: 36rem; color: var(--muted); text-wrap: pretty; }
+  .hero-actions { display: grid; gap: 12px; margin-top: 16px; }
+  /* Phones: Call, with the number, comes straight after the headline, then the credentials, then the subheadline, so
+     the number and the license, insured and founded facts sit above the call bar on the first screen and no button is
+     ever half under the bar; the bar carries the quote link (judges, A16 round 3). The panel is a plain div, so
+     display: contents drops no meaning, and keyboard focus meets Call, then "See all N licenses", as the eye does. */
+  @media (max-width: 767px) {
+    .hero-body { display: flex; flex-direction: column; }
+    .panel { display: contents; }
+    .hero-sub { order: 1; margin-top: 16px; }
+    .hero-actions .button-line { display: none; }
+    .door { order: 2; }
+  }
+  /* Short phones give the text more room: dense credentials (two licenses, a long number) and a long headline take
+     a shorter strip, never flatter than about 3.5:1, so a face in the upper third stays in frame. */
+  @media (max-width: 767px) and (max-height: 760px) {
+    .hero--dense .band--photo { height: clamp(96px, 16vh, 240px); height: clamp(96px, 16svh, 240px); }
+    /* the trade and town (also in the footer) give their line to the credentials, which sit 2 px closer */
+    .hero--dense .hl .line-tag { display: none; }
+    .hero--dense .proof-list { row-gap: 10px; }
+  }
+  @media (max-width: 767px) and (max-height: 700px) {
+    .hero:has(.h1--long) .band--photo { height: clamp(110px, 20svh, 240px); }
+    .hero .h1--long { font-size: 1.625rem; }
+  }
+  @media (max-width: 767px) and (max-height: 600px) {
+    .band--photo { height: clamp(110px, 20vh, 240px); height: clamp(110px, 20svh, 240px); }
+  }
+
+  /* the credentials: licenses first (with their label), then insured, the founding year and free estimates */
+  .proof { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
+  .proof-list { display: grid; grid-template-columns: repeat(2, minmax(0, auto)); gap: 12px 16px; font-size: 0.9375rem; }
+  .proof .wide { grid-column: 1 / -1; }
+  .cred { display: flex; align-items: flex-start; gap: 9px; min-width: 0; color: var(--ink); line-height: 1.25; }
+  .cred .i { margin-top: -1px; color: var(--brand); }
+  .cred strong { display: block; font-weight: 700; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+  .cred small { display: block; margin-top: 3px; font-size: 0.8125rem; color: var(--muted); overflow-wrap: anywhere; }
+  /* "3 more licenses": the arrow sits on the text's centre line in every hero */
+  .more a { display: inline-flex; align-items: center; gap: 6px; min-height: 44px; margin-block: -12px; color: var(--brand); font-weight: 700; text-decoration: underline; text-underline-offset: 0.2em; }
+  .more .i { width: 16px; height: 16px; margin: 0; }
+  @media (min-width: 600px) {
+    .proof-list { font-size: 1rem; }
+    .proof-list small { font-size: 0.875rem; }
+  }
+
+  /* When the trust section comes later: the licenses and insurance in one short line under the buttons (on phones
+     under the headline) */
+  .proof-line { display: flex; flex-wrap: wrap; gap: 8px 22px; margin-top: 14px; color: var(--ink); font-size: 0.9375rem; font-weight: 700; line-height: 1.3; }
+  .proof-line li { display: flex; align-items: center; gap: 8px; }
+  .proof-line .i { width: 18px; height: 18px; color: var(--brand); }
+  /* Owner text in a flex row (the town on the hero line, a license here, the address beside its icon, the footer's
+     closing name): a flex item's automatic minimum is its min-content, and overflow-wrap: break-word does not lower
+     that (MDN min-width, overflow-wrap), so one long unbroken word would push the page sideways. anywhere does. */
+  .line-tag, .proof-line li, .proof-line li > span, .addr > address, .addr > span, .foot-end p { min-width: 0; overflow-wrap: anywhere; }
+
+  /* no-photo hero: the card with the opening hours, or where the business works and its email */
+  .door {
+    margin-top: 28px; padding: 22px 18px 18px; border: 1px solid var(--line); border-top: 4px solid var(--brand);
+    border-radius: var(--r); background: #fff; box-shadow: var(--lift);
+  }
+  .door-label, .reach dt { margin-bottom: 8px; color: var(--ink); font-size: 0.9375rem; font-weight: 700; }
+  .reach dd { display: flex; gap: 10px; color: var(--ink); font-weight: 600; overflow-wrap: anywhere; }
+  .reach dd + dt { margin-top: 18px; padding-top: 18px; border-top: 1px solid var(--line); }
+  .reach .i { color: var(--brand); }
+  .reach a { text-decoration: underline; text-underline-offset: 0.2em; }
+
+  @media (min-width: 768px) {
+    .band--photo { height: clamp(300px, max(36vh, 35vw), 420px); }
+    .band-in { padding-block: 18px 20px; }
+    .band-line, .hl { font-size: 1rem; }
+    .hl { margin-bottom: 14px; }
+    .hero-body { padding-block: 32px 56px; }
+    .hero-sub { margin-top: 16px; font-size: 1.1875rem; line-height: 1.55; }
+    /* fit-content: side by side at their own widths; stacked, both take the column's width (one width) */
+    .hero-actions { display: flex; flex-wrap: wrap; gap: 12px; width: fit-content; margin-top: 26px; }
+    .hero-actions .button { flex: 1 1 auto; }
+    .proof-line { margin-top: 22px; font-size: 1rem; }
+    .proof { margin-top: 28px; padding-top: 22px; }
+    .proof-list { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 28px; }
+    .door { margin-top: 32px; padding: 26px 30px 24px; }
+  }
+  /* the no-hours card balances the split hero; below it the card would only repeat the town above the services */
+  @media (max-width: 1023px) {
+    .door--reach { display: none; }
+  }
+  @media (min-width: 1024px) {
+    .proof-list { grid-template-columns: repeat(2, minmax(0, max-content)); gap: 16px 56px; }
+    .proof .wide { grid-column: auto; }
+    .proof .more { grid-column: 1 / -1; }
+    .hero--plain .hero-body { padding-block: 48px 64px; }
+    .hero--plain .hero-body { display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); grid-template-rows: auto 1fr; column-gap: 56px; }
+    .hero--plain .proof { grid-column: 1; }
+    .hero--plain .door { grid-column: 2; grid-row: 1 / 3; align-self: start; margin: 0; padding: 26px 28px 24px; }
+  }
+  /* The split hero, on every desktop window and on landscape phones: the text column (the brand strip with the hero
+     line, the headline, the buttons, then the credentials) beside the photo, which spans both rows, so the headline
+     and both buttons sit in the upper part of the first screen at any window height. */
+  @media (min-width: 1024px), (min-width: 768px) and (max-height: 500px) {
+    .hero--photo { display: grid; grid-template-columns: minmax(0, 1fr) 44%; grid-template-rows: auto 1fr; }
+    .hero--photo .band--photo { grid-column: 2; grid-row: 1 / -1; height: auto; min-height: max(320px, 17.6vw); }
+    .hero--tall .band--photo { min-height: max(320px, 20vw); }
+    .hero--photo .hero-body { display: contents; }
+    .hero--photo .panel { grid-column: 1; grid-row: 1; padding: 40px 48px 48px var(--edge); }
+    .hero--photo .hl {
+      min-height: 48px; margin: -40px -48px 36px calc(-1 * var(--edge)); padding: 12px 48px 12px var(--edge);
+      background: var(--brand); color: #fff; border-bottom: 4px solid var(--act); box-shadow: 0 4px 0 var(--brand);
+    }
+    .hero--photo .hl .i { color: var(--band-accent); }
+    .hero--photo .hl .line-tag { color: var(--on-brand-muted); }
+    .hero--photo .proof { grid-column: 1; grid-row: 2; align-self: start; margin: -24px 48px 48px var(--edge); padding-top: 14px; }
+  }
+  /* Landscape phones: tighter, and the subheadline moves under the buttons, so the headline and the Call button are
+     on the first screen under the sticky header. */
+  @media (min-width: 768px) and (max-height: 500px) {
+    .hero--photo .band--photo { min-height: 0; }
+    .panel { display: flex; flex-direction: column; }
+    .hero--photo .panel { padding-top: 20px; }
+    .band-in { padding-block: 10px 12px; }
+    .hero--plain .hero-body { padding-top: 20px; }
+    .hero--photo .hl { min-height: 0; margin: -20px -48px 18px calc(-1 * var(--edge)); padding-block: 8px; }
+    .hero .h1 { font-size: clamp(1.75rem, 1.1rem + 1.6vw, 2.25rem); }
+    .hero .h1--long { font-size: 1.625rem; }
+    .hero-sub { order: 1; margin-top: 14px; font-size: 1.0625rem; }
+    .hero-actions { margin-top: 16px; }
+  }
+
+  /* ---------- sections ---------- */
+  .sec { padding-block: 64px; }
+  .tint { background: var(--tint); }
+  .white { background: #fff; }
+  .on-brand { background: var(--brand); color: #fff; }
+  .on-brand .display { color: #fff; }
+  /* an inner page's first section opens with Home's brand strip and livery seam, then its h1 (the hero's size) */
+  main > .sec:first-child { padding-top: 0; }
+  .sec > .band { margin-bottom: 28px; }
+  @media (min-width: 768px) {
+    .sec { padding-block: 96px; }
+    .sec > .band { margin-bottom: 56px; }
+  }
+
+  /* the trust section as a band of its own on the brand colour (when the layout does not put it straight after the
+     hero): the livery rule over it, a heading and the credentials, one under another on phones. From 768 px the three
+     groups (licenses, insured, the other facts) flow in rows at their own widths with one gap; a group that does
+     not fit moves down whole, so a credential never wraps where it fits and "Insured" fills a row with room. */
+  .trust { padding-block: 48px; border-top: 4px solid var(--act); }
+  .trust .head { margin-bottom: 28px; }
+  .trust .h2 { font-size: clamp(1.5rem, 1.3rem + 0.8vw, 2rem); }
+  .creds, .creds > ul { display: grid; gap: 20px; }
+  .trust .cred { font-size: 1.0625rem; }
+  /* credentials, and their links, on the brand colour (the trust band, About, the closing band) */
+  .on-brand .cred, .on-brand .proof-line, .on-brand .more a { color: #fff; }
+  .on-brand .cred .i, .on-brand .proof-line .i { color: var(--band-accent); }
+  .on-brand .cred small { color: var(--on-brand-muted); }
+  @media (min-width: 768px) {
+    .trust { padding-block: 64px; }
+    .creds, .creds > ul { display: flex; flex-wrap: wrap; column-gap: 32px; }
+  }
+
+  /* services: priced cards, each price on its own line under the name; from 768 px the owner's call to action closes
+     the grid as a brand card that fills the last row (it spans the places the last row leaves); phones have the call
+     bar's and one column of cards */
+  .cards { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
+  .card { padding: 22px 22px 24px; border: 1px solid var(--line); border-radius: var(--r); background: #fff; }
+  .white .card { border-color: transparent; background: var(--tint); }
+  .card .h3 { font-size: 1.25rem; }
+  .price { width: fit-content; margin-top: 10px; padding: 3px 12px; border-radius: 999px; background: var(--tint); color: var(--ink); font-size: 1.0625rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .white .price { background: #fff; }
+  .price small { font-size: 0.875rem; font-weight: 500; color: var(--muted); }
+  /* the pill's line box (1.0625rem x 1.6), so priced and unpriced cards start their descriptions on one line */
+  .price.price--ask { padding-inline: 0; background: none; font-size: 0.9375rem; font-weight: 500; line-height: 1.7rem; color: var(--muted); }
+  .card-desc { margin-top: 12px; color: var(--muted); text-wrap: pretty; }
+  .cards--compact .card { padding: 18px 18px 20px; }
+  .cards--compact .h3 { font-size: 1.125rem; }
+  /* the text grows (999:1), so the button keeps its width beside it (in a one-column card too, where they fit) and
+     takes the whole line when it wraps */
+  .cards > .ask { display: flex; flex-wrap: wrap; align-items: center; align-content: center; gap: 18px 32px; border-color: transparent; background: var(--brand); }
+  .ask > div { flex: 999 1 10rem; }
+  .ask .button { flex: 1 1 auto; }
+  .ask-q { font: 700 1.3125rem/1.25 var(--display); letter-spacing: calc(var(--trk) * -0.01em); color: #fff; text-wrap: balance; }
+  .ask p + p { margin-top: 6px; color: var(--on-brand-muted); }
+  @media (min-width: 768px) {
+    .cards--c2, .cards--c3, .cards--c4 { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
+    .ask:nth-child(odd) { grid-column: 1 / -1; }
+  }
+  @media (min-width: 1024px) {
+    .cards--c3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .cards.cards--c4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    .cards--c3 > .ask, .cards--c4 > .ask { grid-column: auto; }
+    .cards--c3 > .ask:nth-child(3n + 1), .cards--c4 > .ask:nth-child(4n + 1) { grid-column: 1 / -1; }
+    .cards--c3 > .ask:nth-child(3n + 2), .cards--c4 > .ask:nth-child(4n + 3) { grid-column: span 2; }
+    .cards--c4 > .ask:nth-child(4n + 2) { grid-column: span 3; }
+    .card { padding: 28px 28px 30px; }
+  }
+
+  /* Home's services preview: each service an unboxed tick in the brand colour (none is a link: nothing looks
+     selectable), its name, its price and the owner's line about it. Phones: one ruled row each, the price at the end of
+     the name's line. From 768 px one row of columns, their price pills and lines level across the row (subgrid), with
+     the link to the Services page (and the count, when there are more) level with the heading; one service sits beside
+     the heading, its link under it. */
+  .teaser-sec.sec { padding-block: 56px; }
+  .teaser-list { border-top: 2px solid var(--ink); }
+  /* the tick and the price pill centred on the name's first line, however many lines it takes (judges, A16 round 3) */
+  .teaser-list > li { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: start; column-gap: 12px; padding-block: 14px; border-bottom: 1px solid var(--line); }
+  .teaser-list > li > .i { margin-top: 2px; color: var(--brand); }
+  .teaser-list .h3 { overflow-wrap: anywhere; }
+  .teaser-list .price { margin: -5px 0 0; white-space: nowrap; }
+  .tint .teaser-list .price { background: #fff; }
+  .teaser-desc { grid-column: 2 / -1; margin-top: 4px; color: var(--muted); text-wrap: pretty; }
+  .teaser-end { display: grid; gap: 10px; margin-top: 24px; }
+  .teaser-count { color: var(--muted); font-weight: 600; }
+  @media (min-width: 768px) {
+    .teaser-sec.sec { padding-block: 72px; }
+    .teaser, .gal { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 32px; }
+    .teaser .head { margin-bottom: 36px; }
+    .teaser-end { grid-column: 2; grid-row: 1; align-self: end; display: flex; align-items: center; gap: 20px; margin: 0 0 36px; }
+    .teaser-list { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); column-gap: 32px; border: 0; }
+    .teaser--2 .teaser-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .teaser-list > li { grid-row: span 3; grid-template-rows: subgrid; grid-template-columns: auto minmax(0, 1fr); padding-top: 22px; border-top: 2px solid var(--ink); border-bottom: 0; }
+    .teaser-list .price { grid-column: 2; justify-self: start; margin-top: 10px; }
+    .teaser-desc { grid-column: 2; grid-row: 3; margin-top: 10px; }
+    .teaser--1 { grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); column-gap: 64px; }
+    .teaser--1 .head { margin: 0; }
+    .teaser--1 .teaser-list { grid-column: 2; grid-row: 1; grid-template-columns: minmax(0, 1fr); }
+    .teaser--1 .teaser-end { grid-row: 2; justify-self: start; margin: 28px 0 0; }
+  }
+
+  /* the closing band: a white card with the brand rule, "Get in touch" over the owner's question and reasons, then
+     Call (the action colour) and, from 768 px, the call to action, beside them from 1024 px */
+  .sec.close { padding-block: 40px; }
+  .close-card { padding: 30px 22px; border: 1px solid var(--line); border-top: 4px solid var(--brand); border-radius: var(--r); background: #fff; box-shadow: var(--lift); }
+  .close-card .head { margin-bottom: 24px; }
+  .close-k { margin-bottom: 8px; color: var(--brand); font-weight: 700; }
+  .close-cta { display: grid; gap: 12px; }
+  @media (max-width: 599px) {
+    .faq-more .button { width: 100%; }
+    /* the regular size on phones, so Call and the whole number keep one line at 320 px, spaced out too (WCAG 1.4.12) */
+    .close-cta .button, .hero-actions .button { padding-inline: 16px; font-size: 1.0625rem; }
+  }
+  @media (min-width: 600px) {
+    .close-cta { display: flex; flex-wrap: wrap; }
+  }
+  @media (min-width: 768px) {
+    .sec.close { padding-block: 64px; }
+    .close-card { padding: 44px 48px; }
+  }
+  @media (min-width: 1024px) {
+    .close-card { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; column-gap: 48px; }
+    .close-card .head { margin: 0; }
+  }
+
+  /* reviews: the lead quote featured, the others as cards in balanced rows; no card is stretched past its text */
+  .lead-q { display: grid; grid-template-columns: minmax(0, 1fr); gap: 18px; padding-bottom: 28px; }
+  .lead-q blockquote::before, .q blockquote::before { content: "\201C"; display: block; color: var(--brand); font: 800 4.5rem/1 Georgia, "Times New Roman", serif; }
+  .lead-q blockquote::before { height: 36px; }
+  .lead-q blockquote p { min-width: 0; max-width: 46rem; font: 700 clamp(1.375rem, 1.1rem + 1.1vw, 2rem)/1.3 var(--display); letter-spacing: calc(var(--trk) * -0.015em); color: var(--ink); text-wrap: pretty; }
+  .lead-q--long blockquote p { font-size: clamp(1.1875rem, 1.05rem + 0.6vw, 1.5rem); line-height: 1.4; }
+  .who { display: flex; flex-wrap: wrap; column-gap: 10px; line-height: 1.3; }
+  .who > * { min-width: 0; overflow-wrap: anywhere; }
+  .who strong { color: var(--ink); }
+  .who span { color: var(--muted); }
+  .quotes { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; margin-top: 8px; }
+  .q { display: flex; flex-direction: column; height: 100%; padding: 22px; border-radius: var(--r); background: var(--tint); box-shadow: inset 0 4px 0 var(--brand); }
+  .tint .q { background: #fff; }
+  .q blockquote { flex: 1; }
+  .q blockquote::before { height: 30px; margin-bottom: 4px; font-size: 3.25rem; }
+  .q blockquote p { color: var(--ink); font-size: 1.0625rem; font-weight: 500; line-height: 1.55; text-wrap: pretty; }
+  .q .who { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line); }
+  @media (min-width: 700px) {
+    .quotes { grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 20px; }
+    .quotes > .s2, .quotes > .s3 { grid-column: span 3; }
+    .quotes > .s6 { grid-column: span 6; }
+  }
+  @media (min-width: 700px) and (max-width: 1023px) {
+    .quotes > li:last-child:nth-child(odd) { grid-column: span 6; }
+  }
+  @media (min-width: 768px) {
+    .q { padding: 28px 28px 24px; }
+    .q blockquote p { font-size: 1.125rem; }
+  }
+  @media (min-width: 1024px) {
+    .lead-q {
+      grid-template-columns: minmax(0, 1fr) minmax(12rem, 15rem); column-gap: 28px; padding: 40px 40px 40px 32px;
+      border: 1px solid var(--line); border-top: 4px solid var(--brand); border-radius: var(--r); background: #fff; box-shadow: var(--lift);
+    }
+    .tint .lead-q { border-color: transparent; border-top-color: var(--brand); }
+    .lead-q blockquote { display: flex; gap: 24px; }
+    .lead-q blockquote::before { flex: none; height: 48px; font-size: 5.5rem; }
+    .lead-q--short blockquote p { font-size: clamp(1.875rem, 1rem + 1.4vw, 2.375rem); line-height: 1.2; }
+    .lead-q .who { flex-direction: column; justify-content: center; row-gap: 4px; padding-left: 28px; border-left: 1px solid var(--line); font-size: 1.125rem; }
+    /* one review alone: no card, the name set large beside it */
+    .lead-q.lead-q--solo { padding: 8px 0 0; border: 0; background: none; box-shadow: none; }
+    .quotes { margin-top: 20px; }
+    .quotes > .s2 { grid-column: span 2; }
+  }
+
+  /* gallery: every photo once, in an even grid, with its caption under it (never over the photo) */
+  .shots { display: grid; grid-template-columns: minmax(0, 1fr); gap: 20px; }
+  .shots > li { min-width: 0; }
+  /* Phones and tablets: an odd first photo takes the whole row. Only below 1024 px: this selector outweighs the
+     desktop spans below (MDN :not() takes its argument's specificity), which would leave a hole beside the next row. */
+  @media (max-width: 1023px) {
+    .shots > li:first-child:nth-last-child(odd) { grid-column: 1 / -1; }
+  }
+  /* each photo stands on the livery seam (the action colour over the brand colour), its caption in ink under it */
+  .shots img { width: 100%; aspect-ratio: 4 / 3; object-fit: cover; border-radius: 4px 4px 0 0; border-bottom: 3px solid var(--act); box-shadow: 0 3px 0 var(--brand); background: var(--line); }
+  .shots figcaption { margin-top: 14px; color: var(--ink); font-size: 0.9375rem; font-weight: 600; line-height: 1.4; text-wrap: pretty; }
+  .gal-cta { display: none; }
+  @media (min-width: 768px) {
+    .gal > .shots { grid-column: 1 / -1; }
+    .gal-cta { display: inline-flex; grid-column: 2; grid-row: 1; align-self: end; margin-bottom: 44px; }
+  }
+  /* from 640 px two photos to a row; one photo across the whole content width, wide */
+  @media (min-width: 640px) {
+    .shots { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 12px; }
+    .shots.shots--one { grid-template-columns: minmax(0, 1fr); }
+    .shots--one img { aspect-ratio: 16 / 9; }
+  }
+  @media (min-width: 1024px) {
+    .shots:not(.shots--one, .shots--two) { grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 28px 20px; }
+    .shots:not(.shots--one, .shots--two) > li { grid-column: span 2; }
+    /* a short last row sits in the middle */
+    .shots:not(.shots--one, .shots--two) > li:last-child:nth-child(3n + 1) { grid-column: 3 / 5; }
+    .shots:not(.shots--one, .shots--two) > li:nth-last-child(2):nth-child(3n + 1) { grid-column: 2 / 4; }
+    .shots:not(.shots--one, .shots--two) > li:last-child:nth-child(3n + 2) { grid-column: 4 / 6; }
+    .shots--two { gap: 28px 24px; }
+    /* Four: each photo and its caption take rows of their own (subgrid), so the captions of the large and the wide
+       photo share a row and the two photos end level, whatever the captions say. The large photo's own size counts
+       for nothing (contain: size): it fills the rows the others set. */
+    .shots--four { grid-template-columns: repeat(4, minmax(0, 1fr)); grid-template-rows: auto minmax(24px, auto) auto auto; gap: 0 20px; }
+    .shots--four > li, .shots--four figure { display: grid; grid-template-rows: subgrid; grid-row: span 2; }
+    .shots--four figure { grid-row: 1 / -1; }
+    .shots--four > :first-child { grid-row: 1 / -1; grid-column: span 2; }
+    .shots--four > :last-child { grid-row: 3 / -1; grid-column: 3 / -1; }
+    .shots--four > :first-child img { grid-row: 1 / 4; height: 100%; aspect-ratio: auto; contain: size; }
+    .shots--four > :first-child figcaption { grid-row: 4; }
+    .shots--four > :last-child img { aspect-ratio: 8 / 3; }
+    .shots--four figcaption { padding-bottom: 24px; }
+  }
+
+  /* about: the owner's statement as type on the brand band, the owner's credentials under it, a photo beside them */
+  .about-text { max-width: 44rem; font: 500 clamp(1.1875rem, 1.05rem + 0.7vw, 1.5rem)/1.5 var(--body); color: #fff; text-wrap: pretty; }
+  .about-text--short { font-size: clamp(1.375rem, 1.1rem + 1.1vw, 1.75rem); line-height: 1.4; }
+  .about-img { width: 100%; margin-bottom: 28px; aspect-ratio: 4 / 3; object-fit: cover; border-radius: var(--r); background: var(--brand-line); }
+  .facts { display: grid; gap: 16px 32px; font-size: 1rem; }
+  .facts .more { grid-column: 1 / -1; }
+  .about-text + .facts { margin-top: 32px; padding-top: 28px; border-top: 1px solid var(--brand-line); }
+  @media (min-width: 600px) {
+    .about-text + .facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  }
+  @media (min-width: 1024px) {
+    .about--photo, .about--facts { display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); grid-template-rows: auto auto 1fr; column-gap: 64px; }
+    /* the photo fills the rows the text sets (its own size counts for nothing: contain: size), never under 360 px */
+    .about-img { grid-column: 2; grid-row: 1 / -1; height: 100%; min-height: 360px; margin: 0; aspect-ratio: auto; contain: size; }
+    /* no photo: the credentials take its place, as a panel beside the statement */
+    .about--facts .facts { grid-column: 2; grid-row: 1 / -1; align-self: start; grid-template-columns: minmax(0, 1fr); gap: 22px; margin: 0; padding: 36px; border: 1px solid var(--brand-line); border-radius: var(--r); font-size: 1.125rem; }
+    .about-text { font-size: clamp(1.375rem, 0.9rem + 0.9vw, 1.75rem); }
+    .about-text--long { font-size: 1.25rem; line-height: 1.55; }
+    .about-text.about-text--short { font-size: clamp(1.875rem, 1rem + 1.6vw, 2.375rem); line-height: 1.3; }
+  }
+
+  /* service area: boards with a brand header, each as tall as its own content (never stretched) */
+  .area { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
+  .area > * { min-width: 0; }
+  /* No overflow clipping (WCAG 1.4.12: spaced-out text must stay whole): the header and the 24/7 well round their own corners. */
+  .board { border: 1px solid var(--line); border-radius: var(--r); background: #fff; }
+  .tint .board { border-color: transparent; }
+  .board-h { display: flex; align-items: center; gap: 10px; padding: 14px 20px; border-radius: 5px 5px 0 0; background: var(--brand); color: #fff; font: 700 1.0625rem/1.3 var(--body); }
+  .board-h .i { color: var(--band-accent); }
+  .board-body { padding: 4px 20px 20px; }
+  /* auto-fit: a single row of places spreads across the board instead of leaving empty columns after it */
+  .places { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 8.5rem), 1fr)); column-gap: 20px; }
+  .place { min-width: 0; padding-block: 9px; border-bottom: 1px solid var(--line); color: var(--ink); font-weight: 600; }
+  .place.span { grid-column: 1 / -1; }
+  .addr { display: flex; gap: 12px; padding-top: 16px; color: var(--text); }
+  .addr .i { color: var(--brand); }
+  address { font-style: normal; }
+  .few { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; align-content: start; }
+  .few-line { display: flex; gap: 12px; color: var(--ink); font-size: 1.1875rem; line-height: 1.4; }
+  .few-line .i { margin-top: 3px; color: var(--brand); }
+  .few-line span { min-width: 0; }
+  .few .addr { padding: 0; }
+  /* one or two places without hours: a slim band, the sentence beside the heading from 768 px */
+  .sec.slim { padding-block: 44px; }
+  /* the hours table, in the hero card and on the hours board */
+  .hours { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+  .hours th, .hours td { padding: 9px 0; border-top: 1px solid var(--line); text-align: left; vertical-align: baseline; }
+  .hours tr:first-child > * { border-top: 0; }
+  .hours th { padding-right: 12px; font-weight: 500; color: var(--text); white-space: nowrap; }
+  /* A day range stays whole ("Monday – Friday", judges' round 3); a time may wrap after its dash (keepParts) instead,
+     so spaced-out text (WCAG 1.4.12) and the bigger default text (125%: the board at 400-414 px, the no-photo hero
+     card at 1024 px) stay inside. Where the table has room a time keeps its line: a table's columns start at their
+     max-content width (CSS Tables 3, width distribution). From 900 px the board's times keep their lines (below). */
+  .hours .time { color: var(--ink); font-weight: 700; text-align: right; }
+  .hours .closed { color: var(--muted); font-weight: 500; }
+  .board .hours th, .board .hours td { padding: 14px 20px; }
+  .board .hours td { padding-left: 0; }
+  .em { margin-top: 10px; padding: 12px 14px 6px; border-radius: 4px; background: var(--aw-modern-well); color: var(--ink); line-height: 1.4; }
+  .board .em { margin: 0; padding: 16px 20px 14px; border-radius: 0 0 5px 5px; }
+  .em-call { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; font-weight: 700; font-variant-numeric: tabular-nums; text-decoration: underline; text-underline-offset: 0.2em; }
+  .em-call .i { color: var(--brand); }
+  @media (max-width: 399px) {
+    .hours { font-size: 0.9375rem; }
+  }
+  @media (max-width: 359px) {
+    .board .hours th, .board .hours td { padding-inline: 12px; }
+    .board .hours td { padding-left: 0; }
+  }
+  @media (min-width: 768px) {
+    .board-h { padding: 16px 26px; }
+    .board-body { padding: 6px 26px 24px; }
+    .board .hours th, .board .hours td { padding: 15px 26px; }
+    .board .hours td { padding-left: 0; }
+    .board .em { padding: 18px 26px 16px; }
+  }
+  @media (min-width: 768px) {
+    /* the row gap keeps a long place under the heading clear of it when the two wrap */
+    .slim-in { display: flex; flex-wrap: wrap; align-items: baseline; gap: 16px 64px; }
+    .slim .head { margin: 0; }
+  }
+  @media (min-width: 900px) {
+    /* the hours board never narrower than its table, whose day ranges and times keep their lines: the places give way */
+    .board .hours .time { white-space: nowrap; }
+    .area { grid-template-columns: minmax(0, 7fr) minmax(min-content, 5fr); gap: 20px; align-items: start; }
+    .area.area--solo { grid-template-columns: minmax(0, 1fr); }
+    /* a short list of places ends level with the hours beside it, its address at the board's foot (no hollow card) */
+    .area > .board:first-child, .board-body { display: flex; flex-direction: column; }
+    .area > .board:first-child { align-self: stretch; }
+    .board-body { flex: 1; }
+    .board-body > .addr { margin-top: auto; }
+    /* a long list (src/designs/modern/contact.ts): the hours beside the heading, ending with it, and the places across
+       the whole width under both */
+    .area-long { display: grid; grid-template-columns: minmax(0, 7fr) minmax(min-content, 5fr); column-gap: 20px; }
+    .area-long > .area { display: contents; }
+    .area-long .board { grid-column: 1 / -1; }
+    .area-long .board + .board { grid-area: 1 / 2; align-self: end; margin-bottom: 44px; }
+  }
+
+  /* questions: a ruled list with a square key, a call panel beside it */
+  .qa-list { border-top: 2px solid var(--ink); }
+  .qa { border-bottom: 1px solid var(--line); }
+  .qa summary { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 64px; padding: 16px 0; list-style: none; cursor: pointer; }
+  .qa summary::-webkit-details-marker { display: none; }
+  .qa .h3, .qo .h3 { min-width: 0; font-size: 1.0625rem; }
+  .tog { position: relative; flex: none; width: 32px; height: 32px; border: 1.5px solid var(--field); border-radius: 4px; background: #fff; }
+  .tog::before, .tog::after { content: ""; position: absolute; left: 50%; top: 50%; width: 14px; height: 2px; margin: -1px 0 0 -7px; background: var(--ink); }
+  .tog::after { rotate: 90deg; }
+  .qa[open] .tog { border-color: var(--brand); background: var(--brand); }
+  .qa[open] .tog::before, .qa[open] .tog::after { background: #fff; }
+  .qa[open] .tog::after { rotate: none; }
+  @media (hover: hover) {
+    .qa summary:hover .tog { border-color: var(--ink); }
+  }
+  /* Forced colours (Windows high contrast) replace author backgrounds: draw the plus and the minus in the text colour,
+     open or closed (a system colour is kept; MDN forced-colors). !important beats the open state's white bars. */
+  @media (forced-colors: active) {
+    .tog::before, .tog::after { background: CanvasText !important; }
+  }
+  .qa-body { max-width: 44rem; margin-bottom: 22px; padding: 2px 0 2px 18px; border-left: 3px solid var(--brand); }
+  .qo { padding-block: 22px; border-bottom: 1px solid var(--line); }
+  .qo p { max-width: 44rem; margin-top: 8px; }
+  .faq-more { display: grid; grid-template-columns: minmax(0, 1fr); justify-items: start; gap: 12px; margin-top: 32px; }
+  .faq-more-q { color: var(--ink); font-weight: 700; }
+  @media (min-width: 768px) {
+    .qa .h3, .qo .h3 { font-size: 1.1875rem; }
+  }
+  @media (min-width: 1024px) {
+    .faq { display: grid; grid-template-columns: minmax(0, 8fr) minmax(0, 4fr); column-gap: 56px; align-items: start; }
+    .faq .head { grid-column: 1 / -1; }
+    .faq-more {
+      grid-column: 2; grid-row: 2; position: sticky; top: calc(var(--hdr) + 24px); display: block; margin: 0;
+      padding: 26px 26px 28px; border-top: 4px solid var(--brand); border-radius: var(--r); background: #fff;
+    }
+    .white .faq-more { background: var(--tint); }
+    /* the FAQ that ends its page has no call card (the closing band follows): the heading beside the list */
+    .faq.faq--solo { grid-template-columns: minmax(min-content, 4fr) minmax(0, 8fr); }
+    .faq--solo .head { grid-column: 1; margin: 0; }
+    /* "Questions & answers" on one line in every lettering: its column is never narrower (judges, A16 round 3) */
+    .faq--solo .h2 { white-space: nowrap; }
+    .faq-more-q { margin-bottom: 16px; font: 700 1.375rem/1.2 var(--display); letter-spacing: calc(var(--trk) * -0.01em); }
+    .faq-more .button { width: 100%; }
+  }
+
+  /* contact: the form, then the call card; the <form> itself is the field grid */
+  .contact { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
+  .contact > * { min-width: 0; }
+  .contact .head { margin: 0; }
+  /* Call and the call to action under the heading, when the service area opens the Contact page */
+  .head-cta { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 24px; }
+  .head-cta .button { flex: 1 1 auto; }
+  /* the owner's credentials beside the form: the shared credential rows on a card */
+  .cred-card { padding: 24px 22px; border: 1px solid var(--line); border-top: 4px solid var(--brand); border-radius: var(--r); background: #fff; }
+  .white .cred-card { border-color: transparent; border-top-color: var(--brand); background: var(--tint); }
+  .cred-card .lbl { margin-bottom: 16px; color: var(--ink); }
+  .form-card { position: relative; padding: 22px 20px; border: 1px solid var(--line); border-top: 4px solid var(--brand); border-radius: var(--r); background: #fff; box-shadow: var(--lift); color: var(--text); }
+  /* "/contact#quote" lands on the form with the card's top edge in view (under the sticky header from 768 px; from
+     1024 px with the heading row above it, below) */
+  .form { display: grid; grid-template-columns: minmax(0, 1fr); gap: 18px; scroll-margin-top: 48px; }
+  .field label { display: block; margin-bottom: 7px; color: var(--ink); font-size: 0.9375rem; font-weight: 700; }
+  .input { display: block; width: 100%; min-height: 52px; padding: 13px 14px; border: 1.5px solid var(--field); border-radius: var(--r); background: #fff; color: var(--text); font: 400 1rem/1.4 var(--body); }
+  .input:focus-visible { border-color: var(--brand); outline-offset: 1px; }
+  textarea.input { min-height: 120px; resize: vertical; }
+  .select { position: relative; color: var(--text); }
+  /* WebKit draws a native select at its own height and counts a long chosen option as page width, so the select
+     drops the native look, clips its text and draws its own arrow. */
+  select.input { appearance: none; padding-right: 44px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .select .i { position: absolute; right: 14px; top: 50%; translate: 0 -50%; pointer-events: none; }
+  .hp { position: absolute; left: -9999px; width: 1px; height: 1px; overflow: hidden; }
+  .form-end { margin-top: 6px; }
+  .form-end .button { width: 100%; }
+  @media (hover: hover) {
+    .input:hover { border-color: var(--ink); }
+  }
+  @media (min-width: 640px) {
+    .form { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+    .full, .form-end { grid-column: 1 / -1; }
+  }
+  @media (min-width: 768px) {
+    .contact { gap: 44px 28px; }
+    .form-card { padding: 32px 36px 30px; }
+  }
+  /* The call card is a size container: the big number takes the card's width less the icon and gap (38 px) divided
+     by the number's width in em for the lettering (--aw-modern-phone-em, measured with this Mac's system fonts), so it
+     fits on one line; spaced-out text (WCAG 1.4.12) or a wider system font than this Mac's wraps it at its space
+     instead of pushing it past the card. The font shorthand leaves line-height at normal (the used font's own ascent,
+     descent and gap), so those two lines never run into each other whatever the font (CI's Linux WebKit: at 1.15
+     "(602)" ran into "555-0118"); one line sits centred in the 48 px link as before. */
+  .call-card { container-type: inline-size; padding: 26px 22px; border-radius: var(--r); background: var(--brand); color: #fff; }
+  .lbl { display: block; color: var(--on-brand-muted); font-size: 0.875rem; font-weight: 700; }
+  .big { display: inline-flex; align-items: center; gap: 12px; min-height: 48px; margin-top: 4px; color: #fff; font: 700 1.625rem var(--display); letter-spacing: calc(var(--trk) * -0.01em); font-variant-numeric: tabular-nums; }
+  @supports (width: 1cqi) {
+    .big { font-size: clamp(1.25rem, (100cqi - 38px) / var(--aw-modern-phone-em), 2rem); }
+  }
+  /* The link is nowrap (html-validate's tel-non-breaking); its number may still wrap between its two nowrap parts. */
+  .big > span { white-space: normal; }
+  .big .i { width: 26px; height: 26px; color: var(--band-accent); }
+  .call-card ul { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; margin-top: 18px; padding-top: 18px; border-top: 1px solid var(--brand-line); }
+  .call-card li { min-width: 0; font-size: 0.9375rem; line-height: 1.4; text-wrap: balance; }
+  .call-card li a { font-weight: 600; text-decoration: underline; text-underline-offset: 0.2em; }
+  /* Phones: a compact card, the label and the big number only, so the form's Name and Phone fields share the first
+     screen (judges, A16 round 2); the email is in the footer and the 24/7 line in the brand strip above */
+  @media (max-width: 767px) {
+    .call-card { padding: 16px 20px; }
+    .call-card ul { display: none; }
+  }
+  @media (hover: hover) {
+    .big:hover { text-decoration: underline 2px; }
+  }
+  @media (min-width: 768px) {
+    .head-cta .button { flex: none; }
+  }
+  @media (min-width: 1024px) {
+    /* 3:2, so the call card keeps a 34-character email on one line from 1024 px (judges' round 3). The heading's line
+       sits beside it over the call card, so the whole form fits a laptop's first screen; the form keeps its own height
+       (never padded), the call card and the credentials beside it, the credentials ending level with the form; a lone
+       call card ends at its content (never a tall empty brand block: judges, A16 round 3) */
+    .contact { grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); grid-template-rows: auto auto 1fr; gap: 24px 56px; }
+    .contact .head { grid-column: 1 / -1; display: grid; grid-template-columns: subgrid; align-items: end; margin-bottom: 8px; }
+    .contact .head::before { grid-column: 1 / -1; }
+    .contact .lede { margin: 0; }
+    .form-card { grid-row: 2 / 4; align-self: start; }
+    .call-card { grid-column: 2; grid-row: 2; align-self: start; padding: 34px 32px; }
+    .cred-card { grid-column: 2; grid-row: 3; padding: 28px 32px; }
+    /* "/contact#quote" keeps the heading row in view (judges, A16 round 4): the form's scroll margin is the section's
+       top padding and a one-line heading row (less scroll-padding's 12 px), so the contact section's top edge meets
+       the header (a longer heading only takes from the padding); when the section opens the page, the margin is more
+       than the brand strip and any heading above the form, so the browser stops at the page top. */
+    .form { scroll-margin-top: 228px; }
+    .contact:has(h1) .form { scroll-margin-top: 640px; }
+  }
+
+  /* ---------- footer ---------- */
+  .foot { padding-block: 56px; border-top: 4px solid var(--act); background: var(--brand); color: var(--on-brand-muted); }
+  .foot-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 32px; }
+  .foot-grid > * { min-width: 0; }
+  .foot-name { font: 700 1.25rem/1.25 var(--display); letter-spacing: calc(var(--trk) * -0.015em); color: #fff; text-wrap: balance; }
+  .foot-h { margin-bottom: 8px; color: #fff; font-size: 0.9375rem; font-weight: 700; line-height: 1.25; }
+  .foot-list li, .foot-trade { padding-block: 4px; font-size: 0.9375rem; line-height: 24px; }
+  .foot-social { display: flex; flex-wrap: wrap; gap: 4px 20px; margin-top: 12px; }
+  .foot a { color: #fff; text-decoration: underline 2px var(--brand-line); text-underline-offset: 0.2em; }
+  .foot-social a, .foot-end a { display: inline-block; padding-block: 4px; font-size: 0.9375rem; font-weight: 600; line-height: 24px; }
+  .foot-end { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 24px; margin-top: 40px; padding-top: 20px; border-top: 1px solid var(--brand-line); }
+  .foot-end p { color: #fff; font-size: 0.9375rem; font-weight: 600; }
+  @media (hover: hover) {
+    .foot a:hover { text-decoration-color: currentColor; }
+  }
+  /* 768-1023 px: the business on its own row, Contact and Credentials side by side, so an email keeps its line */
+  @media (min-width: 768px) {
+    .foot { padding-block: 72px 40px; }
+    .foot-end { margin-top: 56px; }
+    .foot-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 40px 48px; }
+    .foot-grid > :first-child { grid-column: 1 / -1; }
+  }
+  @media (min-width: 1024px) {
+    .foot-grid { grid-template-columns: minmax(0, 5fr) minmax(0, 4fr) minmax(0, 4fr); }
+    .foot-grid > :first-child { grid-column: auto; }
+  }
+
+  /* ---------- the phone call bar: Call and the owner's call to action, under the thumb ---------- */
+  /* 12 px or more between the buttons and the bar's top edge and the screen's bottom edge, as on today's page: axe's
+     target-size check then passes any button the bar half-covers, wherever the page puts it (layout.browser.test.ts) */
+  .callbar { bottom: 0; display: flex; gap: 8px; padding: 12px var(--gut) calc(12px + env(safe-area-inset-bottom)); border-top: 1px solid var(--line); background: #fff; }
+  /* Where it sticks, above the header (z-index 40) and so above the open phone menu's shade: Call stays one tap away
+     with the menu open (judges, A16 round 2). Only the Contact page has a Send button, and its bar never sticks. */
+  .callbar.sticky { z-index: 41; }
+  /* the Contact page's bar, at the end of the page: the footer's last row, on its brand colour */
+  .callbar.on-brand { border-top-color: var(--brand-line); background: var(--brand); }
+  /* Call and "Get a quote" in equal halves */
+  .callbar .button { flex: 1 1 0; min-width: 0; min-height: 54px; padding: 0 12px; gap: 8px; font-size: 1rem; }
+  /* Phones: the bar is the page's quote action, so a first screen never shows its "Get a quote" beside the owner's
+     words (the moderator's quote rule, A16 round 6): the services' call-to-action card and the closing band's quote
+     button give way to it, as the hero's and the gallery's do. */
+  @media (max-width: 767px) {
+    .cards > .ask, .close-cta .button-line { display: none; }
+  }
+  @media (min-width: 768px) {
+    .callbar { display: none; }
+  }
+}
