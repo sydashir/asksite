@@ -193,3 +193,25 @@ export function turnstileRenders(page: Page): Promise<Array<{ sitekey: string; a
 export async function waitForSecurityCheck(page: Page) {
   await expect(page.locator("[data-stub-turnstile][data-state=solved]")).toHaveCount(1);
 }
+
+/** Asks for new wording through the dialog. Returns the generation's id; finish it with finishGeneration. */
+export async function askNewWording(page: Page, siteId: string): Promise<string> {
+  await page.getByRole("tab", { name: "Words" }).click();
+  await page.getByRole("button", { name: "Write new wording" }).click();
+  const [started] = await Promise.all([
+    page.waitForResponse((r) => r.url().endsWith(`/api/sites/${siteId}/generations`) && r.request().method() === "POST"),
+    page.getByRole("dialog", { name: "Write new wording?" }).getByRole("button", { name: "Write new wording" }).click(),
+  ]);
+  return ((await started.json()) as { generation: { id: string } }).generation.id;
+}
+
+/** Answers the next `count` GETs of the site (or every one, with Infinity) with a 503, once armed. Returns how many it failed. */
+export async function failSiteGets(page: Page, siteId: string, count: number) {
+  const gate = { armed: false, failed: 0 };
+  await page.route(`**/api/sites/${siteId}`, (route) => {
+    if (!gate.armed || route.request().method() !== "GET" || gate.failed >= count) return route.fallback();
+    gate.failed += 1;
+    return route.fulfill({ status: 503, json: { error: { code: "internal", message: "Something went wrong. Please try again." } } });
+  });
+  return gate;
+}

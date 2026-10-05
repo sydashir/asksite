@@ -2,7 +2,7 @@ import { PALETTES } from "@asksite/renderer";
 import { expect, test, type Browser, type Page, type Request } from "@playwright/test";
 import sharp from "sharp";
 import { sheetsChunk } from "./dist-assets.ts";
-import { acceptInvite, apiCall, APP, BRIEF, builtSite, expectAccessible, expectNoSidewaysScroll, FACTS, finishGeneration, showPreview, uniqueSlug, watchCsp } from "./support.ts";
+import { acceptInvite, apiCall, APP, askNewWording, BRIEF, builtSite, expectAccessible, expectNoSidewaysScroll, FACTS, failSiteGets, finishGeneration, showPreview, uniqueSlug, watchCsp } from "./support.ts";
 
 const FRAME = 'iframe[title="Preview of your website"]';
 const previewHtml = (page: Page) => page.locator(FRAME).getAttribute("srcdoc");
@@ -426,17 +426,6 @@ const green = (page: Page) => page.getByRole("group", { name: "Colors and letter
 const other = (page: Page) => page.getByRole("group", { name: "Colors and lettering" }).getByLabel(/Charcoal & red/);
 const savedTheme = async (page: Page, siteId: string) => ((await apiCall(page, "GET", `/api/sites/${siteId}`)).json?.["edits"] as { theme: { palette: string } | null }).theme?.palette ?? null;
 
-/** Asks for new wording through the dialog. Returns the generation's id; finish it with finishGeneration. */
-async function askNewWording(page: Page, siteId: string): Promise<string> {
-  await page.getByRole("tab", { name: "Words" }).click();
-  await page.getByRole("button", { name: "Write new wording" }).click();
-  const [started] = await Promise.all([
-    page.waitForResponse((r) => r.url().endsWith(`/api/sites/${siteId}/generations`) && r.request().method() === "POST"),
-    page.getByRole("dialog", { name: "Write new wording?" }).getByRole("button", { name: "Write new wording" }).click(),
-  ]);
-  return ((await started.json()) as { generation: { id: string } }).generation.id;
-}
-
 /** Holds the next GET of the site, answering with what the server said at that moment (so it can go stale while held). */
 async function holdNextSiteGet(page: Page, siteId: string) {
   const gate: { armed: boolean; reached: boolean; release: () => void } = { armed: false, reached: false, release: () => undefined };
@@ -562,17 +551,6 @@ function watchDraftSaves(page: Page, siteId: string) {
     if (body.edits !== undefined) bases.push(body.edits.baseGenerationId);
   });
   return bases;
-}
-
-/** Answers the next `count` GETs of the site (or every one, with Infinity) with a 503, once armed. Returns how many it failed. */
-async function failSiteGets(page: Page, siteId: string, count: number) {
-  const gate = { armed: false, failed: 0 };
-  await page.route(`**/api/sites/${siteId}`, (route) => {
-    if (!gate.armed || route.request().method() !== "GET" || gate.failed >= count) return route.fallback();
-    gate.failed += 1;
-    return route.fulfill({ status: 503, json: { error: { code: "internal", message: "Something went wrong. Please try again." } } });
-  });
-  return gate;
 }
 
 test("when the new wording cannot be fetched at first, it is fetched again and later edits apply to it", async ({ page }) => {
