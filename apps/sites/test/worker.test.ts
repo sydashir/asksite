@@ -334,7 +334,7 @@ describe("page routing on a site host", () => {
     });
   });
 
-  // The pointer's "writer" (which action wrote it, so a take-back deletes only its own write) is for the publishing
+  // The pointer's "writer" (which action wrote it, so a take-back with its lease lost deletes only its own write) is for the publishing
   // package alone: the Worker must serve the same bytes, headers and business data with it and without it.
   describe("the pointer's writer key", () => {
     const pages = { [livePageKey(slug, VERSION, "home")]: "<p>home</p>", [livePageKey(slug, VERSION, "services")]: "<p>services</p>" };

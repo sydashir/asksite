@@ -850,7 +850,8 @@ describe("removeOtherVersions stops when D1 moved on (test 8)", () => {
   });
 });
 
-// A take-back removes only its own pointer write (the pointer's "writer" is the writing action's own id). An action that
+// With its lease lost, a take-back removes only its own pointer write (the pointer's "writer" is the writing action's own
+// id; while it holds the lease on a down site it removes any pointer, tested further below). An action that
 // outlived its lease can find the site down because another action has written ITS pointer but not yet cleared
 // taken_down_at: that pointer is not the old action's to delete.
 describe("a take-back leaves another action's pointer (test 9)", () => {

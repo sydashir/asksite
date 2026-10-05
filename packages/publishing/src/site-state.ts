@@ -179,8 +179,9 @@ async function restoreUnderLease(
   // write its pointer between them and lose it (see takeBackPointer). Likewise, a re-read that THROWS after another
   // restore made the site live is treated as down (a pointer never stays on a site that may be down): this action's own
   // pointer, if the other restore's did not replace it, is taken out of a live site, and a HEAD that throws deletes whoever's
-  // it is. Only possible when this action outlived its lease (over ADMIN_LEASE_MS). Restore again or Copy the live pages
-  // again heals it (`healed: true`).
+  // it is. Losing a VALID pointer this way needs this action to have outlived its lease (over ADMIN_LEASE_MS); another
+  // action's late put landing in that gap while this action holds its lease only removes a late pointer from a down site.
+  // Restore again or Copy the live pages again heals it (`healed: true`).
   const pointerBackIfDown = async (): Promise<(TakeBackRow & { live_version_id: string | null }) | null> => {
     let after: (TakeBackRow & { live_version_id: string | null }) | null = null;
     try {

@@ -165,7 +165,7 @@ export async function copyLivePages(live: R2Bucket, slug: string, ids: { siteId:
 /**
  * The one write that switches the site to a version: an empty object whose metadata names it (and the business) and the
  * writing action's `writeId` as "writer" (a random id of that one call, never the lease token, which stays in D1). The
- * sites Worker ignores the writer; takeBackOwnPointer reads it.
+ * sites Worker ignores the writer; takeBackPointer reads it.
  */
 export async function writeLivePointer(
   live: R2Bucket,
@@ -187,7 +187,8 @@ export interface TakeBackRow {
  * action's own lease token still holds it. acquireLease writes a NEW token on every takeover, so a matching token proves
  * no other action took the site over since this one did: whatever pointer is there now is stale or this action's own,
  * and a down site must not keep it. No expiry check is needed for the same reason. The one place this is decided: every
- * take-back caller passes the row it re-read here, none computes it itself.
+ * take-back caller passes holdsDownSite of the row it re-read; where that re-read threw there is no row, so the caller
+ * passes false, the same answer holdsDownSite(null, token) gives (no lease can be shown without a row).
  */
 export function holdsDownSite(row: TakeBackRow | null, token: string): boolean {
   return row !== null && row.taken_down_at !== null && row.admin_lock === token;
@@ -214,6 +215,7 @@ export function holdsDownSite(row: TakeBackRow | null, token: string): boolean {
  * pointer until Restore or Copy the live pages again writes it (`healed: true`). Also, with `anyPointer`: a takeover, its
  * full page copy and its pointer put all landing between the caller's re-read and the delete (then this delete removes the
  * new holder's pointer: the site is live with no pointer until Restore again / Copy the live pages again heals it).
+ * RULED RESIDUAL (moderator, 2026-10-05): a stale pointer from an earlier failed take-back stays on a down site when this action's re-read throws or its lease is lost; the host's 404 may show the business name until Take down again (logged takedown_pointer_left).
  */
 export async function takeBackPointer(
   live: R2Bucket,
