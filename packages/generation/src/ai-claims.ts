@@ -58,9 +58,13 @@ const AND = `(?:${J}and${J}|${J}?&${J}?)`;
 /** What follows "lic" in "lic and ins" / "lic & ins": AND, then "ins" (a dot after "ins" is the caller's). */
 const LIC_AND_INS = `${AND}ins\\b`;
 
-/** claims.ts's own backing for its seven-days rule (24/7 service, or opening hours on all seven days), taken from NEEDS_A_FACT. */
-const sevenDaysBacking = NEEDS_A_FACT.find(({ pattern }) => pattern.test("seven days a week"))?.backedBy;
-if (sevenDaysBacking === undefined) throw new Error("claims.ts lost its seven-days rule");
+/**
+ * claims.ts's own backing for its seven-days rule (24/7 service, or opening hours on all seven days), taken from NEEDS_A_FACT.
+ * Shared: the availability words below are checked with it, and prompt.ts computes its availability entry from it.
+ */
+const sevenDaysRule = NEEDS_A_FACT.find(({ pattern }) => pattern.test("seven days a week"));
+if (sevenDaysRule === undefined) throw new Error("claims.ts lost its seven-days rule");
+export const sevenDaysBacking: (facts: Facts) => boolean = sevenDaysRule.backedBy;
 
 /** Wording allowed only when the owner's facts back it. */
 const NEEDS_A_FACT_IN_AI_COPY: ReadonlyArray<{ readonly pattern: RegExp; readonly backedBy: (facts: Facts) => boolean }> = [
