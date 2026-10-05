@@ -42,6 +42,28 @@ test("sign in with an emailed link; the button, not the page load, uses the toke
   await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible();
 });
 
+// Decision 31 on the invite page: the token leaves the address bar on open, and only the button spends it.
+test("the invite page removes the token from the address on open, sends nothing until the button, and the button spends it @mobile", async ({ page }) => {
+  const email = uniqueEmail("invite31");
+  const res = await page.request.post(`${APP}/__test/invites`, { data: { email } });
+  const { token } = (await res.json()) as { token: string };
+  const claims: string[] = [];
+  page.on("request", (request) => request.url().includes("/api/auth/invite/accept") && claims.push(request.method()));
+
+  await page.goto(`/invite#${token}`);
+  const accept = page.getByRole("button", { name: "Set up my website" });
+  await expect(accept).toBeVisible();
+  await expect.poll(() => new URL(page.url()).hash).toBe("");
+  expect(page.url()).not.toContain(token);
+  await page.waitForLoadState("networkidle");
+  expect(claims).toEqual([]); // opening the link (a mail scanner does this) spends nothing
+  expect((await page.request.get(`${APP}/api/me`)).status()).toBe(401); // and signs nobody in
+
+  await accept.click(); // the token was read before the address was cleaned, so the button still has it
+  await page.waitForURL(/\/sites\/[0-9a-f-]{36}\/setup\/business$/);
+  expect(claims).toEqual(["POST"]);
+});
+
 test("an invite link without a token says so, and loads no security check @mobile", async ({ page }) => {
   const requested = await stubTurnstile(page);
   await page.goto("/invite");
