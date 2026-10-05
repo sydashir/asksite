@@ -588,6 +588,42 @@ describe.each(ENGINES)("Modern in %s", (_engine, engine) => {
     expect(found).toEqual([]);
   }, 60_000);
 
+  // CI run 37320503723 (WebKit on Linux): lettering wider than this Mac's wrapped the call card's number at 320 px,
+  // and "(602)" ran into "555-0118" on the line under it. Wider lettering here: letter-spacing up 0.05em, and Verdana
+  // (its digits about as wide as DejaVu Sans, Linux's usual fallback).
+  it("keeps the call card's number in two whole parts, clear of each other and inside the card, on phones in wider lettering, in every lettering (CI, Linux)", async () => {
+    const found: string[] = [];
+    const WIDER = [
+      ["spaced 0.05em", ".big { letter-spacing: calc(var(--trk) * -0.01em + 0.05em); }"],
+      ["Verdana", ".big { font-family: Verdana; }"],
+    ] as const;
+    const parts = () => {
+      const card = document.querySelector(".call-card").getBoundingClientRect();
+      const spans = [...document.querySelectorAll(".call-card .big .whitespace-nowrap")];
+      const out: string[] = spans.length === 2 ? [] : [`${spans.length} parts`];
+      for (const span of spans) {
+        const range = document.createRange();
+        range.selectNodeContents(span);
+        const rects = [...range.getClientRects()].filter((r) => r.width > 0.5);
+        if (new Set(rects.map((r) => Math.round(r.top))).size !== 1) out.push(`"${span.textContent}" breaks`);
+        if (rects.some((r) => r.left < card.left - 1 || r.right > card.right + 1)) out.push(`"${span.textContent}" leaves the card`);
+      }
+      return out;
+    };
+    for (const name of FIXTURES) {
+      for (const font of FONT_IDS) {
+        for (const [wider, css] of WIDER) {
+          await open(page(name, font, "contact"), 320, css);
+          for (const width of [320, 340, 360, 390]) {
+            await tab.setViewportSize({ width, height: 800 });
+            for (const problem of [...(await tab.evaluate(lostText)), ...(await tab.evaluate(parts))]) found.push(`${name} ${font} ${wider} ${width}: ${problem}`);
+          }
+        }
+      }
+    }
+    expect(found).toEqual([]);
+  }, 300_000);
+
   // A16 round 1's judges: the preview's rows were bordered white boxes (they looked tappable but are not links), a long
   // name pushed its price onto a second line on phones, and from 1024 px the heading's column stood empty beside them.
   // Round 2's judges: each column also carries the owner's line about the service, the lines of a row start level

@@ -725,11 +725,14 @@
     .form-card { padding: 32px 36px 30px; }
   }
   /* The call card is a size container: the big number takes the card's width less the icon and gap (38 px) divided
-     by the number's width in em for the lettering (--aw-modern-phone-em), so it fits on one line; spaced-out text
-     (WCAG 1.4.12) wraps it at its space instead of pushing it past the card. */
+     by the number's width in em for the lettering (--aw-modern-phone-em, measured with this Mac's system fonts), so it
+     fits on one line; spaced-out text (WCAG 1.4.12) or a wider system font than this Mac's wraps it at its space
+     instead of pushing it past the card. The font shorthand leaves line-height at normal (the used font's own ascent,
+     descent and gap), so those two lines never run into each other whatever the font (CI's Linux WebKit: at 1.15
+     "(602)" ran into "555-0118"); one line sits centred in the 48 px link as before. */
   .call-card { container-type: inline-size; padding: 26px 22px; border-radius: var(--r); background: var(--brand); color: #fff; }
   .lbl { display: block; color: var(--on-brand-muted); font-size: 0.875rem; font-weight: 700; }
-  .big { display: inline-flex; align-items: center; gap: 12px; min-height: 48px; margin-top: 4px; color: #fff; font: 700 1.625rem/1.15 var(--display); letter-spacing: calc(var(--trk) * -0.01em); font-variant-numeric: tabular-nums; }
+  .big { display: inline-flex; align-items: center; gap: 12px; min-height: 48px; margin-top: 4px; color: #fff; font: 700 1.625rem var(--display); letter-spacing: calc(var(--trk) * -0.01em); font-variant-numeric: tabular-nums; }
   @supports (width: 1cqi) {
     .big { font-size: clamp(1.25rem, (100cqi - 38px) / var(--aw-modern-phone-em), 2rem); }
   }
