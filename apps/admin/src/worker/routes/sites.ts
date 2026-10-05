@@ -1,4 +1,4 @@
-import { ApiError, auditStatement, logLine, readJson, runToEnd, siteNoticeEmail, trySend } from "@asksite/app-common";
+import { ApiError, auditStatement, cleanOwnerText, logLine, readJson, runToEnd, siteNoticeEmail, trySend } from "@asksite/app-common";
 import { DisableOwnerBody, IndexableBody, TakedownBody, type AuditRow, type GenerationRow, type SiteVersionRow } from "@asksite/core";
 import { Hono } from "hono";
 import { z } from "zod";
@@ -99,7 +99,9 @@ export function siteRoutes(deps: AdminDeps): Hono<AdminEnv> {
     // time the owner is told). The key names the takedown, so a second press of Finish is a repeat to the mail provider.
     const noticeDue = c.req.query("notice") === "due";
     const now = Date.now();
-    const ownerMessage = body.ownerMessage === undefined || body.ownerMessage === "" ? null : body.ownerMessage;
+    // The owner reads this message: hidden characters go first, and a message with nothing left is no message.
+    const cleanedMessage = cleanOwnerText(body.ownerMessage ?? "");
+    const ownerMessage = cleanedMessage === "" ? null : cleanedMessage;
     // The owner always hears about it, with the admin's message when there is one, and where to ask (decision 34).
     const email = siteNoticeEmail({ appOrigin: c.env.APP_ORIGIN, supportEmail: c.env.SUPPORT_EMAIL, ownerMessage });
     // Plan 2's takeDown commits a D1 batch, then deletes LIVE, then purges MEDIA: it runs to its end even if the client goes away.

@@ -598,3 +598,37 @@ describe("the takedown notice is sent once when two admins act at the same time"
     await h.backgroundDone(takedown(site.siteId));
   });
 });
+
+describe("the takedown's owner message is cleaned at the route input (lane B fix, 2026-10-05)", () => {
+  const takedown = (siteId: string) => `/api/admin/sites/${siteId}/takedown`;
+  const notice = async (email: string) => (await h.outbox(email)).find((m) => m.tag === "site_notice");
+
+  it("removes hidden characters from the email text and keeps newlines and U+200D", async () => {
+    const site = await h.pendingSite();
+    const res = await h.call("POST", takedown(site.siteId), { body: { reason: "Spam report", ownerMessage: "Please\u202E reply\u200B soon.\nThank \u{1F468}\u200D\u{1F469} you." } });
+    expect(await res.json()).toEqual({ noticeSent: true });
+    const text = (await notice(site.email))?.text ?? "";
+    expect(text).toContain("Please reply soon.\nThank \u{1F468}\u200D\u{1F469} you.");
+    expect(text).not.toMatch(/[\u202E\u200B]/);
+    await h.backgroundDone(takedown(site.siteId));
+  });
+
+  it("turns a lone CR into a newline, not into nothing", async () => {
+    const site = await h.pendingSite();
+    await h.call("POST", takedown(site.siteId), { body: { reason: "Spam report", ownerMessage: "line one\rline two" } });
+    expect((await notice(site.email))?.text).toContain("line one\nline two");
+    await h.backgroundDone(takedown(site.siteId));
+  });
+
+  it("treats a message that is empty after cleaning as no message: 200, the notice goes out without it", async () => {
+    const site = await h.pendingSite();
+    const res = await h.call("POST", takedown(site.siteId), { body: { reason: "Spam report", ownerMessage: "\u200B\u202E " } });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ noticeSent: true });
+    const empty = await h.pendingSite();
+    await h.call("POST", takedown(empty.siteId), { body: { reason: "Spam report" } });
+    expect((await notice(site.email))?.text.replace(site.email, "")).toBe((await notice(empty.email))?.text.replace(empty.email, ""));
+    await h.backgroundDone(takedown(site.siteId));
+    await h.backgroundDone(takedown(empty.siteId));
+  });
+});
