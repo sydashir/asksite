@@ -304,6 +304,44 @@ describe("review", () => {
     const again = await h.call("POST", `/api/admin/versions/${site.versionId}/reject`, { body: { note: "x" } });
     expect(again.status).toBe(409);
   });
+
+  // Task 26 step 4 (lane B fix, 2026-10-05): admin-typed text that reaches an owner is cleaned at the route input (the set the sites
+  // Worker's readLead cleans), so the stored note, which the owner's Publish page shows, and the email are the same clean text.
+  const storedNote = async (versionId: string) =>
+    (await (await h.db()).prepare("SELECT review_note FROM site_versions WHERE id = ?").bind(versionId).first<{ review_note: string | null }>())?.review_note;
+
+  it("cleans the rejection note: hidden characters are gone from the stored note and the email, newlines and U+200D stay", async () => {
+    const site = await h.pendingSite();
+    const note = "Use\u202E your\u200B own photos.\nThen \u{1F468}\u200D\u{1F469} publish.";
+    const res = await h.call("POST", `/api/admin/versions/${site.versionId}/reject`, { body: { note } });
+    expect(res.status).toBe(200);
+    const clean = "Use your own photos.\nThen \u{1F468}\u200D\u{1F469} publish.";
+    expect(await storedNote(site.versionId)).toBe(clean);
+    const email = (await h.outbox(site.email)).find((m) => m.tag === "review_result");
+    expect(email?.text).toContain(clean);
+    expect(email?.text).not.toMatch(/[\u202E\u200B]/);
+  });
+
+  it("turns a lone CR in the rejection note into a newline (not removed), and a tab into a space", async () => {
+    const site = await h.pendingSite();
+    expect((await h.call("POST", `/api/admin/versions/${site.versionId}/reject`, { body: { note: "first\rsecond\r\nthird\tfourth" } })).status).toBe(200);
+    expect(await storedNote(site.versionId)).toBe("first\nsecond\nthird fourth");
+  });
+
+  it("answers 422 like an empty note when nothing is left after cleaning, and rejects nothing", async () => {
+    const site = await h.pendingSite();
+    const res = await h.call("POST", `/api/admin/versions/${site.versionId}/reject`, { body: { note: "\u200B\u202E  " } });
+    expect(res.status).toBe(422);
+    expect(await storedNote(site.versionId)).toBeNull();
+    expect((await h.outbox(site.email)).filter((m) => m.tag === "review_result")).toEqual([]);
+  });
+
+  it("keeps the 1000-character cap: 1001 raw characters are refused, and a 1000-character note stores no more than 1000", async () => {
+    const site = await h.pendingSite();
+    expect((await h.call("POST", `/api/admin/versions/${site.versionId}/reject`, { body: { note: "a".repeat(1001) } })).status).toBe(422);
+    expect((await h.call("POST", `/api/admin/versions/${site.versionId}/reject`, { body: { note: `${"a\u200B".repeat(500)}` } })).status).toBe(200);
+    expect((await storedNote(site.versionId))?.length).toBe(500);
+  });
 });
 
 // P4-18b (web-maker-d3, 2026-09-30): the admin SPA FETCHES a stored page (same-origin, cors, empty) and

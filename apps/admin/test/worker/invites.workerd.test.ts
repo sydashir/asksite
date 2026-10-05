@@ -134,7 +134,7 @@ describe("invites", () => {
       expect(await revokeAuditRows(db, id)).toBe(1);
     });
 
-    it("changes nothing for an invite the owner has accepted (site_id set): 204, no revoked_at and no audit row", async () => {
+    it("refuses an invite the owner has already accepted (site_id set): 409 conflict with the used text, no revoked_at, no audit row, the invite still used", async () => {
       const { id } = await invited("accepted@example.com");
       const db = await h.db();
       // What lane A's accept batch leaves behind (apps/app/src/worker/routes/auth.ts:96-101): an owner, a site, and the invite pointing at both.
@@ -144,9 +144,16 @@ describe("invites", () => {
       await db.prepare("INSERT INTO owners (id, email, created_at) VALUES (?, ?, ?)").bind(ownerId, "accepted@example.com", now).run();
       await db.prepare("INSERT INTO sites (id, owner_id, created_at, updated_at) VALUES (?, ?, ?, ?)").bind(siteId, ownerId, now, now).run();
       await db.prepare("UPDATE invites SET used_at = ?, owner_id = ?, site_id = ? WHERE id = ?").bind(now, ownerId, siteId, id).run();
-      expect((await h.call("DELETE", `/api/admin/invites/${id}`)).status).toBe(204);
+      const res = await h.call("DELETE", `/api/admin/invites/${id}`);
+      expect(res.status).toBe(409);
+      expect(await res.json()).toEqual({ error: { code: "conflict", message: "This invite was already used, so it can't be revoked." } });
       expect(await revokedAt(db, id)).toBeNull();
       expect(await revokeAuditRows(db, id)).toBe(0);
+      const row = await db.prepare("SELECT used_at, site_id FROM invites WHERE id = ?").bind(id).first<{ used_at: number | null; site_id: string | null }>();
+      expect(row).toEqual({ used_at: now, site_id: siteId });
+      // The list still shows it as used.
+      const list = (await (await h.call("GET", "/api/admin/invites")).json()) as { invites: InviteView[] };
+      expect(list.invites.find((i) => i.id === id)).toMatchObject({ usedAt: now, revokedAt: null, siteId });
     });
 
     it("still revokes an invite the owner has claimed but not finished (used_at set, site_id NULL), so a rolled-back accept cannot reopen it", async () => {

@@ -1,4 +1,4 @@
-import { ApiError, checkEmailOrigin, readJson, reviewApprovedEmail, reviewRejectedEmail, reviewPageHeaders, runToEnd, storedPageKey, storedPages, trySend } from "@asksite/app-common";
+import { ApiError, checkEmailOrigin, cleanOwnerText, readJson, reviewApprovedEmail, reviewRejectedEmail, reviewPageHeaders, runToEnd, storedPageKey, storedPages, trySend } from "@asksite/app-common";
 import { ApproveBody, RejectBody, type AdminVersionDetail, type GenerationRow, type SiteVersionRow } from "@asksite/core";
 import { PAGES } from "@asksite/site-schema";
 import { Hono } from "hono";
@@ -111,7 +111,11 @@ export function reviewRoutes(deps: AdminDeps): Hono<AdminEnv> {
   });
 
   reviews.post("/versions/:versionId/reject", async (c) => {
-    const { note } = await readJson(c, RejectBody);
+    const typed = await readJson(c, RejectBody);
+    // The owner reads this note (the Publish page and the email): hidden characters go before it is stored (cleaning never lengthens it).
+    // A note with nothing left is as empty as a typed "" (RejectBody refuses that too).
+    const note = cleanOwnerText(typed.note);
+    if (note === "") throw new ApiError("validation_failed", "Some fields are not valid");
     const version = await versionRow(c.env.DB, c.req.param("versionId"));
     const { mailer, appOrigin } = ownerMail(c.env);
     let result;

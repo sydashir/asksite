@@ -26,6 +26,9 @@ const revokeAuditStatement = (db: D1Database, entry: { at: number; actor: string
     .prepare("INSERT INTO audit_log (at, actor, action, site_id, detail_json) SELECT ?, ?, ?, NULL, ? FROM invites WHERE id = ? AND revoked_at IS NULL AND site_id IS NULL")
     .bind(entry.at, entry.actor, entry.action, JSON.stringify({ inviteId: entry.inviteId }), entry.inviteId);
 
+/** The answer to a revoke that lost to an accept. */
+const INVITE_USED = "This invite was already used, so it can't be revoked.";
+
 /** Invites are always emailed and never shown to the admin (§3.2 step 2, §5.2). */
 export function inviteRoutes(deps: AdminDeps): Hono<AdminEnv> {
   const invites = new Hono<AdminEnv>();
@@ -79,14 +82,17 @@ export function inviteRoutes(deps: AdminDeps): Hono<AdminEnv> {
     // nothing and is not audited, because the audit INSERT runs first, under the UPDATE's own predicate.
     // An accept that has claimed the token but not finished (used_at set, site_id NULL) is still revoked,
     // so its rollback cannot reopen the invite. The last statement tells an unknown id (404) from one
-    // that needed nothing (204).
+    // that needed nothing (204) from one that was already used (409).
     const results = await db.batch([
       // Keep the action below a literal: plan Task 26's mutation test finds it in this file by its text.
       revokeAuditStatement(db, { at: now, actor: `admin:${c.get("admin")}`, action: "invite.revoked", inviteId }),
       db.prepare("UPDATE invites SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL AND site_id IS NULL").bind(now, inviteId),
-      db.prepare("SELECT id FROM invites WHERE id = ?").bind(inviteId),
+      db.prepare("SELECT id, site_id FROM invites WHERE id = ?").bind(inviteId),
     ]);
-    if (results[2]?.results.length !== 1) throw new ApiError("not_found", "Not found");
+    const found = results[2]?.results as Array<{ id: string; site_id: string | null }> | undefined;
+    if (found?.length !== 1) throw new ApiError("not_found", "Not found");
+    // The UPDATE cannot touch an invite whose accept finished (site_id set): that revoke lost the race, and saying "revoked" would be false.
+    if (found[0]?.site_id != null) throw new ApiError("conflict", INVITE_USED);
     return c.body(null, 204);
   });
 

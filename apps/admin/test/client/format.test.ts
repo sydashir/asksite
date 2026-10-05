@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { dollars, restoredText, takedownResult, worstCaseText } from "../../src/client/lib/format.ts";
+import { dollars, restoredText, revokeNotice, takedownResult, worstCaseText } from "../../src/client/lib/format.ts";
 
 describe("admin messages", () => {
   it("shows micro-dollars as dollars and cents", () => {
@@ -51,5 +51,18 @@ describe("takedownResult", () => {
   it("a finish that fails again shows the clean-up text with the button, keeping the earlier owner line", () => {
     const first = takedownResult({ noticeSent: false, cleanupFailed: true }, null);
     expect(takedownResult({ noticeSent: null, cleanupFailed: true }, first)).toEqual({ tone: "warning", text: `${NOT_EMAILED} ${CLEANUP}`, cleanupFailed: true, ownerNotEmailed: true });
+  });
+});
+
+describe("revokeNotice: the Invites screen's words after a revoke", () => {
+  it("says the invite was revoked only when the revoke worked", () => {
+    expect(revokeNotice({ ok: true }, "a@example.com")).toEqual({ tone: "success", text: "Invite for a@example.com revoked." });
+  });
+
+  it("shows the server's message as an error, never 'revoked', when the invite was already used", () => {
+    const used = { ok: false as const, error: { code: "conflict", message: "This invite was already used, so it can't be revoked." } };
+    const notice = revokeNotice(used, "a@example.com");
+    expect(notice).toEqual({ tone: "error", text: "This invite was already used, so it can't be revoked." });
+    expect(notice.text).not.toContain("Invite for a@example.com revoked.");
   });
 });
