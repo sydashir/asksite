@@ -123,10 +123,11 @@ describe("SYSTEM_PROMPT", () => {
 
   it("every word the prompt names as banned or gated is really rejected by Plan 1's validators", () => {
     expect(rejected(probe("drain"))).toBe(false);
-    // Today's counts (32 words and the seven days; twenty and hundreds; 15 claim words), so a parse that breaks fails.
-    expect(BANNED_WORDS.length).toBeGreaterThanOrEqual(39);
+    // Today's counts, so a parse that breaks fails: 65 banned words (58 listed and the seven days), 2 spelled-number examples
+    // (twenty, hundreds) and 30 gated claim words (every quoted item and every "(or ...)" item of the claim rule).
+    expect(BANNED_WORDS.length).toBeGreaterThanOrEqual(65);
     expect(SPELLED_NUMBERS.length).toBeGreaterThanOrEqual(2);
-    expect(GATED_WORDS.length).toBeGreaterThanOrEqual(15);
+    expect(GATED_WORDS.length).toBeGreaterThanOrEqual(30);
     expect([...BANNED_WORDS, ...SPELLED_NUMBERS, ...GATED_WORDS].filter((word) => !rejected(probe(word)))).toEqual([]);
   });
 

@@ -78,7 +78,9 @@ describe("AI claim check: insurance", () => {
   refused(MINIMAL_FACTS, [
     ["#8", "Covered by full liability coverage", ["liability"]],
     ["ins.", "Our ins. cleaning crew", ["ins."]],
+    ["liabilities", "We carry full liabilities coverage", ["liabilities"]],
   ]);
+  refused(EMERGENCY, [["liability needs insurance, not emergency service", "Liability coverage on every job", ["Liability"]]]);
   refused(LICENSED, [["liability needs insurance, not a licence", "Liability coverage for you", ["Liability"]]]);
   accepted(MINIMAL_FACTS, [
     ["check-ins.", "Easy check-ins."],
@@ -88,6 +90,7 @@ describe("AI claim check: insurance", () => {
   accepted(INSURED, [
     ["liability with the insured fact", "Covered by full liability coverage"],
     ["ins. with the insured fact", "Our ins. crew"],
+    ["liabilities with the insured fact", "We carry full liabilities coverage"],
   ]);
 });
 
@@ -101,6 +104,7 @@ describe("AI claim check: availability", () => {
     ["#16", "Open daily for your home", ["Open daily"]],
     ["available daily", "Available daily in Austin", ["Available daily"]],
     ["en dash joins", "After\u2013hours cleaning", ["After\u2013hours"]],
+    ["minus sign joins", "After\u2212hours cleaning", ["After\u2212hours"]],
   ]);
   refused(SIX_DAYS, [["six days of hours do not back it", "Here for you every day", ["every day"]]]);
   refused(LICENSED, [["a licence does not back it", "Open daily for your home", ["Open daily"]]]);
@@ -125,6 +129,10 @@ describe("AI claim check: response time", () => {
 });
 
 describe("AI claim check: free", () => {
+  refused(INSURED, [
+    ["insurance does not back free", "Stress-free cleaning", ["free"]],
+    ["insurance does not back zero cost", "Estimates at zero cost to you", ["zero cost"]],
+  ]);
   refused(MINIMAL_FACTS, [
     ["#9", "Estimates at zero cost to you", ["zero cost"]],
     ["#10", "Quotes are gratis and on the house", ["gratis"]],
@@ -180,8 +188,12 @@ describe("AI claim check: reviews", () => {
 describe("AI claim check: quote marks", () => {
   refused(MINIMAL_FACTS, [
     ["#22 single guillemets", "\u2039Best cleaners ever\u203A Dana", ["\u2039"]],
+    ["U+203A alone", "Best cleaners ever\u203A Dana", ["\u203A"]],
     ["#23 straight single quotes", "'Best cleaners ever' Dana", ["'Best cleaners ever'"]],
     ["single quotes after a colon", "Dana: 'Best cleaners ever'", ["'Best cleaners ever'"]],
+    ["single quotes after a comma", "As Dana put it,'best cleaners in Austin'", ["'best cleaners in Austin'"]],
+    ["single quotes after a semicolon", "As Dana put it;'best cleaners in Austin'", ["'best cleaners in Austin'"]],
+    ["single quotes after an em dash", "Dana\u2014'Best cleaners ever'", ["'Best cleaners ever'"]],
     ["single quotes closing a parenthesis", "Dana ('Best cleaners ever')", ["'Best cleaners ever'"]],
     ["single quotes opening with a parenthesis", "('Best cleaners ever') Dana", ["'Best cleaners ever'"]],
     ["#24 corner double primes", "\u301DBest cleaners ever\u301E", ["\u301D"]],

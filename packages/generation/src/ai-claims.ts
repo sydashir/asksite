@@ -41,7 +41,7 @@ if (sevenDaysBacking === undefined) throw new Error("claims.ts lost its seven-da
 const NEEDS_A_FACT_IN_AI_COPY: ReadonlyArray<{ readonly pattern: RegExp; readonly backedBy: (facts: Facts) => boolean }> = [
   { pattern: /\blic\./i, backedBy: (facts) => facts.licences.length > 0 },
   // "ins." counts only on its own, not after a letter or a hyphen ("check-ins.", "walk-ins."). Not "coverage" or "covered": they describe the service area.
-  { pattern: /(?<![\p{L}-])\bins\.|\bliability/iu, backedBy: (facts) => facts.insured },
+  { pattern: /(?<![\p{L}-])\bins\.|\bliabilit(?:y|ies)/iu, backedBy: (facts) => facts.insured },
   {
     pattern: new RegExp(`\\b(after${J}hours|all${J}hours|nights${J}and${J}holidays|holidays|every${J}day|(open|available)${J}daily)\\b`, "i"), // "daily" alone is not a claim
     backedBy: sevenDaysBacking,
