@@ -33,7 +33,10 @@ import { foldings } from "./lookalikes.ts";
 //   word character, so "Fully _insured" or "Award__winning" hid the claim word from every rule that needs a word boundary
 //   while the page shows it, and a symbol between the words of a multi-word claim ("Award·winning", "Same•day") hid it
 //   from the patterns that join the words with a hyphen or a space.
-// - each of those again with every run of 3 or more single letters joined (LETTER_RUN below): "F R E E", "F-R-E-E" and "F.R.E.E." read "FREE".
+// - and, after those, readings with each run of 2 or more single letters joined (LETTER_RUN, defined above readings()): "F R E E",
+//   "F-R-E-E" and "F.R.E.E." read "FREE". They are built from at most 6 base readings (the typed one, the first-way folded one and
+//   that one with the word-break letters as spaces, each with and without "_" and the glued separators read as a space), not from
+//   every two-way-letter combination, and only when a base holds a run (readings below).
 // A CamelCase word is read as typed, as before A9: A9d dropped A9c's CamelCase reading, which refused real names
 // that run a claim word into another word ("McMillion Creek", "FreeFlow Plumbing", "StreakFree Window Cleaning").
 // Small capitals and letters that look like digits ("ɪnsured", "ᴄertified", "Ƨ", "ꜭ") never get here: Copy refuses
@@ -155,22 +158,78 @@ const GLUED_SEPARATORS = /(?<=\S)[\u00B7\u2022~*|\u2219\u30FB\u25CF](?=\S)/g;
 
 /**
  * A claim word spelled with separated single letters ("F R E E", "F-R-E-E", "F.R.E.E.", "L I C E N S E D") shows the word on the page.
- * A RUN is at least 3 SINGLE letters (one \p{L} with no letter or digit glued to it on either side, so the "A" of "A-1" is no part
- * of a run), each pair separated by ONE gap: a space, a hyphen, a dash (the dash set the readings use after asReadOnPage: "-", U+2012,
- * U+2013, U+2014 and U+2212) or a dot with an optional space after it. Joining removes the gaps; a trailing dot after the last letter
- * stays ("F.R.E.E." reads "FREE.", "L.I.C." reads "LIC.").
- * PRINCIPLE: a joined run behaves exactly like the same acronym typed solid. The minimum is 3 because the shortest claim words are 3
- * letters ("BBB"; the AI-only "lic." and "ins."): runs of 2 never join, so initials such as "J. R. Smith", "U.S. owned" and "P.O. Box"
- * stay as typed (a 2-run joined to the next word, "N O charge", is not read either); and a joined run of 3 or more is a claim only
- * when its letters spell a claim word ("ABC", "TLC", "HVAC", "DIY" and "ASAP" are not).
+ * A SINGLE letter is one \p{L} with no letter or digit glued to it on either side and none before it with an apostrophe between
+ * ("'s" in "It's a Y fitting" is no single letter: joined to the "a Y" after it, it read "saY", which the `says?` rule refuses on
+ * every fact set). The apostrophe guard is on the left side only: "F R E E's the word" still holds the run F R E E, as solid
+ * "FREE's the word" does. The class is ' (U+0027) and U+2019, which reach readings() as typed, U+2018 (copy refuses it as a quote mark,
+ * but this function reads any text) and U+02BC (a letter itself, so already guarded when typed; the folded reading reads it as "'").
+ * A RUN is at least 2 SINGLE letters (so the "A" of "A-1" is no part of a run), each pair separated by ONE gap: a space, a hyphen,
+ * a dash (the dash set the readings use after asReadOnPage: "-", U+2012, U+2013, U+2014 and U+2212) or a dot with an optional space
+ * after it. Joining removes the gaps; a trailing dot after the last letter stays ("F.R.E.E." reads "FREE.", "L.I.C." reads "LIC.").
+ * PRINCIPLE: a spelled run is read like the same words typed solid, except in the named residuals below. A run is read five ways,
+ * each a reading of its own (spelledRuns below): all joined; its FIRST letter kept apart (gap as typed) and the rest joined; its LAST
+ * letter apart; BOTH apart (a variant applies only when the rest is still 2 letters, else the run is joined whole), so an article or
+ * "I" next to the word is not swallowed ("Get a F R E E estimate" reads "Get a FREE estimate"); and CUT where the gap kind changes:
+ * the gap kinds are a space, a hyphen or dash, "." and ". ", and a space gap (a plain space, or the space of ". ") next to a gap of
+ * another kind stays a word break, every other gap joins ("F-R-E-E E-S-T-I-M-A-T-E-S" reads "FREE ESTIMATES"). The all-joined
+ * reading stays, so a deliberately mixed run ("F R-E.E") is still caught.
+ * The minimum is 2 because the claim words "no" (no charge), "or" (day or night) and "of" (seven days of the week) are 2 letters
+ * ("BBB", "lic." and "ins." are 3): a spelled "N O charge" is a claim like "NO charge". Initials such as "J. R. Smith", "U.S. owned" and
+ * "P.O. Box" join to "JR.", "US." and "PO.", which no pattern matches, and a joined run is a claim only when its letters spell a
+ * claim word ("ABC", "TLC", "HVAC", "DIY" and "ASAP" are not).
  * NAMED FALSE POSITIVE: an initialism that spells a claim word is refused like the word: "I.N.S." and "L.I.C." in AI copy, which
  * refuses "ins." and "lic.", unless the owner's facts back it.
- * Glued symbol separators and "_" need no gap character here: the join runs on the readings that already read them as a space.
+ * NAMED RESIDUALS (a spelled run that is still not read like its solid form): two spelled words with the same gap kind throughout
+ * ("F R E E Q U O T E S"); a gap that is not one of the four ("F - R - E - E", "F · R · E · E", "F . R . E . E", "F/R/E/E", "F,R,E,E",
+ * "F'R'E'E", "F+R+E+E", "F:R:E:E", "F…R…E…E"), in line with a spaced separator reading as a list; a gap kind that changes inside one
+ * spelled word ("N O-C-H-A-R-G-E"); two single-letter words before a spelled word ("I a F R E E": only one letter is kept apart);
+ * and a two-way look-alike read its SECOND way inside a run ("I N S ʋ R E D", "I N S Ʋ R E D": ʋ/Ʋ as u, ꞵ as ß, ꟾ as l), because runs
+ * are joined only on the bases (readings below). Single-way look-alikes inside a run ("ƒ R E E", "F R Ǝ E") and "F·R·E·E" and "F_R_E_E"
+ * are read.
+ * Glued symbol separators and "_" need no gap character here: the join runs on the bases that already read them as a space.
  */
-const SINGLE_LETTER = "(?<![\\p{L}\\p{N}])\\p{L}(?![\\p{L}\\p{N}])";
+const APOSTROPHES = "'\\u2019\\u2018\\u02BC";
+const SINGLE_LETTER = `(?<![\\p{L}\\p{N}][${APOSTROPHES}]?)\\p{L}(?![\\p{L}\\p{N}])`;
 const LETTER_GAP = "(?: |[-\\u2012\\u2013\\u2014\\u2212]|\\. ?)";
-const LETTER_RUN = new RegExp(`${SINGLE_LETTER}(?:${LETTER_GAP}${SINGLE_LETTER}){2,}`, "gu");
-const joinLetterRuns = (reading: string): string => reading.replace(LETTER_RUN, (run) => run.replace(/[^\p{L}]/gu, ""));
+const LETTER_RUN = new RegExp(`${SINGLE_LETTER}(?:${LETTER_GAP}${SINGLE_LETTER})+`, "gu");
+
+// The gap kinds: " ", "-" (a hyphen or dash), "." and ". ".
+const gapKind = (gap: string): string => (gap === " " || gap === "." || gap === ". " ? gap : "-");
+const isSpaceGap = (gap: string): boolean => gap.endsWith(" ");
+type Run = { readonly at: number; readonly length: number; readonly letters: readonly string[]; readonly gaps: readonly string[] };
+/** Which gaps (by index) a variant keeps as typed; every other gap is removed. The cut reading is first. */
+const KEPT_GAPS: ReadonlyArray<(gaps: readonly string[]) => readonly number[]> = [
+  (gaps) =>
+    gaps.flatMap((gap, i) => {
+      const changes = (other: string | undefined): boolean => other !== undefined && gapKind(other) !== gapKind(gap);
+      return isSpaceGap(gap) && (changes(gaps[i - 1]) || changes(gaps[i + 1])) ? [i] : [];
+    }),
+  () => [],
+  (gaps) => (gaps.length >= 2 ? [0] : []),
+  (gaps) => (gaps.length >= 2 ? [gaps.length - 1] : []),
+  (gaps) => (gaps.length >= 3 ? [0, gaps.length - 1] : []),
+];
+// The letters foldings() also reads as word breaks (SYMBOL_LIKE in lookalikes.ts); when the text holds one, foldings() makes its readings twice.
+const WORD_BREAK_LETTERS = /[ᴉʗʘƱ]/u;
+const present = (reading: string | undefined): reading is string => reading !== undefined;
+/** The runs of `base`, found in ONE scan (none: the base adds no reading). */
+const runsOf = (base: string): Run[] =>
+  Array.from(base.matchAll(LETTER_RUN), ({ 0: run, index }) => ({ at: index, length: run.length, letters: run.match(/\p{L}/gu) ?? [], gaps: run.split(/\p{L}/u).slice(1, -1) }));
+/** The readings of `base` with its runs (already found) joined each way above, those that differ from `base`. */
+const spelledRuns = (base: string): string[] => {
+  const runs = runsOf(base);
+  if (runs.length === 0) return [];
+  return KEPT_GAPS.map((kept) => {
+    let out = "";
+    let from = 0;
+    for (const { at, length, letters, gaps } of runs) {
+      const keep = new Set(kept(gaps));
+      out += base.slice(from, at) + letters.map((letter, i) => (keep.has(i - 1) ? (gaps[i - 1] ?? "") : "") + letter).join("");
+      from = at + length;
+    }
+    return out + base.slice(from);
+  }).filter((reading) => reading !== base);
+};
 
 /**
  * The page read as typed, then folded every way (see the top of this file), and then each of those again with "_" (anywhere)
@@ -180,18 +239,36 @@ const joinLetterRuns = (reading: string): string => reading.replace(LETTER_RUN, 
  * The symbol becomes a space BEFORE asReadOnPage folds runs of whitespace, so a glued symbol next to "_" joins a multi-word
  * claim like one space ("Award _winning", "Same__day", "Award_·winning", "Award·_winning"). The typed readings stay as they are: a pattern
  * that matches through "_" on the typed reading still does ("licensed_crew": \blicen[cs]\w* runs through the "_"), while
- * "my_site.com" is found only by the separator reading. The separator readings only ever add a claim. A last reading is made
- * from every one of those with each run of single letters joined (LETTER_RUN below). claims.ts and generation's
- * ai-claims.ts both read through this function.
+ * "my_site.com" is found only by the separator reading. The separator readings only ever add a claim.
+ * Then the spelled-run readings (LETTER_RUN above), added after those, from at most 6 BASES taken from the readings built above by
+ * index: the typed reading, the first-way folded reading and that again with the word-break letters as spaces, each with and without
+ * "_" and the glued separators read as a space ("F·R·E·E", "F_R_E_E"); not from every two-way-letter combination. The runs of a base
+ * are found in ONE scan, which is also the pre-check: a base without a run adds no reading, so most text adds none. Each base gives the
+ * cut reading first, then all joined, first apart, last apart and both apart; a reading is added only if it differs from its base and
+ * from every reading already there. claims.ts and generation's ai-claims.ts both read through this function.
  */
 export function readings(text: string): readonly string[] {
   const raw = [text, ...foldings(text)];
   // The glued symbols first, while a neighbouring "_" still counts as a character: "Award_·winning" and "Award·_winning"
   // (a glued symbol next to "_") would lose the symbol if "_" became a space first.
   const apart = (reading: string): string => reading.replace(GLUED_SEPARATORS, " ").replace(UNDERSCORE, " ");
-  const earlier = [...raw.map(asReadOnPage), ...raw.filter((reading) => apart(reading) !== reading).map((reading) => asReadOnPage(apart(reading)))];
-  // One more reading from every earlier one (so "F·R·E·E" and "F_R_E_E" are caught with no new gap characters): every run of single letters joined.
-  return [...earlier, ...earlier.map(joinLetterRuns).filter((reading, i) => reading !== earlier[i])];
+  const typed = raw.map(asReadOnPage);
+  const separated = raw.map((reading) => (apart(reading) === reading ? undefined : asReadOnPage(apart(reading))));
+  const earlier = [...typed, ...separated.filter(present)];
+  // The bases are readings already built, taken by index: raw[0] is the typed text, raw[1] the first-way folded reading, and
+  // when the text holds a word-break letter foldings() makes its readings twice (the second half with the letters as spaces), so
+  // the first-way one of the second half is raw[1 + half].
+  const half = (raw.length - 1) / 2;
+  const broken = WORD_BREAK_LETTERS.test(text) ? [1 + half] : [];
+  const bases = [...new Set([0, 1, ...broken].flatMap((i) => [typed[i], separated[i]]).filter(present))];
+  const known = new Set(earlier);
+  const added: string[] = [];
+  for (const reading of bases.flatMap(spelledRuns)) {
+    if (known.has(reading)) continue;
+    known.add(reading);
+    added.push(reading);
+  }
+  return [...earlier, ...added];
 }
 
 /**

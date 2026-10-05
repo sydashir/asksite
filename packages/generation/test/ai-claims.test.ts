@@ -346,7 +346,7 @@ describe("AI claim check: a symbol separator hides nothing", () => {
   ]);
 });
 
-// A claim word spelled with separated single letters is still that wording: readings() joins each run of 3 or more single letters (a space, a hyphen, a dash or a dot with an optional space between them), on every other reading too, so a joined run reads like the same acronym typed solid. Runs of 2 never join; initialisms that spell a claim word are refused like the word (the named false-positive note: "I.N.S." and "L.I.C.").
+// A claim word spelled with separated single letters is still that wording: readings() joins each run of 2 or more single letters (a space, a hyphen, a dash or a dot with an optional space between them; all of it, or with the first letter, the last letter or both kept apart, or cut where the gap kind changes), on a few base readings, so a joined run reads like the same words typed solid. Initialisms that spell a claim word are refused like the word (the named false-positive note: "I.N.S." and "L.I.C.").
 describe("AI claim check: separated single letters hide nothing", () => {
   refused(MINIMAL_FACTS, [
     ["free, spaces", "F R E E estimates today", ["FREE"]],
@@ -363,6 +363,44 @@ describe("AI claim check: separated single letters hide nothing", () => {
     // The named false-positive note: an initialism that spells a claim word is refused like the word.
     ["ins. initialism", "Fully I.N.S. crew", ["INS."]],
     ["lic. initialism", "Fully L.I.C. crew", ["LIC."]],
+    // An article or I next to a spelled word (edge readings): each reads like its solid form, which is refused.
+    ["edge: article and spaces", "Get a F R E E estimate", ["FREE"]],
+    ["edge: A first", "A F R E E estimate for every home", ["FREE"]],
+    ["edge: article and hyphens", "Get a F-R-E-E estimate", ["FREE"]],
+    ["edge: article and dots", "Get a F.R.E.E. estimate", ["FREE"]],
+    ["edge: bbb after an article", "We are a B.B.B. member", ["BBB"]],
+    ["edge: bbb after I'm", "I'm a B.B.B. member", ["BBB"]],
+    ["edge: licensed after A", "A L I C E N S E D crew", ["LICENSED"]],
+    ["edge: bonded after A", "A B O N D E D crew", ["BONDED"]],
+    ["edge: I and a word", "I G U A R A N T E E it", ["GUARANTEE"]],
+    ["edge: a letter after the word", "Estimates are F R E E a promise", ["FREE"]],
+    // A single-way look-alike inside a run is read as its letter.
+    ["look-alike: f", "\u0192 R E E estimates", ["fREE"]],
+    ["look-alike: E", "F R \u018E E estimates", ["FREE"]],
+    ["look-alike: i", "L \u0131 C E N S E D crew", ["LiCENSED"]],
+    // Two spelled words in a row (cut reading).
+    ["cut: free estimates", "F-R-E-E E-S-T-I-M-A-T-E-S", ["FREE"]],
+    ["cut: free estimates, dots", "F.R.E.E. E.S.T.I.M.A.T.E.S.", ["FREE"]],
+    ["cut: bonded and insured", "B-O-N-D-E-D A-N-D I-N-S-U-R-E-D", ["BONDED", "INSURED"]],
+    ["cut: guaranteed work", "G-U-A-R-A-N-T-E-E-D W-O-R-K", ["GUARANTEED"]],
+    ["cut: top rated", "T-O-P R-A-T-E-D crew", ["TOP RATED"]],
+    ["cut: five star", "F-I-V-E S-T-A-R crew", ["FIVE STAR"]],
+    ["cut: same day", "S-A-M-E D-A-Y service", ["SAME DAY"]],
+    ["cut: no charge", "N-O C-H-A-R-G-E", ["NO CHARGE"]],
+    ["cut: insured and (shows INSURED)", "I N S U R E D A-N-D", ["INSURED"]],
+    // Runs of 2 join: the owner copy refuses "NO charge", "day OR night" and "OF the week"; the AI copy also "NO fees", "ON the house" and "within AN hour".
+    ["2-run: no charge", "N O charge visits", ["NO charge"]],
+    ["2-run: no cost", "N-O cost visits", ["NO cost"]],
+    ["2-run: day or night", "day O R night", ["day OR night"]],
+    ["2-run: day-or-night", "day-O-R-night", ["day-OR-night"]],
+    ["2-run: of the week", "Seven days O F the week", ["Seven days OF the week"]],
+    ["2-run: no fees (AI only)", "N O fees ever", ["NO fees"]],
+    ["2-run: on the house (AI only)", "Quotes are O N the house", ["ON the house"]],
+    ["2-run: within an hour (AI only)", "Back within A N hour", ["within AN hour"]],
+    // An apostrophe: the right side of a run is not guarded, "F R E E's" is still the word FREE.
+    ["apostrophe: free's", "F R E E's the word", ["FREE"]],
+    ["apostrophe: bbb's", "B B B's pledge", ["BBB"]],
+    ["apostrophe: bbb's rating", "B B B's rating", ["rating"]],
   ]);
   accepted(FREE, [["free backed", "F R E E estimates"]]);
   accepted(LICENSED, [
@@ -382,12 +420,38 @@ describe("AI claim check: separated single letters hide nothing", () => {
     ["HVAC dots", "H.V.A.C. repair"],
     ["DIY", "D.I.Y. tips"],
     ["letters glued to a word", "L I C E N Sing"],
-    ["a run of 2 never joins", "N O charge visits"],
     // Solid "ASAP scheduling" is accepted (owner and AI copy), so the spelled forms are too.
     ["ASAP solid", "ASAP scheduling"],
     ["ASAP dots", "A.S.A.P. scheduling"],
     ["ASAP spaces", "A S A P scheduling"],
+    // An apostrophe before a letter makes it no single letter: "'s a Y" must not join into "saY" (the AI copy refuses "say"). Accepted at 9f5ddf5.
+    ["apostrophe: It's a Y", "It's a Y fitting"],
+    ["apostrophe: capitals", "IT'S A Y FITTING"],
+    ["apostrophe: Y-shaped", "That's a Y-shaped drain"],
+    ["apostrophe: there's", "There's a Y branch under the sink"],
+    ["apostrophe: here's", "Here's a Y joint we fit"],
+    ["apostrophe: owner's", "Owner's a Y fitting fan"],
+    ["apostrophe: U+2019", "It\u2019s a Y fitting"],
+    ["apostrophe: U+02BC", "It\u02BCs a Y fitting"],
+    // Ordinary runs of 2 (accepted at 9f5ddf5; each reads like its solid form).
+    ["2-run: U.S.", "U.S. owned"],
+    ["2-run: initials", "J. R. Smith Roofing"],
+    ["2-run: A.C.", "A.C. repair"],
+    ["2-run: T V", "T V mounting"],
+    ["2-run: A/C", "A/C repair"],
+    ["2-run: B C", "Unit B C"],
+    ["2-run: grades", "Grades A B C"],
+    ["2-run: R.V.", "R.V. service"],
+    ["2-run: a I", "a I helper"],
+    ["2-run: options", "Option A, B, C"],
+    ["2-run: Henry", "Henry V I I I style"],
+    ["2-run: a.m.", "From early a.m. to late p.m."],
+    ["2-run: A to Z", "A to Z cleaning"],
+    ["2-run: U-turn", "X-ray and T-shirt and U-turn"],
+    ["2-run: J. R. R.", "J. R. R. Smith Roofing"],
+    ["2-run: I a m", "I a m here"],
   ]);
+  refused(MINIMAL_FACTS, [["quote mark U+2018 (as solid)", "It\u2018s a Y fitting", ["\u2018"]]]);
 });
 
 /**

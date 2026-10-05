@@ -10,7 +10,7 @@ import { NEEDS_A_FACT, proseIn, readings, type Copy, type Facts } from "@asksite
 //
 // Each text is matched as claims.ts reads it: as typed, then folded (look-alike letters), every dash read by
 // asReadOnPage, with each of those again reading "_" and the glued symbol separators as a space (claims.ts's readings(),
-// shared by both checkers), and the words of a multi-word claim joined by a hyphen, a space or a dash character. A claim any reading finds counts.
+// shared by both checkers, which also joins runs of single letters: "F R E E" reads "FREE"), and the words of a multi-word claim joined by a hyphen, a space or a dash character. A claim any reading finds counts.
 // Word lists, not every paraphrase: the owner still approves every page.
 
 /** The joiner between the words of a multi-word claim: hyphen, space, figure dash, en dash, em dash or minus sign (as claims.ts). */
