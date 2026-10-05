@@ -338,7 +338,9 @@ test("Restore answers busy and lost-lease and failed-pointer in the admin's word
 
 test("a restore that lost its lease on a site that is live by the time the page reloads offers Copy the live pages again, which works", async ({ page }) => {
   const site = await liveSite(page);
+  const takedownAnswered = page.waitForResponse((r) => r.request().method() === "POST" && r.url().includes("/takedown"));
   await takeDown(page, site.siteId); // this page shows the takedown and Restore
+  expect((await takedownAnswered).status()).toBe(200); // wait for the takedown's answer: reading takenDownAt earlier raced it (Q-11)
   const shown = ((await (await page.request.get(`${ADMIN}/api/admin/sites/${site.siteId}`)).json()) as { takenDownAt: number }).takenDownAt;
   // Another admin's restore went through meanwhile; this page's own Restore is answered "lost its lease" (the rare case in the contract).
   expect((await page.request.post(`${ADMIN}/api/admin/sites/${site.siteId}/restore`, { data: { expectedTakenDownAt: shown }, headers: { Origin: ADMIN } })).status()).toBe(200);
