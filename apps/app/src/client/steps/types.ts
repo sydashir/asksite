@@ -15,6 +15,8 @@ export interface StepProps {
   /** Owner-facing messages for the issue at this full path (e.g. ["facts", "phone"]), once errors are shown. */
   errors: (path: Path) => string[];
   ownerEmail: string | null;
+  /** The editor is frozen (new wording is being written): nothing may change, and nothing is uploaded or deleted. */
+  frozen: boolean;
   thisYear: number;
 }
 

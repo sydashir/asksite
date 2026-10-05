@@ -184,3 +184,77 @@ describe("useSite.reload after a dropped wording change", () => {
     await unmount();
   });
 });
+
+// STRICT (customer data), round 4: one drop stops a leave ONCE, also across an in-page reload (the address Save and a conflict's Reload
+// replace the saver). The reload carries the flag AND the fact that the owner was stopped already.
+describe("useSite.flush across an in-page reload", () => {
+  it("stops once for one drop: dropped, reload, then the next flush goes on", async () => {
+    let patches = 0;
+    const { site, unmount } = await mount((method) => {
+      if (method !== "PATCH") return json(seenBy("g2", {}));
+      patches += 1;
+      return patches === 1 ? json({ error: { code: "wording_changed", message: "New wording arrived." } }, 409) : json({ rev: patches, issues: NO_ISSUES });
+    }, seenBy("g1", {}));
+    act(() => site().update((current) => ({ edits: { ...current.edits, copy: { ctaText: "Mine" } } })));
+    const results: Array<boolean | "dropped" | undefined> = [];
+    await act(async () => {
+      results.push(await site().flush());
+      await site().reload();
+      results.push(await site().flush());
+    });
+    expect(results).toEqual(["dropped", true]);
+    expect(site().saver.wordingDropped).toBeUndefined();
+    await unmount();
+  });
+});
+
+// STRICT (customer data), round 4: while new wording is written the server refuses every save (generation_in_progress). The hook must NEVER
+// send the refused change again (the old retry with the wording stripped erased the owner's saved wording), must put the draft back to what
+// the server holds, must name the running rewrite so the editor locks, and must say exactly why nothing was saved.
+describe("useSite generation_in_progress", () => {
+  it("sends the refused save once, shows what the server holds, names the rewrite, and says the change was not saved", async () => {
+    const patches: Array<{ edits: Record<string, unknown> }> = [];
+    const running = { id: "gen-2", kind: "regenerate", status: "queued" };
+    const stored = { ...seenBy("g1", { copy: { heroHeadline: "Saved" } }), activeGeneration: running } as unknown as SiteView;
+    const { site, unmount } = await mount((method, init) => {
+      if (method !== "PATCH") return json(stored);
+      patches.push(JSON.parse(String(init.body)));
+      return json({ error: { code: "generation_in_progress", message: "New wording is being written." } }, 409);
+    }, seenBy("g1", { copy: { heroHeadline: "Saved" } }));
+    act(() => site().update((current) => ({ edits: { ...current.edits, hidden: ["gallery"], copy: { heroHeadline: "Saved" } } })));
+    let result: boolean | "dropped" | undefined;
+    await act(async () => {
+      result = await site().flush();
+      await site().retry();
+    });
+
+    expect(patches).toHaveLength(1);
+    expect(site().draft?.edits).toMatchObject({ copy: { heroHeadline: "Saved" }, hidden: [] });
+    expect(site().saver).toMatchObject({ rev: 1, wordingDropped: true, droppedWhileWriting: true });
+    expect(site().saver.status).not.toBe("error");
+    const loaded = site().load;
+    expect(loaded.state === "ready" ? loaded.view.activeGeneration : null).toMatchObject({ id: "gen-2", kind: "regenerate" });
+    expect(result).toBe("dropped");
+    await unmount();
+  });
+
+  it("answers an ordinary failure, and keeps the change as unsaved, when the server's view cannot be read", async () => {
+    const patches: unknown[] = [];
+    const { site, unmount } = await mount((method, init) => {
+      if (method !== "PATCH") return new Response("<html>nope</html>", { status: 200 });
+      patches.push(init.body);
+      return json({ error: { code: "generation_in_progress", message: "New wording is being written." } }, 409);
+    }, seenBy("g1", {}));
+    vi.useFakeTimers();
+    act(() => site().update((current) => ({ edits: { ...current.edits, hidden: ["gallery"] } })));
+    await act(async () => {
+      const saving = site().retry();
+      await vi.advanceTimersByTimeAsync(5_000);
+      await saving;
+    });
+    expect(patches).toHaveLength(1);
+    expect(site().saver.status).toBe("error");
+    expect(site().draft?.edits).toMatchObject({ hidden: ["gallery"] });
+    await unmount();
+  });
+});

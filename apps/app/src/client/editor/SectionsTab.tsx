@@ -10,11 +10,8 @@ interface Props {
   composed: ComposedDocument;
   edits: OwnerEdits;
   setEdits: (edits: OwnerEdits) => void;
-  /** The AI's wording is not fresh: nothing here may change (aria-disabled, so keyboard focus stays; the editor also drops the edit). */
+  /** Nothing here may change (new wording is being written, or not loaded): aria-disabled, so keyboard focus stays; the editor also drops the edit. */
   readOnly: boolean;
-  /** Hiding a section never depends on the wording, so it is locked only when the AI's wording is not fresh, not while new wording is being written. */
-  hideReadOnly: boolean;
-  setHiddenEdits: (edits: OwnerEdits) => void;
   /** The owner changed this section: the preview shows its page. */
   onSection: (section: SectionId) => void;
 }
@@ -25,7 +22,7 @@ const moveId = (id: SectionId, direction: "up" | "down") => `section-move-${id}-
  * Order and hide sections with buttons, never drag (WCAG 2.5.7). Grouped by the page each section lives on: a section
  * moves up and down only within its own page (U1). Hero, services and contact always show.
  */
-export function SectionsTab({ ai, composed, edits, setEdits, readOnly, hideReadOnly, setHiddenEdits, onSection }: Props) {
+export function SectionsTab({ ai, composed, edits, setEdits, readOnly, onSection }: Props) {
   const listed = listedSections(composed);
   const order = composed.layout.map((s) => s.id);
   const move = (id: SectionId, by: -1 | 1) => {
@@ -71,12 +68,12 @@ export function SectionsTab({ ai, composed, edits, setEdits, readOnly, hideReadO
                           type="checkbox"
                           className="size-6 accent-blue-700"
                           checked={hidden}
-                          aria-disabled={hideReadOnly}
+                          aria-disabled={readOnly}
                           aria-describedby={removes === null ? undefined : `hide-${id}-note`}
                           onChange={(e) => {
                             // Hiding a section that takes its page away leaves nothing to show there: the preview says so itself.
                             if (!e.target.checked || removes === null) onSection(id);
-                            setHiddenEdits({ ...edits, hidden: setHidden(edits.hidden, id, e.target.checked) });
+                            setEdits({ ...edits, hidden: setHidden(edits.hidden, id, e.target.checked) });
                           }}
                         />
                         <label htmlFor={`hide-${id}`}>Hide {SECTION_LABEL[id]}</label>
