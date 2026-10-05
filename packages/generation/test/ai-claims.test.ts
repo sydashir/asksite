@@ -311,7 +311,7 @@ describe("AI claim check: an underscore hides nothing", () => {
   accepted(SEVEN_DAYS, [["after hours backed", "After_hours cleaning"]]);
 });
 
-// A symbol between the words of a multi-word wording is still that wording: readings() also reads U+00B7, U+2022, "~", "*", "|", U+2219, U+30FB and U+25CF as a space when glued between two characters.
+// A symbol between the words of a multi-word wording is still that wording: readings() also reads U+00B7, U+2022, "~", "*", "|", U+2219, U+30FB and U+25CF as a space when glued between two non-space characters (a quote that opens right after one counts too, glued or not).
 describe("AI claim check: a symbol separator hides nothing", () => {
   refused(MINIMAL_FACTS, [
     ["after hours, middle dot", "After\u00B7hours cleaning", ["After hours"]],
@@ -320,6 +320,14 @@ describe("AI claim check: a symbol separator hides nothing", () => {
     ["after hours, bar", "After|hours cleaning", ["After hours"]],
     ["quote after a bar", "Our motto|'clean homes'", ["'clean homes'"]],
     ["quote between asterisks", "Our*'Tidy'*crew", ["'Tidy'"]],
+    ["quote between asterisks, text start", "*'Tidy'* crew", ["'Tidy'"]],
+    ["quote in asterisks after a space", "Ask about *'the tidy crew'*", ["'the tidy crew'"]],
+    ["quote in asterisks, motto", "Our motto *'clean homes'*", ["'clean homes'"]],
+    ["quote in asterisks, motto colon", "Our motto: *'clean homes'*", ["'clean homes'"]],
+    ["quote after a spaced bar", "Our motto |'clean homes'", ["'clean homes'"]],
+    ["quote after a middle dot, text start", "\u00B7'Best crew ever' Dana", ["'Best crew ever'"]],
+    ["quote in tildes, text start", "~'Best in Boise'~", ["'Best in Boise'"]],
+    ["quote after a bar and an underscore", "Our motto_|'clean homes'", ["'clean homes'"]],
   ]);
   accepted(SEVEN_DAYS, [["after hours backed, middle dot", "After\u00B7hours cleaning"]]);
   accepted(MINIMAL_FACTS, [

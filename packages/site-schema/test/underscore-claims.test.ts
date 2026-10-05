@@ -61,6 +61,8 @@ describe("an underscore does not hide a claim word", () => {
     ["Fully_bonded crew", "bonded"],
     ["Award _winning crew", "Award winning"],
     ["Same__day service", "Same day"],
+    ["Award_\u00B7winning crew", "Award winning"],
+    ["Award\u00B7_winning crew", "Award winning"],
   ])("refuses %s whatever the facts", (text, word) => {
     expect(unbackedClaims(text, NONE)).toEqual([word]);
     expect(unbackedClaims(text, withFacts({ insured: true, freeEstimates: true, emergency247: true, yearFounded: 2010 }))).toEqual([word]);
@@ -71,8 +73,9 @@ describe("an underscore does not hide a claim word", () => {
   });
 });
 
-// A symbol between the words of a multi-word claim is still a claim: readings() (claims.ts) reads "_" and the symbol
-// separators U+00B7, U+2022, "~", "*" and "|" as a space too. A single claim word next to one was refused already.
+// A symbol between the words of a multi-word claim is still a claim: readings() (claims.ts) reads "_" and a symbol
+// glued between two non-space characters (U+00B7, U+2022, "~", "*", "|", U+2219, U+30FB, U+25CF) as a space too. A symbol
+// with a space beside it is a list and is not read apart. A single claim word next to one was refused already.
 describe("a symbol separator does not hide a multi-word claim", () => {
   const SEVEN = withFacts({ emergency247: true });
   it.each([
@@ -117,7 +120,7 @@ describe("a symbol separator does not hide a multi-word claim", () => {
   });
 
   // Ordinary uses of the same symbols between words that are not a claim. The list cases are the named residual: a
-  // SPACED separator between two claim words reads as a list, not one claim ("Award · winning").
+  // separator with a space on either side reads as a list, not one claim ("Award · winning", "Award ·winning").
   it.each([
     "Award \u00B7 winning crew",
     "Always the same \u00B7 Day and evening slots",
@@ -127,6 +130,7 @@ describe("a symbol separator does not hide a multi-word claim", () => {
     "Fast \u2022 Friendly \u2022 Local",
     "Mon\u2013Fri \u00B7 8\u20135",
     "Kitchens ~ Baths",
+    "Award \u00B7winning crew",
   ])("still accepts %s", (text) => {
     expect(unbackedClaims(text, NONE)).toEqual([]);
   });

@@ -28,15 +28,15 @@ const NEVER_IN_AI_COPY: readonly RegExp[] = [
   /\b(raves?|raved|recommended)\b/i, // "we recommend" is advice and stays allowed
   /[\u2039\u203A\u301D-\u301F\uFF02]/, // quote marks claims.ts does not list
   // A phrase in straight single quotes: an opening ' at a word start (at the start of the text or after a space, a
-  // colon, a semicolon, a comma or a dash, or after a "(" that itself follows one of those; not after a letter or a
+  // colon, a semicolon, a comma, a dash or one of the eight separator symbols · • ~ * | ∙ ・ ●, glued or not, or after a "(" that itself follows one of those; not after a letter or a
   // second "(": code such as f('x') quotes nobody, and the XSS fixture holds some) before a letter, closed
   // by a ' not before a letter. An apostrophe inside a word ("don't", "owner's") never opens or closes, and neither
   // does one that starts an elision, in any case: 'n' (rock 'n' roll), 'em, 'til, 'cause, 'bout, 'round, 'tis, 'twas.
-  // readings() reads "_" and the glued symbol separators as a space, so an opening ' right after one counts too
-  // ("Our*'Tidy'*crew", "Our motto|'clean homes'"); a separator with a space beside it is not read apart.
+  // The symbols are in the class itself because readings() reads one apart only when it is glued between two non-space
+  // characters: "Our*'Tidy'*crew" is read apart, but "*'Tidy'* crew" and "Our motto |'clean homes'" are not.
   // The written residual: a real quotation that starts with one of these elision words is accepted ("'Tis the best crew
   // ever' Dana"); it cannot be told apart from the allowed "'Tis the season, 'twas the owners' idea".
-  /(?<=(?:^|[\s:;,\u2012-\u2014\u2212-])\(?)'(?!n'|(?:em|til|cause|bout|round|tis|twas)(?!\p{L}))\p{L}(?:[^']|'(?=\p{L}))*'(?!\p{L})/iu,
+  /(?<=(?:^|[\s:;,·•~*|∙・●\u2012-\u2014\u2212-])\(?)'(?!n'|(?:em|til|cause|bout|round|tis|twas)(?!\p{L}))\p{L}(?:[^']|'(?=\p{L}))*'(?!\p{L})/iu,
 ];
 
 /** claims.ts's own backing for its seven-days rule (24/7 service, or opening hours on all seven days), taken from NEEDS_A_FACT. */

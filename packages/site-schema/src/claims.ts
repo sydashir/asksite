@@ -49,7 +49,8 @@ import { foldings } from "./lookalikes.ts";
 // ("Our ʗertifiedᴉ pros", A9g); a combining Latin small letter used as a letter ("Lic" + U+0364 + "nsed"); ASCII
 // "l" or "|" for "I" and a click letter for "l" ("CERTlFlED", "ǀicensed"); an overlay mark inside a claim word together
 // with a look-alike glued to its end ("Bon" + U+0336 + "dedł"), which neither reading finds; a claim word run into
-// another word in CamelCase ("TopRated", "WeAreBonded"; A9d); and the phrasings the word lists do not cover.
+// another word in CamelCase ("TopRated", "WeAreBonded"; A9d); a separator symbol with a space on either side
+// ("Award · winning", "Award ·winning"), which reads as a list, not one claim (M3); and the phrasings the word lists do not cover.
 // The other way round, the folded reading finds claim words in some words of other languages, which main accepts
 // ("frɛɛ", "saɣ", Middle English "Þursday"): copy is English marketing text, so A9f accepts these as residuals too.
 
@@ -140,9 +141,9 @@ const UNDERSCORE = /_/g;
  * "\u2219" (U+2219 BULLET OPERATOR: draws like the middle dot, "Award∙winning"),
  * "\u30FB" (U+30FB KATAKANA MIDDLE DOT: draws like the middle dot; copy's NFKC turns U+FF65 into it, "Award・winning"),
  * "\u25CF" (U+25CF BLACK CIRCLE: a big bullet, "Award●winning").
- * A SPACED symbol is a list ("Plumbing · Austin", "Fast • Friendly • Local"), not a break inside a claim. NAMED RESIDUAL: a
- * SPACED separator or dash between two claim words ("Award · winning", "Award \u2013 winning") reads as a list, not one claim.
- * Left out on purpose: "." (U+002E ends a sentence: "the same. Day one" would read "same Day"), ":" (U+003A introduces a
+ * A symbol with a space beside it is a list ("Plumbing · Austin", "Fast • Friendly • Local"), not a break inside a claim.
+ * NAMED RESIDUAL: a separator with a space on either side ("Award · winning", "Award ·winning") reads as a list, not one claim.
+ * Left out on purpose: "." (U+002E ends a sentence: a full stop typed without its space, "the same.Day one", would read "same Day"), ":" (U+003A introduces a
  * list) and "/" (U+002F offers alternatives); not "lic."/web addresses/"24/7" (the typed reading keeps those, and copy bans
  * digits). Also left out: "," ";" "!" "?" (end a clause, so they already split the words), "+" "=" "#" "&" "%" "^" "<" ">"
  * (read as operators or "and", not as a break between words), and the hyphen and dashes (the patterns join those themselves).
@@ -155,15 +156,15 @@ const GLUED_SEPARATORS = /(?<=\S)[\u00B7\u2022~*|\u2219\u30FB\u25CF](?=\S)/g;
  * every rule that needs a word boundary, and a symbol glued between the words of a multi-word claim hides it from the patterns
  * that join the words with a hyphen or a space, while the reader sees the words whether a symbol or a space separates them.
  * The symbol becomes a space BEFORE asReadOnPage folds runs of whitespace, so a glued symbol next to "_" joins a multi-word
- * claim like one space ("Award _winning", "Same__day", "Award·winning"). The typed readings stay as they are: a pattern
+ * claim like one space ("Award _winning", "Same__day", "Award_·winning", "Award·_winning"). The typed readings stay as they are: a pattern
  * that matches through "_" on the typed reading still does ("licensed_crew": \blicen[cs]\w* runs through the "_"), while
  * "my_site.com" is found only by the separator reading. The separator readings only ever add a claim. claims.ts and
  * generation's ai-claims.ts both read through this function.
  */
 export function readings(text: string): readonly string[] {
   const raw = [text, ...foldings(text)];
-  // The glued symbols first, while a neighbouring "_" still counts as a character ("Award_·winning").
-  // The glued symbols first, while a neighbouring "_" still counts as a character ("Award_·winning").
+  // The glued symbols first, while a neighbouring "_" still counts as a character: "Award_·winning" and "Award·_winning"
+  // (a glued symbol next to "_") would lose the symbol if "_" became a space first.
   const apart = (reading: string): string => reading.replace(GLUED_SEPARATORS, " ").replace(UNDERSCORE, " ");
   return [...raw.map(asReadOnPage), ...raw.filter((reading) => apart(reading) !== reading).map((reading) => asReadOnPage(apart(reading)))];
 }
