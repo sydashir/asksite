@@ -83,7 +83,9 @@ describe("a symbol separator does not hide a multi-word claim", () => {
     ["Award~winning crew", "Award winning"],
     ["Award*winning crew", "Award winning"],
     ["Award|winning crew", "Award winning"],
-    ["Award \u00B7 winning crew", "Award winning"],
+    ["Award\u2219winning crew", "Award winning"],
+    ["Award\u30FBwinning crew", "Award winning"],
+    ["Award\u25CFwinning crew", "Award winning"],
   ])("refuses %s whatever the facts", (text, word) => {
     expect(unbackedClaims(text, NONE)).toEqual([word]);
     expect(unbackedClaims(text, withFacts({ insured: true, freeEstimates: true, emergency247: true, yearFounded: 2010 }))).toEqual([word]);
@@ -97,16 +99,29 @@ describe("a symbol separator does not hide a multi-word claim", () => {
     }
   });
 
-  it("refuses owner-edited copy through SiteDocument.safeParse", () => {
-    for (const text of ["Award\u00B7winning crew", "Same\u2022day service", "Award|winning crew"]) {
+  it("refuses owner-edited copy through SiteDocument.safeParse, naming the claim", () => {
+    for (const [text, word] of [
+      ["Award\u00B7winning crew", "Award winning"],
+      ["Same\u2022day service", "Same day"],
+      ["Award|winning crew", "Award winning"],
+      ["Award\u2219winning crew", "Award winning"],
+      ["Award\u30FBwinning crew", "Award winning"],
+      ["Award\uFF65winning crew", "Award winning"],
+      ["Award\u25CFwinning crew", "Award winning"],
+    ]) {
       const result = SiteDocument.safeParse({ ...ownerDocument, copy: { ...ownerDocument.copy, heroHeadline: text } });
       expect(result.success, text).toBe(false);
+      expect(result.error?.issues.map((issue) => issue.message).join(" "), text).toContain(JSON.stringify(word));
     }
     expect(SiteDocument.safeParse(ownerDocument).success).toBe(true);
   });
 
-  // Ordinary uses of the same symbols between words that are not a claim.
+  // Ordinary uses of the same symbols between words that are not a claim. The list cases are the named residual: a
+  // SPACED separator between two claim words reads as a list, not one claim ("Award · winning").
   it.each([
+    "Award \u00B7 winning crew",
+    "Always the same \u00B7 Day and evening slots",
+    "High five \u00B7 Star treatment for every home",
     "Plumbing \u00B7 Austin",
     "Repairs | Installs",
     "Fast \u2022 Friendly \u2022 Local",

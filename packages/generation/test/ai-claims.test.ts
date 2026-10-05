@@ -311,13 +311,15 @@ describe("AI claim check: an underscore hides nothing", () => {
   accepted(SEVEN_DAYS, [["after hours backed", "After_hours cleaning"]]);
 });
 
-// A symbol between the words of a multi-word wording is still that wording: readings() also reads U+00B7, U+2022, "~", "*" and "|" as a space.
+// A symbol between the words of a multi-word wording is still that wording: readings() also reads U+00B7, U+2022, "~", "*", "|", U+2219, U+30FB and U+25CF as a space when glued between two characters.
 describe("AI claim check: a symbol separator hides nothing", () => {
   refused(MINIMAL_FACTS, [
     ["after hours, middle dot", "After\u00B7hours cleaning", ["After hours"]],
     ["after hours, bullet", "After\u2022hours cleaning", ["After hours"]],
     ["within the hour, tilde", "Within~the~hour", ["Within the hour"]],
     ["after hours, bar", "After|hours cleaning", ["After hours"]],
+    ["quote after a bar", "Our motto|'clean homes'", ["'clean homes'"]],
+    ["quote between asterisks", "Our*'Tidy'*crew", ["'Tidy'"]],
   ]);
   accepted(SEVEN_DAYS, [["after hours backed, middle dot", "After\u00B7hours cleaning"]]);
   accepted(MINIMAL_FACTS, [
@@ -325,6 +327,9 @@ describe("AI claim check: a symbol separator hides nothing", () => {
     ["pipe list", "Repairs | Installs"],
     ["bullet list", "Fast \u2022 Friendly \u2022 Local"],
     ["tilde list", "Kitchens ~ Baths"],
+    ["list case, city and approved", "Kansas City \u00B7 Approved materials only"],
+    ["list case, before and after", "Before \u00B7 After \u00B7 Hours vary by job"],
+    ["list case, yes or no", "Yes or no \u00B7 Fees explained up front"],
   ]);
 });
 

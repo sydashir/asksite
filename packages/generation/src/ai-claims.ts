@@ -9,8 +9,8 @@ import { NEEDS_A_FACT, proseIn, readings, type Copy, type Facts } from "@asksite
 // owner never sees these refusals. site-schema's checker (claims.ts) is unchanged and runs first.
 //
 // Each text is matched as claims.ts reads it: as typed, then folded (look-alike letters), every dash read by
-// asReadOnPage, with each of those again reading "_" as a space (claims.ts's readings(), shared by both checkers), and
-// the words of a multi-word claim joined by a hyphen, a space or a dash character. A claim any reading finds counts.
+// asReadOnPage, with each of those again reading "_" and the glued symbol separators as a space (claims.ts's readings(),
+// shared by both checkers), and the words of a multi-word claim joined by a hyphen, a space or a dash character. A claim any reading finds counts.
 // Word lists, not every paraphrase: the owner still approves every page.
 
 /** The joiner between the words of a multi-word claim: hyphen, space, figure dash, en dash, em dash or minus sign (as claims.ts). */
@@ -32,6 +32,8 @@ const NEVER_IN_AI_COPY: readonly RegExp[] = [
   // second "(": code such as f('x') quotes nobody, and the XSS fixture holds some) before a letter, closed
   // by a ' not before a letter. An apostrophe inside a word ("don't", "owner's") never opens or closes, and neither
   // does one that starts an elision, in any case: 'n' (rock 'n' roll), 'em, 'til, 'cause, 'bout, 'round, 'tis, 'twas.
+  // readings() reads "_" and the glued symbol separators as a space, so an opening ' right after one counts too
+  // ("Our*'Tidy'*crew", "Our motto|'clean homes'"); a separator with a space beside it is not read apart.
   // The written residual: a real quotation that starts with one of these elision words is accepted ("'Tis the best crew
   // ever' Dana"); it cannot be told apart from the allowed "'Tis the season, 'twas the owners' idea".
   /(?<=(?:^|[\s:;,\u2012-\u2014\u2212-])\(?)'(?!n'|(?:em|til|cause|bout|round|tis|twas)(?!\p{L}))\p{L}(?:[^']|'(?=\p{L}))*'(?!\p{L})/iu,

@@ -29,7 +29,7 @@ import { foldings } from "./lookalikes.ts";
 //   words the page shows apart ("Top" + U+0336 + "rated"), so the typed reading stays: the fold only ever adds a claim.
 //   A9g: ᴉ, ʗ, ʘ and Ʊ also draw as "!", "(", "⊙" and "℧", so when the text holds one, every folded reading is made
 //   again with each of them as a word break ("Estimates are ƒreeᴉ" reads "free!" on the page and is a claim).
-// - each of those again with "_" and the symbol separators (SEPARATORS below) read as a space (readings below): "_" is a
+// - each of those again with "_" and the glued symbol separators (GLUED_SEPARATORS below) read as a space (readings below): "_" is a
 //   word character, so "Fully _insured" or "Award__winning" hid the claim word from every rule that needs a word boundary
 //   while the page shows it, and a symbol between the words of a multi-word claim ("Award·winning", "Same•day") hid it
 //   from the patterns that join the words with a hyphen or a space.
@@ -124,34 +124,48 @@ export const asReadOnPage = (text: string): string =>
   text.replace(/\s+/g, " ").replace(/[\u2010\u2011]/g, "-").replace(OTHER_DASH, "\u2014");
 
 /**
- * The symbols a reader reads as a word break between the words of a claim, each of which copy.ts lets through:
- * "_" (U+005F LOW LINE: a word character, so it hid a claim word from every word-boundary rule),
+ * "_" (U+005F LOW LINE) is read as a space in every position: it is a word character, so it hid a claim word from every
+ * word-boundary rule ("Fully _insured" must still be caught), and no list uses it as a separator.
+ */
+const UNDERSCORE = /_/g;
+
+/**
+ * The symbols a reader reads as a word break between the words of a claim when GLUED between two non-space characters
+ * ("Award·winning"), each of which copy.ts lets through:
  * "\u00B7" (U+00B7 MIDDLE DOT: the dot that separates items, "Award·winning crew"),
  * "\u2022" (U+2022 BULLET: the list bullet, "Same•day service"),
  * "~" (U+007E TILDE: drawn as a dash-like joiner, "Award~winning"),
  * "*" (U+002A ASTERISK: a star or bullet in a list, "Award*winning"),
- * "|" (U+007C VERTICAL LINE: the bar between items, "Award|winning").
- * Left out on purpose: "." (U+002E, "lic." and "ins." are claim words and "mop.com" an address), "/" (U+002F, "24/7" and
- * web addresses), ":" (U+003A, "http:" and clock times; copy bans both), "," ";" "!" "?" (end a clause, so they already
- * split the words), "+" "=" "#" "&" "%" "^" "<" ">" (read as operators or "and", not as a break between words), and the
- * hyphen and dashes (the patterns join those themselves).
+ * "|" (U+007C VERTICAL LINE: the bar between items, "Award|winning"),
+ * "\u2219" (U+2219 BULLET OPERATOR: draws like the middle dot, "Award∙winning"),
+ * "\u30FB" (U+30FB KATAKANA MIDDLE DOT: draws like the middle dot; copy's NFKC turns U+FF65 into it, "Award・winning"),
+ * "\u25CF" (U+25CF BLACK CIRCLE: a big bullet, "Award●winning").
+ * A SPACED symbol is a list ("Plumbing · Austin", "Fast • Friendly • Local"), not a break inside a claim. NAMED RESIDUAL: a
+ * SPACED separator or dash between two claim words ("Award · winning", "Award \u2013 winning") reads as a list, not one claim.
+ * Left out on purpose: "." (U+002E ends a sentence: "the same. Day one" would read "same Day"), ":" (U+003A introduces a
+ * list) and "/" (U+002F offers alternatives); not "lic."/web addresses/"24/7" (the typed reading keeps those, and copy bans
+ * digits). Also left out: "," ";" "!" "?" (end a clause, so they already split the words), "+" "=" "#" "&" "%" "^" "<" ">"
+ * (read as operators or "and", not as a break between words), and the hyphen and dashes (the patterns join those themselves).
  */
-const SEPARATORS = /[_\u00B7\u2022~*|]/;
+const GLUED_SEPARATORS = /(?<=\S)[\u00B7\u2022~*|\u2219\u30FB\u25CF](?=\S)/g;
 
 /**
- * The page read as typed, then folded every way (see the top of this file), and then each of those again with a
- * SEPARATORS character read as a space: "_" is a word character, so it hides a claim word from every rule that needs a
- * word boundary, and a symbol between the words of a multi-word claim hides it from the patterns that join the words with
- * a hyphen or a space, while the reader sees the words whether a symbol or a space separates them. The symbol becomes a
- * space BEFORE asReadOnPage folds runs of whitespace, so a symbol next to a space or "__" joins a multi-word claim like
- * one space ("Award _winning", "Same__day", "Award · winning"). The typed readings stay as they are (a pattern that
- * matched through a symbol, such as the bare web address in "my_site.com", still matches them); the separator readings
- * only ever add a claim. claims.ts and generation's ai-claims.ts both read through this function.
+ * The page read as typed, then folded every way (see the top of this file), and then each of those again with "_" (anywhere)
+ * and a glued symbol separator (GLUED_SEPARATORS) read as a space: "_" is a word character, so it hides a claim word from
+ * every rule that needs a word boundary, and a symbol glued between the words of a multi-word claim hides it from the patterns
+ * that join the words with a hyphen or a space, while the reader sees the words whether a symbol or a space separates them.
+ * The symbol becomes a space BEFORE asReadOnPage folds runs of whitespace, so a glued symbol next to "_" joins a multi-word
+ * claim like one space ("Award _winning", "Same__day", "Award·winning"). The typed readings stay as they are: a pattern
+ * that matches through "_" on the typed reading still does ("licensed_crew": \blicen[cs]\w* runs through the "_"), while
+ * "my_site.com" is found only by the separator reading. The separator readings only ever add a claim. claims.ts and
+ * generation's ai-claims.ts both read through this function.
  */
 export function readings(text: string): readonly string[] {
   const raw = [text, ...foldings(text)];
-  const apart = new RegExp(SEPARATORS.source, "g");
-  return [...raw.map(asReadOnPage), ...raw.filter((reading) => SEPARATORS.test(reading)).map((reading) => asReadOnPage(reading.replace(apart, " ")))];
+  // The glued symbols first, while a neighbouring "_" still counts as a character ("Award_·winning").
+  // The glued symbols first, while a neighbouring "_" still counts as a character ("Award_·winning").
+  const apart = (reading: string): string => reading.replace(GLUED_SEPARATORS, " ").replace(UNDERSCORE, " ");
+  return [...raw.map(asReadOnPage), ...raw.filter((reading) => apart(reading) !== reading).map((reading) => asReadOnPage(apart(reading)))];
 }
 
 /**
