@@ -1,8 +1,13 @@
 # Every push and pull request, as three parallel jobs, each under its own 30-minute limit (A16's
 # per-page browser matrix took one combined job past 30 minutes): `check` = typecheck plus unit and
 # integration tests (workerd through wrangler's test harness, no Cloudflare account); `e2e` = Plan 1's
-# browser tests without its macOS-only screenshots, in 2 shards; `sites` = the sites Worker's browser tests over
-# https; `apps` = the owner and admin apps' browser tests. Third-party actions are pinned to commit SHAs.
+# browser tests without its macOS-only screenshots, in 2 shards; `sites` = the vitest "browser" project (tests that
+# launch Chromium or WebKit from vitest, *.browser.test.ts; check has no browsers) and the sites Worker's browser tests
+# over https. `apps` = the owner and admin apps' browser tests. Third-party actions are pinned to commit SHAs.
+# Fonts: in the Playwright image fontconfig resolves sans-serif, serif and system-ui to a CJK font (WenQuanYi Zen Hei),
+# which WebKit then draws every design's generic stack in; no visitor sees that. The e2e and sites jobs point
+# FONTCONFIG_FILE at .github/fontconfig/fonts.conf so the generic families resolve to Liberation Sans, Serif and Mono
+# (Arial, Times and Courier metrics) in both engines, and a guard step fails if the image ever changes that.
 name: ci
 
 on:
@@ -85,6 +90,11 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      # Generic fonts resolve to Liberation (Arial and Times metrics), not the image's CJK fallback (see the header).
+      - run: echo "FONTCONFIG_FILE=$GITHUB_WORKSPACE/.github/fontconfig/fonts.conf" >> "$GITHUB_ENV"
+      # Fails if the image ever stops resolving sans-serif and serif to Liberation.
+      - run: |
+          fc-match -f '%{family}\n' 'sans-serif:lang=en' | grep -qx 'Liberation Sans' && fc-match -f '%{family}\n' 'serif:lang=en' | grep -qx 'Liberation Serif'
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0 (reads packageManager from package.json)
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
@@ -139,6 +149,11 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      # Generic fonts resolve to Liberation (Arial and Times metrics), not the image's CJK fallback (see the header).
+      - run: echo "FONTCONFIG_FILE=$GITHUB_WORKSPACE/.github/fontconfig/fonts.conf" >> "$GITHUB_ENV"
+      # Fails if the image ever stops resolving sans-serif and serif to Liberation.
+      - run: |
+          fc-match -f '%{family}\n' 'sans-serif:lang=en' | grep -qx 'Liberation Sans' && fc-match -f '%{family}\n' 'serif:lang=en' | grep -qx 'Liberation Serif'
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0 (reads packageManager from package.json)
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
@@ -151,6 +166,8 @@ jobs:
           getent hosts www.localhost
           getent hosts e2e-refined-cleaning-minimal.localhost
           getent hosts e2e-life-modern-webkit.localhost
+      # vitest's "browser" project needs the browsers this container already holds (`pnpm test` leaves it out).
+      - run: pnpm test:browser
       - run: pnpm test:e2e:sites
 
   # The owner app's and the admin app's browser suites and the browser-floor check. Runs in parallel with

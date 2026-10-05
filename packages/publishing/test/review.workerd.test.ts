@@ -60,7 +60,7 @@ describe("approveVersion", () => {
     const pointer = await env.LIVE.get(livePointerKey(p.slug));
     expect(await pointer?.text()).toBe("");
     expect(pointer?.customMetadata).toEqual({
-      siteId: p.siteId, versionId: p.versionId, businessName: "Reliable Rooter Plumbing", phoneText: "(512) 555-0142", phoneTel: "+15125550142",
+      siteId: p.siteId, versionId: p.versionId, businessName: "Reliable Rooter Plumbing", phoneText: "(512) 555-0142", phoneTel: "+15125550142", writer: expect.any(String),
     });
     expect(await liveKeysOf(env.LIVE, p.slug)).toEqual(await liveKeysOfVersion(p.slug, p.versionId));
     expect(await sha256Hex(String(work))).toBe(p.homeSha256);

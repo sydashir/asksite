@@ -66,4 +66,21 @@ describe("leadEmail", () => {
     const email = leadEmail({ ...base, lead: { ...base.lead, name: "\u{1F527}".repeat(80) } });
     expect(email.subject.endsWith("\u{1F527}")).toBe(true);
   });
+
+  // B-N3: the subject cleans the name the way readLead cleans a one-line field (lead.ts LINE_BREAK and HIDDEN), even
+  // though its only caller already passes cleaned text: a line break reads as a space, a hidden character goes.
+  it.each([
+    ["U+2028 (line separator)", "Da na", "Da na"],
+    ["U+2029 (paragraph separator)", "Da na", "Da na"],
+    ["U+202E (right-to-left override)", "Da‮na", "Dana"],
+    ["U+200B (zero-width space)", "Da​na", "Dana"],
+    ["U+FEFF (zero-width no-break space)", "Da﻿na", "Dana"],
+  ])("cleans %s out of the subject", (_label, name, shown) => {
+    expect(leadEmail({ ...base, lead: { ...base.lead, name } }).subject).toBe(`New request from your website: ${shown}`);
+  });
+
+  it("keeps an emoji joined by U+200D whole in the subject", () => {
+    const mechanic = "\u{1F469}‍\u{1F527}";
+    expect(leadEmail({ ...base, lead: { ...base.lead, name: `Dana ${mechanic}` } }).subject).toBe(`New request from your website: Dana ${mechanic}`);
+  });
 });

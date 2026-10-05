@@ -29,6 +29,10 @@ import { foldings } from "./lookalikes.ts";
 //   words the page shows apart ("Top" + U+0336 + "rated"), so the typed reading stays: the fold only ever adds a claim.
 //   A9g: ᴉ, ʗ, ʘ and Ʊ also draw as "!", "(", "⊙" and "℧", so when the text holds one, every folded reading is made
 //   again with each of them as a word break ("Estimates are ƒreeᴉ" reads "free!" on the page and is a claim).
+// - each of those again with "_" and the glued symbol separators (GLUED_SEPARATORS below) read as a space (readings below): "_" is a
+//   word character, so "Fully _insured" or "Award__winning" hid the claim word from every rule that needs a word boundary
+//   while the page shows it, and a symbol between the words of a multi-word claim ("Award·winning", "Same•day") hid it
+//   from the patterns that join the words with a hyphen or a space.
 // A CamelCase word is read as typed, as before A9: A9d dropped A9c's CamelCase reading, which refused real names
 // that run a claim word into another word ("McMillion Creek", "FreeFlow Plumbing", "StreakFree Window Cleaning").
 // Small capitals and letters that look like digits ("ɪnsured", "ᴄertified", "Ƨ", "ꜭ") never get here: Copy refuses
@@ -45,7 +49,8 @@ import { foldings } from "./lookalikes.ts";
 // ("Our ʗertifiedᴉ pros", A9g); a combining Latin small letter used as a letter ("Lic" + U+0364 + "nsed"); ASCII
 // "l" or "|" for "I" and a click letter for "l" ("CERTlFlED", "ǀicensed"); an overlay mark inside a claim word together
 // with a look-alike glued to its end ("Bon" + U+0336 + "dedł"), which neither reading finds; a claim word run into
-// another word in CamelCase ("TopRated", "WeAreBonded"; A9d); and the phrasings the word lists do not cover.
+// another word in CamelCase ("TopRated", "WeAreBonded"; A9d); a separator symbol with a space on either side
+// ("Award · winning", "Award ·winning"), which reads as a list, not one claim (M3); and the phrasings the word lists do not cover.
 // The other way round, the folded reading finds claim words in some words of other languages, which main accepts
 // ("frɛɛ", "saɣ", Middle English "Þursday"): copy is English marketing text, so A9f accepts these as residuals too.
 
@@ -119,9 +124,51 @@ const OTHER_DASH = /(?![-\u2010-\u2014])[\p{Pd}\u2043\u23AF\u2500\u2501\u30FC\uF
 export const asReadOnPage = (text: string): string =>
   text.replace(/\s+/g, " ").replace(/[\u2010\u2011]/g, "-").replace(OTHER_DASH, "\u2014");
 
-/** The page read as typed, then folded every way (see the top of this file). */
-function readings(text: string): readonly string[] {
-  return [text, ...foldings(text)].map(asReadOnPage);
+/**
+ * "_" (U+005F LOW LINE) is read as a space in every position: it is a word character, so it hid a claim word from every
+ * word-boundary rule ("Fully _insured" must still be caught), and no list uses it as a separator.
+ */
+const UNDERSCORE = /_/g;
+
+/**
+ * The symbols a reader reads as a word break between the words of a claim when GLUED between two non-space characters
+ * ("Award·winning"), each of which copy.ts lets through:
+ * "\u00B7" (U+00B7 MIDDLE DOT: the dot that separates items, "Award·winning crew"),
+ * "\u2022" (U+2022 BULLET: the list bullet, "Same•day service"),
+ * "~" (U+007E TILDE: drawn as a dash-like joiner, "Award~winning"),
+ * "*" (U+002A ASTERISK: a star or bullet in a list, "Award*winning"),
+ * "|" (U+007C VERTICAL LINE: the bar between items, "Award|winning"),
+ * "\u2219" (U+2219 BULLET OPERATOR: draws like the middle dot, "Award∙winning"),
+ * "\u30FB" (U+30FB KATAKANA MIDDLE DOT: draws like the middle dot; copy's NFKC turns U+FF65 into it, "Award・winning"),
+ * "\u25CF" (U+25CF BLACK CIRCLE: a big bullet, "Award●winning").
+ * A symbol with a space beside it is a list ("Plumbing · Austin", "Fast • Friendly • Local"), not a break inside a claim.
+ * NAMED RESIDUAL: a separator with a space on either side ("Award · winning", "Award ·winning") reads as a list, not one claim;
+ * a hyphen or dash with whitespace beside it is not joined either, as at main ("Award – winning").
+ * Left out on purpose: "." (U+002E ends a sentence: a full stop typed without its space, "the same.Day one", would read "same Day"), ":" (U+003A introduces a
+ * list) and "/" (U+002F offers alternatives); not "lic."/web addresses/"24/7" (the typed reading keeps those, and copy bans
+ * digits). Also left out: "," ";" "!" "?" (end a clause, so they already split the words), "+" "=" "#" "&" "%" "^" "<" ">"
+ * (read as operators or "and", not as a break between words), and the hyphen and dashes (the patterns join a glued hyphen or
+ * dash themselves; one with whitespace beside it is not joined, as at main).
+ */
+const GLUED_SEPARATORS = /(?<=\S)[\u00B7\u2022~*|\u2219\u30FB\u25CF](?=\S)/g;
+
+/**
+ * The page read as typed, then folded every way (see the top of this file), and then each of those again with "_" (anywhere)
+ * and a glued symbol separator (GLUED_SEPARATORS) read as a space: "_" is a word character, so it hides a claim word from
+ * every rule that needs a word boundary, and a symbol glued between the words of a multi-word claim hides it from the patterns
+ * that join the words with a hyphen or a space, while the reader sees the words whether a symbol or a space separates them.
+ * The symbol becomes a space BEFORE asReadOnPage folds runs of whitespace, so a glued symbol next to "_" joins a multi-word
+ * claim like one space ("Award _winning", "Same__day", "Award_·winning", "Award·_winning"). The typed readings stay as they are: a pattern
+ * that matches through "_" on the typed reading still does ("licensed_crew": \blicen[cs]\w* runs through the "_"), while
+ * "my_site.com" is found only by the separator reading. The separator readings only ever add a claim. claims.ts and
+ * generation's ai-claims.ts both read through this function.
+ */
+export function readings(text: string): readonly string[] {
+  const raw = [text, ...foldings(text)];
+  // The glued symbols first, while a neighbouring "_" still counts as a character: "Award_·winning" and "Award·_winning"
+  // (a glued symbol next to "_") would lose the symbol if "_" became a space first.
+  const apart = (reading: string): string => reading.replace(GLUED_SEPARATORS, " ").replace(UNDERSCORE, " ");
+  return [...raw.map(asReadOnPage), ...raw.filter((reading) => apart(reading) !== reading).map((reading) => asReadOnPage(apart(reading)))];
 }
 
 /**
