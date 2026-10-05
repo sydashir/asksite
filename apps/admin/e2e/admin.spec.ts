@@ -679,6 +679,7 @@ test("a form re-run that loses its lease, then the offered Finish, sends no seco
   await page.getByRole("status").getByRole("button", { name: "Finish the takedown" }).click();
   await expect(page.getByText("Clean-up finished.", { exact: false })).toBeVisible();
   await expect(page.locator("body")).not.toContainText("The owner has been emailed");
+  await expect(page.locator("body")).not.toContainText("Owner not emailed");
   expect(await siteNotices(page, site.email)).toBe(1);
   expect(bodies).toHaveLength(2);
   expect(bodies[1]).toMatchObject({ reason: "Re-run that loses its lease", expectedTakenDownAt: expect.any(Number) });

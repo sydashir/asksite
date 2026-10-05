@@ -1,7 +1,7 @@
 import { livePageKey, livePointerKey, newId, versionPageKey } from "@asksite/core";
 import { PAGE_IDS } from "@asksite/site-schema";
 import { describe, expect, it } from "vitest";
-import { LEASE_LOST, RESTORE_LIVE_COPY_FAILED } from "../../src/messages.ts";
+import { LEASE_LOST, RESTORE_LIVE_COPY_FAILED, TAKEDOWN_LEASE_LOST } from "../../src/messages.ts";
 import { GENERATION_HISTORY, SITE_AUDIT, SITE_LIST, VERSION_HISTORY } from "../../src/worker/queries.ts";
 import { accessToken, json, useAdminHarness } from "../support/harness.ts";
 
@@ -345,6 +345,21 @@ describe("a takedown that loses its lease after the commit (23-A16 f2, m6)", () 
     expect(await downAt(site.siteId)).not.toBeNull();
     expect(await notices(site.email)).toHaveLength(1);
     await h.backgroundDone(takedown(site.siteId));
+  });
+
+  it("a re-run (the site is already down) that loses its lease with a failed re-read answers 409 noticeSent null, never false: the first takedown already told the owner", async () => {
+    const site = await liveSite();
+    expect((await h.call("POST", takedown(site.siteId), { body: { reason: "Spam report" } })).status).toBe(200);
+    await h.backgroundDone(takedown(site.siteId));
+    expect(await notices(site.email)).toHaveLength(1);
+    const at = await downAt(site.siteId);
+    expect(at).not.toBeNull();
+    const rerun = await h.call("POST", takedown(site.siteId), { body: { reason: "Finish", expectedTakenDownAt: at }, headers: { "X-Test-Takedown-Fault": "lease-lost-after-batch-reread" } });
+    expect(rerun.status).toBe(409);
+    expect(await json(rerun)).toEqual({ error: { code: "conflict", message: TAKEDOWN_LEASE_LOST, noticeSent: null } });
+    await h.backgroundDone(takedown(site.siteId));
+    expect(await notices(site.email)).toHaveLength(1);
+    expect(await downAt(site.siteId)).toBe(at);
   });
 
   it("a takedown on a site another admin action holds is 409 with Retry-After and the busy text, and changes nothing", async () => {
