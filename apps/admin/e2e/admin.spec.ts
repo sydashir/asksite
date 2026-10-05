@@ -661,6 +661,13 @@ test("every admin screen passes axe and reflows at 320 px", async ({ page }) => 
   for (const path of ["/", `/reviews/${site.versionId}`, "/invites", "/sites", `/sites/${site.siteId}`, "/settings", "/nope"]) {
     await page.goto(`${ADMIN}${path}`);
     await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
+    if (path.startsWith("/reviews/")) {
+      // Swept with several pages listed (the switcher sits outside the frames) and Approve still gated.
+      await expect(page.getByRole("group", { name: "Page", exact: true }).getByRole("button")).toHaveText(["Home", "Services", "About", "Contact"]);
+      const approve = page.getByRole("button", { name: "Approve and publish" });
+      await expect(approve).toHaveAttribute("aria-disabled", "true");
+      await expect(approve).toHaveAttribute("aria-describedby", "approve-gate");
+    }
     await expectAccessible(page);
     await expectNoSidewaysScroll(page);
   }
