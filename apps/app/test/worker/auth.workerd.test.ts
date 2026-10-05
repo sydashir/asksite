@@ -357,6 +357,56 @@ describe("invite acceptance", () => {
     expect(invite).toEqual({ used_at: null, owner_id: null, site_id: null });
   });
 
+  // The admin's revoke (apps/admin/src/worker/routes/invites.ts) still revokes a claimed invite whose accept has not
+  // finished (used_at set, site_id NULL), so the accept's batch must check revoked_at itself.
+  const INVITE_INVALID_TEXT = "This invite link has expired or was already used. Ask us for a new one.";
+
+  async function expectRevokedAccept(res: Response): Promise<void> {
+    expect(res.status).toBe(410);
+    expect(await json<ErrorJson>(res)).toEqual({ error: { code: "invite_invalid", message: INVITE_INVALID_TEXT } });
+    expect(res.headers.get("Set-Cookie")).toBeNull();
+  }
+
+  it("makes no owner, site, invite link, session or audit row when the invite is revoked after the claim and before the batch, for a new address", async () => {
+    const email = "race-revoked-new@example.com";
+    const token = await h.invite(email);
+    expect((await h.call("POST", "/__test/revoke-before-batch", { body: { email } })).status).toBe(200);
+    await expectRevokedAccept(await h.call("POST", "/api/auth/invite/accept", { body: { token }, ip: nextIp() }));
+    const db = await h.db();
+    expect(await db.prepare("SELECT COUNT(*) AS n FROM owners WHERE email = ?").bind(email).first()).toEqual({ n: 0 });
+    expect(await db.prepare("SELECT revoked_at, owner_id, site_id FROM invites WHERE token_hash = ?").bind(await sha256Hex(token)).first()).toEqual({ revoked_at: expect.any(Number), owner_id: null, site_id: null });
+    expect(await db.prepare("SELECT COUNT(*) AS n FROM audit_log WHERE action = 'invite.accepted' AND detail_json LIKE ?").bind(`%${(await db.prepare("SELECT id FROM invites WHERE email = ?").bind(email).first<{ id: string }>())?.id}%`).first()).toEqual({ n: 0 });
+    expect(await db.prepare("SELECT COUNT(*) AS n FROM sessions s JOIN owners o ON o.id = s.owner_id WHERE o.email = ?").bind(email).first()).toEqual({ n: 0 });
+    // A revoked invite can never be claimed again.
+    await expectRevokedAccept(await h.call("POST", "/api/auth/invite/accept", { body: { token }, ip: nextIp() }));
+  });
+
+  it("makes no new site or session when the invite of an existing owner is revoked after the claim and before the batch", async () => {
+    const email = "race-revoked-existing@example.com";
+    const first = await h.signIn(email);
+    const token = await h.invite(email);
+    expect((await h.call("POST", "/__test/revoke-before-batch", { body: { email } })).status).toBe(200);
+    await expectRevokedAccept(await h.call("POST", "/api/auth/invite/accept", { body: { token }, ip: nextIp() }));
+    const db = await h.db();
+    expect((await db.prepare("SELECT id FROM sites WHERE owner_id = ?").bind(first.ownerId).all()).results).toEqual([{ id: first.siteId }]);
+    expect(await sessionHashes(first.ownerId)).toEqual([await sha256Hex(cookieValue(first.cookie))]);
+    expect((await db.prepare("SELECT site_id FROM audit_log WHERE action = 'invite.accepted' AND actor = ?").bind(`owner:${first.ownerId}`).all()).results).toEqual([{ site_id: first.siteId }]);
+    expect(await db.prepare("SELECT revoked_at, owner_id, site_id FROM invites WHERE token_hash = ?").bind(await sha256Hex(token)).first()).toEqual({ revoked_at: expect.any(Number), owner_id: null, site_id: null });
+  });
+
+  it("still accepts an invite that nobody revoked: owner, site, link, session, audit row and cookie", async () => {
+    const email = "unrevoked@example.com";
+    const token = await h.invite(email);
+    const res = await h.call("POST", "/api/auth/invite/accept", { body: { token }, ip: nextIp() });
+    expect(res.status).toBe(200);
+    const { owner, siteId } = await json<{ owner: { id: string }; siteId: string }>(res);
+    expect(res.headers.get("Set-Cookie")).toMatch(/^__Host-asksite_sid=/);
+    const db = await h.db();
+    expect(await db.prepare("SELECT owner_id, site_id, revoked_at FROM invites WHERE token_hash = ?").bind(await sha256Hex(token)).first()).toEqual({ owner_id: owner.id, site_id: siteId, revoked_at: null });
+    expect(await sessionHashes(owner.id)).toHaveLength(1);
+    expect((await db.prepare("SELECT site_id FROM audit_log WHERE action = 'invite.accepted' AND actor = ?").bind(`owner:${owner.id}`).all()).results).toEqual([{ site_id: siteId }]);
+  });
+
   it("hands the claim-to-batch work to waitUntil as well, so a client that goes away cannot stop it halfway", async () => {
     const before = await h.waitUntilCount("/api/auth/invite/accept");
     await h.signIn();

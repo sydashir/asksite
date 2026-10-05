@@ -81,6 +81,9 @@ function noted<T>(path: string, step: StepName, work: Promise<T>): Promise<T> {
 /** Owners (by email) to disable just before a request's next D1 batch: an admin's disable that lands between a route's checks and its batch. */
 const disableBeforeBatch = new Set<string>();
 
+/** Invites (by email) to revoke just before a request's next D1 batch: the admin's revoke landing between the accept's claim and its batch. */
+const revokeBeforeBatch = new Set<string>();
+
 /**
  * Sites that get a twin of their next stored version right after its batch: a second request of the site, committed
  * before the first one's alert check runs. Per site: when the twin was asked for, or null for a millisecond later.
@@ -235,6 +238,7 @@ let sessionDeletesToFail = 0;
 function withD1Hooks(env: Env, path: string): Env {
   if (
     disableBeforeBatch.size === 0 &&
+    revokeBeforeBatch.size === 0 &&
     twinAfterBatch.size === 0 &&
     takeSlotBeforeUploadInsert.size === 0 &&
     loseReservationBeforeRowWrite.size === 0 &&
@@ -284,6 +288,10 @@ function withD1Hooks(env: Env, path: string): Env {
           const emails = [...disableBeforeBatch];
           disableBeforeBatch.clear();
           for (const email of emails) await target.prepare("UPDATE owners SET disabled_at = ? WHERE email = ?").bind(Date.now(), email).run();
+          const revokes = [...revokeBeforeBatch];
+          revokeBeforeBatch.clear();
+          // The same predicate as the admin's revoke (apps/admin/src/worker/routes/invites.ts): not yet revoked, no site yet.
+          for (const email of revokes) await target.prepare("UPDATE invites SET revoked_at = ? WHERE email = ? AND revoked_at IS NULL AND site_id IS NULL").bind(Date.now(), email).run();
           const arounds = statements.flatMap((statement) => aroundOf.get(statement) ?? []);
           for (const around of arounds) await around.before?.();
           const results = await target.batch(statements);
@@ -427,6 +435,13 @@ helpers.post("/__test/invites", async (c) => {
 helpers.post("/__test/disable-before-batch", async (c) => {
   const { email } = await c.req.json<{ email: string }>();
   disableBeforeBatch.add(email.trim().toLowerCase());
+  return c.json({ ok: true });
+});
+
+/** Arms the hook above for one invite address: the next D1 batch of any request revokes its open invites first. */
+helpers.post("/__test/revoke-before-batch", async (c) => {
+  const { email } = await c.req.json<{ email: string }>();
+  revokeBeforeBatch.add(email.trim().toLowerCase());
   return c.json({ ok: true });
 });
 

@@ -90,31 +90,42 @@ async function acceptInvite(db: D1Database, invite: { id: string; email: string 
   const siteId = newId();
   const sessionToken = newToken();
   const sessionHash = await sha256Hex(sessionToken);
-  // Every write below happens only for an owner who is not disabled, checked in this transaction, so a
-  // disable that lands after step (0) leaves no site, invite link, session or audit row.
-  const activeOwner = "FROM owners WHERE email = ? AND disabled_at IS NULL";
+  // Every write below happens only for an owner who is not disabled and for an invite that is not revoked, both checked in
+  // this transaction, so a disable or a revoke that lands after the claim leaves no owner, site, invite link, session or
+  // audit row. The admin's revoke still reaches a claimed invite whose site_id is NULL, so the claim alone is not enough.
+  const open = "EXISTS (SELECT 1 FROM invites WHERE id = ? AND revoked_at IS NULL)";
+  const activeOwner = `FROM owners WHERE email = ? AND disabled_at IS NULL AND ${open}`;
   try {
     const results = await db.batch([
-      db.prepare("INSERT INTO owners (id, email, created_at) VALUES (?, ?, ?) ON CONFLICT(email) DO NOTHING").bind(newId(), invite.email, now),
-      db.prepare(`INSERT INTO sites (id, owner_id, created_at, updated_at) SELECT ?, id, ?, ? ${activeOwner}`).bind(siteId, now, now, invite.email),
+      // SQLite: an INSERT ... SELECT needs a WHERE clause before ON CONFLICT, or the parser reads ON as a join's.
       db
-        .prepare(`UPDATE invites SET owner_id = (SELECT id ${activeOwner}), site_id = ? WHERE id = ? AND EXISTS (SELECT 1 ${activeOwner})`)
-        .bind(invite.email, siteId, invite.id, invite.email),
+        .prepare(`INSERT INTO owners (id, email, created_at) SELECT ?, ?, ? WHERE ${open} ON CONFLICT(email) DO NOTHING`)
+        .bind(newId(), invite.email, now, invite.id),
+      db.prepare(`INSERT INTO sites (id, owner_id, created_at, updated_at) SELECT ?, id, ?, ? ${activeOwner}`).bind(siteId, now, now, invite.email, invite.id),
+      db
+        .prepare(`UPDATE invites SET owner_id = (SELECT id ${activeOwner}), site_id = ? WHERE id = ? AND revoked_at IS NULL AND EXISTS (SELECT 1 ${activeOwner})`)
+        .bind(invite.email, invite.id, siteId, invite.id, invite.email, invite.id),
       db
         .prepare(`INSERT INTO sessions (id_hash, owner_id, created_at, expires_at, last_seen_at) SELECT ?, id, ?, ?, ? ${activeOwner}`)
-        .bind(sessionHash, now, now + TTL.sessionMs, now, invite.email),
+        .bind(sessionHash, now, now + TTL.sessionMs, now, invite.email, invite.id),
       db
         .prepare(`INSERT INTO audit_log (at, actor, action, site_id, detail_json) SELECT ?, 'owner:' || id, 'invite.accepted', ?, ? ${activeOwner}`)
-        .bind(now, siteId, JSON.stringify({ inviteId: invite.id }), invite.email),
+        .bind(now, siteId, JSON.stringify({ inviteId: invite.id }), invite.email, invite.id),
       // What the batch did, read in the same transaction (A10: no RETURNING, and no reliance on each statement's meta.changes).
+      // From the invite, so a revoked invite of a new address (no owner row) still has a row to read.
       db
-        .prepare("SELECT id, email, EXISTS (SELECT 1 FROM sites WHERE id = ?) AS site, EXISTS (SELECT 1 FROM sessions WHERE id_hash = ?) AS session FROM owners WHERE email = ?")
-        .bind(siteId, sessionHash, invite.email),
+        .prepare(
+          `SELECT i.revoked_at IS NOT NULL AS revoked, o.id, o.email, EXISTS (SELECT 1 FROM sites WHERE id = ?) AS site, EXISTS (SELECT 1 FROM sessions WHERE id_hash = ?) AS session
+           FROM invites i LEFT JOIN owners o ON o.email = i.email WHERE i.id = ?`,
+        )
+        .bind(siteId, sessionHash, invite.id),
     ]);
-    const outcome = results[5]?.results[0] as (OwnerView & { site: number; session: number }) | undefined;
-    if (outcome === undefined) throw new Error("owner row missing after invite accept");
+    const outcome = results[5]?.results[0] as { revoked: number; id: string | null; email: string | null; site: number; session: number } | undefined;
+    if (outcome === undefined) throw new Error("invite row missing after invite accept");
+    if (outcome.revoked === 1) throw new ApiError("invite_invalid", INVITE_INVALID);
+    if (outcome.id === null || outcome.email === null) throw new Error("owner row missing after invite accept");
     if (outcome.site !== 1 || outcome.session !== 1) throw new ApiError("owner_disabled", OWNER_DISABLED);
-    return { owner: { id: outcome.id, email: outcome.email }, siteId, sessionToken };
+    return { owner: { id: outcome.id, email: outcome.email } satisfies OwnerView, siteId, sessionToken };
   } catch (err) {
     // Release the token so the owner can simply click the link again, unless the batch saved:
     // it set site_id in the same transaction, and then the invite stays spent.
