@@ -14,7 +14,16 @@ import type { TakedownView } from "../../settings-view.ts";
 import { CapNote } from "../CapNote.tsx";
 import { dollars, restoredText, takedownResult, when, type TakedownResult } from "../lib/format.ts";
 
-type TakedownBody = { reason: string; ownerMessage?: string; purgeMedia: boolean };
+/** `expectedTakenDownAt` is sent only by Finish the takedown: the moment this page showed the site down (the server refuses a site restored since). */
+type TakedownBody = { reason: string; ownerMessage?: string; purgeMedia: boolean; expectedTakenDownAt?: number };
+
+/** The takedown reason's limit (core's TakedownBody): longer is refused here, in words, before anything is sent. */
+const REASON_MAX = 1000;
+/** What is wrong with a takedown reason, or null. */
+const reasonProblem = (value: string): string | null =>
+  value.trim() === "" ? "Write the reason. It is kept in the audit log." : value.trim().length > REASON_MAX ? `Please use ${REASON_MAX} characters or fewer.` : null;
+/** Finish the takedown from the down-site form is a re-run with no earlier result: its answer is the clean-up text, and no owner line is owed. */
+const RE_RUN: TakedownResult = { tone: "success", text: "", cleanupFailed: false, ownerNotEmailed: false };
 
 type Message = { tone: "success" | "warning" | "error"; text: string };
 
@@ -54,6 +63,8 @@ function SiteScreen({ data, reload }: { data: SiteDetailData; reload: () => Prom
   const [disableErrors, setDisableErrors] = useState<string[]>([]);
   /** A takedown answered 5xx: what to say depends on whether the reloaded site is down, so the text is chosen at render. */
   const [takedownUnsure, setTakedownUnsure] = useState(false);
+  /** One takedown call at a time: a second press while one runs is ignored. */
+  const [takingDown, setTakingDown] = useState(false);
   const messageRef = useRef<HTMLDivElement>(null);
   /** An action can replace the control that ran it (take down becomes restore): keep keyboard focus on the result. */
   const show = (value: Message) => {
@@ -88,6 +99,16 @@ function SiteScreen({ data, reload }: { data: SiteDetailData; reload: () => Prom
 
   /** Takes the site down, or finishes a takedown that left its clean-up undone (the same call again; it never emails twice). */
   async function takeDown(body: TakedownBody, previous: TakedownResult | null) {
+    if (takingDown) return;
+    setTakingDown(true);
+    try {
+      await runTakeDown(body, previous);
+    } finally {
+      setTakingDown(false);
+    }
+  }
+
+  async function runTakeDown(body: TakedownBody, previous: TakedownResult | null) {
     const res = await api<TakedownView>("POST", `/api/admin/sites/${site.id}/takedown`, body);
     if (!res.ok) {
       // A 500 can come after the takedown committed: say so rather than a plain error, and let the reload show the truth. Keep the
@@ -123,8 +144,9 @@ function SiteScreen({ data, reload }: { data: SiteDetailData; reload: () => Prom
 
   function askTakedown(event: FormEvent) {
     event.preventDefault();
-    if (reason.trim() === "") {
-      setReasonErrors(["Write the reason. It is kept in the audit log."]);
+    const problem = reasonProblem(reason);
+    if (problem !== null) {
+      setReasonErrors([problem]);
       document.getElementById("takedown-reason")?.focus();
       return;
     }
@@ -134,14 +156,15 @@ function SiteScreen({ data, reload }: { data: SiteDetailData; reload: () => Prom
 
   function submitFinish(event: FormEvent) {
     event.preventDefault();
-    if (finishReason.trim() === "") {
-      setFinishErrors(["Write the reason. It is kept in the audit log."]);
+    const problem = reasonProblem(finishReason);
+    if (problem !== null) {
+      setFinishErrors([problem]);
       document.getElementById("finish-reason")?.focus();
       return;
     }
     setFinishErrors([]);
-    // No owner message: a re-run never emails.
-    void takeDown({ reason: finishReason.trim(), purgeMedia: finishPurge }, null);
+    // No owner message: a re-run never emails. It names the takedown this page showed, so a site restored since is refused.
+    void takeDown({ reason: finishReason.trim(), purgeMedia: finishPurge, ...(takenDownAt === null ? {} : { expectedTakenDownAt: takenDownAt }) }, RE_RUN);
   }
 
   /** Only ONE "Finish the takedown" shows at a time: the in-session one wins, because it carries the stored body and the owner-notice state. */
@@ -179,7 +202,12 @@ function SiteScreen({ data, reload }: { data: SiteDetailData; reload: () => Prom
           </Notice>
         ) : null}
         {inSessionFinish ? (
-          <button type="button" className="btn-primary mt-3" onClick={() => void takeDown(takedown.body, takedown.result)}>
+          <button
+            type="button"
+            className="btn-primary mt-3"
+            aria-disabled={takingDown}
+            onClick={() => void takeDown({ ...takedown.body, ...(takenDownAt === null ? {} : { expectedTakenDownAt: takenDownAt }) }, takedown.result)}
+          >
             Finish the takedown
           </button>
         ) : null}
@@ -197,9 +225,9 @@ function SiteScreen({ data, reload }: { data: SiteDetailData; reload: () => Prom
               </button>
               {inSessionFinish ? null : (
                 <form noValidate onSubmit={submitFinish} className="mt-4">
-                  <TextInput id="finish-reason" label="Reason for finishing the takedown" value={finishReason} onChange={setFinishReason} errors={finishErrors} />
+                  <TextInput id="finish-reason" label="Reason for finishing the takedown" max={REASON_MAX} value={finishReason} onChange={setFinishReason} errors={finishErrors} />
                   <Checkbox id="finish-purge" label="Also delete this site's photos" checked={finishPurge} onChange={setFinishPurge} />
-                  <button type="submit" className="btn-secondary mt-3">
+                  <button type="submit" className="btn-secondary mt-3" aria-disabled={takingDown}>
                     Finish the takedown
                   </button>
                 </form>
@@ -207,7 +235,7 @@ function SiteScreen({ data, reload }: { data: SiteDetailData; reload: () => Prom
             </>
           ) : (
             <form noValidate onSubmit={askTakedown}>
-              <TextInput id="takedown-reason" label="Reason for taking it down" value={reason} onChange={setReason} errors={reasonErrors} />
+              <TextInput id="takedown-reason" label="Reason for taking it down" max={REASON_MAX} value={reason} onChange={setReason} errors={reasonErrors} />
               <TextArea id="takedown-message" label="Message to the owner" optional max={1000} value={ownerMessage} onChange={setOwnerMessage} />
               <Checkbox id="takedown-purge" label="Also delete this site's photos" checked={purge} onChange={setPurge} />
               <button type="submit" className="btn-secondary mt-3">
