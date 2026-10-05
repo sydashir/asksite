@@ -311,6 +311,41 @@ describe("AI claim check: an underscore hides nothing", () => {
   accepted(SEVEN_DAYS, [["after hours backed", "After_hours cleaning"]]);
 });
 
+// A symbol between the words of a multi-word wording is still that wording: readings() also reads U+00B7, U+2022, "~", "*", "|", U+2219, U+30FB and U+25CF as a space when glued between two non-space characters (a quote that opens right after one counts too, glued or not).
+describe("AI claim check: a symbol separator hides nothing", () => {
+  refused(MINIMAL_FACTS, [
+    ["after hours, middle dot", "After\u00B7hours cleaning", ["After hours"]],
+    ["after hours, bullet", "After\u2022hours cleaning", ["After hours"]],
+    ["within the hour, tilde", "Within~the~hour", ["Within the hour"]],
+    ["after hours, bar", "After|hours cleaning", ["After hours"]],
+    ["quote after a bar", "Our motto|'clean homes'", ["'clean homes'"]],
+    ["quote between asterisks", "Our*'Tidy'*crew", ["'Tidy'"]],
+    ["quote between asterisks, text start", "*'Tidy'* crew", ["'Tidy'"]],
+    ["quote in asterisks after a space", "Ask about *'the tidy crew'*", ["'the tidy crew'"]],
+    ["quote in asterisks, motto", "Our motto *'clean homes'*", ["'clean homes'"]],
+    ["quote in asterisks, motto colon", "Our motto: *'clean homes'*", ["'clean homes'"]],
+    ["quote after a spaced bar", "Our motto |'clean homes'", ["'clean homes'"]],
+    ["quote after a middle dot, text start", "\u00B7'Best crew ever' Dana", ["'Best crew ever'"]],
+    ["quote in tildes, text start", "~'Best in Boise'~", ["'Best in Boise'"]],
+    ["quote after a bar and an underscore", "Our motto_|'clean homes'", ["'clean homes'"]],
+    // One row per remaining symbol of the quote opener's class, each not glued (so only the class catches it).
+    ["quote after a spaced bullet", "Our motto \u2022'clean homes'", ["'clean homes'"]],
+    ["quote after a bullet operator, text start", "\u2219'Best crew ever' Dana", ["'Best crew ever'"]],
+    ["quote after a katakana middle dot, text start", "\u30FB'Tidy' crew", ["'Tidy'"]],
+    ["quote after a spaced black circle", "Our motto \u25CF'clean homes'", ["'clean homes'"]],
+  ]);
+  accepted(SEVEN_DAYS, [["after hours backed, middle dot", "After\u00B7hours cleaning"]]);
+  accepted(MINIMAL_FACTS, [
+    ["trade and place", "Cleaning \u00B7 Austin"],
+    ["pipe list", "Repairs | Installs"],
+    ["bullet list", "Fast \u2022 Friendly \u2022 Local"],
+    ["tilde list", "Kitchens ~ Baths"],
+    ["list case, city and approved", "Kansas City \u00B7 Approved materials only"],
+    ["list case, before and after", "Before \u00B7 After \u00B7 Hours vary by job"],
+    ["list case, yes or no", "Yes or no \u00B7 Fees explained up front"],
+  ]);
+});
+
 /**
  * No false positives (Q4) on everything that exists today. There is no eval corpus yet: Task 15's live eval
  * waits for the owner's key, so this covers the fixtures, the test samples and the prompt's own examples.

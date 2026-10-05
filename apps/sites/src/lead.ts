@@ -24,10 +24,10 @@ export const PROBLEM_TEXT: Record<LeadProblem, string> = {
 // Every form of line break: CRLF and a lone CR (browsers send CRLF), vertical tab, form feed, next line
 // (U+0085), and the line and paragraph separators U+2028 and U+2029 (Zl, Zp), which some mail clients break a
 // subject line at (A15). These are UAX #14's mandatory breaks (classes BK and NL).
-const LINE_BREAK = /\r\n?|[\v\f\u0085\u2028\u2029]/g;
+export const LINE_BREAK = /\r\n?|[\v\f\u0085\u2028\u2029]/g;
 // Control characters other than "\n", and invisible formatting characters (e.g. U+202E, which can make a
 // name read backwards in the owner's inbox). U+200D stays so emoji in names survive.
-const HIDDEN = /(?!\n)\p{Cc}|(?!\u200D)\p{Cf}/gu;
+export const HIDDEN = /(?!\n)\p{Cc}|(?!\u200D)\p{Cf}/gu;
 const PHONE = /^[0-9+().\- ]{7,30}$/;
 const Email = z.email().max(254);
 
