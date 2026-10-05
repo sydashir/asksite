@@ -208,6 +208,45 @@ describe("useSite.flush across an in-page reload", () => {
   });
 });
 
+// R5 (the f4 review's U-2 probe): a change typed while an edits-bearing save is being refused is dropped TOGETHER with the reset, so the
+// screen equals what is stored and nothing is sent later behind the owner's back (the rewrite may have ended by then).
+describe("useSite generation_in_progress drops the queued changes with the reset", () => {
+  it("does not store a change typed while the refused save was in flight, and the screen shows the stored value", async () => {
+    const patches: Array<Record<string, unknown>> = [];
+    const running = { id: "gen-2", kind: "regenerate", status: "running" };
+    const first = { ...seenBy("g1", { copy: { heroHeadline: "Saved" } }), facts: { phone: "+15125550142" } } as unknown as SiteView;
+    const stored = { ...first, activeGeneration: running } as unknown as SiteView;
+    let release!: () => void;
+    const { site, unmount } = await mount((method, init) => {
+      if (method !== "PATCH") return json(stored);
+      patches.push(JSON.parse(String(init.body)));
+      if (patches.length === 1) {
+        return new Promise<Response>((resolve) => {
+          release = () => resolve(json({ error: { code: "generation_in_progress", message: "New wording is being written." } }, 409));
+        });
+      }
+      return json({ rev: 2, issues: NO_ISSUES }); // the rewrite has ended just now: a second save would be accepted
+    }, first);
+    act(() => site().update((current) => ({ edits: { ...current.edits, hidden: ["gallery"] } })));
+    await act(async () => {
+      const saving = site().retry();
+      await vi.waitFor(() => {
+        if (patches.length !== 1) throw new Error("the first save is not sent yet");
+      });
+      site().update((current) => ({ facts: { ...(current.facts as object), phone: "+15125558888" } }));
+      release();
+      await saving;
+    });
+    await act(async () => {
+      await site().retry();
+    });
+    expect(patches).toHaveLength(1);
+    expect((site().draft?.facts as { phone?: string }).phone).toBe("+15125550142");
+    expect(site().saver).toMatchObject({ wordingDropped: true, droppedWhileWriting: true });
+    await unmount();
+  });
+});
+
 // STRICT (customer data), round 4: while new wording is written the server refuses every save (generation_in_progress). The hook must NEVER
 // send the refused change again (the old retry with the wording stripped erased the owner's saved wording), must put the draft back to what
 // the server holds, must name the running rewrite so the editor locks, and must say exactly why nothing was saved.

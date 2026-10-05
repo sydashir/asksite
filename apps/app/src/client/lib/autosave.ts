@@ -177,10 +177,14 @@ export class AutoSaver {
       }
       if (result.refused === true) {
         // Stored nothing, and the draft was put back to what the server holds: there is no unsaved value to keep and nothing to send again.
+        // Anything typed while this save was in flight is dropped with the reset (the screen was reset to the stored values, so it is not
+        // on screen either): it is never sent later, when the rewrite may have ended, behind the owner's back.
+        clearTimeout(this.timer);
+        this.pending = {};
         this.wordingDropped = true;
         this.stopped = false;
         this.whileWriting = true;
-        this.update({ status: Object.keys(this.pending).length > 0 ? "saving" : "saved", rev: this.rev, ...(this.last.issues === undefined ? {} : { issues: this.last.issues }) });
+        this.update({ status: "saved", rev: this.rev, ...(this.last.issues === undefined ? {} : { issues: this.last.issues }) });
         continue;
       }
       // Keep the unsaved values; anything typed meanwhile is newer and wins.
