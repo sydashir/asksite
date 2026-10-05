@@ -119,9 +119,16 @@ const OTHER_DASH = /(?![-\u2010-\u2014])[\p{Pd}\u2043\u23AF\u2500\u2501\u30FC\uF
 export const asReadOnPage = (text: string): string =>
   text.replace(/\s+/g, " ").replace(/[\u2010\u2011]/g, "-").replace(OTHER_DASH, "\u2014");
 
-/** The page read as typed, then folded every way (see the top of this file). */
-function readings(text: string): readonly string[] {
-  return [text, ...foldings(text)].map(asReadOnPage);
+/**
+ * The page read as typed, then folded every way (see the top of this file), and then each of those again with "_" read
+ * as a space: "_" is a word character, so it hides a claim word from every rule that needs a word boundary, while the
+ * reader sees the word whether an underscore or a space separates it. The typed readings stay as they are (a pattern
+ * that matched through an underscore, such as the bare web address in "my_site.com", still matches them); the
+ * underscore readings only ever add a claim. claims.ts and generation's ai-claims.ts both read through this function.
+ */
+export function readings(text: string): readonly string[] {
+  const read = [text, ...foldings(text)].map(asReadOnPage);
+  return [...read, ...read.filter((reading) => reading.includes("_")).map((reading) => reading.replace(/_/g, " "))];
 }
 
 /**

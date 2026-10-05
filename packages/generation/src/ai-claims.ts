@@ -1,5 +1,5 @@
 import type { Issue } from "@asksite/core";
-import { asReadOnPage, foldings, NEEDS_A_FACT, proseIn, type Copy, type Facts } from "@asksite/site-schema";
+import { NEEDS_A_FACT, proseIn, readings, type Copy, type Facts } from "@asksite/site-schema";
 
 // Claims the model must not make in its copy. These rules are AI-only: aiClaims runs in checkDraft and nowhere
 // else. Owner text, stored documents and render() are not checked by them. The owner may write "lic." or "free
@@ -9,8 +9,9 @@ import { asReadOnPage, foldings, NEEDS_A_FACT, proseIn, type Copy, type Facts } 
 // owner never sees these refusals. site-schema's checker (claims.ts) is unchanged and runs first.
 //
 // Each text is matched as claims.ts reads it: as typed, then folded (look-alike letters), every dash read by
-// asReadOnPage, and the words of a multi-word claim joined by a hyphen, a space or a dash character. A claim any
-// reading finds counts. Word lists, not every paraphrase: the owner still approves every page.
+// asReadOnPage, with each of those again reading "_" as a space (claims.ts's readings(), shared by both checkers), and
+// the words of a multi-word claim joined by a hyphen, a space or a dash character. A claim any reading finds counts.
+// Word lists, not every paraphrase: the owner still approves every page.
 
 /** The joiner between the words of a multi-word claim: hyphen, space, figure dash, en dash, em dash or minus sign (as claims.ts). */
 const J = "[-\\u2012\\u2013\\u2014\\u2212 ]";
@@ -62,7 +63,7 @@ const NEEDS_A_FACT_IN_AI_COPY: ReadonlyArray<{ readonly pattern: RegExp; readonl
 
 /** The words in `text` that state something the AI may not, or something these facts do not back (empty when fine). */
 export function aiClaims(text: string, facts: Facts): string[] {
-  const read = [text, ...foldings(text)].map(asReadOnPage);
+  const read = readings(text);
   const find = (pattern: RegExp): string | undefined => {
     for (const reading of read) {
       const word = pattern.exec(reading)?.[0];

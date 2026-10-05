@@ -1,4 +1,4 @@
-export { asReadOnPage, HIDDEN_IN_COPY, NEEDS_A_FACT, NEVER_IN_COPY, proseIn, unbackedClaims } from "./claims.ts";
+export { asReadOnPage, HIDDEN_IN_COPY, NEEDS_A_FACT, NEVER_IN_COPY, proseIn, readings, unbackedClaims } from "./claims.ts";
 export { COPY_LIMITS, Copy, FaqItem, prose, SectionIntros, ServiceDescription } from "./copy.ts";
 export { factSections, SiteDocument, type SiteDocumentInput } from "./document.ts";
 export {
