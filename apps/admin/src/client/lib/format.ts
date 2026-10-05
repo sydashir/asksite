@@ -27,7 +27,7 @@ export interface TakedownResult {
   ownerNotEmailed: boolean;
 }
 
-const NOT_EMAILED = "Owner not emailed — contact them.";
+export const NOT_EMAILED = "Owner not emailed — contact them.";
 const CLEANUP_FAILED = "Clean-up did not finish. The site is offline; old page files stay in storage until you finish it.";
 
 /**

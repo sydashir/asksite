@@ -270,8 +270,9 @@ describe("a takedown that loses its lease after the commit (23-A16 f2, m6)", () 
     const lost = await h.call("POST", takedown(site.siteId), { body: { reason: "Spam report" }, headers: { "X-Test-Takedown-Fault": "lease-lost-after-batch" } });
     expect(lost.status).toBe(409);
     expect(lost.headers.get("Retry-After")).toBeNull();
-    expect(await json<{ error: { code: string; message: string } }>(lost)).toEqual({
-      error: { code: "conflict", message: "This takedown ran too long and was stopped before it finished. Reload; if the site shows as taken down, press Finish the takedown." },
+    // noticeSent true: this call took the site down and the owner's email went out (the admin is told so).
+    expect(await json<{ error: { code: string; message: string; noticeSent?: boolean | null } }>(lost)).toEqual({
+      error: { code: "conflict", message: "This takedown ran too long and was stopped before it finished. Reload; if the site shows as taken down, press Finish the takedown.", noticeSent: true },
     });
     // The commit stood: down in D1, the pointer already gone, the pages still in LIVE, and the owner told by the call that took the site down.
     expect(await downAt(site.siteId)).not.toBeNull();
@@ -293,10 +294,23 @@ describe("a takedown that loses its lease after the commit (23-A16 f2, m6)", () 
     await h.backgroundDone(takedown(site.siteId));
   });
 
+  it("a lost lease after the commit with a notice email that FAILS answers the 409 with noticeSent false (the admin must know the owner was not told), and no notice is in the outbox", async () => {
+    const site = await liveSite();
+    await (await h.db()).prepare("UPDATE owners SET email = ? WHERE id = ?").bind("lease@mail-fails.example", site.ownerId).run();
+    const lost = await h.call("POST", takedown(site.siteId), { body: { reason: "Spam report" }, headers: { "X-Test-Takedown-Fault": "lease-lost-after-batch" } });
+    expect(lost.status).toBe(409);
+    expect(await json<{ error: { code: string; noticeSent?: boolean | null } }>(lost)).toMatchObject({ error: { code: "conflict", noticeSent: false } });
+    expect(await downAt(site.siteId)).not.toBeNull();
+    expect(await notices("lease@mail-fails.example")).toHaveLength(0);
+    await h.backgroundDone(takedown(site.siteId));
+  });
+
   it("a lease lost BEFORE the commit (the site stays up) is the same 409 with no notice and no audit row: only the call that took the site down emails", async () => {
     const site = await liveSite();
     const lost = await h.call("POST", takedown(site.siteId), { body: { reason: "Spam report" }, headers: { "X-Test-Takedown-Fault": "lease-lost-before-batch" } });
     expect(lost.status).toBe(409);
+    // noticeSent null: this call did not take the site down, so no notice was its to send.
+    expect((await json<{ error: { noticeSent?: boolean | null } }>(lost)).error.noticeSent).toBeNull();
     expect(await downAt(site.siteId)).toBeNull();
     expect(await notices(site.email)).toHaveLength(0);
     expect((await (await h.db()).prepare("SELECT COUNT(*) AS n FROM audit_log WHERE action = 'site.taken_down' AND site_id = ?").bind(site.siteId).first<{ n: number }>())?.n).toBe(0);
@@ -307,6 +321,7 @@ describe("a takedown that loses its lease after the commit (23-A16 f2, m6)", () 
     const site = await liveSite();
     const lost = await h.call("POST", takedown(site.siteId), { body: { reason: "Spam report" }, headers: { "X-Test-Takedown-Fault": "lease-lost-after-batch-reread" } });
     expect(lost.status).toBe(409);
+    expect((await json<{ error: { noticeSent?: boolean | null } }>(lost)).error.noticeSent).toBe(true);
     expect(await downAt(site.siteId)).not.toBeNull();
     expect(await notices(site.email)).toHaveLength(1);
     await h.backgroundDone(takedown(site.siteId));

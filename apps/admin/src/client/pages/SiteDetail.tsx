@@ -12,7 +12,7 @@ import { useResource } from "../hooks.ts";
 import { COPIED_AGAIN, TAKEDOWN_LEASE_LOST } from "../../messages.ts";
 import type { TakedownView } from "../../settings-view.ts";
 import { CapNote } from "../CapNote.tsx";
-import { dollars, restoredText, takedownResult, when, type TakedownResult } from "../lib/format.ts";
+import { NOT_EMAILED, dollars, restoredText, takedownResult, when, type TakedownResult } from "../lib/format.ts";
 
 /** `expectedTakenDownAt` is sent only by Finish the takedown: the moment this page showed the site down (the server refuses a site restored since). */
 type TakedownBody = { reason: string; ownerMessage?: string; purgeMedia: boolean; expectedTakenDownAt?: number };
@@ -125,10 +125,13 @@ function SiteScreen({ data, reload }: { data: SiteDetailData; reload: () => Prom
         requestAnimationFrame(() => messageRef.current?.focus());
         return;
       }
-      show({ tone: "error", text: res.error.message });
       // A lost lease (409, no Retry-After): the takedown may have committed. If the reload shows the site down, Finish the takedown finishes
-      // its clean-up. The server already told the owner if this call took the site down; Finish never emails.
-      if (res.error.message === TAKEDOWN_LEASE_LOST) setTakedown({ body, result: { tone: "warning", text: "", cleanupFailed: true, ownerNotEmailed: false } });
+      // its clean-up. The server already told the owner if this call took the site down and says how that went: noticeSent false means the
+      // email failed, so the admin is told to contact the owner (and Finish keeps saying so); Finish never emails.
+      const leaseLost = res.error.message === TAKEDOWN_LEASE_LOST;
+      const ownerNotEmailed = leaseLost && res.error.noticeSent === false;
+      show({ tone: "error", text: ownerNotEmailed ? `${res.error.message} ${NOT_EMAILED}` : res.error.message });
+      if (leaseLost) setTakedown({ body, result: { tone: "warning", text: "", cleanupFailed: true, ownerNotEmailed } });
     } else {
       const result = takedownResult(res.data, previous);
       setTakedown({ body, result });

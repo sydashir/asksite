@@ -531,6 +531,22 @@ test("a takedown that loses its lease after the commit says so, the owner is tol
   expect(urls[1]).not.toContain("notice=due");
 });
 
+// takedown-residuals: a lost lease must not hide that the owner notice FAILED: the 409 carries noticeSent false and the page says so, and Finish keeps saying it.
+test("a takedown that loses its lease after the commit with a failed owner email says the owner was not emailed, and Finish keeps saying so", async ({ page }) => {
+  const site = await liveSite(page, { emailDomain: "mail-fails.example" });
+  const urls: string[] = [];
+  await page.route("**/api/admin/sites/*/takedown*", (route, request) => {
+    urls.push(request.url());
+    return urls.length === 1 ? route.continue({ headers: { ...request.headers(), "x-test-takedown-fault": "lease-lost-after-batch" } }) : route.continue();
+  });
+  await takeDown(page, site.siteId);
+  await expect(page.getByText("This takedown ran too long and was stopped before it finished.", { exact: false })).toBeVisible();
+  await expect(page.getByText("Owner not emailed — contact them.", { exact: false })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Restore the site" })).toBeVisible(); // the reload shows it down
+  await page.getByRole("button", { name: "Finish the takedown" }).click();
+  await expect(page.getByText("Owner not emailed — contact them. Clean-up finished.", { exact: false })).toBeVisible();
+});
+
 test("a Finish that fails after an emailed takedown never claims the owner was not emailed", async ({ page }) => {
   const site = await liveSite(page);
   const faults = ["prefix-delete", "prefix-delete-reread", null];

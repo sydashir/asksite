@@ -155,10 +155,12 @@ export function siteRoutes(deps: AdminDeps): Hono<AdminEnv> {
             const tookItDown = stored === undefined ? !alreadyDown : stored !== null && stamps.includes(stored);
             // The key names the takedown (its stored moment), so every call that sends the notice for it is the same message to the mail provider.
             const send = () => trySend(mailer, { to: site.owner_email, ...email, replyTo: c.env.SUPPORT_EMAIL, tag: "site_notice", idempotencyKey: `takedown:${site.id}:${stored ?? site.taken_down_at ?? now}` });
-            // A lost lease: tell the owner if THIS call took the site down (the re-read decides; a failed re-read falls back toward sending), then answer the 409.
+            // A lost lease: tell the owner if THIS call took the site down (the re-read decides; a failed re-read falls back toward sending), then answer
+            // the 409 with the notice's outcome as noticeSent (true sent, false failed, null this call sent none), so the admin knows whether the owner was told.
             if (leaseLost !== null) {
-              if (tookItDown) await send();
-              throw leaseLost;
+              const noticeSent = tookItDown ? await send() : null;
+              const mapped = publishApiError((leaseLost as PublishErrorLike).code, "takedown", (leaseLost as PublishErrorLike).detail);
+              throw mapped === null ? leaseLost : new ApiError(mapped.code, mapped.message, { ...mapped.extra, noticeSent });
             }
             // Plan 2 audits only the call that took the site down (and a later purge that deleted something), so a re-run that
             // only finishes the clean-up would leave no trace of this admin action: record it here.
