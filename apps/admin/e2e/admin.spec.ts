@@ -729,6 +729,26 @@ test("a takedown reason over 1000 characters shows the counter and the error on 
   expect(posts).toHaveLength(1);
 });
 
+// The reason is counted in code points, like the server's zod .max: 1000 emoji (2000 UTF-16 units) pass on the client and the server, 1001 are refused with the same text.
+test("a takedown reason of 1000 emoji is sent and accepted, and 1001 emoji are refused with the same text and counter", async ({ page }) => {
+  const site = await liveSite(page);
+  const statuses: number[] = [];
+  page.on("response", (response) => response.request().method() === "POST" && response.url().includes("/takedown") && statuses.push(response.status()));
+  await page.goto(`/sites/${site.siteId}`);
+  const first = page.getByLabel("Reason for taking it down");
+  await first.fill("\u{1F600}".repeat(1001));
+  await expect(page.getByText("1001 of 1000 characters")).toBeVisible();
+  await page.getByRole("button", { name: "Take the site down" }).click();
+  await expect(page.getByText("Please use 1000 characters or fewer.")).toBeVisible();
+  expect(statuses).toHaveLength(0);
+  await first.fill("\u{1F600}".repeat(1000));
+  await expect(page.getByText("1000 of 1000 characters")).toBeVisible();
+  await page.getByRole("button", { name: "Take the site down" }).click();
+  await page.getByRole("dialog", { name: "Take this site down?" }).getByRole("button", { name: "Take it down" }).click();
+  await expect(page.getByRole("button", { name: "Restore the site" })).toBeVisible();
+  expect(statuses).toEqual([200]);
+});
+
 test("send an owner a sign-in link from their site; a disabled owner has no such button", async ({ page }) => {
   const site = await pendingSite(page.request);
   await page.goto(`/sites/${site.siteId}`);

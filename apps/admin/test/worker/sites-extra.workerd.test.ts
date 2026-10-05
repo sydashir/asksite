@@ -122,6 +122,19 @@ describe("the takedown notice (web-maker-f4, 2026-09-30: awaited after the commi
     expect(JSON.stringify(h.logLines())).not.toContain("mail-fails");
   });
 
+  it("counts the reason in code points like zod: 1000 emoji are taken (200), 1001 are refused (422) and change nothing", async () => {
+    const site = await h.pendingSite();
+    const path = `/api/admin/sites/${site.siteId}/takedown`;
+    const refused = await h.call("POST", path, { body: { reason: "\u{1F600}".repeat(1001) } });
+    expect(refused.status).toBe(422);
+    const row = () => h.db().then((db) => db.prepare("SELECT taken_down_at FROM sites WHERE id = ?").bind(site.siteId).first<{ taken_down_at: number | null }>());
+    expect((await row())?.taken_down_at).toBeNull();
+    const res = await h.call("POST", path, { body: { reason: "\u{1F600}".repeat(1000) } });
+    expect(res.status).toBe(200);
+    expect((await row())?.taken_down_at).not.toBeNull();
+    await h.backgroundDone(path);
+  });
+
   it("says the owner was not told when the email service is rate limited (the daily cap case)", async () => {
     const site = await h.pendingSite();
     await (await h.db()).prepare("UPDATE owners SET email = ? WHERE id = ?").bind("owner@mail-rate-limited.example", site.ownerId).run();

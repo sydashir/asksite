@@ -17,11 +17,11 @@ import { dollars, restoredText, takedownResult, when, type TakedownResult } from
 /** `expectedTakenDownAt` is sent only by Finish the takedown: the moment this page showed the site down (the server refuses a site restored since). */
 type TakedownBody = { reason: string; ownerMessage?: string; purgeMedia: boolean; expectedTakenDownAt?: number };
 
-/** The takedown reason's limit (core's TakedownBody): longer is refused here, in words, before anything is sent. */
+/** The takedown reason's limit (core's TakedownBody): longer is refused here, in words, before anything is sent. It counts code points of the trimmed text, as zod's .max does. */
 const REASON_MAX = 1000;
 /** What is wrong with a takedown reason, or null. */
 const reasonProblem = (value: string): string | null =>
-  value.trim() === "" ? "Write the reason. It is kept in the audit log." : value.trim().length > REASON_MAX ? `Please use ${REASON_MAX} characters or fewer.` : null;
+  value.trim() === "" ? "Write the reason. It is kept in the audit log." : [...value.trim()].length > REASON_MAX ? `Please use ${REASON_MAX} characters or fewer.` : null;
 /** Finish the takedown from the down-site form is a re-run with no earlier result: its answer is the clean-up text, and no owner line is owed. */
 const RE_RUN: TakedownResult = { tone: "success", text: "", cleanupFailed: false, ownerNotEmailed: false };
 
