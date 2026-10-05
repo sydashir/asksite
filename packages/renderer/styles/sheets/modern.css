@@ -594,10 +594,10 @@
   .hours th, .hours td { padding: 9px 0; border-top: 1px solid var(--line); text-align: left; vertical-align: baseline; }
   .hours tr:first-child > * { border-top: 0; }
   .hours th { padding-right: 12px; font-weight: 500; color: var(--text); white-space: nowrap; }
-  /* A day range stays whole ("Monday – Friday", judges' round 3); below 900 px a time may wrap after its dash
-     (keepParts) instead, so spaced-out text (WCAG 1.4.12) and the bigger default text (125% at 400-414 px) stay on
-     the board and in the hero card. Where the table has room a time keeps its line: a table's columns start at their
-     max-content width (CSS Tables 3, width distribution). From 900 px every time keeps its line (below). */
+  /* A day range stays whole ("Monday – Friday", judges' round 3); a time may wrap after its dash (keepParts) instead,
+     so spaced-out text (WCAG 1.4.12) and the bigger default text (125%: the board at 400-414 px, the no-photo hero
+     card at 1024 px) stay inside. Where the table has room a time keeps its line: a table's columns start at their
+     max-content width (CSS Tables 3, width distribution). From 900 px the board's times keep their lines (below). */
   .hours .time { color: var(--ink); font-weight: 700; text-align: right; }
   .hours .closed { color: var(--muted); font-weight: 500; }
   .board .hours th, .board .hours td { padding: 14px 20px; }
@@ -627,7 +627,7 @@
   }
   @media (min-width: 900px) {
     /* the hours board never narrower than its table, whose day ranges and times keep their lines: the places give way */
-    .hours .time { white-space: nowrap; }
+    .board .hours .time { white-space: nowrap; }
     .area { grid-template-columns: minmax(0, 7fr) minmax(min-content, 5fr); gap: 20px; align-items: start; }
     .area.area--solo { grid-template-columns: minmax(0, 1fr); }
     /* a short list of places ends level with the hours beside it, its address at the board's foot (no hollow card) */
