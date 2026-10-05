@@ -29,8 +29,10 @@ import { foldings } from "./lookalikes.ts";
 //   words the page shows apart ("Top" + U+0336 + "rated"), so the typed reading stays: the fold only ever adds a claim.
 //   A9g: ᴉ, ʗ, ʘ and Ʊ also draw as "!", "(", "⊙" and "℧", so when the text holds one, every folded reading is made
 //   again with each of them as a word break ("Estimates are ƒreeᴉ" reads "free!" on the page and is a claim).
-// - each of those again with "_" read as a space (readings below): "_" is a word character, so "Fully _insured" or
-//   "Award__winning" hid the claim word from every rule that needs a word boundary while the page shows it.
+// - each of those again with "_" and the symbol separators (SEPARATORS below) read as a space (readings below): "_" is a
+//   word character, so "Fully _insured" or "Award__winning" hid the claim word from every rule that needs a word boundary
+//   while the page shows it, and a symbol between the words of a multi-word claim ("Award·winning", "Same•day") hid it
+//   from the patterns that join the words with a hyphen or a space.
 // A CamelCase word is read as typed, as before A9: A9d dropped A9c's CamelCase reading, which refused real names
 // that run a claim word into another word ("McMillion Creek", "FreeFlow Plumbing", "StreakFree Window Cleaning").
 // Small capitals and letters that look like digits ("ɪnsured", "ᴄertified", "Ƨ", "ꜭ") never get here: Copy refuses
@@ -122,17 +124,34 @@ export const asReadOnPage = (text: string): string =>
   text.replace(/\s+/g, " ").replace(/[\u2010\u2011]/g, "-").replace(OTHER_DASH, "\u2014");
 
 /**
- * The page read as typed, then folded every way (see the top of this file), and then each of those again with "_" read
- * as a space: "_" is a word character, so it hides a claim word from every rule that needs a word boundary, while the
- * reader sees the word whether an underscore or a space separates it. The "_" becomes a space BEFORE asReadOnPage folds
- * runs of whitespace, so "_" next to a space or "__" joins a multi-word claim like one space ("Award _winning",
- * "Same__day"). The typed readings stay as they are (a pattern that matched through an underscore, such as the bare
- * web address in "my_site.com", still matches them); the underscore readings only ever add a claim. claims.ts and
- * generation's ai-claims.ts both read through this function.
+ * The symbols a reader reads as a word break between the words of a claim, each of which copy.ts lets through:
+ * "_" (U+005F LOW LINE: a word character, so it hid a claim word from every word-boundary rule),
+ * "\u00B7" (U+00B7 MIDDLE DOT: the dot that separates items, "Award·winning crew"),
+ * "\u2022" (U+2022 BULLET: the list bullet, "Same•day service"),
+ * "~" (U+007E TILDE: drawn as a dash-like joiner, "Award~winning"),
+ * "*" (U+002A ASTERISK: a star or bullet in a list, "Award*winning"),
+ * "|" (U+007C VERTICAL LINE: the bar between items, "Award|winning").
+ * Left out on purpose: "." (U+002E, "lic." and "ins." are claim words and "mop.com" an address), "/" (U+002F, "24/7" and
+ * web addresses), ":" (U+003A, "http:" and clock times; copy bans both), "," ";" "!" "?" (end a clause, so they already
+ * split the words), "+" "=" "#" "&" "%" "^" "<" ">" (read as operators or "and", not as a break between words), and the
+ * hyphen and dashes (the patterns join those themselves).
+ */
+const SEPARATORS = /[_\u00B7\u2022~*|]/;
+
+/**
+ * The page read as typed, then folded every way (see the top of this file), and then each of those again with a
+ * SEPARATORS character read as a space: "_" is a word character, so it hides a claim word from every rule that needs a
+ * word boundary, and a symbol between the words of a multi-word claim hides it from the patterns that join the words with
+ * a hyphen or a space, while the reader sees the words whether a symbol or a space separates them. The symbol becomes a
+ * space BEFORE asReadOnPage folds runs of whitespace, so a symbol next to a space or "__" joins a multi-word claim like
+ * one space ("Award _winning", "Same__day", "Award · winning"). The typed readings stay as they are (a pattern that
+ * matched through a symbol, such as the bare web address in "my_site.com", still matches them); the separator readings
+ * only ever add a claim. claims.ts and generation's ai-claims.ts both read through this function.
  */
 export function readings(text: string): readonly string[] {
   const raw = [text, ...foldings(text)];
-  return [...raw.map(asReadOnPage), ...raw.filter((reading) => reading.includes("_")).map((reading) => asReadOnPage(reading.replace(/_/g, " ")))];
+  const apart = new RegExp(SEPARATORS.source, "g");
+  return [...raw.map(asReadOnPage), ...raw.filter((reading) => SEPARATORS.test(reading)).map((reading) => asReadOnPage(reading.replace(apart, " ")))];
 }
 
 /**
