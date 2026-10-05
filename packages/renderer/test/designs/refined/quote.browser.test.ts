@@ -2,9 +2,10 @@
 // form itself) offers the quote in exactly one label, in every window. The owner's words (copy.ctaText) in the header,
 // the hero, the Services box or the closing band, or the call bar's fixed "Get a quote", never both: where the call bar
 // carries the quote (phones, and windows under 32rem tall such as a phone held sideways) the page leaves the quote to
-// it. Classic has no per-item quote link, so every link to the form counts. Each fixture's whole site, plus an owner
-// with one service and questions (the Services box then sits on a phone's first screen), with the real Classic sheet,
-// served on the fixtures' origin from memory as in journey.browser.test.ts, in Chromium and WebKit, upright and sideways.
+// it, on every screen, not only the first (ruling, 2026-10-05), so a phone held sideways is also scrolled one screen at
+// a time. Classic has no per-item quote link, so every link to the form counts. Each fixture's whole site, plus an
+// owner with one service and questions (the Services box then sits on a phone's first screen), with the real Classic
+// sheet, served on the fixtures' origin from memory as in journey.browser.test.ts, in Chromium and WebKit.
 // The pages run no JavaScript; the check is script text, since the renderer's TypeScript program has no DOM types.
 import { chromium, webkit, type Browser, type Page } from "@playwright/test";
 import { PAGES } from "@asksite/site-schema";
@@ -27,19 +28,16 @@ const SITES: ReadonlyArray<readonly [string, RenderedSite]> = [
 ];
 let site: RenderedSite | undefined;
 
-/** Phones, tablets, laptops and phones held sideways (the iPhone 13, the Pixel 7, the iPhone Pro Max). */
-const WINDOWS = [
-  [390, 844],
-  [768, 1024],
-  [900, 800],
-  [1023, 768],
-  [1280, 800],
+/** Phones held sideways (the iPhone 13, the iPhone Pro Max, the Pixel 7): at least 48rem wide, under 32rem tall. */
+const SIDEWAYS = [
   [844, 390],
   [932, 430],
   [915, 412],
 ] as const;
+/** Phones, tablets, laptops and phones held sideways. */
+const WINDOWS = [[390, 844], [768, 1024], [900, 800], [1023, 768], [1280, 800], ...SIDEWAYS] as const;
 
-/** The distinct labels of the links to the quote form that are drawn (not display:none or hidden) on the first screen. */
+/** The distinct labels of the links to the quote form that are drawn (not display:none or hidden) on the screen in view. */
 const QUOTE_LABELS = `[...new Set([...document.querySelectorAll('a[href="/contact#quote"]')].filter((a) => {
   const box = a.getBoundingClientRect();
   return getComputedStyle(a).visibility === "visible" && box.width > 0 && box.height > 0 &&
@@ -79,6 +77,26 @@ describe.each([
           await page.goto(ORIGIN + PAGES[id].path, { waitUntil: "load" });
           const labels = (await page.evaluate(QUOTE_LABELS)) as string[];
           if (labels.length !== 1) problems.push(`${name} ${id} at ${width}x${height}: ${JSON.stringify(labels)}`);
+        }
+      }
+    }
+    expect(problems).toEqual([]);
+  }, 240_000);
+
+  it("never offers two quote labels on any screen of a page held sideways, scrolled one screen at a time", async () => {
+    const problems: string[] = [];
+    for (const [width, height] of SIDEWAYS) {
+      await page.setViewportSize({ width, height });
+      for (const [name, each] of SITES) {
+        site = each;
+        for (const { page: id } of each.pages.filter((p) => p.page !== "contact")) {
+          await page.goto(ORIGIN + PAGES[id].path, { waitUntil: "load" });
+          const total = (await page.evaluate("document.documentElement.scrollHeight")) as number;
+          for (let top = 0; top < total; top += height) {
+            await page.evaluate(`scrollTo(0, ${top})`);
+            const labels = (await page.evaluate(QUOTE_LABELS)) as string[];
+            if (labels.length > 1) problems.push(`${name} ${id} at ${width}x${height}, scrolled to ${top} px: ${JSON.stringify(labels)}`);
+          }
         }
       }
     }

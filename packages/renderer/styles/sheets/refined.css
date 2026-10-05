@@ -314,7 +314,8 @@ summary::-webkit-details-marker{display:none}
 .fcall-n{flex-basis:100%;margin-top:-.25rem;font-size:.875rem}
 
 /* ---------- The closing band: a dark panel on the last light band, at the foot of every page but Contact. Its buttons
-   show from 48rem; on phones the call bar under the thumb carries Call and the quote button, and the panel the number. ---------- */
+   show where the sticky header does; wherever the call bar shows (phones, and windows under 32rem tall such as a phone
+   held sideways) it carries Call and the quote button, and the panel the number. ---------- */
 .cl{padding-block:2.5rem 3.5rem}
 .cl-p{position:relative;display:grid;gap:1.5rem;padding:2.25rem 1.5rem 2rem;border-radius:var(--aw-refined-radius-paper);background:var(--aw-refined-dark);color:var(--aw-refined-on-dark-muted);box-shadow:var(--sh)}
 .cl-p::after{content:"";position:absolute;inset:.4375rem;border:1px solid var(--aw-refined-accent-on-dark);border-radius:calc(var(--aw-refined-radius-paper)*.6);opacity:.4;pointer-events:none}
@@ -327,7 +328,7 @@ summary::-webkit-details-marker{display:none}
 .cl-l .i{margin-top:.1875rem;color:var(--aw-refined-accent-on-dark)}
 .cl-l .dots{flex:1 1 auto}
 .cl-l a{font-weight:600;color:var(--aw-refined-on-dark);text-decoration:underline var(--aw-refined-accent-on-dark);text-underline-offset:.25em}
-/* The number, large, to tap on phones (the call bar carries the buttons there); the buttons from 48rem. */
+/* The number, large, to tap wherever the call bar shows (it carries the buttons there); else the buttons. */
 .c-list .i-lg,.cl-l .i-lg{width:1.5rem;height:1.5rem;margin-top:.5rem}
 .cl-a{display:none}
 .cl .bt-out{border-color:var(--aw-refined-on-dark);color:var(--aw-refined-on-dark)}
@@ -434,7 +435,7 @@ summary::-webkit-details-marker{display:none}
   .hd-row{flex-wrap:wrap;min-height:0;padding-block:.5rem 0}
   .hd-q,.hd-c{display:inline-flex;min-height:2.75rem;padding:.3125rem 1rem;font-size:.9375rem}
   .hd-q{background:var(--aw-refined-surface)}
-  .menu,.dots-r>.eb-y,.cl-l .cl-n{display:none}
+  .menu,.dots-r>.eb-y{display:none}
   .brand{flex:1 1 0}
   .nav{flex:1 0 100%;margin-top:.5rem;border-top:1px solid var(--aw-refined-line)}
   .nav-l{display:flex;flex-wrap:wrap;column-gap:.5rem;margin-inline:-.5rem}
@@ -466,7 +467,6 @@ summary::-webkit-details-marker{display:none}
   .cl{padding-block:3.5rem 5rem}
   .cl-p{padding:3rem}
   .cl-p::after{inset:.5625rem}
-  .cl-a{display:flex;flex-wrap:wrap;gap:.75rem;margin-top:1.75rem}
   .sh{margin-bottom:3rem}
   .ti{font-size:1rem}
   .ti .i{width:1.5rem;height:1.5rem}
@@ -489,12 +489,14 @@ summary::-webkit-details-marker{display:none}
 }
 /* From 48rem the header stays on screen with Quote and Call (in windows at least 32rem tall); scroll-padding keeps
    focused and linked content clear of it (WCAG technique C43). It stacks above Send (z-index 20). A shorter
-   landscape window keeps a static header with Call, and the call bar carries the quote. */
+   landscape window keeps a static header with Call, and the call bar carries the quote on every screen: the closing
+   band's buttons show only here, with the call bar gone (moderator ruling, 2026-10-05). */
 @media (min-width:48rem) and (min-height:32rem){
   html{scroll-padding-top:8rem}
   html:has(.hd-long){scroll-padding-top:9.5rem}
   .hd{position:sticky;top:0;box-shadow:0 12px 24px -24px #0000008c}
-  .cb{display:none}
+  .cb,.cl-l .cl-n{display:none}
+  .cl-a{display:flex;flex-wrap:wrap;gap:.75rem;margin-top:1.75rem}
 }
 /* Tablets held upright: a wider crop, so the review plate and the seal reach the first screen. */
 @media (48rem <= width < 60rem){
