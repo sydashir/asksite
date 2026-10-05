@@ -1,19 +1,30 @@
 // What a visitor sees on Bold's built pages, measured in real browsers (A16 round 6): the first screen of every page
 // offers one quote label only (the moderator's quote rule, 2026-10-05); on iPad landscape widths the /contact form
 // keeps Send request in the first screen with "Choose a service" whole, and its head keeps the owner's standing on one
-// line; on iPad portrait widths the footer's credentials sit right under the business name.
+// line; on iPad portrait widths the footer's credentials sit right under the business name; and at 320 px every page,
+// in each of the three letterings, reflows with no text lost.
 // Every fixture's whole Bold site with the real Bold sheet, served from memory on its own origin (Playwright 1.63
 // BrowserContext.route and Route.fulfill; photos are a gray tile, anything else is aborted), in Chromium and WebKit.
 // The pages run no JavaScript; the checks are script text, since the renderer's TypeScript program has no DOM types.
 import { chromium, webkit, type Browser, type Page } from "@playwright/test";
-import { PAGES, type PageId } from "@asksite/site-schema";
+import { FONT_IDS, PAGES, type PageId } from "@asksite/site-schema";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { DESIGN_CSS, FIXTURES, renderFixture, type FixtureName } from "../../../../../fixtures/index.ts";
+import { DESIGN_CSS, FIXTURE_FORM_ACTION, FIXTURE_SITE_URL, FIXTURES, inDesign, loadFixture, renderFixture, type FixtureName } from "../../../../../fixtures/index.ts";
+import { render, type RenderedSitePage } from "../../../src/render.ts";
 
 const GRAY_PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAQAAAADCAIAAAA7ljmRAAAAEUlEQVR42mM4ffUhHDHg5AAASSceDT8mdlEAAAAASUVORK5CYII=", "base64");
 const SITES = new Map(FIXTURES.map((name) => [name, renderFixture(name, DESIGN_CSS, "impact")]));
 const pagesOf = (name: FixtureName): readonly PageId[] => (SITES.get(name) ?? []).map((p) => p.page);
-const origin = (name: FixtureName) => `https://${name}.bold.invalid`;
+/** Every fixture's site again in each lettering the owner can pick (theme.font), served as "<fixture>-<font>". */
+const LETTERINGS = FIXTURES.flatMap((name) =>
+  FONT_IDS.map((font) => {
+    const doc = inDesign(loadFixture(name), "impact");
+    const { pages } = render({ ...doc, theme: { ...doc.theme, font } }, { stylesheets: DESIGN_CSS, formAction: FIXTURE_FORM_ACTION, siteUrl: FIXTURE_SITE_URL });
+    return { name, font, site: `${name}-${font}`, pages };
+  }),
+);
+const SERVED = new Map<string, readonly RenderedSitePage[]>([...SITES, ...LETTERINGS.map(({ site, pages }) => [site, pages] as const)]);
+const origin = (site: string) => `https://${site}.bold.invalid`;
 
 type Size = readonly [width: number, height: number];
 const ENGINES = { Chromium: chromium, WebKit: webkit } as const;
@@ -26,8 +37,8 @@ afterAll(async () => {
   for (const browser of browsers.values()) await browser.close();
 }, 60_000);
 
-/** A window of `size` in `engine` that serves every fixture's pages; `visit` opens one and runs `script` once its fonts are ready. */
-async function inWindow(engine: keyof typeof ENGINES, [width, height]: Size, body: (visit: <T>(name: FixtureName, path: string, script: string) => Promise<T>) => Promise<void>): Promise<void> {
+/** A window of `size` in `engine` that serves every site's pages; `visit` opens one and runs `script` once its fonts are ready. */
+async function inWindow(engine: keyof typeof ENGINES, [width, height]: Size, body: (visit: <T>(site: string, path: string, script: string) => Promise<T>) => Promise<void>): Promise<void> {
   const browser = browsers.get(engine);
   if (browser === undefined) throw new Error(`${engine} did not start`);
   const context = await browser.newContext({ viewport: { width, height } });
@@ -35,15 +46,15 @@ async function inWindow(engine: keyof typeof ENGINES, [width, height]: Size, bod
     await context.route(/^https?:\/\//, (route) => {
       const request = route.request();
       const url = new URL(request.url());
-      const name = FIXTURES.find((n) => origin(n) === url.origin);
-      const found = name === undefined || request.method() !== "GET" ? undefined : SITES.get(name)?.find((p) => p.path === url.pathname);
+      const site = [...SERVED.keys()].find((s) => origin(s) === url.origin);
+      const found = site === undefined || request.method() !== "GET" ? undefined : SERVED.get(site)?.find((p) => p.path === url.pathname);
       if (found !== undefined) return route.fulfill({ body: found.html, contentType: "text/html; charset=utf-8" });
       if (request.resourceType() === "image") return route.fulfill({ body: GRAY_PNG, contentType: "image/png" });
       return route.abort();
     });
     const page: Page = await context.newPage();
-    await body(async <T,>(name: FixtureName, path: string, script: string) => {
-      await page.goto(origin(name) + path, { waitUntil: "load" });
+    await body(async <T,>(site: string, path: string, script: string) => {
+      await page.goto(origin(site) + path, { waitUntil: "load" });
       await page.evaluate("document.fonts.ready");
       return page.evaluate<T>(script);
     });
@@ -64,6 +75,38 @@ const QUOTE_LABELS = `[...document.querySelectorAll('a[href="/contact#quote"]')]
   if (box.bottom <= 0 || box.top >= innerHeight || box.right <= 0 || box.left >= innerWidth) return [];
   return [a.textContent.replace(/\\s+/g, " ").trim()];
 }).filter((label, i, all) => all.indexOf(label) === i)`;
+
+/**
+ * What a visitor loses at the window's width: the page scrolling sideways (WCAG 1.4.10), and each visible text node
+ * that a box with clipping overflow cuts (any box up to <body>, in the direction it clips) or that runs past the right
+ * edge of the page. Screen-reader-only text, the honeypot and the select's options do not count, nor does text whose
+ * element is not rendered or is visibility:hidden.
+ */
+const LOST_TEXT = `(() => {
+  const lost = [];
+  const root = document.documentElement, width = root.clientWidth;
+  if (root.scrollWidth > width) lost.push("scrolls " + (root.scrollWidth - width) + " px sideways");
+  const name = (el) => el.tagName.toLowerCase() + [...el.classList].map((c) => "." + c).join("");
+  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+  for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) {
+    const parent = node.parentElement;
+    if (parent === null || node.data.trim() === "" || parent.closest(".sr-only, .hp, select, script, style") !== null) continue;
+    if (!parent.checkVisibility({ visibilityProperty: true })) continue;
+    const range = document.createRange();
+    range.selectNodeContents(node);
+    const lines = [...range.getClientRects()].filter((r) => r.width > 0.5);
+    const text = JSON.stringify(node.data.trim().replace(/\\s+/g, " ").slice(0, 32));
+    if (lines.some((r) => r.right > width + 1)) lost.push(text + " runs past the right edge");
+    for (let box = parent; box !== root; box = box.parentElement) {
+      const style = getComputedStyle(box);
+      const clipX = style.overflowX !== "visible", clipY = style.overflowY !== "visible";
+      if (!clipX && !clipY) continue;
+      const b = box.getBoundingClientRect();
+      if (lines.some((r) => (clipX && (r.left < b.left - 1 || r.right > b.right + 1)) || (clipY && (r.top < b.top - 1 || r.bottom > b.bottom + 1)))) lost.push(text + " is cut by " + name(box));
+    }
+  }
+  return [...new Set(lost)];
+})()`;
 
 describe.each(Object.keys(ENGINES) as Array<keyof typeof ENGINES>)("Bold's first screens in %s", (engine) => {
   // The quote rule: on every page but Contact (the form is its first screen), at least one site-level quote action shows
@@ -155,4 +198,21 @@ describe.each(Object.keys(ENGINES) as Array<keyof typeof ENGINES>)("Bold's first
     });
     expect(wrong).toEqual([]);
   });
+});
+
+// The checks above render each fixture in its own lettering only, so they never saw roofing-extreme's /contact licences
+// push the page 12 px sideways at 320 px in the wider "clean" and "sturdy" letterings (moderator's probe, 2026-10-05).
+// Every page of every fixture in each lettering, at the narrowest phone width (A12 section 13; WCAG 1.4.10).
+describe.each(Object.keys(ENGINES) as Array<keyof typeof ENGINES>)("Bold's pages at 320 px in %s", (engine) => {
+  it("keep every page of every fixture, in each lettering, within the window with no text cut or past its right edge", async () => {
+    const wrong: string[] = [];
+    await inWindow(engine, [320, 568], async (visit) => {
+      for (const { name, font, site, pages } of LETTERINGS) {
+        for (const { path } of pages) {
+          for (const problem of await visit<string[]>(site, path, LOST_TEXT)) wrong.push(`${name} in ${font} ${path}: ${problem}`);
+        }
+      }
+    });
+    expect(wrong).toEqual([]);
+  }, 180_000);
 });
