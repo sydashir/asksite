@@ -68,8 +68,8 @@ const QUOTE_LABELS = `[...document.querySelectorAll('a[href="/contact#quote"]')]
 describe.each(Object.keys(ENGINES) as Array<keyof typeof ENGINES>)("Bold's first screens in %s", (engine) => {
   // The quote rule: on every page but Contact (the form is its first screen), at least one site-level quote action shows
   // and all of them carry one label: the owner's words where the call bar is hidden (from 64rem), the bar's fixed
-  // "Get a quote" alone below.
-  it.each([[390, 844], [768, 1024], [900, 800], [1023, 768], [1280, 800]] as const)("shows exactly one quote label in the first screen of every page but Contact at %dx%d", async (width, height) => {
+  // "Get a quote" alone below, phones held sideways (844x390, 932x430, 915x412) included.
+  it.each([[390, 844], [768, 1024], [900, 800], [1023, 768], [1280, 800], [844, 390], [932, 430], [915, 412]] as const)("shows exactly one quote label in the first screen of every page but Contact at %dx%d", async (width, height) => {
     const wrong: string[] = [];
     await inWindow(engine, [width, height], async (visit) => {
       for (const name of FIXTURES) {
