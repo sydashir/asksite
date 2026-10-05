@@ -20,8 +20,9 @@ const NEVER_IN_AI_COPY: readonly RegExp[] = [
   new RegExp(`\\bwithin${J}(the|an?|one)${J}hour\\b`, "i"), // a response time no fact backs
   // The same claim after an arrival phrase and "in" ("Here in under an hour", "Onsite in under one hour", "At your door in less than an
   // hour"). "takes under an hour", "done in under an hour" and "On site under an hour" (no "in") are a job's length, usual in trade
-  // copy, so the arrival phrase and "in" must both be there. Known false positive, the model can rephrase it (one repair turn; the
-  // owner never sees it): "in and out of there in under an hour". The written residuals: other response-time paraphrases ("we get
+  // copy, so the arrival phrase and "in" must both be there. Known false positives, the model can rephrase them (one repair turn; the
+  // owner never sees them): "in and out of there in under an hour", and a place word, "in" and a duration ("done onsite in under an
+  // hour"). The written residuals: other response-time paraphrases ("we get
   // to you fast", "a quick hour away", "within the next hour", "within half an hour") are accepted; the prompt's "Invent nothing:
   // ... response times" is the backstop.
   new RegExp(`\\b(here|there|arrive[sd]?|arriving|on${J}?site|at${J}your${J}door|out${J}to${J}you)${J}in${J}(under|less${J}than)${J}(an|one)${J}hour\\b`, "i"),
@@ -36,7 +37,8 @@ const NEVER_IN_AI_COPY: readonly RegExp[] = [
   // "a long time local business", "serving Austin for a long time".
   /\b(long[-\u2012\u2013\u2014\u2212]?time|seasoned)\b/i,
   /\b(raves?|raved|raving|recommended)\b/i, // "we recommend" is advice and stays allowed
-  // "recommend annual service" and "recommend using" stay allowed. Known false positive: "recommend U.S.-made" (the spelled-run reading joins "U.S." to "US").
+  // "recommend annual service" and "recommend using" stay allowed. Known false positives: "recommend U.S.-made" (the spelled-run reading
+  // joins "U.S." to "US") and the referral line "Thanks for recommending us".
   new RegExp(`\\brecommend(s|ing)?${J}us\\b`, "i"),
   /[\u2039\u203A\u301D-\u301F\uFF02]/, // quote marks claims.ts does not list
   // A phrase in straight single quotes: an opening ' at a word start (at the start of the text or after a space, a
@@ -65,7 +67,8 @@ const NEEDS_A_FACT_IN_AI_COPY: ReadonlyArray<{ readonly pattern: RegExp; readonl
   { pattern: /\blic\./i, backedBy: (facts) => facts.licences.length > 0 },
   // "ins." counts on its own, not after an ASCII letter or after an ASCII letter and a hyphen ("check-ins.", "walk-ins."); "lic.-ins." counts.
   // Only ASCII letters: other letters (U+A78F, U+02D0, U+0640) can draw as punctuation, so "Fully\uA78Fins." still counts.
-  // The written residual: a word, a hyphen, then "ins." is accepted ("Fully-ins.", "Licensed-and-ins."), the shape of "walk-ins.".
+  // The written residual: a word, a hyphen, then "ins." is accepted by this rule ("Fully-ins."), the shape of "walk-ins.";
+  // "Licensed-and-ins." is refused by the mixed-pair rule below.
   // Not "coverage" or "covered": they describe the service area.
   { pattern: /(?<![a-z]-?)\bins\.|\bliabilit(?:y|ies)/iu, backedBy: (facts) => facts.insured },
   // "lic and ins" / "lic & ins" with a dot dropped from either "lic" or "ins": it states both, so it needs both facts. Only the pair
@@ -77,11 +80,12 @@ const NEEDS_A_FACT_IN_AI_COPY: ReadonlyArray<{ readonly pattern: RegExp; readonl
     backedBy: (facts) => facts.licences.length > 0 && facts.insured,
   },
   // The mixed pairs "lic and insured" and "licensed & ins": one side a full word, the other an abbreviation without its dot, which no
-  // rule above refuses on its own. Both facts are needed. Dotted forms ("lic. & insured", "Licensed & ins.") are refused by the rules
-  // above, which need the same two facts ("Licensed-and-ins." stays the written residual of the "ins." rule). The full words
-  // "licensed and insured" are the claim checker's. Residuals: "lic" or "ins" alone, "lic + ins".
+  // rule above refuses on its own. Both facts are needed. So is "Licensed-and-ins.": "ins." after a word and a hyphen is no "ins." to
+  // the rule above, so this rule refuses it. The other dotted forms are refused elsewhere: "Licensed & ins." by the "ins." rule above,
+  // "lic. & insured" by the "lic." rule above and claims.ts's insured rule. The full words "licensed and insured" are the claim
+  // checker's. Residuals: "lic" or "ins" alone, "lic/ins", "lic + ins", and the other spellings "Licenced & ins", "License & ins".
   {
-    pattern: new RegExp(`\\b(?:lic(?!\\.)${AND}insured\\b|licensed${AND}ins\\b(?!\\.))`, "i"),
+    pattern: new RegExp(`\\b(?:lic${AND}insured\\b|licensed${AND}ins\\b(?:(?!\\.)|(?<=[a-z]-ins)\\.))`, "i"),
     backedBy: (facts) => facts.licences.length > 0 && facts.insured,
   },
   // Known false positive, rephrasable: "(every|any) holiday" before a noun ("every holiday season"). Residuals: "after-hour", "afterhour",
@@ -92,8 +96,9 @@ const NEEDS_A_FACT_IN_AI_COPY: ReadonlyArray<{ readonly pattern: RegExp; readonl
   },
   // "free" in any form, a hyphenated compound too ("stress-free"), but not inside a longer word ("freedom", "FreeFlow").
   { pattern: /(?<!\p{L})free(?!\p{L})/iu, backedBy: (facts) => facts.freeEstimates },
-  // claims.ts has "no charge" and "no cost" (owner rule); their plurals are AI-only. Known false positive, rephrasable: "never charges" of
-  // a car or a battery. Residuals: "freebee", "freeby".
+  // claims.ts has "no charge" and "no cost" (owner rule); their plurals are AI-only. Known false positives, rephrasable: "never charges"
+  // of a car or a battery, "charging ahead", "zero charge" of a battery or a card, and "no costs" or "no charges" before a qualifier
+  // ("No costs hidden in the fine print"). Residuals: "freebee", "freeby".
   {
     pattern: new RegExp(`\\b(zero${J}(costs?|fees?|charges?)|freebies?|gratis|on${J}the${J}house|never${J}charg(e[ds]?|ing)|without${J}charge|no${J}fees?|no${J}(charge|cost)s)\\b`, "i"),
     backedBy: (facts) => facts.freeEstimates,

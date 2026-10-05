@@ -96,7 +96,9 @@ describe("AI claim check: insurance", () => {
     ["known gap: Fully-ins.", "Fully-ins. crew"],
     ["known gap: Fully, U+2010, ins.", "Fully\u2010ins. crew"],
   ]);
-  accepted(LICENSED, [["known gap: Licensed-and-ins. (licensed is backed by the licence)", "A Licensed-and-ins. crew"]]);
+  // "ins." after a word and a hyphen is no "ins." to the rule above, but the mixed-pair rule refuses "Licensed-and-ins." without the insured fact.
+  refused(LICENSED, [["Licensed-and-ins. needs the insured fact", "A Licensed-and-ins. crew", ["Licensed-and-ins."]]]);
+  accepted(withFacts({ licences: [{ label: "Texas cleaner", number: "C-1" }], insured: true }), [["Licensed-and-ins. with both facts", "A Licensed-and-ins. crew"]]);
   accepted(INSURED, [
     ["liability with the insured fact", "Covered by full liability coverage"],
     ["ins. with the insured fact", "Our ins. crew"],
@@ -398,7 +400,7 @@ describe("AI claim check: claim-word gaps", () => {
     ["freedom from clutter", "Freedom from clutter"],
     ["FreeFlow in a name", "FreeFlow drains"],
     ["daily alone", "Daily cleaning for busy offices"],
-    // Round 1 pinned "Here under an hour" as refused; round 2 requires "in" after the arrival phrase, so a duration without it is accepted.
+    // Round 1's rule refused "Here under an hour"; round 2 requires "in" after the arrival phrase, so a duration without it is accepted.
     ["on site under an hour (a duration, no \"in\")", "On site under an hour"],
     ["here under an hour (no \"in\")", "Here under an hour"],
     ["known gap: a response time without an arrival phrase", "We get to you fast, a quick hour away"],
