@@ -2365,6 +2365,13 @@
     display: flex;
     gap: 0.5rem;
   }
+  /* A flex item is by default at least as wide as its longest word (min-width:auto), so a long licence number pushed
+     the page sideways at 320 px. The label and number now fit the line, and break inside a word only when that word
+     alone is wider than the line. */
+  .talk-lics li > span {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
   .talk-lics .ic {
     margin-top: 0.125rem;
     color: var(--fg-m);
