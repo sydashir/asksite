@@ -943,7 +943,12 @@ test("saving the web address after a dropped wording change saves it, keeps the 
   await page.getByLabel("Which answers?").selectOption({ label: "Your web address" });
   await page.getByLabel("Web address").fill(slug);
   await expect(page.getByText("This address is free. Save it to keep it.")).toBeVisible();
+  // Save PUTs the address, then reloads the site with a GET (the page's own request; apiCall below goes through page.request and is not seen here).
+  // Press Publish only once that reload has ended and the button is back, or the first press can land on the saver the reload replaces.
+  const reloaded = page.waitForResponse((res) => res.request().method() === "GET" && new URL(res.url()).pathname === `/api/sites/${siteId}`);
   await page.getByRole("button", { name: "Save this web address" }).click();
+  await reloaded;
+  await expect(page.getByRole("button", { name: "Save this web address" })).toBeVisible();
   await expect.poll(async () => (await siteView(page, siteId))["slug"]).toBe(slug);
   await expect(page.getByText(NOT_SAVED_YET)).toHaveCount(0);
   const notice = page.getByRole("status").filter({ hasText: WORDING_DROPPED });
