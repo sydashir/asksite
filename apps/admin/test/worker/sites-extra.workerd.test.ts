@@ -554,6 +554,21 @@ describe("A16-4c: Restore sends the takedown it showed, and Copy the live pages 
     expect((await h.call("POST", restore(site.siteId), { body })).status).toBe(200);
     await h.backgroundDone(takedown(site.siteId));
   });
+
+  // Plan 2's take-back rule (shared.ts takeBackPointer, holdsDownSite): when the re-read shows the site down AND this call holds the
+  // lease, the pointer goes whoever wrote it, so a stale pointer an earlier failed take-back left cannot stay on a down site.
+  it("a failed Restore takes a stale pointer another writer left out of the down site, as the real take-back does", async () => {
+    const site = await liveSite();
+    await h.call("POST", takedown(site.siteId), { body: { reason: "Spam report" } });
+    await h.backgroundDone(takedown(site.siteId));
+    const body = await h.restoreBody(site.siteId);
+    await (await h.r2("LIVE")).put(livePointerKey(site.slug), "");
+    expect(await h.liveKeys(site.slug)).toEqual([livePointerKey(site.slug)]);
+    const res = await h.call("POST", restore(site.siteId), { body, headers: { "X-Test-Takedown-Fault": "pointer-write" } });
+    expect(res.status).toBe(500);
+    expect(await takenDownAt(site.siteId)).not.toBeNull();
+    expect(await h.liveKeys(site.slug)).not.toContain(livePointerKey(site.slug));
+  });
 });
 
 // Task 26 step 4 (lane B fix, 2026-10-05): "this call took the site down" is decided AFTER takeDown runs. Two admins whose reads both

@@ -6,6 +6,8 @@ import { REVIEW_QUEUE } from "../../src/worker/queries.ts";
 import { json, useAdminHarness, VALID_FACTS } from "../support/harness.ts";
 
 const h = useAdminHarness();
+// The pointer's `writer` is the writing call's own random id (shared.ts writeLivePointer): a UUID, never the lease token.
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 type ErrorJson = { error: { code: string; message: string } };
 
@@ -180,7 +182,7 @@ describe("review", () => {
     expect(await (await live.get(livePageKey(site.slug, site.versionId, "home")))?.text()).toContain("Call Joe today");
     const pointer = await live.get(livePointerKey(site.slug));
     expect(await pointer?.text()).toBe("");
-    expect(pointer?.customMetadata).toEqual({ siteId: site.siteId, versionId: site.versionId, businessName: "Joe's Plumbing", phoneText: "(512) 555-0142", phoneTel: "+15125550142" });
+    expect(pointer?.customMetadata).toEqual({ siteId: site.siteId, versionId: site.versionId, businessName: "Joe's Plumbing", phoneText: "(512) 555-0142", phoneTel: "+15125550142", writer: expect.stringMatching(UUID) });
     const row = await (await h.db()).prepare("SELECT live_version_id, indexable FROM sites WHERE id = ?").bind(site.siteId).first<{ live_version_id: string; indexable: number }>();
     expect(row).toEqual({ live_version_id: site.versionId, indexable: 0 });
     expect((await h.outbox(site.email))[0]).toMatchObject({ subject: "Your website is live", tag: "review_result" });

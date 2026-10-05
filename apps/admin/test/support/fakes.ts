@@ -1,5 +1,5 @@
 import type { Mailer } from "@asksite/app-common";
-import { livePageKey, livePointerKey, liveSitePrefix, pagesDigest, sha256Hex, siteUrl, versionPageKey, VersionPages, type SiteVersionRow } from "@asksite/core";
+import { livePageKey, livePointerKey, liveSitePrefix, newId, pagesDigest, sha256Hex, siteUrl, versionPageKey, VersionPages, type SiteVersionRow } from "@asksite/core";
 import { formatPhone } from "@asksite/renderer";
 import { acquireLease, assertLease, PublishError as RealPublishError, releaseLease, TAKEDOWN_REVIEW_NOTE } from "@asksite/publishing";
 import type { SiteDocument } from "@asksite/site-schema";
@@ -82,10 +82,45 @@ async function copyPages(live: R2Bucket, slug: string, ids: { siteId: string; ve
   );
 }
 
-/** The one write that switches the site to a version: an empty object whose metadata names it and the business (Plan 2's writeLivePointer). */
-async function writePointer(live: R2Bucket, slug: string, ids: { siteId: string; versionId: string }, documentJson: string): Promise<void> {
+/**
+ * The one write that switches the site to a version: an empty object whose metadata names it and the business, plus
+ * `writer`, the writing call's own random id (never the lease token), as Plan 2's writeLivePointer (shared.ts:170-177).
+ */
+async function writePointer(live: R2Bucket, slug: string, ids: { siteId: string; versionId: string }, documentJson: string, writeId: string): Promise<void> {
   const { facts } = JSON.parse(documentJson) as SiteDocument;
-  await live.put(livePointerKey(slug), "", { customMetadata: { ...ids, businessName: facts.businessName, phoneText: formatPhone(facts.phone), phoneTel: facts.phone } });
+  await live.put(livePointerKey(slug), "", { customMetadata: { ...ids, businessName: facts.businessName, phoneText: formatPhone(facts.phone), phoneTel: facts.phone, writer: writeId } });
+}
+
+/** What a take-back's one D1 re-read returns (shared.ts:180-184 TakeBackRow). */
+interface TakeBackRow {
+  taken_down_at: number | null;
+  admin_lock: string | null;
+}
+
+/** Plan 2's holdsDownSite (shared.ts:193-195, internal to @asksite/publishing): the site is down AND this action's token still holds it. */
+function holdsDownSite(row: TakeBackRow | null, token: string): boolean {
+  return row !== null && row.taken_down_at !== null && row.admin_lock === token;
+}
+
+/**
+ * Plan 2's takeBackPointer (shared.ts:220-241, internal to @asksite/publishing): deletes the pointer only when its `writer`
+ * is this call's `writeId`, or whoever wrote it when `anyPointer` (holdsDownSite of the re-read row); a missing pointer needs no
+ * delete, a HEAD that throws deletes, and a failed delete is swallowed (the real one logs ids only; the fakes log nothing).
+ */
+async function takeBackPointer(live: R2Bucket, slug: string, writeId: string, anyPointer: boolean): Promise<void> {
+  try {
+    let ours = true; // a HEAD that throws: delete
+    try {
+      const pointer = await live.head(livePointerKey(slug));
+      if (pointer === null) return;
+      ours = anyPointer || pointer.customMetadata?.["writer"] === writeId;
+    } catch {
+      // unknown whose it is
+    }
+    if (ours) await live.delete(livePointerKey(slug));
+  } catch {
+    // a failed take-back delete: the real one logs it
+  }
 }
 
 /** Deletes every object under the prefix, a listing page at a time, one array delete per page (as Plan 2's deletePrefix). */
@@ -137,43 +172,71 @@ async function liveSite(db: D1Database, siteId: string, takenDownFirst = false):
   return { siteId, slug: site.slug, versionId: site.live_version_id, takenDownAt: site.taken_down_at, htmlSha256: site.html_sha256, pagesJson: site.pages_json, documentJson: site.document_json };
 }
 
-/** Verifies every page of the live version, copies them to LIVE, checks the lease and writes the pointer; a rejected pointer write is live_copy_failed (restore's own sequence, site-state.ts:176-188). */
-async function copyAndWritePointer(env: { DB: D1Database; WORK: R2Bucket; LIVE: R2Bucket }, site: LiveSite, token: string): Promise<void> {
+/**
+ * restore's take-back (site-state.ts:185-197 pointerBackIfDown): D1 is asked first (taken_down_at, live_version_id, admin_lock;
+ * a read that throws counts as down). Down or gone: this call's own pointer goes (any pointer when holdsDownSite) and null is
+ * returned; live: the pointer is left alone and the row is returned.
+ */
+async function pointerBackIfDown(env: { DB: D1Database; LIVE: R2Bucket }, site: LiveSite, writeId: string, token: string): Promise<(TakeBackRow & { live_version_id: string | null }) | null> {
+  let after: (TakeBackRow & { live_version_id: string | null }) | null = null;
+  try {
+    after = await env.DB.prepare("SELECT taken_down_at, live_version_id, admin_lock FROM sites WHERE id = ?").bind(site.siteId).first<TakeBackRow & { live_version_id: string | null }>();
+  } catch {
+    // unconfirmed: treated as down
+  }
+  if (after === null || after.taken_down_at !== null) {
+    await takeBackPointer(env.LIVE, site.slug, writeId, holdsDownSite(after, token));
+    return null;
+  }
+  return after;
+}
+
+/**
+ * Verifies every page of the live version, copies them to LIVE, checks the lease and writes the pointer (restore's own sequence,
+ * site-state.ts:166-205). A rejected write may still have landed: still down, the pointer is taken back and the answer is
+ * live_copy_failed; live (another restore won), the pointer is left and the answer is site_busy (lease_lost). Returns this call's writeId.
+ */
+async function copyAndWritePointer(env: { DB: D1Database; WORK: R2Bucket; LIVE: R2Bucket }, site: LiveSite, token: string): Promise<string> {
   const ids = { siteId: site.siteId, versionId: site.versionId };
   await copyPages(env.LIVE, site.slug, ids, await verifiedPages(env.WORK, { site_id: site.siteId, id: site.versionId, pages_json: site.pagesJson, html_sha256: site.htmlSha256 }));
   await holdsLease(env.DB, site.siteId, token);
+  const writeId = newId(); // this call's own pointer write (site-state.ts:171)
   try {
-    await writePointer(env.LIVE, site.slug, ids, site.documentJson);
+    await writePointer(env.LIVE, site.slug, ids, site.documentJson, writeId);
   } catch {
-    throw new FakePublishError("live_copy_failed", { versionId: site.versionId });
+    if ((await pointerBackIfDown(env, site, writeId, token)) === null) throw new FakePublishError("live_copy_failed", { versionId: site.versionId });
+    throw new FakePublishError("site_busy", { reason: "lease_lost" });
   }
+  return writeId;
 }
 
 /**
  * The copy-and-point sequence of a LIVE site (Plan 2's copyAndPoint, site-state.ts:235-270; used by copyLivePagesAgain and restore's heal): verify, copy,
- * lease check, pointer write (a rejection is remembered, the write may still have landed), then the takedown re-read: a read that throws, or a site down
- * or gone, takes the pointer back out (best effort, not lease-checked) and answers live_copy_failed / site_taken_down; a rejected write on a live
- * site is live_copy_failed with the pointer left; otherwise the other versions' pages go.
+ * lease check, pointer write under its own writeId (a rejection is remembered, the write may still have landed), then the takedown re-read
+ * (taken_down_at and admin_lock): a read that throws takes this call's own pointer back out and answers live_copy_failed; a site down or gone
+ * takes it back out (this call's own, or any pointer when the re-read shows the site down AND this call's token holding it: holdsDownSite) and
+ * answers site_taken_down; a rejected write on a live site is live_copy_failed with the pointer left; otherwise the other versions' pages go.
  */
 async function copyAndPoint(env: { DB: D1Database; WORK: R2Bucket; LIVE: R2Bucket }, site: LiveSite, token: string): Promise<void> {
   const ids = { siteId: site.siteId, versionId: site.versionId };
   await copyPages(env.LIVE, site.slug, ids, await verifiedPages(env.WORK, { site_id: site.siteId, id: site.versionId, pages_json: site.pagesJson, html_sha256: site.htmlSha256 }));
   await holdsLease(env.DB, site.siteId, token);
+  const writeId = newId(); // this call's own pointer write (site-state.ts:248)
   let putRejected = false;
   try {
-    await writePointer(env.LIVE, site.slug, ids, site.documentJson);
+    await writePointer(env.LIVE, site.slug, ids, site.documentJson, writeId);
   } catch {
     putRejected = true; // the write may still have landed: the read below decides
   }
-  let after: { taken_down_at: number | null } | null;
+  let after: TakeBackRow | null;
   try {
-    after = await env.DB.prepare("SELECT taken_down_at FROM sites WHERE id = ?").bind(site.siteId).first<{ taken_down_at: number | null }>();
+    after = await env.DB.prepare("SELECT taken_down_at, admin_lock FROM sites WHERE id = ?").bind(site.siteId).first<TakeBackRow>();
   } catch {
-    await env.LIVE.delete(livePointerKey(site.slug)).catch(() => undefined);
+    await takeBackPointer(env.LIVE, site.slug, writeId, false);
     throw new FakePublishError("live_copy_failed", { versionId: site.versionId });
   }
   if (after === null || after.taken_down_at !== null) {
-    await env.LIVE.delete(livePointerKey(site.slug)).catch(() => undefined);
+    await takeBackPointer(env.LIVE, site.slug, writeId, holdsDownSite(after, token));
     throw new FakePublishError("site_taken_down");
   }
   if (putRejected) throw new FakePublishError("live_copy_failed", { versionId: site.versionId });
@@ -224,16 +287,25 @@ async function approveUnderLease(env: Parameters<AdminPublishingDeps["approveVer
   }
   await holdsLease(env.DB, row.site_id, token); // R2 cannot be conditioned on D1: the lease is checked right before the pointer write
   // The approval is recorded: a failed pointer write now is live_copy_failed, and approving again finishes it.
+  const writeId = newId(); // this call's own pointer write (review.ts:101)
+  let putRejected = false;
   try {
-    await writePointer(env.LIVE, row.slug, ids, row.document_json);
+    await writePointer(env.LIVE, row.slug, ids, row.document_json, writeId);
   } catch {
+    putRejected = true; // the write may still have landed: the read below decides, in both cases (review.ts:105-107)
+  }
+  let after: TakeBackRow | null;
+  try {
+    after = await env.DB.prepare("SELECT taken_down_at, admin_lock FROM sites WHERE id = ?").bind(row.site_id).first<TakeBackRow>();
+  } catch {
+    await takeBackPointer(env.LIVE, row.slug, writeId, false);
     throw new FakePublishError("live_copy_failed", { versionId: row.id });
   }
-  const after = await env.DB.prepare("SELECT taken_down_at FROM sites WHERE id = ?").bind(row.site_id).first<{ taken_down_at: number | null }>();
   if (after === null || after.taken_down_at !== null) {
-    await env.LIVE.delete(livePointerKey(row.slug)).catch(() => undefined);
+    await takeBackPointer(env.LIVE, row.slug, writeId, holdsDownSite(after, token));
     throw new FakePublishError("site_taken_down");
   }
+  if (putRejected) throw new FakePublishError("live_copy_failed", { versionId: row.id });
   await removeOtherVersions(env.LIVE, row.slug, row.id);
   return { siteId: row.site_id, slug: row.slug, liveUrl: siteUrl(env.ROOT_DOMAIN, row.slug) };
 }
@@ -327,11 +399,19 @@ export const fakeAdminPublishing: AdminPublishingDeps = {
       // Taken down again since the admin's page was shown: the admin decides again, on a fresh page.
       if (site.takenDownAt !== input.expectedTakenDownAt) throw new FakePublishError("site_taken_down", { reason: "taken_down_again" });
       // Verify every page, copy them, write the pointer (not served yet: D1 still says taken down), then clear taken_down_at.
-      await copyAndWritePointer(env, site, token);
-      await env.DB.batch([
-        env.DB.prepare("UPDATE sites SET taken_down_at = NULL, takedown_reason = NULL WHERE id = ? AND taken_down_at IS NOT NULL").bind(input.siteId),
-        env.DB.prepare("INSERT INTO audit_log (at, actor, action, site_id, detail_json) SELECT ?, ?, ?, ?, ? WHERE changes() = 1").bind(input.now, `admin:${input.reviewer}`, "site.restored", input.siteId, JSON.stringify({ versionId: ids.versionId })),
-      ]);
+      const writeId = await copyAndWritePointer(env, site, token);
+      try {
+        await env.DB.batch([
+          env.DB.prepare("UPDATE sites SET taken_down_at = NULL, takedown_reason = NULL WHERE id = ? AND taken_down_at IS NOT NULL").bind(input.siteId),
+          env.DB.prepare("INSERT INTO audit_log (at, actor, action, site_id, detail_json) SELECT ?, ?, ?, ?, ? WHERE changes() = 1").bind(input.now, `admin:${input.reviewer}`, "site.restored", input.siteId, JSON.stringify({ versionId: ids.versionId })),
+        ]);
+      } catch (error) {
+        // D1 can commit a batch and still throw (site-state.ts:213-220): D1 is asked; a committed clear keeps the pointer, a clear that
+        // is not there takes the pointer back out and rethrows, another version live is site_busy (lease_lost).
+        const after = await pointerBackIfDown(env, site, writeId, token);
+        if (after === null) throw error;
+        if (after.live_version_id !== site.versionId) throw new FakePublishError("site_busy", { reason: "lease_lost" });
+      }
       await removeOtherVersions(env.LIVE, site.slug, site.versionId);
       return { liveUrl: siteUrl(env.ROOT_DOMAIN, site.slug), missingPhotos: await missingPhotos(env, site.documentJson), healed: false };
     });
