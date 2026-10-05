@@ -75,6 +75,8 @@ const LONG_WORDS: ReadonlyArray<readonly [string, SiteDocumentInput]> = [
 
 /** WCAG 1.4.12's values: line height 1.5, letter spacing 0.12em, word spacing 0.16em, paragraph spacing 2em. */
 const TEXT_SPACING = "* { line-height: 1.5 !important; letter-spacing: 0.12em !important; word-spacing: 0.16em !important; } p { margin-bottom: 2em !important; }";
+/** The reflow gate's widths, 320 to 1920 px, the 1024-1079 px band (where the header turns to inline links) included. */
+const REFLOW_WIDTHS = [320, 414, 600, 768, 900, 1023, 1024, 1040, 1060, 1079, 1080, 1199, 1280, 1440, 1920];
 
 /**
  * Text a person can see that is cut off by a box that clips, lies past the window's right edge, or runs into other
@@ -162,7 +164,7 @@ describe.each(ENGINES)("Modern in %s", (_engine, engine) => {
     for (const name of FIXTURES) {
       for (const { page: id, html } of pagesOf(loadFixture(name))) {
         await open(html, 320);
-        for (const width of [320, 414, 600, 768, 900, 1023, 1024, 1040, 1060, 1079, 1080, 1199, 1280, 1440, 1920]) {
+        for (const width of REFLOW_WIDTHS) {
           await tab.setViewportSize({ width, height: 800 });
           for (const problem of await tab.evaluate(lostText)) found.push(`${name} ${id} ${width}: ${problem}`);
         }
@@ -569,10 +571,12 @@ describe.each(ENGINES)("Modern in %s", (_engine, engine) => {
   }, 60_000);
 
   // The bigger default text (root font-size 125%; moderator, 2026-10-05): from 400 px the hours board kept each time
-  // on one line, so at 400-414 px "7:00 AM – 7:00 PM" ran past the page's edge and Contact scrolled sideways by 8-30 px.
-  // Every <details> but the phone menu is opened first, so the text inside it is checked too; without its name, as
-  // opening one of a named group closes the others (MDN <details>, name).
-  it("never scrolls sideways or loses text on Contact with the default text at 125%, from 320 to 430 px, in every lettering", async () => {
+  // on one line, so at 400-414 px "7:00 AM – 7:00 PM" ran past the page's edge and Contact scrolled sideways by 8-30 px;
+  // from 900 px the no-photo hero card did the same at 1024 px (hvac-phoenix's Home). Every page at the reflow gate's
+  // widths in its fixture's own lettering, and Contact at phone widths in every lettering. Every <details> but the
+  // phone menu is opened first, so the text inside it is checked too; without its name, as opening one of a named
+  // group closes the others (MDN <details>, name).
+  it("never scrolls sideways or loses text with the default text at 125%: every page from 320 to 1920 px, and Contact from 320 to 430 px in every lettering", async () => {
     const found: string[] = [];
     const openDetails = () => {
       for (const details of document.querySelectorAll("details:not(.menu)")) {
@@ -581,19 +585,21 @@ describe.each(ENGINES)("Modern in %s", (_engine, engine) => {
       }
       return document.querySelectorAll("details:not(.menu):not([open])").length;
     };
-    for (const name of FIXTURES) {
-      for (const font of FONT_IDS) {
-        await open(page(name, font, "contact"), 320, "html { font-size: 125%; }");
-        const closed = await tab.evaluate(openDetails);
-        if (closed > 0) found.push(`${name} ${font}: ${closed} <details> still closed`);
-        for (const width of [320, 340, 360, 375, 390, 400, 414, 430]) {
-          await tab.setViewportSize({ width, height: 800 });
-          for (const problem of await tab.evaluate(lostText)) found.push(`${name} ${font} ${width}: ${problem}`);
-        }
+    const check = async (html: string, where: string, widths: readonly number[]) => {
+      await open(html, widths[0]!, "html { font-size: 125%; }");
+      const closed = await tab.evaluate(openDetails);
+      if (closed > 0) found.push(`${where}: ${closed} <details> still closed`);
+      for (const width of widths) {
+        await tab.setViewportSize({ width, height: 800 });
+        for (const problem of await tab.evaluate(lostText)) found.push(`${where} ${width}: ${problem}`);
       }
+    };
+    for (const name of FIXTURES) {
+      for (const { page: id, html } of pagesOf(loadFixture(name))) await check(html, `${name} ${id}`, REFLOW_WIDTHS);
+      for (const font of FONT_IDS) await check(page(name, font, "contact"), `${name} contact ${font}`, [320, 340, 360, 375, 390, 400, 414, 430]);
     }
     expect(found).toEqual([]);
-  }, 120_000);
+  }, 300_000);
 
   // Round 3's judge 2: from 768 to 928 px the footer's narrow Contact column broke a 34-character email in two
   // ("office@reliablerooter" + ".example.com"), and at 1024-1056 px the Contact page's call card did too.
