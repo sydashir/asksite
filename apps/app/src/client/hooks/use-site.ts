@@ -43,6 +43,8 @@ export function useSite(siteId: string) {
   // The AI draft the editor shows: the generation an edit's wording and order are bound to.
   const aiRef = useRef<CurrentAi | null>(null);
   const [locked, setLocked] = useState(false);
+  // Counts the owner's changes to answers (facts): the editor shows the page a Details or Photos change lands on.
+  const [factsChanges, setFactsChanges] = useState(0);
 
   /**
    * Takes only the AI's wording (and the counters beside it) from the server's newest view. The owner's local draft and the
@@ -169,6 +171,7 @@ export function useSite(siteId: string) {
     draftRef.current = { ...current, ...patch } as Draft;
     setDraft(draftRef.current);
     saverRef.current?.change(patch);
+    if (patch.facts !== undefined) setFactsChanges((n) => n + 1);
   }, []);
 
   /**
@@ -191,7 +194,7 @@ export function useSite(siteId: string) {
   const dismissDrop = useCallback(() => saverRef.current?.acknowledgeDrop(), []);
   const rev = () => saverRef.current?.currentRev ?? 0;
 
-  return { load, draft, saver, locked, update, exclusive, flush, retry, dismissDrop, reload, refreshAi, rev };
+  return { load, draft, saver, locked, factsChanges, update, exclusive, flush, retry, dismissDrop, reload, refreshAi, rev };
 }
 
 export type SiteState = ReturnType<typeof useSite>;

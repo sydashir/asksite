@@ -48,12 +48,25 @@ export function PagePreview({ pages, frameTitle, follow = null, onShown }: { pag
     }
   }, [note, shown]);
 
-  // The owner moved to a field on another page: show that page and say so (never a silent switch). A page the site does not have is not asked for.
+  // The owner moved to a field on another page: show that page and say so (never a silent switch). A page the site does not have yet (the
+  // owner just brought it back, and the preview is still drawing it) is waited for until the next pages arrive; if it is still not there, the ask is dropped.
+  const waiting = useRef<FollowPage | null>(null);
+  const honour = (ask: FollowPage) => {
+    if (ask.page !== shown) {
+      setWanted(ask.page);
+      announce(`Showing the ${PAGES[ask.page].label} page`);
+    }
+  };
   useEffect(() => {
-    if (follow === null || follow.page === shown || !pages.some((p) => p.page === follow.page)) return;
-    setWanted(follow.page);
-    announce(`Showing the ${PAGES[follow.page].label} page`);
+    if (follow === null) return;
+    if (pages.some((p) => p.page === follow.page)) honour(follow);
+    else waiting.current = follow;
   }, [follow]);
+  useEffect(() => {
+    const ask = waiting.current;
+    waiting.current = null;
+    if (ask !== null && pages.some((p) => p.page === ask.page)) honour(ask);
+  }, [pages]);
 
   const source = pages.find((p) => p.page === shown);
   const size = phone ? "h-[80vh] w-[390px] max-w-full" : "h-[80vh] w-full";

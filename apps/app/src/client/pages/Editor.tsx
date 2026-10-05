@@ -20,6 +20,7 @@ import { api } from "../lib/api.ts";
 import { stepOf } from "../lib/draft-issues.ts";
 import { STEP_TITLE } from "../lib/labels.ts";
 import { isThemeIssue, issuesAt, ownerMessage, type Fix } from "../lib/messages.ts";
+import { changedPage } from "../lib/changed-page.ts";
 import { checkDraft, renderPages } from "../lib/preview.ts";
 import { pageWasReloaded } from "../lib/page-reload.ts";
 import { reloadAfterSave } from "../lib/preview-sheets.ts";
@@ -124,6 +125,20 @@ function EditorScreen(props: { siteId: string; site: SiteState; view: SiteView; 
     () => (previewDoc === null || sheets.status !== "ready" ? null : renderPages(previewDoc, { id: siteId, slug: view.slug }, __ROOT_DOMAIN__, sheets.sheets)),
     [previewDoc, sheets, siteId, view.slug],
   );
+  // A change to an answer (Details, Photos) shows the page that draws it: the first page whose sections changed in the new preview (changedPage).
+  // It waits for the preview to draw the change, and a change that no page section shows (only the shared footer) keeps the page on screen.
+  const lastPages = useRef(pages);
+  const handledChanges = useRef(site.factsChanges);
+  const factsChanges = site.factsChanges;
+  useEffect(() => {
+    const before = lastPages.current;
+    if (pages === before) return;
+    lastPages.current = pages;
+    if (factsChanges === handledChanges.current || before === null || pages === null || previewDoc === null) return;
+    handledChanges.current = factsChanges;
+    const page = changedPage(before, pages, previewDoc);
+    if (page !== null) setFollow((last) => ({ page, n: (last?.n ?? 0) + 1 }));
+  }, [pages, factsChanges, previewDoc]);
   const afterReload = useMemo(pageWasReloaded, []);
   const reloadPage = () => void reloadAfterSave(site.flush, () => location.reload()).then((reloaded) => (reloaded === true ? undefined : stopped(reloaded)));
 
