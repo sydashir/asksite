@@ -1,8 +1,9 @@
 # Every push and pull request, as three parallel jobs, each under its own 30-minute limit (A16's
 # per-page browser matrix took one combined job past 30 minutes): `check` = typecheck plus unit and
 # integration tests (workerd through wrangler's test harness, no Cloudflare account); `e2e` = Plan 1's
-# browser tests without its macOS-only screenshots, in 2 shards; `sites` = the sites Worker's browser tests over
-# https. Third-party actions are pinned to commit SHAs.
+# browser tests without its macOS-only screenshots, in 2 shards; `sites` = the vitest "browser" project (tests that
+# launch Chromium or WebKit from vitest, *.browser.test.ts; check has no browsers) and the sites Worker's browser tests
+# over https. Third-party actions are pinned to commit SHAs.
 name: ci
 
 on:
@@ -151,4 +152,6 @@ jobs:
           getent hosts www.localhost
           getent hosts e2e-refined-cleaning-minimal.localhost
           getent hosts e2e-life-modern-webkit.localhost
+      # vitest's "browser" project needs the browsers this container already holds (`pnpm test` leaves it out).
+      - run: pnpm test:browser
       - run: pnpm test:e2e:sites
