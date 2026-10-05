@@ -142,11 +142,13 @@ const UNDERSCORE = /_/g;
  * "\u30FB" (U+30FB KATAKANA MIDDLE DOT: draws like the middle dot; copy's NFKC turns U+FF65 into it, "Award・winning"),
  * "\u25CF" (U+25CF BLACK CIRCLE: a big bullet, "Award●winning").
  * A symbol with a space beside it is a list ("Plumbing · Austin", "Fast • Friendly • Local"), not a break inside a claim.
- * NAMED RESIDUAL: a separator with a space on either side ("Award · winning", "Award ·winning") reads as a list, not one claim.
+ * NAMED RESIDUAL: a separator with a space on either side ("Award · winning", "Award ·winning") reads as a list, not one claim;
+ * a hyphen or dash with whitespace beside it is not joined either, as at main ("Award – winning").
  * Left out on purpose: "." (U+002E ends a sentence: a full stop typed without its space, "the same.Day one", would read "same Day"), ":" (U+003A introduces a
  * list) and "/" (U+002F offers alternatives); not "lic."/web addresses/"24/7" (the typed reading keeps those, and copy bans
  * digits). Also left out: "," ";" "!" "?" (end a clause, so they already split the words), "+" "=" "#" "&" "%" "^" "<" ">"
- * (read as operators or "and", not as a break between words), and the hyphen and dashes (the patterns join those themselves).
+ * (read as operators or "and", not as a break between words), and the hyphen and dashes (the patterns join a glued hyphen or
+ * dash themselves; one with whitespace beside it is not joined, as at main).
  */
 const GLUED_SEPARATORS = /(?<=\S)[\u00B7\u2022~*|\u2219\u30FB\u25CF](?=\S)/g;
 

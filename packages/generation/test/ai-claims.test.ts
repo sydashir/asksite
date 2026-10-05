@@ -328,6 +328,11 @@ describe("AI claim check: a symbol separator hides nothing", () => {
     ["quote after a middle dot, text start", "\u00B7'Best crew ever' Dana", ["'Best crew ever'"]],
     ["quote in tildes, text start", "~'Best in Boise'~", ["'Best in Boise'"]],
     ["quote after a bar and an underscore", "Our motto_|'clean homes'", ["'clean homes'"]],
+    // One row per remaining symbol of the quote opener's class, each not glued (so only the class catches it).
+    ["quote after a spaced bullet", "Our motto \u2022'clean homes'", ["'clean homes'"]],
+    ["quote after a bullet operator, text start", "\u2219'Best crew ever' Dana", ["'Best crew ever'"]],
+    ["quote after a katakana middle dot, text start", "\u30FB'Tidy' crew", ["'Tidy'"]],
+    ["quote after a spaced black circle", "Our motto \u25CF'clean homes'", ["'clean homes'"]],
   ]);
   accepted(SEVEN_DAYS, [["after hours backed, middle dot", "After\u00B7hours cleaning"]]);
   accepted(MINIMAL_FACTS, [

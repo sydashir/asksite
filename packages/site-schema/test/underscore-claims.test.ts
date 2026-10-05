@@ -131,6 +131,7 @@ describe("a symbol separator does not hide a multi-word claim", () => {
     "Mon\u2013Fri \u00B7 8\u20135",
     "Kitchens ~ Baths",
     "Award \u00B7winning crew",
+    "Award\u00B7 winning crew",
   ])("still accepts %s", (text) => {
     expect(unbackedClaims(text, NONE)).toEqual([]);
   });
