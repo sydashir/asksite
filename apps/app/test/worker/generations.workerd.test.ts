@@ -156,7 +156,7 @@ describe("POST /api/sites/:siteId/generations", () => {
     const db = await h.db();
     const longAgo = Date.now() - 3 * 86_400_000;
     for (let i = 0; i < 20; i += 1) {
-      await db.prepare("INSERT INTO generations (id, site_id, owner_id, kind, status, input_json, created_at) VALUES (?, ?, ?, 'regenerate', 'failed', '{}', ?)")
+      await db.prepare("INSERT INTO generations (id, site_id, owner_id, kind, status, error_code, input_json, created_at) VALUES (?, ?, ?, 'regenerate', 'failed', 'invalid_output', '{}', ?)")
         .bind(crypto.randomUUID(), owner.siteId, owner.ownerId, longAgo).run();
     }
     const res = await h.call("POST", `/api/sites/${owner.siteId}/generations`, { cookie: owner.cookie, body: {} });
@@ -180,7 +180,7 @@ describe("POST /api/sites/:siteId/generations", () => {
     const db = await h.db();
     const longAgo = Date.now() - 3 * 86_400_000;
     for (let i = 0; i < 20; i += 1) {
-      await db.prepare("INSERT INTO generations (id, site_id, owner_id, kind, status, input_json, created_at) VALUES (?, ?, ?, 'regenerate', 'failed', '{}', ?)")
+      await db.prepare("INSERT INTO generations (id, site_id, owner_id, kind, status, error_code, input_json, created_at) VALUES (?, ?, ?, 'regenerate', 'failed', 'invalid_output', '{}', ?)")
         .bind(crypto.randomUUID(), owner.siteId, owner.ownerId, longAgo).run();
     }
     // Five failed first builds today fill the site's daily cap; with no succeeded build the next request is still a first build.
@@ -198,6 +198,45 @@ describe("POST /api/sites/:siteId/generations", () => {
     expect(body.error.message).toBe("You have used all the rewrites for today. Try again tomorrow.");
     expect(body.error.retryAfter).toBeGreaterThan(0);
     expect(res.headers.get("Retry-After")).toBe(String(body.error.retryAfter));
+  });
+
+  // The fake follows Plan 3's counting (packages/generation/src/request.ts:11-13): only queued, running, succeeded and invalid_output
+  // regenerations count toward the 20, and an internal failure that never started counts toward neither the 20 nor today's 5.
+  it("failures that never started do not use the owner's rewrites or today's builds", async () => {
+    const owner = await builtOwner(h, VALID_FACTS, VALID_BRIEF);
+    const db = await h.db();
+    for (let i = 0; i < 20; i += 1) {
+      await db.prepare("INSERT INTO generations (id, site_id, owner_id, kind, status, error_code, input_json, created_at) VALUES (?, ?, ?, 'regenerate', 'failed', 'internal', '{}', ?)")
+        .bind(crypto.randomUUID(), owner.siteId, owner.ownerId, Date.now()).run();
+    }
+    const view = await json<SiteView>(await h.call("GET", `/api/sites/${owner.siteId}`, { cookie: owner.cookie }));
+    expect(view.limits).toEqual({ generationsLeftToday: 4, generationsLeftTotal: 20 }); // today: the one build of builtOwner
+    const res = await h.call("POST", `/api/sites/${owner.siteId}/generations`, { cookie: owner.cookie, body: {} });
+    expect(res.status).toBe(202);
+  });
+
+  // request.ts:55-61 answers the used-up total BEFORE the kill switch. Production ships GENERATION_ENABLED "false".
+  it("with the kill switch off, an owner at the lifetime cap is told the cap, and an owner under it is told it is switched off", async () => {
+    const owner = await builtOwner(h, VALID_FACTS, VALID_BRIEF);
+    const db = await h.db();
+    const longAgo = Date.now() - 3 * 86_400_000;
+    await h.call("POST", "/__test/generation-switch", { body: { off: true } });
+    try {
+      const off = await h.call("POST", `/api/sites/${owner.siteId}/generations`, { cookie: owner.cookie, body: {} });
+      expect(off.status).toBe(503);
+      expect((await json<ErrorJson>(off)).error.code).toBe("generation_disabled");
+      for (let i = 0; i < 20; i += 1) {
+        await db.prepare("INSERT INTO generations (id, site_id, owner_id, kind, status, error_code, input_json, created_at) VALUES (?, ?, ?, 'regenerate', 'failed', 'invalid_output', '{}', ?)")
+          .bind(crypto.randomUUID(), owner.siteId, owner.ownerId, longAgo).run();
+      }
+      const capped = await h.call("POST", `/api/sites/${owner.siteId}/generations`, { cookie: owner.cookie, body: {} });
+      expect(capped.status).toBe(429);
+      const body = await json<ErrorJson>(capped);
+      expect(body.error.code).toBe("generation_cap_reached");
+      expect(body.error.message).toBe("You have used all the rewrites your account includes. Contact us if you need more.");
+    } finally {
+      await h.call("POST", "/__test/generation-switch", { body: { off: false } });
+    }
   });
 
   it("returns 404 for another site's generation", async () => {

@@ -6,7 +6,7 @@ import type { Siteverify } from "../../src/worker/deps.ts";
 import { requireTurnstile, SITEVERIFY_TIMEOUT_MS } from "../../src/worker/turnstile.ts";
 import type { AppEnv } from "../../src/worker/types.ts";
 import { createWorker } from "../../src/worker/worker.ts";
-import { calledLikeFetch, errorName, fakeApprove, fakeCreateMailer, fakeGeneration, fakePublishing, fakeReject, fakeSiteverify, fetchCalledOn, finishGeneration, refuseNextGeneration, siteverifyCallsSoFar } from "./fakes.ts";
+import { calledLikeFetch, errorName, fakeApprove, fakeCreateMailer, fakeGeneration, fakePublishing, fakeReject, fakeSiteverify, fetchCalledOn, finishGeneration, refuseNextGeneration, siteverifyCallsSoFar, switchGenerationOff } from "./fakes.ts";
 import { PURGE_UPLOADS_SQL, restoreSite, TAKE_DOWN_SITE_SQL, TAKE_DOWN_VERSIONS_SQL, underLease } from "./plan2b-statements.ts";
 
 // The app Worker wired to the fakes, plus /__test/* helpers that stand in for the admin and the
@@ -483,6 +483,13 @@ helpers.post("/__test/save-after-site-write", async (c) => {
 helpers.post("/__test/generation-refuses", async (c) => {
   const { code } = await c.req.json<{ code: Parameters<typeof refuseNextGeneration>[0] }>();
   refuseNextGeneration(code);
+  return c.json({ ok: true });
+});
+
+/** Switches the fake generator's kill switch off (production's value) or back on. */
+helpers.post("/__test/generation-switch", async (c) => {
+  const { off } = await c.req.json<{ off: boolean }>();
+  switchGenerationOff(off);
   return c.json({ ok: true });
 });
 

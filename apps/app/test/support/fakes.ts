@@ -85,6 +85,18 @@ export function refuseNextGeneration(code: GenerationRefusal): void {
   nextGenerationRefusal = code;
 }
 
+/** The kill switch as production ships it (GENERATION_ENABLED "false"), which the test config turns on. A test sets it, and clears it again. */
+let generationSwitchedOff = false;
+
+export function switchGenerationOff(off: boolean): void {
+  generationSwitchedOff = off;
+}
+
+// Which rows count, as Plan 3 counts them (packages/generation/src/request.ts:11-13): an internal failure that never started
+// counts toward nothing; only queued, running and succeeded regenerations, and invalid_output failures, count toward the owner's 20.
+const COUNTS_TODAY = "NOT (error_code IS 'internal' AND started_at IS NULL)";
+const COUNTS_TOWARD_TOTAL = "kind = 'regenerate' AND (status IN ('queued', 'running', 'succeeded') OR (status = 'failed' AND error_code IS 'invalid_output'))";
+
 export const fakeGeneration: GenerationDeps = {
   async requestGeneration(env, input) {
     if (nextGenerationRefusal !== undefined) {
@@ -95,16 +107,21 @@ export const fakeGeneration: GenerationDeps = {
     const db = env.DB;
     const done = await db.prepare("SELECT 1 FROM generations WHERE site_id = ? AND status = 'succeeded' LIMIT 1").bind(input.siteId).first();
     const kind = done === null ? "first" : "regenerate";
-    if (kind === "regenerate" && env.GENERATION_ENABLED !== "true") return { ok: false, code: "generation_disabled" };
+    if (kind === "regenerate") {
+      // The used-up total is answered BEFORE the kill switch (request.ts:55-61), so production's "false" still tells an owner at the cap the cap.
+      const total = await db.prepare(`SELECT COUNT(*) AS n FROM generations WHERE owner_id = ? AND (${COUNTS_TOWARD_TOTAL})`).bind(input.ownerId).first<{ n: number }>();
+      if ((total?.n ?? 0) >= LIMITS.generationsPerOwnerTotal) return { ok: false, code: "generation_cap_reached" };
+      if (generationSwitchedOff || env.GENERATION_ENABLED !== "true") return { ok: false, code: "generation_disabled" };
+    }
     const id = newId();
     try {
-      // Only regenerations count toward, and meet, the owner's lifetime cap (decision 40).
+      // Only counted regenerations meet the owner's lifetime cap, a first build never does (decision 40; INSERT_JOB, request.ts:24-27).
       const inserted = await db
         .prepare(
           `INSERT INTO generations (id, site_id, owner_id, kind, status, input_json, created_at)
            SELECT ?1, ?2, ?3, ?4, 'queued', ?5, ?6
-           WHERE (SELECT COUNT(*) FROM generations WHERE site_id = ?2 AND created_at >= ?7) < ?8
-             AND (?4 = 'first' OR (SELECT COUNT(*) FROM generations WHERE owner_id = ?3 AND kind = 'regenerate') < ?9)`,
+           WHERE (SELECT COUNT(*) FROM generations WHERE site_id = ?2 AND created_at >= ?7 AND (${COUNTS_TODAY})) < ?8
+             AND (?4 = 'first' OR (SELECT COUNT(*) FROM generations WHERE owner_id = ?3 AND (${COUNTS_TOWARD_TOTAL})) < ?9)`,
         )
         .bind(id, input.siteId, input.ownerId, kind, JSON.stringify(input.snapshot), input.now, utcDayStart(input.now), LIMITS.generationsPerSitePerDay, LIMITS.generationsPerOwnerTotal)
         .run();
@@ -120,7 +137,7 @@ export const fakeGeneration: GenerationDeps = {
   },
   async generationAllowance(env, input) {
     const counts = await env.DB.prepare(
-      "SELECT COUNT(*) FILTER (WHERE site_id = ?1 AND created_at >= ?3) AS today, COUNT(*) FILTER (WHERE kind = 'regenerate') AS total FROM generations WHERE owner_id = ?2",
+      `SELECT COUNT(*) FILTER (WHERE site_id = ?1 AND created_at >= ?3 AND (${COUNTS_TODAY})) AS today, COUNT(*) FILTER (WHERE ${COUNTS_TOWARD_TOTAL}) AS total FROM generations WHERE owner_id = ?2`,
     )
       .bind(input.siteId, input.ownerId, utcDayStart(input.now))
       .first<{ today: number; total: number }>();
