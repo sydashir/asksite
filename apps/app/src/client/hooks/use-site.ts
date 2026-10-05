@@ -15,6 +15,23 @@ export type SiteLoad = { state: "loading" } | { state: "error"; message: string;
 /** Saves a page started as it closed, by site: the next page's first load waits for them (decision 37). */
 const leaving = new Map<string, Promise<unknown>>();
 
+/** Savers of editors that closed with a save that did not go through: they still hold the values. Gone once saved, or once the site is loaded again. */
+const unsavedOnLeave = new Map<string, AutoSaver>();
+
+/**
+ * Resolves true once every save a page started as it closed is done and nothing it held is left unsaved. A save that failed is tried
+ * again here, so a later press can still succeed. Sign out waits for it: nothing can be saved after the logout, and the page the owner
+ * went back to (Home) holds no draft of its own to wait for.
+ */
+export async function settleLeaving(): Promise<boolean> {
+  while (leaving.size > 0) await Promise.all([...leaving.values()]);
+  for (const [siteId, saver] of [...unsavedOnLeave]) {
+    if ((await saver.flush()) === false) return false;
+    if (unsavedOnLeave.get(siteId) === saver) unsavedOnLeave.delete(siteId);
+  }
+  return true;
+}
+
 /** Sites whose editor closed after a save that dropped the owner's wording: the next editor for the site says so (no screen was left to say it). */
 const droppedOnLeave = new Map<string, DropState>();
 
@@ -120,6 +137,8 @@ export function useSite(siteId: string) {
     if (current !== null && !mayReplaceDraft(await current.saveNow(), current.currentStatus)) return null;
     // Wait for a save the previous page started as it closed.
     await leaving.get(siteId);
+    // This load replaces what a closed editor failed to save (as before: a link still leaves after an ordinary failed save).
+    unsavedOnLeave.delete(siteId);
     const res = await api<SiteView>("GET", `/api/sites/${siteId}`);
     if (!res.ok) {
       setLoad({ state: "error", message: res.error.message, status: res.status });
@@ -152,6 +171,7 @@ export function useSite(siteId: string) {
       const saving: Promise<unknown> = current.flush().then((result) => {
         // Nothing was stopped (the screen is gone), so the next editor starts un-stopped: it shows the notice and stops once.
         if (result === "dropped") droppedOnLeave.set(siteId, { stopped: false, whileWriting: current.unseenDrop?.whileWriting ?? false });
+        if (result === false) unsavedOnLeave.set(siteId, current);
       }).finally(() => {
         if (leaving.get(siteId) === saving) leaving.delete(siteId);
       });

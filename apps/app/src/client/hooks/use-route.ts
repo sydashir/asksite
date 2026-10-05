@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type MouseEvent } from "react";
 import type { FlushResult } from "../lib/autosave.ts";
 import { matchRoute, type Route } from "../lib/route.ts";
+import { settleLeaving } from "./use-site.ts";
 
 const CHANGE = "asksite:navigate";
 
@@ -55,11 +56,16 @@ export function useLeaveGuard(flush: () => Promise<FlushResult>, stopped: (resul
 }
 
 /**
- * Whether the session may end now: the page saves what it holds first, and "Sign out" goes on only when everything is saved. Unlike a
+ * Whether the session may end now: the saves a page started as it closed finish first (settleLeaving; `onLeftUnsaved` says so when one
+ * failed), then the page on screen saves what it holds, and "Sign out" goes on only when everything is saved. Unlike a
  * link (which still leaves after an ordinary failed save, because the page's unmount sends it later), nothing can be saved after the
  * logout, so a failed save stays and says so; a dropped wording change stops it once (the next press goes on). Pages with nothing to save pass at once.
  */
-export async function mayEndSession(): Promise<boolean> {
+export async function mayEndSession(onLeftUnsaved: () => void): Promise<boolean> {
+  if (!(await settleLeaving())) {
+    onLeftUnsaved();
+    return false;
+  }
   const guard = leaveGuard;
   if (guard === null) return true;
   const result = await guard.flush();

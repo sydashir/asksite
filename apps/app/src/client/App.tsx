@@ -1,3 +1,5 @@
+import { useEffect, useState } from "react";
+import { Notice } from "./components/feedback.tsx";
 import { useMe } from "./hooks/use-me.ts";
 import { mayEndSession, onLinkClick, useRoute } from "./hooks/use-route.ts";
 import { api } from "./lib/api.ts";
@@ -35,9 +37,11 @@ function page(route: Route) {
   }
 }
 
+const NOT_SAVED = "Your latest changes are not saved yet. Please try again in a moment.";
+
 /** Saves what the page holds, then ends the session and reloads so no signed-in state survives in memory. A save that fails stays (no later save can succeed). */
-async function signOut() {
-  if (!(await mayEndSession())) return;
+async function signOut(onLeftUnsaved: () => void) {
+  if (!(await mayEndSession(onLeftUnsaved))) return;
   await api("POST", "/api/auth/logout");
   location.assign("/");
 }
@@ -46,6 +50,9 @@ export function App() {
   const route = useRoute();
   // Asked again for every kind of page, so "Sign out" shows once signed in and never on the sign-in page.
   const me = useMe(route.name);
+  // A save the previous page started as it closed failed, so Sign out stayed: said here, because the page now on screen holds no draft.
+  const [leftUnsaved, setLeftUnsaved] = useState(false);
+  useEffect(() => setLeftUnsaved(false), [route]);
   return (
     <>
       <a href="#main" className="sr-only focus:not-sr-only focus:absolute focus:left-2 focus:top-2 focus:z-10 focus:rounded focus:bg-white focus:p-3">
@@ -57,13 +64,18 @@ export function App() {
             Your website
           </a>
           {me.state === "ready" ? (
-            <button type="button" className="btn-secondary" onClick={() => void signOut()}>
+            <button type="button" className="btn-secondary" onClick={() => void signOut(() => setLeftUnsaved(true))}>
               Sign out
             </button>
           ) : null}
         </div>
       </header>
       <main id="main" tabIndex={-1} className="mx-auto max-w-6xl px-4 py-6 break-words">
+        {leftUnsaved ? (
+          <div role="alert">
+            <Notice tone="error">{NOT_SAVED}</Notice>
+          </div>
+        ) : null}
         {page(route)}
       </main>
       {/* The same help in the same place on every page (WCAG 3.2.6); "Contact us" messages point here. */}
