@@ -1122,6 +1122,41 @@ test("a refused request for new wording (another tab's rewrite runs) locks the t
   }
 });
 
+// Q-4 (STRICT, customer data): the lock must not lift between the refused request and the editor following the other tab's rewrite. A
+// MutationObserver sees every commit, so a gap of a few milliseconds (a commit with no lock) is caught every time, not by luck of a keystroke.
+test("a refused request for new wording keeps the editor locked with no gap until it follows the running rewrite", async ({ page, browser }) => {
+  const siteId = await openEditor(page);
+  const other = await browser.newContext({ baseURL: APP, ignoreHTTPSErrors: true, storageState: await page.context().storageState() });
+  try {
+    const tabB = await other.newPage();
+    await tabB.goto(`/sites/${siteId}/edit`);
+    const idB = await askNewWording(tabB, siteId);
+    await page.getByRole("tab", { name: "Words" }).click();
+    await page.getByRole("button", { name: "Write new wording" }).click();
+    await page.evaluate((lock) => {
+      const w = window as unknown as { __lock: { seen: boolean; gap: boolean } };
+      w.__lock = { seen: false, gap: false };
+      new MutationObserver(() => {
+        if (document.body.textContent?.includes(lock)) w.__lock.seen = true;
+        else if (w.__lock.seen) w.__lock.gap = true;
+      }).observe(document.body, { subtree: true, childList: true, characterData: true, attributes: true });
+    }, WRITING_LOCK);
+    const [refused] = await Promise.all([
+      page.waitForResponse((r) => r.url().endsWith(`/api/sites/${siteId}/generations`) && r.request().method() === "POST"),
+      page.getByRole("dialog", { name: "Write new wording?" }).getByRole("button", { name: "Write new wording" }).click(),
+    ]);
+    expect(refused.status()).toBe(409);
+    // The editor has followed the other tab's rewrite once its own status line says so.
+    await expect(page.getByRole("status").filter({ hasText: "Writing new wording…" })).toBeVisible();
+    await expect(page.getByText(WRITING_LOCK)).toHaveCount(1);
+    expect(await page.evaluate(() => (window as unknown as { __lock: { seen: boolean; gap: boolean } }).__lock)).toEqual({ seen: true, gap: false });
+    await finishGeneration(tabB.request, idB);
+    await expect(page.getByText("New wording is ready.")).toBeVisible({ timeout: 15_000 });
+  } finally {
+    await other.close();
+  }
+});
+
 // m-6: the frozen editor blocks Photos upload, delete and move by behaviour, not only by the wrapper's attribute.
 test("while new wording is written, Photos upload, delete and move send nothing and change nothing", async ({ page }) => {
   const siteId = await openEditor(page);

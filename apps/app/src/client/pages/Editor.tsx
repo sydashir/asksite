@@ -75,7 +75,11 @@ function EditorScreen(props: { siteId: string; site: SiteState; view: SiteView; 
   const [aiState, setAiState] = useState<"fresh" | "refreshing" | "unloaded">("fresh");
   // Generations this editor has seen end: a view that still names one of them (it is refreshed only on success) must not lock the editor again.
   const endedRewrites = useRef(new Set<string>());
-  const writing = requesting || rewriteId !== null;
+  // The view names a rewrite this editor has not ended: the editor is locked by the VIEW itself, in the same render that shows it, so there is no
+  // moment between a refused request (another tab's rewrite) and the effect that follows it in which the lock is off.
+  const running = view.activeGeneration;
+  const viewRunning = running !== null && running.kind === "regenerate" && !endedRewrites.current.has(running.id);
+  const writing = requesting || rewriteId !== null || viewRunning;
   // FROZEN, from the request for new wording until it is shown (or it fails): every tab is read-only. A save that carried edits would be
   // refused by the server (answer and brief saves are stored), and one that carried the owner's wording would be replaced anyway. The same when the rewrite succeeded
   // but its wording could not be loaded ("unloaded"): nothing is editable until it is (Reload the page).
@@ -98,7 +102,6 @@ function EditorScreen(props: { siteId: string; site: SiteState; view: SiteView; 
   useLeaveGuard(site.flush, stopped);
   // A rewrite the view names (seen at mount, on a refetch, or after the server refused a save because another tab started one) is
   // followed like one started here: the whole editor locks until it lands or fails.
-  const running = view.activeGeneration;
   useEffect(() => {
     if (running === null || running.kind !== "regenerate" || rewriteId !== null || requesting || endedRewrites.current.has(running.id)) return;
     setRewriteMessage(REWRITING);
