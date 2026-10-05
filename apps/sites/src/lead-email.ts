@@ -1,6 +1,6 @@
 import type { OutgoingEmail } from "@asksite/mailer";
 import { escapeAttr, escapeText } from "@asksite/renderer";
-import type { Lead } from "./lead.ts";
+import { HIDDEN, LINE_BREAK, type Lead } from "./lead.ts";
 
 // The lead email (design §7.5). Visitor values only ever become text: escaped text nodes in the
 // HTML part, plain lines in the text part. The only link is the site's own address, built from
@@ -8,8 +8,11 @@ import type { Lead } from "./lead.ts";
 
 const SUBJECT_MAX = 100;
 
+// The name is cleaned the way readLead cleans a one-line field (B-N3), even though the only caller already passes
+// readLead's text: every line break (LINE_BREAK, plus a plain newline) and a tab read as a space, then HIDDEN removes
+// control and invisible formatting characters (U+202E, zero-width characters), keeping U+200D so emoji stay whole.
 function subjectFor(name: string): string {
-  const subject = `New request from your website: ${name}`.replace(/\p{Cc}/gu, "");
+  const subject = `New request from your website: ${name}`.replace(LINE_BREAK, "\n").replace(/[\n\t]/g, " ").replace(HIDDEN, "");
   return Array.from(subject).slice(0, SUBJECT_MAX).join("");
 }
 
