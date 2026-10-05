@@ -587,6 +587,8 @@ describe("A16-4c: Restore sends the takedown it showed, and Copy the live pages 
     expect(await takenDownAt(site.siteId)).toBe(shown);
     expect(shown).not.toBeNull();
     expect(await h.liveKeys(site.slug)).not.toContain(livePointerKey(site.slug));
+    const restored = await (await h.db()).prepare("SELECT COUNT(*) AS n FROM audit_log WHERE action = 'site.restored' AND site_id = ?").bind(site.siteId).first<{ n: number }>();
+    expect(restored?.n).toBe(0); // a restore that did not happen is not audited
   });
 
   // Plan 2's takeBackPointer (shared.ts:220-241): without the lease on the down site, only the pointer THIS call wrote goes.
