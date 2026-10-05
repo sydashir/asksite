@@ -800,7 +800,7 @@
 
   /* ---------- the phone call bar: Call and the owner's call to action, under the thumb ---------- */
   /* 12 px or more between the buttons and the bar's top edge and the screen's bottom edge, as on today's page: axe's
-     target-size check then passes any button the bar half-covers, wherever the page puts it (layout.test.ts) */
+     target-size check then passes any button the bar half-covers, wherever the page puts it (layout.browser.test.ts) */
   .callbar { bottom: 0; display: flex; gap: 8px; padding: 12px var(--gut) calc(12px + env(safe-area-inset-bottom)); border-top: 1px solid var(--line); background: #fff; }
   /* Where it sticks, above the header (z-index 40) and so above the open phone menu's shade: Call stays one tap away
      with the menu open (judges, A16 round 2). Only the Contact page has a Send button, and its bar never sticks. */

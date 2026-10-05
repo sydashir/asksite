@@ -599,7 +599,7 @@ describe("Modern: a hero without a photo", () => {
     // The owner hid the service area: the card keeps the email only.
     expect(element(hero(modern(withHidden(loadFixture("cleaning-minimal"), ["serviceArea"]))), '<div class="door door--reach"').replace(/<[^>]*>/g, "")).toBe("Emailhi@mop.example.com");
     // A photo hero has no card; a no-photo hero with hours shows the hours instead, on every screen (not door--reach,
-    // which shows beside the headline from 1024 px only: test/designs/modern/layout.test.ts).
+    // which shows beside the headline from 1024 px only: test/designs/modern/layout.browser.test.ts).
     expect(hero(fixture("plumber-austin"))).not.toContain('class="door');
     expect(hero(modern(noPhoto))).not.toContain("hi@");
     expect(hero(modern(noPhoto))).toContain('<div class="door">');
