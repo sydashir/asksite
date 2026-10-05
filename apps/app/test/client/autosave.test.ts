@@ -231,4 +231,19 @@ describe("AutoSaver wording notice", () => {
     expect(await saver.flush()).toBe(true);
     expect(states.at(-1)?.wordingDropped).toBeUndefined();
   });
+
+  // STRICT (customer data), the drop epoch on the OTHER drop path: a second attempt whose own save is REFUSED while new wording is being
+  // written (generation_in_progress, SaveResult.refused) has found a NEW drop too, so it answers "dropped"; only the next attempt goes on.
+  it("a second attempt whose own save is refused while new wording is written (a NEW drop) answers 'dropped'; only then does the next attempt go on", async () => {
+    let calls = 0;
+    const { saver, states } = setup((rev) => (++calls === 1 ? { ok: true, rev: rev + 1, issues: NO_ISSUES, wordingDropped: true } : { ok: false, conflict: false, message: "New wording is being written.", refused: true }));
+    saver.change({ facts: { a: 1 } });
+    expect(await saver.flush()).toBe("dropped");
+    saver.change({ facts: { a: 2 } });
+    expect(await saver.flush()).toBe("dropped");
+    expect(states.at(-1)?.wordingDropped).toBe(true);
+    expect(states.at(-1)?.droppedWhileWriting).toBe(true);
+    expect(await saver.flush()).toBe(true);
+    expect(states.at(-1)?.wordingDropped).toBeUndefined();
+  });
 });
