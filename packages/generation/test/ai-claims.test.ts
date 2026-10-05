@@ -71,6 +71,9 @@ describe("AI claim check: licence", () => {
   refused(MINIMAL_FACTS, [
     ["Fully ins.", "Fully ins. crew", ["ins."]],
     ["lic.-ins.", "A lic.-ins. crew", ["lic.", "ins."]],
+    ["ins. after U+A78F", "Fully\uA78Fins. crew", ["ins."]],
+    ["ins. after U+02D0", "Fully\u02D0ins. crew", ["ins."]],
+    ["ins. after U+02C8 and a space", "Fully \u02C8ins. crew", ["ins."]],
   ]);
   refused(INSURED, [["lic. needs a licence, not insurance", "Our lic. crew", ["lic."]]]);
   refused(LICENSED, [["state-approved is never backed", "State-approved cleaners", ["State-approved"]]]);
@@ -203,6 +206,11 @@ describe("AI claim check: quote marks", () => {
     ["U+203A alone", "Best cleaners ever\u203A Dana", ["\u203A"]],
     ["#23 straight single quotes", "'Best cleaners ever' Dana", ["'Best cleaners ever'"]],
     ["single quotes after a colon", "Dana: 'Best cleaners ever'", ["'Best cleaners ever'"]],
+    ["single quotes after a colon, no space", "Dana:'Best cleaners ever'", ["'Best cleaners ever'"]],
+    ["single quotes after U+2012", "Dana\u2012'Best cleaners ever'", ["'Best cleaners ever'"]],
+    ["single quotes after an en dash", "Dana\u2013'Best cleaners ever'", ["'Best cleaners ever'"]],
+    ["single quotes after U+2212", "Dana\u2212'Best cleaners ever'", ["'Best cleaners ever'"]],
+    ["single quotes after a hyphen", "Dana-'Best cleaners ever'", ["'Best cleaners ever'"]],
     ["single quotes after a comma", "As Dana put it,'best cleaners in Austin'", ["'best cleaners in Austin'"]],
     ["single quotes after a semicolon", "As Dana put it;'best cleaners in Austin'", ["'best cleaners in Austin'"]],
     ["single quotes after a comma and a space (the usual copy)", "As Dana put it, 'best cleaners in Austin'", ["'best cleaners in Austin'"]],

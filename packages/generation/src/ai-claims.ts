@@ -43,10 +43,11 @@ if (sevenDaysBacking === undefined) throw new Error("claims.ts lost its seven-da
 /** Wording allowed only when the owner's facts back it. */
 const NEEDS_A_FACT_IN_AI_COPY: ReadonlyArray<{ readonly pattern: RegExp; readonly backedBy: (facts: Facts) => boolean }> = [
   { pattern: /\blic\./i, backedBy: (facts) => facts.licences.length > 0 },
-  // "ins." counts on its own, not after a letter or after a letter and a hyphen ("check-ins.", "walk-ins."); "lic.-ins." counts.
+  // "ins." counts on its own, not after an ASCII letter or after an ASCII letter and a hyphen ("check-ins.", "walk-ins."); "lic.-ins." counts.
+  // Only ASCII letters: other letters (U+A78F, U+02D0, U+0640) can draw as punctuation, so "Fully\uA78Fins." still counts.
   // The written residual: a word, a hyphen, then "ins." is accepted ("Fully-ins.", "Licensed-and-ins."), the shape of "walk-ins.".
   // Not "coverage" or "covered": they describe the service area.
-  { pattern: /(?<!\p{L}-?)\bins\.|\bliabilit(?:y|ies)/iu, backedBy: (facts) => facts.insured },
+  { pattern: /(?<![a-z]-?)\bins\.|\bliabilit(?:y|ies)/iu, backedBy: (facts) => facts.insured },
   {
     pattern: new RegExp(`\\b(after${J}hours|all${J}hours|nights${J}and${J}holidays|holidays|every${J}day|(open|available)${J}daily)\\b`, "i"), // "daily" alone is not a claim
     backedBy: sevenDaysBacking,
