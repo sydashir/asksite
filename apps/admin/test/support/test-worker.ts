@@ -214,7 +214,7 @@ function delayingLease(db: D1Database, ms: number): D1Database {
 }
 
 /** The faults a request can be given (header X-Test-Takedown-Fault), each thrown as a plain Error, never a PublishError. */
-type TakedownFault = "pointer-delete" | "before-commit" | "prefix-delete" | "prefix-delete-once" | "prefix-delete-reread" | "pointer-write" | "lease-lost-after-batch";
+type TakedownFault = "pointer-delete" | "before-commit" | "prefix-delete" | "prefix-delete-once" | "prefix-delete-reread" | "pointer-write" | "lease-lost-after-batch" | "lease-lost-before-batch" | "lease-taken-over-before-batch";
 
 /** The site an admin request acts on: /sites/<id>/... names it, /versions/<id>/... names a version whose site is looked up. null: neither. */
 async function requestSiteId(db: D1Database, path: string): Promise<string | null> {
@@ -234,7 +234,9 @@ async function requestSiteId(db: D1Database, path: string): Promise<string | nul
  * of taken_down_at; "pointer-write" fails the LIVE.put of a pointer (a key with no "/"), which approve reports as live_copy_failed.
  * "lease-lost-after-batch" runs the D1 batch and then frees the admin lease of the site the request acts on (and only that site), as an
  * action that ran past its lease would find it (approve then answers lease_lost with the approval committed and no pointer written; a
- * takedown, with the takedown committed and its LIVE clean-up not done).
+ * takedown, with the takedown committed and its LIVE clean-up not done). "lease-lost-before-batch" frees that lease BEFORE the D1 batch
+ * runs (a restore whose clear is then fenced out: 0 rows changed). "lease-taken-over-before-batch" does the same as another action
+ * would: it gives the lease to "another-call" and overwrites the pointer with one that action wrote (writer "another-call").
  * Every other call passes through.
  */
 function withFault(env: TestEnv, fault: TakedownFault, path: string): TestEnv {
@@ -269,6 +271,19 @@ function withFault(env: TestEnv, fault: TakedownFault, path: string): TestEnv {
           const siteId = await requestSiteId(target, path);
           await target.prepare("UPDATE sites SET admin_lock = NULL, admin_lock_until = NULL WHERE id = ?").bind(siteId).run();
           return results;
+        };
+      }
+      if (key === "batch" && (fault === "lease-lost-before-batch" || fault === "lease-taken-over-before-batch")) {
+        return async (statements: D1PreparedStatement[]) => {
+          const siteId = await requestSiteId(target, path);
+          if (fault === "lease-lost-before-batch") {
+            await target.prepare("UPDATE sites SET admin_lock = NULL, admin_lock_until = NULL WHERE id = ?").bind(siteId).run();
+          } else {
+            await target.prepare("UPDATE sites SET admin_lock = 'another-call', admin_lock_until = ? WHERE id = ?").bind(Date.now() + 60_000, siteId).run();
+            const slug = (await target.prepare("SELECT slug FROM sites WHERE id = ?").bind(siteId).first<{ slug: string }>())?.slug;
+            await env.LIVE.put(livePointerKey(slug!), "", { customMetadata: { writer: "another-call" } });
+          }
+          return target.batch(statements);
         };
       }
       if (key === "prepare" && fault === "prefix-delete-reread") {

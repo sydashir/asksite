@@ -4,6 +4,7 @@ import { formatPhone } from "@asksite/renderer";
 import { acquireLease, assertLease, PublishError as RealPublishError, releaseLease, TAKEDOWN_REVIEW_NOTE } from "@asksite/publishing";
 import type { SiteDocument } from "@asksite/site-schema";
 import { fakeCreateMailer, toGenerationView } from "../../../app/test/support/fakes.ts";
+import { RESTORE_SITE_SQL } from "../../../app/test/support/plan2b-statements.ts";
 import type { AdminDeps, AdminGenerationDeps, AdminPublishingDeps, MailerEnv, PublishErrorCode } from "../../src/worker/deps.ts";
 
 // Test stand-ins for the Plan 2 functions the admin calls (§7.2), following the documented steps (the A16 pointer
@@ -400,9 +401,11 @@ export const fakeAdminPublishing: AdminPublishingDeps = {
       if (site.takenDownAt !== input.expectedTakenDownAt) throw new FakePublishError("site_taken_down", { reason: "taken_down_again" });
       // Verify every page, copy them, write the pointer (not served yet: D1 still says taken down), then clear taken_down_at.
       const writeId = await copyAndWritePointer(env, site, token);
+      let cleared: Array<{ meta: { changes: number } }> | null;
       try {
-        await env.DB.batch([
-          env.DB.prepare("UPDATE sites SET taken_down_at = NULL, takedown_reason = NULL WHERE id = ? AND taken_down_at IS NOT NULL").bind(input.siteId),
+        // The pinned fenced clear (RESTORE_SITE_SQL = site-state.ts:209): taken_down_at, live version and lease must all still match.
+        cleared = await env.DB.batch([
+          env.DB.prepare(RESTORE_SITE_SQL).bind(input.now, input.siteId, input.expectedTakenDownAt, ids.versionId, token),
           env.DB.prepare("INSERT INTO audit_log (at, actor, action, site_id, detail_json) SELECT ?, ?, ?, ?, ? WHERE changes() = 1").bind(input.now, `admin:${input.reviewer}`, "site.restored", input.siteId, JSON.stringify({ versionId: ids.versionId })),
         ]);
       } catch (error) {
@@ -411,6 +414,12 @@ export const fakeAdminPublishing: AdminPublishingDeps = {
         const after = await pointerBackIfDown(env, site, writeId, token);
         if (after === null) throw error;
         if (after.live_version_id !== site.versionId) throw new FakePublishError("site_busy", { reason: "lease_lost" });
+        cleared = null; // the clear committed: keep the pointer (site-state.ts:220)
+      }
+      if (cleared !== null && cleared[0]?.meta.changes !== 1) {
+        // site-state.ts:221-224: the fenced clear changed no row (the lease was lost): down, the pointer is taken back; live (another restore won), left alone.
+        await pointerBackIfDown(env, site, writeId, token);
+        throw new FakePublishError("site_busy", { reason: "lease_lost" });
       }
       await removeOtherVersions(env.LIVE, site.slug, site.versionId);
       return { liveUrl: siteUrl(env.ROOT_DOMAIN, site.slug), missingPhotos: await missingPhotos(env, site.documentJson), healed: false };

@@ -5,7 +5,7 @@
 # launch Chromium or WebKit from vitest, *.browser.test.ts; check has no browsers) and the sites Worker's browser tests
 # over https. `apps` = the owner and admin apps' browser tests. Third-party actions are pinned to commit SHAs.
 # Fonts: in the Playwright image fontconfig resolves sans-serif, serif and system-ui to a CJK font (WenQuanYi Zen Hei),
-# which WebKit then draws every design's generic stack in; no visitor sees that. The e2e and sites jobs point
+# which WebKit then draws every design's generic stack in; no visitor sees that. The e2e, sites and apps jobs point
 # FONTCONFIG_FILE at .github/fontconfig/fonts.conf so the generic families resolve to Liberation Sans, Serif and Mono
 # (Arial, Times and Courier metrics) in both engines, and a guard step fails if the image ever changes that.
 name: ci

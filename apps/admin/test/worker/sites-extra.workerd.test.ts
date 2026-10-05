@@ -1,6 +1,7 @@
 import { livePageKey, livePointerKey, newId, versionPageKey } from "@asksite/core";
 import { PAGE_IDS } from "@asksite/site-schema";
 import { describe, expect, it } from "vitest";
+import { LEASE_LOST, RESTORE_LIVE_COPY_FAILED } from "../../src/messages.ts";
 import { GENERATION_HISTORY, SITE_AUDIT, SITE_LIST, VERSION_HISTORY } from "../../src/worker/queries.ts";
 import { accessToken, json, useAdminHarness } from "../support/harness.ts";
 
@@ -566,8 +567,39 @@ describe("A16-4c: Restore sends the takedown it showed, and Copy the live pages 
     expect(await h.liveKeys(site.slug)).toEqual([livePointerKey(site.slug)]);
     const res = await h.call("POST", restore(site.siteId), { body, headers: { "X-Test-Takedown-Fault": "pointer-write" } });
     expect(res.status).toBe(500);
+    expect(await json<{ error: { message: string } }>(res)).toMatchObject({ error: { message: RESTORE_LIVE_COPY_FAILED } });
     expect(await takenDownAt(site.siteId)).not.toBeNull();
     expect(await h.liveKeys(site.slug)).not.toContain(livePointerKey(site.slug));
+  });
+
+  // Plan 2's restore (site-state.ts:208-224): the clear is fenced on the lease (RESTORE_SITE_SQL); 0 rows changed is site_busy lease_lost
+  // after pointerBackIfDown. The restore's own pointer is taken back (the site is down; it wrote it) and nothing is stored.
+  it("a Restore that loses its lease before its clear is 409 with the lease-lost text, stays down and leaves no pointer it wrote", async () => {
+    const site = await liveSite();
+    await h.call("POST", takedown(site.siteId), { body: { reason: "Spam report" } });
+    await h.backgroundDone(takedown(site.siteId));
+    const body = await h.restoreBody(site.siteId);
+    const shown = await takenDownAt(site.siteId);
+    const res = await h.call("POST", restore(site.siteId), { body, headers: { "X-Test-Takedown-Fault": "lease-lost-before-batch" } });
+    expect(res.status).toBe(409);
+    expect(res.headers.get("Retry-After")).toBeNull();
+    expect(await json<{ error: { code: string; message: string } }>(res)).toEqual({ error: { code: "conflict", message: LEASE_LOST } });
+    expect(await takenDownAt(site.siteId)).toBe(shown);
+    expect(shown).not.toBeNull();
+    expect(await h.liveKeys(site.slug)).not.toContain(livePointerKey(site.slug));
+  });
+
+  // Plan 2's takeBackPointer (shared.ts:220-241): without the lease on the down site, only the pointer THIS call wrote goes.
+  it("a Restore take-back never deletes another call's pointer when the site is not down under this call's lease", async () => {
+    const site = await liveSite();
+    await h.call("POST", takedown(site.siteId), { body: { reason: "Spam report" } });
+    await h.backgroundDone(takedown(site.siteId));
+    const body = await h.restoreBody(site.siteId);
+    const res = await h.call("POST", restore(site.siteId), { body, headers: { "X-Test-Takedown-Fault": "lease-taken-over-before-batch" } });
+    expect(res.status).toBe(409);
+    expect(await json<{ error: { message: string } }>(res)).toMatchObject({ error: { message: LEASE_LOST } });
+    const pointer = await (await h.r2("LIVE")).get(livePointerKey(site.slug));
+    expect(pointer?.customMetadata?.["writer"]).toBe("another-call");
   });
 });
 
