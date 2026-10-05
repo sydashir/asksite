@@ -2,7 +2,7 @@ import { LIMITS, mediaKey, mediaUrl, type SiteView, type UploadView } from "@ask
 import { describe, expect, it } from "vitest";
 import { MAX_PART_HEADER_BYTES, MAX_PARTS } from "../../src/worker/multipart.ts";
 import { BROWSER_BOUNDARIES, blinkBoundary, browserContentType, browserMultipart, encode, geckoBoundary, joined, type BrowserPart } from "../support/browsers.ts";
-import { PURGE_UPLOADS_SQL, RESTORE_SITE_SQL, TAKE_DOWN_SITE_SQL } from "../support/plan2b-statements.ts";
+import { PURGE_UPLOADS_SQL, restoreSite, TAKE_DOWN_SITE_SQL, underLease } from "../support/plan2b-statements.ts";
 import { VALID_FACTS } from "../support/facts.ts";
 import { APP_ORIGIN, awayFromMinuteBoundary, eventually, json, ROOT, useAppHarness } from "../support/harness.ts";
 import { animatedWebp, jpeg, jpegWithGps, latin1, png, truncatedJpeg, upload } from "../support/images.ts";
@@ -597,21 +597,15 @@ describe("upload reservations: a counted row is reserved before the billed trans
   async function takeDown(siteId: string): Promise<void> {
     const now = Date.now();
     // Pinned to Plan 2B's statements by test/worker/plan2b-statements.test.ts.
-    const taken = await (await h.db())
-      .prepare(TAKE_DOWN_SITE_SQL)
-      .bind(now, "Taken down by the test", now, siteId)
-      .run();
+    const db = await h.db();
+    const taken = await underLease(db, siteId, (token) => db.prepare(TAKE_DOWN_SITE_SQL).bind(now, "Taken down by the test", now, siteId, token).run());
     expect(taken.meta.changes).toBe(1);
   }
 
-  /** The admin's Restore of the site: Plan 2B restore's own statement for the site. */
+  /** The admin's Restore of the site: Plan 2B restore's own clearing statement, under the lease (see restoreSite). */
   async function restore(siteId: string): Promise<void> {
     // Pinned to Plan 2B's statements by test/worker/plan2b-statements.test.ts.
-    const restored = await (await h.db())
-      .prepare(RESTORE_SITE_SQL)
-      .bind(Date.now(), siteId)
-      .run();
-    expect(restored.meta.changes).toBe(1);
+    expect(await restoreSite(await h.db(), siteId)).toBe(1);
   }
 
   describe("uploads whose bodies are held back past the pre-check (the moderator's attack)", () => {
@@ -1044,7 +1038,7 @@ describe("photo references and deletion", () => {
     expect((await h.call("POST", `/api/sites/${owner.siteId}/uploads`, { cookie: owner.cookie, body: upload(await png(400, 300), "x.png") })).status).toBe(201);
 
     // A takedown's media purge marks only uploads with deleted_at IS NULL (Plan 2B takeDown, the same statement, pinned by test/worker/plan2b-statements.test.ts).
-    const purge = await db.prepare(PURGE_UPLOADS_SQL).bind(Date.now() + 60_000, owner.siteId).run();
+    const purge = await underLease(db, owner.siteId, (token) => db.prepare(PURGE_UPLOADS_SQL).bind(Date.now() + 60_000, owner.siteId, owner.siteId, token).run());
     expect(purge.meta.changes).toBe(40);
     expect((await uploadRows(owner.siteId)).find((row) => row.id === failed.id)?.deleted_at).toBe(failed.deleted_at);
   });
