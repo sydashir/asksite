@@ -72,6 +72,21 @@ describe("apiHeaders", () => {
     }
   });
 
+  // The loop above compares the response with API_HEADERS itself, so a mutated value would pass it. This pins the literal.
+  it("sends exactly these API security headers, pinned as a literal", async () => {
+    const literal = {
+      "Cache-Control": "no-store",
+      "X-Robots-Tag": "noindex",
+      "X-Content-Type-Options": "nosniff",
+      "Referrer-Policy": "no-referrer",
+      "X-Frame-Options": "DENY",
+      "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'",
+    };
+    expect({ ...API_HEADERS }).toEqual(literal);
+    const res = await makeApp().request("/api/ok");
+    expect(Object.fromEntries(Object.keys(literal).map((name) => [name, res.headers.get(name)]))).toEqual(literal);
+  });
+
   it("keeps a header the route set itself", async () => {
     const res = await makeApp().request("/api/framed");
     expect(res.headers.get("X-Frame-Options")).toBe("SAMEORIGIN");
