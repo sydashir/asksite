@@ -4,7 +4,7 @@ import { TextArea } from "../components/fields.tsx";
 import { ErrorSummary, Notice, SaveStatus, type SummaryItem } from "../components/feedback.tsx";
 import { useMe } from "../hooks/use-me.ts";
 import { usePageHeading } from "../hooks/use-page-heading.ts";
-import { linkAfter, navigate } from "../hooks/use-route.ts";
+import { linkAfter, navigate, useLeaveGuard } from "../hooks/use-route.ts";
 import { useSite, type Draft, type SiteState } from "../hooks/use-site.ts";
 import { useStepProps } from "../hooks/use-step-props.ts";
 import { api } from "../lib/api.ts";
@@ -50,6 +50,8 @@ function StepPage({ siteId, step, site, view, draft }: { siteId: string; step: S
       requestAnimationFrame(() => noticeRef.current?.focus());
     } else setMessage("Your latest answers are not saved yet. Please try again in a moment.");
   };
+
+  useLeaveGuard(site.flush, stopped);
 
   // Arriving from a "fix this" link (#field-id): show the errors and focus that field.
   useEffect(() => {

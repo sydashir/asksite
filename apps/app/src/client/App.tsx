@@ -1,5 +1,5 @@
 import { useMe } from "./hooks/use-me.ts";
-import { onLinkClick, useRoute } from "./hooks/use-route.ts";
+import { mayEndSession, onLinkClick, useRoute } from "./hooks/use-route.ts";
 import { api } from "./lib/api.ts";
 import type { Route } from "./lib/route.ts";
 import { AcceptInvite } from "./pages/AcceptInvite.tsx";
@@ -35,8 +35,9 @@ function page(route: Route) {
   }
 }
 
-/** Ends the session, then reloads so no signed-in state survives in memory. */
+/** Saves what the page holds, then ends the session and reloads so no signed-in state survives in memory. A save that fails stays (no later save can succeed). */
 async function signOut() {
+  if (!(await mayEndSession())) return;
   await api("POST", "/api/auth/logout");
   location.assign("/");
 }

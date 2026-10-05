@@ -12,7 +12,7 @@ import { WordsTab } from "../editor/WordsTab.tsx";
 import { useGeneration } from "../hooks/use-generation.ts";
 import { useMe } from "../hooks/use-me.ts";
 import { usePageHeading } from "../hooks/use-page-heading.ts";
-import { linkAfter, navigate, setLeaveGuard } from "../hooks/use-route.ts";
+import { linkAfter, navigate, useLeaveGuard } from "../hooks/use-route.ts";
 import { useSite, type Draft, type SiteState } from "../hooks/use-site.ts";
 import { useStepProps } from "../hooks/use-step-props.ts";
 import { useStylesheets } from "../hooks/use-stylesheets.ts";
@@ -95,17 +95,7 @@ function EditorScreen(props: { siteId: string; site: SiteState; view: SiteView; 
   const leave = linkAfter(site.flush, stopped);
   // The header's link home leaves the editor too: the same save first, and the same stop for a dropped wording change. An ordinary failed
   // save does not stop it (decision 37: any other way of leaving still sends the unsaved changes), so "Your website" works in a conflict.
-  const { flush } = site;
-  const stoppedRef = useRef(stopped);
-  stoppedRef.current = stopped;
-  useEffect(() => {
-    setLeaveGuard(async () => {
-      const result = await flush();
-      if (result === "dropped") stoppedRef.current(result);
-      return result !== "dropped";
-    });
-    return () => setLeaveGuard(null);
-  }, [flush]);
+  useLeaveGuard(site.flush, stopped);
   // A rewrite the view names (seen at mount, on a refetch, or after the server refused a save because another tab started one) is
   // followed like one started here: the whole editor locks until it lands or fails.
   const running = view.activeGeneration;

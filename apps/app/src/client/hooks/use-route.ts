@@ -1,4 +1,4 @@
-import { useEffect, useState, type MouseEvent } from "react";
+import { useEffect, useRef, useState, type MouseEvent } from "react";
 import type { FlushResult } from "../lib/autosave.ts";
 import { matchRoute, type Route } from "../lib/route.ts";
 
@@ -27,10 +27,45 @@ export function useRoute(): Route {
 const plainClick = (event: MouseEvent<HTMLAnchorElement>): boolean =>
   event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey;
 
-/** Set by a page that holds an unsaved draft: every plain link click (onLinkClick) waits for it, and goes unless it answers false. */
-let leaveGuard: (() => Promise<boolean>) | null = null;
-export function setLeaveGuard(guard: (() => Promise<boolean>) | null): void {
+/** What a page that holds a draft gives the app: how to save it, and how to tell the owner when a leave was stopped (false: not saved; "dropped": a wording change was not applied). */
+export interface LeaveGuard {
+  flush: () => Promise<FlushResult>;
+  stopped: (result: false | "dropped") => void;
+}
+
+/** Set by a page that holds an unsaved draft: every plain link click (onLinkClick) and Sign out wait for it. */
+let leaveGuard: LeaveGuard | null = null;
+export function setLeaveGuard(guard: LeaveGuard | null): void {
   leaveGuard = guard;
+}
+
+/**
+ * Registers the page's guard while it is mounted. `stopped` may change on every render; the guard always calls the newest.
+ * Every page that holds a draft (the editor, the questionnaire, Publish) uses this.
+ */
+export function useLeaveGuard(flush: () => Promise<FlushResult>, stopped: (result: false | "dropped") => void): void {
+  const latest = useRef(stopped);
+  useEffect(() => {
+    latest.current = stopped;
+  });
+  useEffect(() => {
+    setLeaveGuard({ flush, stopped: (result) => latest.current(result) });
+    return () => setLeaveGuard(null);
+  }, [flush]);
+}
+
+/**
+ * Whether the session may end now: the page saves what it holds first, and "Sign out" goes on only when everything is saved. Unlike a
+ * link (which still leaves after an ordinary failed save, because the page's unmount sends it later), nothing can be saved after the
+ * logout, so a failed save stays and says so; a dropped wording change stops it once (the next press goes on). Pages with nothing to save pass at once.
+ */
+export async function mayEndSession(): Promise<boolean> {
+  const guard = leaveGuard;
+  if (guard === null) return true;
+  const result = await guard.flush();
+  if (result === true) return true;
+  guard.stopped(result);
+  return false;
 }
 
 /** For <a href> links inside the app: a plain left click navigates without reloading the page (after the page's leave guard, if it set one). */
@@ -39,8 +74,14 @@ export function onLinkClick(event: MouseEvent<HTMLAnchorElement>): void {
   event.preventDefault();
   const url = new URL(event.currentTarget.href);
   const go = () => navigate(`${url.pathname}${url.hash}`);
-  if (leaveGuard === null) go();
-  else void leaveGuard().then((mayLeave) => (mayLeave ? go() : undefined));
+  const guard = leaveGuard;
+  if (guard === null) go();
+  else
+    void guard.flush().then((result) => {
+      // Only a dropped wording change stops a link; any other failed save still leaves (decision 37).
+      if (result === "dropped") guard.stopped(result);
+      else go();
+    });
 }
 
 /**
