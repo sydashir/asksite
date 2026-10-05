@@ -150,15 +150,18 @@ export function siteRoutes(deps: AdminDeps): Hono<AdminEnv> {
                 }
               }
             }
-            // The takedown's stored moment decides who took the site down. If the read fails, fall back to the read made before takeDown.
+            // The takedown's stored moment decides who took the site down. If the read fails, fall back to the read made before takeDown, but only
+            // when takeDown RETURNED (its commit is certain). A takeDown that threw lease_lost may have stopped before its commit, and a takedown
+            // notice for a site that is still up is untrue and cannot be undone, so then nothing is sent and the 409 says the owner was not told.
             const stored = await storedTakedownAt(c.env.DB, site.id);
-            const tookItDown = stored === undefined ? !alreadyDown : stored !== null && stamps.includes(stored);
+            const rereadFailed = stored === undefined;
+            const tookItDown = rereadFailed ? !alreadyDown && leaseLost === null : stored !== null && stamps.includes(stored);
             // The key names the takedown (its stored moment), so every call that sends the notice for it is the same message to the mail provider.
             const send = () => trySend(mailer, { to: site.owner_email, ...email, replyTo: c.env.SUPPORT_EMAIL, tag: "site_notice", idempotencyKey: `takedown:${site.id}:${stored ?? site.taken_down_at ?? now}` });
-            // A lost lease: tell the owner if THIS call took the site down (the re-read decides; a failed re-read falls back toward sending), then answer
+            // A lost lease: tell the owner if THIS call took the site down (the re-read decides; a failed re-read sends nothing and answers false), then answer
             // the 409 with the notice's outcome as noticeSent (true sent, false failed, null this call sent none), so the admin knows whether the owner was told.
             if (leaseLost !== null) {
-              const noticeSent = tookItDown ? await send() : null;
+              const noticeSent = tookItDown ? await send() : rereadFailed && !alreadyDown ? false : null;
               const mapped = publishApiError((leaseLost as PublishErrorLike).code, "takedown", (leaseLost as PublishErrorLike).detail);
               throw mapped === null ? leaseLost : new ApiError(mapped.code, mapped.message, { ...mapped.extra, noticeSent });
             }

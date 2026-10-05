@@ -317,11 +317,31 @@ describe("a takedown that loses its lease after the commit (23-A16 f2, m6)", () 
     await h.backgroundDone(takedown(site.siteId));
   });
 
-  it("when the re-read after a lost lease also fails, the notice still goes out (toward sending: a notice is never lost) and the answer is still the 409", async () => {
+  it("when takeDown loses its lease AFTER the commit and the re-read also fails, nothing is sent and the 409 says noticeSent false (the admin checks by reloading)", async () => {
     const site = await liveSite();
     const lost = await h.call("POST", takedown(site.siteId), { body: { reason: "Spam report" }, headers: { "X-Test-Takedown-Fault": "lease-lost-after-batch-reread" } });
     expect(lost.status).toBe(409);
-    expect((await json<{ error: { noticeSent?: boolean | null } }>(lost)).error.noticeSent).toBe(true);
+    expect((await json<{ error: { noticeSent?: boolean | null } }>(lost)).error.noticeSent).toBe(false);
+    expect(await downAt(site.siteId)).not.toBeNull();
+    expect(await notices(site.email)).toHaveLength(0);
+    await h.backgroundDone(takedown(site.siteId));
+  });
+
+  it("when takeDown loses its lease BEFORE the commit (the site stays up) and the re-read also fails, no notice goes to the owner and the 409 says noticeSent false", async () => {
+    const site = await liveSite();
+    const lost = await h.call("POST", takedown(site.siteId), { body: { reason: "Spam report" }, headers: { "X-Test-Takedown-Fault": "lease-lost-before-batch-reread" } });
+    expect(lost.status).toBe(409);
+    expect((await json<{ error: { noticeSent?: boolean | null } }>(lost)).error.noticeSent).toBe(false);
+    expect(await downAt(site.siteId)).toBeNull();
+    expect(await notices(site.email)).toHaveLength(0);
+    await h.backgroundDone(takedown(site.siteId));
+  });
+
+  it("when takeDown RETURNED and only the re-read fails, the notice still goes out (the commit is certain: toward sending) and the answer is 200 noticeSent true", async () => {
+    const site = await liveSite();
+    const res = await h.call("POST", takedown(site.siteId), { body: { reason: "Spam report" }, headers: { "X-Test-Takedown-Fault": "reread-only" } });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ noticeSent: true });
     expect(await downAt(site.siteId)).not.toBeNull();
     expect(await notices(site.email)).toHaveLength(1);
     await h.backgroundDone(takedown(site.siteId));
