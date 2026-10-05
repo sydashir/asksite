@@ -92,11 +92,19 @@ const NEEDS_A_FACT_IN_AI_COPY: ReadonlyArray<{ readonly pattern: RegExp; readonl
     pattern: new RegExp(`\\b(?:lic${AND}insured\\b|licensed${AND}ins\\b(?:(?!\\.)|(?<=[a-z]-ins)\\.))`, "i"),
     backedBy: (facts) => facts.licences.length > 0 && facts.insured,
   },
-  // Known false positive, rephrasable: "(every|any) holiday" before a noun ("every holiday season"). Residuals: "after-hour", "afterhour",
-  // "every single holiday", "each holiday".
+  // The every-day words: 24/7 service or opening hours on all seven days back them (claims.ts's seven-days backing).
+  // Residuals, accepted: "Open each day", "Open all week", "Open seven days".
   {
-    pattern: new RegExp(`\\b(after${J}?hours|all${J}hours|nights${J}and${J}holidays|holidays|(every|any)${J}holiday|every${J}(single${J})?day|(open|available)${J}(daily|everyday))\\b`, "i"), // "daily" and "everyday" alone are not claims ("everyday chores"); "holiday" alone is a service ("holiday lights")
+    pattern: new RegExp(`\\b(every${J}(single${J})?day|(open|available)${J}(daily|everyday))\\b`, "i"), // "daily" and "everyday" alone are not claims ("everyday chores")
     backedBy: sevenDaysBacking,
+  },
+  // The after-hours and holiday words say service outside the working day, which opening hours on every day do not show (daily 9-5 is
+  // not "after hours" or "all hours"), so only 24/7 service backs them. Known false positive, rephrasable: "(every|any) holiday" before a
+  // noun ("every holiday season"). Residuals, accepted: "after-hour", "afterhour", "every single holiday", "each holiday", "Late-night
+  // service", "Open on Christmas", "After-hour help".
+  {
+    pattern: new RegExp(`\\b(after${J}?hours|all${J}hours|nights${J}and${J}holidays|holidays|(every|any)${J}holiday)\\b`, "i"), // "holiday" alone is a service ("holiday lights")
+    backedBy: (facts) => facts.emergency247,
   },
   // "free" in any form, a hyphenated compound too ("stress-free"), but not inside a longer word ("freedom", "FreeFlow").
   { pattern: /(?<!\p{L})free(?!\p{L})/iu, backedBy: (facts) => facts.freeEstimates },

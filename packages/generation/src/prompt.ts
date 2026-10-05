@@ -103,7 +103,7 @@ export function buildPrompt(snapshot: GenerationInputSnapshot, repair: readonly 
   const lines = [
     "Write the website wording for this business.",
     "",
-    `Allowed claims: licensed = ${yesNo(business.hasLicence)}; insured = ${yesNo(business.insured)}; emergency or around the clock = ${yesNo(business.emergency247)}; every day, after hours or holidays = ${yesNo(sevenDaysBacking(facts))}; free = ${business.freeEstimates ? FREE_CLAIM : "no"}.`,
+    `Allowed claims: licensed = ${yesNo(business.hasLicence)}; insured = ${yesNo(business.insured)}; emergency, around the clock, after hours or holidays = ${yesNo(business.emergency247)}; every day = ${yesNo(sevenDaysBacking(facts))}; free = ${business.freeEstimates ? FREE_CLAIM : "no"}.`,
     `Sections the layout must include: ${["hero", ...factSections(facts)].join(", ")}.`,
     `Tone: ${TONE[brief.tone]}.`,
     `Main goal: ${GOAL[brief.goal]}.`,

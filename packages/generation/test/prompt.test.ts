@@ -224,30 +224,47 @@ describe("buildPrompt", () => {
 
   it("allows only the claims the owner's facts back, and free only about estimates", () => {
     expect(buildPrompt(FULL_SNAPSHOT).user).toContain(
-      "Allowed claims: licensed = yes; insured = yes; emergency or around the clock = yes; every day, after hours or holidays = yes; free = yes (only about estimates or quotes; never free repairs, service calls, inspections or parts).",
+      "Allowed claims: licensed = yes; insured = yes; emergency, around the clock, after hours or holidays = yes; every day = yes; free = yes (only about estimates or quotes; never free repairs, service calls, inspections or parts).",
     );
-    expect(buildPrompt(MINIMAL_SNAPSHOT).user).toContain("Allowed claims: licensed = no; insured = no; emergency or around the clock = no; every day, after hours or holidays = no; free = no.");
+    expect(buildPrompt(MINIMAL_SNAPSHOT).user).toContain("Allowed claims: licensed = no; insured = no; emergency, around the clock, after hours or holidays = no; every day = no; free = no.");
   });
 
-  it("gives the availability entry the checker's own backing, and the checker accepts \"Open every day\" exactly then", () => {
+  it("gives the availability entries the checker's own backing, and the checker accepts each family's words exactly then", () => {
     const hours = (days: readonly (typeof DAYS)[number][]) => [{ days: [...days], opens: "08:00", closes: "17:00" }];
     const withFacts = (extra: Record<string, unknown>): Facts => Facts.parse({ ...MINIMAL_FACTS, ...extra });
-    const rows: ReadonlyArray<readonly [name: string, facts: Facts, entry: "yes" | "no"]> = [
-      ["24/7 only", withFacts({ emergency247: true }), "yes"],
-      ["hours on all 7 days, no 24/7", withFacts({ hours: hours(DAYS) }), "yes"],
-      ["hours on 6 days", withFacts({ hours: hours(DAYS.slice(0, 6)) }), "no"],
-      ["no hours", MINIMAL_FACTS, "no"],
-      ["24/7 and 7 days", withFacts({ emergency247: true, hours: hours(DAYS) }), "yes"],
+    // [fact set, "every day" entry, emergency (24/7, after hours, holidays) entry]: daily 9-5 hours back "every day" but not after-hours service.
+    const rows: ReadonlyArray<readonly [name: string, facts: Facts, everyDay: boolean, afterHours: boolean]> = [
+      ["24/7 only", withFacts({ emergency247: true }), true, true],
+      ["hours on all 7 days, no 24/7", withFacts({ hours: hours(DAYS) }), true, false],
+      ["hours on 6 days", withFacts({ hours: hours(DAYS.slice(0, 6)) }), false, false],
+      ["no hours", MINIMAL_FACTS, false, false],
+      ["24/7 and 6 days", withFacts({ emergency247: true, hours: hours(DAYS.slice(0, 6)) }), true, true],
     ];
-    for (const [name, facts, entry] of rows) {
+    const everyDayWords: ReadonlyArray<readonly [text: string, word: string]> = [["Open every day", "every day"]];
+    const afterHoursWords: ReadonlyArray<readonly [text: string, word: string]> = [
+      ["After-hours service", "After-hours"],
+      ["Available at all hours", "all hours"],
+      ["Open on holidays", "holidays"],
+    ];
+    const checked = (facts: Facts, text: string) => {
+      const answer = templateAnswer(facts, MINIMAL_SNAPSHOT.brief);
+      expect(checkDraft(facts, answer).ok).toBe(true);
+      return checkDraft(facts, { ...answer, copy: { ...answer.copy, heroHeadline: text } });
+    };
+    for (const [name, facts, everyDay, afterHours] of rows) {
       const { user } = buildPrompt({ ...MINIMAL_SNAPSHOT, facts });
       const line = user.split("\n").find((l) => l.startsWith("Allowed claims:"))!;
-      expect(line, name).toContain(`; emergency or around the clock = ${facts.emergency247 ? "yes" : "no"}; every day, after hours or holidays = ${entry}; free = `);
-      // The entry is the checker's backing function, not a copy of it.
-      expect(sevenDaysBacking(facts) ? "yes" : "no", name).toBe(entry);
-      const answer = templateAnswer(facts, MINIMAL_SNAPSHOT.brief);
-      const result = checkDraft(facts, { ...answer, copy: { ...answer.copy, heroHeadline: "Open every day" } });
-      expect(result.ok, name).toBe(entry === "yes");
+      const yn = (flag: boolean) => (flag ? "yes" : "no");
+      expect(line, name).toContain(`; emergency, around the clock, after hours or holidays = ${yn(afterHours)}; every day = ${yn(everyDay)}; free = `);
+      // The entries are the checker's backing, not a copy of it.
+      expect(sevenDaysBacking(facts), name).toBe(everyDay);
+      expect(facts.emergency247, name).toBe(afterHours);
+      for (const [family, accepted, words] of [["every day", everyDay, everyDayWords], ["after hours", afterHours, afterHoursWords]] as const)
+        for (const [text, word] of words) {
+          const result = checked(facts, text);
+          expect(result.ok, `${name}: ${family}: ${text}`).toBe(accepted);
+          if (!result.ok) expect(result.issues.map((issue) => issue.message).join("\n"), `${name}: ${text}`).toContain(JSON.stringify(word));
+        }
     }
   });
 
