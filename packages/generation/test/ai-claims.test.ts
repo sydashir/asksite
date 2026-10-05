@@ -297,9 +297,12 @@ describe("AI claim check: claim-word gaps", () => {
     ["lic. and ins, one dot", "Fully lic. and ins crew", ["lic.", "lic. and ins"]],
     ["lic and ins., one dot", "Fully lic and ins. crew", ["ins.", "lic and ins."]],
   ]);
-  // A response time: an arrival phrase leads in. The written residual: other paraphrases ("we get to you fast", "a quick hour away")
-  // are accepted, and so is "within one hour" (the prompt's "Invent nothing: ... response times" is the backstop).
+  // A response time: "within one hour" like "within an hour", and an arrival phrase that leads in. The written residual: other
+  // paraphrases ("we get to you fast", "a quick hour away") are accepted (the prompt's "Invent nothing: ... response times" is the backstop).
   refused(MINIMAL_FACTS, [
+    ["within one hour", "We arrive within one hour", ["within one hour"]],
+    // "dries within an hour" is refused today, so "dries within one hour" is the same class.
+    ["dries within one hour", "Dries within one hour", ["within one hour"]],
     ["here in under an hour", "Here in under an hour", ["Here in under an hour"]],
     ["arrive in under an hour", "We arrive in under an hour", ["arrive in under an hour"]],
     ["at your door in less than an hour", "At your door in less than an hour", ["At your door in less than an hour"]],
@@ -353,7 +356,6 @@ describe("AI claim check: claim-word gaps", () => {
     ["freedom from clutter", "Freedom from clutter"],
     ["FreeFlow in a name", "FreeFlow drains"],
     ["daily alone", "Daily cleaning for busy offices"],
-    ["known gap: within one hour (the response-time line of the prompt covers it)", "We arrive within one hour"],
     ["known gap: a response time without an arrival phrase", "We get to you fast, a quick hour away"],
   ]);
   // AI-only: the owner checker accepts every refused wording above, on facts that back nothing.

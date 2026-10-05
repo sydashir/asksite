@@ -17,10 +17,10 @@ import { NEEDS_A_FACT, proseIn, readings, type Copy, type Facts } from "@asksite
 const J = "[-\\u2012\\u2013\\u2014\\u2212 ]";
 
 const NEVER_IN_AI_COPY: readonly RegExp[] = [
-  new RegExp(`\\bwithin${J}(the|an?)${J}hour\\b`, "i"), // a response time no fact backs
+  new RegExp(`\\bwithin${J}(the|an?|one)${J}hour\\b`, "i"), // a response time no fact backs
   // The same claim after an arrival phrase ("Here in under an hour", "At your door in less than an hour"). "takes under an hour" and
   // "done in under an hour" are a job's length, usual in trade copy, so only an arrival phrase counts. The written residual: other
-  // response-time paraphrases ("we get to you fast", "a quick hour away") and "within one hour" are accepted; the prompt's
+  // response-time paraphrases ("we get to you fast", "a quick hour away") are accepted; the prompt's
   // "Invent nothing: ... response times" is the backstop.
   new RegExp(`\\b(here|there|arrive[sd]?|arriving|on${J}site|at${J}your${J}door|out${J}to${J}you)${J}(in${J})?(under|less${J}than)${J}an${J}hour\\b`, "i"),
   new RegExp(`\\b(state|board|city|county)${J}approved\\b`, "i"), // a licence paraphrase
