@@ -13,8 +13,9 @@ export const HTML_TYPE = "text/html; charset=utf-8";
  * thank-you and 404 pages (QA-2 RU(2), RU(3)). The Worker reads them from the pointer's LIVE.head it makes, and
  * escapes them. Taken from the approved document's facts, so all are already public on the page: the name
  * as written, and the phone as the text the page shows and the E.164 number its tel: links call.
- * With the two ids the metadata stays under 400 bytes (a name is at most 60 UTF-16 units, so at
- * most 180 UTF-8 bytes), far under R2's 8,192 bytes for all custom metadata.
+ * With the three ids (siteId, versionId and the writer: each a 36-character UUID) the metadata stays under 400 bytes
+ * (measured at most 364: 50 of keys and 314 of values, a name being at most 60 UTF-16 units, so at most 180 UTF-8
+ * bytes), far under R2's 8,192 bytes for all custom metadata.
  */
 export function liveMetadata(documentJson: string): { businessName: string; phoneText: string; phoneTel: string } {
   const { facts } = JSON.parse(documentJson) as SiteDocument;
@@ -76,10 +77,11 @@ export const LEASE_HELD = "EXISTS (SELECT 1 FROM sites WHERE id = ? AND admin_lo
  * Throws site_busy (lease_lost) unless the token still holds the site. Called after a fenced write changed no row,
  * and right before every R2 pointer write or delete (R2 cannot be conditioned on D1). The take-back deletes
  * (approve's deletes after its takedown re-read, restore's pointerBack, and copyAndPoint's, used by copyLivePagesAgain
- * and restore's heal; all takeBackOwnPointer) are deliberately NOT lease-checked: they
+ * and restore's heal; all takeBackPointer) are deliberately NOT lease-checked: they
  * remove a pointer from a site D1 says is down (or whose state cannot be read), and a check there could leave the pointer
- * on a taken-down site. A take-back removes only its own write (the pointer's "writer" is the action's writeId): another
- * action's pointer is left alone. Restore's take-backs ask D1 first and leave the pointer of a site that is live.
+ * on a taken-down site. A take-back removes its own write (the pointer's "writer" is the action's writeId) and, only while
+ * this action holds the lease on a site D1 shows down (holdsDownSite), any pointer; with the lease lost, the site gone or
+ * D1 unreadable, another action's pointer is left alone. Restore's take-backs ask D1 first and leave the pointer of a site that is live.
  * RESIDUAL: if the lease runs out between this check and the R2 call (only an action over ADMIN_LEASE_MS), that
  * R2 write can land after another action's. The D1 fence still keeps D1 right. On a cache miss the sites Worker
  * serves only when D1 says the site is live and not taken down and the pointer's version equals D1's live version
@@ -174,25 +176,50 @@ export async function writeLivePointer(
   await live.put(livePointerKey(slug), "", { customMetadata: { ...meta, writer: writeId } });
 }
 
+/** What the take-back's one D1 re-read of the site returns (null: the site is gone, or the read threw). */
+export interface TakeBackRow {
+  taken_down_at: number | null;
+  admin_lock: string | null;
+}
+
 /**
- * The one take-back of a pointer, for every action that wrote one (approve's, copyAndPoint's, restore's). The CALLER
- * asks D1 first and calls this only when D1 says the site is down or gone, or cannot be read; a live site keeps its
- * pointer. Here the rule is: delete the pointer only when its `writer` is this action's `writeId`. A pointer another
- * action wrote (an action that outlived its lease finds the site down because another restore has written its pointer
- * and not yet cleared taken_down_at) is left alone, with no log; a missing pointer needs no delete. If the HEAD itself
- * throws, the pointer is deleted: takedown safety first, a pointer must not stay on a site that may be down (the cost,
- * if it was another action's, is the residual below). A failed delete is logged (ids and `code` only), never thrown.
- * Not lease-checked, as every take-back: a check could leave a pointer on a taken-down site.
+ * True only when the re-read shows BOTH that the site is down (the row is there and taken_down_at is set) and that this
+ * action's own lease token still holds it. acquireLease writes a NEW token on every takeover, so a matching token proves
+ * no other action took the site over since this one did: whatever pointer is there now is stale or this action's own,
+ * and a down site must not keep it. No expiry check is needed for the same reason. The one place this is decided: every
+ * take-back caller passes the row it re-read here, none computes it itself.
+ */
+export function holdsDownSite(row: TakeBackRow | null, token: string): boolean {
+  return row !== null && row.taken_down_at !== null && row.admin_lock === token;
+}
+
+/**
+ * The one take-back of a pointer, for every action that wrote one (approve's, copyAndPoint's, restore's; named
+ * takeBackPointer now that it can remove a pointer that is not the action's own). The CALLER asks D1 first (one SELECT of
+ * taken_down_at and admin_lock) and calls this only when D1 says the site is down or gone, or cannot be read; a live site
+ * keeps its pointer. `anyPointer` is holdsDownSite(row, token): then the pointer is deleted whoever wrote it (a stale
+ * pointer an earlier failed action left on this down site, whose own take-back delete failed, must not stay: the
+ * business name would show on the host's 404s). Otherwise the rule is: delete the pointer only when its `writer` is this
+ * action's `writeId`. A pointer another action wrote (an action that outlived its lease finds the site down because another
+ * restore has written its pointer and not yet cleared taken_down_at, and the lease is lost) is left alone, with no log; a
+ * missing pointer needs no delete. If the HEAD itself throws, the pointer is deleted: takedown safety first, a pointer
+ * must not stay on a site that may be down (the cost, if it was another action's, is the residual below). A failed delete
+ * is logged (ids and `code` only), never thrown. Not lease-checked, as every take-back: a check could leave a pointer on a
+ * taken-down site.
  * RESIDUAL: R2's delete takes no condition (developers.cloudflare.com/r2/api/workers/workers-api-reference/:
  * `delete(key: string | string[]): Promise<void>`, no options; only get() and put() accept onlyIf), so between this
  * HEAD and the delete another action can write its pointer and this delete removes it. That needs this action to have
- * outlived its lease and the other write to land in that gap; the site then has no pointer until Restore or Copy the
- * live pages again writes it (`healed: true`).
+ * outlived its lease and the other write to land in that gap, or another action's late put to land there while THIS action
+ * holds a valid lease (that case removes a late pointer from a down site: it errs on the safe side); the site then has no
+ * pointer until Restore or Copy the live pages again writes it (`healed: true`). Also, with `anyPointer`: a takeover, its
+ * full page copy and its pointer put all landing between the caller's re-read and the delete (then this delete removes the
+ * new holder's pointer: the site is live with no pointer until Restore again / Copy the live pages again heals it).
  */
-export async function takeBackOwnPointer(
+export async function takeBackPointer(
   live: R2Bucket,
   slug: string,
   writeId: string,
+  anyPointer: boolean,
   failed: { code: "pointer_unconfirmed" | "takedown_pointer_left"; siteId: string; versionId: string },
 ): Promise<void> {
   try {
@@ -200,7 +227,7 @@ export async function takeBackOwnPointer(
     try {
       const pointer = await live.head(livePointerKey(slug));
       if (pointer === null) return;
-      ours = pointer.customMetadata?.["writer"] === writeId;
+      ours = anyPointer || pointer.customMetadata?.["writer"] === writeId;
     } catch {
       // unknown whose it is
     }

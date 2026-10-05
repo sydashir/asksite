@@ -1,6 +1,6 @@
 import { TAKEDOWN_REVIEW_NOTE, canonicalJson, livePointerKey, liveSitePrefix, newId, siteUrl } from "@asksite/core";
 import { PublishError } from "./errors.ts";
-import { acquireLease, assertLease, type AuditAction, auditIfChanged, copyLivePages, deletePrefix, LEASE_HELD, liveMetadata, releaseLease, removeOtherVersions, takeBackOwnPointer, verifiedPages, writeLivePointer } from "./shared.ts";
+import { acquireLease, assertLease, type AuditAction, auditIfChanged, copyLivePages, deletePrefix, holdsDownSite, LEASE_HELD, liveMetadata, releaseLease, removeOtherVersions, type TakeBackRow, takeBackPointer, verifiedPages, writeLivePointer } from "./shared.ts";
 
 /**
  * The admin's Take down, under the site's lease (A16-4c: one admin action per site at a time, site_busy otherwise;
@@ -95,8 +95,9 @@ function auditLaterPurge(
  * writes the pointer (D1 still says taken down: on an edge-cache MISS the Worker checks D1 and does not serve it, but a page
  * copy already in the edge cache under that version, s-maxage=60 from before the takedown, can be served with no D1 check
  * once the pointer exists), then clears taken_down_at, fenced on the expected time, the copied version and the lease.
- * Every take-back asks D1 first (one helper) and removes only this call's own write (takeBackOwnPointer; the pointer's
- * "writer"): a site still down, gone or unreadable loses the pointer this call wrote, never another action's; a site that is
+ * Every take-back asks D1 first (one helper) and removes this call's own write (takeBackPointer; the pointer's
+ * "writer") and, while this call holds the lease on a site D1 shows down, any pointer: a site gone or unreadable, or whose
+ * lease is lost, loses only the pointer this call wrote, never another action's; a site that is
  * live (another restore made it live, after this one outlived its lease) keeps it. If the clear changes nothing: down,
  * the pointer is taken back out; either way site_busy (lease_lost). If it throws, D1 is asked (it can commit a batch and
  * still throw): a committed clear keeps the pointer and succeeds, a live site with another version is left alone
@@ -167,27 +168,28 @@ async function restoreUnderLease(
   await assertLease(db, siteId, token); // R2 cannot be conditioned on D1 (residual: see assertLease)
   // The pointer is out (or may be) and must not stay on a site D1 says is down: the take-backs below remove it, best effort.
   // Not lease-checked: a check here could leave a pointer on a taken-down site.
-  const writeId = newId(); // this call's own pointer write: its take-backs remove only that
+  const writeId = newId(); // this call's own pointer write: its take-back always removes that (holdsDownSite adds any pointer)
   // The one take-back all three paths below use. It asks D1 first (D1 can commit a batch and still throw, and an action
   // that outlived its lease may find another restore already made the site live: that restore's pointer is not ours to delete).
-  // Down, gone or unreadable: this action's own pointer is taken back (takeBackOwnPointer: a pointer another action wrote
-  // is left alone, so a restore that has written its pointer and not yet cleared keeps it) and null is returned. Live: the
+  // Down, gone or unreadable: this action's own pointer is taken back, and any pointer when the row shows the site down
+  // and this action's own lease token (takeBackPointer, holdsDownSite: with the lease lost, a pointer another action
+  // wrote is left alone, so a restore that has written its pointer and not yet cleared keeps it) and null is returned. Live: the
   // pointer is left alone and the row is returned.
   // RESIDUAL: the take-back's HEAD and delete are two R2 calls and R2's delete takes no condition, so another action can
-  // write its pointer between them and lose it (see takeBackOwnPointer). Likewise, a re-read that THROWS after another
+  // write its pointer between them and lose it (see takeBackPointer). Likewise, a re-read that THROWS after another
   // restore made the site live is treated as down (a pointer never stays on a site that may be down): this action's own
   // pointer, if the other restore's did not replace it, is taken out of a live site, and a HEAD that throws deletes whoever's
   // it is. Only possible when this action outlived its lease (over ADMIN_LEASE_MS). Restore again or Copy the live pages
   // again heals it (`healed: true`).
-  const pointerBackIfDown = async (): Promise<{ taken_down_at: number | null; live_version_id: string | null } | null> => {
-    let after: { taken_down_at: number | null; live_version_id: string | null } | null = null;
+  const pointerBackIfDown = async (): Promise<(TakeBackRow & { live_version_id: string | null }) | null> => {
+    let after: (TakeBackRow & { live_version_id: string | null }) | null = null;
     try {
-      after = await db.prepare("SELECT taken_down_at, live_version_id FROM sites WHERE id = ?").bind(siteId).first<{ taken_down_at: number | null; live_version_id: string | null }>();
+      after = await db.prepare("SELECT taken_down_at, live_version_id, admin_lock FROM sites WHERE id = ?").bind(siteId).first<TakeBackRow & { live_version_id: string | null }>();
     } catch {
       // Unconfirmed: treated as down (the admin restores again, which heals a pointer taken out of a live site).
     }
     if (after === null || after.taken_down_at !== null) {
-      await takeBackOwnPointer(env.LIVE, slug, writeId, { code: "takedown_pointer_left", siteId, versionId });
+      await takeBackPointer(env.LIVE, slug, writeId, holdsDownSite(after, token), { code: "takedown_pointer_left", siteId, versionId });
       return null;
     }
     return after;
@@ -228,8 +230,8 @@ async function restoreUnderLease(
  * the lease: the live version's pages, verified, back to LIVE; the lease checked; the pointer written; then, as approve
  * does, a takedown re-read. A rejected put may still have landed (putRejected). A takedown by another admin can commit
  * after the lease ran out: the re-read throws or says the site is down or gone: this call's own pointer is taken back
- * out (takeBackOwnPointer: only a pointer this call wrote; another action's is left alone; not lease-checked, as
- * everywhere; logged ids-only if that fails) and the answer is live_copy_failed or site_taken_down.
+ * out (takeBackPointer: a pointer this call wrote, and any pointer while this call holds the lease on the down site;
+ * with the lease lost another action's is left alone; not lease-checked, as everywhere; logged ids-only if that fails) and the answer is live_copy_failed or site_taken_down.
  * A put that landed and rejected on a live site leaves the pointer in place (the site is live and it names its live
  * version): live_copy_failed, call it again.
  */
@@ -242,22 +244,22 @@ async function copyAndPoint(
   const pages = await verifiedPages(env.WORK, { site_id: siteId, id: versionId, pages_json: pagesJson, html_key: key, html_sha256: sha256 });
   await copyLivePages(env.LIVE, slug, { siteId, versionId }, pages);
   await assertLease(db, siteId, token); // R2 cannot be conditioned on D1 (residual: see assertLease)
-  const writeId = newId(); // this call's own pointer write: its take-back removes only that
+  const writeId = newId(); // this call's own pointer write: its take-back always removes that (holdsDownSite adds any pointer)
   let putRejected = false;
   try {
     await writeLivePointer(env.LIVE, slug, { siteId, versionId, ...liveMetadata(documentJson) }, writeId);
   } catch {
     putRejected = true; // the write may still have landed: the read below decides, in both cases
   }
-  let after: { taken_down_at: number | null } | null;
+  let after: TakeBackRow | null;
   try {
-    after = await db.prepare("SELECT taken_down_at FROM sites WHERE id = ?").bind(siteId).first<{ taken_down_at: number | null }>();
+    after = await db.prepare("SELECT taken_down_at, admin_lock FROM sites WHERE id = ?").bind(siteId).first<TakeBackRow>();
   } catch {
-    await takeBackOwnPointer(env.LIVE, slug, writeId, { code: "pointer_unconfirmed", siteId, versionId });
+    await takeBackPointer(env.LIVE, slug, writeId, false, { code: "pointer_unconfirmed", siteId, versionId });
     throw new PublishError("live_copy_failed", { versionId });
   }
   if (after === null || after.taken_down_at !== null) {
-    await takeBackOwnPointer(env.LIVE, slug, writeId, { code: "takedown_pointer_left", siteId, versionId });
+    await takeBackPointer(env.LIVE, slug, writeId, holdsDownSite(after, token), { code: "takedown_pointer_left", siteId, versionId });
     throw new PublishError("site_taken_down");
   }
   if (putRejected) throw new PublishError("live_copy_failed", { versionId });
