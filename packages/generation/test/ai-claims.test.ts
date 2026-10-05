@@ -1,5 +1,5 @@
 import { GOALS, TONES } from "@asksite/core";
-import { DAYS, Facts, SiteDocument, TRADES } from "@asksite/site-schema";
+import { DAYS, Facts, SiteDocument, TRADES, unbackedClaims } from "@asksite/site-schema";
 import { describe, expect, it } from "vitest";
 import { FIXTURES, loadFixture } from "../../../fixtures/index.ts";
 import { CAPS_SNAPSHOT } from "../eval/caps.ts";
@@ -267,6 +267,104 @@ describe("AI claim check: allowed wording", () => {
     ["ctaText example", "Request a quote"],
     ["page pointer", "See our Contact page"],
   ]);
+});
+
+// The claim-word gaps of the claims review (2026-10-05): each evasion below was accepted by both checkers at 5b6a8bb. The new rules are AI-only.
+describe("AI claim check: claim-word gaps", () => {
+  const LICENSED_AND_INSURED = withFacts({ licences: [{ label: "Texas cleaner", number: "C-1" }], insured: true });
+
+  refused(MINIMAL_FACTS, [
+    ["zero costs", "Zero costs to you", ["Zero costs"]],
+    ["freebie", "A freebie with every visit", ["freebie"]],
+    ["freebies", "Freebies for new customers", ["Freebies"]],
+    ["never charged", "Never charged a call-out fee", ["Never charged"]],
+    ["never charges", "Never charges for a quote", ["Never charges"]],
+    ["afterhours, closed", "Afterhours cleaning", ["Afterhours"]],
+    ["every single day", "Open every single day", ["every single day"]],
+    ["open everyday", "Open everyday", ["Open everyday"]],
+    ["available everyday", "Available everyday in Austin", ["Available everyday"]],
+    ["every holiday", "Open every holiday", ["every holiday"]],
+    ["any holiday", "Open any holiday", ["any holiday"]],
+    ["raving", "Neighbors are raving about us", ["raving"]],
+    ["recommends us", "Everyone recommends us", ["recommends us"]],
+    ["recommend us", "Locals recommend us", ["recommend us"]],
+    ["vet every", "We vet every cleaner", ["vet every"]],
+    ["vetting", "Careful vetting of the crew", ["vetting"]],
+    ["vets all", "She vets all of them", ["vets all"]],
+    ["lic and ins", "Fully lic and ins crew", ["lic and ins"]],
+    ["lic & ins", "Fully lic & ins crew", ["lic & ins"]],
+    ["lic&ins", "Fully lic&ins crew", ["lic&ins"]],
+    ["lic. and ins, one dot", "Fully lic. and ins crew", ["lic.", "lic. and ins"]],
+    ["lic and ins., one dot", "Fully lic and ins. crew", ["ins.", "lic and ins."]],
+  ]);
+  // A response time: an arrival phrase leads in. The written residual: other paraphrases ("we get to you fast", "a quick hour away")
+  // are accepted, and so is "within one hour" (the prompt's "Invent nothing: ... response times" is the backstop).
+  refused(MINIMAL_FACTS, [
+    ["here in under an hour", "Here in under an hour", ["Here in under an hour"]],
+    ["arrive in under an hour", "We arrive in under an hour", ["arrive in under an hour"]],
+    ["at your door in less than an hour", "At your door in less than an hour", ["At your door in less than an hour"]],
+    ["out to you in under an hour", "Out to you in under an hour", ["Out to you in under an hour"]],
+    ["on site in under an hour", "On site in under an hour", ["On site in under an hour"]],
+  ]);
+  refused(EMERGENCY, [["no fact backs an arrival time", "Here in under an hour", ["Here in under an hour"]]]);
+  // The gated words, backed.
+  accepted(FREE, [
+    ["zero costs with freeEstimates", "Zero costs to you"],
+    ["freebie with freeEstimates", "A freebie with every visit"],
+    ["freebies with freeEstimates", "Freebies for new customers"],
+    ["never charged with freeEstimates", "Never charged a call-out fee"],
+    ["never charges with freeEstimates", "Never charges for a quote"],
+  ]);
+  accepted(SEVEN_DAYS, [
+    ["afterhours with hours on all 7 days", "Afterhours cleaning"],
+    ["every single day with hours on all 7 days", "Open every single day"],
+    ["open everyday with hours on all 7 days", "Open everyday"],
+    ["available everyday with hours on all 7 days", "Available everyday in Austin"],
+    ["every holiday with hours on all 7 days", "Open every holiday"],
+    ["any holiday with hours on all 7 days", "Open any holiday"],
+  ]);
+  accepted(EMERGENCY, [["every single day with emergency247", "Open every single day"]]);
+  refused(SIX_DAYS, [["six days of hours do not back every single day", "Open every single day", ["every single day"]]]);
+  refused(FREE, [["freeEstimates does not back afterhours", "Afterhours cleaning", ["Afterhours"]]]);
+  refused(INSURED, [["insurance does not back a freebie", "A freebie with every visit", ["freebie"]]]);
+  // "lic and ins" needs the licence AND the insured fact.
+  refused(LICENSED, [["a licence alone does not back lic and ins", "Fully lic and ins crew", ["lic and ins"]]]);
+  refused(INSURED, [["insurance alone does not back lic and ins", "Fully lic & ins crew", ["lic & ins"]]]);
+  accepted(LICENSED_AND_INSURED, [
+    ["lic and ins with both facts", "Fully lic and ins crew"],
+    ["lic & ins with both facts", "Fully lic & ins crew"],
+    ["lic&ins with both facts", "Fully lic&ins crew"],
+  ]);
+  // False positives, each pinned: the narrow forms stay narrow.
+  accepted(MINIMAL_FACTS, [
+    ["everyday chores", "Everyday chores, done right"],
+    ["everyday wear and tear", "Fixes everyday wear and tear"],
+    ["holiday lights", "Holiday lights hung and taken down"],
+    ["holiday cleaning", "Holiday cleaning for your home"],
+    ["takes under an hour", "Drain cleaning takes under an hour"],
+    ["done in under an hour", "Most jobs are done in under an hour"],
+    ["takes less than an hour", "Drain cleaning takes less than an hour"],
+    ["we recommend annual service", "We recommend annual service"],
+    ["we recommend using a mat", "We recommend using a mat"],
+    ["vet-owned", "A vet-owned business"],
+    ["veteran owned", "Veteran owned and operated"],
+    ["pet vet", "Pet vet clinic floors"],
+    ["the ins and outs", "The ins and outs of drains"],
+    ["freedom from clutter", "Freedom from clutter"],
+    ["FreeFlow in a name", "FreeFlow drains"],
+    ["daily alone", "Daily cleaning for busy offices"],
+    ["known gap: within one hour (the response-time line of the prompt covers it)", "We arrive within one hour"],
+    ["known gap: a response time without an arrival phrase", "We get to you fast, a quick hour away"],
+  ]);
+  // AI-only: the owner checker accepts every refused wording above, on facts that back nothing.
+  it.each([
+    "Zero costs to you", "A freebie with every visit", "Freebies for new customers", "Never charged a call-out fee", "Never charges for a quote",
+    "Afterhours cleaning", "Open every single day", "Open everyday", "Open every holiday", "Open any holiday", "Neighbors are raving about us",
+    "Everyone recommends us", "We vet every cleaner", "Careful vetting of the crew", "Fully lic and ins crew", "Fully lic & ins crew",
+    "Here in under an hour", "On site in under an hour",
+  ])("leaves %s to the AI check: the owner checker accepts it", (text) => {
+    expect(unbackedClaims(text, MINIMAL_FACTS)).toEqual([]);
+  });
 });
 
 describe("aiClaims: readings and quote marks", () => {

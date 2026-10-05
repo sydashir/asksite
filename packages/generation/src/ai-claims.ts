@@ -18,14 +18,21 @@ const J = "[-\\u2012\\u2013\\u2014\\u2212 ]";
 
 const NEVER_IN_AI_COPY: readonly RegExp[] = [
   new RegExp(`\\bwithin${J}(the|an?)${J}hour\\b`, "i"), // a response time no fact backs
+  // The same claim after an arrival phrase ("Here in under an hour", "At your door in less than an hour"). "takes under an hour" and
+  // "done in under an hour" are a job's length, usual in trade copy, so only an arrival phrase counts. The written residual: other
+  // response-time paraphrases ("we get to you fast", "a quick hour away") and "within one hour" are accepted; the prompt's
+  // "Invent nothing: ... response times" is the backstop.
+  new RegExp(`\\b(here|there|arrive[sd]?|arriving|on${J}site|at${J}your${J}door|out${J}to${J}you)${J}(in${J})?(under|less${J}than)${J}an${J}hour\\b`, "i"),
   new RegExp(`\\b(state|board|city|county)${J}approved\\b`, "i"), // a licence paraphrase
   new RegExp(`\\bbackground${J}check(s|ed|ing)?\\b`, "i"),
-  /\bvetted\b/i,
+  // "vet" alone is no claim ("vet-owned", "pet vet"), so only "vetting" and a "vet" that takes the crew as its object count.
+  new RegExp(`\\b(vetted|vetting|vets?${J}(every|each|all|our|its|their))\\b`, "i"),
   // Time in business comes from yearFounded. "long time" with a space is usually no claim ("lasts a long time"), so only
   // the closed and dashed forms count; the written residual: every space form (any whitespace run) is accepted, e.g.
   // "a long time local business", "serving Austin for a long time".
   /\b(long[-\u2012\u2013\u2014\u2212]?time|seasoned)\b/i,
-  /\b(raves?|raved|recommended)\b/i, // "we recommend" is advice and stays allowed
+  /\b(raves?|raved|raving|recommended)\b/i, // "we recommend" is advice and stays allowed
+  new RegExp(`\\brecommends?${J}us\\b`, "i"), // "recommend annual service" and "recommend using" stay allowed
   /[\u2039\u203A\u301D-\u301F\uFF02]/, // quote marks claims.ts does not list
   // A phrase in straight single quotes: an opening ' at a word start (at the start of the text or after a space, a
   // colon, a semicolon, a comma, a dash or one of the eight separator symbols · • ~ * | ∙ ・ ●, glued or not, or after a "(" that itself follows one of those; not after a letter or a
@@ -39,6 +46,9 @@ const NEVER_IN_AI_COPY: readonly RegExp[] = [
   /(?<=(?:^|[\s:;,·•~*|∙・●\u2012-\u2014\u2212-])\(?)'(?!n'|(?:em|til|cause|bout|round|tis|twas)(?!\p{L}))\p{L}(?:[^']|'(?=\p{L}))*'(?!\p{L})/iu,
 ];
 
+/** What follows "lic" in "lic and ins" / "lic & ins": the joiner, "and" or "&", the joiner, then "ins" (a dot after "ins" is the caller's). */
+const LIC_AND_INS = `(?:${J}and${J}|${J}?&${J}?)ins\\b`;
+
 /** claims.ts's own backing for its seven-days rule (24/7 service, or opening hours on all seven days), taken from NEEDS_A_FACT. */
 const sevenDaysBacking = NEEDS_A_FACT.find(({ pattern }) => pattern.test("seven days a week"))?.backedBy;
 if (sevenDaysBacking === undefined) throw new Error("claims.ts lost its seven-days rule");
@@ -51,14 +61,21 @@ const NEEDS_A_FACT_IN_AI_COPY: ReadonlyArray<{ readonly pattern: RegExp; readonl
   // The written residual: a word, a hyphen, then "ins." is accepted ("Fully-ins.", "Licensed-and-ins."), the shape of "walk-ins.".
   // Not "coverage" or "covered": they describe the service area.
   { pattern: /(?<![a-z]-?)\bins\.|\bliabilit(?:y|ies)/iu, backedBy: (facts) => facts.insured },
+  // "lic and ins" / "lic & ins" with a dot dropped from either "lic" or "ins": it states both, so it needs both facts. Only the pair
+  // counts ("the ins and outs of drains" stays allowed). The pattern skips "lic. and ins.", which the two rules above already
+  // refuse by name, so their words are not listed twice.
   {
-    pattern: new RegExp(`\\b(after${J}hours|all${J}hours|nights${J}and${J}holidays|holidays|every${J}day|(open|available)${J}daily)\\b`, "i"), // "daily" alone is not a claim
+    pattern: new RegExp(`\\blic(?:(?!\\.)${LIC_AND_INS}\\.?|\\.${LIC_AND_INS}(?!\\.))`, "i"),
+    backedBy: (facts) => facts.licences.length > 0 && facts.insured,
+  },
+  {
+    pattern: new RegExp(`\\b(after${J}?hours|all${J}hours|nights${J}and${J}holidays|holidays|(every|any)${J}holiday|every${J}(single${J})?day|(open|available)${J}(daily|everyday))\\b`, "i"), // "daily" and "everyday" alone are not claims ("everyday chores"); "holiday" alone is a service ("holiday lights")
     backedBy: sevenDaysBacking,
   },
   // "free" in any form, a hyphenated compound too ("stress-free"), but not inside a longer word ("freedom", "FreeFlow").
   { pattern: /(?<!\p{L})free(?!\p{L})/iu, backedBy: (facts) => facts.freeEstimates },
   {
-    pattern: new RegExp(`\\b(zero${J}cost|gratis|on${J}the${J}house|never${J}charge|without${J}charge|no${J}fees?)\\b`, "i"),
+    pattern: new RegExp(`\\b(zero${J}costs?|freebies?|gratis|on${J}the${J}house|never${J}charge[ds]?|without${J}charge|no${J}fees?)\\b`, "i"),
     backedBy: (facts) => facts.freeEstimates,
   },
 ];

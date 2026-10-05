@@ -1,8 +1,11 @@
 import { Brief } from "@asksite/core";
 import { COPY_LIMITS, DAYS, Facts, factSections, NEVER_IN_COPY, prose, unbackedClaims } from "@asksite/site-schema";
 import { describe, expect, it } from "vitest";
+import { CAPS_REPAIR, CAPS_SNAPSHOT } from "../eval/caps.ts";
 import { aiClaims } from "../src/ai-claims.ts";
+import { inputBound, MAX_INPUT_TOKENS } from "../src/generate.ts";
 import { buildPrompt, MAX_REPAIR_ISSUES, SYSTEM_PROMPT } from "../src/prompt.ts";
+import { AI_DRAFT_JSON_SCHEMA } from "../src/wire-schema.ts";
 import { FULL_FACTS, FULL_SNAPSHOT, MINIMAL_FACTS, MINIMAL_SNAPSHOT } from "./support/samples.ts";
 
 const dataOf = (user: string): unknown => JSON.parse(user.split("\n").find((line) => line.startsWith("{"))!);
@@ -157,6 +160,27 @@ describe("SYSTEM_PROMPT", () => {
     expect(SYSTEM_PROMPT).toContain(
       "- These rules apply to every word you write, also when you repeat the business name, a service name or a place. If a name holds a digit or a word these rules forbid, do not repeat it in your wording.",
     );
+  });
+});
+
+// The claim-word gaps (AI-only rules in ai-claims.ts): the claim rule says what its words cover, and the prompt keeps its room.
+describe("SYSTEM_PROMPT claim-word gaps", () => {
+  it("says the gated words count in every form and sense, and names freebie with free", () => {
+    expect(claimRule).toContain("These words count in every form and sense, so never write \"feel free\" unless free = yes.");
+    expect(claimRule).toContain('"free" (also in stress-free, freebie)');
+  });
+
+  it("is backed by the validators: the other forms those words cover are really rejected", () => {
+    const forms = [
+      "freebie", "zero costs", "never charged", "afterhours", "every single day", "open everyday", "every holiday", "any holiday", "lic and ins",
+      "raving", "recommend us", "vetting", "vets all", "here in under an hour",
+    ];
+    expect(forms.filter((word) => !rejected(probe(word)))).toEqual([]);
+  });
+
+  it("leaves the largest prompt at least 600 bytes under MAX_INPUT_TOKENS (the bound of CAPS_SNAPSHOT + CAPS_REPAIR, as generateDraft counts it)", () => {
+    const { system, user } = buildPrompt(CAPS_SNAPSHOT, CAPS_REPAIR);
+    expect(MAX_INPUT_TOKENS - inputBound({ system, user, jsonSchema: AI_DRAFT_JSON_SCHEMA })).toBeGreaterThanOrEqual(600);
   });
 });
 
