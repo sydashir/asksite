@@ -289,6 +289,28 @@ describe("aiClaims: readings and quote marks", () => {
   });
 });
 
+// An underscore before or after a wording is still that wording: site-schema's readings() adds a reading with "_" read as a space (one function for both checkers).
+describe("AI claim check: an underscore hides nothing", () => {
+  refused(MINIMAL_FACTS, [
+    ["ins. after _", "Fully_ins. crew", ["ins."]],
+    ["ins. after _ and space", "Fully _ins. crew", ["ins."]],
+    ["ins. inside __", "Our _ins._ crew", ["ins."]],
+    ["lic.", "Fully_lic. crew", ["lic."]],
+    ["liability", "Fully_liability coverage", ["liability"]],
+    ["vetted", "_Vetted_ cleaners", ["Vetted"]],
+    ["after hours", "After_hours cleaning", ["After hours"]],
+    ["after hours, _ next to the space", "After _hours cleaning", ["After hours"]],
+    ["within the hour, __", "Within__the__hour", ["Within the hour"]],
+    ["rave", "_rave_ cleaners", ["rave"]],
+  ]);
+  accepted(INSURED, [
+    ["ins. backed", "Fully_ins. crew"],
+    ["liability backed", "Fully_liability coverage"],
+  ]);
+  accepted(LICENSED, [["lic. backed", "Fully_lic. crew"]]);
+  accepted(SEVEN_DAYS, [["after hours backed", "After_hours cleaning"]]);
+});
+
 /**
  * No false positives (Q4) on everything that exists today. There is no eval corpus yet: Task 15's live eval
  * waits for the owner's key, so this covers the fixtures, the test samples and the prompt's own examples.
