@@ -846,5 +846,5 @@ describe("the Bold sheet carries the round-5 polish", () => {
     expect(css).not.toContain("repeat(auto-fit,minmax(10rem,1fr))");
   });
   // Round 6 replaced round 5's one field per row from 64 to 80rem (it pushed Send request out of the first screen): the
-  // form at those widths is checked in real browsers (screens.test.ts).
+  // form at those widths is checked in real browsers (screens.browser.test.ts).
 });
