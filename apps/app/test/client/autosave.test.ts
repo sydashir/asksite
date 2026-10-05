@@ -217,4 +217,18 @@ describe("AutoSaver wording notice", () => {
     expect([await first, await second]).toEqual(["dropped", "dropped"]);
     expect(await saver.flush()).toBe(true);
   });
+
+  // STRICT (customer data), the drop epoch: a drop the owner has seen lets the second attempt go on, but a NEW drop found by that very
+  // flush is unseen, so that flush answers "dropped" too (edit-binding-guard-brief.md R1 and G2).
+  it("a second attempt whose own save finds a NEW drop answers 'dropped'; only then does the next attempt go on", async () => {
+    let calls = 0;
+    const { saver, states } = setup((rev) => ({ ok: true, rev: rev + 1, issues: NO_ISSUES, ...(++calls <= 2 ? { wordingDropped: true as const } : {}) }));
+    saver.change({ facts: { a: 1 } });
+    expect(await saver.flush()).toBe("dropped");
+    saver.change({ facts: { a: 2 } });
+    expect(await saver.flush()).toBe("dropped");
+    expect(states.at(-1)?.wordingDropped).toBe(true);
+    expect(await saver.flush()).toBe(true);
+    expect(states.at(-1)?.wordingDropped).toBeUndefined();
+  });
 });

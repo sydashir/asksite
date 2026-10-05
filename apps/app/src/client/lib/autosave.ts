@@ -65,6 +65,9 @@ export class AutoSaver {
   private stopped = false;
   // The drop is a refusal made while new wording is being written (it has its own notice).
   private whileWriting = false;
+  // Counts the drops this saver has found. A flush compares it with the count at its start: a drop found by the flush itself is new
+  // to the owner, so that flush stops even when an earlier drop was already shown (the drop epoch).
+  private dropsFound = 0;
   private readonly send: SendPatch;
   private readonly report: (state: SaverState) => void;
   private readonly delayMs: number;
@@ -103,14 +106,16 @@ export class AutoSaver {
   /**
    * saveNow for an action that leaves the editor (Publish, Messages, reload, a link). When the owner's wording change was dropped
    * and they have not been told yet, it answers "dropped" so the action stops; an attempt that STARTS after the owner was stopped once
-   * (and is not itself the one that found the drop) clears the notice and goes on. Whether this is the second attempt is decided
-   * before anything is awaited: a double click runs two flushes over one save, and both of them stop.
+   * (and did not itself find a new drop) clears the notice and goes on. Whether this is the second attempt is decided before
+   * anything is awaited: a double click runs two flushes over one save, and both of them stop. A drop found while this flush ran
+   * (dropsFound moved) is new to the owner: this flush stops too.
    */
   async flush(): Promise<FlushResult> {
     const secondAttempt = this.wordingDropped && this.stopped;
+    const dropsAtStart = this.dropsFound;
     if (!(await this.saveNow())) return false;
     if (!this.wordingDropped) return true;
-    if (secondAttempt) {
+    if (secondAttempt && this.dropsFound === dropsAtStart) {
       this.acknowledgeDrop();
       return true;
     }
@@ -164,6 +169,7 @@ export class AutoSaver {
       if (result.ok) {
         this.rev = result.rev;
         if (result.wordingDropped === true) {
+          this.dropsFound += 1;
           this.wordingDropped = true;
           this.stopped = false;
           this.whileWriting = false;
@@ -181,6 +187,7 @@ export class AutoSaver {
         // on screen either): it is never sent later, when the rewrite may have ended, behind the owner's back.
         clearTimeout(this.timer);
         this.pending = {};
+        this.dropsFound += 1;
         this.wordingDropped = true;
         this.stopped = false;
         this.whileWriting = true;
