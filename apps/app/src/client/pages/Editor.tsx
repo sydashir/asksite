@@ -41,6 +41,8 @@ const AI_NOT_LOADED = "The new wording is ready, but we couldn't load it. Reload
 const REWRITING = "Writing new wording…";
 /** Why the whole editor is locked from the request for new wording until it is shown. */
 export const WRITING_LOCK = "Writing new wording. You can edit again when it is ready.";
+/** Why the whole editor is locked when the new wording is ready but could not be loaded. */
+const NOT_LOADED_LOCK = "Nothing can be changed until the new wording is loaded.";
 const NOT_SAVED = "Your latest changes are not saved yet. Please try again in a moment.";
 
 export function Editor({ siteId }: { siteId: string }) {
@@ -75,9 +77,9 @@ function EditorScreen(props: { siteId: string; site: SiteState; view: SiteView; 
   const endedRewrites = useRef(new Set<string>());
   const writing = requesting || rewriteId !== null;
   // FROZEN, from the request for new wording until it is shown (or it fails): every tab is read-only. A save made then would be refused by
-  // the server, and one that carried the owner's wording would be replaced by the new wording anyway.
-  const frozen = writing || aiState === "refreshing";
-  const copyLocked = aiState !== "fresh" || writing;
+  // the server, and one that carried the owner's wording would be replaced by the new wording anyway. The same when the rewrite succeeded
+  // but its wording could not be loaded ("unloaded"): nothing is editable until it is (Reload the page).
+  const frozen = writing || aiState !== "fresh";
   const [leaveMessage, setLeaveMessage] = useState<string | null>(null);
   const [follow, setFollow] = useState<FollowPage | null>(null);
   const rewriteStatus = useRef<HTMLParagraphElement>(null);
@@ -137,9 +139,6 @@ function EditorScreen(props: { siteId: string; site: SiteState; view: SiteView; 
   const setEdits = (edits: OwnerEdits) => {
     if (!frozen) site.update(() => ({ edits }));
   };
-  const setCopyEdits = (edits: OwnerEdits) => {
-    if (!copyLocked) setEdits(edits);
-  };
   const errors = (path: Path) => issuesAt(issues, path).map((i) => ownerMessage(i).text);
   const fixFor = (path: Path): Fix | undefined => issuesAt(issues, path).map((i) => ownerMessage(i).fix).find((f) => f !== undefined);
   const showSection = useCallback((id: SectionId) => setFollow((last) => ({ page: SECTION_PAGE[id], n: (last?.n ?? 0) + 1 })), []);
@@ -187,7 +186,11 @@ function EditorScreen(props: { siteId: string; site: SiteState; view: SiteView; 
     }
     const res = await api<{ generation: GenerationView }>("POST", `/api/sites/${siteId}/generations`, {});
     if (res.ok) setRewriteId(res.data.generation.id);
-    else setRewriteMessage(res.error.message);
+    else {
+      setRewriteMessage(res.error.message);
+      // Another tab's rewrite is already running: this tab locks and follows it. The refreshed view names it (the effect above takes it from there).
+      if (res.error.code === "generation_in_progress") await refreshAi();
+    }
     setRequesting(false);
   }
 
@@ -235,7 +238,7 @@ function EditorScreen(props: { siteId: string; site: SiteState; view: SiteView; 
           <Notice tone="error">{leaveMessage}</Notice>
         </div>
       ) : null}
-      {frozen ? <Notice tone="warning">{WRITING_LOCK}</Notice> : null}
+      {frozen ? <Notice tone="warning">{aiState === "unloaded" && !writing ? NOT_LOADED_LOCK : WRITING_LOCK}</Notice> : null}
       {aiView.usedFallback ? <Notice tone="info">We wrote simple starter wording for you. You can change any of it, or press “Write new wording” later.</Notice> : null}
 
       {/* A live region that is always there, so screen readers hear when the preview stops or starts updating. */}
@@ -265,10 +268,9 @@ function EditorScreen(props: { siteId: string; site: SiteState; view: SiteView; 
             <Frozen frozen={frozen}>
             {tab === "words" ? (
               <>
-                <CopyLocked state={aiState} />
-                <WordsTab ai={ai} edits={draft.edits} composed={composed} facts={stepProps.facts} readOnly={copyLocked} setEdits={setCopyEdits} errors={errors} fixFor={fixFor} openFix={openFix} onSection={showSection} />
+                <WordsTab ai={ai} edits={draft.edits} composed={composed} facts={stepProps.facts} readOnly={frozen} setEdits={setEdits} errors={errors} fixFor={fixFor} openFix={openFix} onSection={showSection} />
                 <div className="mt-6">
-                  <button type="button" className="btn-secondary" disabled={rewriteId !== null} aria-disabled={copyLocked} onClick={() => (copyLocked ? undefined : setConfirming(true))}>
+                  <button type="button" className="btn-secondary" disabled={rewriteId !== null} aria-disabled={frozen} onClick={() => (frozen ? undefined : setConfirming(true))}>
                     Write new wording
                   </button>
                   <p className="mt-2 text-sm text-slate-600">
@@ -280,8 +282,7 @@ function EditorScreen(props: { siteId: string; site: SiteState; view: SiteView; 
             {tab === "look" ? <LookTab aiTheme={ai.draft.theme} edits={draft.edits} trade={stepProps.facts["trade"]} readOnly={frozen} setEdits={setEdits} /> : null}
             {tab === "sections" ? (
               <>
-                <CopyLocked state={aiState} />
-                <SectionsTab ai={ai} composed={composed} edits={draft.edits} readOnly={copyLocked} setEdits={setCopyEdits} onSection={showSection} />
+                <SectionsTab ai={ai} composed={composed} edits={draft.edits} readOnly={frozen} setEdits={setEdits} onSection={showSection} />
               </>
             ) : null}
             {tab === "photos" ? <PhotoManager {...stepProps} /> : null}
@@ -325,12 +326,6 @@ function EditorScreen(props: { siteId: string; site: SiteState; view: SiteView; 
       </ConfirmDialog>
     </div>
   );
-}
-
-/** Why wording and sections cannot be changed while the AI's new wording is not loaded (the lock for the rewrite itself is WRITING_LOCK). */
-function CopyLocked({ state }: { state: "fresh" | "refreshing" | "unloaded" }) {
-  if (state !== "unloaded") return null;
-  return <Notice tone="warning">Wording and sections can't be changed until the new wording is loaded.</Notice>;
 }
 
 const typingKey = (event: KeyboardEvent<HTMLElement>): boolean => event.key === "Backspace" || event.key === "Delete" || (event.key.length === 1 && !event.ctrlKey && !event.metaKey);

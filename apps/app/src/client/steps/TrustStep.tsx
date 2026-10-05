@@ -6,13 +6,14 @@ import { focusSoon, type StepProps } from "./types.ts";
 const MAX_LICENCES = 5;
 const MAX_REVIEWS = 12;
 
-export function TrustStep({ site, facts, brief, setFacts, setBrief, errors, thisYear }: StepProps) {
+export function TrustStep({ site, facts, brief, setFacts, setBrief, errors, thisYear, frozen }: StepProps) {
   const licences = asArray(facts["licences"]).map(asRecord);
   const reviews = asArray(facts["testimonials"]).map(asRecord);
   // Any change to the reviews clears "these are real" in the same save: the owner confirms the
   // reviews as they are now, never ones added or edited after checking the box (FTC; decision 38).
+  // Frozen (the editor while new wording is written): no change at all, whatever input reaches the control (also one with no key event).
   const setReviews = (path: Path, value: unknown) =>
-    site.update((d) => ({
+    frozen ? undefined : site.update((d) => ({
       facts: setIn(d.facts, ["testimonials", ...path], value),
       ...(asRecord(d.brief)["reviewsAreReal"] === true ? { brief: setIn(d.brief, ["reviewsAreReal"], false) } : {}),
     }));
