@@ -234,6 +234,7 @@ describe("what takedown, restore and the search switch change and record (design
       siteId: s.siteId, versionId: s.liveVersionId,
       businessName: "Reliable Rooter Plumbing", // QA-2 RU(2): the live document's business name (plumber-austin)
       phoneText: "(512) 555-0142", phoneTel: "+15125550142", // A15: the live document's business phone (plumber-austin)
+      writer: expect.any(String), // this restore's own write id
     });
   });
 
@@ -351,20 +352,25 @@ describe("takedown and restore on the pointer (A16)", () => {
     const p = await liveMultiPage();
     const pointer = livePointerKey(p.slug);
     let pointerDeletes = 0;
+    let pointerAtSecondDelete: R2Object | null = null;
     const secondFails = {
       ...flakyBucket(env.LIVE, () => false),
       delete: async (keys: string | string[]) => {
         if (keys !== pointer) return env.LIVE.delete(keys);
         pointerDeletes += 1;
-        if (pointerDeletes === 2) throw new Error("R2 is unavailable");
+        if (pointerDeletes === 2) {
+          pointerAtSecondDelete = await env.LIVE.head(pointer);
+          throw new Error("R2 is unavailable");
+        }
         await env.LIVE.delete(keys);
         await env.LIVE.put(pointer, "pointer written by an approve whose lease ran out"); // between the first delete and the batch
       },
-    } as R2Bucket;
+    } as unknown as R2Bucket;
     await expect(takeDown({ ...env, LIVE: secondFails }, { siteId: p.siteId, reviewer: ADMIN, reason: "Abuse", purgeMedia: false, now: 50 })).rejects.toThrow("R2 is unavailable");
     expect(pointerDeletes).toBe(2);
     expect(await siteRow(env.DB, p.siteId)).toMatchObject({ taken_down_at: 50 });
-    expect(await liveKeysOf(env.LIVE, p.slug)).toContain(pointer);
+    expect(pointerAtSecondDelete).not.toBeNull(); // the pointer really is there at the second delete
+    expect(await liveKeysOf(env.LIVE, p.slug)).toEqual([pointer, ...p.pages.map((page) => livePageKey(p.slug, p.versionId, page.page))].sort()); // the prefix delete never ran after the throw
     await takeDown(env, { siteId: p.siteId, reviewer: ADMIN, reason: "Abuse", purgeMedia: false, now: 60 });
     expect(await liveKeysOf(env.LIVE, p.slug)).toEqual([]);
   });

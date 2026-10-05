@@ -76,9 +76,10 @@ export const LEASE_HELD = "EXISTS (SELECT 1 FROM sites WHERE id = ? AND admin_lo
  * Throws site_busy (lease_lost) unless the token still holds the site. Called after a fenced write changed no row,
  * and right before every R2 pointer write or delete (R2 cannot be conditioned on D1). The take-back deletes
  * (approve's deletes after its takedown re-read, restore's pointerBack, and copyAndPoint's, used by copyLivePagesAgain
- * and restore's heal) are deliberately NOT lease-checked: they
+ * and restore's heal; all takeBackOwnPointer) are deliberately NOT lease-checked: they
  * remove a pointer from a site D1 says is down (or whose state cannot be read), and a check there could leave the pointer
- * on a taken-down site. Restore's take-backs ask D1 first and leave the pointer of a site that is live.
+ * on a taken-down site. A take-back removes only its own write (the pointer's "writer" is the action's writeId): another
+ * action's pointer is left alone. Restore's take-backs ask D1 first and leave the pointer of a site that is live.
  * RESIDUAL: if the lease runs out between this check and the R2 call (only an action over ADMIN_LEASE_MS), that
  * R2 write can land after another action's. The D1 fence still keeps D1 right. On a cache miss the sites Worker
  * serves only when D1 says the site is live and not taken down and the pointer's version equals D1's live version
@@ -159,13 +160,54 @@ export async function copyLivePages(live: R2Bucket, slug: string, ids: { siteId:
   );
 }
 
-/** The one write that switches the site to a version: an empty object whose metadata names it (and the business). */
+/**
+ * The one write that switches the site to a version: an empty object whose metadata names it (and the business) and the
+ * writing action's `writeId` as "writer" (a random id of that one call, never the lease token, which stays in D1). The
+ * sites Worker ignores the writer; takeBackOwnPointer reads it.
+ */
 export async function writeLivePointer(
   live: R2Bucket,
   slug: string,
   meta: { siteId: string; versionId: string; businessName: string; phoneText: string; phoneTel: string },
+  writeId: string,
 ): Promise<void> {
-  await live.put(livePointerKey(slug), "", { customMetadata: meta });
+  await live.put(livePointerKey(slug), "", { customMetadata: { ...meta, writer: writeId } });
+}
+
+/**
+ * The one take-back of a pointer, for every action that wrote one (approve's, copyAndPoint's, restore's). The CALLER
+ * asks D1 first and calls this only when D1 says the site is down or gone, or cannot be read; a live site keeps its
+ * pointer. Here the rule is: delete the pointer only when its `writer` is this action's `writeId`. A pointer another
+ * action wrote (an action that outlived its lease finds the site down because another restore has written its pointer
+ * and not yet cleared taken_down_at) is left alone, with no log; a missing pointer needs no delete. If the HEAD itself
+ * throws, the pointer is deleted: takedown safety first, a pointer must not stay on a site that may be down (the cost,
+ * if it was another action's, is the residual below). A failed delete is logged (ids and `code` only), never thrown.
+ * Not lease-checked, as every take-back: a check could leave a pointer on a taken-down site.
+ * RESIDUAL: R2's delete takes no condition (developers.cloudflare.com/r2/api/workers/workers-api-reference/:
+ * `delete(key: string | string[]): Promise<void>`, no options; only get() and put() accept onlyIf), so between this
+ * HEAD and the delete another action can write its pointer and this delete removes it. That needs this action to have
+ * outlived its lease and the other write to land in that gap; the site then has no pointer until Restore or Copy the
+ * live pages again writes it (`healed: true`).
+ */
+export async function takeBackOwnPointer(
+  live: R2Bucket,
+  slug: string,
+  writeId: string,
+  failed: { code: "pointer_unconfirmed" | "takedown_pointer_left"; siteId: string; versionId: string },
+): Promise<void> {
+  try {
+    let ours = true; // a HEAD that throws: delete (see above)
+    try {
+      const pointer = await live.head(livePointerKey(slug));
+      if (pointer === null) return;
+      ours = pointer.customMetadata?.["writer"] === writeId;
+    } catch {
+      // unknown whose it is
+    }
+    if (ours) await live.delete(livePointerKey(slug));
+  } catch {
+    console.error(JSON.stringify({ code: failed.code, siteId: failed.siteId, versionId: failed.versionId }));
+  }
 }
 
 /**

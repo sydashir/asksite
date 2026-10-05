@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from "vitest";
 import { securityTxt } from "../src/apex.ts";
+import { businessOf, formBusiness, liveSiteName } from "../src/business.ts";
 import type { Env } from "../src/env.ts";
 import worker from "../src/index.ts";
 import { livePageKey, livePointerKey, pageCacheUrl } from "@asksite/core";
@@ -330,6 +331,39 @@ describe("page routing on a site host", () => {
       expect(cache.size).toBe(1);
       const gone = recording(null);
       expect((await request(gone.env, "/services")).status).toBe(404);
+    });
+  });
+
+  // The pointer's "writer" (which action wrote it, so a take-back deletes only its own write) is for the publishing
+  // package alone: the Worker must serve the same bytes, headers and business data with it and without it.
+  describe("the pointer's writer key", () => {
+    const pages = { [livePageKey(slug, VERSION, "home")]: "<p>home</p>", [livePageKey(slug, VERSION, "services")]: "<p>services</p>" };
+    const metadata = { ...POINTER, phoneText: "(512) 555-0142", phoneTel: "+15125550142" };
+    const observe = async (pointer: Record<string, string>) => {
+      cache.clear();
+      const { env: siteEnv } = recording(pointer, pages);
+      const seen: Array<{ path: string; status: number; headers: Array<[string, string]>; body: string }> = [];
+      for (const path of ["/", "/services", "/gallery", "/old-page"]) {
+        const response = await request(siteEnv, path);
+        seen.push({ path, status: response.status, headers: [...response.headers].sort(), body: await response.text() });
+      }
+      return seen;
+    };
+
+    it("serves the same page bytes, headers and 404 business name with and without it", async () => {
+      const without = await observe(metadata);
+      expect(without.map((r) => r.status)).toEqual([200, 200, 404, 404]);
+      expect(without[2]?.body).toContain("Go to Joe's Plumbing's page");
+      expect(await observe({ ...metadata, writer: "0c1d2e3f-4a5b-4c6d-8e7f-9a0b1c2d3e4f" })).toEqual(without);
+    });
+
+    it("reads the same business (name and phone, for the thank-you, 404 and rate-limit pages) with and without it", async () => {
+      const live = (customMetadata: Record<string, string>) => ({ head: async () => ({ customMetadata }) }) as unknown as R2Bucket;
+      const withWriter = { ...metadata, writer: "0c1d2e3f-4a5b-4c6d-8e7f-9a0b1c2d3e4f" };
+      expect(businessOf(withWriter)).toEqual(businessOf(metadata));
+      expect(businessOf(withWriter)).toEqual({ name: "Joe's Plumbing", phone: { text: "(512) 555-0142", tel: "+15125550142" } });
+      expect(await formBusiness(live(withWriter), slug, SITE_ID)).toEqual(await formBusiness(live(metadata), slug, SITE_ID));
+      expect(await liveSiteName(live(withWriter), slug)).toBe(await liveSiteName(live(metadata), slug));
     });
   });
 });

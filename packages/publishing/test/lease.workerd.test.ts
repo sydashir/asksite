@@ -607,7 +607,7 @@ describe("restore of an already-restored site heals its pointer", () => {
     const before = await snapshot(p);
     await env.LIVE.delete(livePointerKey(p.slug));
     const result = await back(p.siteId, 12345, 70);
-    expect(await pointerOf(p.slug)).toEqual(meta);
+    expect(await pointerOf(p.slug)).toEqual({ ...meta, writer: expect.any(String) }); // the heal is a new write: its own writer
     expect(meta?.["versionId"]).toBe(p.versionId);
     expect(result).toEqual({ liveUrl: `https://${p.slug}.asksite.example/`, missingPhotos: 0, healed: true });
     expect(await snapshot(p)).toEqual(before);
@@ -618,7 +618,7 @@ describe("restore of an already-restored site heals its pointer", () => {
     const meta = await pointerOf(p.slug);
     await env.LIVE.put(livePointerKey(p.slug), "", { customMetadata: { ...meta, versionId: newId() } });
     const result = await back(p.siteId, 1, 70);
-    expect(await pointerOf(p.slug)).toEqual(meta);
+    expect(await pointerOf(p.slug)).toEqual({ ...meta, writer: expect.any(String) }); // the heal is a new write: its own writer
     expect(result.healed).toBe(true);
   });
 
@@ -845,5 +845,152 @@ describe("removeOtherVersions stops when D1 moved on (test 8)", () => {
       logged.mockRestore();
     }
     expect(await stored(v1)).toEqual(v1Keys(v1));
+  });
+});
+
+// A take-back removes only its own pointer write (the pointer's "writer" is the writing action's own id). An action that
+// outlived its lease can find the site down because another action has written ITS pointer but not yet cleared
+// taken_down_at: that pointer is not the old action's to delete.
+describe("a take-back leaves another action's pointer (test 9)", () => {
+  const lost = { code: "site_busy", detail: { reason: "lease_lost" } };
+  const clearsTakedown = (sql: string) => sql.includes("taken_down_at = NULL");
+  const writerOf = async (slug: string) => (await env.LIVE.head(livePointerKey(slug)))?.customMetadata?.["writer"];
+  /** Restore B, started at `now`, runs to its clear and waits there (its pointer written, the site still down) until `open()`. */
+  function restoreHeldAtClear(siteId: string, takenDownAt: number, now: number) {
+    let open!: () => void;
+    const gate = new Promise<void>((resolve) => (open = resolve));
+    let reached!: () => void;
+    const atClear = new Promise<void>((resolve) => (reached = resolve));
+    const db = watchDb(env.DB, async ({ method, sql }) => {
+      if (method !== "batch" || !clearsTakedown(sql)) return;
+      reached();
+      await gate;
+    });
+    return { run: () => back(siteId, takenDownAt, now, { ...env, DB: db }), atClear, open };
+  }
+  const expectBsPointer = async (p: Built, writerOfA: string | undefined) => {
+    expect(await siteRow(env.DB, p.siteId)).toMatchObject({ taken_down_at: null, live_version_id: p.versionId });
+    expect((await env.LIVE.head(livePointerKey(p.slug)))?.customMetadata?.["versionId"]).toBe(p.versionId);
+    const writer = await writerOf(p.slug);
+    expect(typeof writer).toBe("string");
+    expect(writer).not.toBe(writerOfA);
+  };
+  /** A LIVE whose pointer put, once it landed, runs `after` (and answers as the real put does). */
+  const afterPointerPut = (slug: string, after: () => Promise<void>): R2Bucket =>
+    ({
+      ...watchBucket(env.LIVE),
+      put: async (...args: Parameters<R2Bucket["put"]>) => {
+        const stored = await env.LIVE.put(...args);
+        if (isPointerKey(slug, args[0])) await after();
+        return stored;
+      },
+    }) as unknown as R2Bucket;
+
+  it("restore: A's lease ran out, restore B took over and wrote its pointer and has not cleared yet: A's clear is lost, its take-back leaves B's pointer, and B's clear makes the site live with it", async () => {
+    const p = await liveSite();
+    await take(p.siteId, 50);
+    const b = restoreHeldAtClear(p.siteId, 50, EXPIRED);
+    let bRun: Promise<unknown> | undefined;
+    let writerOfA: string | undefined;
+    const db = watchDb(env.DB, async ({ method, sql }) => {
+      if (method !== "batch" || !clearsTakedown(sql) || bRun !== undefined) return;
+      writerOfA = await writerOf(p.slug); // A's own pointer is in place; B takes the lease over and overwrites it
+      bRun = b.run();
+      await b.atClear;
+    });
+    expect(detailOf(await failure(back(p.siteId, 50, T0, { ...env, DB: db })))).toEqual(lost);
+    expect(await siteRow(env.DB, p.siteId)).toMatchObject({ taken_down_at: 50 }); // B has not cleared yet
+    expect(await env.LIVE.head(livePointerKey(p.slug))).not.toBeNull(); // the take-back left B's pointer
+    expect(await writerOf(p.slug)).not.toBe(writerOfA); // still B's
+    b.open();
+    await bRun;
+    await expectBsPointer(p, writerOfA);
+  });
+
+  it("approve: A's lease ran out, a restore B took over and wrote its pointer on the site D1 says is down: A's take-back leaves it, A answers site_taken_down, and B's clear makes the site live with it", async () => {
+    const p = await pendingWithPages(env);
+    let bRun: Promise<unknown> | undefined;
+    let b: ReturnType<typeof restoreHeldAtClear> | undefined;
+    let writerOfA: string | undefined;
+    const live = afterPointerPut(p.slug, async () => {
+      writerOfA = await writerOf(p.slug);
+      await take(p.siteId, EXPIRED); // the lease ran out: a takedown commits, then a restore writes its pointer
+      b = restoreHeldAtClear(p.siteId, EXPIRED, EXPIRED + 1);
+      bRun = b.run();
+      await b.atClear;
+    });
+    expect((await failure(approve(p, T0, { ...env, LIVE: live }))).code).toBe("site_taken_down");
+    expect(await env.LIVE.head(livePointerKey(p.slug))).not.toBeNull();
+    expect(await writerOf(p.slug)).not.toBe(writerOfA);
+    b?.open();
+    await bRun;
+    await expectBsPointer(p, writerOfA);
+  });
+
+  it("copy-again: the same: a restore B's pointer on a site D1 says is down survives A's take-back, A answers site_taken_down", async () => {
+    const p = await liveSite();
+    let bRun: Promise<unknown> | undefined;
+    let b: ReturnType<typeof restoreHeldAtClear> | undefined;
+    let writerOfA: string | undefined;
+    const live = afterPointerPut(p.slug, async () => {
+      writerOfA = await writerOf(p.slug);
+      await take(p.siteId, EXPIRED);
+      b = restoreHeldAtClear(p.siteId, EXPIRED, EXPIRED + 1);
+      bRun = b.run();
+      await b.atClear;
+    });
+    expect((await failure(again(p.siteId, T0, { ...env, LIVE: live }))).code).toBe("site_taken_down");
+    expect(await env.LIVE.head(livePointerKey(p.slug))).not.toBeNull();
+    expect(await writerOf(p.slug)).not.toBe(writerOfA);
+    b?.open();
+    await bRun;
+    await expectBsPointer(p, writerOfA);
+  });
+
+  it("every write stores its own writer: approve, restore and copy-again each write a different one, and it is not the lease token", async () => {
+    const p = await liveSite();
+    const writers = [await writerOf(p.slug)];
+    await take(p.siteId, 50);
+    await back(p.siteId, 50, 60);
+    writers.push(await writerOf(p.slug));
+    await again(p.siteId, 70);
+    writers.push(await writerOf(p.slug));
+    expect(writers.every((w) => typeof w === "string" && w.length > 0)).toBe(true);
+    expect(new Set(writers).size).toBe(3);
+  });
+
+  describe("when the HEAD of the pointer throws, a pointer that may be on a down site is deleted (takedown safety first)", () => {
+    const headThrows = (): R2Bucket => ({ ...watchBucket(env.LIVE), head: () => Promise.reject(new Error("R2 is unavailable")) }) as unknown as R2Bucket;
+
+    it("approve: the D1 re-read throws too", async () => {
+      const p = await pendingWithPages(env);
+      const db = watchDb(env.DB, async ({ method, sql }) => {
+        if (method === "first" && sql.startsWith("SELECT taken_down_at FROM sites")) throw new Error("D1 is unavailable");
+      });
+      expect((await failure(approve(p, T0, { ...env, DB: db, LIVE: headThrows() }))).code).toBe("live_copy_failed");
+      expect(await env.LIVE.head(livePointerKey(p.slug))).toBeNull();
+    });
+
+    it("copy-again: D1 says the site is down", async () => {
+      const p = await liveSite();
+      const live = {
+        ...watchBucket(env.LIVE, async (call, arg) => {
+          if (call === "put" && isPointerKey(p.slug, arg)) await take(p.siteId, EXPIRED);
+        }),
+        head: () => Promise.reject(new Error("R2 is unavailable")),
+      } as unknown as R2Bucket;
+      expect((await failure(again(p.siteId, T0, { ...env, LIVE: live }))).code).toBe("site_taken_down");
+      expect(await env.LIVE.head(livePointerKey(p.slug))).toBeNull();
+    });
+
+    it("restore: the clear is lost and the site is down", async () => {
+      const p = await liveSite();
+      await take(p.siteId, 50);
+      const db = watchDb(env.DB, async ({ method }) => {
+        if (method === "batch") await steal(p.siteId);
+      });
+      expect(detailOf(await failure(back(p.siteId, 50, T0, { ...env, DB: db, LIVE: headThrows() })))).toEqual(lost);
+      expect(await env.LIVE.head(livePointerKey(p.slug))).toBeNull();
+    });
   });
 });
