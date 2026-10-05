@@ -1227,3 +1227,13 @@ test("while new wording is written, the web address Save sends nothing and the a
   await finishGeneration(page.request, id, "failed");
   await expect(page.getByText("We could not write new wording this time. Your current wording is unchanged.")).toBeVisible({ timeout: 15_000 });
 });
+
+// STRICT (customer data): the wording counter measures like the server (NFKC first). "…" (typed automatically on iOS) counts 3 there, so
+// 79 letters and "…" must read over the limit here too, not "80 of 80" followed by a refused Publish.
+test("the headline counter counts an ellipsis as the server does (NFKC): 79 letters and … read 82 of 80", async ({ page }) => {
+  await openEditor(page);
+  await headlineField(page).fill(`${"a".repeat(79)}…`);
+  await expect(page.getByText("82 of 80 characters")).toBeVisible();
+  await headlineField(page).fill("a".repeat(80));
+  await expect(page.getByText("80 of 80 characters")).toBeVisible();
+});
