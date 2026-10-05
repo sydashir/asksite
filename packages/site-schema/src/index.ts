@@ -1,4 +1,4 @@
-export { HIDDEN_IN_COPY, NEEDS_A_FACT, NEVER_IN_COPY, proseIn, unbackedClaims } from "./claims.ts";
+export { asReadOnPage, HIDDEN_IN_COPY, NEEDS_A_FACT, NEVER_IN_COPY, proseIn, readings, unbackedClaims } from "./claims.ts";
 export { COPY_LIMITS, Copy, FaqItem, prose, SectionIntros, ServiceDescription } from "./copy.ts";
 export { factSections, SiteDocument, type SiteDocumentInput } from "./document.ts";
 export {
@@ -19,6 +19,7 @@ export {
   type Day,
   type Trade,
 } from "./facts.ts";
+export { foldings } from "./lookalikes.ts";
 export {
   HIDEABLE_SECTIONS,
   Layout,

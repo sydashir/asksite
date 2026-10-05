@@ -4,7 +4,7 @@ import type { Issue } from "./issues.ts";
 export const ERROR_STATUS = {
   bad_request: 400, unauthenticated: 401, forbidden: 403, owner_disabled: 403, not_found: 404,
   conflict: 409, slug_taken: 409, slug_locked: 409, generation_in_progress: 409,
-  nothing_pending: 409, version_not_pending: 409,
+  nothing_pending: 409, version_not_pending: 409, wording_changed: 409,
   invite_invalid: 410, token_invalid: 410,
   payload_too_large: 413, unsupported_media_type: 415,
   validation_failed: 422, not_ready: 422, publish_invalid: 422, slug_invalid: 422, image_rejected: 422,

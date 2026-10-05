@@ -1,5 +1,6 @@
 import { AiAnswer, draftFromAnswer, toIssues, type AiDraft, type Issue } from "@asksite/core";
 import { SiteDocument, type Facts } from "@asksite/site-schema";
+import { aiClaimIssues } from "./ai-claims.ts";
 import { wellFormed } from "./model-facts.ts";
 import { AI_DRAFT_JSON_SCHEMA, toWireSchema } from "./wire-schema.ts";
 
@@ -121,7 +122,8 @@ export function bindServiceNames(facts: Facts, json: unknown): unknown {
  * no hidden sections. That runs every Plan 1 rule: caps, no digits or links, Latin script, hidden
  * characters, the claim checker, the owner-fact sections and one description per service. The two steps
  * touch different positions (enum values; the free-text service names), so their order does not change the
- * result. Returns the draft to store: the parsed answer on the trade's design (draftFromAnswer).
+ * result. Last comes the AI-only claim check (ai-claims.ts). Returns the draft to store: the parsed answer on the
+ * trade's design (draftFromAnswer).
  */
 export function checkDraft(facts: Facts, json: unknown): DraftCheck {
   const shape = AiAnswer.safeParse(bindServiceNames(facts, normalizeEnumCase(WIRE_SCHEMA, json)));
@@ -129,5 +131,7 @@ export function checkDraft(facts: Facts, json: unknown): DraftCheck {
   const draft = draftFromAnswer(shape.data, facts.trade);
   const doc = SiteDocument.safeParse({ facts, ...draft, hidden: [] });
   if (!doc.success) return { ok: false, issues: toIssues(doc.error) };
+  const claims = aiClaimIssues(draft.copy, facts);
+  if (claims.length > 0) return { ok: false, issues: claims };
   return { ok: true, draft };
 }
