@@ -45,10 +45,11 @@ export function siteRoutes(deps: AppDeps): Hono<AppEnv> {
     // the look pinned before a rebuild stays, even when a tab that still holds no theme saves its edits. The stored
     // edits are read only once json_valid passed them, inside a CASE: sqlite.org/lang_expr.html documents CASE as
     // lazy, but not the order AND evaluates its operands in (P4-21 item 6).
-    // The two wording guards are the last tests of the same WHERE: a refused wording save stores nothing, not even its facts. While a
-    // REGENERATE is queued or running no wording or order save is stored (the new wording replaces it, and a tab opened before the
-    // rewrite still holds the old binding); otherwise it must be bound to the newest succeeded generation. IS (not =) so a site with
-    // no AI yet (no succeeded generation) accepts edits bound to null, as an empty draft does.
+    // The two guards after the rev are the last tests of the same WHERE: a refused save stores nothing, not even its facts. While a
+    // REGENERATE is queued or running NO save is stored, whatever it carries (copy, order, look, hidden, facts or brief): a save replaces
+    // the stored edits whole, so even a look or hide save would carry the owner's wording, and the new wording replaces the draft anyway.
+    // Otherwise a wording or order save must be bound to the newest succeeded generation. IS (not =) so a site with no AI yet (no
+    // succeeded generation) accepts edits bound to null, as an empty draft does.
     const [write, siteRead, aiRead, uploadsRead, rewriteRead] = await db.batch([
       db
         .prepare(
@@ -60,9 +61,8 @@ export function siteRoutes(deps: AppDeps): Hono<AppEnv> {
                ELSE ?3 END,
              rev = rev + 1, updated_at = ?4
            WHERE id = ?5 AND owner_id = ?6 AND rev = ?7 AND taken_down_at IS NULL
-             AND (?8 = 0 OR (
-               NOT EXISTS (SELECT 1 FROM generations WHERE site_id = ?5 AND kind = 'regenerate' AND status IN ('queued', 'running'))
-               AND ?9 IS (SELECT id FROM generations WHERE site_id = ?5 AND status = 'succeeded' ORDER BY created_at DESC LIMIT 1)))`,
+             AND NOT EXISTS (SELECT 1 FROM generations WHERE site_id = ?5 AND kind = 'regenerate' AND status IN ('queued', 'running'))
+             AND (?8 = 0 OR ?9 IS (SELECT id FROM generations WHERE site_id = ?5 AND status = 'succeeded' ORDER BY created_at DESC LIMIT 1))`,
         )
         .bind(facts, brief, edits, Date.now(), siteId, owner.id, body.rev, wordingBound ? 1 : 0, body.edits?.baseGenerationId ?? null),
       ownedSiteQuery(db, siteId, owner.id),
@@ -73,11 +73,11 @@ export function siteRoutes(deps: AppDeps): Hono<AppEnv> {
     const site = foundSite(siteRead?.results[0] as SiteRow | undefined);
     if (write?.meta.changes !== 1) {
       if (site.taken_down_at !== null) throw new ApiError("site_taken_down", "This website has been taken offline. Contact us to restore it.");
-      // The rev is checked first: a rev that is not the site's means this tab's whole view is stale (its wording too), and
-      // the reload it prompts fixes both. With the rev current, the rewrite comes next (read in the same batch, so it is what the
-      // write saw): its answer is the real reason, and the wording check would only be a symptom of it. Last is the wording binding.
+      // The order is taken down, rev, rewrite, wording. The rev is checked first: a rev that is not the site's means this tab's whole
+      // view is stale (its wording too), and the reload it prompts fixes both. With the rev current, the rewrite comes next (read in the
+      // same batch, so it is what the write saw): its answer is the real reason, and the wording check would only be a symptom of it.
       if (site.rev !== body.rev) throw new ApiError("conflict", "This site changed in another tab or window", { currentRev: site.rev });
-      if (rewriteRead?.results.length === 1) throw new ApiError("generation_in_progress", "New wording is being written. Your wording change was not saved.");
+      if (rewriteRead?.results.length === 1) throw new ApiError("generation_in_progress", "New wording is being written. Your change was not saved.");
       throw new ApiError("wording_changed", "New wording arrived. Your wording change was not saved.");
     }
     const note = storedJsonNote(c);

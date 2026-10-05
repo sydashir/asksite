@@ -285,6 +285,17 @@ describe("POST /api/sites/:siteId/generations pins the current look (A12 §3)", 
     expect(await siteRow(owner.siteId)).toEqual(before);
   });
 
+  // Round 4: the editor is frozen while a rewrite runs, so this write of the stored edits refuses to run then too.
+  it("writes nothing to the stored edits while a rewrite is queued, even for a null theme (the request is refused as generation_in_progress)", async () => {
+    const owner = await builtOwner(h, ROOFING, VALID_BRIEF);
+    expect((await rebuild(owner)).status).toBe(202);
+    await (await h.db()).prepare("UPDATE sites SET edits_json = json_set(edits_json, '$.theme', json('null')) WHERE id = ?").bind(owner.siteId).run();
+    const before = await siteRow(owner.siteId);
+    expect(JSON.parse(before?.edits_json ?? "null")).toMatchObject({ theme: null });
+    expect((await rebuild(owner)).status).toBe(409);
+    expect(await siteRow(owner.siteId)).toEqual(before);
+  });
+
   // P4-21 item 6: sqlite.org/lang_expr.html documents CASE as lazy, but not the order AND evaluates its operands in.
   it("reads the stored theme only inside the documented-lazy CASE WHEN json_valid(edits_json) THEN ... ELSE 0 END", async () => {
     const owner = await builtOwner(h, ROOFING, VALID_BRIEF);
