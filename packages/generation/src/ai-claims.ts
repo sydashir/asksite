@@ -20,8 +20,9 @@ const NEVER_IN_AI_COPY: readonly RegExp[] = [
   new RegExp(`\\b(state|board|city|county)${J}approved\\b`, "i"), // a licence paraphrase
   new RegExp(`\\bbackground${J}check(s|ed|ing)?\\b`, "i"),
   /\bvetted\b/i,
-  // Time in business comes from yearFounded. "long time" with a plain space is no claim ("lasts a long time"), so only
-  // the closed and dashed forms count; the written residual: "a long time local business" is accepted.
+  // Time in business comes from yearFounded. "long time" with a space is usually no claim ("lasts a long time"), so only
+  // the closed and dashed forms count; the written residual: every space form (any whitespace run) is accepted, e.g.
+  // "a long time local business", "serving Austin for a long time".
   /\b(long[-\u2012\u2013\u2014\u2212]?time|seasoned)\b/i,
   /\b(raves?|raved|recommended)\b/i, // "we recommend" is advice and stays allowed
   /[\u2039\u203A\u301D-\u301F\uFF02]/, // quote marks claims.ts does not list
@@ -30,6 +31,8 @@ const NEVER_IN_AI_COPY: readonly RegExp[] = [
   // second "(": code such as f('x') quotes nobody, and the XSS fixture holds some) before a letter, closed
   // by a ' not before a letter. An apostrophe inside a word ("don't", "owner's") never opens or closes, and neither
   // does one that starts an elision, in any case: 'n' (rock 'n' roll), 'em, 'til, 'cause, 'bout, 'round, 'tis, 'twas.
+  // The written residual: a real quotation that starts with one of these elision words is accepted ("'Tis the best crew
+  // ever' Dana"); it cannot be told apart from the allowed "'Tis the season, 'twas the owners' idea".
   /(?<=(?:^|[\s:;,\u2012-\u2014\u2212-])\(?)'(?!n'|(?:em|til|cause|bout|round|tis|twas)(?!\p{L}))\p{L}(?:[^']|'(?=\p{L}))*'(?!\p{L})/iu,
 ];
 
@@ -40,8 +43,10 @@ if (sevenDaysBacking === undefined) throw new Error("claims.ts lost its seven-da
 /** Wording allowed only when the owner's facts back it. */
 const NEEDS_A_FACT_IN_AI_COPY: ReadonlyArray<{ readonly pattern: RegExp; readonly backedBy: (facts: Facts) => boolean }> = [
   { pattern: /\blic\./i, backedBy: (facts) => facts.licences.length > 0 },
-  // "ins." counts only on its own, not after a letter or a hyphen ("check-ins.", "walk-ins."). Not "coverage" or "covered": they describe the service area.
-  { pattern: /(?<![\p{L}-])\bins\.|\bliabilit(?:y|ies)/iu, backedBy: (facts) => facts.insured },
+  // "ins." counts on its own, not after a letter or after a letter and a hyphen ("check-ins.", "walk-ins."); "lic.-ins." counts.
+  // The written residual: a word, a hyphen, then "ins." is accepted ("Fully-ins.", "Licensed-and-ins."), the shape of "walk-ins.".
+  // Not "coverage" or "covered": they describe the service area.
+  { pattern: /(?<!\p{L}-?)\bins\.|\bliabilit(?:y|ies)/iu, backedBy: (facts) => facts.insured },
   {
     pattern: new RegExp(`\\b(after${J}hours|all${J}hours|nights${J}and${J}holidays|holidays|every${J}day|(open|available)${J}daily)\\b`, "i"), // "daily" alone is not a claim
     backedBy: sevenDaysBacking,

@@ -68,7 +68,10 @@ describe("AI claim check: licence", () => {
     ["vetted", "Vetted cleaners for your home", ["Vetted"]],
     ["lic. in the about", "We are lic. in Texas.", ["lic."], "about"],
   ]);
-  refused(MINIMAL_FACTS, [["Fully ins.", "Fully ins. crew", ["ins."]]]);
+  refused(MINIMAL_FACTS, [
+    ["Fully ins.", "Fully ins. crew", ["ins."]],
+    ["lic.-ins.", "A lic.-ins. crew", ["lic.", "ins."]],
+  ]);
   refused(INSURED, [["lic. needs a licence, not insurance", "Our lic. crew", ["lic."]]]);
   refused(LICENSED, [["state-approved is never backed", "State-approved cleaners", ["State-approved"]]]);
   accepted(LICENSED, [["lic. with a licence fact", "Our lic. crew"]]);
@@ -86,7 +89,11 @@ describe("AI claim check: insurance", () => {
     ["check-ins.", "Easy check-ins."],
     ["walk-ins.", "We take walk-ins."],
     ["walk-ins. mid-text", "Walk-ins. are welcome"],
+    ["drive-ins.", "Drive-ins. are welcome"],
+    ["known gap: Fully-ins.", "Fully-ins. crew"],
+    ["known gap: Fully, U+2010, ins.", "Fully\u2010ins. crew"],
   ]);
+  accepted(LICENSED, [["known gap: Licensed-and-ins. (licensed is backed by the licence)", "A Licensed-and-ins. crew"]]);
   accepted(INSURED, [
     ["liability with the insured fact", "Covered by full liability coverage"],
     ["ins. with the insured fact", "Our ins. crew"],
@@ -165,12 +172,17 @@ describe("AI claim check: time in business", () => {
   refused(MINIMAL_FACTS, [
     ["#25", "A longtime local business with seasoned pros", ["longtime"]],
     ["long-time", "A long-time local business", ["long-time"]],
+    ["long, figure dash, time", "A long\u2012time local business", ["long\u2012time"]],
+    ["long, en dash, time", "A long\u2013time local business", ["long\u2013time"]],
+    ["long, em dash, time", "A long\u2014time local business", ["long\u2014time"]],
     ["seasoned alone", "Seasoned pros", ["Seasoned"]],
   ]);
   refused(MINIMAL_FACTS, [["long, minus sign, time", "A long\u2212time local business", ["long\u2212time"]]]);
   accepted(MINIMAL_FACTS, [
     ["lasts a long time", "The finish lasts a long time"],
     ["for a long time", "Your floors stay clean for a long time"],
+    ["known gap: a long time local business", "A long time local business"],
+    ["known gap: serving for a long time", "Serving Austin for a long time"],
   ]);
   refused(withFacts({ yearFounded: 1998 }), [["yearFounded does not back it", "A longtime local business", ["longtime"]]]);
 });
@@ -193,6 +205,7 @@ describe("AI claim check: quote marks", () => {
     ["single quotes after a colon", "Dana: 'Best cleaners ever'", ["'Best cleaners ever'"]],
     ["single quotes after a comma", "As Dana put it,'best cleaners in Austin'", ["'best cleaners in Austin'"]],
     ["single quotes after a semicolon", "As Dana put it;'best cleaners in Austin'", ["'best cleaners in Austin'"]],
+    ["single quotes opening with a word that only starts like an elision", "'Emma and her crew are the best' Dana", ["'Emma and her crew are the best'"]],
     ["single quotes after an em dash", "Dana\u2014'Best cleaners ever'", ["'Best cleaners ever'"]],
     ["single quotes closing a parenthesis", "Dana ('Best cleaners ever')", ["'Best cleaners ever'"]],
     ["single quotes opening with a parenthesis", "('Best cleaners ever') Dana", ["'Best cleaners ever'"]],
@@ -213,6 +226,12 @@ describe("AI claim check: quote marks", () => {
     ["'cause, 'bout, 'round", "We call 'cause we care, talk 'bout it, 'round the corner from the owners' homes"],
     ["'tis, 'twas", "'Tis the season, 'twas the owners' idea"],
     ["an elision after a parenthesis", "Call us ('til late), the owners' homes"],
+    ["known gap: a quotation starting 'Tis", "'Tis the best crew ever' Dana"],
+    ["known gap: a quotation starting 'Em", "'Em pros are the best' Dana"],
+    ["known gap: a quotation starting 'Cause", "'Cause they care' Dana"],
+    ["known gap: a quotation starting 'Tis, after a colon", "Dana: 'Tis the best crew ever'"],
+    ["known gap: a quotation starting 'Tis, in parentheses", "Dana ('Tis the best crew ever')"],
+    ["known gap: a quotation starting 'N'", "'N' they are the best' Dana"],
     ["code-like text", "Not a quote: f('alert')"],
   ]);
 });
