@@ -29,6 +29,8 @@ import { foldings } from "./lookalikes.ts";
 //   words the page shows apart ("Top" + U+0336 + "rated"), so the typed reading stays: the fold only ever adds a claim.
 //   A9g: ᴉ, ʗ, ʘ and Ʊ also draw as "!", "(", "⊙" and "℧", so when the text holds one, every folded reading is made
 //   again with each of them as a word break ("Estimates are ƒreeᴉ" reads "free!" on the page and is a claim).
+// - each of those again with "_" read as a space (readings below): "_" is a word character, so "Fully _insured" or
+//   "Award__winning" hid the claim word from every rule that needs a word boundary while the page shows it.
 // A CamelCase word is read as typed, as before A9: A9d dropped A9c's CamelCase reading, which refused real names
 // that run a claim word into another word ("McMillion Creek", "FreeFlow Plumbing", "StreakFree Window Cleaning").
 // Small capitals and letters that look like digits ("ɪnsured", "ᴄertified", "Ƨ", "ꜭ") never get here: Copy refuses
@@ -122,13 +124,15 @@ export const asReadOnPage = (text: string): string =>
 /**
  * The page read as typed, then folded every way (see the top of this file), and then each of those again with "_" read
  * as a space: "_" is a word character, so it hides a claim word from every rule that needs a word boundary, while the
- * reader sees the word whether an underscore or a space separates it. The typed readings stay as they are (a pattern
- * that matched through an underscore, such as the bare web address in "my_site.com", still matches them); the
- * underscore readings only ever add a claim. claims.ts and generation's ai-claims.ts both read through this function.
+ * reader sees the word whether an underscore or a space separates it. The "_" becomes a space BEFORE asReadOnPage folds
+ * runs of whitespace, so "_" next to a space or "__" joins a multi-word claim like one space ("Award _winning",
+ * "Same__day"). The typed readings stay as they are (a pattern that matched through an underscore, such as the bare
+ * web address in "my_site.com", still matches them); the underscore readings only ever add a claim. claims.ts and
+ * generation's ai-claims.ts both read through this function.
  */
 export function readings(text: string): readonly string[] {
-  const read = [text, ...foldings(text)].map(asReadOnPage);
-  return [...read, ...read.filter((reading) => reading.includes("_")).map((reading) => reading.replace(/_/g, " "))];
+  const raw = [text, ...foldings(text)];
+  return [...raw.map(asReadOnPage), ...raw.filter((reading) => reading.includes("_")).map((reading) => asReadOnPage(reading.replace(/_/g, " ")))];
 }
 
 /**

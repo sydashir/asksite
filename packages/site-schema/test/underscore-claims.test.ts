@@ -1,5 +1,6 @@
 // An underscore before or after a claim word is still a claim: "_" is a word character, so it hid the word from every
-// rule that needs a word boundary, while the page shows the word to the reader. asReadOnPage now reads "_" as a space.
+// rule that needs a word boundary, while the page shows the word to the reader. readings() (claims.ts) adds a reading with
+// "_" read as a space; asReadOnPage and the typed reading are unchanged.
 // Tightening claims.ts also applies to owner-written copy and to the re-parse of stored documents (the moderator
 // accepts this before launch: no live data).
 import { describe, expect, it } from "vitest";
@@ -26,6 +27,9 @@ describe("an underscore does not hide a claim word", () => {
     ["Our _emergency_ line", "emergency", withFacts({ emergency247: true })],
     ["Fully_free estimates", "free", withFacts({ freeEstimates: true })],
     ["Estimates are free_", "free", withFacts({ freeEstimates: true })],
+    // "_" next to the space between two words, or "__", joins a multi-word claim like one space.
+    ["No _charge estimates", "No charge", withFacts({ freeEstimates: true })],
+    ["Around__the__clock help", "Around the clock", withFacts({ emergency247: true })],
   ];
   it.each(NEEDS)("refuses %s without the fact and accepts it with the fact", (text, word, backed) => {
     expect(unbackedClaims(text, NONE)).toEqual([word]);
@@ -39,6 +43,8 @@ describe("an underscore does not hide a claim word", () => {
     ["Visit mop_cleaning.com", "cleaning.com"],
     ["Visit my_site.com", "site.com"],
     ["Fully_bonded crew", "bonded"],
+    ["Award _winning crew", "Award winning"],
+    ["Same__day service", "Same day"],
   ])("refuses %s whatever the facts", (text, word) => {
     expect(unbackedClaims(text, NONE)).toEqual([word]);
     expect(unbackedClaims(text, withFacts({ insured: true, freeEstimates: true, emergency247: true, yearFounded: 2010 }))).toEqual([word]);

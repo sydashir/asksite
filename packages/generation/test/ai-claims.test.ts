@@ -289,7 +289,7 @@ describe("aiClaims: readings and quote marks", () => {
   });
 });
 
-// An underscore before or after a wording is still that wording: asReadOnPage reads "_" as a space (one reading for both checkers).
+// An underscore before or after a wording is still that wording: site-schema's readings() adds a reading with "_" read as a space (one function for both checkers).
 describe("AI claim check: an underscore hides nothing", () => {
   refused(MINIMAL_FACTS, [
     ["ins. after _", "Fully_ins. crew", ["ins."]],
@@ -299,6 +299,8 @@ describe("AI claim check: an underscore hides nothing", () => {
     ["liability", "Fully_liability coverage", ["liability"]],
     ["vetted", "_Vetted_ cleaners", ["Vetted"]],
     ["after hours", "After_hours cleaning", ["After hours"]],
+    ["after hours, _ next to the space", "After _hours cleaning", ["After hours"]],
+    ["within the hour, __", "Within__the__hour", ["Within the hour"]],
     ["rave", "_rave_ cleaners", ["rave"]],
   ]);
   accepted(INSURED, [
