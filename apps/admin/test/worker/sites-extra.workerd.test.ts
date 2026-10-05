@@ -623,6 +623,77 @@ describe("A16-4c: Restore sends the takedown it showed, and Copy the live pages 
 
 // Task 26 step 4 (lane B fix, 2026-10-05): "this call took the site down" is decided AFTER takeDown runs. Two admins whose reads both
 // saw the site up must not email the owner twice: only the call whose own timestamp is the stored taken_down_at sends the notice.
+// takedown-truth (B): every Finish sends the takedown moment its page showed; a site restored (or taken down again) since is refused BEFORE takeDown.
+describe("a Finish the takedown from a stale page is refused (takedown-truth B)", () => {
+  const takedown = (siteId: string) => `/api/admin/sites/${siteId}/takedown`;
+  const notices = async (email: string) => (await h.outbox(email)).filter((m) => m.tag === "site_notice");
+  const downAt = async (siteId: string) =>
+    (await (await h.db()).prepare("SELECT taken_down_at FROM sites WHERE id = ?").bind(siteId).first<{ taken_down_at: number | null }>())?.taken_down_at;
+  const auditCount = async (siteId: string) => (await (await h.db()).prepare("SELECT COUNT(*) AS n FROM audit_log WHERE site_id = ?").bind(siteId).first<{ n: number }>())?.n;
+  const STALE = "This site was restored since you opened this page. Reload to see where it stands now.";
+
+  it("a site restored since the page showed it down: 409 with the text, no notice, no audit row, the site stays up", async () => {
+    const site = await liveSite();
+    await h.call("POST", takedown(site.siteId), { body: { reason: "Spam report" } });
+    const shown = await downAt(site.siteId);
+    await h.backgroundDone(takedown(site.siteId));
+    expect((await h.call("POST", `/api/admin/sites/${site.siteId}/restore`, { body: { expectedTakenDownAt: shown } })).status).toBe(200);
+    const keys = await h.liveKeys(site.slug);
+    const audits = await auditCount(site.siteId);
+    expect(await notices(site.email)).toHaveLength(1);
+
+    const stale = await h.call("POST", takedown(site.siteId), { body: { reason: "Stale finish", expectedTakenDownAt: shown } });
+    expect(stale.status).toBe(409);
+    expect(await json<{ error: { code: string; message: string } }>(stale)).toEqual({ error: { code: "conflict", message: STALE } });
+    expect(await downAt(site.siteId)).toBeNull();
+    expect(await h.liveKeys(site.slug)).toEqual(keys);
+    expect(await notices(site.email)).toHaveLength(1);
+    expect(await auditCount(site.siteId)).toBe(audits);
+    await h.backgroundDone(takedown(site.siteId));
+  });
+
+  it("a site down at a DIFFERENT moment than the page showed: the same 409, and nothing changes", async () => {
+    const site = await liveSite();
+    await h.call("POST", takedown(site.siteId), { body: { reason: "Spam report" } });
+    const shown = (await downAt(site.siteId)) ?? 0;
+    const audits = await auditCount(site.siteId);
+    for (const wrong of [shown - 1, shown + 1]) {
+      const stale = await h.call("POST", takedown(site.siteId), { body: { reason: "Stale finish", expectedTakenDownAt: wrong } });
+      expect(stale.status).toBe(409);
+      expect(await json<{ error: { message: string } }>(stale)).toMatchObject({ error: { message: STALE } });
+    }
+    expect(await downAt(site.siteId)).toBe(shown);
+    expect(await notices(site.email)).toHaveLength(1);
+    expect(await auditCount(site.siteId)).toBe(audits);
+    await h.backgroundDone(takedown(site.siteId));
+  });
+
+  it("the moment the page showed finishes the takedown: 200, no notice, one repeat audit row; a first takedown without it is unchanged", async () => {
+    const site = await liveSite();
+    const first = await h.call("POST", takedown(site.siteId), { body: { reason: "Spam report" } });
+    expect(await first.json()).toEqual({ noticeSent: true });
+    const shown = await downAt(site.siteId);
+    const finish = await h.call("POST", takedown(site.siteId), { body: { reason: "Finishing", expectedTakenDownAt: shown } });
+    expect(finish.status).toBe(200);
+    expect(await finish.json()).toEqual({ noticeSent: null });
+    expect(await notices(site.email)).toHaveLength(1);
+    expect(await downAt(site.siteId)).toBe(shown);
+    const repeats = (await (await h.db()).prepare("SELECT detail_json FROM audit_log WHERE action = 'site.taken_down' AND site_id = ?").bind(site.siteId).all<{ detail_json: string }>()).results.filter((r) => JSON.parse(r.detail_json).repeat === true);
+    expect(repeats).toHaveLength(1);
+    await h.backgroundDone(takedown(site.siteId));
+  });
+
+  it("the extra field is checked: not a positive whole number is 422, and an unknown field is still 422 (the body stays strict)", async () => {
+    const site = await liveSite();
+    for (const bad of [0, -5, 1.5, "1"]) {
+      expect((await h.call("POST", takedown(site.siteId), { body: { reason: "Spam report", expectedTakenDownAt: bad } })).status).toBe(422);
+    }
+    expect((await h.call("POST", takedown(site.siteId), { body: { reason: "Spam report", expectedTakenDownAt: 5, surprise: true } })).status).toBe(422);
+    expect(await downAt(site.siteId)).toBeNull();
+    await h.backgroundDone(takedown(site.siteId));
+  });
+});
+
 describe("the takedown notice is sent once when two admins act at the same time", () => {
   const takedown = (siteId: string) => `/api/admin/sites/${siteId}/takedown`;
   const notices = async (email: string) => (await h.outbox(email)).filter((m) => m.tag === "site_notice");

@@ -2,6 +2,7 @@ import { ApiError, auditStatement, cleanOwnerText, logLine, readJson, runToEnd, 
 import { DisableOwnerBody, IndexableBody, TakedownBody, type AuditRow, type GenerationRow, type SiteVersionRow } from "@asksite/core";
 import { Hono } from "hono";
 import { z } from "zod";
+import { RESTORED_SINCE_OPENED } from "../../messages.ts";
 import type { TakedownView } from "../../settings-view.ts";
 import { mailerEnv, siteWithOwner, toAdminSiteRow, toVersionSummary, type AdminSiteColumns } from "../db.ts";
 import type { AdminDeps, PublishErrorLike } from "../deps.ts";
@@ -16,6 +17,9 @@ const FILTERS = {
   draft: "s.live_version_id IS NULL AND s.pending_version_id IS NULL AND s.taken_down_at IS NULL",
   all: "1 = 1",
 } as const;
+
+/** The takedown body, plus the moment the admin's page showed the site down (sent only by Finish the takedown), extended here and not in core. */
+const FinishableTakedownBody = TakedownBody.extend({ expectedTakenDownAt: z.number().int().positive().optional() });
 
 const SiteFilter = z.enum(["live", "in_review", "taken_down", "draft", "all"]).default("all");
 
@@ -93,8 +97,12 @@ export function siteRoutes(deps: AdminDeps): Hono<AdminEnv> {
   });
 
   sites.post("/sites/:siteId/takedown", async (c) => {
-    const body = await readJson(c, TakedownBody);
+    const body = await readJson(c, FinishableTakedownBody);
     const site = await siteWithOwner(c.env.DB, c.req.param("siteId"));
+    // A Finish names the takedown its page showed. If the site is not down at EXACTLY that moment (restored, or taken down again, since),
+    // refuse before takeDown: this call would take a restored site down again and email the owner. Residual: a restore that lands between
+    // this check and takeDown's own lease (milliseconds) is not caught, because Plan 2's takeDown has no expected-moment check.
+    if (body.expectedTakenDownAt !== undefined && site.taken_down_at !== body.expectedTakenDownAt) throw new ApiError("conflict", RESTORED_SINCE_OPENED);
     // The notice is built before anything changes, so a configuration error (MAILER, APP_ORIGIN) is a 500 that
     // leaves the site up. After the takedown commits the notice is sent inside the same runToEnd and the answer says
     // whether it went out: a takedown is never undone by a failed email, but the admin must learn the owner was not told.
