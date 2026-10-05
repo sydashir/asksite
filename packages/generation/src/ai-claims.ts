@@ -18,23 +18,26 @@ const J = "[-\\u2012\\u2013\\u2014\\u2212 ]";
 
 const NEVER_IN_AI_COPY: readonly RegExp[] = [
   new RegExp(`\\bwithin${J}(the|an?|one)${J}hour\\b`, "i"), // a response time no fact backs
-  // The same claim after an arrival phrase ("Here in under an hour", "At your door in less than an hour"). "takes under an hour" and
-  // "done in under an hour" are a job's length, usual in trade copy, so only an arrival phrase counts. Known false positive: "here",
-  // "there" and "on site", with the optional "in", also refuse some job-length sentences ("in and out of there in under an hour"); the
-  // model can rephrase. The written residual: other response-time paraphrases ("we get to you fast", "a quick hour away") are
-  // accepted; the prompt's "Invent nothing: ... response times" is the backstop.
-  new RegExp(`\\b(here|there|arrive[sd]?|arriving|on${J}site|at${J}your${J}door|out${J}to${J}you)${J}(in${J})?(under|less${J}than)${J}an${J}hour\\b`, "i"),
+  // The same claim after an arrival phrase and "in" ("Here in under an hour", "Onsite in under one hour", "At your door in less than an
+  // hour"). "takes under an hour", "done in under an hour" and "On site under an hour" (no "in") are a job's length, usual in trade
+  // copy, so the arrival phrase and "in" must both be there. Known false positive, the model can rephrase it (one repair turn; the
+  // owner never sees it): "in and out of there in under an hour". The written residuals: other response-time paraphrases ("we get
+  // to you fast", "a quick hour away", "within the next hour", "within half an hour") are accepted; the prompt's "Invent nothing:
+  // ... response times" is the backstop.
+  new RegExp(`\\b(here|there|arrive[sd]?|arriving|on${J}?site|at${J}your${J}door|out${J}to${J}you)${J}in${J}(under|less${J}than)${J}(an|one)${J}hour\\b`, "i"),
   new RegExp(`\\b(state|board|city|county)${J}approved\\b`, "i"), // a licence paraphrase
   new RegExp(`\\bbackground${J}check(s|ed|ing)?\\b`, "i"),
   // "vet" alone is no claim ("vet-owned", "pet vet"), so only "vetted", "vetting" and a "vet" before one of the listed determiners
-  // ("vets all", "vet our") count.
+  // ("vets all", "vet our") count. Known false positives, rephrasable: "vet our work", "vets" meaning veterans. Residual: "vet everyone",
+  // "vet them".
   new RegExp(`\\b(vetted|vetting|vets?${J}(every|each|all|our|its|their))\\b`, "i"),
   // Time in business comes from yearFounded. "long time" with a space is usually no claim ("lasts a long time"), so only
   // the closed and dashed forms count; the written residual: every space form (any whitespace run) is accepted, e.g.
   // "a long time local business", "serving Austin for a long time".
   /\b(long[-\u2012\u2013\u2014\u2212]?time|seasoned)\b/i,
   /\b(raves?|raved|raving|recommended)\b/i, // "we recommend" is advice and stays allowed
-  new RegExp(`\\brecommends?${J}us\\b`, "i"), // "recommend annual service" and "recommend using" stay allowed
+  // "recommend annual service" and "recommend using" stay allowed. Known false positive: "recommend U.S.-made" (the spelled-run reading joins "U.S." to "US").
+  new RegExp(`\\brecommend(s|ing)?${J}us\\b`, "i"),
   /[\u2039\u203A\u301D-\u301F\uFF02]/, // quote marks claims.ts does not list
   // A phrase in straight single quotes: an opening ' at a word start (at the start of the text or after a space, a
   // colon, a semicolon, a comma, a dash or one of the eight separator symbols · • ~ * | ∙ ・ ●, glued or not, or after a "(" that itself follows one of those; not after a letter or a
@@ -48,8 +51,10 @@ const NEVER_IN_AI_COPY: readonly RegExp[] = [
   /(?<=(?:^|[\s:;,·•~*|∙・●\u2012-\u2014\u2212-])\(?)'(?!n'|(?:em|til|cause|bout|round|tis|twas)(?!\p{L}))\p{L}(?:[^']|'(?=\p{L}))*'(?!\p{L})/iu,
 ];
 
-/** What follows "lic" in "lic and ins" / "lic & ins": a joiner, "and", a joiner, or "&" with an optional joiner each side ("lic&ins"), then "ins" (a dot after "ins" is the caller's). */
-const LIC_AND_INS = `(?:${J}and${J}|${J}?&${J}?)ins\\b`;
+/** "and" between joiners, or "&" with an optional joiner each side ("lic&ins"). */
+const AND = `(?:${J}and${J}|${J}?&${J}?)`;
+/** What follows "lic" in "lic and ins" / "lic & ins": AND, then "ins" (a dot after "ins" is the caller's). */
+const LIC_AND_INS = `${AND}ins\\b`;
 
 /** claims.ts's own backing for its seven-days rule (24/7 service, or opening hours on all seven days), taken from NEEDS_A_FACT. */
 const sevenDaysBacking = NEEDS_A_FACT.find(({ pattern }) => pattern.test("seven days a week"))?.backedBy;
@@ -71,14 +76,26 @@ const NEEDS_A_FACT_IN_AI_COPY: ReadonlyArray<{ readonly pattern: RegExp; readonl
     pattern: new RegExp(`\\blic(?:(?!\\.)${LIC_AND_INS}\\.?|\\.${LIC_AND_INS}(?:(?!\\.)|(?<=[a-z]-ins)\\.))`, "i"),
     backedBy: (facts) => facts.licences.length > 0 && facts.insured,
   },
+  // The mixed pairs "lic and insured" and "licensed & ins": one side a full word, the other an abbreviation without its dot, which no
+  // rule above refuses on its own. Both facts are needed. Dotted forms ("lic. & insured", "Licensed & ins.") are refused by the rules
+  // above, which need the same two facts ("Licensed-and-ins." stays the written residual of the "ins." rule). The full words
+  // "licensed and insured" are the claim checker's. Residuals: "lic" or "ins" alone, "lic + ins".
+  {
+    pattern: new RegExp(`\\b(?:lic(?!\\.)${AND}insured\\b|licensed${AND}ins\\b(?!\\.))`, "i"),
+    backedBy: (facts) => facts.licences.length > 0 && facts.insured,
+  },
+  // Known false positive, rephrasable: "(every|any) holiday" before a noun ("every holiday season"). Residuals: "after-hour", "afterhour",
+  // "every single holiday", "each holiday".
   {
     pattern: new RegExp(`\\b(after${J}?hours|all${J}hours|nights${J}and${J}holidays|holidays|(every|any)${J}holiday|every${J}(single${J})?day|(open|available)${J}(daily|everyday))\\b`, "i"), // "daily" and "everyday" alone are not claims ("everyday chores"); "holiday" alone is a service ("holiday lights")
     backedBy: sevenDaysBacking,
   },
   // "free" in any form, a hyphenated compound too ("stress-free"), but not inside a longer word ("freedom", "FreeFlow").
   { pattern: /(?<!\p{L})free(?!\p{L})/iu, backedBy: (facts) => facts.freeEstimates },
+  // claims.ts has "no charge" and "no cost" (owner rule); their plurals are AI-only. Known false positive, rephrasable: "never charges" of
+  // a car or a battery. Residuals: "freebee", "freeby".
   {
-    pattern: new RegExp(`\\b(zero${J}costs?|freebies?|gratis|on${J}the${J}house|never${J}charge[ds]?|without${J}charge|no${J}fees?)\\b`, "i"),
+    pattern: new RegExp(`\\b(zero${J}(costs?|fees?|charges?)|freebies?|gratis|on${J}the${J}house|never${J}charg(e[ds]?|ing)|without${J}charge|no${J}fees?|no${J}(charge|cost)s)\\b`, "i"),
     backedBy: (facts) => facts.freeEstimates,
   },
 ];

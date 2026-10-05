@@ -313,6 +313,9 @@ describe("AI claim check: claim-word gaps", () => {
     ["at your door in less than an hour", "At your door in less than an hour", ["At your door in less than an hour"]],
     ["out to you in under an hour", "Out to you in under an hour", ["Out to you in under an hour"]],
     ["on site in under an hour", "On site in under an hour", ["On site in under an hour"]],
+    ["onsite in under an hour", "Onsite in under an hour", ["Onsite in under an hour"]],
+    ["arrive in under one hour", "We arrive in under one hour", ["arrive in under one hour"]],
+    ["at your door in less than one hour", "At your door in less than one hour", ["At your door in less than one hour"]],
   ]);
   refused(EMERGENCY, [["no fact backs an arrival time", "Here in under an hour", ["Here in under an hour"]]]);
   // The gated words, backed.
@@ -345,6 +348,38 @@ describe("AI claim check: claim-word gaps", () => {
     ["lic & ins with both facts", "Fully lic & ins crew"],
     ["lic&ins with both facts", "Fully lic&ins crew"],
   ]);
+  // Round 2: the -ing forms, the plurals and the mixed lic/insured pairs.
+  refused(MINIMAL_FACTS, [
+    ["recommending us", "Locals are recommending us", ["recommending us"]],
+    ["never charging", "Never charging for a quote", ["Never charging"]],
+    ["zero fees", "Zero fees on quotes", ["Zero fees"]],
+    ["zero fee", "Zero fee on quotes", ["Zero fee"]],
+    ["zero charges", "Zero charges for a quote", ["Zero charges"]],
+    ["zero charge", "Zero charge for a quote", ["Zero charge"]],
+    ["no costs", "No costs for a quote", ["No costs"]],
+    ["no charges", "No charges for a quote", ["No charges"]],
+  ]);
+  accepted(FREE, [
+    ["never charging with freeEstimates", "Never charging for a quote"],
+    ["zero fees with freeEstimates", "Zero fees on quotes"],
+    ["zero charges with freeEstimates", "Zero charges for a quote"],
+    ["no costs with freeEstimates", "No costs for a quote"],
+    ["no charges with freeEstimates", "No charges for a quote"],
+  ]);
+  // The pair needs both facts: the dotless abbreviation next to a full word is no claim of its own.
+  refused(INSURED, [
+    ["insurance alone does not back lic and insured", "Lic and insured crew", ["Lic and insured"]],
+    ["insurance alone does not back lic & insured", "Lic & insured crew", ["Lic & insured"]],
+    ["insurance alone does not back lic&insured", "Lic&insured crew", ["Lic&insured"]],
+  ]);
+  refused(LICENSED, [
+    ["a licence alone does not back licensed & ins", "Licensed & ins crew", ["Licensed & ins"]],
+    ["a licence alone does not back licensed and ins", "Licensed and ins crew", ["Licensed and ins"]],
+  ]);
+  accepted(LICENSED_AND_INSURED, [
+    ["lic and insured with both facts", "Lic and insured crew"],
+    ["licensed & ins with both facts", "Licensed & ins crew"],
+  ]);
   // False positives, each pinned: the narrow forms stay narrow.
   accepted(MINIMAL_FACTS, [
     ["everyday chores", "Everyday chores, done right"],
@@ -363,6 +398,9 @@ describe("AI claim check: claim-word gaps", () => {
     ["freedom from clutter", "Freedom from clutter"],
     ["FreeFlow in a name", "FreeFlow drains"],
     ["daily alone", "Daily cleaning for busy offices"],
+    // Round 1 pinned "Here under an hour" as refused; round 2 requires "in" after the arrival phrase, so a duration without it is accepted.
+    ["on site under an hour (a duration, no \"in\")", "On site under an hour"],
+    ["here under an hour (no \"in\")", "Here under an hour"],
     ["known gap: a response time without an arrival phrase", "We get to you fast, a quick hour away"],
   ]);
   // AI-only: the owner checker accepts every refused wording above, on facts that back nothing.
