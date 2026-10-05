@@ -32,7 +32,7 @@ ${head}
 <div class="${["letter", !photo && sealed && "letter-sl", !photo && proof && "lt-w"].filter(Boolean).join(" ")}">
 <svg class="rule" viewBox="0 0 112 12" aria-hidden="true">${trusted('<path d="M0 6h44m24 0h44" stroke="currentColor" stroke-width="1.5"/><path d="M56 1l5 5l-5 5l-5-5z" fill="currentColor"/>')}</svg>
 <p class="${DROP_CAP.test((copy.about ?? "").trim()) ? "letter-b dc" : "letter-b"}">${copy.about}</p>
-<p class="letter-s">${facts.businessName}<span>${tradeAndTown(facts)}</span></p>
+<p class="letter-s">${facts.businessName} <span>${tradeAndTown(facts)}</span></p>
 ${proof}
 ${!photo && seal(facts)}
 </div>

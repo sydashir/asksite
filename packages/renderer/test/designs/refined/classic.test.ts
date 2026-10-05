@@ -406,6 +406,13 @@ describe("Classic's pages (A16)", () => {
     expect(section(pageOf({ ...plumber, facts: noPhoto, hidden: ["trust"] }, "about"), "about")).toContain('<div class="letter letter-sl">');
   });
 
+  it("signs the letter with the name apart from the trade and town in its text, as a screen reader and plain text read it", () => {
+    const signOff = /<p class="letter-s">(.*?)<\/p>/.exec(section(pageOf(plumber, "about"), "about"))?.[1] ?? "";
+    // The sign-off's text content (tags dropped, whitespace kept): the sheet sets the trade and town on a line of their own,
+    // so only the markup keeps them apart from the name in the text.
+    expect(signOff.replace(/<[^>]*>/g, "")).toBe("Reliable Rooter Plumbing Plumbing Austin, TX");
+  });
+
   it("gives the address and the towns one home on Contact, and opens an area-first Contact page with Call and the call to action", () => {
     const band = squashedText(section(pageOf(plumber, "contact"), "contact"));
     expect(band).not.toContain(squashedText("4100 S Congress Ave"));

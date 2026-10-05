@@ -379,10 +379,14 @@ summary::-webkit-details-marker{display:none}
   .cb .bt-act>.i{display:none}
   .cb .bt-t{align-items:center;text-align:center}
 }
-@media (width < 48rem){
-  /* The call bar under the thumb carries Call and the quote, so the hero leaves its buttons to it (one of each on the
-     first screen, as the approved Home); the email leaves the card (it sits where the call bar covers the first screen). */
-  .bc-m .bc-e,.ha{display:none}
+/* Wherever the call bar shows (phones, and windows under 32rem tall, such as a phone held sideways: "not" negates the
+   whole query, so this is the exact opposite of the sticky-header query below) it carries Call and the quote, so the
+   page leaves the quote to it: one label on every first screen (moderator quote rule, 2026-10-05). The hero leaves its
+   buttons to it (one of each on the first screen, as the approved Home), the Services box and the header their quote
+   buttons (.bt.hd-q outranks the header's 48rem rule below); the email leaves the card (it sits where the call bar
+   covers the first screen). */
+@media not all and (min-width:48rem) and (min-height:32rem){
+  .bc-m .bc-e,.ha,.svc-more .bt,.bt.hd-q{display:none}
 }
 /* A town so long that it and the year cannot share one phone row (parts.ts GROUP_TIERS): the year steps aside below
    the width where they fit, so it is never alone on a line. */
@@ -485,7 +489,7 @@ summary::-webkit-details-marker{display:none}
 }
 /* From 48rem the header stays on screen with Quote and Call (in windows at least 32rem tall); scroll-padding keeps
    focused and linked content clear of it (WCAG technique C43). It stacks above Send (z-index 20). A shorter
-   landscape window keeps a static header and the call bar instead. */
+   landscape window keeps a static header with Call, and the call bar carries the quote. */
 @media (min-width:48rem) and (min-height:32rem){
   html{scroll-padding-top:8rem}
   html:has(.hd-long){scroll-padding-top:9.5rem}
