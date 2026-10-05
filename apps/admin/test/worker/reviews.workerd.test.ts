@@ -367,6 +367,8 @@ describe("a stored page behind the Fetch Metadata gate (A16: one route per page)
       for (const [name, value] of Object.entries(reviewPageHeaders(ROOT_DOMAIN))) expect(res.headers.get(name), name).toBe(value);
       expect(res.headers.get("X-Frame-Options")).toBe("SAMEORIGIN");
       expect(res.headers.get("Content-Security-Policy")).toContain("frame-ancestors 'self'");
+      // `sandbox` as its own directive (a policy token between semicolons), so hostile owner HTML cannot run in the review frame.
+      expect((res.headers.get("Content-Security-Policy") ?? "").split(";").map((d) => d.trim())).toContain("sandbox");
     }
     expect(bodies.size).toBe(listed.length);
     expect([...bodies].some((html) => html.includes("Call Joe today"))).toBe(true);
