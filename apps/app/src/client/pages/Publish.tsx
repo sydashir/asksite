@@ -2,7 +2,7 @@ import { TAKEDOWN_REVIEW_NOTE, type Issue, type SiteView, type VersionSummary } 
 import { isSafeUrl } from "@asksite/site-schema";
 import { useEffect, useRef, useState } from "react";
 import { ConfirmDialog } from "../components/dialog.tsx";
-import { ErrorSummary, Notice, type SummaryItem } from "../components/feedback.tsx";
+import { ErrorSummary, Notice, SaveStatus, type SummaryItem } from "../components/feedback.tsx";
 import { ReviewPreview } from "../components/review-preview.tsx";
 import { usePageHeading } from "../hooks/use-page-heading.ts";
 import { onLinkClick } from "../hooks/use-route.ts";
@@ -42,6 +42,7 @@ function PublishScreen({ siteId, site, view, facts }: { siteId: string; site: Si
   const [busy, setBusy] = useState(false);
   const [confirmWithdraw, setConfirmWithdraw] = useState(false);
   const messageRef = useRef<HTMLDivElement>(null);
+  const noticeRef = useRef<HTMLParagraphElement>(null);
   /** After an action the button that ran it may be gone: keep keyboard focus on the result. */
   const showResult = (text: string) => {
     setMessage(text);
@@ -61,9 +62,12 @@ function PublishScreen({ siteId, site, view, facts }: { siteId: string; site: Si
     setMessage(null);
     setProblems([]);
     // Never send an older draft than the one on screen (decision 37).
-    if (!(await site.flush())) {
+    const saved = await site.flush();
+    if (saved !== true) {
       setBusy(false);
-      showResult("Your latest changes are not saved yet. Please try again in a moment.");
+      // A dropped wording change (carried from the editor) stops this once: its notice is shown above and given focus, and the next press goes on.
+      if (saved === "dropped") requestAnimationFrame(() => noticeRef.current?.focus());
+      else showResult("Your latest changes are not saved yet. Please try again in a moment.");
       return;
     }
     const res = await api<{ version: VersionSummary }>("POST", `/api/sites/${siteId}/publish-requests`, { rev: site.rev() });
@@ -105,6 +109,16 @@ function PublishScreen({ siteId, site, view, facts }: { siteId: string; site: Si
           Back to editing
         </a>
       </p>
+      <SaveStatus
+        state={site.saver}
+        onRetry={() => void site.retry()}
+        onReload={() => void site.reload()}
+        messageRef={noticeRef}
+        onDismiss={() => {
+          site.dismissDrop();
+          noticeRef.current?.focus();
+        }}
+      />
 
       {view.takenDown ? (
         <Notice tone="error">

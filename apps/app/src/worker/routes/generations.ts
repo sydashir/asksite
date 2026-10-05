@@ -42,13 +42,16 @@ async function isRegeneration(db: D1Database, siteId: string): Promise<boolean> 
  * null theme is set: an owner's choice and stored edits that are not valid JSON are left alone (read only once
  * json_valid passed them, inside a CASE: sqlite.org/lang_expr.html documents CASE as lazy, but not the order AND
  * evaluates its operands in; P4-21 item 6). Only $.theme changes and rev is not bumped, so no open tab gets a
- * conflict; PATCH /draft never replaces the pinned theme with a null one.
+ * conflict; PATCH /draft never replaces the pinned theme with a null one. Like PATCH /draft it writes nothing while a REGENERATE is
+ * queued or running (the editor is frozen then): a rewrite already pinned the look when it was asked for, so this only ever skips
+ * a request that the generator refuses as generation_in_progress anyway.
  */
 async function pinTheme(db: D1Database, siteId: string, ownerId: string, theme: Theme, now: number): Promise<void> {
   await db
     .prepare(
       `UPDATE sites SET edits_json = json_set(edits_json, '$.theme', json(?1)), updated_at = ?2
-       WHERE id = ?3 AND owner_id = ?4 AND CASE WHEN json_valid(edits_json) THEN json_extract(edits_json, '$.theme') IS NULL ELSE 0 END`,
+       WHERE id = ?3 AND owner_id = ?4 AND CASE WHEN json_valid(edits_json) THEN json_extract(edits_json, '$.theme') IS NULL ELSE 0 END
+         AND NOT EXISTS (SELECT 1 FROM generations WHERE site_id = ?3 AND kind = 'regenerate' AND status IN ('queued', 'running'))`,
     )
     .bind(JSON.stringify(theme), now, siteId, ownerId)
     .run();

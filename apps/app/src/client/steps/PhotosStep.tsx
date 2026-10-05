@@ -73,6 +73,7 @@ export function PhotoManager(props: StepProps) {
   const photos = asArray(facts["photos"]).map(asRecord);
 
   async function upload(file: File) {
+    if (props.frozen) return;
     setBusy(true);
     setStatus("Uploading your photo…");
     const prepared = await preparePhoto(file);
@@ -95,6 +96,7 @@ export function PhotoManager(props: StepProps) {
 
   async function remove(upload: UploadView) {
     setDeleting(null);
+    if (props.frozen) return;
     const res = await api("DELETE", `/api/sites/${siteId}/uploads/${upload.id}`);
     if (!res.ok) {
       setStatus(res.error.message);
