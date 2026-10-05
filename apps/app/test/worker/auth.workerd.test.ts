@@ -873,6 +873,27 @@ describe("sessions", () => {
     expect(statuses[10]).toBe(429);
   });
 
+  // P4-8 D2 applies authLimit to each auth route itself, so each route needs its own proof (the /login test covers only /login).
+  it("AUTH_RL refuses the 11th invite/accept in a minute from one address, before it looks at the token", async () => {
+    const ip = "203.0.113.78";
+    const token = "A".repeat(43); // well-formed, never issued: each answer is 410 until the limiter answers 429
+    const statuses: number[] = [];
+    await awayFromMinuteBoundary();
+    for (let i = 0; i < 11; i += 1) statuses.push((await h.call("POST", "/api/auth/invite/accept", { body: { token }, ip })).status);
+    expect(statuses.slice(0, 10).every((s) => s === 410)).toBe(true);
+    expect(statuses[10]).toBe(429);
+  });
+
+  it("AUTH_RL refuses the 11th login/verify in a minute from one address, before it looks at the token", async () => {
+    const ip = "203.0.113.79";
+    const token = "B".repeat(43); // well-formed, never issued: each answer is 410 until the limiter answers 429
+    const statuses: number[] = [];
+    await awayFromMinuteBoundary();
+    for (let i = 0; i < 11; i += 1) statuses.push((await h.call("POST", "/api/auth/login/verify", { body: { token }, ip })).status);
+    expect(statuses.slice(0, 10).every((s) => s === 410)).toBe(true);
+    expect(statuses[10]).toBe(429);
+  });
+
   it("AUTH_RL counts every IPv6 address of one /64 network together", async () => {
     const statuses: number[] = [];
     await awayFromMinuteBoundary();
