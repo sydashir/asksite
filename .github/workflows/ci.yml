@@ -39,6 +39,18 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
+      # The root typecheck does not include apps/app or apps/admin. Their typecheck compiles the production Worker entries
+      # (src/worker/index.ts) and deps.ts's `satisfies` contract against the real Plan 2/3 packages. It starts with
+      # `wrangler types`: CLOUDFLARE_CF_FETCH_ENABLED=false stops Miniflare fetching cf.json from Cloudflare (it wrote a broken
+      # worker-configuration.d.ts once), WRANGLER_WRITE_LOGS=false stops wrangler writing a log file to disk.
+      - run: pnpm --filter @asksite/app typecheck
+        env:
+          CLOUDFLARE_CF_FETCH_ENABLED: "false"
+          WRANGLER_WRITE_LOGS: "false"
+      - run: pnpm --filter @asksite/admin typecheck
+        env:
+          CLOUDFLARE_CF_FETCH_ENABLED: "false"
+          WRANGLER_WRITE_LOGS: "false"
       - run: pnpm test
 
   # The browser jobs run in Playwright's own image, which already holds the browsers and their system
