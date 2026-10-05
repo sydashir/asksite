@@ -347,6 +347,28 @@ describe("takedown and restore on the pointer (A16)", () => {
     expect(await siteRow(env.DB, p.siteId)).toMatchObject({ taken_down_at: 50 });
   });
 
+  it("refuses when only its second pointer delete fails, with the pointer an approve wrote back still there: the takedown is committed and its retry removes the pointer", async () => {
+    const p = await liveMultiPage();
+    const pointer = livePointerKey(p.slug);
+    let pointerDeletes = 0;
+    const secondFails = {
+      ...flakyBucket(env.LIVE, () => false),
+      delete: async (keys: string | string[]) => {
+        if (keys !== pointer) return env.LIVE.delete(keys);
+        pointerDeletes += 1;
+        if (pointerDeletes === 2) throw new Error("R2 is unavailable");
+        await env.LIVE.delete(keys);
+        await env.LIVE.put(pointer, "pointer written by an approve whose lease ran out"); // between the first delete and the batch
+      },
+    } as R2Bucket;
+    await expect(takeDown({ ...env, LIVE: secondFails }, { siteId: p.siteId, reviewer: ADMIN, reason: "Abuse", purgeMedia: false, now: 50 })).rejects.toThrow("R2 is unavailable");
+    expect(pointerDeletes).toBe(2);
+    expect(await siteRow(env.DB, p.siteId)).toMatchObject({ taken_down_at: 50 });
+    expect(await liveKeysOf(env.LIVE, p.slug)).toContain(pointer);
+    await takeDown(env, { siteId: p.siteId, reviewer: ADMIN, reason: "Abuse", purgeMedia: false, now: 60 });
+    expect(await liveKeysOf(env.LIVE, p.slug)).toEqual([]);
+  });
+
   it("stops serving before it changes D1", async () => {
     const p = await liveMultiPage();
     let atPointerDelete: { pointer: R2Object | null; takenDownAt: number | null | undefined } | undefined;
