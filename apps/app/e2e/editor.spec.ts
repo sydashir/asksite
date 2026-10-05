@@ -340,8 +340,11 @@ test("when the preview cannot load it says so, editing and saving carry on, and 
 
   // Saving works again: the click saves, then reloads. The page that comes back was itself a reload, so it says "still".
   saving = true;
+  // Wait for the new document's load, not a poll of the old one: a page.evaluate that meets the navigation throws "Execution context was destroyed".
+  const reloaded = page.waitForEvent("load");
   await page.getByRole("button", { name: "Reload the page" }).click();
-  await expect.poll(kept).toBe(false);
+  await reloaded;
+  expect(await kept()).toBe(false);
   await showPreview(page);
   await expect(page.getByText("The preview still can't load.")).toBeVisible();
   await showEditor(page);
