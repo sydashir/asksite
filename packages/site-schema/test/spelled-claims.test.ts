@@ -205,6 +205,8 @@ describe("named residuals: spelled runs that stay accepted", () => {
     ["a hyphen between two space-spelled words", "F R E E-Q U O T E S"],
     ["two spelling styles in one phrase", "Get a F R E E E-S-T-I-M-A-T-E"],
     ["two spelling styles in one phrase", "Book a S A M E D-A-Y visit"],
+    ["a spelled word glued after a letter and an apostrophe", "Our'F R E E estimates"],
+    ["a spelled word glued after a letter and an apostrophe", "Our`F R E E estimates"],
     ["a two-way look-alike read its second way", "I N S \u028B R E D crew"],
   ])("accepts (%s) %s", (_why, text) => {
     expect(unbackedClaims(text, NONE)).toEqual([]);
@@ -266,8 +268,9 @@ describe("the acute accent U+00B4 is a named false positive", () => {
 });
 
 // NAMED FALSE POSITIVES (claims.ts): a single letter before or after a spelled run is read apart, so an inner claim word counts,
-// as for I.N.S. and L.I.C. The solid "ABBB" is accepted, so the principle does not hold here.
-describe("a letter next to a spelled run: named false positives", () => {
+// as for I.N.S. and L.I.C. The solid "ABBB" is accepted, so the principle does not hold here. And a ". " gap joins a run across
+// the end of a sentence: "S. A Y" reads "SAY" (all joined).
+describe("a letter next to a spelled run, a run across a sentence end: named false positives", () => {
   it.each([
     ["We stock size S. A Y fitting", "SAY"],
     ["A B B B", "BBB"],

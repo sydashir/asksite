@@ -406,8 +406,9 @@ describe("AI claim check: separated single letters hide nothing", () => {
     // A word-break letter after the word (checkDraft; its solid form is refused too).
     ["word-break: free", "Estimates are F R E E\u1D09", ["FREE"]],
     ["word-break: two-way letter first", "\u028B F R E E\u1D09", ["FREE"]],
-    // NAMED FALSE POSITIVES (claims.ts): a letter next to a spelled run is read apart, so an inner claim word counts; the solid "ABBB" is accepted.
-    ["letter next to a run: SAY", "We stock size S. A Y fitting", ["SAY"]],
+    // NAMED FALSE POSITIVES (claims.ts): a ". " gap joins a run across a sentence end ("SAY", all joined); a letter next to a
+    // spelled run is read apart, so an inner claim word counts (the solid "ABBB" is accepted).
+    ["run across a sentence end: SAY", "We stock size S. A Y fitting", ["SAY"]],
     ["letter next to a run: BBB", "A B B B", ["BBB"]],
     // NAMED FALSE POSITIVE: U+00B4 is no guarded apostrophe (copy's NFKC makes it a space and U+0301).
     ["apostrophe: U+00B4", "It\u00B4s a Y fitting", ["saY"]],

@@ -178,22 +178,26 @@ const GLUED_SEPARATORS = /(?<=\S)[\u00B7\u2022~*|\u2219\u30FB\u25CF](?=\S)/g;
  * reading stays, so a deliberately mixed run ("F R-E.E") is still caught.
  * The minimum is 2 because the claim words "no" (no charge), "or" (day or night) and "of" (seven days of the week) are 2 letters
  * ("BBB", "lic." and "ins." are 3): a spelled "N O charge" is a claim like "NO charge". Initials such as "J. R. Smith", "U.S. owned" and
- * "P.O. Box" join to "JR.", "US." and "PO.", which no pattern matches, and a joined run is a claim only when its letters spell a
- * claim word ("ABC", "TLC", "HVAC", "DIY" and "ASAP" are not).
+ * "P.O. Box" join to "JR.", "US." and "PO.", which no pattern matches, and, except in the named residuals and false positives below,
+ * a joined run is a claim only when its letters spell a claim word ("ABC", "TLC", "HVAC", "DIY" and "ASAP" are not).
  * NAMED FALSE POSITIVES: an initialism that spells a claim word is refused like the word: "I.N.S." and "L.I.C." in AI copy, which
- * refuses "ins." and "lic.", unless the owner's facts back it. And a single letter before or after a spelled run is read apart, so a claim
- * word inside the run counts: "We stock size S. A Y fitting" reads "SAY" (a ". " gap joins across a sentence end) and "A B B B" reads
- * "A BBB". Swept over every run of single letters A-Z (5 gap forms): refused while the solid form is accepted, 0 of 40,560 runs of 2
- * letters, 156 of 175,760 of 3 and 4,982 of 2,284,880 of 4.
+ * refuses "ins." and "lic.", unless the owner's facts back it. A single letter before or after a spelled run is read apart, so a claim
+ * word inside the run counts: "A B B B" reads "A BBB" (the solid "ABBB" is accepted). And a ". " gap joins a run across the end of a
+ * sentence: "We stock size S. A Y fitting" reads "SAY" (all joined). Swept 2026-10-05 over every sequence of 2, 3 and 4 letters A-Z in 5
+ * gap forms (space, hyphen, dot, dot with a trailing dot, dot-space with a trailing dot) inside 12, 2 and 1 short phrases ("Our {} crew"):
+ * refused while the solid form is accepted, 0 of 40,560 texts of 2 letters, 0 of 175,760 of 3 and 770 of 2,284,880 of 4 (an inner "INS."
+ * or "LIC." 260, "BBB" 255, "SAY" 255: the families above); before a kept "." gap was written ". " they were 156 and 4,982, almost all
+ * dotted web addresses ("N.CO").
  * NAMED RESIDUALS (a spelled run that is still not read like its solid form): two spelled words with the same gap kind throughout
  * ("F R E E Q U O T E S"); a gap that is not one of the four ("F - R - E - E", "F · R · E · E", "F . R . E . E", "F/R/E/E", "F,R,E,E",
  * "F'R'E'E", "F+R+E+E", "F:R:E:E", "F…R…E…E"), in line with a spaced separator reading as a list; a gap kind that changes inside one
  * spelled word ("N O-C-H-A-R-G-E", and the hyphen between two space-spelled words, "S A M E-D A Y service", "F R E E-Q U O T E S"); two single-letter words
  * before a spelled word ("I a F R E E": only one letter is kept apart); a single-letter word before a space-spelled word that a word spelled
  * with another gap kind follows ("Get a F R E E E-S-T-I-M-A-T-E", "Book a S A M E D-A-Y visit": two spelling styles in one phrase);
- * and a two-way look-alike read its SECOND way inside a run ("I N S ʋ R E D", "I N S Ʋ R E D": ʋ/Ʋ as u, ꞵ as ß, ꟾ as l), because runs
- * are joined only on the bases (readings below). Single-way look-alikes inside a run ("ƒ R E E", "F R Ǝ E") and "F·R·E·E" and "F_R_E_E"
- * are read.
+ * a spelled word glued after a letter and an apostrophe ("Our'F R E E estimates", "Our`F R E E estimates": the apostrophe guard makes
+ * its first letter no single letter); and a two-way look-alike read its SECOND way inside a run ("I N S ʋ R E D", "I N S Ʋ R E D":
+ * ʋ/Ʋ as u, ꞵ as ß, ꟾ as l), because runs are joined only on the bases (readings below). Single-way look-alikes inside a run
+ * ("ƒ R E E", "F R Ǝ E") and "F·R·E·E" and "F_R_E_E" are read.
  * Glued symbol separators and "_" need no gap character here: the join runs on the bases that already read them as a space.
  */
 const APOSTROPHES = "'\\u2019\\u2018\\u02BC\\u0060\\u2032\\u201B";
