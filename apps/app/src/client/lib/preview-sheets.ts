@@ -1,4 +1,5 @@
 import type { DesignStylesheets } from "@asksite/renderer";
+import type { FlushResult } from "./autosave.ts";
 
 /** Where the preview's design stylesheets stand: loading (the lazy chunk), ready, or failed (counted, so a repeat is told from a first). */
 export type SheetsState = { status: "loading"; failures: number } | { status: "ready"; sheets: DesignStylesheets } | { status: "failed"; failures: number };
@@ -40,10 +41,13 @@ export function previewFailureText(failures: number, afterReload: boolean): stri
   return failures >= 2 || afterReload ? PREVIEW_STILL_FAILING : PREVIEW_FIRST_FAILURE;
 }
 
-/** Saves what is typed, then reloads; a failed save (or one that throws) reloads nothing, so no change is lost. Returns whether it reloaded. */
-export async function reloadAfterSave(flush: () => Promise<boolean>, reload: () => void): Promise<boolean> {
+/**
+ * Saves what is typed, then reloads; a failed save (or one that throws) reloads nothing, so no change is lost, and neither does a
+ * save that dropped the owner's wording ("dropped": they are told first). Returns true when it reloaded, else why it did not.
+ */
+export async function reloadAfterSave(flush: () => Promise<FlushResult>, reload: () => void): Promise<true | false | "dropped"> {
   const saved = await flush().catch(() => false);
-  if (!saved) return false;
+  if (saved !== true) return saved;
   reload();
   return true;
 }

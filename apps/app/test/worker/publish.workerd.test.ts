@@ -210,6 +210,35 @@ describe("POST /api/sites/:siteId/publish-requests", () => {
     expect(await versionCount(built.siteId)).toBe(0);
   });
 
+  // Honesty: the claims check runs again on every compose, against the answers as they are now.
+  it("an answer changed after the build makes publish refuse an unbacked claim", async () => {
+    const licensed = { ...VALID_FACTS, licences: [{ label: "Master plumber", number: "M-1234" }] };
+    const built = await withSlug(await builtOwner(h, licensed, VALID_BRIEF), "claims-recheck-plumbing");
+    const { ai } = await view(built);
+    expect(ai).not.toBeNull();
+    // An owner edit bound to the current generation says "Licensed"; the licence in the answers backs it.
+    const edits = { baseGenerationId: ai!.generationId, copy: { ctaText: "Licensed plumber" }, order: null, hidden: [], theme: null };
+    const edited = await h.call("PATCH", `/api/sites/${built.siteId}/draft`, { cookie: built.cookie, body: { rev: built.rev, edits } });
+    expect(edited.status).toBe(200);
+    const backed = await view(built);
+    expect(SiteDocument.safeParse(composeDocument(backed.facts, { generationId: ai!.generationId, draft: ai!.draft }, backed.edits)).success).toBe(true);
+
+    // The owner removes the licence: an answer-only save, no edits.
+    const cleared = await h.call("PATCH", `/api/sites/${built.siteId}/draft`, { cookie: built.cookie, body: { rev: backed.rev, facts: { ...VALID_FACTS, licences: [] } } });
+    expect(cleared.status).toBe(200);
+    const { rev } = await view(built);
+
+    const before = await versionCount(built.siteId);
+    const res = await h.call("POST", `/api/sites/${built.siteId}/publish-requests`, { cookie: built.cookie, body: { rev } });
+    expect(res.status).toBe(422);
+    const body = await json<{ error: { code: string; issues?: Array<{ path: unknown[]; code: string; message: string }> } }>(res);
+    expect(body.error.code).toBe("publish_invalid");
+    const claim = body.error.issues?.find((issue) => issue.path[0] === "copy" && issue.message.includes("Licensed"));
+    expect(claim).toBeDefined();
+    expect(await versionCount(built.siteId)).toBe(before);
+    expect(before).toBe(0);
+  });
+
   it("refuses a stale rev with 409 conflict", async () => {
     const owner = await withSlug(await builtOwner(h, VALID_FACTS, VALID_BRIEF), "stale-rev-plumbing");
     const res = await h.call("POST", `/api/sites/${owner.siteId}/publish-requests`, { cookie: owner.cookie, body: { rev: owner.rev - 1 } });

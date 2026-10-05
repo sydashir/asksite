@@ -13,15 +13,32 @@ export interface DraftPatch {
 
 export type SaveStatus = "idle" | "pending" | "saving" | "saved" | "error" | "conflict";
 
+/**
+ * `refused` is set only when the server stored NOTHING because new wording is being written (generation_in_progress). The save is
+ * not retried and its change is not kept as unsaved: the caller has put the draft back to what the server holds, and the owner is told.
+ */
 export type SaveResult =
-  | { ok: true; rev: number; issues: SiteView["issues"] }
-  | { ok: false; conflict: boolean; message: string };
+  | { ok: true; rev: number; issues: SiteView["issues"]; wordingDropped?: true }
+  | { ok: false; conflict: boolean; message: string; refused?: true };
 
 export interface SaverState {
   status: SaveStatus;
   rev: number;
   issues?: SiteView["issues"];
   message?: string;
+  /**
+   * Up from the first save that applied without the owner's wording or order change (new wording had arrived: the server's
+   * wording_changed) until the owner has seen it. Every later state of the run carries it; a later 'saved' never clears it.
+   */
+  wordingDropped?: true;
+  /** With wordingDropped: the change was refused while new wording is being written (not because new wording arrived), so the notice says that. */
+  droppedWhileWriting?: true;
+}
+
+/** An unseen drop as a replacement saver must carry it: which notice it is, and whether a leave was already stopped for it. */
+export interface DropState {
+  stopped: boolean;
+  whileWriting: boolean;
 }
 
 /**
@@ -29,6 +46,9 @@ export interface SaverState {
  * (the owner asked for the newer version on purpose). A failed save keeps its unsaved values: replacing them would lose them.
  */
 export const mayReplaceDraft = (saved: boolean, status: SaveStatus): boolean => saved || status === "conflict";
+
+/** What flush answers: true (all saved), false (not saved), or "dropped" (saved, but the owner's wording change was not applied and they have not been told yet). */
+export type FlushResult = boolean | "dropped";
 
 export type SendPatch = (rev: number, patch: DraftPatch) => Promise<SaveResult>;
 
@@ -38,12 +58,20 @@ export class AutoSaver {
   private running: Promise<void> | null = null;
   private rev: number;
   private status: SaveStatus = "idle";
+  private last: SaverState;
+  // The run-level notice: set by a save that dropped the owner's wording, cleared only by the owner having seen it.
+  private wordingDropped = false;
+  // A leaving action has already been stopped for this drop; the next one goes through.
+  private stopped = false;
+  // The drop is a refusal made while new wording is being written (it has its own notice).
+  private whileWriting = false;
   private readonly send: SendPatch;
   private readonly report: (state: SaverState) => void;
   private readonly delayMs: number;
 
   constructor(rev: number, send: SendPatch, report: (state: SaverState) => void, delayMs = 800) {
     this.rev = rev;
+    this.last = { status: "idle", rev };
     this.send = send;
     this.report = report;
     this.delayMs = delayMs;
@@ -66,10 +94,54 @@ export class AutoSaver {
   }
 
   /** Save everything now. Resolves true when nothing is left unsaved. */
-  async flush(): Promise<boolean> {
+  async saveNow(): Promise<boolean> {
     clearTimeout(this.timer);
     await this.run();
     return this.status !== "conflict" && this.status !== "error" && Object.keys(this.pending).length === 0;
+  }
+
+  /**
+   * saveNow for an action that leaves the editor (Publish, Messages, reload, a link). When the owner's wording change was dropped
+   * and they have not been told yet, it answers "dropped" so the action stops; an attempt that STARTS after the owner was stopped once
+   * (and is not itself the one that found the drop) clears the notice and goes on. Whether this is the second attempt is decided
+   * before anything is awaited: a double click runs two flushes over one save, and both of them stop.
+   */
+  async flush(): Promise<FlushResult> {
+    const secondAttempt = this.wordingDropped && this.stopped;
+    if (!(await this.saveNow())) return false;
+    if (!this.wordingDropped) return true;
+    if (secondAttempt) {
+      this.acknowledgeDrop();
+      return true;
+    }
+    this.stopped = true;
+    return "dropped";
+  }
+
+  /** The drop that is up and not dismissed, or null: a replacement saver must carry it (restoreDrop) or it is lost. */
+  get unseenDrop(): DropState | null {
+    return this.wordingDropped ? { stopped: this.stopped, whileWriting: this.whileWriting } : null;
+  }
+
+  /** The owner has seen the notice (dismissed it, or tried again): it goes, and nothing stops them again for this drop. */
+  acknowledgeDrop(): void {
+    if (!this.wordingDropped) return;
+    this.wordingDropped = false;
+    this.stopped = false;
+    this.whileWriting = false;
+    const { wordingDropped: _seen, droppedWhileWriting: _writing, ...rest } = this.last;
+    this.update(rest);
+  }
+
+  /**
+   * Raises the notice for a drop this saver did not see happen: one found while the editor was closing (its save finished after the
+   * screen went: not stopped yet) or one carried over an in-page reload (stopped as it was: the same drop never stops a leave twice).
+   */
+  restoreDrop(drop: DropState = { stopped: false, whileWriting: false }): void {
+    this.wordingDropped = true;
+    this.stopped = drop.stopped;
+    this.whileWriting = drop.whileWriting;
+    this.update({ ...this.last });
   }
 
   dispose(): void {
@@ -91,7 +163,28 @@ export class AutoSaver {
       const result = await this.sendSafely(patch);
       if (result.ok) {
         this.rev = result.rev;
-        this.update({ status: Object.keys(this.pending).length > 0 ? "saving" : "saved", rev: this.rev, issues: result.issues });
+        if (result.wordingDropped === true) {
+          this.wordingDropped = true;
+          this.stopped = false;
+          this.whileWriting = false;
+        }
+        this.update({
+          status: Object.keys(this.pending).length > 0 ? "saving" : "saved",
+          rev: this.rev,
+          issues: result.issues,
+        });
+        continue;
+      }
+      if (result.refused === true) {
+        // Stored nothing, and the draft was put back to what the server holds: there is no unsaved value to keep and nothing to send again.
+        // Anything typed while this save was in flight is dropped with the reset (the screen was reset to the stored values, so it is not
+        // on screen either): it is never sent later, when the rewrite may have ended, behind the owner's back.
+        clearTimeout(this.timer);
+        this.pending = {};
+        this.wordingDropped = true;
+        this.stopped = false;
+        this.whileWriting = true;
+        this.update({ status: "saved", rev: this.rev, ...(this.last.issues === undefined ? {} : { issues: this.last.issues }) });
         continue;
       }
       // Keep the unsaved values; anything typed meanwhile is newer and wins.
@@ -112,6 +205,7 @@ export class AutoSaver {
 
   private update(state: SaverState): void {
     this.status = state.status;
-    this.report(state);
+    this.last = this.wordingDropped ? { ...state, wordingDropped: true, ...(this.whileWriting ? { droppedWhileWriting: true as const } : {}) } : state;
+    this.report(this.last);
   }
 }

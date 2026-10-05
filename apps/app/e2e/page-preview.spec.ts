@@ -55,9 +55,18 @@ type Harness = Window & { show: (html: string) => void; showMany: (list: string[
 
 /** Opens the harness page and returns what both tests share. */
 async function openHarness(page: Page) {
-  const bundle = (await harnessBundle()).replaceAll("</script", "<\\/script");
+  const bundle = await harnessBundle();
+  // The page carries the app's real policy (read from GET /), so the sandboxed srcdoc frame inherits what the owner's frame inherits.
+  // The bundle is a script file of the page's own origin, because the policy (script-src 'self') blocks an inline one.
+  const policy = (await page.request.get(`${APP}/`)).headers()["content-security-policy"] ?? "";
+  expect(policy).toContain("font-src");
+  await page.route(`${APP}/__preview-harness.js`, (route) => route.fulfill({ contentType: "text/javascript", body: bundle }));
   await page.route(`${APP}/__preview-harness`, (route) =>
-    route.fulfill({ contentType: "text/html; charset=utf-8", body: `<!doctype html><meta charset="utf-8"><title>harness</title><div id="root"></div><script>${bundle}</script>` }),
+    route.fulfill({
+      contentType: "text/html; charset=utf-8",
+      headers: { "content-security-policy": policy },
+      body: `<!doctype html><meta charset="utf-8"><title>harness</title><div id="root"></div><script src="/__preview-harness.js"></script>`,
+    }),
   );
   await page.goto(`${APP}/__preview-harness`);
   const frame = page.frameLocator("iframe");
@@ -126,4 +135,22 @@ test("rapid updates show the last document and never say links are turned off", 
   await expect(linksOff).toHaveCount(0);
   await expect(page.locator("iframe")).toHaveAttribute("data-first", "yes");
   await expect(frame.locator("h1")).toHaveText("Third draft");
+});
+
+// A synthetic font made for this test: one square glyph for "A" and an empty .notdef, 284 bytes, built locally with fontTools 4.62.1
+// (FontBuilder, then flavor "woff2"). It is our own drawing, not derived from any third-party font, so it carries no licence.
+// TODO: when the Bold design's real face lands in site-css, switch this test to it.
+const PROBE_FONT = "d09GMgABAAAAAAEcAAoAAAAAAmwAAADWAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAABmAANAocNgE2AiQDCAsGAAQgBVoHJhvLAUiuDngu+g4F+4IE3zLNyVxm4vls5N6fnU1PUA36FBpLKkEh6ziFxDikrbMc8fXoDXF/jk+OjyyPUkrzYEHyyv964MSRC66HT50cn+gAcqBjoB5ZGraAEgw8ZJFi06Sn7qJRh2RqZoB7FfZU3SUoDOwMwU67RGvB/l8WSwAUaASNCWhAejPP+uN4GgjC59fjz3g5xh/8fD9U1weqQ42hQBiXUEcfqsQAgMoJzGGUFlAAAGh3AmIioCxMQ3ol1rablHMXT23iGfUBmbMSOGhvhCNqErc=";
+
+// The Bold design embeds one font as a data: woff2. The preview frame inherits the app's `font-src 'self' data:`; this proves the face
+// really loads there, so what the owner previews is what publishes. No timing: load() settles once the face has loaded or failed.
+test("a data: font in the preview frame loads under the app's policy", async ({ page }) => {
+  const { frame, show } = await openHarness(page);
+  await show(`<style>@font-face{font-family:"Probe";src:url(data:font/woff2;base64,${PROBE_FONT}) format("woff2")}h1{font-family:"Probe"}</style><h1>A</h1>`);
+  const faces = await frame.locator("h1").evaluate(async () => {
+    await document.fonts.load('16px "Probe"', "A").catch(() => []);
+    await document.fonts.ready;
+    return [...document.fonts].map((face) => `${face.family.replaceAll('"', "")} ${face.status}`);
+  });
+  expect(faces).toEqual(["Probe loaded"]);
 });

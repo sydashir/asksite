@@ -15,7 +15,7 @@ import type { SiteDocument } from "@asksite/site-schema";
 // properties with function types, not methods: TypeScript compares method parameters bivariantly,
 // so with method syntax a real function that needs more than the port promises would still pass.
 
-/** Plan 2's codes: design §7.2 plus `publish_cap_reached` (its decision 25), `site_not_found` (decision 28) and `live_copy_failed` (A16; only Approve throws it). */
+/** Plan 2's codes: design §7.2 plus `publish_cap_reached` (its decision 25), `site_not_found` (decision 28) and `live_copy_failed` (A16; only Approve throws it) and `site_busy` (A16-4c; admin actions only). */
 export type PublishErrorCode =
   | "render_failed"
   | "nothing_pending"
@@ -25,7 +25,8 @@ export type PublishErrorCode =
   | "not_live"
   | "publish_cap_reached"
   | "site_not_found"
-  | "live_copy_failed";
+  | "live_copy_failed"
+  | "site_busy";
 
 export interface PublishErrorLike extends Error {
   readonly code: PublishErrorCode;

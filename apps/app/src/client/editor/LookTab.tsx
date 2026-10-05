@@ -28,10 +28,10 @@ function Swatch({ colors }: { colors: Colors }) {
 }
 
 /** One radio with its label box. `thumbnail` is a small picture of the design, for when thumbnails exist (decorative: the name says it all). */
-function Option(props: { id: string; group: string; checked: boolean; onChange: () => void; children: ReactNode; aside?: ReactNode; thumbnail?: string }) {
+function Option(props: { id: string; group: string; checked: boolean; readOnly: boolean; onChange: () => void; children: ReactNode; aside?: ReactNode; thumbnail?: string }) {
   return (
     <div className="flex items-center gap-3 rounded-lg border border-slate-300 bg-white p-3">
-      <input id={props.id} type="radio" name={props.group} className="size-6 shrink-0 accent-blue-700" checked={props.checked} onChange={props.onChange} />
+      <input id={props.id} type="radio" name={props.group} className="size-6 shrink-0 accent-blue-700" checked={props.checked} aria-disabled={props.readOnly} onChange={props.onChange} />
       {props.thumbnail === undefined ? null : <img src={props.thumbnail} alt="" className="h-14 w-20 shrink-0 rounded border border-slate-300 object-cover object-top" />}
       <label htmlFor={props.id} className="flex flex-1 flex-wrap items-center justify-between gap-2">
         <span>{props.children}</span>
@@ -46,7 +46,7 @@ function Option(props: { id: string; group: string; checked: boolean; onChange: 
  * it is none of them). Picking one changes only its own part of the theme: the writers merge into the current theme and
  * never write null, so the other part, and the AI's choice, are kept (A12).
  */
-export function LookTab({ aiTheme, edits, trade, setEdits }: { aiTheme: Theme; edits: OwnerEdits; trade: unknown; setEdits: (edits: OwnerEdits) => void }) {
+export function LookTab({ aiTheme, edits, trade, readOnly, setEdits }: { aiTheme: Theme; edits: OwnerEdits; trade: unknown; readOnly: boolean; setEdits: (edits: OwnerEdits) => void }) {
   const current: Theme = edits.theme ?? aiTheme;
   const recommendedDesign = typeof trade === "string" && (TRADES as readonly string[]).includes(trade) ? designForTrade(trade as (typeof TRADES)[number]) : null;
   const recommendedLook = LOOKS.find((look) => sameColors(look.theme, aiTheme));
@@ -61,7 +61,7 @@ export function LookTab({ aiTheme, edits, trade, setEdits }: { aiTheme: Theme; e
         <p className="mt-1 text-sm text-slate-600">How your page is laid out and drawn. Your words and photos stay.</p>
         <div className="mt-3 space-y-3">
           {PAGE_DESIGNS.map((design) => (
-            <Option key={design.id} id={`design-${design.id}`} group="design" checked={current.design === design.id} onChange={() => setEdits({ ...edits, theme: { ...current, design: design.id } })}>
+            <Option key={design.id} id={`design-${design.id}`} group="design" checked={current.design === design.id} readOnly={readOnly} onChange={() => setEdits({ ...edits, theme: { ...current, design: design.id } })}>
               <span className="font-medium">{design.name}</span>
               {design.id === recommendedDesign ? <span className="text-slate-600"> (recommended for you)</span> : null}
               <span className="block text-sm text-slate-600">{DESIGN_BLURB[design.id]}</span>
@@ -80,6 +80,7 @@ export function LookTab({ aiTheme, edits, trade, setEdits }: { aiTheme: Theme; e
               id={`colors-${option.id}`}
               group="colors"
               checked={sameColors(current, option.colors)}
+              readOnly={readOnly}
               onChange={() => setEdits({ ...edits, theme: { ...current, palette: option.colors.palette, font: option.colors.font } })}
               aside={<Swatch colors={option.colors} />}
             >

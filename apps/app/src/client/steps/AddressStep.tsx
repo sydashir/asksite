@@ -16,7 +16,7 @@ const REASON_TEXT: Record<Reason, string> = {
 };
 
 /** Step 7: choose the web address, with a live availability check (§3.1 step 3.7). */
-export function AddressStep({ siteId, view, site, facts, errors }: StepProps) {
+export function AddressStep({ siteId, view, site, facts, errors, frozen }: StepProps) {
   const locked = view.live || view.inReview || view.liveVersion !== null;
   const [value, setValue] = useState(view.slug ?? suggestSlug(facts["businessName"]));
   const [check, setCheck] = useState<{ ok: boolean; text: string } | null>(null);
@@ -52,11 +52,12 @@ export function AddressStep({ siteId, view, site, facts, errors }: StepProps) {
   const cannotSave = saving || value === view.slug || check?.ok !== true;
 
   async function save() {
-    if (cannotSave) return;
+    if (frozen || cannotSave) return;
     setSaving(true);
     await site.exclusive(async () => {
-      // The address is saved against the newest rev: if the owner's latest answers did not save, say so and stop.
-      if (!(await site.flush())) {
+      // The address is saved against the newest rev: if the owner's latest answers did not save, say so and stop. Not a leave, so it
+      // uses saveNow: it never uses up the stop owed for a dropped wording change (the notice is carried through the reload instead).
+      if (!(await site.retry())) {
         setUnsaved(true);
         return;
       }

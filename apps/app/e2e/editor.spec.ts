@@ -1,7 +1,8 @@
 import { PALETTES } from "@asksite/renderer";
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Browser, type Page, type Request } from "@playwright/test";
+import sharp from "sharp";
 import { sheetsChunk } from "./dist-assets.ts";
-import { acceptInvite, apiCall, APP, BRIEF, builtSite, expectAccessible, expectNoSidewaysScroll, FACTS, finishGeneration, showPreview, watchCsp } from "./support.ts";
+import { acceptInvite, apiCall, APP, BRIEF, builtSite, expectAccessible, expectNoSidewaysScroll, FACTS, finishGeneration, showPreview, uniqueSlug, watchCsp } from "./support.ts";
 
 const FRAME = 'iframe[title="Preview of your website"]';
 const previewHtml = (page: Page) => page.locator(FRAME).getAttribute("srcdoc");
@@ -450,32 +451,40 @@ async function holdNextSiteGet(page: Page, siteId: string) {
   return gate;
 }
 
-test("a change that could not be saved survives new wording, with its warning, and saves once saving works", async ({ page }) => {
+test("new wording does not start while a change could not be saved; once it is saved, it starts and the change stays", async ({ page }) => {
   const siteId = await openEditor(page);
   let failing = true;
   await page.route(`**/api/sites/${siteId}/draft`, (route) =>
     failing ? route.fulfill({ status: 500, json: { error: { code: "internal", message: "Something went wrong. Please try again." } } }) : route.fallback(),
   );
+  const asked: string[] = [];
+  page.on("request", (r) => r.method() === "POST" && r.url().endsWith(`/api/sites/${siteId}/generations`) && asked.push(r.url()));
   await page.getByRole("tab", { name: "Look" }).click();
   await green(page).check();
   await expect(page.getByRole("status").filter({ hasText: NOT_SAVED })).toBeVisible();
 
-  const id = await askNewWording(page, siteId);
-  await finishGeneration(page.request, id);
-  await expect(page.getByText("New wording is ready.")).toBeVisible({ timeout: 15_000 });
-
-  await expect(page.getByRole("status").filter({ hasText: NOT_SAVED })).toBeVisible();
-  await page.getByRole("tab", { name: "Look" }).click();
-  await expect(green(page)).toBeChecked();
-  expect(await savedTheme(page, siteId)).not.toBe("green-amber");
+  // The rewrite flushes first: the change cannot be saved, so the rewrite does not start and the editor is not frozen.
+  await page.getByRole("tab", { name: "Words" }).click();
+  await page.getByRole("button", { name: "Write new wording" }).click();
+  await page.getByRole("dialog", { name: "Write new wording?" }).getByRole("button", { name: "Write new wording" }).click();
+  await expect(page.getByText("Your latest changes are not saved yet. Please try again in a moment.")).toBeVisible();
+  await expect(page.getByText(WRITING_LOCK)).toHaveCount(0);
+  expect(asked).toEqual([]);
 
   failing = false;
   await page.getByRole("button", { name: "Try again" }).click();
   await expect(savedStatus(page)).toBeVisible();
   expect(await savedTheme(page, siteId)).toBe("green-amber");
+
+  const id = await askNewWording(page, siteId);
+  await finishGeneration(page.request, id);
+  await expect(page.getByText("New wording is ready.")).toBeVisible({ timeout: 15_000 });
+  await page.getByRole("tab", { name: "Look" }).click();
+  await expect(green(page)).toBeChecked();
+  expect(await savedTheme(page, siteId)).toBe("green-amber");
 });
 
-test("a change made while new wording arrives is kept on screen and saved", async ({ page }) => {
+test("while new wording is being loaded the editor stays locked; a change made once it is ready is saved", async ({ page }) => {
   const siteId = await openEditor(page);
   const gate = await holdNextSiteGet(page, siteId);
   gate.armed = true;
@@ -483,33 +492,20 @@ test("a change made while new wording arrives is kept on screen and saved", asyn
   await finishGeneration(page.request, id);
   await expect.poll(() => gate.reached, { timeout: 15_000 }).toBe(true);
 
+  // The rewrite has landed but its wording is not on screen yet: still read-only, on every tab.
+  await expect(page.getByText(WRITING_LOCK)).toBeVisible();
   await page.getByRole("tab", { name: "Look" }).click();
-  await green(page).check();
+  await expect(green(page)).toHaveAttribute("aria-disabled", "true");
+  await green(page).click({ force: true });
+  await expect(green(page)).not.toBeChecked();
   gate.release();
   await expect(page.getByText("New wording is ready.")).toBeVisible();
+  await expect(page.getByText(WRITING_LOCK)).toHaveCount(0);
+  expect(await savedTheme(page, siteId)).not.toBe("green-amber");
 
-  await expect(green(page)).toBeChecked();
-  await expect(savedStatus(page)).toBeVisible();
-  await expect.poll(() => savedTheme(page, siteId)).toBe("green-amber");
-});
-
-test("a change saved while new wording arrives stays, and the next change is not refused as another tab's", async ({ page }) => {
-  const siteId = await openEditor(page);
-  const gate = await holdNextSiteGet(page, siteId);
-  gate.armed = true;
-  const id = await askNewWording(page, siteId);
-  await finishGeneration(page.request, id);
-  await expect.poll(() => gate.reached, { timeout: 15_000 }).toBe(true);
-
-  // The held answer is from before this change, so it is stale when it arrives.
-  await page.getByRole("tab", { name: "Look" }).click();
   await green(page).check();
   await expect(savedStatus(page)).toBeVisible();
   await expect.poll(() => savedTheme(page, siteId)).toBe("green-amber");
-  gate.release();
-  await expect(page.getByText("New wording is ready.")).toBeVisible();
-  await expect(green(page)).toBeChecked();
-
   await other(page).check();
   await expect(savedStatus(page)).toBeVisible();
   await expect(page.getByText("This site changed in another tab or window.")).toHaveCount(0);
@@ -589,7 +585,7 @@ test("when the new wording cannot be fetched at first, it is fetched again and l
   await finishGeneration(page.request, id);
   await expect(page.getByText("New wording is ready.")).toBeVisible({ timeout: 15_000 });
   expect(gate.failed).toBe(1);
-  await expect(page.getByText(UNREADABLE)).toHaveCount(0);
+  await expect(page.getByText(UNREADABLE, { exact: true })).toHaveCount(0);
 
   const after = await aiGenerationId(page, siteId);
   expect(after).not.toBe(before);
@@ -606,10 +602,12 @@ test("when the new wording cannot be loaded at all, it says so and wording and s
   const id = await askNewWording(page, siteId);
   gate.armed = true;
   await finishGeneration(page.request, id);
-  await expect(page.getByText(UNREADABLE)).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByText(UNREADABLE, { exact: true })).toBeVisible({ timeout: 20_000 });
   await expect(page.getByText("New wording is ready.")).toHaveCount(0);
   expect(gate.failed).toBe(2); // one try and one retry, never more
   await expect(page.getByRole("button", { name: "Reload the page" })).toBeVisible();
+  // The top line stands alone: it says what happened, what to do and when editing is back.
+  await expect(page.getByText("The new wording is ready, but we couldn't load it. Reload the page to see it. You can edit again when it shows.", { exact: true })).toHaveCount(1);
 
   // Words: focus stays, typing changes nothing.
   const headline = headlineField(page);
@@ -630,14 +628,30 @@ test("when the new wording cannot be loaded at all, it says so and wording and s
   await page.getByLabel("Hide About you").click({ force: true });
   await expect(page.getByLabel("Hide About you")).not.toBeChecked();
 
-  await page.waitForTimeout(1500); // longer than the autosave delay
+  await noChangeQueued(page); // a change that got through the guards would show "Saving…" at once
   expect(bases).toEqual([]);
   expect((await savedEdits(page, siteId)).order).toBeNull();
 
-  // The look does not depend on the AI's wording, so it stays editable.
+  // R3: the WHOLE editor is frozen here, the Look tab too (nothing may change until the new wording is shown).
   await page.getByRole("tab", { name: "Look" }).click();
-  await green(page).check();
-  await expect.poll(() => savedTheme(page, siteId)).toBe("green-amber");
+  await expect(green(page)).toHaveAttribute("aria-disabled", "true");
+  const themeBefore = await savedTheme(page, siteId);
+  await green(page).click({ force: true });
+  await expect(green(page)).not.toBeChecked();
+  await page.getByRole("tab", { name: "Details" }).click();
+  const business = page.getByLabel("Business name");
+  const name = await business.inputValue();
+  await business.focus();
+  await page.keyboard.type("Lost");
+  await expect(business).toHaveValue(name);
+  await page.getByRole("tab", { name: "Photos" }).click();
+  await expect(page.getByRole("group", { name: "Main photo" })).toBeVisible();
+  await expect(page.locator('[role="tabpanel"] [aria-disabled="true"]').first()).toBeVisible();
+  await noChangeQueued(page);
+  expect(bases).toEqual([]);
+  expect(await savedTheme(page, siteId)).toBe(themeBefore);
+  // The existing way out stays: Try again to load it.
+  await expect(page.getByRole("button", { name: "Reload the page" })).toBeVisible();
 });
 
 test("new wording keeps the look the server pinned for an owner who chose none", async ({ page }) => {
@@ -657,4 +671,538 @@ test("new wording keeps the look the server pinned for an owner who chose none",
   expect(pinned?.design).toBe("impact");
   await page.getByRole("tab", { name: "Look" }).click();
   await expect(page.locator("#design-impact")).toBeChecked();
+});
+
+// STRICT (customer data): the edit-binding guard. Wording is bound to the AI draft it was written on; the server refuses a wording
+// change on any other (409 wording_changed), so the editor never says "All changes saved." for a change that would be dropped.
+/** Nothing is queued for saving: the status shows "Saving…" the moment a change reaches the saver, so absence needs no clock. */
+const noChangeQueued = (page: Page) => expect(page.getByText("Saving…")).toHaveCount(0);
+
+const WRITING_LOCK = "Writing new wording. You can edit again when it is ready.";
+const WRITING_DROPPED = "New wording is being written. Your last change was not saved. Make it again when the new wording is ready.";
+const WORDING_DROPPED = "New wording arrived, so your last wording change wasn't applied. Make it again on the new wording if you still want it.";
+
+/** Tab A shows the first wording (roofing is set so the new wording differs); tab B, the same owner, writes new wording and it lands. */
+async function staleTab(page: Page, browser: Browser) {
+  const siteId = await builtSite(page);
+  const rev = (await siteView(page, siteId))["rev"] as number;
+  expect((await apiCall(page, "PATCH", `/api/sites/${siteId}/draft`, { rev, facts: { ...FACTS, trade: "roofing" } })).status).toBe(200);
+  const first = ((await siteView(page, siteId))["ai"] as { generationId: string }).generationId;
+  await page.goto(`/sites/${siteId}/edit`);
+  await expect(headlineField(page)).toHaveValue("Plumbing done right");
+
+  // Tab B: the same owner in another browser context writes new wording, and it lands.
+  const other = await browser.newContext({ baseURL: APP, ignoreHTTPSErrors: true, storageState: await page.context().storageState() });
+  const tabB = await other.newPage();
+  await tabB.goto(`/sites/${siteId}/edit`);
+  await expect(headlineField(tabB)).toHaveValue("Plumbing done right");
+  const id = await askNewWording(tabB, siteId);
+  await finishGeneration(tabB.request, id);
+  await expect(tabB.getByText("New wording is ready.")).toBeVisible({ timeout: 15_000 });
+  await other.close();
+  const second = ((await siteView(page, siteId))["ai"] as { generationId: string }).generationId;
+  expect(second).not.toBe(first);
+  return { siteId, first, second };
+}
+
+test("a wording change in a tab that missed new wording is refused, said so, and never stored", async ({ page, browser }) => {
+  const { siteId, first, second } = await staleTab(page, browser);
+
+  // Tab A still shows the first wording. Its owner changes the headline.
+  await headlineField(page).fill("My own headline");
+  await expect(page.getByRole("status").filter({ hasText: WORDING_DROPPED })).toBeVisible();
+  await expect(savedStatus(page)).toHaveCount(0);
+  // The server kept nothing built on the old wording, and tab A now shows the new wording.
+  const stored = (await siteView(page, siteId))["edits"] as { baseGenerationId: string | null; copy: object };
+  expect(stored.baseGenerationId).not.toBe(first);
+  expect(stored.copy).toEqual({});
+  await expect(headlineField(page)).toHaveValue("Roofing done right");
+
+  // Making the change again on the new wording works and is saved as such (the owner dismisses the notice they have read).
+  await page.getByRole("button", { name: "Dismiss" }).click();
+  await headlineField(page).fill("My own headline");
+  await expect(savedStatus(page)).toBeVisible();
+  const again = (await siteView(page, siteId))["edits"] as { baseGenerationId: string | null; copy: { heroHeadline?: string } };
+  expect(again.baseGenerationId).toBe(second);
+  expect(again.copy.heroHeadline).toBe("My own headline");
+});
+
+test("an editor opened while new wording is being written follows it, and the next change lands on the new wording", async ({ page }) => {
+  const siteId = await openEditor(page);
+  const first = ((await siteView(page, siteId))["ai"] as { generationId: string }).generationId;
+  const id = await askNewWording(page, siteId);
+  await page.reload();
+  await expect(page.getByRole("heading", { level: 1, name: "Edit your website" })).toBeFocused();
+  await expect(page.getByRole("status").filter({ hasText: "Writing new wording…" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Write new wording" })).toBeDisabled();
+  // The lock shows after a reload too: typing changes nothing until the new wording is shown.
+  await expect(page.getByText(WRITING_LOCK)).toBeVisible();
+  const typed = headlineField(page);
+  const shown = await typed.inputValue();
+  await typed.focus();
+  await page.keyboard.type("Lost");
+  await expect(typed).toHaveValue(shown);
+
+  await finishGeneration(page.request, id);
+  await expect(page.getByText("New wording is ready.")).toBeVisible({ timeout: 15_000 });
+  const second = ((await siteView(page, siteId))["ai"] as { generationId: string }).generationId;
+  expect(second).not.toBe(first);
+
+  await headlineField(page).fill("My own headline");
+  await expect(savedStatus(page)).toBeVisible();
+  const stored = (await siteView(page, siteId))["edits"] as { baseGenerationId: string | null; copy: { heroHeadline?: string } };
+  expect(stored.baseGenerationId).toBe(second);
+  expect(stored.copy.heroHeadline).toBe("My own headline");
+});
+
+// STRICT (customer data): the notice is never lost, and nothing leaves the editor over a dropped change without the owner seeing it first.
+test("a stale tab edits the headline and presses Publish at once: it stays here with the notice, and the second press goes on", async ({ page, browser }) => {
+  const { siteId, first } = await staleTab(page, browser);
+  const publish = page.getByRole("link", { name: "Publish" });
+
+  await headlineField(page).fill("My own headline");
+  await publish.click();
+  const notice = page.getByRole("status").filter({ hasText: WORDING_DROPPED });
+  await expect(notice).toBeVisible();
+  await expect(notice).toBeFocused();
+  await expect(page.getByRole("button", { name: "Dismiss" })).toBeVisible();
+  await expect(savedStatus(page)).toHaveCount(0);
+  expect(new URL(page.url()).pathname).toBe(`/sites/${siteId}/edit`);
+  const stored = (await siteView(page, siteId))["edits"] as { baseGenerationId: string | null; copy: object };
+  expect(stored.baseGenerationId).not.toBe(first);
+  expect(stored.copy).toEqual({});
+
+  await publish.click();
+  await page.waitForURL(`${APP}/sites/${siteId}/publish`);
+});
+
+/** Every draft save the page sends: a rewrite freezes the editor, so none may go out while it runs. */
+function watchEverySave(page: Page, siteId: string) {
+  const sent: string[] = [];
+  page.on("request", (request) => request.method() === "PATCH" && request.url().endsWith(`/api/sites/${siteId}/draft`) && sent.push(request.postData() ?? ""));
+  return sent;
+}
+
+// STRICT (customer data, round 4): from the request for new wording until it is shown (or it fails) the WHOLE editor is read-only: every
+// tab, aria-disabled and a guard, focus kept, one message. Nothing is saved while it runs.
+test("while new wording is being written every tab is read-only, focus stays, and no save is sent", async ({ page }) => {
+  const siteId = await openEditor(page);
+  await headlineField(page).fill("My saved headline");
+  await expect(savedStatus(page)).toBeVisible();
+  const sent = watchEverySave(page, siteId);
+  const id = await askNewWording(page, siteId);
+
+  const lock = page.getByText(WRITING_LOCK);
+  await expect(lock).toHaveCount(1);
+  const headline = headlineField(page);
+  await headline.focus();
+  await page.keyboard.type("Lost");
+  await expect(headline).toHaveValue("My saved headline");
+  await expect(headline).toBeFocused();
+  await expect(page.getByRole("button", { name: "Add a question" })).toHaveAttribute("aria-disabled", "true");
+
+  await page.getByRole("tab", { name: "Sections" }).click();
+  await expect(lock).toHaveCount(1);
+  const move = page.getByRole("button", { name: "Move Questions and answers up" });
+  await expect(move).toHaveAttribute("aria-disabled", "true");
+  await move.click({ force: true });
+  const hide = page.getByLabel("Hide About you");
+  await expect(hide).toHaveAttribute("aria-disabled", "true");
+  await hide.click({ force: true });
+  await expect(hide).not.toBeChecked();
+
+  await page.getByRole("tab", { name: "Look" }).click();
+  await expect(lock).toHaveCount(1);
+  await expect(green(page)).toHaveAttribute("aria-disabled", "true");
+  await green(page).click({ force: true });
+  await expect(green(page)).not.toBeChecked();
+
+  await page.getByRole("tab", { name: "Details" }).click();
+  await expect(lock).toHaveCount(1);
+  const business = page.getByLabel("Business name");
+  const name = await business.inputValue();
+  await business.focus();
+  await page.keyboard.type("Lost");
+  await expect(business).toHaveValue(name);
+  await expect(business).toBeFocused();
+
+  await page.getByRole("tab", { name: "Photos" }).click();
+  await expect(lock).toHaveCount(1);
+  await expect(page.getByRole("group", { name: "Main photo" })).toBeVisible();
+  await expect(page.locator('[role="tabpanel"] [aria-disabled="true"]').first()).toBeVisible();
+
+  await noChangeQueued(page);
+  expect(sent).toEqual([]);
+
+  await finishGeneration(page.request, id);
+  await expect(page.getByText("New wording is ready.")).toBeVisible({ timeout: 15_000 });
+  await page.getByRole("tab", { name: "Words" }).click();
+  await expect(lock).toHaveCount(0);
+  await headlineField(page).fill("Typed when it was ready");
+  await expect(savedStatus(page)).toBeVisible();
+  expect(((await savedEdits(page, siteId)) as { copy: { heroHeadline?: string } }).copy.heroHeadline).toBe("Typed when it was ready");
+});
+
+// STRICT (customer data, round 4): a failed rewrite lifts the lock with the existing text, and the stored edits were never touched.
+test("a failed rewrite lifts the lock and says so; the stored edits are untouched and editing works again", async ({ page }) => {
+  const siteId = await openEditor(page);
+  await headlineField(page).fill("My saved headline");
+  await expect(savedStatus(page)).toBeVisible();
+  const before = await savedEdits(page, siteId);
+  const sent = watchEverySave(page, siteId);
+  const id = await askNewWording(page, siteId);
+  await expect(page.getByText(WRITING_LOCK)).toBeVisible();
+  await finishGeneration(page.request, id, "failed");
+  await expect(page.getByText("We could not write new wording this time. Your current wording is unchanged.")).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText(WRITING_LOCK)).toHaveCount(0);
+  expect(sent).toEqual([]);
+  // Only the look the server pinned when the rewrite was asked for (A12 §3) may differ; wording, order and hidden are exactly as they were.
+  const after = await savedEdits(page, siteId);
+  expect({ copy: after.copy, order: after.order }).toEqual({ copy: before.copy, order: before.order });
+  expect(after.theme).not.toBeNull();
+  await expect(headlineField(page)).toHaveValue("My saved headline");
+
+  await headlineField(page).fill("Typed after the failure");
+  await expect(savedStatus(page)).toBeVisible();
+  expect(((await savedEdits(page, siteId)) as { copy: { heroHeadline?: string } }).copy.heroHeadline).toBe("Typed after the failure");
+});
+
+// STRICT (customer data, guard round 3): one rule for a dropped wording change. Nothing leaves over it unseen, on any page, and no action
+// says "not saved yet" for it.
+const NOT_SAVED_YET = /not saved yet/;
+
+/** Leaves the editor the way the browser's Back does (no leave guard), by the app's own route change. */
+const goBackTo = (page: Page, path: string) =>
+  page.evaluate((to) => {
+    history.pushState(null, "", to);
+    window.dispatchEvent(new PopStateEvent("popstate"));
+  }, path);
+
+/** Tab A's headline change is refused (tab B's new wording landed); its notice is up. */
+async function staleTabDropped(page: Page, browser: Browser) {
+  const stale = await staleTab(page, browser);
+  await headlineField(page).fill("My own headline");
+  await expect(page.getByRole("status").filter({ hasText: WORDING_DROPPED })).toBeVisible();
+  return stale;
+}
+
+// STRICT (customer data, round 4, the other tab): a tab opened BEFORE the rewrite saves a change while it runs. The server refuses it, the tab
+// never sends it again, says exactly why, locks, and nothing stored is erased. A failed rewrite then lifts the lock.
+test("a tab opened before another tab's rewrite cannot save while it runs: it is told, locked, nothing is sent again and nothing is erased", async ({ page, browser }) => {
+  const siteId = await openEditor(page);
+  await headlineField(page).fill("My saved headline");
+  await expect(savedStatus(page)).toBeVisible();
+  const first = await aiGenerationId(page, siteId);
+  const other = await browser.newContext({ baseURL: APP, ignoreHTTPSErrors: true, storageState: await page.context().storageState() });
+  try {
+    const tabB = await other.newPage();
+    await tabB.goto(`/sites/${siteId}/edit`);
+    const id = await askNewWording(tabB, siteId); // queued: the new wording has not landed
+
+    const answers: number[] = [];
+    page.on("response", (r) => r.request().method() === "PATCH" && r.url().endsWith(`/api/sites/${siteId}/draft`) && answers.push(r.status()));
+    await headlineField(page).fill("Changed in the old tab");
+    const notice = page.getByRole("status").filter({ hasText: WRITING_DROPPED });
+    await expect(notice).toBeVisible();
+    await expect(page.getByText(WRITING_LOCK)).toHaveCount(1);
+    await expect(savedStatus(page)).toHaveCount(0);
+    await noChangeQueued(page); // a second send would show "Saving…" at once
+    expect(answers).toEqual([409]);
+    // The stored wording is exactly what it was, and the screen shows it.
+    const stored = (await siteView(page, siteId))["edits"] as { baseGenerationId: string | null; copy: { heroHeadline?: string } };
+    expect(stored.baseGenerationId).toBe(first);
+    expect(stored.copy.heroHeadline).toBe("My saved headline");
+    await expect(headlineField(page)).toHaveValue("My saved headline");
+    // Read-only now: typing changes nothing.
+    await headlineField(page).focus();
+    await page.keyboard.type("Lost");
+    await expect(headlineField(page)).toHaveValue("My saved headline");
+
+    await finishGeneration(tabB.request, id, "failed");
+    await expect(page.getByText("We could not write new wording this time. Your current wording is unchanged.")).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByText(WRITING_LOCK)).toHaveCount(0);
+    expect(((await siteView(page, siteId))["edits"] as { copy: { heroHeadline?: string } }).copy.heroHeadline).toBe("My saved headline");
+    await page.getByRole("button", { name: "Dismiss" }).click();
+    await headlineField(page).fill("Typed when it was ready");
+    await expect(savedStatus(page)).toBeVisible();
+    expect(((await siteView(page, siteId))["edits"] as { copy: { heroHeadline?: string } }).copy.heroHeadline).toBe("Typed when it was ready");
+    expect(answers).toEqual([409, 200]);
+  } finally {
+    await other.close();
+  }
+});
+
+// R3: the Details tab's address Save is not a leave. It saves the address and never uses up the stop owed to the owner.
+test("saving the web address after a dropped wording change saves it, keeps the notice, and Publish still stops once", async ({ page, browser }) => {
+  const { siteId } = await staleTabDropped(page, browser);
+  const slug = uniqueSlug("moved");
+  await page.getByRole("tab", { name: "Details" }).click();
+  await page.getByLabel("Which answers?").selectOption({ label: "Your web address" });
+  await page.getByLabel("Web address").fill(slug);
+  await expect(page.getByText("This address is free. Save it to keep it.")).toBeVisible();
+  await page.getByRole("button", { name: "Save this web address" }).click();
+  await expect.poll(async () => (await siteView(page, siteId))["slug"]).toBe(slug);
+  await expect(page.getByText(NOT_SAVED_YET)).toHaveCount(0);
+  const notice = page.getByRole("status").filter({ hasText: WORDING_DROPPED });
+  await expect(notice).toBeVisible();
+
+  const publish = page.getByRole("link", { name: "Publish" });
+  await publish.click();
+  await expect(notice).toBeFocused();
+  expect(new URL(page.url()).pathname).toBe(`/sites/${siteId}/edit`);
+  await publish.click();
+  await page.waitForURL(`${APP}/sites/${siteId}/publish`);
+});
+
+// R4 (Publish): a drop carried out of the editor is shown on the Publish page, which stops once and never says "not saved yet".
+test("a dropped wording change carried to the Publish page is shown there with Dismiss, stops Publish once, and the second press goes on", async ({ page, browser }) => {
+  const { siteId } = await staleTabDropped(page, browser);
+  const posts: string[] = [];
+  page.on("request", (r) => r.method() === "POST" && r.url().endsWith("/publish-requests") && posts.push(r.url()));
+  await goBackTo(page, `/sites/${siteId}/publish`);
+  const notice = page.getByRole("status").filter({ hasText: WORDING_DROPPED });
+  await expect(notice).toBeVisible();
+  await expect(page.getByRole("button", { name: "Dismiss" })).toBeVisible();
+
+  const send = page.getByRole("button", { name: "Send for review" });
+  await send.click();
+  await expect(notice).toBeFocused();
+  await expect(page.getByText(NOT_SAVED_YET)).toHaveCount(0);
+  expect(posts).toEqual([]);
+
+  await send.click();
+  await expect(page.getByRole("status").filter({ hasText: "Sent for review." })).toBeVisible();
+  expect(posts).toHaveLength(1);
+});
+
+// R4 (Questionnaire): the same on a questionnaire step, which had no Dismiss.
+test("a dropped wording change carried to the questionnaire is shown there with Dismiss, and the first Save and continue stops", async ({ page, browser }) => {
+  const { siteId } = await staleTabDropped(page, browser);
+  await goBackTo(page, `/sites/${siteId}/setup/business`);
+  const notice = page.getByRole("status").filter({ hasText: WORDING_DROPPED });
+  await expect(notice).toBeVisible();
+  await expect(page.getByRole("button", { name: "Dismiss" })).toBeVisible();
+
+  const next = page.getByRole("button", { name: "Save and continue" });
+  await next.click();
+  await expect(notice).toBeFocused();
+  await expect(page.getByText(NOT_SAVED_YET)).toHaveCount(0);
+  expect(new URL(page.url()).pathname).toBe(`/sites/${siteId}/setup/business`);
+  await next.click();
+  await page.waitForURL(`${APP}/sites/${siteId}/setup/**`, { timeout: 15_000 });
+  expect(new URL(page.url()).pathname).not.toBe(`/sites/${siteId}/setup/business`);
+});
+
+// R5 (decision 37): the header link leaves on an ordinary failed save. In a conflict it must not be stuck.
+test("the header link home still works when saving has stopped on a conflict", async ({ page }) => {
+  const siteId = await openEditor(page);
+  const rev = (await siteView(page, siteId))["rev"] as number;
+  expect((await apiCall(page, "PATCH", `/api/sites/${siteId}/draft`, { rev, brief: { tone: "professional", goal: "call" } })).status).toBe(200);
+  await headlineField(page).fill("Typed in a stale tab");
+  await expect(page.getByText("This site changed in another tab or window.")).toBeVisible();
+  await page.getByRole("link", { name: "Your website", exact: true }).click();
+  await expect(page.getByRole("heading", { level: 1, name: "Your websites" })).toBeVisible();
+});
+
+// STRICT (customer data, round 4, the probe): the editor is frozen while the AI writes, so a hide or a look change made then can never
+// carry (or erase) the owner's saved wording. After a failed rewrite the stored wording is exactly what it was.
+test("a hide or look change tried during a rewrite changes nothing, and after a failed rewrite the saved headline is intact", async ({ page }) => {
+  const siteId = await openEditor(page);
+  await headlineField(page).fill("My saved headline");
+  await expect(savedStatus(page)).toBeVisible();
+  expect((await savedEdits(page, siteId)).copy.heroHeadline).toBe("My saved headline");
+  const id = await askNewWording(page, siteId); // queued: the rewrite is running
+  const before = await savedEdits(page, siteId);
+
+  await page.getByRole("tab", { name: "Sections" }).click();
+  await page.getByLabel("Hide About you").click({ force: true });
+  await page.getByRole("tab", { name: "Look" }).click();
+  await green(page).click({ force: true });
+  await noChangeQueued(page);
+  const during = await savedEdits(page, siteId);
+  expect(during).toEqual(before); // neither the hide nor the look was stored, and the headline is intact
+
+  await finishGeneration(page.request, id, "failed");
+  await expect(page.getByText("We could not write new wording this time. Your current wording is unchanged.")).toBeVisible({ timeout: 15_000 });
+  expect((await savedEdits(page, siteId)).copy.heroHeadline).toBe("My saved headline");
+  await page.reload();
+  await expect(headlineField(page)).toHaveValue("My saved headline");
+});
+
+// R2 (the f4 review's E-1 probe): the Trust step's reviews go through the guarded setter. Text entered WITHOUT a key event (IME, dictation,
+// autocorrect) must change nothing and send nothing while the editor is frozen.
+test("while new wording is written, text entered into a review without a key event changes nothing and sends nothing", async ({ page }) => {
+  const siteId = await builtSite(page, { ...FACTS, testimonials: [{ quote: "Fixed our leak the same afternoon.", name: "Ana P." }] });
+  await page.goto(`/sites/${siteId}/edit`);
+  await expect(page.getByRole("heading", { level: 1, name: "Edit your website" })).toBeFocused();
+  await page.getByRole("tab", { name: "Details" }).click();
+  await page.locator("#details-step").selectOption("trust"); // chosen before the freeze: the picker is aria-disabled while frozen
+  const id = await askNewWording(page, siteId);
+  const sent = watchEverySave(page, siteId);
+  await expect(page.getByText(WRITING_LOCK)).toHaveCount(1);
+  await page.getByRole("tab", { name: "Details" }).click();
+  const review = page.getByLabel("Review 1", { exact: true });
+  await expect(review).toHaveValue("Fixed our leak the same afternoon.");
+  await review.focus();
+  await page.keyboard.insertText(" EXTRA");
+  await expect(review).toHaveValue("Fixed our leak the same afternoon.");
+  await noChangeQueued(page);
+  expect(sent).toEqual([]);
+  await finishGeneration(page.request, id, "failed");
+  await expect(page.getByText("We could not write new wording this time. Your current wording is unchanged.")).toBeVisible({ timeout: 15_000 });
+  const stored = (await siteView(page, siteId))["facts"] as { testimonials?: Array<{ quote: string }> };
+  expect(stored.testimonials?.[0]?.quote).toBe("Fixed our leak the same afternoon.");
+});
+
+// R1 (A), the f4 review's I-2 probe: an answer typed on the Questionnaire while another tab's rewrite runs is STORED, even when the owner
+// leaves at once. Answers are not edits.
+test("an answer typed on the questionnaire during another tab's rewrite is stored, even when the owner leaves at once", async ({ page, browser }) => {
+  const siteId = await builtSite(page);
+  const other = await browser.newContext({ baseURL: APP, ignoreHTTPSErrors: true, storageState: await page.context().storageState() });
+  try {
+    const tabB = await other.newPage();
+    await tabB.goto(`/sites/${siteId}/edit`);
+    await expect(headlineField(tabB)).toBeVisible();
+    const id = await askNewWording(tabB, siteId);
+    await page.goto(`/sites/${siteId}/setup/business`);
+    await expect(page.getByRole("heading", { level: 1, name: "Your business" })).toBeVisible();
+    const answers: number[] = [];
+    page.on("response", (r) => r.request().method() === "PATCH" && r.url().endsWith(`/api/sites/${siteId}/draft`) && answers.push(r.status()));
+    await page.getByLabel("Business name").fill("Joe's Plumbing and Heating");
+    await page.getByRole("link", { name: "Your website", exact: true }).click();
+    await expect.poll(() => answers).toEqual([200]);
+    expect(((await siteView(page, siteId))["facts"] as { businessName: string }).businessName).toBe("Joe's Plumbing and Heating");
+    await finishGeneration(tabB.request, id, "failed");
+  } finally {
+    await other.close();
+  }
+});
+
+// R1 (A), the other tab: a tab opened before the rewrite changes an ANSWER while it runs: stored, no notice, no lock; an edit still refused.
+test("a tab opened before another tab's rewrite stores an answer change, and still refuses a wording change", async ({ page, browser }) => {
+  const siteId = await openEditor(page);
+  await headlineField(page).fill("My saved headline");
+  await expect(savedStatus(page)).toBeVisible();
+  const other = await browser.newContext({ baseURL: APP, ignoreHTTPSErrors: true, storageState: await page.context().storageState() });
+  try {
+    const tabB = await other.newPage();
+    await tabB.goto(`/sites/${siteId}/edit`);
+    const id = await askNewWording(tabB, siteId);
+    await page.getByRole("tab", { name: "Details" }).click();
+    await page.getByLabel("Business name").fill("Joe's Plumbing and Heating");
+    await expect(savedStatus(page)).toBeVisible();
+    expect(((await siteView(page, siteId))["facts"] as { businessName: string }).businessName).toBe("Joe's Plumbing and Heating");
+    await expect(page.getByText(WRITING_LOCK)).toHaveCount(0);
+    await page.getByRole("tab", { name: "Words" }).click();
+    await headlineField(page).fill("Changed in the old tab");
+    await expect(page.getByRole("status").filter({ hasText: WRITING_DROPPED })).toBeVisible();
+    expect(((await savedEdits(page, siteId)) as { copy: { heroHeadline?: string } }).copy.heroHeadline).toBe("My saved headline");
+    await finishGeneration(tabB.request, id, "failed");
+  } finally {
+    await other.close();
+  }
+});
+
+// R4 (the f4 review's m-1): "Write new wording" refused because another tab's rewrite is already running locks this tab and follows it.
+test("a refused request for new wording (another tab's rewrite runs) locks the tab and follows that rewrite", async ({ page, browser }) => {
+  const siteId = await openEditor(page);
+  const other = await browser.newContext({ baseURL: APP, ignoreHTTPSErrors: true, storageState: await page.context().storageState() });
+  try {
+    const tabB = await other.newPage();
+    await tabB.goto(`/sites/${siteId}/edit`);
+    const idB = await askNewWording(tabB, siteId);
+    await page.getByRole("tab", { name: "Words" }).click();
+    await page.getByRole("button", { name: "Write new wording" }).click();
+    const [refused] = await Promise.all([
+      page.waitForResponse((r) => r.url().endsWith(`/api/sites/${siteId}/generations`) && r.request().method() === "POST"),
+      page.getByRole("dialog", { name: "Write new wording?" }).getByRole("button", { name: "Write new wording" }).click(),
+    ]);
+    expect(refused.status()).toBe(409);
+    await expect(page.getByText(WRITING_LOCK)).toHaveCount(1);
+    const headline = headlineField(page);
+    const shown = await headline.inputValue();
+    await headline.focus();
+    await page.keyboard.type("Lost");
+    await expect(headline).toHaveValue(shown);
+    await noChangeQueued(page);
+    // It follows the other tab's rewrite: when that lands, the new wording is shown and editing works again.
+    await finishGeneration(tabB.request, idB);
+    await expect(page.getByText("New wording is ready.")).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByText(WRITING_LOCK)).toHaveCount(0);
+    await headlineField(page).fill("Typed when it was ready");
+    await expect(savedStatus(page)).toBeVisible();
+  } finally {
+    await other.close();
+  }
+});
+
+// m-6: the frozen editor blocks Photos upload, delete and move by behaviour, not only by the wrapper's attribute.
+test("while new wording is written, Photos upload, delete and move send nothing and change nothing", async ({ page }) => {
+  const siteId = await openEditor(page);
+  await page.getByRole("tab", { name: "Photos" }).click();
+  const photo = await sharp({ create: { width: 800, height: 400, channels: 3, background: { r: 20, g: 160, b: 90 } } }).jpeg().toBuffer();
+  const jpeg = (name: string) => ({ name, mimeType: "image/jpeg", buffer: photo });
+  const uploadsBefore = async () => ((await siteView(page, siteId))["uploads"] as unknown[]).length;
+  for (const [n, name] of ["a.jpg", "b.jpg"].entries()) {
+    await page.getByLabel("Upload a photo").setInputFiles(jpeg(name));
+    await expect.poll(uploadsBefore).toBe(n + 1);
+    await expect(page.getByLabel("Upload a photo")).toHaveAttribute("aria-disabled", "false");
+  }
+  const count = await uploadsBefore();
+  await page.getByRole("button", { name: "Add uploaded photo 1 to your work photos" }).click();
+  await page.getByRole("button", { name: "Add uploaded photo 2 to your work photos" }).click();
+  await page.getByLabel("Describe work photo 1").fill("A new water heater in a garage");
+  await page.getByLabel("Describe work photo 2").fill("A repaired kitchen drain");
+  const storedPhotos = async () => ((await siteView(page, siteId))["facts"] as { photos?: Array<{ url: string; alt?: string }> }).photos ?? [];
+  await expect.poll(async () => (await storedPhotos()).map((p) => p.alt)).toEqual(["A new water heater in a garage", "A repaired kitchen drain"]);
+  const photosBefore = (await storedPhotos()).map((p) => p.url);
+  expect(photosBefore).toHaveLength(2);
+  // Reload so the Photos tab lists the stored uploads (it reads them from the loaded view).
+  await page.reload();
+  await expect(page.getByRole("heading", { level: 1, name: "Edit your website" })).toBeFocused();
+
+  const id = await askNewWording(page, siteId);
+  await expect(page.getByText(WRITING_LOCK)).toHaveCount(1);
+  await page.getByRole("tab", { name: "Photos" }).click();
+  const writes: string[] = [];
+  page.on("request", (r) => r.method() !== "GET" && r.url().includes(`/api/sites/${siteId}/`) && writes.push(`${r.method()} ${new URL(r.url()).pathname}`));
+  await page.getByLabel("Upload a photo").setInputFiles(jpeg("c.jpg"));
+  await page.getByRole("button", { name: "Delete uploaded photo 1" }).click({ force: true });
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await page.getByRole("button", { name: "Move work photo 1 down" }).click({ force: true });
+  await noChangeQueued(page);
+  await expect(page.getByText("Uploading your photo…")).toHaveCount(0);
+  expect(writes).toEqual([]);
+  expect(await uploadsBefore()).toBe(count);
+  expect((await storedPhotos()).map((p) => p.url)).toEqual(photosBefore);
+  await finishGeneration(page.request, id, "failed");
+  await expect(page.getByText("We could not write new wording this time. Your current wording is unchanged.")).toBeVisible({ timeout: 15_000 });
+});
+
+test("while new wording is written, the web address Save sends nothing and the address is not changed", async ({ page }) => {
+  const siteId = await openEditor(page);
+  const slugBefore = (await siteView(page, siteId))["slug"];
+  await page.getByRole("tab", { name: "Details" }).click();
+  await page.locator("#details-step").selectOption("address"); // chosen before the freeze: the picker is aria-disabled while frozen
+  const id = await askNewWording(page, siteId);
+  await expect(page.getByText(WRITING_LOCK)).toHaveCount(1);
+  // Back on Details the address form mounts fresh, so the new address is entered now, after the freeze.
+  // fill() sends no key event, so the wrapper lets it through and it only changes the field's local state.
+  await page.getByRole("tab", { name: "Details" }).click();
+  const field = page.getByLabel("Web address");
+  const typed = uniqueSlug("frozen");
+  await field.fill(typed, { force: true });
+  await expect(field).toHaveValue(typed);
+  await expect(page.getByText("This address is free. Save it to keep it.")).toBeVisible();
+  // The Save is now genuinely enabled; only the freeze can stop it. No request of any kind may be written for this site.
+  const writes: string[] = [];
+  const isWrite = (request: Request) => request.method() !== "GET" && new URL(request.url()).pathname.startsWith(`/api/sites/${siteId}`);
+  page.on("request", (request) => isWrite(request) && writes.push(`${request.method()} ${request.url()}`));
+  await page.getByRole("button", { name: "Save this web address" }).click({ force: true });
+  // Bounded window: the one place we wait on the clock, because "no request arrives" has no state to wait for.
+  await page.waitForRequest(isWrite, { timeout: 5_000 }).catch(() => null);
+  expect(writes).toEqual([]);
+  expect((await siteView(page, siteId))["slug"]).toBe(slugBefore);
+  await finishGeneration(page.request, id, "failed");
+  await expect(page.getByText("We could not write new wording this time. Your current wording is unchanged.")).toBeVisible({ timeout: 15_000 });
 });

@@ -252,7 +252,8 @@ describe("POST /api/sites/:siteId/generations pins the current look (A12 §3)", 
 
   it("sets a null theme to the AI draft's, changes nothing else in the edits and keeps the rev", async () => {
     const owner = await builtOwner(h, ROOFING, VALID_BRIEF);
-    const edits = { ...EMPTY_EDITS, copy: { ctaText: "Call Joe" }, hidden: ["faq"] };
+    // Wording is bound to the AI draft it was written on (the edit-binding guard), so this save names the current one.
+    const edits = { ...EMPTY_EDITS, baseGenerationId: owner.generationId, copy: { ctaText: "Call Joe" }, hidden: ["faq"] };
     expect((await h.call("PATCH", `/api/sites/${owner.siteId}/draft`, { cookie: owner.cookie, body: { rev: owner.rev, edits } })).status).toBe(200);
     const before = await siteRow(owner.siteId);
     // The first build pinned nothing: there was no AI draft yet.
@@ -281,6 +282,17 @@ describe("POST /api/sites/:siteId/generations pins the current look (A12 §3)", 
     await (await h.db()).prepare("UPDATE sites SET edits_json = ? WHERE id = ?").bind('{"theme":null', owner.siteId).run();
     const before = await siteRow(owner.siteId);
     expect((await rebuild(owner)).status).toBe(202);
+    expect(await siteRow(owner.siteId)).toEqual(before);
+  });
+
+  // Round 4: the editor is frozen while a rewrite runs, so this write of the stored edits refuses to run then too.
+  it("writes nothing to the stored edits while a rewrite is queued, even for a null theme (the request is refused as generation_in_progress)", async () => {
+    const owner = await builtOwner(h, ROOFING, VALID_BRIEF);
+    expect((await rebuild(owner)).status).toBe(202);
+    await (await h.db()).prepare("UPDATE sites SET edits_json = json_set(edits_json, '$.theme', json('null')) WHERE id = ?").bind(owner.siteId).run();
+    const before = await siteRow(owner.siteId);
+    expect(JSON.parse(before?.edits_json ?? "null")).toMatchObject({ theme: null });
+    expect((await rebuild(owner)).status).toBe(409);
     expect(await siteRow(owner.siteId)).toEqual(before);
   });
 
@@ -313,12 +325,13 @@ describe("POST /api/sites/:siteId/generations pins the current look (A12 §3)", 
     const rebuilt = await view(owner);
     expect(rebuilt.ai?.generationId).toBe(generation.id);
     expect(rebuilt.ai?.draft.theme.design).toBe("modern");
-    // The tab that asked for the rebuild still holds its edits with no theme, and autosaves them.
-    const saved = await h.call("PATCH", `/api/sites/${owner.siteId}/draft`, { cookie: owner.cookie, body: { rev, edits: { ...before.edits, copy: { ctaText: "Call Joe" } } } });
+    // The tab that asked for the rebuild still holds its edits with no theme, and autosaves them (a hidden section: wording
+    // built on the older draft would be refused by the edit-binding guard, hidden sections carry over).
+    const saved = await h.call("PATCH", `/api/sites/${owner.siteId}/draft`, { cookie: owner.cookie, body: { rev, edits: { ...before.edits, hidden: ["faq"] } } });
     expect(saved.status).toBe(200);
     const after = await view(owner);
     expect(after.edits.theme).toEqual(before.ai?.draft.theme);
-    expect(after.edits.copy).toEqual({ ctaText: "Call Joe" });
+    expect(after.edits.hidden).toEqual(["faq"]);
     // The page shows the look it showed before the rebuild, not the new draft's.
     const page = (site: SiteView) => (site.ai === null ? null : SiteDocument.parse(composeDocument(site.facts, site.ai, site.edits)));
     expect(page(after)?.theme).toEqual(page(before)?.theme);

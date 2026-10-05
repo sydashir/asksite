@@ -1,5 +1,5 @@
 import type { GenerationView, Issue, SiteView } from "@asksite/core";
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { TextArea } from "../components/fields.tsx";
 import { ErrorSummary, Notice, SaveStatus, type SummaryItem } from "../components/feedback.tsx";
 import { useMe } from "../hooks/use-me.ts";
@@ -37,10 +37,19 @@ function StepPage({ siteId, step, site, view, draft }: { siteId: string; step: S
   const [focusSignal, setFocusSignal] = useState(0);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const noticeRef = useRef<HTMLParagraphElement>(null);
   const { props, issues } = useStepProps(siteId, site, view, draft, showErrors, me.state === "ready" ? me.owner.email : null);
   const Body = STEP_BODY[step];
   const last = nextStep(step) === null;
   const blocking = last ? issues : issuesForStep(issues, step);
+  // A save that did not go through stops the action. A dropped wording change (carried from the editor) shows its own notice, given
+  // focus; it never says "not saved yet" (the answers were saved), and the next attempt goes on.
+  const stopped = (result: false | "dropped") => {
+    if (result === "dropped") {
+      setMessage(null);
+      requestAnimationFrame(() => noticeRef.current?.focus());
+    } else setMessage("Your latest answers are not saved yet. Please try again in a moment.");
+  };
 
   // Arriving from a "fix this" link (#field-id): show the errors and focus that field.
   useEffect(() => {
@@ -51,9 +60,10 @@ function StepPage({ siteId, step, site, view, draft }: { siteId: string; step: S
   async function build() {
     setBusy(true);
     setMessage(null);
-    if (!(await site.flush())) {
+    const saved = await site.flush();
+    if (saved !== true) {
       setBusy(false);
-      setMessage("Your latest answers are not saved yet. Please try again in a moment.");
+      stopped(saved);
       return;
     }
     const res = await api<{ generation: GenerationView }>("POST", `/api/sites/${siteId}/generations`, {});
@@ -72,8 +82,9 @@ function StepPage({ siteId, step, site, view, draft }: { siteId: string; step: S
 
   /** A draft already exists: save step 7 and open the editor. Never starts a generation (rewriting is the editor's own action). */
   async function openEditor() {
-    if (await site.flush()) navigate(paths.edit(siteId));
-    else setMessage("Your latest answers are not saved yet. Please try again in a moment.");
+    const saved = await site.flush();
+    if (saved === true) navigate(paths.edit(siteId));
+    else stopped(saved);
   }
 
   function onSubmit(event: FormEvent) {
@@ -89,15 +100,15 @@ function StepPage({ siteId, step, site, view, draft }: { siteId: string; step: S
     if (next === null) void (view.ai === null ? build() : openEditor());
     else
       void site.flush().then((saved) => {
-        if (saved) navigate(paths.setup(siteId, next));
-        else setMessage("Your latest answers are not saved yet. Please try again in a moment.");
+        if (saved === true) navigate(paths.setup(siteId, next));
+        else stopped(saved);
       });
   }
 
   const comments = asRecord(asRecord(draft.brief)["comments"]);
   const previous = previousStep(step);
   // Links to other steps save first and stay here if that fails (decision 37).
-  const leave = linkAfter(site.flush, () => setMessage("Your latest answers are not saved yet. Please try again in a moment."));
+  const leave = linkAfter(site.flush, stopped);
   return (
     <form noValidate onSubmit={onSubmit} aria-busy={site.locked || undefined} className="mx-auto max-w-2xl">
       <p className="text-slate-700">
@@ -140,7 +151,16 @@ function StepPage({ siteId, step, site, view, draft }: { siteId: string; step: S
         </div>
       ) : null}
       <div className="mt-6 flex flex-wrap items-center justify-between gap-4">
-        <SaveStatus state={site.saver} onRetry={() => void site.flush()} onReload={() => void site.reload()} />
+        <SaveStatus
+          state={site.saver}
+          onRetry={() => void site.retry()}
+          onReload={() => void site.reload()}
+          messageRef={noticeRef}
+          onDismiss={() => {
+            site.dismissDrop();
+            noticeRef.current?.focus();
+          }}
+        />
         <div className="flex flex-wrap gap-3">
           {previous !== null ? (
             <a className="btn-secondary" href={paths.setup(siteId, previous)} onClick={leave}>

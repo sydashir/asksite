@@ -10,7 +10,7 @@ interface Props {
   composed: ComposedDocument;
   edits: OwnerEdits;
   setEdits: (edits: OwnerEdits) => void;
-  /** The AI's wording is not fresh: nothing here may change (aria-disabled, so keyboard focus stays; the editor also drops the edit). */
+  /** Nothing here may change (new wording is being written, or not loaded): aria-disabled, so keyboard focus stays; the editor also drops the edit. */
   readOnly: boolean;
   /** The owner changed this section: the preview shows its page. */
   onSection: (section: SectionId) => void;

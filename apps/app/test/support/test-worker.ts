@@ -7,7 +7,7 @@ import { requireTurnstile, SITEVERIFY_TIMEOUT_MS } from "../../src/worker/turnst
 import type { AppEnv } from "../../src/worker/types.ts";
 import { createWorker } from "../../src/worker/worker.ts";
 import { calledLikeFetch, errorName, fakeApprove, fakeCreateMailer, fakeGeneration, fakePublishing, fakeReject, fakeSiteverify, fetchCalledOn, finishGeneration, refuseNextGeneration, siteverifyCallsSoFar } from "./fakes.ts";
-import { PURGE_UPLOADS_SQL, RESTORE_SITE_SQL, TAKE_DOWN_SITE_SQL, TAKE_DOWN_VERSIONS_SQL } from "./plan2b-statements.ts";
+import { PURGE_UPLOADS_SQL, restoreSite, TAKE_DOWN_SITE_SQL, TAKE_DOWN_VERSIONS_SQL, underLease } from "./plan2b-statements.ts";
 
 // The app Worker wired to the fakes, plus /__test/* helpers that stand in for the admin and the
 // generator in tests. Used by the Worker tests (test/wrangler.test.jsonc) and the browser tests
@@ -155,14 +155,11 @@ async function loseReservations(db: D1Database): Promise<void> {
     const now = Date.now();
     if (how === "taken_down") {
       // Pinned to Plan 2B's statements by test/worker/plan2b-statements.test.ts.
-      await run(db, TAKE_DOWN_SITE_SQL, now, TEST_TAKEDOWN_REASON, now, siteId);
+      await underLease(db, siteId, (token) => run(db, TAKE_DOWN_SITE_SQL, now, TEST_TAKEDOWN_REASON, now, siteId, token));
       continue;
     }
-    const sql =
-      how === "aged_out"
-        ? "UPDATE uploads SET deleted_at = ?, reserved_at = NULL WHERE site_id = ? AND reserved_at IS NOT NULL"
-        : PURGE_UPLOADS_SQL;
-    await run(db, sql, now, siteId);
+    if (how === "aged_out") await run(db, "UPDATE uploads SET deleted_at = ?, reserved_at = NULL WHERE site_id = ? AND reserved_at IS NOT NULL", now, siteId);
+    else await underLease(db, siteId, (token) => run(db, PURGE_UPLOADS_SQL, now, siteId, siteId, token));
   }
 }
 
@@ -620,18 +617,20 @@ helpers.post("/__test/versions/:versionId/reject", async (c) => {
   return c.json(await fakeReject(c.env, c.req.param("versionId"), note, Date.now()));
 });
 
-/** What the admin's Take down does to D1: Plan 2B's two statements in its order, versions then site. */
+/** What the admin's Take down does to D1: Plan 2B's two statements in its order, versions then site, under the site's lease. */
 helpers.post("/__test/sites/:siteId/take-down", async (c) => {
   const now = Date.now();
   const siteId = c.req.param("siteId");
-  await run(c.env.DB, TAKE_DOWN_VERSIONS_SQL, "test-admin", now, TAKEDOWN_REVIEW_NOTE, siteId);
-  await run(c.env.DB, TAKE_DOWN_SITE_SQL, now, TEST_TAKEDOWN_REASON, now, siteId);
+  await underLease(c.env.DB, siteId, async (token) => {
+    await run(c.env.DB, TAKE_DOWN_VERSIONS_SQL, "test-admin", now, TAKEDOWN_REVIEW_NOTE, siteId, siteId, token);
+    await run(c.env.DB, TAKE_DOWN_SITE_SQL, now, TEST_TAKEDOWN_REASON, now, siteId, token);
+  });
   return c.json({ ok: true });
 });
 
-/** What the admin's Restore does to the site row (Plan 2B's own statement). */
+/** What the admin's Restore does to the site row (Plan 2B's own clearing statement, under the lease; see restoreSite). */
 helpers.post("/__test/sites/:siteId/restore", async (c) => {
-  await run(c.env.DB, RESTORE_SITE_SQL, Date.now(), c.req.param("siteId"));
+  await restoreSite(c.env.DB, c.req.param("siteId"));
   return c.json({ ok: true });
 });
 
