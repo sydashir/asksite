@@ -2,7 +2,7 @@ import { livePageKey, livePointerKey, newId, versionPageKey } from "@asksite/cor
 import { PAGE_IDS } from "@asksite/site-schema";
 import { describe, expect, it } from "vitest";
 import { GENERATION_HISTORY, SITE_AUDIT, SITE_LIST, VERSION_HISTORY } from "../../src/worker/queries.ts";
-import { json, useAdminHarness } from "../support/harness.ts";
+import { accessToken, json, useAdminHarness } from "../support/harness.ts";
 
 const h = useAdminHarness();
 
@@ -552,6 +552,49 @@ describe("A16-4c: Restore sends the takedown it showed, and Copy the live pages 
     expect(await json<{ error: { message: string } }>(res)).toMatchObject({ error: { message: "The site is still offline: its pages could not be put back. Press Restore again." } });
     expect(await takenDownAt(site.siteId)).not.toBeNull();
     expect((await h.call("POST", restore(site.siteId), { body })).status).toBe(200);
+    await h.backgroundDone(takedown(site.siteId));
+  });
+});
+
+// Task 26 step 4 (lane B fix, 2026-10-05): "this call took the site down" is decided AFTER takeDown runs. Two admins whose reads both
+// saw the site up must not email the owner twice: only the call whose own timestamp is the stored taken_down_at sends the notice.
+describe("the takedown notice is sent once when two admins act at the same time", () => {
+  const takedown = (siteId: string) => `/api/admin/sites/${siteId}/takedown`;
+  const notices = async (email: string) => (await h.outbox(email)).filter((m) => m.tag === "site_notice");
+  const auditRows = async (siteId: string) =>
+    (await (await h.db()).prepare("SELECT actor, detail_json FROM audit_log WHERE action = 'site.taken_down' AND site_id = ? ORDER BY id").bind(siteId).all<{ actor: string; detail_json: string }>()).results.map(
+      (r) => ({ actor: r.actor, detail: JSON.parse(r.detail_json) as Record<string, unknown> }),
+    );
+
+  it("a second admin whose site read came before the first admin's commit sends no second notice, and its call is audited as a repeat", async () => {
+    const site = await liveSite();
+    const second = await accessToken({ email: "second@example.com" });
+    // Admin B's request starts first (its read sees the site up) but its lease step waits 2 s; admin A takes the site down meanwhile.
+    const b = h.call("POST", takedown(site.siteId), { token: second, headers: { "X-Test-Delay-Lease-Ms": "2000" }, body: { reason: "B reason", ownerMessage: "Message from admin B" } });
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    const a = await h.call("POST", takedown(site.siteId), { body: { reason: "A reason", ownerMessage: "Message from admin A" } });
+    expect(a.status).toBe(200);
+    expect(await a.json()).toEqual({ noticeSent: true });
+    const bRes = await b;
+    expect(bRes.status).toBe(200);
+    expect(await bRes.json()).toEqual({ noticeSent: null });
+    await h.backgroundDone(takedown(site.siteId));
+    const sent = await notices(site.email);
+    expect(sent).toHaveLength(1);
+    expect(sent[0]?.text).toContain("Message from admin A");
+    expect(sent[0]?.text).not.toContain("Message from admin B");
+    expect(await auditRows(site.siteId)).toEqual([
+      { actor: "admin:admin@example.com", detail: { reason: "A reason", purgeMedia: false } },
+      { actor: "admin:second@example.com", detail: { reason: "B reason", purgeMedia: false, repeat: true } },
+    ]);
+  });
+
+  it("the retry path still sends exactly one notice and one audit row (the first LIVE delete throws after the commit, the retry finishes)", async () => {
+    const site = await liveSite();
+    const res = await h.call("POST", takedown(site.siteId), { body: { reason: "Spam report" }, headers: { "X-Test-Takedown-Fault": "prefix-delete-once" } });
+    expect(await res.json()).toEqual({ noticeSent: true });
+    expect(await notices(site.email)).toHaveLength(1);
+    expect(await auditRows(site.siteId)).toEqual([{ actor: "admin:admin@example.com", detail: { reason: "Spam report", purgeMedia: false } }]);
     await h.backgroundDone(takedown(site.siteId));
   });
 });

@@ -177,6 +177,42 @@ function disablingBeforeTokenInsert(db: D1Database, ownerId: string): D1Database
   });
 }
 
+/**
+ * A timing seam for two admins acting on one site: the request's lease acquire (the UPDATE sites SET admin_lock ... of
+ * Plan 2's acquireLease, the first statement of takeDown under the lease) waits this long first, as a slow D1 round-trip
+ * would, so the route's earlier read of the site can predate another admin's commit. Nothing else changes.
+ */
+function delayingLease(db: D1Database, ms: number): D1Database {
+  const delayed = (bound: D1PreparedStatement): D1PreparedStatement =>
+    new Proxy(bound, {
+      get(target, key) {
+        if (key === "run") {
+          return async () => {
+            await new Promise((resolve) => setTimeout(resolve, ms));
+            return target.run();
+          };
+        }
+        const value: unknown = Reflect.get(target, key);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+  const wrapStatement = (statement: D1PreparedStatement): D1PreparedStatement =>
+    new Proxy(statement, {
+      get(target, key) {
+        if (key === "bind") return (...values: unknown[]) => delayed(target.bind(...values));
+        const value: unknown = Reflect.get(target, key);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+  return new Proxy(db, {
+    get(target, key) {
+      if (key === "prepare") return (sql: string) => (sql.startsWith("UPDATE sites SET admin_lock = ?, admin_lock_until = ?") ? wrapStatement(target.prepare(sql)) : target.prepare(sql));
+      const value: unknown = Reflect.get(target, key);
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
+}
+
 /** The faults a request can be given (header X-Test-Takedown-Fault), each thrown as a plain Error, never a PublishError. */
 type TakedownFault = "pointer-delete" | "before-commit" | "prefix-delete" | "prefix-delete-once" | "prefix-delete-reread" | "pointer-write" | "lease-lost-after-batch";
 
@@ -255,7 +291,10 @@ export default {
     // X-Test-Disable-Owner-Before-Token: <owner id> runs the race seam above for this request only.
     const raced = local ? request.headers.get("X-Test-Disable-Owner-Before-Token") : null;
     const fault = local ? (request.headers.get("X-Test-Takedown-Fault") as TakedownFault | null) : null;
-    const requestEnv = raced !== null ? { ...env, DB: disablingBeforeTokenInsert(env.DB, raced) } : fault !== null ? withFault(env, fault, path) : env;
+    // X-Test-Delay-Lease-Ms: <ms> runs the lease timing seam above for this request only.
+    const delay = local ? Number(request.headers.get("X-Test-Delay-Lease-Ms") ?? "0") : 0;
+    const baseEnv = raced !== null ? { ...env, DB: disablingBeforeTokenInsert(env.DB, raced) } : fault !== null ? withFault(env, fault, path) : env;
+    const requestEnv = delay > 0 ? { ...baseEnv, DB: delayingLease(baseEnv.DB, delay) } : baseEnv;
     // X-Test-Now pins Date.now() while the Worker handles this request (./clock.ts).
     const handler = local && request.headers.has("X-Test-Unsafe-Live-Url") ? unsafeUrlWorker : worker;
     return withClock(request, local, async () => handler.fetch!(request, requestEnv, counting(ctx, path)));

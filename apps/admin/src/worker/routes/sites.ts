@@ -43,6 +43,15 @@ export function siteRoutes(deps: AdminDeps): Hono<AdminEnv> {
     }
   }
 
+  /** The site's stored taken_down_at (null: up). undefined: the read failed, so the caller falls back to what it knew before. */
+  async function storedTakedownAt(db: D1Database, siteId: string): Promise<number | null | undefined> {
+    try {
+      return (await db.prepare("SELECT taken_down_at FROM sites WHERE id = ?").bind(siteId).first<{ taken_down_at: number | null }>())?.taken_down_at ?? null;
+    } catch {
+      return undefined;
+    }
+  }
+
   sites.get("/sites", async (c) => {
     const filter = SiteFilter.safeParse(c.req.query("filter"));
     if (!filter.success) throw new ApiError("bad_request", "Unknown filter");
@@ -83,7 +92,8 @@ export function siteRoutes(deps: AdminDeps): Hono<AdminEnv> {
     // leaves the site up. After the takedown commits the notice is sent inside the same runToEnd and the answer says
     // whether it went out: a takedown is never undone by a failed email, but the admin must learn the owner was not told.
     const mailer = deps.createMailer(mailerEnv(c.env));
-    // Read before takeDown runs: a re-run on a site that is already down must not email the owner a second time.
+    // Read before takeDown runs. It only decides the fallback below: whether THIS call took the site down is decided after takeDown
+    // ran, from the stored taken_down_at, because another admin may commit between this read and this call's lease.
     const alreadyDown = site.taken_down_at !== null;
     // "Finish the takedown" after a lease_lost sets notice=due: that call never reached its notice, so this one sends it (the one
     // time the owner is told). The key names the takedown, so a second press of Finish is a repeat to the mail provider.
@@ -99,9 +109,12 @@ export function siteRoutes(deps: AdminDeps): Hono<AdminEnv> {
         runToEnd(
           c.executionCtx,
           (async (): Promise<TakedownView> => {
-            // takeDown writes taken_down_at = now, so for the call that took the site down the key is this takedown's moment (a repeat uses the stored one).
-            const send = () => trySend(mailer, { to: site.owner_email, ...email, replyTo: c.env.SUPPORT_EMAIL, tag: "site_notice", idempotencyKey: `takedown:${site.id}:${site.taken_down_at ?? now}` });
-            const takeDown = (at: number) => deps.publishing.takeDown(c.env, { siteId: site.id, reviewer: c.get("admin"), reason: body.reason, purgeMedia: body.purgeMedia, now: at });
+            // Every timestamp this call hands to takeDown: the site was taken down by this call only if the stored taken_down_at is one of them.
+            const stamps: number[] = [];
+            const takeDown = (at: number) => {
+              stamps.push(at);
+              return deps.publishing.takeDown(c.env, { siteId: site.id, reviewer: c.get("admin"), reason: body.reason, purgeMedia: body.purgeMedia, now: at });
+            };
             let cleanupFailed = false;
             try {
               await takeDown(now);
@@ -118,14 +131,19 @@ export function siteRoutes(deps: AdminDeps): Hono<AdminEnv> {
                 logLine({ event: "takedown_cleanup_failed", siteId: site.id });
               }
             }
+            // The takedown's stored moment decides who took the site down. If the read fails, fall back to the read made before takeDown.
+            const stored = await storedTakedownAt(c.env.DB, site.id);
+            const tookItDown = stored === undefined ? !alreadyDown : stored !== null && stamps.includes(stored);
+            // The key names the takedown (its stored moment), so every call that sends the notice for it is the same message to the mail provider.
+            const send = () => trySend(mailer, { to: site.owner_email, ...email, replyTo: c.env.SUPPORT_EMAIL, tag: "site_notice", idempotencyKey: `takedown:${site.id}:${stored ?? site.taken_down_at ?? now}` });
             // Plan 2 audits only the call that took the site down (and a later purge that deleted something), so a re-run that
             // only finishes the clean-up would leave no trace of this admin action: record it here.
-            if (alreadyDown) {
+            if (!tookItDown) {
               const detail = { reason: body.reason, purgeMedia: body.purgeMedia, repeat: true };
               await auditStatement(c.env.DB, { at: Date.now(), actor: `admin:${c.get("admin")}`, action: "site.taken_down", siteId: site.id, detail }).run();
             }
             // The owner is told once: only the call that took the site down (or a Finish after a lost lease, notice=due) sends the notice, so a re-run never emails twice.
-            return { noticeSent: alreadyDown && !noticeDue ? null : await send(), ...(cleanupFailed ? { cleanupFailed: true as const } : {}) };
+            return { noticeSent: !tookItDown && !noticeDue ? null : await send(), ...(cleanupFailed ? { cleanupFailed: true as const } : {}) };
           })(),
         ),
       "takedown",
