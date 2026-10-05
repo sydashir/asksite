@@ -30,6 +30,7 @@ test("every questionnaire step, before and after a failed Continue, passes axe w
 test("every screen, and every editor tab, reflows at 320 px without sideways scrolling", async ({ page }) => {
   test.slow(); // many pages in one test
   await page.setViewportSize({ width: 320, height: 700 });
+  const readCsp = await watchCsp(page);
   const siteId = await builtSite(page);
   for (const path of [...STEPS.map((s) => `/sites/${siteId}/setup/${s}`), `/sites/${siteId}/publish`, `/sites/${siteId}/leads`, "/", "/nope"]) {
     await page.goto(path);
@@ -44,6 +45,7 @@ test("every screen, and every editor tab, reflows at 320 px without sideways scr
   await showPreview(page);
   await expect(pageGroup(page).getByRole("button", { name: "Home" })).toBeVisible();
   await expectNoSidewaysScroll(page);
+  expect(await readCsp()).toEqual([]);
 });
 
 test("the build page announces progress politely and passes axe", async ({ page }) => {
