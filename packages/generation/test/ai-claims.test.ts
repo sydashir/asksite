@@ -205,6 +205,8 @@ describe("AI claim check: quote marks", () => {
     ["single quotes after a colon", "Dana: 'Best cleaners ever'", ["'Best cleaners ever'"]],
     ["single quotes after a comma", "As Dana put it,'best cleaners in Austin'", ["'best cleaners in Austin'"]],
     ["single quotes after a semicolon", "As Dana put it;'best cleaners in Austin'", ["'best cleaners in Austin'"]],
+    ["single quotes after a comma and a space (the usual copy)", "As Dana put it, 'best cleaners in Austin'", ["'best cleaners in Austin'"]],
+    ["single quotes after a semicolon and a space (the usual copy)", "As Dana put it; 'best cleaners in Austin'", ["'best cleaners in Austin'"]],
     ["single quotes opening with a word that only starts like an elision", "'Emma and her crew are the best' Dana", ["'Emma and her crew are the best'"]],
     ["single quotes after an em dash", "Dana\u2014'Best cleaners ever'", ["'Best cleaners ever'"]],
     ["single quotes closing a parenthesis", "Dana ('Best cleaners ever')", ["'Best cleaners ever'"]],
