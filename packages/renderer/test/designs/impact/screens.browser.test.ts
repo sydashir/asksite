@@ -3,7 +3,7 @@
 // keeps Send request in the first screen with "Choose a service" whole, and its head keeps the owner's standing on one
 // line; on iPad portrait widths the footer's credentials sit right under the business name; at 320 px every page, in
 // each of the three letterings, reflows with no text lost, and so does every page at 320-430 px with bigger text (root
-// font-size 125%); and on /contact a licence number that fits on one line is never split.
+// font-size 125%); and no licence number on any page is split where it fits on one line.
 // Every fixture's whole Bold site with the real Bold sheet, served from memory on its own origin (Playwright 1.63
 // BrowserContext.route and Route.fulfill; photos are a gray tile, anything else is aborted), in Chromium and WebKit.
 // The pages run no JavaScript; the checks are script text, since the renderer's TypeScript program has no DOM types.
@@ -38,8 +38,15 @@ afterAll(async () => {
   for (const browser of browsers.values()) await browser.close();
 }, 60_000);
 
-/** A window of `size` in `engine` that serves every site's pages; `visit` opens one and runs `script` once its fonts are ready. */
-async function inWindow(engine: keyof typeof ENGINES, [width, height]: Size, body: (visit: <T>(site: string, path: string, script: string) => Promise<T>) => Promise<void>): Promise<void> {
+/**
+ * A window of `size` in `engine` that serves every site's pages; `visit` opens one and runs `script` once its fonts are
+ * ready; `reflow` makes the window `width` wide and runs `script` on the page already open.
+ */
+async function inWindow(
+  engine: keyof typeof ENGINES,
+  [width, height]: Size,
+  body: (visit: <T>(site: string, path: string, script: string) => Promise<T>, reflow: <T>(width: number, script: string) => Promise<T>) => Promise<void>,
+): Promise<void> {
   const browser = browsers.get(engine);
   if (browser === undefined) throw new Error(`${engine} did not start`);
   const context = await browser.newContext({ viewport: { width, height } });
@@ -54,11 +61,17 @@ async function inWindow(engine: keyof typeof ENGINES, [width, height]: Size, bod
       return route.abort();
     });
     const page: Page = await context.newPage();
-    await body(async <T,>(site: string, path: string, script: string) => {
-      await page.goto(origin(site) + path, { waitUntil: "load" });
-      await page.evaluate("document.fonts.ready");
-      return page.evaluate<T>(script);
-    });
+    await body(
+      async <T,>(site: string, path: string, script: string) => {
+        await page.goto(origin(site) + path, { waitUntil: "load" });
+        await page.evaluate("document.fonts.ready");
+        return page.evaluate<T>(script);
+      },
+      async <T,>(to: number, script: string) => {
+        await page.setViewportSize({ width: to, height });
+        return page.evaluate<T>(script);
+      },
+    );
   } finally {
     await context.close();
   }
@@ -122,31 +135,42 @@ const OPEN_DETAILS = `for (const details of document.querySelectorAll("details:n
 /** The bigger-default-text setting: the root font-size at 125%. */
 const BIGGER_TEXT = `document.documentElement.style.setProperty("font-size", "125%", "important");`;
 
+/** No CSS animation or transition runs, so every box is measured where it comes to rest. */
+const NO_MOTION = `document.head.append(Object.assign(document.createElement("style"), { textContent: "*, ::before, ::after { animation: none !important; transition: none !important; }" }));`;
+
 /**
- * Each licence number in the /contact list that is split over lines although it fits on a line of its own (round 5's
- * rule: a number moves to the next line whole, and breaks inside only when it alone is wider than the line). Its lines
- * come from each character's top; its whole width from an unwrapped copy in the same line box; the line from its text's
- * box (the list item's span beside the icon).
+ * Each licence number on the page (the hero's, the hero's other licences, the credentials band's, the /contact list's
+ * and the footer's) that is split over lines although it fits on a line of its own (round 5's rule: a number moves to
+ * the next line whole, and breaks inside only when it alone is wider than the line). Its lines come from each
+ * character's top; its whole width from an unwrapped copy beside it; its line's room from the content box of its
+ * nearest block (the list item, the <dd>, the text beside an icon).
  */
-const SPLIT_LICENCES = `[...document.querySelectorAll(".talk-lics .lic-num")].flatMap((number) => {
-  const text = number.firstChild, line = number.closest("li > span");
+const SPLIT_LICENCES = `[...document.querySelectorAll(".lic-num, .proof-num")].flatMap((number) => {
+  const text = number.firstChild;
+  if (text === null || text.nodeType !== Node.TEXT_NODE || !number.checkVisibility({ visibilityProperty: true })) return [];
+  let line = number.parentElement;
+  while (getComputedStyle(line).display.startsWith("inline")) line = line.parentElement;
+  const style = getComputedStyle(line);
+  const room = line.getBoundingClientRect().width - ["paddingLeft", "paddingRight", "borderLeftWidth", "borderRightWidth"].reduce((sum, side) => sum + parseFloat(style[side]), 0);
   const copy = number.cloneNode(true);
   copy.style.cssText = "position:absolute;display:inline;max-width:none;white-space:nowrap";
-  line.append(copy);
+  number.parentElement.append(copy);
   const whole = copy.getBoundingClientRect().width;
   copy.remove();
-  const room = line.getBoundingClientRect().width;
   const pieces = [];
   for (let i = 0, top = null; i < text.length; i++) {
     const range = document.createRange();
     range.setStart(text, i);
     range.setEnd(text, i + 1);
-    const at = Math.round(range.getBoundingClientRect().top);
+    const box = range.getBoundingClientRect();
+    if (box.width === 0 && box.height === 0) continue;
+    const at = Math.round(box.top);
     if (at !== top) pieces.push("");
     pieces[pieces.length - 1] += text.data[i];
     top = at;
   }
-  return pieces.length > 1 && whole <= room ? [JSON.stringify(text.data) + " splits as " + pieces.map((p) => JSON.stringify(p)).join(" / ") + " though it fits (" + whole.toFixed(2) + " px on a " + room.toFixed(2) + " px line)"] : [];
+  const place = ["talk-lics", "proof-more", "proof-lic", "spec", "site-footer"].find((c) => number.closest("." + c) !== null) ?? line.className;
+  return pieces.length > 1 && whole <= room ? [place + ": " + JSON.stringify(text.data) + " splits as " + pieces.map((p) => JSON.stringify(p)).join(" / ") + " though it fits (" + whole.toFixed(2) + " px on a " + room.toFixed(2) + " px line)"] : [];
 })`;
 
 describe.each(Object.keys(ENGINES) as Array<keyof typeof ENGINES>)("Bold's first screens in %s", (engine) => {
@@ -279,20 +303,24 @@ describe.each(Object.keys(ENGINES) as Array<keyof typeof ENGINES>)("Bold's pages
   }, 600_000);
 });
 
-// Round 5's rule held in the hero and the footer but not in the /contact licence list, where roofing-extreme's
-// "RCAT-…" split at its hyphen and electrical-xss's number after "</style>" while each fitted on a line of its own
-// (continuation 3's measurement). /contact of every fixture in each lettering, phone to wide desktop.
-const LICENCE_WIDTHS = [336, 348, 390, 400, 484, 652, 1024, 1120, 1280, 1920] as const;
-describe.each(Object.keys(ENGINES) as Array<keyof typeof ENGINES>)("Bold's /contact licences in %s", (engine) => {
-  it(`never split a licence number that fits on one line, on /contact of every fixture in each lettering at ${LICENCE_WIDTHS.join(", ")} px`, async () => {
+// Round 5's rule held in the hero and the footer but not in the /contact licence list (continuation 3's measurement)
+// nor in the credentials band on Home and About (continuation 4's review): roofing-extreme's "RCAT-…" split at its
+// hyphen and electrical-xss's number after "</style>" while each fitted on a line of its own. Every licence number on
+// every page of every fixture in each lettering, phone to wide desktop, with every <details> but the menu open.
+const LICENCE_WIDTHS = [320, 336, 348, 360, 375, 390, 400, 414, 430, 484, 600, 652, 768, 900, 1024, 1120, 1280, 1440, 1920] as const;
+describe.each(Object.keys(ENGINES) as Array<keyof typeof ENGINES>)("Bold's licence numbers in %s", (engine) => {
+  it(`never split a licence number that fits on one line, on every page of every fixture in each lettering at ${LICENCE_WIDTHS.join(", ")} px`, async () => {
     const wrong: string[] = [];
-    for (const width of LICENCE_WIDTHS) {
-      await inWindow(engine, [width, 800], async (visit) => {
-        for (const { name, font, site } of LETTERINGS) {
-          for (const split of await visit<string[]>(site, "/contact", SPLIT_LICENCES)) wrong.push(`${name} in ${font} at ${width}: ${split}`);
+    await inWindow(engine, [LICENCE_WIDTHS[0], 800], async (visit, reflow) => {
+      for (const { name, font, site, pages } of LETTERINGS) {
+        for (const { path } of pages) {
+          await visit(site, path, `(() => { ${NO_MOTION} ${OPEN_DETAILS} })()`);
+          for (const width of LICENCE_WIDTHS) {
+            for (const split of await reflow<string[]>(width, SPLIT_LICENCES)) wrong.push(`${name} in ${font} ${path} at ${width}: ${split}`);
+          }
         }
-      });
-    }
+      }
+    });
     expect(wrong).toEqual([]);
-  }, 180_000);
+  }, 300_000);
 });
