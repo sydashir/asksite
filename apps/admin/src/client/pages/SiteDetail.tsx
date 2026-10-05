@@ -14,7 +14,7 @@ import type { TakedownView } from "../../settings-view.ts";
 import { CapNote } from "../CapNote.tsx";
 import { dollars, restoredText, takedownResult, when, type TakedownResult } from "../lib/format.ts";
 
-type TakedownBody = { reason: string; ownerMessage: string; purgeMedia: boolean };
+type TakedownBody = { reason: string; ownerMessage?: string; purgeMedia: boolean };
 
 type Message = { tone: "success" | "warning" | "error"; text: string };
 
@@ -46,6 +46,10 @@ function SiteScreen({ data, reload }: { data: SiteDetailData; reload: () => Prom
   const [purge, setPurge] = useState(false);
   const [reasonErrors, setReasonErrors] = useState<string[]>([]);
   const [confirmTakedown, setConfirmTakedown] = useState(false);
+  /** The form on a down site that runs the takedown again: its own reason and photos choice, and no owner message (a re-run sends no notice). */
+  const [finishReason, setFinishReason] = useState("");
+  const [finishPurge, setFinishPurge] = useState(false);
+  const [finishErrors, setFinishErrors] = useState<string[]>([]);
   const [disableReason, setDisableReason] = useState("");
   const [disableErrors, setDisableErrors] = useState<string[]>([]);
   /** A takedown answered 5xx: what to say depends on whether the reloaded site is down, so the text is chosen at render. */
@@ -129,6 +133,21 @@ function SiteScreen({ data, reload }: { data: SiteDetailData; reload: () => Prom
     setConfirmTakedown(true);
   }
 
+  function submitFinish(event: FormEvent) {
+    event.preventDefault();
+    if (finishReason.trim() === "") {
+      setFinishErrors(["Write the reason. It is kept in the audit log."]);
+      document.getElementById("finish-reason")?.focus();
+      return;
+    }
+    setFinishErrors([]);
+    // No ?notice=due and no owner message: a re-run never emails (that stays the in-session lease-lost path above).
+    void takeDown({ reason: finishReason.trim(), purgeMedia: finishPurge }, null);
+  }
+
+  /** Only ONE "Finish the takedown" shows at a time: the in-session one wins, because it carries the stored body and the owner-notice state. */
+  const inSessionFinish = takedown?.result.cleanupFailed === true && site.takenDown;
+
   return (
     <section>
       <p>
@@ -160,7 +179,7 @@ function SiteScreen({ data, reload }: { data: SiteDetailData; reload: () => Prom
               : "The takedown did not go through. Try again."}
           </Notice>
         ) : null}
-        {takedown?.result.cleanupFailed === true && site.takenDown ? (
+        {inSessionFinish ? (
           <button type="button" className="btn-primary mt-3" onClick={() => void takeDown(takedown.body, takedown.result)}>
             Finish the takedown
           </button>
@@ -173,9 +192,20 @@ function SiteScreen({ data, reload }: { data: SiteDetailData; reload: () => Prom
             Actions
           </h2>
           {takenDownAt !== null ? (
-            <button type="button" className="btn-primary mt-3" onClick={() => void restoreSite(takenDownAt)}>
-              Restore the site
-            </button>
+            <>
+              <button type="button" className="btn-primary mt-3" onClick={() => void restoreSite(takenDownAt)}>
+                Restore the site
+              </button>
+              {inSessionFinish ? null : (
+                <form noValidate onSubmit={submitFinish} className="mt-4">
+                  <TextInput id="finish-reason" label="Reason for finishing the takedown" value={finishReason} onChange={setFinishReason} errors={finishErrors} />
+                  <Checkbox id="finish-purge" label="Also delete this site's photos" checked={finishPurge} onChange={setFinishPurge} />
+                  <button type="submit" className="btn-secondary mt-3">
+                    Finish the takedown
+                  </button>
+                </form>
+              )}
+            </>
           ) : (
             <form noValidate onSubmit={askTakedown}>
               <TextInput id="takedown-reason" label="Reason for taking it down" value={reason} onChange={setReason} errors={reasonErrors} />
