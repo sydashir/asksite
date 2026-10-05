@@ -1069,8 +1069,9 @@ describe.each(ENGINES)("Modern in %s", (_engine, engine) => {
   // The moderator's quote rule (2026-10-05, A16 round 6): every first screen but the Contact page's (where the form is
   // the first screen) offers a site-level quote action, and all the ones in view share one label: the owner's words,
   // or the call bar's fixed "Get a quote", never both. Modern has no per-item quote links, so every link to the form
-  // counts. A link counts when it is rendered, not hidden, and overlaps the window at the top of the page.
-  it("shows exactly one quote label in the first screen of every page but Contact, on phones, tablets and desktops", async () => {
+  // counts. A link counts when it is rendered, not hidden, and overlaps the window at the top of the page. The sizes
+  // include phones held sideways (844x390, 932x430, 915x412; the moderator's extension of the check).
+  it("shows exactly one quote label in the first screen of every page but Contact, on phones upright and sideways, tablets and desktops", async () => {
     const found: string[] = [];
     const labels = () =>
       [...document.querySelectorAll('a[href="/contact#quote"]')].flatMap((link) => {
@@ -1082,7 +1083,7 @@ describe.each(ENGINES)("Modern in %s", (_engine, engine) => {
       });
     for (const name of FIXTURES) {
       for (const { page: id, html } of pagesOf(loadFixture(name)).filter((p) => p.page !== "contact")) {
-        for (const [width, height] of [[390, 844], [768, 1024], [900, 800], [1023, 768], [1280, 800]] as const) {
+        for (const [width, height] of [[390, 844], [768, 1024], [900, 800], [1023, 768], [1280, 800], [844, 390], [932, 430], [915, 412]] as const) {
           await tab.setViewportSize({ width, height });
           await tab.setContent(html, { waitUntil: "load" });
           const shown = [...new Set(await tab.evaluate(labels))];
@@ -1091,7 +1092,7 @@ describe.each(ENGINES)("Modern in %s", (_engine, engine) => {
       }
     }
     expect(found).toEqual([]);
-  }, 120_000);
+  }, 240_000);
 
   // A16: "Get a quote" lands on the form on the Contact page with its first field in view, below the sticky header.
   it("lands /contact#quote with the Name field in view under the header, on phones and desktops", async () => {
