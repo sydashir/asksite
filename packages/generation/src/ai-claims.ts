@@ -20,15 +20,17 @@ const NEVER_IN_AI_COPY: readonly RegExp[] = [
   new RegExp(`\\b(state|board|city|county)${J}approved\\b`, "i"), // a licence paraphrase
   new RegExp(`\\bbackground${J}check(s|ed|ing)?\\b`, "i"),
   /\bvetted\b/i,
-  new RegExp(`\\b(long${J}?time|seasoned)\\b`, "i"), // time in business comes from yearFounded
+  // Time in business comes from yearFounded. "long time" with a plain space is no claim ("lasts a long time"), so only
+  // the closed and dashed forms count; the written residual: "a long time local business" is accepted.
+  /\b(long[-\u2012\u2013\u2014\u2212]?time|seasoned)\b/i,
   /\b(raves?|raved|recommended)\b/i, // "we recommend" is advice and stays allowed
   /[\u2039\u203A\u301D-\u301F\uFF02]/, // quote marks claims.ts does not list
   // A phrase in straight single quotes: an opening ' at a word start (at the start of the text or after a space, a
   // colon, a semicolon, a comma or a dash, or after a "(" that itself follows one of those; not after a letter or a
   // second "(": code such as f('x') quotes nobody, and the XSS fixture holds some) before a letter, closed
-  // by a ' not before a letter. An apostrophe inside a word ("don't", "owner's") never opens or closes, and 'n'
-  // (rock 'n' roll) is no quotation.
-  /(?<=(?:^|[\s:;,\u2012-\u2014\u2212-])\(?)'(?!n')\p{L}(?:[^']|'(?=\p{L}))*'(?!\p{L})/u,
+  // by a ' not before a letter. An apostrophe inside a word ("don't", "owner's") never opens or closes, and neither
+  // does one that starts an elision, in any case: 'n' (rock 'n' roll), 'em, 'til, 'cause, 'bout, 'round, 'tis, 'twas.
+  /(?<=(?:^|[\s:;,\u2012-\u2014\u2212-])\(?)'(?!n'|(?:em|til|cause|bout|round|tis|twas)(?!\p{L}))\p{L}(?:[^']|'(?=\p{L}))*'(?!\p{L})/iu,
 ];
 
 /** claims.ts's own backing for its seven-days rule (24/7 service, or opening hours on all seven days), taken from NEEDS_A_FACT. */
@@ -38,7 +40,8 @@ if (sevenDaysBacking === undefined) throw new Error("claims.ts lost its seven-da
 /** Wording allowed only when the owner's facts back it. */
 const NEEDS_A_FACT_IN_AI_COPY: ReadonlyArray<{ readonly pattern: RegExp; readonly backedBy: (facts: Facts) => boolean }> = [
   { pattern: /\blic\./i, backedBy: (facts) => facts.licences.length > 0 },
-  { pattern: /\b(ins\.|liability)/i, backedBy: (facts) => facts.insured }, // not "coverage" or "covered": they describe the service area
+  // "ins." counts only on its own, not after a letter or a hyphen ("check-ins.", "walk-ins."). Not "coverage" or "covered": they describe the service area.
+  { pattern: /(?<![\p{L}-])\bins\.|\bliability/iu, backedBy: (facts) => facts.insured },
   {
     pattern: new RegExp(`\\b(after${J}hours|all${J}hours|nights${J}and${J}holidays|holidays|every${J}day|(open|available)${J}daily)\\b`, "i"), // "daily" alone is not a claim
     backedBy: sevenDaysBacking,

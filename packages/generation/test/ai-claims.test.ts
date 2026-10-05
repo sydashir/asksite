@@ -68,6 +68,7 @@ describe("AI claim check: licence", () => {
     ["vetted", "Vetted cleaners for your home", ["Vetted"]],
     ["lic. in the about", "We are lic. in Texas.", ["lic."], "about"],
   ]);
+  refused(MINIMAL_FACTS, [["Fully ins.", "Fully ins. crew", ["ins."]]]);
   refused(INSURED, [["lic. needs a licence, not insurance", "Our lic. crew", ["lic."]]]);
   refused(LICENSED, [["state-approved is never backed", "State-approved cleaners", ["State-approved"]]]);
   accepted(LICENSED, [["lic. with a licence fact", "Our lic. crew"]]);
@@ -79,6 +80,11 @@ describe("AI claim check: insurance", () => {
     ["ins.", "Our ins. cleaning crew", ["ins."]],
   ]);
   refused(LICENSED, [["liability needs insurance, not a licence", "Liability coverage for you", ["Liability"]]]);
+  accepted(MINIMAL_FACTS, [
+    ["check-ins.", "Easy check-ins."],
+    ["walk-ins.", "We take walk-ins."],
+    ["walk-ins. mid-text", "Walk-ins. are welcome"],
+  ]);
   accepted(INSURED, [
     ["liability with the insured fact", "Covered by full liability coverage"],
     ["ins. with the insured fact", "Our ins. crew"],
@@ -153,6 +159,11 @@ describe("AI claim check: time in business", () => {
     ["long-time", "A long-time local business", ["long-time"]],
     ["seasoned alone", "Seasoned pros", ["Seasoned"]],
   ]);
+  refused(MINIMAL_FACTS, [["long, minus sign, time", "A long\u2212time local business", ["long\u2212time"]]]);
+  accepted(MINIMAL_FACTS, [
+    ["lasts a long time", "The finish lasts a long time"],
+    ["for a long time", "Your floors stay clean for a long time"],
+  ]);
   refused(withFacts({ yearFounded: 1998 }), [["yearFounded does not back it", "A longtime local business", ["longtime"]]]);
 });
 
@@ -184,6 +195,12 @@ describe("AI claim check: quote marks", () => {
     ["plural possessive", "Cleaning for the owners' and tenants' homes"],
     ["rock 'n' roll", "Rock 'n' roll radio while we work"],
     ["an opening ' that no closing ' answers", "Call 'em, they're the owner's pick"],
+    ["rock 'N' roll", "Rock 'N' roll radio while we work, the owners' pick"],
+    ["'em then a closing '", "Give 'em a call, our pros' work speaks"],
+    ["'til then a closing '", "Open 'til the job is done, the owners' homes"],
+    ["'cause, 'bout, 'round", "We call 'cause we care, talk 'bout it, 'round the corner from the owners' homes"],
+    ["'tis, 'twas", "'Tis the season, 'twas the owners' idea"],
+    ["an elision after a parenthesis", "Call us ('til late), the owners' homes"],
     ["code-like text", "Not a quote: f('alert')"],
   ]);
 });
