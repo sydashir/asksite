@@ -2643,6 +2643,7 @@
      while keyboard focus is elsewhere (focus-outside:static). It stacks below the form's Send button
      (styles/shared.css). On phones a small "Call" sits over the number; from 36rem they share one line. */
   .callbar {
+    container-type: inline-size;
     bottom: 0;
     z-index: 10;
     display: grid;
@@ -2706,6 +2707,15 @@
     .menu-acts .bt .ic {
       width: 1.125rem;
       height: 1.125rem;
+    }
+  }
+  /* Bigger text (a larger root font-size, as the "bigger default text" setting gives): Call and "Get a quote" no longer
+     fit one line each in a phone's bar, so "Get a quote" wraps. The bar is the query container; a container query's rem
+     follows the root's font-size. At the default size the bar's content on a 320 px phone is 18.5rem wide, so this
+     never applies there. */
+  @container (max-width: 18.4rem) {
+    .callbar .bt-ghost {
+      white-space: normal;
     }
   }
   @media (min-width: 48rem) {
