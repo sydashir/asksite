@@ -142,10 +142,10 @@
        focus. A text field keeps it; scroll-padding-top keeps the field (and, while one has focus, its label) below it. */
     html:has(:focus-visible:not(.hdr *):not(input, select, textarea)) .hdr { position: relative; }
     html:has(.input:focus) { scroll-padding-top: calc(var(--hdr) + var(--menu-row) + 60px); }
-    .bar { min-height: 60px; gap: 16px; }
+    .bar { min-height: 60px; gap: 12px; }
     .brand { font-size: 1.25rem; }
     .brand--long { max-width: 20rem; font-size: 1.0625rem; }
-    .hdr-call { display: inline-flex; min-height: 46px; padding: 0 18px; font-size: 1rem; }
+    .hdr-call, .hdr-quote { display: inline-flex; min-height: 46px; padding: 0 18px; font-size: 1rem; }
   }
   /* 768-1023 px: the open menu is one row of the pages across the sticky header. It stays open after a tap on a jump
      within the page (no JavaScript closes it), so scroll-padding grows by its height and a jump lands below the row. */
@@ -159,15 +159,21 @@
     .menu-list a { min-height: 44px; padding: 0 12px; border: 0; font-size: 0.9375rem; }
   }
   @media (min-width: 1024px) {
-    .bar { gap: 20px; }
     .nav { order: 0; }
     .nav-links { display: flex; }
     .menu { display: none; }
   }
-  /* The owner's call to action beside Call, where the row has room for it beside every page link and the longest
-     name, on one line (the longest name takes its two lines a little narrower) */
+  /* The owner's call to action beside Call from 768 px, so every first screen there offers a quote (the moderator's
+     quote rule, A16 round 6; phones have the call bar's). Below 1200 px both are a size smaller and the call to action
+     keeps its width, the name giving way (the schema's longest name takes three lines up to about 1100 px); its
+     longest words take two lines. From 1200 px both keep one line beside every page link and the longest name. */
+  @media (max-width: 1199px) {
+    .hdr-call, .hdr-quote { padding-inline: 14px; font-size: 0.9375rem; }
+    .hdr-quote { flex: none; max-width: 10.5rem; }
+  }
   @media (min-width: 1200px) {
-    .hdr-quote { display: inline-flex; min-height: 46px; padding: 0 18px; font-size: 1rem; white-space: nowrap; }
+    .bar { gap: 20px; }
+    .hdr-quote { white-space: nowrap; }
   }
 
   /* ---------- hero ---------- */
@@ -358,8 +364,9 @@
     .creds, .creds > ul { display: flex; flex-wrap: wrap; column-gap: 32px; }
   }
 
-  /* services: priced cards, each price on its own line under the name; the owner's call to action closes the grid as a
-     brand card that fills the last row (it spans the places the last row leaves) */
+  /* services: priced cards, each price on its own line under the name; from 768 px the owner's call to action closes
+     the grid as a brand card that fills the last row (it spans the places the last row leaves); phones have the call
+     bar's and one column of cards */
   .cards { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
   .card { padding: 22px 22px 24px; border: 1px solid var(--line); border-radius: var(--r); background: #fff; }
   .white .card { border-color: transparent; background: var(--tint); }
@@ -379,7 +386,7 @@
   .ask .button { flex: 1 1 auto; }
   .ask-q { font: 700 1.3125rem/1.25 var(--display); letter-spacing: calc(var(--trk) * -0.01em); color: #fff; text-wrap: balance; }
   .ask p + p { margin-top: 6px; color: var(--on-brand-muted); }
-  @media (min-width: 640px) {
+  @media (min-width: 768px) {
     .cards--c2, .cards--c3, .cards--c4 { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
     .ask:nth-child(odd) { grid-column: 1 / -1; }
   }
@@ -426,7 +433,7 @@
   }
 
   /* the closing band: a white card with the brand rule, "Get in touch" over the owner's question and reasons, then
-     Call (the action colour) and the call to action, beside them from 1024 px */
+     Call (the action colour) and, from 768 px, the call to action, beside them from 1024 px */
   .sec.close { padding-block: 40px; }
   .close-card { padding: 30px 22px; border: 1px solid var(--line); border-top: 4px solid var(--brand); border-radius: var(--r); background: #fff; box-shadow: var(--lift); }
   .close-card .head { margin-bottom: 24px; }
@@ -802,6 +809,12 @@
   .callbar.on-brand { border-top-color: var(--brand-line); background: var(--brand); }
   /* Call and "Get a quote" in equal halves */
   .callbar .button { flex: 1 1 0; min-width: 0; min-height: 54px; padding: 0 12px; gap: 8px; font-size: 1rem; }
+  /* Phones: the bar is the page's quote action, so a first screen never shows its "Get a quote" beside the owner's
+     words (the moderator's quote rule, A16 round 6): the services' call-to-action card and the closing band's quote
+     button give way to it, as the hero's and the gallery's do. */
+  @media (max-width: 767px) {
+    .cards > .ask, .close-cta .button-line { display: none; }
+  }
   @media (min-width: 768px) {
     .callbar { display: none; }
   }

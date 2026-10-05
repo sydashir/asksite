@@ -12,7 +12,8 @@ import { credentialLine, credentialList, head, pageBand, pageCredentials, priceL
 /**
  * The column count for `count` service cards, at most `most`: the most columns, up to one more than the services.
  * The call-to-action card closes the grid and fills whatever the last row leaves (styles/sheets/modern.css spans
- * it), so no row has a hole. Every site has the Contact page and its quote form (A16), so the card always shows.
+ * it), so no row has a hole. Every site has the Contact page and its quote form (A16), so the card is always drawn;
+ * phones hide it and leave the quote to the call bar (the moderator's quote rule, A16 round 6).
  */
 export const cardColumns = (count: number, most: number): number => Math.min(most, count + 1);
 

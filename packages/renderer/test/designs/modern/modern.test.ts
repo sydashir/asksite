@@ -128,7 +128,7 @@ describe("Modern: every page can call or ask for a quote (A16)", () => {
 
   // Moderator rulings (f) and A16 round 5: a site-level quote button keeps the owner's words; only the call bar says
   // "Get a quote".
-  it("from 1200 px the header carries a quote button in the owner's words on every page, Contact included (moderator ruling (f))", () => {
+  it("from 768 px the header carries a quote button in the owner's words on every page, Contact included (moderator ruling (f))", () => {
     for (const { html } of pages) {
       const header = element(html, "<header");
       expect(header).toContain('<a class="button button-line hdr-quote" href="/contact#quote">Get a free quote</a>');

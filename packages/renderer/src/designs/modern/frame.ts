@@ -11,10 +11,10 @@ const LONG_NAME = 30;
 
 /**
  * The header, the same on every page: the business name (a link to Home), the site's pages (a <details> menu below
- * 1024 px, zero JavaScript; the page on screen marked aria-current), the owner's call to action from 1200 px, in the
+ * 1024 px, zero JavaScript; the page on screen marked aria-current), and from 768 px the owner's call to action, in the
  * owner's words like every quote button but the call bar's (the Contact page keeps it as a normal button, moderator
- * ruling (f); A16 round 5) and a Call button from 768 px; phones have the call bar. From 768 px it stays at the top
- * while the page scrolls (styles/sheets/modern.css).
+ * ruling (f); A16 rounds 5 and 6), and a Call button; phones have the call bar. From 768 px it stays at the top while
+ * the page scrolls (styles/sheets/modern.css).
  */
 export function renderHeader(ctx: RenderContext): SafeHtml {
   const { facts } = ctx.doc;

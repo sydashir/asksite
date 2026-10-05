@@ -43,7 +43,8 @@ ${items.map((s) => html`<li>${icon("check", "i")}<h3 class="h3">${s.name}</h3>${
  * sits over the owner's own question (the trade and the home town: "Need a plumber in Austin?") and a reason to act
  * from the owner's facts (24/7 service, as the hero says it; free estimates, one of the credentials, so only while
  * the site shows them; with neither, the towns the business serves while the site shows them), beside (from
- * 1024 px) the Call button, in the action colour with the number, and the owner's call to action, to the quote form.
+ * 1024 px) the Call button, in the action colour with the number, and the owner's call to action, to the quote form
+ * (from 768 px: on phones the call bar carries the quote link, the moderator's quote rule, A16 round 6).
  * White on every page, so it never stacks on the brand-coloured footer as a second footer (judges, A16 round 2).
  */
 export function renderClosingBand(ctx: RenderContext, tone: string): SafeHtml {

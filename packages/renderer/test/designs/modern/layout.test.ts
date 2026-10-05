@@ -217,6 +217,7 @@ describe.each(ENGINES)("Modern in %s", (_engine, engine) => {
     expect(found).toEqual([]);
   }, 60_000);
 
+  // Phones show one column of service cards and leave the call to action to the call bar (A16 round 6).
   it("fills the services grid's last row: the call-to-action card ends level with the grid's right edge (judges 1-3)", async () => {
     const found: string[] = [];
     // Every fixture, and 1 to 9 services in both variants (each place the card can land in rows of 2, 3 and 4).
@@ -241,7 +242,7 @@ describe.each(ENGINES)("Modern in %s", (_engine, engine) => {
         await tab.setViewportSize({ width, height: 800 });
         const gap = await tab.evaluate(() => {
           const list = document.querySelector("#services .cards")?.getBoundingClientRect();
-          const last = document.querySelector("#services .cards > li:last-child")?.getBoundingClientRect();
+          const last = [...document.querySelectorAll("#services .cards > li")].filter((li) => li.getClientRects().length > 0).at(-1)?.getBoundingClientRect();
           return list === undefined || last === undefined ? -1 : Math.round(list.right - last.right);
         });
         if (Math.abs(gap) > 1) found.push(`${name} ${width}: ${gap}px short`);
@@ -693,13 +694,14 @@ describe.each(ENGINES)("Modern in %s", (_engine, engine) => {
 
   // A16 round 1's judges: the closing band was a heading on a pale band with its buttons ~500 px away at the far right.
   // It is a card: the buttons beside the heading from 1024 px, under it at the card's width on phones.
+  // Phones show Call alone there: the call bar carries the quote link (the moderator's quote rule, A16 round 6).
   it("sets the closing band's buttons inside its card: beside the heading from 1024 px, under it at full width on phones", async () => {
     const found: string[] = [];
     const measure = () => {
       const card = document.querySelector(".close-card").getBoundingClientRect();
       const head = document.querySelector(".close-card .head").getBoundingClientRect();
       const cta = document.querySelector(".close-cta").getBoundingClientRect();
-      const buttons = [...document.querySelectorAll(".close-cta .button")].map((b) => b.getBoundingClientRect().toJSON());
+      const buttons = [...document.querySelectorAll(".close-cta .button")].filter((b) => b.getClientRects().length > 0).map((b) => b.getBoundingClientRect().toJSON());
       return { card: card.toJSON(), head: head.toJSON(), cta: cta.toJSON(), buttons };
     };
     for (const name of ["plumber-austin", "cleaning-minimal"] as const) {
@@ -709,6 +711,7 @@ describe.each(ENGINES)("Modern in %s", (_engine, engine) => {
         const got = await tab.evaluate(measure);
         const inside = got.buttons.every((b: { left: number; right: number; top: number; bottom: number }) => b.left >= got.card.left && b.right <= got.card.right && b.top >= got.card.top && b.bottom <= got.card.bottom);
         if (!inside) found.push(`${name} ${width}: a button outside the card`);
+        if (got.buttons.length !== (width < 768 ? 1 : 2)) found.push(`${name} ${width}: ${got.buttons.length} buttons`);
         if (width < 768) {
           if (got.buttons.some((b: { top: number; width: number }) => b.top < got.head.bottom || Math.abs(b.width - got.cta.width) > 1)) found.push(`${name} ${width}: buttons not under the heading at full width`);
         } else if (got.buttons.some((b: { left: number; top: number }) => b.left < got.head.right || b.top > got.head.bottom)) found.push(`${name} ${width}: buttons not beside the heading`);
@@ -733,8 +736,8 @@ describe.each(ENGINES)("Modern in %s", (_engine, engine) => {
       });
     };
     for (const [name, html] of [["cleaning-minimal", page("cleaning-minimal", undefined, "services")], ["plumber-austin", page("plumber-austin", undefined, "services")]] as const) {
-      await open(html, 700);
-      for (const width of [700, 1024, 1200, 1280, 1920]) {
+      await open(html, 768);
+      for (const width of [768, 1024, 1200, 1280, 1920]) {
         await tab.setViewportSize({ width, height: 800 });
         for (const card of await tab.evaluate(measure)) {
           if (Math.abs(card.ragged) > 1) found.push(`${name} ${width}: "${card.title}" ends ${Math.round(card.ragged)} px off the call-to-action card`);
@@ -981,7 +984,7 @@ describe.each(ENGINES)("Modern in %s", (_engine, engine) => {
     expect(found).toEqual([]);
   }, 60_000);
 
-  // A16 round 2's judges: below 1200 px (where the header has no quote button) the gallery's only quote action came
+  // A16 round 2's judges: below 1200 px (where the header then had no quote button) the gallery's only quote action came
   // after the whole grid. From 768 px the owner's call to action sits on the heading row; phones have the call bar's.
   it("puts the call to action on the gallery's heading row from 768 px, and leaves it to the call bar on phones", async () => {
     const found: string[] = [];
@@ -1022,10 +1025,11 @@ describe.each(ENGINES)("Modern in %s", (_engine, engine) => {
   }, 60_000);
 
   // A16: every page is reachable from the header at every width (WCAG 2.4.5): inline from 1024 px, beside the name and
-  // the Call button without touching them, also for the longest business name; below that through the menu. From
-  // 1200 px a quote button sits beside Call (A16 round 1's judges: no quote action on a desktop's first screen), in the
-  // owner's words on one line, also the longest (A16 round 5), and the name keeps to two lines.
-  it("shows every page link in the header from 1024 px, and the quote button from 1200 px, without touching the name or the Call button, in every lettering", async () => {
+  // the buttons without touching them, also for the longest business name; below that through the menu. A quote button
+  // in the owner's words sits beside Call from 768 px (the moderator's quote rule, A16 round 6; before, from 1200 px:
+  // A16 round 1's judges), on one line from 1200 px, also the longest (A16 round 5), on at most two below. The name
+  // keeps to two lines; the schema's longest (60 letters) takes three below 1200 px.
+  it("shows every page link in the header from 1024 px (the menu below), and the quote button beside Call from 768 px, none touching another, in every lettering", async () => {
     const found: string[] = [];
     const header = () => {
       const box = (el: any) => el.getBoundingClientRect();
@@ -1034,19 +1038,15 @@ describe.each(ENGINES)("Modern in %s", (_engine, engine) => {
         range.selectNodeContents(el);
         return new Set([...range.getClientRects()].map((rect: any) => Math.round(rect.top))).size;
       };
-      const links = [...document.querySelectorAll(".nav-links a")].filter((a) => a.getClientRects().length > 0).map(box);
-      const brand = box(document.querySelector(".brand"));
-      const call = box(document.querySelector(".hdr-call"));
-      const nav = box(document.querySelector(".nav-links"));
+      const shown = (el: any) => el.getClientRects().length > 0;
+      const parts = [".brand", ".nav-links", ".menu summary", ".hdr-quote", ".hdr-call"].map((s) => document.querySelector(s)).filter(shown).map(box);
       const quote = document.querySelector(".hdr-quote");
-      const shownQuote = quote.getClientRects().length > 0;
-      const quoteBox = box(quote);
       return {
-        shown: links.length,
+        shown: [...document.querySelectorAll(".nav-links a")].filter(shown).length,
         total: document.querySelectorAll(".nav-links a").length,
-        clear: brand.right <= nav.left && nav.right <= (shownQuote ? quoteBox.left : call.left) && (!shownQuote || quoteBox.right <= call.left),
-        quote: shownQuote,
-        quoteLines: shownQuote ? lines(quote) : 0,
+        clear: parts.every((a, i) => a.right <= document.documentElement.clientWidth && parts.slice(i + 1).every((b) => a.right <= b.left || b.right <= a.left)),
+        quote: shown(quote) && shown(document.querySelector(".hdr-call")),
+        quoteLines: shown(quote) ? lines(quote) : 0,
         nameLines: lines(document.querySelector(".brand")),
         menu: document.querySelector(".menu").getClientRects().length,
       };
@@ -1054,15 +1054,44 @@ describe.each(ENGINES)("Modern in %s", (_engine, engine) => {
     for (const name of ["plumber-austin", "roofing-extreme"] as const) {
       for (const font of FONT_IDS) {
         await open(page(name, font, "services"), 1024);
-        for (const width of [1024, 1100, 1199, 1200, 1240, 1280, 1920]) {
+        for (const width of [768, 900, 1023, 1024, 1100, 1199, 1200, 1240, 1280, 1920]) {
           await tab.setViewportSize({ width, height: 800 });
           const got = await tab.evaluate(header);
-          if (got.shown !== got.total || !got.clear || got.menu !== 0 || got.quote !== width >= 1200 || got.quoteLines > 1 || got.nameLines > 2) found.push(`${name} ${font} ${width}: ${JSON.stringify(got)}`);
+          const wide = width >= 1024;
+          const nameLines = name === "roofing-extreme" && width < 1200 ? 3 : 2;
+          if (got.shown !== (wide ? got.total : 0) || got.menu !== (wide ? 0 : 1) || !got.clear || !got.quote || got.quoteLines > (width >= 1200 ? 1 : 2) || got.nameLines > nameLines) found.push(`${name} ${font} ${width}: ${JSON.stringify(got)}`);
         }
       }
     }
     expect(found).toEqual([]);
   }, 60_000);
+
+  // The moderator's quote rule (2026-10-05, A16 round 6): every first screen but the Contact page's (where the form is
+  // the first screen) offers a site-level quote action, and all the ones in view share one label: the owner's words,
+  // or the call bar's fixed "Get a quote", never both. Modern has no per-item quote links, so every link to the form
+  // counts. A link counts when it is rendered, not hidden, and overlaps the window at the top of the page.
+  it("shows exactly one quote label in the first screen of every page but Contact, on phones, tablets and desktops", async () => {
+    const found: string[] = [];
+    const labels = () =>
+      [...document.querySelectorAll('a[href="/contact#quote"]')].flatMap((link) => {
+        if (!link.checkVisibility({ visibilityProperty: true })) return [];
+        const box = link.getBoundingClientRect();
+        const across = Math.min(box.right, window.innerWidth) - Math.max(box.left, 0);
+        const down = Math.min(box.bottom, window.innerHeight) - Math.max(box.top, 0);
+        return across > 0 && down > 0 ? [(link.textContent ?? "").replace(/\s+/g, " ").trim()] : [];
+      });
+    for (const name of FIXTURES) {
+      for (const { page: id, html } of pagesOf(loadFixture(name)).filter((p) => p.page !== "contact")) {
+        for (const [width, height] of [[390, 844], [768, 1024], [900, 800], [1023, 768], [1280, 800]] as const) {
+          await tab.setViewportSize({ width, height });
+          await tab.setContent(html, { waitUntil: "load" });
+          const shown = [...new Set(await tab.evaluate(labels))];
+          if (shown.length !== 1) found.push(`${name} ${id} ${width}x${height}: ${JSON.stringify(shown)}`);
+        }
+      }
+    }
+    expect(found).toEqual([]);
+  }, 120_000);
 
   // A16: "Get a quote" lands on the form on the Contact page with its first field in view, below the sticky header.
   it("lands /contact#quote with the Name field in view under the header, on phones and desktops", async () => {
