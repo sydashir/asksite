@@ -632,10 +632,16 @@ describe("the Bold pages", () => {
   });
 
   // Round 4 (A16 judges): About's footer repeated the licence and "Insured" its credentials showed a scroll above.
-  it("leaves the credentials out of the footer on About while its own credentials show them", () => {
+  // Round 6 (A16 judges): so did Contact's (the head's Insured chip, the licences beside the form; roofing's five twice).
+  it("leaves the credentials out of the footer on About and Contact while their own pages show them", () => {
     const credentials = (html: string) => html.slice(html.indexOf("<footer")).includes('<h2 class="kicker">Credentials</h2>');
-    expect(all.map((p) => [p.page, credentials(p.html)])).toEqual(all.map((p) => [p.page, p.page !== "about"]));
+    expect(all.map((p) => [p.page, credentials(p.html)])).toEqual(all.map((p) => [p.page, p.page !== "about" && p.page !== "contact"]));
+    // Roofing's Contact opens with the service area (the owner's order): its head and the form's side still show them.
+    const roofing = bold(fixture("roofing-extreme"), "contact");
+    expect(credentials(roofing)).toBe(false);
+    expect(roofing.slice(0, roofing.indexOf("<footer"))).toMatch(/<li class="chip"><svg[^]*?<\/svg>Insured<\/li>[^]*<ul class="talk-lics">(?:<li>[^]*?<\/li>){5}<\/ul>/);
     expect(credentials(bold({ ...plumber, hidden: ["trust"] }, "about"))).toBe(true);
+    expect(credentials(bold({ ...plumber, hidden: ["trust"] }, "contact"))).toBe(true);
   });
 
   it("links the hero card's towns to the service area on the Contact page", () => {
@@ -839,10 +845,6 @@ describe("the Bold sheet carries the round-5 polish", () => {
     expect(block(".foot-grid:has(>:nth-child(4))", "@media (min-width:64rem){.foot-grid")).toContain("grid-template-columns:minmax(0,6fr) minmax(0,4fr) minmax(0,7fr) minmax(0,6fr)");
     expect(css).not.toContain("repeat(auto-fit,minmax(10rem,1fr))");
   });
-
-  // A16 judges: at iPad landscape (1024x768) the form column is at its narrowest and the service select read "Choose a
-  // serv…". There the fields take a row each, so the select keeps the text fields' size and shape (the shared e2e check).
-  it("gives each form field a row of its own from 64rem to 80rem, where the form column is narrowest", () => {
-    expect(css).toContain("@media (min-width:64rem) and (max-width:79.99rem){.form-card>form{grid-template-columns:minmax(0,1fr)}}");
-  });
+  // Round 6 replaced round 5's one field per row from 64 to 80rem (it pushed Send request out of the first screen): the
+  // form at those widths is checked in real browsers (screens.test.ts).
 });

@@ -29,7 +29,8 @@ export function renderContact(ctx: RenderContext, _variant: VariantOf<"contact">
   const head = opens
     ? contactPageHeading(ctx, DOM_ID.contact, intro)
     : sectionHead(DOM_ID.contact, { eyebrow: "Contact", title: contactHeading(copy.ctaText), intro }, "sec-head contact-head");
-  // The licences while the owner shows the credentials (the footer repeats them, as several states require).
+  // The licences while the owner shows the credentials (as several states require them in all advertising; this page's
+  // footer then leaves them out).
   const licences = onSite(ctx, "trust") && facts.licences.length > 0 && html`<ul class="talk-lics">${facts.licences.map((l) => html`<li>${icon("certificate")}<span>${licenceMarkup(l)}</span></li>`)}</ul>`;
 
   return html`<section id="${DOM_ID.contact}" class="${bandClass(ctx, "contact")}${opens ? " sec--open" : ""}" aria-labelledby="${DOM_ID.contact}-title">

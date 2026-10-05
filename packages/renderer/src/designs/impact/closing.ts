@@ -2,7 +2,9 @@
 // the button rather than repeating it: the owner's 24/7 promise when the owner offers 24/7 service, else the page's own
 // question; then a line, the number as a call control (under "Prefer to talk?" only beside the page's question: under
 // "Call us 24/7" that would echo the lead) and the owner's call-to-action button (its words, as on every page: WCAG
-// 3.2.4), to the quote form, as Contact's head does. It is ink, or light after Home's ink reviews
+// 3.2.4), to the quote form, as Contact's head does. The sheet shows that button only where the call bar is hidden
+// (from 64rem), so a screen never offers two quote labels; below, the bar's "Get a quote" carries it (the link stays in
+// the page). It is ink, or light after Home's ink reviews
 // (rules.ts surfaces), so two ink bands never meet; there its content sits on an ink panel, so Home still ends on ink
 // as the approved page did. The words are fixed house copy that claims nothing the owner's facts do not back.
 import type { PageId } from "@asksite/site-schema";

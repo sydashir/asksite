@@ -1238,6 +1238,13 @@
       font-size: 0.75rem;
     }
   }
+  /* Contact's head beside the form from 64 to 80rem (iPad landscape): the short "24/7 emergency" phones use, so the
+     three chips keep one line and "Since 1998" never sits alone on a second. */
+  @media (min-width: 64rem) and (max-width: 79.99rem) {
+    .contact-head .ph-long {
+      display: none;
+    }
+  }
   .ph-talk {
     container-type: inline-size;
     margin-top: 1.25rem;
@@ -1581,8 +1588,9 @@
 
   /* The closing band: "Get in touch" as its eyebrow over its lead at h2 scale and the page's own line at the left;
      "Prefer to talk?" with the number as a call control and the call-to-action button at the right from 64rem (a
-     26rem column, rules.ts LABEL_SLOTS), stacked full width on phones. After Home's ink reviews the band is light and
-     holds the same content on an ink panel. */
+     26rem column, rules.ts LABEL_SLOTS), stacked full width on phones. Its button shows only where the call bar is
+     hidden (from 64rem): below, the bar's "Get a quote" is the screen's one quote label, as with the hero's buttons.
+     After Home's ink reviews the band is light and holds the same content on an ink panel. */
   .close {
     display: grid;
     grid-template-columns: minmax(0, 1fr);
@@ -1614,10 +1622,9 @@
     width: 100%;
     margin-top: 0.5rem;
   }
-  @media (max-width: 39.99rem) {
-    .close-acts .bt {
-      font-size: 1.0625rem;
-      padding-inline: 0.75rem;
+  @media (max-width: 63.99rem) {
+    .close-acts > p:has(> .bt) {
+      display: none;
     }
   }
   @media (min-width: 40rem) {
@@ -2496,11 +2503,13 @@
       margin-top: 1.5rem;
     }
   }
-  /* Up to 80rem the form's column is at its narrowest (about 200 px a field at 1024 px wide, where "Choose a service"
-     was cut): each field takes a row of its own, so the select keeps the text fields' size and shows its words whole. */
-  @media (min-width: 64rem) and (max-width: 79.99rem) {
-    .form-card > form {
-      grid-template-columns: minmax(0, 1fr);
+  /* From 64 to 75rem the form's column is at its narrowest (about 200 px a field at 1024 px wide, where "Choose a
+     service" was cut): Name and Phone keep their shared row and Email and the service select take a row each, so the
+     select shows its words whole and Send request stays in an iPad's landscape first screen. From 75rem a half row
+     holds the select's words whole, and it has the text fields' size again. */
+  @media (min-width: 64rem) and (max-width: 74.99rem) {
+    .form-card > form > :is(:nth-child(3), :nth-child(4)) {
+      grid-column: 1 / -1;
     }
   }
 
@@ -2592,9 +2601,10 @@
   .foot-hours dt {
     color: var(--aw-impact-on-ink-soft);
   }
-  /* From 48rem the name, the pages and how to reach the business (with the hours) side by side, the credentials under
-     the name; from 64rem the credentials make a fourth column. The pages column takes only what its short links need,
-     so the contact column is the widest and each day keeps its times on one line. */
+  /* From 48rem the name, the pages and how to reach the business (with the hours) side by side, the credentials right
+     under the name (the pages and contact columns span both rows, so the name's row is only as tall as the name); from
+     64rem the credentials make a fourth column. The pages column takes only what its short links need, so the contact
+     column is the widest and each day keeps its times on one line. */
   @media (min-width: 48rem) {
     .foot-grid {
       grid-template-columns: minmax(0, 5fr) minmax(0, 3fr) minmax(0, 6fr);
@@ -2604,6 +2614,14 @@
     .site-footer nav ul {
       flex-direction: column;
       gap: 0.375rem;
+    }
+  }
+  @media (min-width: 48rem) and (max-width: 63.99rem) {
+    .foot-grid {
+      grid-template-rows: auto 1fr;
+    }
+    .foot-grid > :is(:nth-child(2), :nth-child(3)) {
+      grid-row: span 2;
     }
   }
   @media (min-width: 64rem) {
