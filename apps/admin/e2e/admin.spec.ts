@@ -614,7 +614,13 @@ const takedownAudits = (view: SiteView) => view.audit.filter((a) => a.action ===
 // takedown-truth (B), QA Q-1: Finish from a stale page must not take a restored site down again or email the owner again.
 test("a down-site page's Finish after another tab restored the site is refused: the text, no notice, no audit row, the site stays up", async ({ page }) => {
   const site = await liveSite(page);
-  await takeDown(page, site.siteId);
+  await page.goto(`/sites/${site.siteId}`);
+  await page.getByLabel("Reason for taking it down").fill("Phishing report");
+  await page.getByRole("button", { name: "Take the site down" }).click();
+  // Wait for the takedown's answer (a state, not the clock) before looking for the Restore button; the waiter is registered before the click.
+  const takenDown = page.waitForResponse((r) => r.url().includes("/takedown") && r.request().method() === "POST");
+  await page.getByRole("dialog", { name: "Take this site down?" }).getByRole("button", { name: "Take it down" }).click();
+  expect((await takenDown).status()).toBe(200);
   await expect(page.getByRole("button", { name: "Restore the site" })).toBeVisible();
   await page.reload();
   await expect(page.getByRole("button", { name: "Finish the takedown" })).toHaveCount(1);
