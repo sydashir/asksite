@@ -46,8 +46,10 @@ export function siteRoutes(deps: AppDeps): Hono<AppEnv> {
     // edits are read only once json_valid passed them, inside a CASE: sqlite.org/lang_expr.html documents CASE as
     // lazy, but not the order AND evaluates its operands in (P4-21 item 6).
     // The two guards after the rev are the last tests of the same WHERE: a refused save stores nothing, not even its facts. While a
-    // REGENERATE is queued or running NO save is stored, whatever it carries (copy, order, look, hidden, facts or brief): a save replaces
+    // REGENERATE is queued or running a save that CARRIES EDITS (copy, order, look or hidden: body.edits present) is not stored: a save replaces
     // the stored edits whole, so even a look or hide save would carry the owner's wording, and the new wording replaces the draft anyway.
+    // A save that carries only answers (facts and/or brief) is stored as normal: answers are not edits, a finished rewrite writes only the
+    // generation's output (never sites.rev) and the rewrite works from its own snapshot, so an answer typed meanwhile is never lost.
     // Otherwise a wording or order save must be bound to the newest succeeded generation. IS (not =) so a site with no AI yet (no
     // succeeded generation) accepts edits bound to null, as an empty draft does.
     const [write, siteRead, aiRead, uploadsRead, rewriteRead] = await db.batch([
@@ -61,7 +63,7 @@ export function siteRoutes(deps: AppDeps): Hono<AppEnv> {
                ELSE ?3 END,
              rev = rev + 1, updated_at = ?4
            WHERE id = ?5 AND owner_id = ?6 AND rev = ?7 AND taken_down_at IS NULL
-             AND NOT EXISTS (SELECT 1 FROM generations WHERE site_id = ?5 AND kind = 'regenerate' AND status IN ('queued', 'running'))
+             AND (?3 IS NULL OR NOT EXISTS (SELECT 1 FROM generations WHERE site_id = ?5 AND kind = 'regenerate' AND status IN ('queued', 'running')))
              AND (?8 = 0 OR ?9 IS (SELECT id FROM generations WHERE site_id = ?5 AND status = 'succeeded' ORDER BY created_at DESC LIMIT 1))`,
         )
         .bind(facts, brief, edits, Date.now(), siteId, owner.id, body.rev, wordingBound ? 1 : 0, body.edits?.baseGenerationId ?? null),

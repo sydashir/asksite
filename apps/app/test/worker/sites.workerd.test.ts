@@ -471,8 +471,14 @@ describe("PATCH /api/sites/:siteId/draft", () => {
     const CHARCOAL = { palette: "charcoal-red", font: "friendly", design: "refined" } as const;
 
     /** A built owner with a rewrite started and not yet finished (`status` as the worker would have it). */
-    async function rewriting(status: "queued" | "running") {
+    async function rewriting(status: "queued" | "running", savedCopy?: Record<string, string>) {
       const owner = await builtOwner(h, VALID_FACTS, VALID_BRIEF);
+      if (savedCopy !== undefined) {
+        // The owner's wording is saved BEFORE the rewrite starts (it is then the stored wording the rewrite must never touch).
+        const rev = (await json<SiteView>(await h.call("GET", `/api/sites/${owner.siteId}`, { cookie: owner.cookie }))).rev;
+        const saved = await h.call("PATCH", `/api/sites/${owner.siteId}/draft`, { cookie: owner.cookie, body: { rev, edits: { ...EMPTY_EDITS, baseGenerationId: owner.generationId, copy: savedCopy } } });
+        expect(saved.status).toBe(200);
+      }
       const started = await h.call("POST", `/api/sites/${owner.siteId}/generations`, { cookie: owner.cookie, body: {} });
       const rewrite = (await json<{ generation: { id: string } }>(started)).generation.id;
       if (status === "running") await (await h.db()).prepare("UPDATE generations SET status = 'running' WHERE id = ?").bind(rewrite).run();
@@ -482,7 +488,7 @@ describe("PATCH /api/sites/:siteId/draft", () => {
     }
 
     for (const status of ["queued", "running"] as const) {
-      it(`refuses every kind of edit while a rewrite is ${status}, stores nothing and keeps the rev`, async () => {
+      it(`refuses every save that carries edits while a rewrite is ${status}, stores nothing and keeps the rev`, async () => {
         const { first, read, save, rev } = await rewriting(status);
         const before = (await read()).edits;
         const attempts: object[] = [
@@ -490,7 +496,8 @@ describe("PATCH /api/sites/:siteId/draft", () => {
           { edits: { ...EMPTY_EDITS, baseGenerationId: first, order: ORDER } },
           { edits: { ...EMPTY_EDITS, baseGenerationId: first, hidden: ["gallery"] } },
           { edits: { ...EMPTY_EDITS, baseGenerationId: first, theme: CHARCOAL } },
-          { facts: { ...VALID_FACTS, businessName: "Changed Name" } },
+          // Edits that ride along with answers: the answers are not stored either (a refused save stores nothing).
+          { facts: { ...VALID_FACTS, businessName: "Changed Name" }, edits: { ...EMPTY_EDITS, baseGenerationId: first, hidden: ["gallery"] } },
         ];
         for (const attempt of attempts) {
           const res = await save({ rev, ...attempt });
@@ -504,12 +511,34 @@ describe("PATCH /api/sites/:siteId/draft", () => {
       });
     }
 
-    it("stores the owner's saved wording untouched when a look or hide save during a rewrite carries it", async () => {
-      const { first, read, save, rev } = await rewriting("running");
+    // R1 (A): answers are not edits. A save that carries only facts and/or the brief is stored as normal during a rewrite (a finished
+    // rewrite writes only the generation's output and never sites.rev; the rewrite works from its own snapshot), so an answer typed on
+    // the Questionnaire, or in another tab, is never lost.
+    for (const status of ["queued", "running"] as const) {
+      it(`stores a save that carries only answers (facts, brief, or both) while a rewrite is ${status}, and leaves the edits alone`, async () => {
+        const { read, save, rev } = await rewriting(status, { ctaText: "Mine" });
+        const before = (await read()).edits;
+        const facts = { ...VALID_FACTS, businessName: "Changed Name" };
+        const brief = { ...VALID_BRIEF, tone: "professional" };
+        expect((await save({ rev, facts })).status).toBe(200);
+        expect((await save({ rev: rev + 1, brief })).status).toBe(200);
+        expect((await save({ rev: rev + 2, facts: { ...facts, businessName: "Changed Again" }, brief })).status).toBe(200);
+        const view = await read();
+        expect(view.rev).toBe(rev + 3);
+        expect(view.facts).toMatchObject({ businessName: "Changed Again" });
+        expect(view.brief).toEqual(brief);
+        expect(view.edits).toEqual(before);
+      });
+    }
+
+    it("refuses a look or hide save that carries the owner's saved wording, and the saved wording stays stored", async () => {
+      const { first, read, save, rev } = await rewriting("running", { ctaText: "Mine" });
       // The shape the editor sends for a look change: the whole edits, saved wording included.
       const res = await save({ rev, edits: { ...EMPTY_EDITS, baseGenerationId: first, copy: { ctaText: "Mine" }, theme: CHARCOAL } });
       expect(res.status).toBe(409);
-      expect((await read()).edits.copy).toEqual({});
+      const view = await read();
+      expect(view.rev).toBe(rev);
+      expect(view.edits.copy).toEqual({ ctaText: "Mine" });
     });
 
     it("never lets a refused wording save take facts or brief with it", async () => {
