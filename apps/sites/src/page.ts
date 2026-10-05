@@ -63,8 +63,9 @@ async function serveVersion(env: Env, ctx: ExecutionContext, slug: string, page:
   }
   // Not live, or taken down (D1 alone decides; LIVE may still hold the pages). Not cached.
   if (site === null) return notFound(root);
-  // The pointer names another version than D1's live one (an approval or restore half-way, or a late write of an
-  // older version): never serve it. Not cached; the next request sees the fix.
+  // The pointer names another version than D1's live one (an approval half-way, or a late write of an older version):
+  // never serve it. Not cached; the next request sees the fix. A restore half-way is the 404 above: D1 keeps
+  // taken_down_at until the restore's clear commits.
   if (versionId !== site.live_version_id) return unavailable(root);
 
   const headers = livePageHeaders(root, site.indexable === 1);
