@@ -1,6 +1,7 @@
 // The hero's "Since" seal in a real browser: on the business-card hero it sits over the card's top corner and rises
-// 2.5rem above it, so in short desktop windows (where the hero's top padding shrinks) it must still stay inside the
-// hero, clear of the sticky header. Laid out by the repo's own Playwright Chromium and WebKit with the real Classic sheet.
+// 2.5rem above it, so in short desktop windows (where the hero's top padding shrinks), and beside words shorter than the
+// card, it must still stay inside the hero, clear of the sticky header. Laid out by the repo's own Playwright Chromium
+// and WebKit with the real Classic sheet.
 import { chromium, webkit, type Browser, type Page } from "@playwright/test";
 import type { SiteDocumentInput } from "@asksite/site-schema";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -23,10 +24,13 @@ const CLEAR = 8;
 
 const refined = (doc: SiteDocumentInput): SiteDocumentInput => ({ ...doc, theme: { ...doc.theme, design: "refined" } });
 const plumber = loadFixture("plumber-austin");
+const hvac = loadFixture("hvac-phoenix");
 const { heroPhoto: _photo, ...noPhoto } = plumber.facts;
 const PAGES = {
-  "hvac-phoenix": refined(loadFixture("hvac-phoenix")),
+  "hvac-phoenix": refined(hvac),
   "plumber-austin without photos": refined({ ...plumber, facts: { ...noPhoto, photos: [] } }),
+  // Words shorter than the card beside them, in any font: the card is the row's tallest item.
+  "hvac-phoenix with a short headline": refined({ ...hvac, copy: { ...hvac.copy, heroHeadline: "Cool again today" } }),
 };
 
 /** How far the seal's ring is below the hero's top edge, in px (negative: it pokes out under the header). */

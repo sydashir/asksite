@@ -369,8 +369,13 @@ describe.each(Object.keys(ENGINES) as Array<keyof typeof ENGINES>)("Classic's ca
     expect(await brandOffsets()).toEqual([]);
   }, 120_000);
 
-  it("RED: catches a name set by its line box, which puts Sturdy's capitals high", async () => {
-    expect((await brandOffsets(".brand{text-box:normal!important}")).join("\n")).toMatch(/^sturdy /m);
+  // RED proof in any face: 6 px more padding under the name keeps its box centred on the row but draws its capitals
+  // 3 px high, which only the ink shows. (A name set by its line box puts only Sturdy's Mac face high, and no
+  // Liberation face, so that mutation proves nothing where CI's fonts stand in.)
+  it("RED: catches capitals drawn 3 px high in a name box centred on the row, in every lettering and window", async () => {
+    const found = await brandOffsets(".brand{padding-bottom:1rem!important}");
+    expect(found).toHaveLength(FONT_IDS.length * 3);
+    expect(found.filter((row) => !/: -\d+\.\d px$/.test(row))).toEqual([]);
   }, 120_000);
 
   /**

@@ -536,6 +536,11 @@ summary::-webkit-details-marker{display:none}
   .hero{padding-block:3rem 5rem}
   .h-grid{display:grid;grid-template-columns:minmax(0,1.06fr) minmax(0,1fr);gap:4.5rem;align-items:center}
   .hm{margin:0 1.25rem 1.25rem 0}
+  /* The seal rises 2.5rem (and its 4.5px ring) above the card, 3.5px short of the hero's top padding, so the card must
+     never start at the row's top. The row centres the card's margin box, so .5rem more above and below leaves a card
+     centred lower where it was, and starts a card taller than the words beside it (a short headline, a narrower font)
+     .5rem down: the ring stays 11.5px inside the hero, whatever the words and the font. */
+  .hm-sealed{margin-block:.5rem 1.75rem}
   .hm::before{inset:1.625rem -1.25rem -1.25rem 1.625rem}
   .seal{left:-2.25rem;bottom:-1.75rem;width:7.75rem;height:7.75rem}
   .plate{padding-left:6rem}
@@ -600,9 +605,10 @@ summary::-webkit-details-marker{display:none}
   .h-swap :is(.lg-2,.lg-4){grid-template-columns:repeat(2,minmax(0,auto))}
   .tr-swap{display:none}
   /* A card taller than the words beside it would centre them low; the words start at the top instead. The seal rises
-     2.5rem (and its 4.5px ring) above the card, so a sealed card starts lower, keeping the seal inside the hero. */
+     2.5rem (and its 4.5px ring) above the card, so a sealed card starts lower, keeping the seal inside the hero. The
+     desktop .5rem below goes back to the frame's 1.25rem (the narrower windows below are inside this query too). */
   .h-card .h-copy{align-self:start}
-  .hm-sealed{margin-top:1.625rem}
+  .hm-sealed{margin-block:1.625rem 1.25rem}
 }
 @media (min-width:60rem) and (max-width:79.99rem) and (max-height:53.99rem){
   .hero{padding-top:1.25rem}
