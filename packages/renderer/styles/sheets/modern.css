@@ -594,7 +594,11 @@
   .hours th, .hours td { padding: 9px 0; border-top: 1px solid var(--line); text-align: left; vertical-align: baseline; }
   .hours tr:first-child > * { border-top: 0; }
   .hours th { padding-right: 12px; font-weight: 500; color: var(--text); white-space: nowrap; }
-  .hours .time { color: var(--ink); font-weight: 700; text-align: right; white-space: nowrap; }
+  /* A day range stays whole ("Monday – Friday", judges' round 3); below 900 px a time may wrap after its dash
+     (keepParts) instead, so spaced-out text (WCAG 1.4.12) and the bigger default text (125% at 400-414 px) stay on
+     the board and in the hero card. Where the table has room a time keeps its line: a table's columns start at their
+     max-content width (CSS Tables 3, width distribution). From 900 px every time keeps its line (below). */
+  .hours .time { color: var(--ink); font-weight: 700; text-align: right; }
   .hours .closed { color: var(--muted); font-weight: 500; }
   .board .hours th, .board .hours td { padding: 14px 20px; }
   .board .hours td { padding-left: 0; }
@@ -602,11 +606,8 @@
   .board .em { margin: 0; padding: 16px 20px 14px; border-radius: 0 0 5px 5px; }
   .em-call { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; font-weight: 700; font-variant-numeric: tabular-nums; text-decoration: underline; text-underline-offset: 0.2em; }
   .em-call .i { color: var(--brand); }
-  /* Below 400 px a day range stays whole ("Monday – Friday", judges' round 3) and a time may wrap after its dash
-     (keepParts) instead, so spaced-out text (WCAG 1.4.12) stays on the board */
   @media (max-width: 399px) {
     .hours { font-size: 0.9375rem; }
-    .hours .time { white-space: normal; }
   }
   @media (max-width: 359px) {
     .board .hours th, .board .hours td { padding-inline: 12px; }
@@ -626,6 +627,7 @@
   }
   @media (min-width: 900px) {
     /* the hours board never narrower than its table, whose day ranges and times keep their lines: the places give way */
+    .hours .time { white-space: nowrap; }
     .area { grid-template-columns: minmax(0, 7fr) minmax(min-content, 5fr); gap: 20px; align-items: start; }
     .area.area--solo { grid-template-columns: minmax(0, 1fr); }
     /* a short list of places ends level with the hours beside it, its address at the board's foot (no hollow card) */

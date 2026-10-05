@@ -568,6 +568,33 @@ describe.each(ENGINES)("Modern in %s", (_engine, engine) => {
     expect(found).toEqual([]);
   }, 60_000);
 
+  // The bigger default text (root font-size 125%; moderator, 2026-10-05): from 400 px the hours board kept each time
+  // on one line, so at 400-414 px "7:00 AM – 7:00 PM" ran past the page's edge and Contact scrolled sideways by 8-30 px.
+  // Every <details> but the phone menu is opened first, so the text inside it is checked too; without its name, as
+  // opening one of a named group closes the others (MDN <details>, name).
+  it("never scrolls sideways or loses text on Contact with the default text at 125%, from 320 to 430 px, in every lettering", async () => {
+    const found: string[] = [];
+    const openDetails = () => {
+      for (const details of document.querySelectorAll("details:not(.menu)")) {
+        details.removeAttribute("name");
+        details.open = true;
+      }
+      return document.querySelectorAll("details:not(.menu):not([open])").length;
+    };
+    for (const name of FIXTURES) {
+      for (const font of FONT_IDS) {
+        await open(page(name, font, "contact"), 320, "html { font-size: 125%; }");
+        const closed = await tab.evaluate(openDetails);
+        if (closed > 0) found.push(`${name} ${font}: ${closed} <details> still closed`);
+        for (const width of [320, 340, 360, 375, 390, 400, 414, 430]) {
+          await tab.setViewportSize({ width, height: 800 });
+          for (const problem of await tab.evaluate(lostText)) found.push(`${name} ${font} ${width}: ${problem}`);
+        }
+      }
+    }
+    expect(found).toEqual([]);
+  }, 120_000);
+
   // Round 3's judge 2: from 768 to 928 px the footer's narrow Contact column broke a 34-character email in two
   // ("office@reliablerooter" + ".example.com"), and at 1024-1056 px the Contact page's call card did too.
   it("keeps a 34-character email and every phone number on one line from 768 to 1440 px, in the footer and the call card (round 3 judges)", async () => {
