@@ -155,8 +155,13 @@ test("answers are saved automatically and survive a reload @firefox", async ({ p
 
 test("a second tab that saves later is stopped with a clear message", async ({ page, context }) => {
   const siteId = await acceptInvite(page);
+  // The business email starts as the sign-in email and is saved by itself soon after the step loads (BusinessStep.tsx). Wait for that save
+  // first: a second tab opened before it would load the same rev, save the same prefill first, and make THIS tab the stale one.
+  await expect(page.getByLabel("Business email address")).not.toHaveValue("");
+  await expect(page.getByRole("status").filter({ hasText: "All changes saved." })).toBeVisible();
   const other = await context.newPage();
   await other.goto(`/sites/${siteId}/setup/business`);
+  await expect(other.getByLabel("Business email address")).not.toHaveValue("");
   await page.getByLabel("City").fill("Austin");
   await expect(page.getByRole("status").filter({ hasText: "All changes saved." })).toBeVisible();
   await other.getByLabel("City").fill("Dallas");
