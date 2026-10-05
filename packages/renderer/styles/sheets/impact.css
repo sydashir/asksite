@@ -651,8 +651,10 @@
   .proof-lic > span {
     min-width: 0;
   }
-  /* A licence number moves to the next line whole; it breaks inside only when it alone is wider than the line. */
-  .proof-num {
+  /* Every licence number (the hero's, its other licences, the credentials band's, Contact's list and the footer's) moves
+     to the next line whole; it breaks inside only when it alone is wider than the line. */
+  .proof-num,
+  .lic-num {
     display: inline-block;
     max-width: 100%;
   }
