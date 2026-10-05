@@ -43,6 +43,13 @@ export function siteRoutes(deps: AdminDeps): Hono<AdminEnv> {
     }
   }
 
+  /** A takedown's lease ran out (site_busy, reason lease_lost): the takedown may have committed. */
+  function isLeaseLost(err: unknown): boolean {
+    if (!(err instanceof deps.publishing.PublishError)) return false;
+    const { code, detail } = err as PublishErrorLike;
+    return code === "site_busy" && typeof detail === "object" && detail !== null && (detail as Record<string, unknown>)["reason"] === "lease_lost";
+  }
+
   /** The site's stored taken_down_at (null: up). undefined: the read failed, so the caller falls back to what it knew before. */
   async function storedTakedownAt(db: D1Database, siteId: string): Promise<number | null | undefined> {
     try {
@@ -95,9 +102,6 @@ export function siteRoutes(deps: AdminDeps): Hono<AdminEnv> {
     // Read before takeDown runs. It only decides the fallback below: whether THIS call took the site down is decided after takeDown
     // ran, from the stored taken_down_at, because another admin may commit between this read and this call's lease.
     const alreadyDown = site.taken_down_at !== null;
-    // "Finish the takedown" after a lease_lost sets notice=due: that call never reached its notice, so this one sends it (the one
-    // time the owner is told). The key names the takedown, so a second press of Finish is a repeat to the mail provider.
-    const noticeDue = c.req.query("notice") === "due";
     const now = Date.now();
     // The owner reads this message: hidden characters go first, and a message with nothing left is no message.
     const cleanedMessage = cleanOwnerText(body.ownerMessage ?? "");
@@ -118,19 +122,24 @@ export function siteRoutes(deps: AdminDeps): Hono<AdminEnv> {
               return deps.publishing.takeDown(c.env, { siteId: site.id, reviewer: c.get("admin"), reason: body.reason, purgeMedia: body.purgeMedia, now: at });
             };
             let cleanupFailed = false;
+            let leaseLost: unknown = null;
             try {
               await takeDown(now);
             } catch (err) {
-              // A PublishError may come after the commit (A16-4c: takeDown asserts its lease again before the LIVE deletes, so a lease_lost
-              // means "the takedown may have committed"): it is rethrown as the admin's answer and the page offers Finish the takedown.
-              // Any other error may have come after the commit too (LIVE delete, media purge): if the site is down, run the takedown
-              // once more (Plan 2's takeDown is idempotent) before giving up on the cleanup.
-              if (err instanceof deps.publishing.PublishError || !(await isTakenDown(c.env.DB, site.id))) throw err;
-              try {
-                await takeDown(Date.now());
-              } catch {
-                cleanupFailed = true;
-                logLine({ event: "takedown_cleanup_failed", siteId: site.id });
+              // A lease_lost may come after the commit (A16-4c: takeDown asserts its lease again before the LIVE deletes, so it means "the
+              // takedown may have committed"): it is answered as the admin's 409 and the page offers Finish the takedown, but only AFTER the
+              // owner notice below, so a call that took the site down tells the owner whether or not it kept its lease.
+              // Any other PublishError is rethrown as it is. Any other error may have come after the commit too (LIVE delete, media purge):
+              // if the site is down, run the takedown once more (Plan 2's takeDown is idempotent) before giving up on the cleanup.
+              if (isLeaseLost(err)) leaseLost = err;
+              else if (err instanceof deps.publishing.PublishError || !(await isTakenDown(c.env.DB, site.id))) throw err;
+              else {
+                try {
+                  await takeDown(Date.now());
+                } catch {
+                  cleanupFailed = true;
+                  logLine({ event: "takedown_cleanup_failed", siteId: site.id });
+                }
               }
             }
             // The takedown's stored moment decides who took the site down. If the read fails, fall back to the read made before takeDown.
@@ -138,14 +147,19 @@ export function siteRoutes(deps: AdminDeps): Hono<AdminEnv> {
             const tookItDown = stored === undefined ? !alreadyDown : stored !== null && stamps.includes(stored);
             // The key names the takedown (its stored moment), so every call that sends the notice for it is the same message to the mail provider.
             const send = () => trySend(mailer, { to: site.owner_email, ...email, replyTo: c.env.SUPPORT_EMAIL, tag: "site_notice", idempotencyKey: `takedown:${site.id}:${stored ?? site.taken_down_at ?? now}` });
+            // A lost lease: tell the owner if THIS call took the site down (the re-read decides; a failed re-read falls back toward sending), then answer the 409.
+            if (leaseLost !== null) {
+              if (tookItDown) await send();
+              throw leaseLost;
+            }
             // Plan 2 audits only the call that took the site down (and a later purge that deleted something), so a re-run that
             // only finishes the clean-up would leave no trace of this admin action: record it here.
             if (!tookItDown) {
               const detail = { reason: body.reason, purgeMedia: body.purgeMedia, repeat: true };
               await auditStatement(c.env.DB, { at: Date.now(), actor: `admin:${c.get("admin")}`, action: "site.taken_down", siteId: site.id, detail }).run();
             }
-            // The owner is told once: only the call that took the site down (or a Finish after a lost lease, notice=due) sends the notice, so a re-run never emails twice.
-            return { noticeSent: !tookItDown && !noticeDue ? null : await send(), ...(cleanupFailed ? { cleanupFailed: true as const } : {}) };
+            // The owner is told once: only the call that took the site down sends the notice, so a re-run (every Finish the takedown) never emails.
+            return { noticeSent: tookItDown ? await send() : null, ...(cleanupFailed ? { cleanupFailed: true as const } : {}) };
           })(),
         ),
       "takedown",

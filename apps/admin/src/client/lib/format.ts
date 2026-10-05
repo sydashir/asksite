@@ -25,12 +25,9 @@ export interface TakedownResult {
   cleanupFailed: boolean;
   /** The owner's notice failed on the call that took the site down; a later "Finish" keeps saying so (its own answer is always null). */
   ownerNotEmailed: boolean;
-  /** True after a takedown lost its lease: the owner has not been told yet, and Finish the takedown sends the notice (once). */
-  noticeDue?: boolean;
 }
 
 const NOT_EMAILED = "Owner not emailed — contact them.";
-const OWNER_EMAILED = "The owner has been emailed.";
 const CLEANUP_FAILED = "Clean-up did not finish. The site is offline; old page files stay in storage until you finish it.";
 
 /**
@@ -43,7 +40,7 @@ export function takedownResult(view: TakedownView, previous: TakedownResult | nu
   const ownerNotEmailed = view.noticeSent === false || previous?.ownerNotEmailed === true;
   const parts = [
     ...(previous === null ? ["Site taken down. It stops being served within about a minute."] : []),
-    ...(ownerNotEmailed ? [NOT_EMAILED] : previous?.noticeDue === true && view.noticeSent === true ? [OWNER_EMAILED] : []),
+    ...(ownerNotEmailed ? [NOT_EMAILED] : []),
     ...(cleanupFailed ? [CLEANUP_FAILED] : previous === null ? [] : ["Clean-up finished."]),
   ];
   return { tone: ownerNotEmailed || cleanupFailed ? "warning" : "success", text: parts.join(" "), cleanupFailed, ownerNotEmailed };

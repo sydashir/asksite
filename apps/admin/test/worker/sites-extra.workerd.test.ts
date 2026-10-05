@@ -243,16 +243,16 @@ describe("the takedown clean-up retry and the single notice (web-maker-f4, 2026-
   });
 });
 
-// A16-4c, 23-A16 round 2 (m6): a takedown's lease can run out AFTER its D1 commit (the real takeDown asserts the lease before its second
-// pointer delete and before the prefix delete), so a lease_lost answer means "the takedown may have committed". The owner is not told by
-// that call; "Finish the takedown" (the same call again, with notice=due) tells the owner once and finishes the clean-up.
+// A16-4c, 23-A16 round 2 (m6), then takedown-truth (A): a takedown's lease can run out AFTER its D1 commit (the real takeDown asserts the lease
+// before its second pointer delete and before the prefix delete), so a lease_lost answer means "the takedown may have committed". The ROUTE tells
+// the owner (once) when its own call took the site down, even then; "Finish the takedown" is a re-run and never emails (no ?notice=due any more).
 describe("a takedown that loses its lease after the commit (23-A16 f2, m6)", () => {
   const takedown = (siteId: string) => `/api/admin/sites/${siteId}/takedown`;
   const notices = async (email: string) => (await h.outbox(email)).filter((m) => m.tag === "site_notice");
   const downAt = async (siteId: string) =>
     (await (await h.db()).prepare("SELECT taken_down_at FROM sites WHERE id = ?").bind(siteId).first<{ taken_down_at: number | null }>())?.taken_down_at;
 
-  it("answers the takedown lease-lost text (409, no Retry-After), leaves the site down with its pages and sends no notice; Finish sends the notice once and clears the pages", async () => {
+  it("answers the takedown lease-lost text (409, no Retry-After), leaves the site down with its pages and sends the owner notice exactly once; Finish sends nothing and clears the pages", async () => {
     const site = await liveSite();
     const lost = await h.call("POST", takedown(site.siteId), { body: { reason: "Spam report" }, headers: { "X-Test-Takedown-Fault": "lease-lost-after-batch" } });
     expect(lost.status).toBe(409);
@@ -260,23 +260,41 @@ describe("a takedown that loses its lease after the commit (23-A16 f2, m6)", () 
     expect(await json<{ error: { code: string; message: string } }>(lost)).toEqual({
       error: { code: "conflict", message: "This takedown ran too long and was stopped before it finished. Reload; if the site shows as taken down, press Finish the takedown." },
     });
-    // The commit stood: down in D1, the pointer already gone, the pages still in LIVE, and the owner not told.
+    // The commit stood: down in D1, the pointer already gone, the pages still in LIVE, and the owner told by the call that took the site down.
     expect(await downAt(site.siteId)).not.toBeNull();
     const left = await h.liveKeys(site.slug);
     expect(left.length).toBeGreaterThan(0);
     expect(left).not.toContain(livePointerKey(site.slug));
-    expect(await notices(site.email)).toHaveLength(0);
+    expect(await notices(site.email)).toHaveLength(1);
     await h.backgroundDone(takedown(site.siteId));
 
-    const finished = await h.call("POST", `${takedown(site.siteId)}?notice=due`, { body: { reason: "Spam report" } });
+    // Finish is a re-run: it clears the pages and tells nobody, with or without the old ?notice=due (the route ignores it now).
+    const finished = await h.call("POST", takedown(site.siteId), { body: { reason: "Spam report" } });
     expect(finished.status).toBe(200);
-    expect(await finished.json()).toEqual({ noticeSent: true });
+    expect(await finished.json()).toEqual({ noticeSent: null });
     expect(await notices(site.email)).toHaveLength(1);
     expect(await h.liveKeys(site.slug)).toEqual([]);
     await h.backgroundDone(takedown(site.siteId));
+    expect(await (await h.call("POST", `${takedown(site.siteId)}?notice=due`, { body: { reason: "Spam report" } })).json()).toEqual({ noticeSent: null });
+    expect(await notices(site.email)).toHaveLength(1);
+    await h.backgroundDone(takedown(site.siteId));
+  });
 
-    // A plain re-run (no notice due) tells nobody.
-    expect(await (await h.call("POST", takedown(site.siteId), { body: { reason: "Spam report" } })).json()).toEqual({ noticeSent: null });
+  it("a lease lost BEFORE the commit (the site stays up) is the same 409 with no notice and no audit row: only the call that took the site down emails", async () => {
+    const site = await liveSite();
+    const lost = await h.call("POST", takedown(site.siteId), { body: { reason: "Spam report" }, headers: { "X-Test-Takedown-Fault": "lease-lost-before-batch" } });
+    expect(lost.status).toBe(409);
+    expect(await downAt(site.siteId)).toBeNull();
+    expect(await notices(site.email)).toHaveLength(0);
+    expect((await (await h.db()).prepare("SELECT COUNT(*) AS n FROM audit_log WHERE action = 'site.taken_down' AND site_id = ?").bind(site.siteId).first<{ n: number }>())?.n).toBe(0);
+    await h.backgroundDone(takedown(site.siteId));
+  });
+
+  it("when the re-read after a lost lease also fails, the notice still goes out (toward sending: a notice is never lost) and the answer is still the 409", async () => {
+    const site = await liveSite();
+    const lost = await h.call("POST", takedown(site.siteId), { body: { reason: "Spam report" }, headers: { "X-Test-Takedown-Fault": "lease-lost-after-batch-reread" } });
+    expect(lost.status).toBe(409);
+    expect(await downAt(site.siteId)).not.toBeNull();
     expect(await notices(site.email)).toHaveLength(1);
     await h.backgroundDone(takedown(site.siteId));
   });

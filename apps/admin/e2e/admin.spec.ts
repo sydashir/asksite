@@ -505,8 +505,8 @@ test("a takedown that errors AFTER the site went down offers Finish the takedown
   expect(bodies[1]).toEqual(bodies[0]);
 });
 
-// m6: a takedown's lease can run out after its commit. The text says so; Finish the takedown tells the owner (once) and finishes the clean-up.
-test("a takedown that loses its lease after the commit says so, and Finish the takedown tells the owner once and clears the pages", async ({ page }) => {
+// m6, then takedown-truth (A): a takedown's lease can run out after its commit. The text says so; the SERVER has already told the owner (once), and Finish the takedown only finishes the clean-up.
+test("a takedown that loses its lease after the commit says so, the owner is told once by the server, and Finish the takedown clears the pages without a second notice", async ({ page }) => {
   const site = await liveSite(page);
   const notices = async () => ((await (await page.request.get(`${ADMIN}/__test/outbox?to=${encodeURIComponent(site.email)}`)).json()) as Array<{ tag: string }>).filter((m) => m.tag === "site_notice").length;
   const urls: string[] = [];
@@ -517,13 +517,13 @@ test("a takedown that loses its lease after the commit says so, and Finish the t
   await takeDown(page, site.siteId);
   await expect(page.getByText("This takedown ran too long and was stopped before it finished. Reload; if the site shows as taken down, press Finish the takedown.")).toBeVisible();
   await expect(page.getByRole("button", { name: "Restore the site" })).toBeVisible(); // the reload shows it down
-  expect(await notices()).toBe(0);
+  expect(await notices()).toBe(1); // the route sent it, though the call lost its lease
   await page.getByRole("button", { name: "Finish the takedown" }).click();
   await expect(page.getByText("Clean-up finished.", { exact: false })).toBeVisible();
   await expect(page.locator("body")).not.toContainText("Owner not emailed");
   await expect(page.getByRole("status").getByRole("button", { name: "Finish the takedown" })).toHaveCount(0); // the in-session control is gone; the down-site form (outside the status region) remains
   expect(await notices()).toBe(1);
-  expect(urls[1]).toContain("notice=due");
+  expect(urls[1]).not.toContain("notice=due");
 });
 
 test("a Finish that fails after an emailed takedown never claims the owner was not emailed", async ({ page }) => {
