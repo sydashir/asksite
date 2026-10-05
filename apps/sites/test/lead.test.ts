@@ -62,8 +62,8 @@ describe("readLead", () => {
 
   // Header safety: the name goes into the lead email's subject, so no line break of any kind stays in a one-line field.
   it("keeps a single-line field on one line, with a space where the line broke", () => {
-    const result = readLead(fields({ name: "Al\r\nBcc: x@y.example", phone: "5125550199" }));
-    expect(result.ok && result.lead.name).toBe("Al Bcc: x@y.example");
+    const result = readLead(fields({ name: "Al\r\nBcc: victim", phone: "5125550199" }));
+    expect(result.ok && result.lead.name).toBe("Al Bcc: victim");
     const breaks = readLead(fields({ name: "A\nB\rC\u000BD\fE\u2028F\u2029G\tH", phone: "512\n555\u000B0199", service: "S\r\nT" }));
     expect(breaks).toEqual({ ok: true, lead: { name: "A B C D E F G H", phone: "512 555 0199", email: null, service: "S T", message: null } });
   });
@@ -148,6 +148,60 @@ describe("looksLikeSpam", () => {
     expect(looksLikeSpam(lead("http://a HTTP://b https://c"))).toBe(false);
     expect(looksLikeSpam(lead("http://a HTTP://b https://c Http://d"))).toBe(true);
     expect(looksLikeSpam(lead(null))).toBe(false);
+  });
+
+  // S1 Part L: "www." and "://" start a link too, and one link is one count, however many of its parts are there.
+  it("counts www. links: three are not spam, four are, in any case", () => {
+    expect(looksLikeSpam(lead("www.a.com WWW.b.com Www.c.com"))).toBe(false);
+    expect(looksLikeSpam(lead("www.a.com WWW.b.com Www.c.com wWw.d.com"))).toBe(true);
+  });
+
+  it("counts a bare :// link (ftp://x) once", () => {
+    expect(looksLikeSpam(lead("ftp://a ftp://b sftp://c"))).toBe(false);
+    expect(looksLikeSpam(lead("ftp://a ftp://b sftp://c ws://d"))).toBe(true);
+  });
+
+  it("counts https://www.x once: one link is one count", () => {
+    expect(looksLikeSpam(lead("https://www.a https://www.b https://www.c HTTP://WWW.d"))).toBe(true);
+    expect(looksLikeSpam(lead("https://www.a https://www.b https://www.c"))).toBe(false);
+    expect(looksLikeSpam(lead("https://www.a https://www.b http://www.c"))).toBe(false);
+  });
+
+  it("counts mixed forms by link starts: each of http, www. and :// that is not part of the one before is a link", () => {
+    expect(looksLikeSpam(lead("http://a www.b ftp://c"))).toBe(false);
+    expect(looksLikeSpam(lead("http://a www.b ftp://c https://www.d"))).toBe(true);
+    expect(looksLikeSpam(lead("see www.a, https://www.b and ftp://c"))).toBe(false);
+    expect(looksLikeSpam(lead("http www.a ftp://b ://c"))).toBe(true);
+  });
+});
+
+// S1 Part L: a name with an address, a link or no letter or digit gets the name's existing error, nothing new.
+describe("readLead names (S1)", () => {
+  const nameResult = (name: string) => readLead(fields({ name, phone: "5125550199" }));
+
+  it.each(["Ann @ x", "ann@example.com", "@", "a://b", "http://x", "www.x", "WWW.X", "Www.Shop.com", "Visit www.x.com"])(
+    "refuses the name %j with the existing name error",
+    (name) => {
+      expect(nameResult(name)).toEqual({ ok: false, problems: ["name"] });
+    },
+  );
+
+  const BLANK = ["\u3164", "\u2800", "\uFFA0", "\u115F", "\u1160", "\u034F"];
+  it.each(BLANK.map((c) => [c.codePointAt(0)?.toString(16), c] as const))("refuses a name of only U+%s, alone and with spaces", (_code, blank) => {
+    for (const name of [blank, ` ${blank} `, `${blank} ${blank}`]) expect(nameResult(name)).toEqual({ ok: false, problems: ["name"] });
+  });
+
+  it("refuses a name of punctuation and symbols only", () => {
+    for (const name of ["-", "...", "!!", "\u{1F600}"]) expect(nameResult(name)).toEqual({ ok: false, problems: ["name"] });
+  });
+
+  it.each(["Ann-Marie O'Neil", "José", "李雷", "Dana 2", "Mr. Smith", "7", "\u3164Al", "Al\u2800 B"])("keeps accepting the name %j", (name) => {
+    expect(nameResult(name)).toEqual({ ok: true, lead: { name, phone: "5125550199", email: null, service: null, message: null } });
+  });
+
+  it("uses the name's existing words and adds none", () => {
+    expect(PROBLEM_TEXT.name).toBe("Please enter your name (up to 80 characters).");
+    expect(Object.keys(PROBLEM_TEXT)).toEqual(["name", "phone", "email", "service", "message"]);
   });
 });
 

@@ -29,6 +29,13 @@ export const LINE_BREAK = /\r\n?|[\v\f\u0085\u2028\u2029]/g;
 // name read backwards in the owner's inbox). U+200D stays so emoji in names survive.
 export const HIDDEN = /(?!\n)\p{Cc}|(?!\u200D)\p{Cf}/gu;
 const PHONE = /^[0-9+().\- ]{7,30}$/;
+// A name is a name, not an address or a link (the owner reads it in the subject line): "@", "://" and "www." are
+// refused in any case, and so is a name with no letter or digit once the characters that only look blank are set
+// aside. Hangul filler (U+3164, U+FFA0, U+115F, U+1160) is a letter to Unicode, and U+2800 and U+034F are not
+// Cf, so HIDDEN leaves all six in; they are the blank-looking names of QA-2.
+const NAME_LINK = /@|:\/\/|www\./i;
+const LOOKS_BLANK = /[\u3164\u2800\uFFA0\u115F\u1160\u034F]/gu;
+const LETTER_OR_DIGIT = /[\p{L}\p{N}]/u;
 const Email = z.email().max(254);
 
 /**
@@ -56,7 +63,7 @@ export function readLead(fields: URLSearchParams): { ok: true; lead: Lead } | { 
   const message = clean(fields.get("message"), true);
 
   const problems: LeadProblem[] = [];
-  if (name.length < 1 || name.length > 80) problems.push("name");
+  if (name.length < 1 || name.length > 80 || NAME_LINK.test(name) || !LETTER_OR_DIGIT.test(name.replace(LOOKS_BLANK, ""))) problems.push("name");
   if (!PHONE.test(phone) || (phone.match(/\d/g) ?? []).length < 7) problems.push("phone");
   if (email !== "" && !Email.safeParse(email).success) problems.push("email");
   if (service.length > 60) problems.push("service");
@@ -69,5 +76,9 @@ export function readLead(fields: URLSearchParams): { ok: true; lead: Lead } | { 
   };
 }
 
-/** More than 3 "http" in the message: stored as spam, not emailed. */
-export const looksLikeSpam = (lead: Lead): boolean => ((lead.message ?? "").match(/http/gi) ?? []).length > 3;
+// One link is one count: "http" with its "s" and "://" and a "www." right after it ("https://www.x") is a single
+// match, so is a lone "://" (ftp://x) and a lone "www."; "www.a http://b" is two.
+const LINK_START = /http(?:s?:\/\/)?(?:www\.)?|:\/\/(?:www\.)?|www\./gi;
+
+/** More than 3 links in the message ("http", "://" or "www." each start one): stored as spam, not emailed. */
+export const looksLikeSpam = (lead: Lead): boolean => ((lead.message ?? "").match(LINK_START) ?? []).length > 3;
