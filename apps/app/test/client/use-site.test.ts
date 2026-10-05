@@ -247,7 +247,7 @@ describe("useSite generation_in_progress drops the queued changes with the reset
   });
 });
 
-// STRICT (customer data), round 4: while new wording is written the server refuses every save (generation_in_progress). The hook must NEVER
+// STRICT (customer data), round 4: while new wording is written the server refuses a save that carries edits (generation_in_progress; answer and brief saves are stored). The hook must NEVER
 // send the refused change again (the old retry with the wording stripped erased the owner's saved wording), must put the draft back to what
 // the server holds, must name the running rewrite so the editor locks, and must say exactly why nothing was saved.
 describe("useSite generation_in_progress", () => {

@@ -463,8 +463,8 @@ describe("PATCH /api/sites/:siteId/draft", () => {
     });
   });
 
-  // STRICT (customer data, round 4, "freeze the editor while the AI writes"): while a REGENERATE is queued or running, EVERY draft
-  // save is refused (copy, order, look and hidden alike, and facts or brief alone): the save replaces the stored edits whole, so a look
+  // STRICT (customer data, round 4, "freeze the editor while the AI writes"): while a REGENERATE is queued or running, ONLY a draft
+  // save that carries edits is refused (copy, order, look and hidden alike; answer and brief saves are stored): the save replaces the stored edits whole, so a look
   // or hide save would carry (or, if stripped, erase) the owner's wording, and the new wording replaces the draft anyway.
   describe("the rewrite guard (generation_in_progress)", () => {
     const ORDER = ["hero", "trust", "testimonials", "faq", "services", "about", "gallery", "serviceArea", "contact"];

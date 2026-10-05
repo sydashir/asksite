@@ -585,7 +585,7 @@ test("when the new wording cannot be fetched at first, it is fetched again and l
   await finishGeneration(page.request, id);
   await expect(page.getByText("New wording is ready.")).toBeVisible({ timeout: 15_000 });
   expect(gate.failed).toBe(1);
-  await expect(page.getByText(UNREADABLE)).toHaveCount(0);
+  await expect(page.getByText(UNREADABLE, { exact: true })).toHaveCount(0);
 
   const after = await aiGenerationId(page, siteId);
   expect(after).not.toBe(before);
@@ -602,10 +602,12 @@ test("when the new wording cannot be loaded at all, it says so and wording and s
   const id = await askNewWording(page, siteId);
   gate.armed = true;
   await finishGeneration(page.request, id);
-  await expect(page.getByText(UNREADABLE)).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByText(UNREADABLE, { exact: true })).toBeVisible({ timeout: 20_000 });
   await expect(page.getByText("New wording is ready.")).toHaveCount(0);
   expect(gate.failed).toBe(2); // one try and one retry, never more
   await expect(page.getByRole("button", { name: "Reload the page" })).toBeVisible();
+  // The top line stands alone: it says what happened, what to do and when editing is back.
+  await expect(page.getByText("The new wording is ready, but we couldn't load it. Reload the page to see it. You can edit again when it shows.", { exact: true })).toHaveCount(1);
 
   // Words: focus stays, typing changes nothing.
   const headline = headlineField(page);
@@ -1173,6 +1175,26 @@ test("while new wording is written, Photos upload, delete and move send nothing 
   expect(writes).toEqual([]);
   expect(await uploadsBefore()).toBe(count);
   expect((await storedPhotos()).map((p) => p.url)).toEqual(photosBefore);
+  await finishGeneration(page.request, id, "failed");
+  await expect(page.getByText("We could not write new wording this time. Your current wording is unchanged.")).toBeVisible({ timeout: 15_000 });
+});
+
+test("while new wording is written, the web address Save sends nothing and the address is not changed", async ({ page }) => {
+  const siteId = await openEditor(page);
+  const slugBefore = (await siteView(page, siteId))["slug"];
+  await page.getByRole("tab", { name: "Details" }).click();
+  await page.locator("#details-step").selectOption("address"); // chosen before the freeze: the picker is aria-disabled while frozen
+  await page.getByLabel("Web address").fill(uniqueSlug("frozen"));
+  await expect(page.getByText("This address is free. Save it to keep it.")).toBeVisible();
+  const id = await askNewWording(page, siteId);
+  await expect(page.getByText(WRITING_LOCK)).toHaveCount(1);
+  await page.getByRole("tab", { name: "Details" }).click();
+  const puts: string[] = [];
+  page.on("request", (request) => request.method() === "PUT" && request.url().endsWith(`/api/sites/${siteId}/slug`) && puts.push(request.url()));
+  await page.getByRole("button", { name: "Save this web address" }).click({ force: true });
+  await noChangeQueued(page);
+  expect(puts).toEqual([]);
+  expect((await siteView(page, siteId))["slug"]).toBe(slugBefore);
   await finishGeneration(page.request, id, "failed");
   await expect(page.getByText("We could not write new wording this time. Your current wording is unchanged.")).toBeVisible({ timeout: 15_000 });
 });

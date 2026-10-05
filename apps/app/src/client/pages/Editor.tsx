@@ -42,7 +42,7 @@ const REWRITING = "Writing new wording…";
 /** Why the whole editor is locked from the request for new wording until it is shown. */
 export const WRITING_LOCK = "Writing new wording. You can edit again when it is ready.";
 /** Why the whole editor is locked when the new wording is ready but could not be loaded. */
-const NOT_LOADED_LOCK = "Nothing can be changed until the new wording is loaded.";
+const NOT_LOADED_LOCK = "The new wording is ready, but we couldn't load it. Reload the page to see it. You can edit again when it shows.";
 const NOT_SAVED = "Your latest changes are not saved yet. Please try again in a moment.";
 
 export function Editor({ siteId }: { siteId: string }) {
@@ -76,8 +76,8 @@ function EditorScreen(props: { siteId: string; site: SiteState; view: SiteView; 
   // Generations this editor has seen end: a view that still names one of them (it is refreshed only on success) must not lock the editor again.
   const endedRewrites = useRef(new Set<string>());
   const writing = requesting || rewriteId !== null;
-  // FROZEN, from the request for new wording until it is shown (or it fails): every tab is read-only. A save made then would be refused by
-  // the server, and one that carried the owner's wording would be replaced by the new wording anyway. The same when the rewrite succeeded
+  // FROZEN, from the request for new wording until it is shown (or it fails): every tab is read-only. A save that carried edits would be
+  // refused by the server (answer and brief saves are stored), and one that carried the owner's wording would be replaced anyway. The same when the rewrite succeeded
   // but its wording could not be loaded ("unloaded"): nothing is editable until it is (Reload the page).
   const frozen = writing || aiState !== "fresh";
   const [leaveMessage, setLeaveMessage] = useState<string | null>(null);
@@ -162,7 +162,7 @@ function EditorScreen(props: { siteId: string; site: SiteState; view: SiteView; 
         setRewriteMessage(refreshed ? "New wording is ready." : AI_NOT_LOADED);
       });
     } else if (generation.status === "failed") {
-      // The stored edits were never touched while it ran (the editor was frozen and the server refuses saves), so the lock just lifts.
+      // The stored edits were never touched while it ran (the editor was frozen and the server refuses saves that carry edits), so the lock just lifts.
       endedRewrites.current.add(rewriteId);
       setRewriteId(null);
       setRewriteMessage("We could not write new wording this time. Your current wording is unchanged.");
