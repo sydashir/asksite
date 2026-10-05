@@ -1,5 +1,5 @@
 import { expect, test, type Browser, type Page } from "@playwright/test";
-import { acceptInvite, apiCall, APP, BRIEF, builtSite, FACTS, finishGeneration, stubTurnstile, uniqueEmail, uniqueSlug, waitForSecurityCheck } from "./support.ts";
+import { acceptInvite, apiCall, APP, askNewWording, BRIEF, builtSite, FACTS, finishGeneration, stubTurnstile, uniqueEmail, uniqueSlug, waitForSecurityCheck } from "./support.ts";
 
 const LOGOUT = "**/api/auth/logout";
 
@@ -137,4 +137,84 @@ test("Sign out stays and says so when the save the editor started as it closed f
   expect(events.at(-1)).toBe("logout-sent");
   expect(events).toContain("patch-answered-200");
   expect(await storedHeadline(browser, email, siteId)).toBe("Kept after a failed save");
+});
+
+const WORDING_DROPPED = "New wording arrived, so your last wording change wasn't applied. Make it again on the new wording if you still want it.";
+
+/** The owner's draft is on the old wording (roofing facts), then another tab of the same owner writes new wording and it lands. */
+async function rewriteElsewhere(page: Page, browser: Browser, siteId: string) {
+  const other = await browser.newContext({ baseURL: APP, ignoreHTTPSErrors: true, storageState: await page.context().storageState() });
+  try {
+    const tabB = await other.newPage();
+    await tabB.goto(`/sites/${siteId}/edit`);
+    await expect(tabB.getByRole("heading", { level: 1, name: "Edit your website" })).toBeFocused();
+    await finishGeneration(tabB.request, await askNewWording(tabB, siteId));
+    await expect(tabB.getByText("New wording is ready.")).toBeVisible({ timeout: 15_000 });
+  } finally {
+    await other.close();
+  }
+}
+
+/** The editor holds a wording change the server refused (new wording arrived elsewhere): its notice is up, and nobody was stopped for it yet. */
+async function editorWithDroppedWording(page: Page, browser: Browser) {
+  const siteId = await builtSiteAs(page, uniqueEmail("dropped"));
+  const rev = (await apiCall(page, "GET", `/api/sites/${siteId}`)).json!["rev"] as number;
+  expect((await apiCall(page, "PATCH", `/api/sites/${siteId}/draft`, { rev, facts: { ...FACTS, trade: "roofing" } })).status).toBe(200);
+  await page.goto(`/sites/${siteId}/edit`);
+  const headline = page.getByLabel("Headline", { exact: true });
+  await expect(headline).toHaveValue("Plumbing done right");
+  await rewriteElsewhere(page, browser, siteId);
+  await headline.fill("Mine");
+  const notice = page.getByRole("status").filter({ hasText: WORDING_DROPPED });
+  await expect(notice).toBeVisible();
+  return { siteId, notice };
+}
+
+test("Sign out stops once on a dropped wording change, says so, and the next press signs out", async ({ page, browser }) => {
+  const { notice } = await editorWithDroppedWording(page, browser);
+  const events = watchSaves(page);
+  await page.getByRole("button", { name: "Sign out" }).click();
+  await expect(notice).toBeFocused();
+  expect(events).not.toContain("logout-sent");
+  await page.getByRole("button", { name: "Sign out" }).click();
+  await expect(page.getByRole("heading", { level: 1, name: "Sign in" })).toBeVisible();
+  expect(events).toContain("logout-sent");
+});
+
+// The Questionnaire holds the owner's answers: the same Sign out rule as the editor.
+test("Questionnaire: Sign out stays and says so while the answers are not saved, and a save finishes before the logout", async ({ page }) => {
+  await acceptInvite(page, uniqueEmail("setup"));
+  let failing = true;
+  await page.route("**/api/sites/*/draft", (route) =>
+    route.request().method() === "PATCH" && failing ? route.fulfill({ status: 500, json: { error: { code: "internal", message: "Something went wrong. Please try again." } } }) : route.fallback(),
+  );
+  const events = watchSaves(page);
+  await page.getByLabel("Business name").fill("Probe Plumbing");
+  await page.getByRole("button", { name: "Sign out" }).click();
+  await expect(page.getByText("Your latest answers are not saved yet. Please try again in a moment.")).toBeVisible();
+  expect(events).not.toContain("logout-sent");
+  expect(new URL(page.url()).pathname).toMatch(/\/setup\/business$/);
+  failing = false;
+  await page.getByRole("button", { name: "Sign out" }).click();
+  await expect(page.getByRole("heading", { level: 1, name: "Sign in" })).toBeVisible();
+  expect(events.at(-1)).toBe("logout-sent");
+  expect(events.at(-2)).toBe("patch-answered-200");
+});
+
+// Publish holds no field of its own, but a dropped wording change carried out of the editor is its to report: Sign out stops once there too.
+test("Publish: Sign out stops once on a dropped wording change carried from the editor, and the next press signs out", async ({ page, browser }) => {
+  const { siteId } = await editorWithDroppedWording(page, browser);
+  await page.evaluate((to) => {
+    history.pushState(null, "", to);
+    window.dispatchEvent(new PopStateEvent("popstate"));
+  }, `/sites/${siteId}/publish`);
+  await expect(page.getByRole("heading", { level: 1, name: "Publish your website" })).toBeVisible();
+  const notice = page.getByRole("status").filter({ hasText: WORDING_DROPPED });
+  await expect(notice).toBeVisible();
+  const events = watchSaves(page);
+  await page.getByRole("button", { name: "Sign out" }).click();
+  await expect(notice).toBeFocused();
+  expect(events).not.toContain("logout-sent");
+  await page.getByRole("button", { name: "Sign out" }).click();
+  await expect(page.getByRole("heading", { level: 1, name: "Sign in" })).toBeVisible();
 });
