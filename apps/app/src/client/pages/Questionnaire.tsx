@@ -15,6 +15,9 @@ import { nextStep, paths, previousStep, STEPS, type StepId } from "../lib/route.
 import { asRecord, asString, fieldId, issueTarget } from "../lib/values.ts";
 import { STEP_BODY } from "../steps/index.tsx";
 
+/** Said when the answers are not saved (the Questionnaire holds answers, not "changes"). */
+const ANSWERS_NOT_SAVED = "Your latest answers are not saved yet. Please try again in a moment.";
+
 export function Questionnaire({ siteId, step }: { siteId: string; step: StepId }) {
   const site = useSite(siteId);
   if (site.load.state === "error") return <Notice tone="error">{site.load.message}</Notice>;
@@ -48,10 +51,10 @@ function StepPage({ siteId, step, site, view, draft }: { siteId: string; step: S
     if (result === "dropped") {
       setMessage(null);
       requestAnimationFrame(() => noticeRef.current?.focus());
-    } else setMessage("Your latest answers are not saved yet. Please try again in a moment.");
+    } else setMessage(ANSWERS_NOT_SAVED);
   };
 
-  useLeaveGuard(site.flush, stopped);
+  useLeaveGuard(site.flush, stopped, (result) => site.stopMessage(result, ANSWERS_NOT_SAVED));
 
   // Arriving from a "fix this" link (#field-id): show the errors and focus that field.
   useEffect(() => {

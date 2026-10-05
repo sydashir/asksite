@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api, GENERIC_ERROR_MESSAGE } from "../lib/api.ts";
 import { AutoSaver, mayReplaceDraft, type DraftPatch, type DropState, type FlushResult, type SaverState, type SendPatch } from "../lib/autosave.ts";
 import { editsForAi } from "../lib/edits.ts";
+import { signOutStopMessage } from "../lib/save-message.ts";
 
 export interface Draft {
   facts: unknown;
@@ -18,22 +19,27 @@ const leaving = new Map<string, Promise<unknown>>();
 /** Savers of editors that closed with a save that did not go through: they still hold the values. Gone once saved, or once the site is loaded again. */
 const unsavedOnLeave = new Map<string, AutoSaver>();
 
-/**
- * Resolves true once every save a page started as it closed is done and nothing it held is left unsaved. A save that failed is tried
- * again here, so a later press can still succeed. Sign out waits for it: nothing can be saved after the logout, and the page the owner
- * went back to (Home) holds no draft of its own to wait for.
- */
-export async function settleLeaving(): Promise<boolean> {
-  while (leaving.size > 0) await Promise.all([...leaving.values()]);
-  for (const [siteId, saver] of [...unsavedOnLeave]) {
-    if ((await saver.flush()) === false) return false;
-    if (unsavedOnLeave.get(siteId) === saver) unsavedOnLeave.delete(siteId);
-  }
-  return true;
-}
-
 /** Sites whose editor closed after a save that dropped the owner's wording: the next editor for the site says so (no screen was left to say it). */
 const droppedOnLeave = new Map<string, DropState>();
+
+/**
+ * Waits for every save a page started as it closed, then answers null when nothing is left to tell the owner, or the text that stops
+ * "Sign out": a save that failed is tried again here (one that fails again stops), and a wording change a closing save dropped is
+ * reported too (the next editor would say so, but Sign out leaves for good). Sign out waits for it: nothing can be saved after the
+ * logout, and the page the owner went back to (Home) holds no draft of its own to wait for.
+ */
+export async function settleLeaving(): Promise<string | null> {
+  while (leaving.size > 0) await Promise.all([...leaving.values()]);
+  for (const [siteId, saver] of [...unsavedOnLeave]) {
+    const result = await saver.flush();
+    if (result === false) return signOutStopMessage({ dropped: false, status: saver.currentStatus });
+    if (unsavedOnLeave.get(siteId) === saver) unsavedOnLeave.delete(siteId);
+    // Saved, but without the owner's wording change: it stops once (the saver's own stop is used up by this flush).
+    if (result === "dropped") return signOutStopMessage({ dropped: { whileWriting: saver.unseenDrop?.whileWriting ?? false }, status: saver.currentStatus });
+  }
+  const drop = [...droppedOnLeave.values()][0];
+  return drop === undefined ? null : signOutStopMessage({ dropped: { whileWriting: drop.whileWriting }, status: "saved" });
+}
 
 const AI_RETRY_MS = 1_000;
 
@@ -213,8 +219,17 @@ export function useSite(siteId: string) {
   /** The owner has seen the "wording wasn't applied" notice. */
   const dismissDrop = useCallback(() => saverRef.current?.acknowledgeDrop(), []);
   const rev = () => saverRef.current?.currentRev ?? 0;
+  /** The text that stops "Sign out" after a flush answered `result` (`notSaved`: the page's own words for a failed save). */
+  const stopMessage = useCallback(
+    (result: false | "dropped", notSaved?: string): string => {
+      const current = saverRef.current;
+      const dropped = result === "dropped" ? { whileWriting: current?.unseenDrop?.whileWriting ?? false } : false;
+      return signOutStopMessage({ dropped, status: current?.currentStatus ?? "idle", ...(notSaved === undefined ? {} : { notSaved }) });
+    },
+    [],
+  );
 
-  return { load, draft, saver, locked, factsChanges, update, exclusive, flush, retry, dismissDrop, reload, refreshAi, rev };
+  return { load, draft, saver, locked, factsChanges, update, exclusive, flush, retry, dismissDrop, reload, refreshAi, rev, stopMessage };
 }
 
 export type SiteState = ReturnType<typeof useSite>;

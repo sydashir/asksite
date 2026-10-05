@@ -28,6 +28,7 @@ import { paths, STEPS, type StepId } from "../lib/route.ts";
 import { issueTarget, type Path } from "../lib/values.ts";
 import { STEP_BODY } from "../steps/index.tsx";
 import { PhotoManager } from "../steps/PhotosStep.tsx";
+import { NOT_SAVED } from "../lib/save-message.ts";
 
 type EditorTab = "words" | "look" | "sections" | "photos" | "details";
 const TABS: ReadonlyArray<{ id: EditorTab; label: string }> = [
@@ -44,7 +45,6 @@ const REWRITING = "Writing new wording…";
 export const WRITING_LOCK = "Writing new wording. You can edit again when it is ready.";
 /** Why the whole editor is locked when the new wording is ready but could not be loaded. */
 const NOT_LOADED_LOCK = "The new wording is ready, but we couldn't load it. Reload the page to see it. You can edit again when it shows.";
-const NOT_SAVED = "Your latest changes are not saved yet. Please try again in a moment.";
 
 export function Editor({ siteId }: { siteId: string }) {
   const site = useSite(siteId);
@@ -100,7 +100,7 @@ function EditorScreen(props: { siteId: string; site: SiteState; view: SiteView; 
   const leave = linkAfter(site.flush, stopped);
   // The header's link home leaves the editor too: the same save first, and the same stop for a dropped wording change. An ordinary failed
   // save does not stop it (decision 37: any other way of leaving still sends the unsaved changes), so "Your website" works in a conflict.
-  useLeaveGuard(site.flush, stopped);
+  useLeaveGuard(site.flush, stopped, (result) => site.stopMessage(result));
   // A rewrite the view names (seen at mount, on a refetch, or after the server refused a save because another tab started one) is
   // followed like one started here: the whole editor locks until it lands or fails.
   useEffect(() => {

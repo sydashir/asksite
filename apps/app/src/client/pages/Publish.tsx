@@ -13,8 +13,8 @@ import { STEP_TITLE } from "../lib/labels.ts";
 import { issuesToShow, ownerMessage } from "../lib/messages.ts";
 import { paths } from "../lib/route.ts";
 import { issueTarget } from "../lib/values.ts";
+import { NOT_SAVED } from "../lib/save-message.ts";
 
-const NOT_SAVED = "Your latest changes are not saved yet. Please try again in a moment.";
 const when = (ms: number) => new Date(ms).toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" });
 
 /** One line of the "things to fix" list. `facts` is the owner's newest local draft: opening-hours targets depend on how its entries are grouped. */
@@ -51,7 +51,7 @@ function PublishScreen({ siteId, site, view, facts }: { siteId: string; site: Si
   };
 
   // Sign out and every link wait for the draft to be saved; a dropped wording change shows its notice (given focus), anything else says so below.
-  useLeaveGuard(site.flush, (result) => (result === "dropped" ? requestAnimationFrame(() => noticeRef.current?.focus()) : showResult(NOT_SAVED)));
+  useLeaveGuard(site.flush, (result) => (result === "dropped" ? requestAnimationFrame(() => noticeRef.current?.focus()) : showResult(NOT_SAVED)), (result) => site.stopMessage(result));
 
   const loadVersions = async () => {
     const res = await api<{ versions: VersionSummary[] }>("GET", `/api/sites/${siteId}/versions`);
