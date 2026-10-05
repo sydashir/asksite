@@ -5,7 +5,7 @@ import { Notice } from "../../../../app/src/client/components/feedback.tsx";
 import { usePageHeading } from "../../../../app/src/client/hooks/use-page-heading.ts";
 import { api } from "../../../../app/src/client/lib/api.ts";
 import { useResource } from "../hooks.ts";
-import { when } from "../lib/format.ts";
+import { revokeNotice, when } from "../lib/format.ts";
 
 function statusOf(invite: InviteView, now: number): string {
   if (invite.usedAt !== null) return "Used";
@@ -40,7 +40,7 @@ export function Invites() {
 
   async function revoke(invite: InviteView) {
     const res = await api("DELETE", `/api/admin/invites/${invite.id}`);
-    setMessage(res.ok ? { tone: "success", text: `Invite for ${invite.email} revoked.` } : { tone: "error", text: res.error.message });
+    setMessage(revokeNotice(res, invite.email));
     await reload();
   }
 

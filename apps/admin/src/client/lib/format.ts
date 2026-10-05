@@ -48,3 +48,7 @@ export function takedownResult(view: TakedownView, previous: TakedownResult | nu
   ];
   return { tone: ownerNotEmailed || cleanupFailed ? "warning" : "success", text: parts.join(" "), cleanupFailed, ownerNotEmailed };
 }
+
+/** The Invites screen's notice after a revoke: "revoked" only when it worked; otherwise the server's own words (an already used invite says so). */
+export const revokeNotice = (res: { ok: true } | { ok: false; error: { message: string } }, email: string): { tone: "success" | "error"; text: string } =>
+  res.ok ? { tone: "success", text: `Invite for ${email} revoked.` } : { tone: "error", text: res.error.message };
