@@ -33,6 +33,7 @@ import { foldings } from "./lookalikes.ts";
 //   word character, so "Fully _insured" or "Award__winning" hid the claim word from every rule that needs a word boundary
 //   while the page shows it, and a symbol between the words of a multi-word claim ("Award·winning", "Same•day") hid it
 //   from the patterns that join the words with a hyphen or a space.
+// - each of those again with every run of 3 or more single letters joined (LETTER_RUN below): "F R E E", "F-R-E-E" and "F.R.E.E." read "FREE".
 // A CamelCase word is read as typed, as before A9: A9d dropped A9c's CamelCase reading, which refused real names
 // that run a claim word into another word ("McMillion Creek", "FreeFlow Plumbing", "StreakFree Window Cleaning").
 // Small capitals and letters that look like digits ("ɪnsured", "ᴄertified", "Ƨ", "ꜭ") never get here: Copy refuses
@@ -153,6 +154,25 @@ const UNDERSCORE = /_/g;
 const GLUED_SEPARATORS = /(?<=\S)[\u00B7\u2022~*|\u2219\u30FB\u25CF](?=\S)/g;
 
 /**
+ * A claim word spelled with separated single letters ("F R E E", "F-R-E-E", "F.R.E.E.", "L I C E N S E D") shows the word on the page.
+ * A RUN is at least 3 SINGLE letters (one \p{L} with no letter or digit glued to it on either side, so the "A" of "A-1" is no part
+ * of a run), each pair separated by ONE gap: a space, a hyphen, a dash (the dash set the readings use after asReadOnPage: "-", U+2012,
+ * U+2013, U+2014 and U+2212) or a dot with an optional space after it. Joining removes the gaps; a trailing dot after the last letter
+ * stays ("F.R.E.E." reads "FREE.", "L.I.C." reads "LIC.").
+ * PRINCIPLE: a joined run behaves exactly like the same acronym typed solid. The minimum is 3 because the shortest claim words are 3
+ * letters ("BBB"; the AI-only "lic." and "ins."): runs of 2 never join, so initials such as "J. R. Smith", "U.S. owned" and "P.O. Box"
+ * stay as typed (a 2-run joined to the next word, "N O charge", is not read either); and a joined run of 3 or more is a claim only
+ * when its letters spell a claim word ("ABC", "TLC", "HVAC", "DIY" and "ASAP" are not).
+ * NAMED FALSE POSITIVE: an initialism that spells a claim word is refused like the word: "I.N.S." and "L.I.C." in AI copy, which
+ * refuses "ins." and "lic.", unless the owner's facts back it.
+ * Glued symbol separators and "_" need no gap character here: the join runs on the readings that already read them as a space.
+ */
+const SINGLE_LETTER = "(?<![\\p{L}\\p{N}])\\p{L}(?![\\p{L}\\p{N}])";
+const LETTER_GAP = "(?: |[-\\u2012\\u2013\\u2014\\u2212]|\\. ?)";
+const LETTER_RUN = new RegExp(`${SINGLE_LETTER}(?:${LETTER_GAP}${SINGLE_LETTER}){2,}`, "gu");
+const joinLetterRuns = (reading: string): string => reading.replace(LETTER_RUN, (run) => run.replace(/[^\p{L}]/gu, ""));
+
+/**
  * The page read as typed, then folded every way (see the top of this file), and then each of those again with "_" (anywhere)
  * and a glued symbol separator (GLUED_SEPARATORS) read as a space: "_" is a word character, so it hides a claim word from
  * every rule that needs a word boundary, and a symbol glued between the words of a multi-word claim hides it from the patterns
@@ -160,15 +180,18 @@ const GLUED_SEPARATORS = /(?<=\S)[\u00B7\u2022~*|\u2219\u30FB\u25CF](?=\S)/g;
  * The symbol becomes a space BEFORE asReadOnPage folds runs of whitespace, so a glued symbol next to "_" joins a multi-word
  * claim like one space ("Award _winning", "Same__day", "Award_·winning", "Award·_winning"). The typed readings stay as they are: a pattern
  * that matches through "_" on the typed reading still does ("licensed_crew": \blicen[cs]\w* runs through the "_"), while
- * "my_site.com" is found only by the separator reading. The separator readings only ever add a claim. claims.ts and
- * generation's ai-claims.ts both read through this function.
+ * "my_site.com" is found only by the separator reading. The separator readings only ever add a claim. A last reading is made
+ * from every one of those with each run of single letters joined (LETTER_RUN below). claims.ts and generation's
+ * ai-claims.ts both read through this function.
  */
 export function readings(text: string): readonly string[] {
   const raw = [text, ...foldings(text)];
   // The glued symbols first, while a neighbouring "_" still counts as a character: "Award_·winning" and "Award·_winning"
   // (a glued symbol next to "_") would lose the symbol if "_" became a space first.
   const apart = (reading: string): string => reading.replace(GLUED_SEPARATORS, " ").replace(UNDERSCORE, " ");
-  return [...raw.map(asReadOnPage), ...raw.filter((reading) => apart(reading) !== reading).map((reading) => asReadOnPage(apart(reading)))];
+  const earlier = [...raw.map(asReadOnPage), ...raw.filter((reading) => apart(reading) !== reading).map((reading) => asReadOnPage(apart(reading)))];
+  // One more reading from every earlier one (so "F·R·E·E" and "F_R_E_E" are caught with no new gap characters): every run of single letters joined.
+  return [...earlier, ...earlier.map(joinLetterRuns).filter((reading, i) => reading !== earlier[i])];
 }
 
 /**

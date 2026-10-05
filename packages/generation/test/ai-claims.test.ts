@@ -346,6 +346,50 @@ describe("AI claim check: a symbol separator hides nothing", () => {
   ]);
 });
 
+// A claim word spelled with separated single letters is still that wording: readings() joins each run of 3 or more single letters (a space, a hyphen, a dash or a dot with an optional space between them), on every other reading too, so a joined run reads like the same acronym typed solid. Runs of 2 never join; initialisms that spell a claim word are refused like the word (the named false-positive note: "I.N.S." and "L.I.C.").
+describe("AI claim check: separated single letters hide nothing", () => {
+  refused(MINIMAL_FACTS, [
+    ["free, spaces", "F R E E estimates today", ["FREE"]],
+    ["free, hyphens", "F-R-E-E estimates", ["FREE"]],
+    ["free, dots", "F.R.E.E. estimates", ["FREE"]],
+    ["free, dots and spaces", "F. R. E. E. estimates", ["FREE"]],
+    ["free, middle dots", "F\u00B7R\u00B7E\u00B7E estimates", ["FREE"]],
+    ["free, underscores", "F_R_E_E estimates", ["FREE"]],
+    ["licensed", "L I C E N S E D crew", ["LICENSED"]],
+    ["insured", "I N S U R E D crew", ["INSURED"]],
+    ["bonded", "B O N D E D crew", ["BONDED"]],
+    ["guaranteed", "G U A R A N T E E D work", ["GUARANTEED"]],
+    ["bbb", "B.B.B. member", ["BBB"]],
+    // The named false-positive note: an initialism that spells a claim word is refused like the word.
+    ["ins. initialism", "Fully I.N.S. crew", ["INS."]],
+    ["lic. initialism", "Fully L.I.C. crew", ["LIC."]],
+  ]);
+  accepted(FREE, [["free backed", "F R E E estimates"]]);
+  accepted(LICENSED, [
+    ["licensed backed", "L I C E N S E D crew"],
+    ["lic. initialism backed", "Fully L.I.C. crew"],
+  ]);
+  accepted(INSURED, [["ins. initialism backed", "Fully I.N.S. crew"]]);
+  accepted(MINIMAL_FACTS, [
+    ["ABC", "A B C Plumbing"],
+    ["U.S.", "U.S. owned"],
+    ["plan", "Plan A or B"],
+    ["initials", "J. R. Smith Roofing"],
+    ["K and S", "K & S Cleaning"],
+    ["TLC dots", "T.L.C. Home Care"],
+    ["TLC dots and spaces", "T. L. C. Home Care"],
+    ["HVAC spaces", "H V A C repair"],
+    ["HVAC dots", "H.V.A.C. repair"],
+    ["DIY", "D.I.Y. tips"],
+    ["letters glued to a word", "L I C E N Sing"],
+    ["a run of 2 never joins", "N O charge visits"],
+    // Solid "ASAP scheduling" is accepted (owner and AI copy), so the spelled forms are too.
+    ["ASAP solid", "ASAP scheduling"],
+    ["ASAP dots", "A.S.A.P. scheduling"],
+    ["ASAP spaces", "A S A P scheduling"],
+  ]);
+});
+
 /**
  * No false positives (Q4) on everything that exists today. There is no eval corpus yet: Task 15's live eval
  * waits for the owner's key, so this covers the fixtures, the test samples and the prompt's own examples.
