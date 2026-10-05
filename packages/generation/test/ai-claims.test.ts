@@ -494,6 +494,7 @@ describe("AI claim check: a symbol separator hides nothing", () => {
     ["quote after a spaced black circle", "Our motto \u25CF'clean homes'", ["'clean homes'"]],
   ]);
   accepted(EMERGENCY, [["after hours backed, middle dot", "After\u00B7hours cleaning"]]);
+  refused(SEVEN_DAYS, [["hours on all 7 days do not back after hours, middle dot", "After\u00B7hours cleaning", ["After hours"]]]);
   accepted(MINIMAL_FACTS, [
     ["trade and place", "Cleaning \u00B7 Austin"],
     ["pipe list", "Repairs | Installs"],

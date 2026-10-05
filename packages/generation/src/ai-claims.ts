@@ -60,7 +60,8 @@ const LIC_AND_INS = `${AND}ins\\b`;
 
 /**
  * claims.ts's own backing for its seven-days rule (24/7 service, or opening hours on all seven days), taken from NEEDS_A_FACT.
- * Shared: the availability words below are checked with it, and prompt.ts computes its availability entry from it.
+ * Shared: the every-day words below are checked with it, and prompt.ts computes its "every day" entry from it. The after-hours
+ * and holiday words are not: only 24/7 service backs them.
  */
 const sevenDaysRule = NEEDS_A_FACT.find(({ pattern }) => pattern.test("seven days a week"));
 if (sevenDaysRule === undefined) throw new Error("claims.ts lost its seven-days rule");
