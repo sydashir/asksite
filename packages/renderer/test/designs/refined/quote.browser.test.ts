@@ -4,7 +4,7 @@
 // carries the quote (phones, and windows under 32rem tall such as a phone held sideways) the page leaves the quote to
 // it. Classic has no per-item quote link, so every link to the form counts. Each fixture's whole site, plus an owner
 // with one service and questions (the Services box then sits on a phone's first screen), with the real Classic sheet,
-// served on the fixtures' origin from memory as in journey.test.ts, in Chromium and WebKit, upright and sideways.
+// served on the fixtures' origin from memory as in journey.browser.test.ts, in Chromium and WebKit, upright and sideways.
 // The pages run no JavaScript; the check is script text, since the renderer's TypeScript program has no DOM types.
 import { chromium, webkit, type Browser, type Page } from "@playwright/test";
 import { PAGES } from "@asksite/site-schema";
