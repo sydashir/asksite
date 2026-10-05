@@ -19,13 +19,15 @@ const J = "[-\\u2012\\u2013\\u2014\\u2212 ]";
 const NEVER_IN_AI_COPY: readonly RegExp[] = [
   new RegExp(`\\bwithin${J}(the|an?|one)${J}hour\\b`, "i"), // a response time no fact backs
   // The same claim after an arrival phrase ("Here in under an hour", "At your door in less than an hour"). "takes under an hour" and
-  // "done in under an hour" are a job's length, usual in trade copy, so only an arrival phrase counts. The written residual: other
-  // response-time paraphrases ("we get to you fast", "a quick hour away") are accepted; the prompt's
-  // "Invent nothing: ... response times" is the backstop.
+  // "done in under an hour" are a job's length, usual in trade copy, so only an arrival phrase counts. Known false positive: "here",
+  // "there" and "on site", with the optional "in", also refuse some job-length sentences ("in and out of there in under an hour"); the
+  // model can rephrase. The written residual: other response-time paraphrases ("we get to you fast", "a quick hour away") are
+  // accepted; the prompt's "Invent nothing: ... response times" is the backstop.
   new RegExp(`\\b(here|there|arrive[sd]?|arriving|on${J}site|at${J}your${J}door|out${J}to${J}you)${J}(in${J})?(under|less${J}than)${J}an${J}hour\\b`, "i"),
   new RegExp(`\\b(state|board|city|county)${J}approved\\b`, "i"), // a licence paraphrase
   new RegExp(`\\bbackground${J}check(s|ed|ing)?\\b`, "i"),
-  // "vet" alone is no claim ("vet-owned", "pet vet"), so only "vetting" and a "vet" that takes the crew as its object count.
+  // "vet" alone is no claim ("vet-owned", "pet vet"), so only "vetted", "vetting" and a "vet" before one of the listed determiners
+  // ("vets all", "vet our") count.
   new RegExp(`\\b(vetted|vetting|vets?${J}(every|each|all|our|its|their))\\b`, "i"),
   // Time in business comes from yearFounded. "long time" with a space is usually no claim ("lasts a long time"), so only
   // the closed and dashed forms count; the written residual: every space form (any whitespace run) is accepted, e.g.
@@ -46,7 +48,7 @@ const NEVER_IN_AI_COPY: readonly RegExp[] = [
   /(?<=(?:^|[\s:;,·•~*|∙・●\u2012-\u2014\u2212-])\(?)'(?!n'|(?:em|til|cause|bout|round|tis|twas)(?!\p{L}))\p{L}(?:[^']|'(?=\p{L}))*'(?!\p{L})/iu,
 ];
 
-/** What follows "lic" in "lic and ins" / "lic & ins": the joiner, "and" or "&", the joiner, then "ins" (a dot after "ins" is the caller's). */
+/** What follows "lic" in "lic and ins" / "lic & ins": a joiner, "and", a joiner, or "&" with an optional joiner each side ("lic&ins"), then "ins" (a dot after "ins" is the caller's). */
 const LIC_AND_INS = `(?:${J}and${J}|${J}?&${J}?)ins\\b`;
 
 /** claims.ts's own backing for its seven-days rule (24/7 service, or opening hours on all seven days), taken from NEEDS_A_FACT. */
@@ -63,9 +65,10 @@ const NEEDS_A_FACT_IN_AI_COPY: ReadonlyArray<{ readonly pattern: RegExp; readonl
   { pattern: /(?<![a-z]-?)\bins\.|\bliabilit(?:y|ies)/iu, backedBy: (facts) => facts.insured },
   // "lic and ins" / "lic & ins" with a dot dropped from either "lic" or "ins": it states both, so it needs both facts. Only the pair
   // counts ("the ins and outs of drains" stays allowed). The pattern skips "lic. and ins.", which the two rules above already
-  // refuse by name, so their words are not listed twice.
+  // refuse by name, so their words are not listed twice. The one exception: "ins." after a word and a hyphen ("lic.-and-ins.") is no
+  // "ins." to the rule above, so the pair refuses it.
   {
-    pattern: new RegExp(`\\blic(?:(?!\\.)${LIC_AND_INS}\\.?|\\.${LIC_AND_INS}(?!\\.))`, "i"),
+    pattern: new RegExp(`\\blic(?:(?!\\.)${LIC_AND_INS}\\.?|\\.${LIC_AND_INS}(?:(?!\\.)|(?<=[a-z]-ins)\\.))`, "i"),
     backedBy: (facts) => facts.licences.length > 0 && facts.insured,
   },
   {

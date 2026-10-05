@@ -269,7 +269,8 @@ describe("AI claim check: allowed wording", () => {
   ]);
 });
 
-// The claim-word gaps of the claims review (2026-10-05): each evasion below was accepted by both checkers at 5b6a8bb. The new rules are AI-only.
+// The claim-word gaps of the claims review (2026-10-05): each evasion below was accepted by both checkers at 5b6a8bb, except the two one-dot
+// "lic and ins" rows (the dotted word was already refused by name, the pair is new). The new rules are AI-only.
 describe("AI claim check: claim-word gaps", () => {
   const LICENSED_AND_INSURED = withFacts({ licences: [{ label: "Texas cleaner", number: "C-1" }], insured: true });
 
@@ -291,6 +292,8 @@ describe("AI claim check: claim-word gaps", () => {
     ["vet every", "We vet every cleaner", ["vet every"]],
     ["vetting", "Careful vetting of the crew", ["vetting"]],
     ["vets all", "She vets all of them", ["vets all"]],
+    ["vet our", "We vet our crew", ["vet our"]],
+    ["vet each", "They vet each cleaner", ["vet each"]],
     ["lic and ins", "Fully lic and ins crew", ["lic and ins"]],
     ["lic & ins", "Fully lic & ins crew", ["lic & ins"]],
     ["lic&ins", "Fully lic&ins crew", ["lic&ins"]],
@@ -304,6 +307,8 @@ describe("AI claim check: claim-word gaps", () => {
     // "dries within an hour" is refused today, so "dries within one hour" is the same class.
     ["dries within one hour", "Dries within one hour", ["within one hour"]],
     ["here in under an hour", "Here in under an hour", ["Here in under an hour"]],
+    ["there in under an hour", "There in under an hour", ["There in under an hour"]],
+    ["arriving in less than an hour", "Arriving in less than an hour", ["Arriving in less than an hour"]],
     ["arrive in under an hour", "We arrive in under an hour", ["arrive in under an hour"]],
     ["at your door in less than an hour", "At your door in less than an hour", ["At your door in less than an hour"]],
     ["out to you in under an hour", "Out to you in under an hour", ["Out to you in under an hour"]],
@@ -332,6 +337,8 @@ describe("AI claim check: claim-word gaps", () => {
   refused(INSURED, [["insurance does not back a freebie", "A freebie with every visit", ["freebie"]]]);
   // "lic and ins" needs the licence AND the insured fact.
   refused(LICENSED, [["a licence alone does not back lic and ins", "Fully lic and ins crew", ["lic and ins"]]]);
+  // "d-ins." is no "ins." to the insurance rule (a word, a hyphen, then "ins."), so the pair is the only rule that refuses this one.
+  refused(LICENSED, [["a licence alone does not back lic.-and-ins.", "A lic.-and-ins. crew", ["lic.-and-ins."]]]);
   refused(INSURED, [["insurance alone does not back lic and ins", "Fully lic & ins crew", ["lic & ins"]]]);
   accepted(LICENSED_AND_INSURED, [
     ["lic and ins with both facts", "Fully lic and ins crew"],
