@@ -401,6 +401,16 @@ describe("AI claim check: separated single letters hide nothing", () => {
     ["apostrophe: free's", "F R E E's the word", ["FREE"]],
     ["apostrophe: bbb's", "B B B's pledge", ["BBB"]],
     ["apostrophe: bbb's rating", "B B B's rating", ["rating"]],
+    // A kept dot gap is still refused when the spelled word is: "a.F.R.E.E." reads "a. FREE.".
+    ["edge: dot after a letter", "a.F.R.E.E. estimates", ["FREE"]],
+    // A word-break letter after the word (checkDraft; its solid form is refused too).
+    ["word-break: free", "Estimates are F R E E\u1D09", ["FREE"]],
+    ["word-break: two-way letter first", "\u028B F R E E\u1D09", ["FREE"]],
+    // NAMED FALSE POSITIVES (claims.ts): a letter next to a spelled run is read apart, so an inner claim word counts; the solid "ABBB" is accepted.
+    ["letter next to a run: SAY", "We stock size S. A Y fitting", ["SAY"]],
+    ["letter next to a run: BBB", "A B B B", ["BBB"]],
+    // NAMED FALSE POSITIVE: U+00B4 is no guarded apostrophe (copy's NFKC makes it a space and U+0301).
+    ["apostrophe: U+00B4", "It\u00B4s a Y fitting", ["saY"]],
   ]);
   accepted(FREE, [["free backed", "F R E E estimates"]]);
   accepted(LICENSED, [
@@ -433,6 +443,14 @@ describe("AI claim check: separated single letters hide nothing", () => {
     ["apostrophe: owner's", "Owner's a Y fitting fan"],
     ["apostrophe: U+2019", "It\u2019s a Y fitting"],
     ["apostrophe: U+02BC", "It\u02BCs a Y fitting"],
+    ["apostrophe: U+0060", "It`s a Y fitting"],
+    ["apostrophe: U+2032", "It\u2032s a Y fitting"],
+    ["apostrophe: U+201B", "It\u201Bs a Y fitting"],
+    // A kept dot gap is a sentence end, not a web address: "N.C.O." must not read "N.CO".
+    ["dot gap: N.C.O.", "Veteran N.C.O. owned"],
+    ["dot gap: C.I.O.", "Ask our C.I.O. about it"],
+    ["dot gap: M.U.S.C.", "M.U.S.C. trained nurse"],
+    ["dot gap: N.C.O.A.", "N.C.O.A. address checks"],
     // Ordinary runs of 2 (accepted at 9f5ddf5; each reads like its solid form).
     ["2-run: U.S.", "U.S. owned"],
     ["2-run: initials", "J. R. Smith Roofing"],

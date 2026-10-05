@@ -162,11 +162,14 @@ const GLUED_SEPARATORS = /(?<=\S)[\u00B7\u2022~*|\u2219\u30FB\u25CF](?=\S)/g;
  * ("'s" in "It's a Y fitting" is no single letter: joined to the "a Y" after it, it read "saY", which the `says?` rule refuses on
  * every fact set). The apostrophe guard is on the left side only: "F R E E's the word" still holds the run F R E E, as solid
  * "FREE's the word" does. The class is ' (U+0027) and U+2019, which reach readings() as typed, U+2018 (copy refuses it as a quote mark,
- * but this function reads any text) and U+02BC (a letter itself, so already guarded when typed; the folded reading reads it as "'").
+ * but this function reads any text), U+02BC (a letter itself, so already guarded when typed; the folded reading reads it as "'") and the
+ * look-alikes copy lets through unchanged, U+0060, U+2032 and U+201B. NAMED FALSE POSITIVE: U+00B4 is not in the class (copy's NFKC makes it a
+ * space and U+0301), so "It\u00B4s a Y fitting" still reads "saY".
  * A RUN is at least 2 SINGLE letters (so the "A" of "A-1" is no part of a run), each pair separated by ONE gap: a space, a hyphen,
  * a dash (the dash set the readings use after asReadOnPage: "-", U+2012, U+2013, U+2014 and U+2212) or a dot with an optional space
- * after it. Joining removes the gaps; a trailing dot after the last letter stays ("F.R.E.E." reads "FREE.", "L.I.C." reads "LIC.").
- * PRINCIPLE: a spelled run is read like the same words typed solid, except in the named residuals below. A run is read five ways,
+ * after it. Joining removes the gaps; a trailing dot after the last letter stays ("F.R.E.E." reads "FREE.", "L.I.C." reads "LIC."). A "." gap kept apart is written ". ", never ".": a
+ * dotted initialism such as "N.C.O." must not read "N.CO", a web address ("a.F.R.E.E." reads "a. FREE.").
+ * PRINCIPLE: a spelled run is read like the same words typed solid, except in the named residuals and false positives. A run is read five ways,
  * each a reading of its own (spelledRuns below): all joined; its FIRST letter kept apart (gap as typed) and the rest joined; its LAST
  * letter apart; BOTH apart (a variant applies only when the rest is still 2 letters, else the run is joined whole), so an article or
  * "I" next to the word is not swallowed ("Get a F R E E estimate" reads "Get a FREE estimate"); and CUT where the gap kind changes:
@@ -177,18 +180,23 @@ const GLUED_SEPARATORS = /(?<=\S)[\u00B7\u2022~*|\u2219\u30FB\u25CF](?=\S)/g;
  * ("BBB", "lic." and "ins." are 3): a spelled "N O charge" is a claim like "NO charge". Initials such as "J. R. Smith", "U.S. owned" and
  * "P.O. Box" join to "JR.", "US." and "PO.", which no pattern matches, and a joined run is a claim only when its letters spell a
  * claim word ("ABC", "TLC", "HVAC", "DIY" and "ASAP" are not).
- * NAMED FALSE POSITIVE: an initialism that spells a claim word is refused like the word: "I.N.S." and "L.I.C." in AI copy, which
- * refuses "ins." and "lic.", unless the owner's facts back it.
+ * NAMED FALSE POSITIVES: an initialism that spells a claim word is refused like the word: "I.N.S." and "L.I.C." in AI copy, which
+ * refuses "ins." and "lic.", unless the owner's facts back it. And a single letter before or after a spelled run is read apart, so a claim
+ * word inside the run counts: "We stock size S. A Y fitting" reads "SAY" (a ". " gap joins across a sentence end) and "A B B B" reads
+ * "A BBB". Swept over every run of single letters A-Z (5 gap forms): refused while the solid form is accepted, 0 of 40,560 runs of 2
+ * letters, 156 of 175,760 of 3 and 4,982 of 2,284,880 of 4.
  * NAMED RESIDUALS (a spelled run that is still not read like its solid form): two spelled words with the same gap kind throughout
  * ("F R E E Q U O T E S"); a gap that is not one of the four ("F - R - E - E", "F · R · E · E", "F . R . E . E", "F/R/E/E", "F,R,E,E",
  * "F'R'E'E", "F+R+E+E", "F:R:E:E", "F…R…E…E"), in line with a spaced separator reading as a list; a gap kind that changes inside one
- * spelled word ("N O-C-H-A-R-G-E"); two single-letter words before a spelled word ("I a F R E E": only one letter is kept apart);
+ * spelled word ("N O-C-H-A-R-G-E", and the hyphen between two space-spelled words, "S A M E-D A Y service", "F R E E-Q U O T E S"); two single-letter words
+ * before a spelled word ("I a F R E E": only one letter is kept apart); a single-letter word before a space-spelled word that a word spelled
+ * with another gap kind follows ("Get a F R E E E-S-T-I-M-A-T-E", "Book a S A M E D-A-Y visit": two spelling styles in one phrase);
  * and a two-way look-alike read its SECOND way inside a run ("I N S ʋ R E D", "I N S Ʋ R E D": ʋ/Ʋ as u, ꞵ as ß, ꟾ as l), because runs
  * are joined only on the bases (readings below). Single-way look-alikes inside a run ("ƒ R E E", "F R Ǝ E") and "F·R·E·E" and "F_R_E_E"
  * are read.
  * Glued symbol separators and "_" need no gap character here: the join runs on the bases that already read them as a space.
  */
-const APOSTROPHES = "'\\u2019\\u2018\\u02BC";
+const APOSTROPHES = "'\\u2019\\u2018\\u02BC\\u0060\\u2032\\u201B";
 const SINGLE_LETTER = `(?<![\\p{L}\\p{N}][${APOSTROPHES}]?)\\p{L}(?![\\p{L}\\p{N}])`;
 const LETTER_GAP = "(?: |[-\\u2012\\u2013\\u2014\\u2212]|\\. ?)";
 const LETTER_RUN = new RegExp(`${SINGLE_LETTER}(?:${LETTER_GAP}${SINGLE_LETTER})+`, "gu");
@@ -224,7 +232,7 @@ const spelledRuns = (base: string): string[] => {
     let from = 0;
     for (const { at, length, letters, gaps } of runs) {
       const keep = new Set(kept(gaps));
-      out += base.slice(from, at) + letters.map((letter, i) => (keep.has(i - 1) ? (gaps[i - 1] ?? "") : "") + letter).join("");
+      out += base.slice(from, at) + letters.map((letter, i) => (keep.has(i - 1) ? (gaps[i - 1] === "." ? ". " : (gaps[i - 1] ?? "")) : "") + letter).join("");
       from = at + length;
     }
     return out + base.slice(from);

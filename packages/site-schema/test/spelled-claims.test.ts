@@ -154,7 +154,19 @@ describe("an article or I next to a spelled word does not hide it (edge readings
     ["A B O N D E D crew", "A BONDED crew", ["BONDED"]],
     ["I G U A R A N T E E it", "I GUARANTEE it", ["GUARANTEE"]],
     ["Estimates are F R E E a promise", "Estimates are FREE a promise", ["FREE"]],
+    ["a.F.R.E.E. estimates", "a.FREE. estimates", ["FREE"]],
+    // A word-break letter after the word (the word-break base; a two-way letter before it makes the half 2).
+    ["Estimates are F R E E\u1D09", "Estimates are FREE\u1D09", ["FREE"]],
+    ["\u028B F R E E\u1D09", "\u028BFREE\u1D09", ["FREE"]],
   ]);
+});
+
+// A "." gap kept apart is written ". " (a sentence end), not ".": an initialism ending in C.O, I.O or U.S would read as a web address.
+describe("a kept dot gap reads as a sentence end, not a web address", () => {
+  it.each(["Veteran N.C.O. owned", "Ask our C.I.O. about it", "M.U.S.C. trained nurse", "N.C.O.A. address checks"])("accepts %s", (text) => {
+    expect(unbackedClaims(text, NONE)).toEqual([]);
+    expect(unbackedClaims(text, EVERYTHING)).toEqual([]);
+  });
 });
 
 describe("two spelled words in a row stay two words (cut reading)", () => {
@@ -189,6 +201,10 @@ describe("named residuals: spelled runs that stay accepted", () => {
     ["a gap that is not one of the four", "F/R/E/E estimates"],
     ["a gap kind that changes inside a word", "N O-C-H-A-R-G-E"],
     ["two single-letter words before a spelled word", "I a F R E E estimates"],
+    ["a hyphen between two space-spelled words", "S A M E-D A Y service"],
+    ["a hyphen between two space-spelled words", "F R E E-Q U O T E S"],
+    ["two spelling styles in one phrase", "Get a F R E E E-S-T-I-M-A-T-E"],
+    ["two spelling styles in one phrase", "Book a S A M E D-A-Y visit"],
     ["a two-way look-alike read its second way", "I N S \u028B R E D crew"],
   ])("accepts (%s) %s", (_why, text) => {
     expect(unbackedClaims(text, NONE)).toEqual([]);
@@ -226,6 +242,9 @@ describe("an apostrophe before a letter makes it no single letter", () => {
     "Owner's a Y fitting fan",
     "It\u2019s a Y fitting",
     "It\u02BCs a Y fitting",
+    "It`s a Y fitting",
+    "It\u2032s a Y fitting",
+    "It\u201Bs a Y fitting",
   ])("accepts %s", (text) => {
     expect(unbackedClaims(text, NONE)).toEqual([]);
     expect(unbackedClaims(text, EVERYTHING)).toEqual([]);
@@ -233,6 +252,30 @@ describe("an apostrophe before a letter makes it no single letter", () => {
   // U+2018 is refused as a quote mark (NEVER_IN_COPY) in the solid form too, and it is only that, not "saY".
   it("refuses the quote mark U+2018 in \"It\u2018s a Y fitting\", like the solid form, and nothing else", () => {
     expect(unbackedClaims("It\u2018s a Y fitting", NONE)).toEqual(["\u2018"]);
+  });
+});
+
+// NAMED FALSE POSITIVE: U+00B4 is no guarded apostrophe; copy's NFKC turns it into a space and U+0301, so "It\u00B4s a Y fitting" is refused as "saY".
+describe("the acute accent U+00B4 is a named false positive", () => {
+  it("refuses it as saY, directly and through the document", () => {
+    expect(unbackedClaims("It\u00B4s a Y fitting", NONE)).toEqual(["saY"]);
+    const result = SiteDocument.safeParse({ ...ownerDocument, copy: { ...ownerDocument.copy, heroHeadline: "It\u00B4s a Y fitting" } });
+    expect(result.success).toBe(false);
+    expect(result.error?.issues.map((issue) => issue.message).join(" ")).toContain('"saY"');
+  });
+});
+
+// NAMED FALSE POSITIVES (claims.ts): a single letter before or after a spelled run is read apart, so an inner claim word counts,
+// as for I.N.S. and L.I.C. The solid "ABBB" is accepted, so the principle does not hold here.
+describe("a letter next to a spelled run: named false positives", () => {
+  it.each([
+    ["We stock size S. A Y fitting", "SAY"],
+    ["A B B B", "BBB"],
+  ])("refuses %s", (text, word) => {
+    expect(unbackedClaims(text, NONE)).toEqual([word]);
+  });
+  it("accepts the solid ABBB", () => {
+    expect(unbackedClaims("ABBB", NONE)).toEqual([]);
   });
 });
 
@@ -246,13 +289,15 @@ describe("the new spelled forms through SiteDocument.safeParse", () => {
       ["B-O-N-D-E-D A-N-D I-N-S-U-R-E-D", "BONDED"],
       ["N O charge visits", "NO charge"],
       ["F R E E's the word", "FREE"],
+      ["Estimates are F R E E\u1D09", "FREE"],
+      ["\u028B F R E E\u1D09", "FREE"],
     ];
     for (const [text, word] of refused) {
       const result = parse(text);
       expect(result.success, text).toBe(false);
       expect(result.error?.issues.map((issue) => issue.message).join(" "), text).toContain(JSON.stringify(word));
     }
-    for (const text of ["It's a Y fitting", "That's a Y-shaped drain", "U.S. owned", "J. R. Smith Roofing"]) expect(parse(text).success, text).toBe(true);
+    for (const text of ["It's a Y fitting", "That's a Y-shaped drain", "U.S. owned", "J. R. Smith Roofing", "Veteran N.C.O. owned", "Ask our C.I.O. about it", "M.U.S.C. trained nurse", "N.C.O.A. address checks", "It`s a Y fitting"]) expect(parse(text).success, text).toBe(true);
   });
 });
 
