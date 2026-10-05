@@ -1,7 +1,7 @@
 import { useEffect, useRef, type ReactNode, type RefObject } from "react";
 import { navigate } from "../hooks/use-route.ts";
 import type { SaverState } from "../lib/autosave.ts";
-import { saveAnnouncement } from "../lib/save-message.ts";
+import { SAVING, saveAnnouncement } from "../lib/save-message.ts";
 
 export interface SummaryItem {
   id: string;
@@ -74,7 +74,7 @@ export function SaveStatus({
       </p>
       {state.status === "pending" || state.status === "saving" ? (
         <p aria-hidden="true" className="text-slate-700">
-          Saving…
+          {SAVING}
         </p>
       ) : null}
       {dropped && onDismiss !== undefined ? (

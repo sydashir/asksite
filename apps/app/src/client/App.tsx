@@ -37,9 +37,9 @@ function page(route: Route) {
   }
 }
 
-/** Saves what the page holds, then ends the session and reloads so no signed-in state survives in memory. Anything unsaved stops it once, with the reason (mayEndSession); the next press goes on. */
-async function signOut(onStopped: (message: string) => void) {
-  if (!(await mayEndSession(onStopped))) return;
+/** Saves what the page holds, then ends the session and reloads so no signed-in state survives in memory. A press that waits says "Saving…"; anything unsaved stops it once, with the reason (mayEndSession); the next press goes on. */
+async function signOut(say: (message: string | null) => void) {
+  if (!(await mayEndSession(say))) return;
   await api("POST", "/api/auth/logout");
   location.assign("/");
 }

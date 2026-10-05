@@ -6,6 +6,9 @@ export const WORDING_DROPPED = "New wording arrived, so your last wording change
 /** Said when the server refused the owner's change because new wording is being written: nothing was stored, and the editor is locked until it is ready. */
 export const WRITING_DROPPED = "New wording is being written. Your last change was not saved. Make it again when the new wording is ready.";
 
+/** The editor's status while a change is being saved (also said by Sign out while its first press waits). */
+export const SAVING = "Saving…";
+
 /** Said when a save failed for any reason but a conflict. */
 export const NOT_SAVED = "Your latest changes are not saved yet. Please try again in a moment.";
 

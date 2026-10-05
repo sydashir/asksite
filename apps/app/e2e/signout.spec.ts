@@ -4,6 +4,9 @@ import { acceptInvite, apiCall, APP, askNewWording, BRIEF, builtSite, FACTS, fin
 const NOT_SAVED = "Your latest changes are not saved yet. Please try again in a moment.";
 const CONFLICT = "This site changed in another tab or window. Reload to see the latest version.";
 const PRESS_AGAIN = "Press Sign out again to sign out without saving.";
+// The editor's own status text for a save in flight, and the grace (use-route.ts SIGN_OUT_GRACE_MS) a first press waits alone.
+const SAVING = "Saving…";
+const GRACE_MS = 1_500;
 const FAIL_500 = { status: 500, json: { error: { code: "internal", message: "Something went wrong. Please try again." } } };
 
 /** Every request and answer for the draft and the logout, in the order the browser saw them. */
@@ -206,8 +209,8 @@ test("Sign out on the editor with a save that keeps failing stops once, says wha
   expect(events.at(-1)).toBe("logout-sent");
 });
 
-// A save that never answers must not trap the owner: a press while an earlier one is still waiting signs out.
-test("Sign out while the first press still waits on a save that never answers signs out", async ({ page }) => {
+// A save that never answers must not trap the owner: a press after the grace signs out, and the first press said "Saving…" meanwhile.
+test("Sign out on a save that never answers says Saving…, and a press after the grace signs out", async ({ page }) => {
   const siteId = await builtSite(page);
   await page.goto(`/sites/${siteId}/edit`);
   let release!: () => void;
@@ -221,7 +224,11 @@ test("Sign out while the first press still waits on a save that never answers si
   try {
     await page.getByLabel("Headline", { exact: true }).fill("Held for ever");
     await page.getByRole("button", { name: "Sign out" }).click();
+    await expect(page.getByRole("alert")).toHaveText(`${SAVING} ${PRESS_AGAIN}`);
     await expect.poll(() => events).toContain("patch-sent");
+    expect(events).not.toContain("logout-sent");
+    // Nothing observable marks the end of the grace, so this waits just past it (a bounded wait on purpose).
+    await page.waitForTimeout(GRACE_MS + 300);
     expect(events).not.toContain("logout-sent");
     await page.getByRole("button", { name: "Sign out" }).click();
     await expect(page.getByRole("heading", { level: 1, name: "Sign in" })).toBeVisible();
@@ -229,6 +236,35 @@ test("Sign out while the first press still waits on a save that never answers si
   } finally {
     release();
   }
+});
+
+// R4: a double click while the save is slow is ONE press: the save answers before the logout, and a fresh sign-in reads the edit.
+test("A double click on Sign out during a slow save waits for the save, then signs out; a fresh sign-in sees the edit", async ({ page, browser }) => {
+  const email = uniqueEmail("dbl");
+  const siteId = await builtSiteAs(page, email);
+  await page.goto("/");
+  await page.getByRole("link", { name: "Open" }).click();
+  await expect(page.getByRole("heading", { level: 1, name: "Edit your website" })).toBeFocused();
+  // The save is held until after the double click; it answers inside the grace, as a slow ordinary save would.
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => (release = resolve));
+  await page.route(`**/api/sites/${siteId}/draft`, async (route) => {
+    if (route.request().method() !== "PATCH") return route.fallback();
+    await held;
+    await route.continue();
+  });
+  const events = watchSaves(page);
+  await page.getByLabel("Headline", { exact: true }).fill("Double click");
+  await browserBack(page);
+  await expect(page.getByRole("heading", { level: 1, name: "Your websites" })).toBeVisible();
+  await expect.poll(() => events).toContain("patch-sent");
+  await page.getByRole("button", { name: "Sign out" }).dblclick();
+  await expect(page.getByRole("alert")).toHaveText(`${SAVING} ${PRESS_AGAIN}`);
+  expect(events).toEqual(["patch-sent"]);
+  release();
+  await expect(page.getByRole("heading", { level: 1, name: "Sign in" })).toBeVisible();
+  expect(events).toEqual(["patch-sent", "patch-answered-200", "logout-sent"]);
+  expect(await storedHeadline(browser, email, siteId)).toBe("Double click");
 });
 
 const WORDING_DROPPED = "New wording arrived, so your last wording change wasn't applied. Make it again on the new wording if you still want it.";
