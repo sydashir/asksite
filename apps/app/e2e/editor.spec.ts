@@ -1,5 +1,5 @@
 import { PALETTES } from "@asksite/renderer";
-import { expect, test, type Browser, type Page } from "@playwright/test";
+import { expect, test, type Browser, type Page, type Request } from "@playwright/test";
 import sharp from "sharp";
 import { sheetsChunk } from "./dist-assets.ts";
 import { acceptInvite, apiCall, APP, BRIEF, builtSite, expectAccessible, expectNoSidewaysScroll, FACTS, finishGeneration, showPreview, uniqueSlug, watchCsp } from "./support.ts";
@@ -1184,16 +1184,24 @@ test("while new wording is written, the web address Save sends nothing and the a
   const slugBefore = (await siteView(page, siteId))["slug"];
   await page.getByRole("tab", { name: "Details" }).click();
   await page.locator("#details-step").selectOption("address"); // chosen before the freeze: the picker is aria-disabled while frozen
-  await page.getByLabel("Web address").fill(uniqueSlug("frozen"));
-  await expect(page.getByText("This address is free. Save it to keep it.")).toBeVisible();
   const id = await askNewWording(page, siteId);
   await expect(page.getByText(WRITING_LOCK)).toHaveCount(1);
+  // Back on Details the address form mounts fresh, so the new address is entered now, after the freeze.
+  // fill() sends no key event, so the wrapper lets it through and it only changes the field's local state.
   await page.getByRole("tab", { name: "Details" }).click();
-  const puts: string[] = [];
-  page.on("request", (request) => request.method() === "PUT" && request.url().endsWith(`/api/sites/${siteId}/slug`) && puts.push(request.url()));
+  const field = page.getByLabel("Web address");
+  const typed = uniqueSlug("frozen");
+  await field.fill(typed, { force: true });
+  await expect(field).toHaveValue(typed);
+  await expect(page.getByText("This address is free. Save it to keep it.")).toBeVisible();
+  // The Save is now genuinely enabled; only the freeze can stop it. No request of any kind may be written for this site.
+  const writes: string[] = [];
+  const isWrite = (request: Request) => request.method() !== "GET" && new URL(request.url()).pathname.startsWith(`/api/sites/${siteId}`);
+  page.on("request", (request) => isWrite(request) && writes.push(`${request.method()} ${request.url()}`));
   await page.getByRole("button", { name: "Save this web address" }).click({ force: true });
-  await noChangeQueued(page);
-  expect(puts).toEqual([]);
+  // Bounded window: the one place we wait on the clock, because "no request arrives" has no state to wait for.
+  await page.waitForRequest(isWrite, { timeout: 5_000 }).catch(() => null);
+  expect(writes).toEqual([]);
   expect((await siteView(page, siteId))["slug"]).toBe(slugBefore);
   await finishGeneration(page.request, id, "failed");
   await expect(page.getByText("We could not write new wording this time. Your current wording is unchanged.")).toBeVisible({ timeout: 15_000 });
