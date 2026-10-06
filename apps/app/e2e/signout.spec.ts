@@ -70,6 +70,31 @@ test("Sign out stays and says so when the logout request fails, then signs out w
   await page.waitForURL((url) => url.pathname === "/");
 });
 
+// A second failure says the same words: the alert must be cleared and shown again, or a screen reader hears nothing for it.
+test("Sign out announces every failure again: two failed logouts in a row put the alert on the page twice", async ({ page }) => {
+  const siteId = await builtSite(page);
+  await page.goto(`/sites/${siteId}/edit`);
+  await page.route("**/api/auth/logout", (route) => route.abort("internetdisconnected"));
+  // Counts each time the failure alert is ADDED to the page (a repeat that React skips adds nothing).
+  await page.evaluate(() => {
+    const w = window as unknown as { __alertsAdded: number };
+    w.__alertsAdded = 0;
+    new MutationObserver((records) => {
+      for (const record of records)
+        for (const node of record.addedNodes)
+          if (node instanceof Element && (node.matches('[role="alert"]') || node.querySelector('[role="alert"]')) && (node.textContent ?? "").includes("We could not sign you out")) w.__alertsAdded += 1;
+    }).observe(document.body, { childList: true, subtree: true });
+  });
+  const added = () => page.evaluate(() => (window as unknown as { __alertsAdded: number }).__alertsAdded);
+  await page.getByRole("button", { name: "Sign out" }).click();
+  await expect(page.getByRole("alert").filter({ hasText: "We could not sign you out. Check your connection and try again." })).toBeVisible();
+  expect(await added()).toBe(1);
+  await pressAfterGrace(page);
+  await expect.poll(added).toBe(2);
+  await expect(page.getByRole("alert").filter({ hasText: "We could not sign you out. Check your connection and try again." })).toBeVisible();
+  expect(new URL(page.url()).pathname).toBe(`/sites/${siteId}/edit`);
+});
+
 /** What the app sees on the browser's Back: a popstate to Home, so no link and no guard runs. (Playwright's goBack stalls while a save is in flight.) */
 async function browserBack(page: Page) {
   await page.evaluate(() => {

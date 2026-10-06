@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { flushSync } from "react-dom";
 import { Notice } from "./components/feedback.tsx";
 import { useMe } from "./hooks/use-me.ts";
 import { mayEndSession, onLinkClick, resetSignOutStop, useRoute } from "./hooks/use-route.ts";
@@ -45,6 +46,8 @@ async function signOut(say: (message: string | null) => void) {
   // Leave only once the server ended the session (204): a failed logout leaves it alive, so stay and say so (the next press tries again).
   const res = await api("POST", "/api/auth/logout");
   if (!res.ok) {
+    // The same words as the last failure: clear the alert (rendered now, not batched with the next line), then set it, so it is announced again.
+    flushSync(() => say(null));
     say(SIGN_OUT_FAILED);
     return;
   }
