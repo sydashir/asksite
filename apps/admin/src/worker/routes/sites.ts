@@ -89,6 +89,7 @@ export function siteRoutes(deps: AdminDeps): Hono<AdminEnv> {
         provider: g.provider,
         model: g.model,
         costMicrousd: g.cost_microusd,
+        modelSlot: g.model_slot,
         attempts: g.attempts,
       })),
       leadCount: leads?.n ?? 0,

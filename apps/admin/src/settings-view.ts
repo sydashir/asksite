@@ -5,7 +5,14 @@ import type { AdminSettings } from "@asksite/core";
  * case is null when Plan 3 has no recorded price for the configured model (its decision 11). The
  * Worker, the settings page and the tests all use this one type.
  */
-export type SettingsView = Omit<AdminSettings, "worstCaseDailyMicrousd"> & { worstCaseDailyMicrousd: number | null };
+export type SettingsView = Omit<AdminSettings, "worstCaseDailyMicrousd"> & {
+  worstCaseDailyMicrousd: number | null;
+  /**
+   * Today's jobs that took a model slot (modelCallsToday counts them) and are NOT finished with a recorded cost: still running, or
+   * finished with cost 0 (our own code threw after a call, or the sweeper ended the row). Their cost is not in spentTodayMicrousd.
+   */
+  unknownCostJobsToday: number;
+};
 
 /**
  * What GET /api/admin/sign-in-emails answers (A11b item 1): the sign-in links made since 00:00 UTC (one login_tokens

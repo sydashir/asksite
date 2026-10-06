@@ -2,6 +2,39 @@ import type { TakedownView } from "../../settings-view.ts";
 
 export const when = (ms: number | null): string => (ms === null ? "" : new Date(ms).toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" }));
 export const dollars = (microusd: number): string => `$${(microusd / 1_000_000).toFixed(2)}`;
+/** The columns that decide what one AI writing job's cost line may say. */
+export interface JobCostInput {
+  status: "queued" | "running" | "succeeded" | "failed";
+  modelSlot: 0 | 1;
+  costMicrousd: number;
+}
+
+/**
+ * The cost line of one finished-or-not AI writing job, or null while it has not finished (no cost is known yet).
+ * A finished job with model_slot 0 sent no provider call: the job gives its slot back only when it knows that
+ * (packages/generation/src/job.ts:278 `releaseSlot = spend.attempts === 0 && !trace.costUnknown`), so "$0.00" is true.
+ * A finished job that kept model_slot 1 with a recorded cost is an upper bound ("Up to"); with cost 0 it may still have been
+ * billed (our own code threw after a call, or the sweeper ended the row and records no cost), so its cost is unknown.
+ * Never decided by `attempts`: both of those rows record attempts 0.
+ */
+export function jobCostText(job: JobCostInput): string | null {
+  if (job.status === "queued" || job.status === "running") return null;
+  if (job.modelSlot === 0) return dollars(0);
+  return job.costMicrousd > 0 ? `Up to ${dollars(job.costMicrousd)}` : "Cost unknown";
+}
+
+/**
+ * The settings page's "Spent today": the recorded cost is an upper bound, and the jobs that took a model slot today without a
+ * recorded cost (running, or finished with cost 0: see jobCostText) are not in it, so they are named.
+ * `modelCalls` counts today's model_slot 1 jobs; `unknownJobs` those not finished with a recorded cost.
+ */
+export function spentTodayText(spentMicrousd: number, modelCalls: number, unknownJobs: number): string {
+  if (modelCalls === 0 && spentMicrousd === 0) return dollars(0);
+  const upTo = `Up to ${dollars(spentMicrousd)}`;
+  if (unknownJobs === 0) return upTo;
+  return `${upTo}, not counting ${unknownJobs === 1 ? "1 job" : `${unknownJobs} jobs`} whose cost is unknown`;
+}
+
 /** After a restore: photos deleted by a takedown with "Also delete this site's photos" stay missing (Plan 2 decision 29). */
 export const restoredText = (missingPhotos: number): string =>
   missingPhotos === 0

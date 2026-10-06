@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
+import { jobCostText, spentTodayText } from "../../src/client/lib/format.ts";
 import type { SettingsView } from "../../src/settings-view.ts";
 import { json, useAdminHarness } from "../support/harness.ts";
 
@@ -82,7 +83,7 @@ describe("sites and owners", () => {
 describe("settings", () => {
   it("shows the kill switch and the daily limit, and updates both with an audit row", async () => {
     const before = await json<SettingsView>(await h.call("GET", "/api/admin/settings"));
-    expect(before).toEqual({ generationEnabled: true, envGenerationEnabled: true, dailyModelLimit: 30, modelCallsToday: 0, spentTodayMicrousd: 0, worstCaseDailyMicrousd: 30 * 336_000 });
+    expect(before).toEqual({ generationEnabled: true, envGenerationEnabled: true, dailyModelLimit: 30, modelCallsToday: 0, spentTodayMicrousd: 0, unknownCostJobsToday: 0, worstCaseDailyMicrousd: 30 * 336_000 });
     const after = await json<SettingsView>(await h.call("PUT", "/api/admin/settings", { body: { generationEnabled: false, dailyModelLimit: 5 } }));
     expect(after).toMatchObject({ generationEnabled: false, dailyModelLimit: 5, worstCaseDailyMicrousd: 5 * 336_000 });
     expect((await h.call("PUT", "/api/admin/settings", { body: { dailyModelLimit: 5000 } })).status).toBe(422);
@@ -122,5 +123,70 @@ describe("settings usage figures (the admin's spend against the cap)", () => {
     await insert("55555555-5555-4555-8555-555555555555", 0, today - 1, 2_000);
     const view = await json<SettingsView>(await usage.call("GET", "/api/admin/settings"));
     expect(view).toMatchObject({ modelCallsToday: 2, spentTodayMicrousd: 700 });
+  });
+});
+
+// STRICT (money and honesty): Spent today counts the model-slot jobs of today whose cost is not known: every one that is not finished with a
+// recorded cost. Running jobs count; a model_slot 0 job (no call was sent) and yesterday's jobs do not.
+describe("settings: model-slot jobs of today whose cost is unknown", () => {
+  const unknown = useAdminHarness();
+  type Seed = { id: string; slot: number; status: string; cost: number; startedAt: number | null; attempts?: number; errorCode?: string | null };
+
+  async function seed(rows: Seed[]) {
+    const site = await unknown.pendingSite();
+    const db = await unknown.db();
+    await db.prepare("UPDATE generations SET started_at = NULL").bind().run(); // the harness shares one database across this block's tests: earlier rows leave today's count
+    for (const r of rows)
+      await db
+        .prepare("INSERT INTO generations (id, site_id, owner_id, kind, status, input_json, model_slot, cost_microusd, attempts, error_code, created_at, started_at) VALUES (?, ?, ?, 'regenerate', ?, '{}', ?, ?, ?, ?, ?, ?)")
+        .bind(r.id, site.siteId, site.ownerId, r.status, r.slot, r.cost, r.attempts ?? 0, r.errorCode ?? null, Date.now(), r.startedAt)
+        .run();
+    return site;
+  }
+  const view = async () => json<SettingsView>(await unknown.call("GET", "/api/admin/settings"));
+  let run = 0; // one id range per test, because the block's tests share one database
+  beforeEach(() => {
+    run += 1;
+  });
+  const id = (n: number) => `${n}0000000-0000-4000-8000-${String(run).padStart(12, "0")}`;
+  const today = Math.floor(Date.now() / 86_400_000) * 86_400_000;
+
+  it("counts a mix: finished with a cost is known; a DraftRejected-shaped row, a swept row and a running row are unknown; model_slot 0 and yesterday's rows are not counted", async () => {
+    const site = await seed([
+      { id: id(1), slot: 1, status: "succeeded", cost: 336_000, startedAt: Date.now(), attempts: 1 }, // known
+      { id: id(2), slot: 1, status: "failed", cost: 0, startedAt: Date.now(), attempts: 0, errorCode: "internal" }, // our own code threw after a call
+      { id: id(3), slot: 1, status: "succeeded", cost: 0, startedAt: Date.now(), attempts: 0 }, // swept: starter wording after a provider error
+      { id: id(4), slot: 1, status: "running", cost: 0, startedAt: Date.now() }, // still running
+      { id: id(5), slot: 0, status: "failed", cost: 0, startedAt: Date.now(), errorCode: "generation_disabled" }, // no call was sent
+      { id: id(6), slot: 1, status: "failed", cost: 0, startedAt: today - 1 }, // yesterday, last millisecond
+    ]);
+    const got = await view();
+    expect(got).toMatchObject({ modelCallsToday: 4, spentTodayMicrousd: 336_000, unknownCostJobsToday: 3 });
+    expect(spentTodayText(got.spentTodayMicrousd, got.modelCallsToday, got.unknownCostJobsToday)).toBe("Up to $0.34, not counting 3 jobs whose cost is unknown");
+    // The site page labels each job from the same columns: it is sent model_slot with each generation.
+    const detail = await json<{ generations: Array<{ id: string; status: "queued" | "running" | "succeeded" | "failed"; modelSlot: 0 | 1; costMicrousd: number }> }>(await unknown.call("GET", `/api/admin/sites/${site.siteId}`));
+    const label = (n: number) => jobCostText(detail.generations.find((g) => g.id === id(n))!);
+    expect([1, 2, 3, 4, 5].map(label)).toEqual(["Up to $0.34", "Cost unknown", "Cost unknown", null, "$0.00"]);
+  });
+
+  it("says Up to $X, and names no unknown job, when every model-slot job of today finished with a cost", async () => {
+    await seed([{ id: id(1), slot: 1, status: "succeeded", cost: 100, startedAt: Date.now(), attempts: 1 }, { id: id(2), slot: 1, status: "failed", cost: 600_000, startedAt: Date.now(), attempts: 3 }]);
+    const got = await view();
+    expect(got).toMatchObject({ modelCallsToday: 2, unknownCostJobsToday: 0 });
+    expect(spentTodayText(got.spentTodayMicrousd, got.modelCallsToday, got.unknownCostJobsToday)).toBe("Up to $0.60");
+  });
+
+  it("says $0.00 when no job took a model slot today (a model_slot 0 job does not count)", async () => {
+    await seed([{ id: id(1), slot: 0, status: "failed", cost: 0, startedAt: Date.now(), errorCode: "generation_disabled" }]);
+    const got = await view();
+    expect(got).toMatchObject({ modelCallsToday: 0, spentTodayMicrousd: 0, unknownCostJobsToday: 0 });
+    expect(spentTodayText(got.spentTodayMicrousd, got.modelCallsToday, got.unknownCostJobsToday)).toBe("$0.00");
+  });
+
+  it("says 1 job (singular) for exactly one running job", async () => {
+    await seed([{ id: id(1), slot: 1, status: "running", cost: 0, startedAt: Date.now() }]);
+    const got = await view();
+    expect(got).toMatchObject({ modelCallsToday: 1, unknownCostJobsToday: 1 });
+    expect(spentTodayText(got.spentTodayMicrousd, got.modelCallsToday, got.unknownCostJobsToday)).toBe("Up to $0.00, not counting 1 job whose cost is unknown");
   });
 });

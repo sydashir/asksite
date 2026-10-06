@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { dollars, restoredText, revokeNotice, takedownResult, worstCaseText } from "../../src/client/lib/format.ts";
+import { dollars, jobCostText, restoredText, revokeNotice, spentTodayText, takedownResult, worstCaseText } from "../../src/client/lib/format.ts";
 
 describe("admin messages", () => {
   it("shows micro-dollars as dollars and cents", () => {
@@ -64,5 +64,62 @@ describe("revokeNotice: the Invites screen's words after a revoke", () => {
     const notice = revokeNotice(used, "a@example.com");
     expect(notice).toEqual({ tone: "error", text: "This invite was already used, so it can't be revoked." });
     expect(notice.text).not.toContain("Invite for a@example.com revoked.");
+  });
+});
+
+// STRICT (money and honesty): what the admin may say a job cost. A job that sent no call gave its model slot back (model_slot 0 at finish),
+// so only then is "$0.00" true. A model_slot 1 row that finished with cost 0 (our own code threw after a call; a row the sweeper ended)
+// may have been billed: its cost is unknown, never "$0.00". The label is decided by status, model_slot and cost, never by attempts.
+describe("jobCostText (one AI writing job's cost line)", () => {
+  const job = (status: "queued" | "running" | "succeeded" | "failed", modelSlot: 0 | 1, costMicrousd: number, attempts = 0) => ({ status, modelSlot, costMicrousd, attempts });
+
+  it("shows no cost for a job that has not finished (queued or running)", () => {
+    expect(jobCostText(job("queued", 0, 0))).toBeNull();
+    expect(jobCostText(job("running", 1, 0))).toBeNull();
+    expect(jobCostText(job("running", 1, 250_000, 1))).toBeNull();
+  });
+
+  it("says $0.00 for a finished job that gave its model slot back (no call was sent)", () => {
+    expect(jobCostText(job("failed", 0, 0))).toBe("$0.00");
+    expect(jobCostText(job("succeeded", 0, 0))).toBe("$0.00");
+  });
+
+  it("says Up to $X for a finished job that kept its model slot and recorded a cost", () => {
+    expect(jobCostText(job("succeeded", 1, 336_000, 1))).toBe("Up to $0.34");
+    expect(jobCostText(job("failed", 1, 1_331_520, 3))).toBe("Up to $1.33");
+  });
+
+  it("says Cost unknown for a finished job that kept its model slot and recorded no cost: our own code threw after a call (status failed, internal, attempts 0)", () => {
+    expect(jobCostText(job("failed", 1, 0, 0))).toBe("Cost unknown");
+  });
+
+  it("says Cost unknown for a row the sweeper ended with no cost (failed internal, or succeeded with the starter wording after a provider error)", () => {
+    expect(jobCostText(job("failed", 1, 0, 1))).toBe("Cost unknown");
+    expect(jobCostText(job("succeeded", 1, 0, 0))).toBe("Cost unknown");
+  });
+
+  it("does not use attempts: a model_slot 1 row with attempts 0 is unknown, a model_slot 0 row with attempts 2 is $0.00", () => {
+    expect(jobCostText(job("failed", 1, 0, 0))).toBe("Cost unknown");
+    expect(jobCostText(job("failed", 0, 0, 2))).toBe("$0.00");
+  });
+});
+
+describe("spentTodayText (the Settings page's Spent today)", () => {
+  it("says $0.00 when no job took a model slot today", () => {
+    expect(spentTodayText(0, 0, 0)).toBe("$0.00");
+  });
+
+  it("says Up to $X when every model-slot job finished with a recorded cost", () => {
+    expect(spentTodayText(700, 2, 0)).toBe("Up to $0.00");
+    expect(spentTodayText(10_652_160, 8, 0)).toBe("Up to $10.65");
+  });
+
+  it("names the one job whose cost is unknown", () => {
+    expect(spentTodayText(336_000, 2, 1)).toBe("Up to $0.34, not counting 1 job whose cost is unknown");
+  });
+
+  it("counts the jobs whose cost is unknown, when there are several", () => {
+    expect(spentTodayText(336_000, 4, 3)).toBe("Up to $0.34, not counting 3 jobs whose cost is unknown");
+    expect(spentTodayText(0, 2, 2)).toBe("Up to $0.00, not counting 2 jobs whose cost is unknown");
   });
 });

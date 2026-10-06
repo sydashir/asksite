@@ -5,7 +5,7 @@ import { usePageHeading } from "../../../../app/src/client/hooks/use-page-headin
 import { api } from "../../../../app/src/client/lib/api.ts";
 import type { SettingsView, SignInEmailsView } from "../../settings-view.ts";
 import { useResource } from "../hooks.ts";
-import { dollars, worstCaseText } from "../lib/format.ts";
+import { spentTodayText, worstCaseText } from "../lib/format.ts";
 
 /** The AI kill switch and daily model limit, with today's usage and the worst case (§3.2 step 5, §6.3). */
 export function Settings() {
@@ -55,7 +55,7 @@ export function Settings() {
               {settings.modelCallsToday} of {settings.dailyModelLimit}
             </dd>
             <dt className="font-medium">Spent today</dt>
-            <dd>{dollars(settings.spentTodayMicrousd)}</dd>
+            <dd>{spentTodayText(settings.spentTodayMicrousd, settings.modelCallsToday, settings.unknownCostJobsToday)}</dd>
             <dt className="font-medium">Most it can cost per day</dt>
             <dd>{worstCaseText(settings.worstCaseDailyMicrousd)}</dd>
             {signIn.state === "ready" ? (
