@@ -8,7 +8,10 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { loadFixture } from "../../../../../fixtures/index.ts";
 import { classicPage } from "./site.ts";
 
-/** Desktop windows, short ones first: laptops are often only 540-800 px tall. */
+/**
+ * Desktop windows, short ones first (laptops are often only 540-800 px tall), then taller ones, where the card is centred
+ * beside the words and starts at the row's top when it is the taller of the two.
+ */
 const WINDOWS = [
   [1024, 600],
   [1024, 768],
@@ -16,8 +19,12 @@ const WINDOWS = [
   [1279, 800],
   [1280, 600],
   [1440, 650],
+  [1280, 800],
+  [1440, 900],
   [1920, 1080],
 ] as const;
+/** Two animation frames, so a resized window is laid out at its new size before it is measured. */
+const SETTLED = "new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))";
 /** The seal's ring (3px paper + 1.5px accent box-shadow) and the space it keeps from the hero's top edge. */
 const RING = 4.5;
 const CLEAR = 8;
@@ -62,6 +69,7 @@ describe.each(Object.keys(ENGINES) as Array<keyof typeof ENGINES>)("the Classic 
     const found: string[] = [];
     for (const [width, height] of WINDOWS) {
       await page.setViewportSize({ width, height });
+      await page.evaluate(SETTLED);
       const clearance = (await page.evaluate(`(${CLEARANCE})(${RING})`)) as number | null;
       if (clearance === null) found.push(`${width}x${height}: no seal`);
       else if (clearance < CLEAR) found.push(`${width}x${height}: ${clearance.toFixed(1)} px`);
