@@ -663,3 +663,195 @@ test("PA: a dropped wording change found by the press's own save keeps the stop 
   await expect(page.getByRole("alert").filter({ hasText: WORDING_DROPPED })).toContainText(PRESS_AGAIN);
   expect(events).not.toContain("logout-sent");
 });
+
+// ---------------- REFUSED SAVES, KEPT DROPS ----------------
+const signOutButton = (page: Page) => page.getByRole("button", { name: "Sign out" });
+const signInHeading = (page: Page) => page.getByRole("heading", { level: 1, name: "Sign in" });
+
+
+/** Site S on old wording; its editor closes (Back) with a wording edit whose closing save FAILS (500); new wording landed meanwhile. */
+async function closedEditorFailedOnStaleWording(page: Page, browser: Browser, email: string) {
+  const siteId = await builtSiteAs(page, email);
+  const rev = (await apiCall(page, "GET", `/api/sites/${siteId}`)).json!["rev"] as number;
+  expect((await apiCall(page, "PATCH", `/api/sites/${siteId}/draft`, { rev, facts: { ...FACTS, trade: "roofing" } })).status).toBe(200);
+  await page.goto("/");
+  await page.locator(`a[href="/sites/${siteId}/edit"]`).click();
+  await expect(page.getByRole("heading", { level: 1, name: "Edit your website" })).toBeFocused();
+  const headline = page.getByLabel("Headline", { exact: true });
+  await expect(headline).toHaveValue("Plumbing done right");
+  await rewriteElsewhere(page, browser, siteId);
+  const gate = { failing: true };
+  await page.route(`**/api/sites/${siteId}/draft`, (route) => (route.request().method() === "PATCH" && gate.failing ? route.fulfill(FAIL_500) : route.fallback()));
+  const events = watchSaves(page);
+  await headline.fill("Mine, closing save fails");
+  await browserBack(page);
+  await expect(page.getByRole("heading", { level: 1, name: "Your websites" })).toBeVisible();
+  await expect.poll(() => events).toContain("patch-answered-500");
+  gate.failing = false;
+  return { siteId, events };
+}
+
+/** Sign out's retry of the failed closing save finds the drop: the press stops with the drop text. Then S's editor is opened. */
+async function keptDropReachesNextEditor(page: Page, browser: Browser, email: string) {
+  const { siteId, events } = await closedEditorFailedOnStaleWording(page, browser, email);
+  await signOutButton(page).click();
+  const stop = page.getByRole("alert").filter({ hasText: WORDING_DROPPED });
+  await expect(stop).toContainText(PRESS_AGAIN);
+  const stopText = await stop.textContent();
+  const afterPress = [...events];
+  expect(events).not.toContain("logout-sent");
+  await page.waitForTimeout(GRACE_MS + 100);
+  // Instead of pressing again, the owner opens that site's editor.
+  await page.locator(`a[href="/sites/${siteId}/edit"]`).click();
+  await expect(page.getByRole("heading", { level: 1, name: "Edit your website" })).toBeFocused();
+  const notice = page.getByRole("status").filter({ hasText: WORDING_DROPPED });
+  const noticeShown = await notice.isVisible().catch(() => false);
+  const dismissShown = await page.getByRole("button", { name: "Dismiss" }).isVisible().catch(() => false);
+  return { siteId, events, stopText, afterPress, notice, noticeShown, dismissShown };
+}
+
+test("K1: a drop found by Sign out's retry of a failed closing save stops once, the site's next editor SHOWS the notice, and it never stops a leave twice", async ({ page, browser }) => {
+  const k = await keptDropReachesNextEditor(page, browser, uniqueEmail("k1"));
+  await expect(k.notice).toBeVisible();
+  await expect(page.getByRole("button", { name: "Dismiss" })).toBeVisible();
+  // G2: the owner was already stopped once for this drop (the Sign out stop): the next leave goes on.
+  const before = k.events.length;
+  await signOutButton(page).click();
+  await expect(signInHeading(page)).toBeVisible();
+  console.log(`K1-RESULT stopText=${JSON.stringify(k.stopText)} afterPress=${JSON.stringify(k.afterPress)} noticeShown=${k.noticeShown} dismissShown=${k.dismissShown} afterNextEditor=${JSON.stringify(k.events.slice(before))}`);
+  expect(k.noticeShown).toBe(true);
+});
+
+test("K0: a drop found by the closing save itself (R3) is told by a Sign out stop; does the site's next editor stop a leave for it AGAIN?", async ({ page, browser }) => {
+  const siteId = await builtSiteAs(page, uniqueEmail("k0"));
+  const rev = (await apiCall(page, "GET", `/api/sites/${siteId}`)).json!["rev"] as number;
+  expect((await apiCall(page, "PATCH", `/api/sites/${siteId}/draft`, { rev, facts: { ...FACTS, trade: "roofing" } })).status).toBe(200);
+  await page.goto("/");
+  await page.locator(`a[href="/sites/${siteId}/edit"]`).click();
+  await expect(page.getByRole("heading", { level: 1, name: "Edit your website" })).toBeFocused();
+  const headline = page.getByLabel("Headline", { exact: true });
+  await expect(headline).toHaveValue("Plumbing done right");
+  await rewriteElsewhere(page, browser, siteId);
+  const events = watchSaves(page);
+  await headline.fill("Mine, typed just before Back");
+  await browserBack(page);
+  await expect(page.getByRole("heading", { level: 1, name: "Your websites" })).toBeVisible();
+  await expect.poll(() => events).toContain("patch-answered-200");
+  await signOutButton(page).click();
+  await expect(page.getByRole("alert").filter({ hasText: WORDING_DROPPED })).toContainText(PRESS_AGAIN);
+  await page.waitForTimeout(GRACE_MS + 100);
+  await page.locator(`a[href="/sites/${siteId}/edit"]`).click();
+  await expect(page.getByRole("heading", { level: 1, name: "Edit your website" })).toBeFocused();
+  const noticeShown = await page.getByRole("status").filter({ hasText: WORDING_DROPPED }).isVisible();
+  await signOutButton(page).click();
+  const outcome = await Promise.race([
+    signInHeading(page).waitFor({ timeout: 8_000 }).then(() => "signed-out"),
+    page.getByRole("alert").filter({ hasText: WORDING_DROPPED }).waitFor({ timeout: 8_000 }).then(() => "stopped-again"),
+  ]).catch(() => "neither");
+  console.log(`K0-RESULT noticeShown=${noticeShown} secondLeave=${outcome} events=${JSON.stringify(events)}`);
+  // G2 (never block twice): the Sign out stop already told the owner about this drop.
+  expect(noticeShown).toBe(true);
+  expect(outcome).toBe("signed-out");
+});
+
+const WRITING_DROPPED = "New wording is being written. Your last change was not saved. Make it again when the new wording is ready.";
+const WRITING_LOCK = "Writing new wording. You can edit again when it is ready.";
+
+// A refused save (generation_in_progress) stores nothing, so the saver's `landed` does not move. A second refused drop after the first
+// was told and dismissed has the same (key, source, landed) as the told one. The DECIDED rule: a resolved cause leaves the told set, and
+// one that comes back stops once more.
+test("W2: a second refused save (another tab's second rewrite), after the first was told and dismissed, stops Sign out again", async ({ page, browser }) => {
+  const siteId = await builtSite(page);
+  await page.goto(`/sites/${siteId}/edit`);
+  await expect(page.getByRole("heading", { level: 1, name: "Edit your website" })).toBeFocused();
+  const headline = page.getByLabel("Headline", { exact: true });
+  const other = await browser.newContext({ baseURL: APP, ignoreHTTPSErrors: true, storageState: await page.context().storageState() });
+  try {
+    const tabB = await other.newPage();
+    await tabB.goto(`/sites/${siteId}/edit`);
+    await expect(tabB.getByRole("heading", { level: 1, name: "Edit your website" })).toBeFocused();
+    const id1 = await askNewWording(tabB, siteId);
+    const events = watchSaves(page);
+    await headline.fill("Changed during rewrite 1");
+    const notice = page.getByRole("status").filter({ hasText: WRITING_DROPPED });
+    await expect(notice).toBeVisible();
+    await expect(page.getByText(WRITING_LOCK)).toHaveCount(1);
+    await signOutButton(page).click();
+    const stop = page.getByRole("alert").filter({ hasText: WRITING_DROPPED });
+    await expect(stop).toContainText(PRESS_AGAIN);
+    // The owner stays. Rewrite 1 fails, the lock lifts, the owner dismisses the notice: the told cause is resolved.
+    await finishGeneration(tabB.request, id1, "failed");
+    await expect(page.getByText(WRITING_LOCK)).toHaveCount(0, { timeout: 15_000 });
+    await page.getByRole("button", { name: "Dismiss" }).click();
+    await settleRender(page);
+    const stopsAfterDismiss = await page.getByRole("alert").filter({ hasText: PRESS_AGAIN }).count();
+    // Another rewrite from tab B; this tab's next change is refused again: a NEW drop, same site, same kind, nothing landed.
+    await tabB.reload();
+    await expect(tabB.getByRole("heading", { level: 1, name: "Edit your website" })).toBeFocused();
+    const id2 = await askNewWording(tabB, siteId);
+    const before = events.length;
+    await headline.fill("Changed during rewrite 2");
+    await expect(notice).toBeVisible();
+    await expect.poll(() => events.slice(before)).toEqual(["patch-sent", "patch-answered-409"]);
+    await settleRender(page);
+    await page.waitForTimeout(GRACE_MS);
+    await signOutButton(page).click();
+    const outcome = await Promise.race([
+      signInHeading(page).waitFor({ timeout: 8_000 }).then(() => "signed-out"),
+      stop.filter({ hasText: PRESS_AGAIN }).waitFor({ timeout: 8_000 }).then(() => "stopped-again"),
+    ]).catch(() => "neither");
+    console.log(`W2-RESULT stopsAfterDismiss=${stopsAfterDismiss} secondDrop=${outcome} events=${JSON.stringify(events)}`);
+    await finishGeneration(other.request, id2, "failed").catch(() => undefined);
+    expect(outcome).toBe("stopped-again");
+  } finally {
+    await other.close();
+  }
+});
+
+// The data variant of W2: a failure told, then resolved by a refused save (its unsaved values are discarded by the refusal, nothing lands),
+// then a NEW failed edit. The DECIDED rule: a resolved cause leaves the told set, so the new failure stops once (the edit can still be saved).
+test("F2: a failure told, resolved by a refused save, then a NEW failed edit: Sign out stops before losing it", async ({ page, browser }) => {
+  const siteId = await builtSite(page);
+  await page.goto(`/sites/${siteId}/edit`);
+  await expect(page.getByRole("heading", { level: 1, name: "Edit your website" })).toBeFocused();
+  const headline = page.getByLabel("Headline", { exact: true });
+  const gate = { failing: true };
+  await page.route(`**/api/sites/${siteId}/draft`, (route) => (route.request().method() === "PATCH" && gate.failing ? route.fulfill(FAIL_500) : route.fallback()));
+  const events = watchSaves(page);
+  await headline.fill("F1 typed, failing");
+  await expect(page.getByText("Your changes are not saved yet", { exact: false }).first()).toBeVisible();
+  await signOutButton(page).click();
+  const stop = page.getByRole("alert").filter({ hasText: NOT_SAVED });
+  await expect(stop).toContainText(PRESS_AGAIN);
+  const other = await browser.newContext({ baseURL: APP, ignoreHTTPSErrors: true, storageState: await page.context().storageState() });
+  try {
+    const tabB = await other.newPage();
+    await tabB.goto(`/sites/${siteId}/edit`);
+    await expect(tabB.getByRole("heading", { level: 1, name: "Edit your website" })).toBeFocused();
+    const id1 = await askNewWording(tabB, siteId);
+    gate.failing = false;
+    await headline.fill("Typed while tab B writes");
+    await expect(page.getByRole("status").filter({ hasText: WRITING_DROPPED })).toBeVisible();
+    await settleRender(page);
+    const alertsAfterRefusal = await page.getByRole("alert").filter({ hasText: PRESS_AGAIN }).allTextContents();
+    await finishGeneration(tabB.request, id1, "failed");
+    await expect(page.getByText(WRITING_LOCK)).toHaveCount(0, { timeout: 15_000 });
+    await page.getByRole("button", { name: "Dismiss" }).click();
+    gate.failing = true;
+    await headline.fill("F2, a new edit that fails");
+    await expect(page.getByText("Your changes are not saved yet", { exact: false }).first()).toBeVisible();
+    await settleRender(page);
+    const alertsAtF2 = await page.getByRole("alert").filter({ hasText: PRESS_AGAIN }).allTextContents();
+    await page.waitForTimeout(GRACE_MS);
+    const sentBefore = events.filter((e) => e === "patch-sent").length;
+    await signOutButton(page).click();
+    const outcome = await Promise.race([
+      signInHeading(page).waitFor({ timeout: 8_000 }).then(() => "signed-out"),
+      page.waitForTimeout(3_000).then(() => (events.includes("logout-sent") ? "signed-out" : "stayed")),
+    ]).catch(() => "neither");
+    console.log(`F2-RESULT alertsAfterRefusal=${JSON.stringify(alertsAfterRefusal)} alertsAtF2=${JSON.stringify(alertsAtF2)} pressRetried=${events.filter((e) => e === "patch-sent").length > sentBefore} outcome=${outcome} events=${JSON.stringify(events)}`);
+    expect(outcome).toBe("stayed");
+  } finally {
+    await other.close();
+  }
+});
