@@ -439,12 +439,14 @@ describe("deleteOwner fences and stragglers (review round)", () => {
         await env.DB.prepare("UPDATE sites SET admin_lock = 'thief', admin_lock_until = 9000000000000 WHERE id = ?").bind(t.a.siteId).run();
       }
     });
+    // Every LIVE delete, whenever it comes: without the per-page check the sweep's first lease read is the one after it, so
+    // "deletes since the theft" would stay empty for the mutant too.
     const live = watchBucket(env.LIVE, async (call, arg) => {
-      if (call === "delete" && stolen) swept.push(...(Array.isArray(arg) ? (arg as string[]) : [String(arg)]));
+      if (call === "delete") swept.push(...(Array.isArray(arg) ? (arg as string[]) : [String(arg)]));
     });
     expect((await failure(del(t, { ...env, DB: db, LIVE: live }))).code).toBe("site_busy");
     expect(stolen).toBe(true);
-    expect(swept).toEqual([]);
+    expect(swept).not.toContain(t.b.orphanKey); // the sweep's own delete: a version of this owner under an old slug
     expect(await env.LIVE.head(t.b.orphanKey)).not.toBeNull();
     await env.DB.prepare("UPDATE sites SET admin_lock = NULL, admin_lock_until = NULL WHERE id = ?").bind(t.a.siteId).run();
   }, T);
@@ -512,6 +514,34 @@ describe("deleteOwner fences and stragglers (review round)", () => {
     expect(await count("SELECT COUNT(*) AS n FROM generations WHERE site_id = ?", t.a.siteId)).toBe(0);
   }, T);
 
+  // Ported from the re-review (RR3, Minor 1): an owner with no site at all. The redaction is one statement of batch F, so it
+  // runs once whatever the number of sites; emitted per site it would never run here and the disable reason would stay.
+  it("deletes an owner that has no site, and redacts its owner.disabled reason", async () => {
+    const lone = newId();
+    const email = `lone-${lone}@example.com`;
+    await env.DB.prepare("INSERT INTO owners (id, email, created_at, disabled_at) VALUES (?, ?, 1, 2)").bind(lone, email).run();
+    await env.DB.prepare("INSERT INTO sessions (id_hash, owner_id, created_at, expires_at, last_seen_at) VALUES (?, ?, 1, 2, 1)").bind(newId(), lone).run();
+    await env.DB.prepare("INSERT INTO audit_log (at, actor, action, site_id, detail_json) VALUES (24, ?, 'owner.disabled', NULL, ?)").bind(`admin:${ADMIN}`, JSON.stringify({ ownerId: lone, reason: "Lone closure note" })).run();
+    const result = await deleteOwner(env, { ownerId: lone, confirmEmail: email, reviewer: ADMIN, now: NOW });
+    expect(deletedCounts(result).auditRedacted).toBe(1);
+    expect(await count("SELECT COUNT(*) AS n FROM owners WHERE id = ?", lone)).toBe(0);
+    expect(await count("SELECT COUNT(*) AS n FROM sessions WHERE owner_id = ?", lone)).toBe(0);
+    expect(await count("SELECT COUNT(*) AS n FROM audit_log WHERE instr(detail_json, 'Lone closure note') > 0")).toBe(0);
+    expect(await count("SELECT COUNT(*) AS n FROM audit_log WHERE action = 'owner.deleted' AND json_extract(detail_json, '$.ownerId') = ?", lone)).toBe(1);
+  }, T);
+
+  // Ported from the re-review (RR6, Minor 6): batch F's redaction names every site id the run knows (allSiteIds), also one only
+  // an earlier owner.deletion_started row names and whose sites row is gone, not just the sites present now.
+  it("redacts a site.taken_down reason of a site only an earlier owner.deletion_started row names", async () => {
+    const t = await seedClosingOwner(env, "gone-site-reason");
+    const x = newId();
+    await env.DB.prepare("INSERT INTO audit_log (at, actor, action, site_id, detail_json) VALUES (30, ?, 'owner.deletion_started', NULL, ?)").bind(`admin:${ADMIN}`, canonicalJson({ ownerId: t.ownerId, siteIds: [x] })).run();
+    await env.DB.prepare("INSERT INTO audit_log (at, actor, action, site_id, detail_json) VALUES (31, ?, 'site.taken_down', ?, ?)").bind(`admin:${ADMIN}`, x, JSON.stringify({ reason: "Gone-site note about Joe", purgeMedia: false })).run();
+    const counts = deletedCounts(await del(t));
+    expect(await count("SELECT COUNT(*) AS n FROM audit_log WHERE site_id = ? AND instr(detail_json, 'Gone-site note') > 0", x)).toBe(0);
+    expect(counts.auditRedacted).toBe(4);
+  }, T);
+
   // Ported from review R5b (finding m-5, ACCEPTED and documented at the counts in owner-deletion.ts): the counts are taken
   // just before the final transaction, so a row that arrives in between is deleted but not counted.
   it("a lead that lands between the counts and the final batch is deleted but not counted", async () => {
@@ -575,6 +605,39 @@ describe("deleteOwner fences and stragglers (review round)", () => {
     await expect(del(t, { ...env, DB: db })).rejects.toThrow("D1 timed out after commit");
     expect(committed).toBe(true);
     expect(await count("SELECT COUNT(*) AS n FROM owners WHERE id = ?", t.ownerId)).toBe(0); // it did commit
+  }, T);
+
+  // Ported from the re-review (RR5, Minor 2): the owner read after a failed final batch is inside the try, so its own failure
+  // cannot replace the batch's error.
+  it("keeps the final batch's own error when reading the owner afterwards throws", async () => {
+    const t = await seedClosingOwner(env, "owner-read-throws");
+    let failed = false;
+    const db = watchDb(env.DB, async (call) => {
+      if (isFinalBatch(call)) {
+        failed = true;
+        throw new Error("D1 is unavailable");
+      }
+      if (failed && call.method === "first" && call.sql.startsWith("SELECT id, email, disabled_at FROM owners")) throw new Error("the owner read failed");
+    });
+    await expect(del(t, { ...env, DB: db })).rejects.toThrow("D1 is unavailable");
+    expect(failed).toBe(true);
+  }, T);
+
+  // Ported from the re-review (RR4, Minor 2): a failing lease check after a failed batch says nothing about the lease, so it
+  // is not reported as lease_lost; the batch's error surfaces (a retry finishes).
+  it("keeps the final batch's own error, not lease_lost, when the lease check after it throws", async () => {
+    const t = await seedClosingOwner(env, "lease-check-throws");
+    let failed = false;
+    const db = watchDb(env.DB, async (call) => {
+      if (isFinalBatch(call)) {
+        failed = true;
+        throw new Error("D1 is unavailable");
+      }
+      if (failed && call.method === "all" && call.sql.startsWith("SELECT id, admin_lock FROM sites WHERE owner_id")) throw new Error("the lease check failed");
+    });
+    await expect(del(t, { ...env, DB: db })).rejects.toThrow("D1 is unavailable");
+    expect(failed).toBe(true);
+    expect(await count("SELECT COUNT(*) AS n FROM owners WHERE id = ?", t.ownerId)).toBe(1);
   }, T);
 });
 

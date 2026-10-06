@@ -617,20 +617,27 @@ describe("approveVersion's failure-path cleanup of its copied pages", () => {
     expect((await env.LIVE.head(livePointerKey(p.slug)))?.customMetadata?.["versionId"]).toBe(p.versionId);
   });
 
-  // Finding m-10, deterministic: Home's put is held until the cleanup's delete is called (the Promise.all mutant: it IS
-  // called, while Home is still in flight) or 1 s has passed (the real code: approve waits for every put to settle, so the
-  // delete cannot be called yet). The order of the two events is the assertion; no timing margin decides it.
+  // Finding m-10, deterministic: Home's put is held until the cleanup shows itself, by its D1 read of the sites row or its
+  // delete (the Promise.all mutants: both come while Home is still in flight, even when the read is delayed first) or until
+  // 3 s have passed (the real code: approve waits for every put to settle, so neither can happen yet). The order of the
+  // events is the assertion; a mutant that delays its cleanup by less than the fallback cannot land Home first.
   it("waits for a slow page copy before it cleans up, so no page lands after the cleanup", async () => {
     const p = await pendingWithPages(env);
     const events: string[] = [];
-    let deleteCalled: () => void = () => {};
-    const deleteSeen = new Promise<void>((resolve) => (deleteCalled = resolve));
+    let cleanupSeen: () => void = () => {};
+    const cleanupStarted = new Promise<void>((resolve) => (cleanupSeen = resolve));
+    const db = watchDb(env.DB, async ({ sql, method }) => {
+      if (method === "first" && sql.startsWith("SELECT live_version_id, admin_lock FROM sites WHERE id = ?")) {
+        events.push("cleanup read");
+        cleanupSeen();
+      }
+    });
     const slowHome = {
       ...flakyBucket(env.LIVE, () => false),
       put: async (...args: Parameters<R2Bucket["put"]>) => {
         if (args[0] === livePageKey(p.slug, p.versionId, "services")) throw new Error("R2 is unavailable");
         if (args[0] === livePageKey(p.slug, p.versionId, "home")) {
-          await Promise.race([deleteSeen, new Promise((resolve) => setTimeout(resolve, 1000))]);
+          await Promise.race([cleanupStarted, new Promise((resolve) => setTimeout(resolve, 3000))]);
           const landed = await env.LIVE.put(...args);
           events.push("home landed");
           return landed;
@@ -639,12 +646,12 @@ describe("approveVersion's failure-path cleanup of its copied pages", () => {
       },
       delete: async (keys: string | string[]) => {
         events.push("cleanup delete");
-        deleteCalled();
+        cleanupSeen();
         return env.LIVE.delete(keys);
       },
     } as R2Bucket;
-    await expect(approveAs({ ...env, LIVE: slowHome }, p)).rejects.toThrow("R2 is unavailable");
-    expect(events).toEqual(["home landed", "cleanup delete"]);
+    await expect(approveAs({ ...env, DB: db, LIVE: slowHome }, p)).rejects.toThrow("R2 is unavailable");
+    expect(events).toEqual(["home landed", "cleanup read", "cleanup delete"]);
     expect(await liveKeysOf(env.LIVE, p.slug)).toEqual([]);
   });
 
