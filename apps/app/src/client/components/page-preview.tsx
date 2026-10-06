@@ -63,7 +63,10 @@ export function PagePreview({ pages, frameTitle, follow = null, onShown }: { pag
     const element = column.current;
     if (element === null) return;
     setPhone(element.clientWidth < PHONE_DEFAULT_BELOW_PX);
-    const measure = () => setColumnWidth(element.clientWidth);
+    // A 0 reading is a pane that is hidden: keep the last real width, so the scale does not jump to 1 (a 1282 px frame) when it comes back.
+    const measure = () => {
+      if (element.clientWidth > 0) setColumnWidth(element.clientWidth);
+    };
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(element);
@@ -128,6 +131,13 @@ export function PagePreview({ pages, frameTitle, follow = null, onShown }: { pag
   );
 }
 
+/**
+ * How the frame box clips: `clip` where it exists (Chrome 90, Firefox 81, Safari 16: MDN browser-compat-data css.properties.overflow.clip),
+ * because a `hidden` box is still a scroll container that script can scroll; `hidden` elsewhere. Inline styles cannot declare both
+ * (the usual `overflow: hidden; overflow: clip` pair), so the one that holds is chosen here.
+ */
+const CLIP: "clip" | "hidden" = typeof CSS !== "undefined" && CSS.supports("overflow", "clip") ? "clip" : "hidden";
+
 /** How the frame is drawn: a 390 px phone, or the 1280 px desktop layout at `scale` (1 or less). */
 type View = { kind: "phone" } | { kind: "desktop"; scale: number };
 
@@ -138,13 +148,13 @@ function desktopScale(columnWidth: number): number {
 
 /** The frame box (its border and its visible size) and the iframe inside it, for a view. Inline styles: the numbers are computed, and the clipping must hold with no stylesheet. */
 function frameStyles(view: View): { box: CSSProperties; frame: CSSProperties; boxClass: string } {
-  if (view.kind === "phone") return { boxClass: "w-[390px] max-w-full", box: { height: FRAME_HEIGHT, overflow: "hidden" }, frame: { width: "100%", height: "100%" } };
+  if (view.kind === "phone") return { boxClass: "w-[390px] max-w-full", box: { height: FRAME_HEIGHT, overflow: CLIP }, frame: { width: "100%", height: "100%" } };
   // The page lays out at 1280 x (visible height / scale) and is drawn at `scale` from the top left; the box is exactly the drawn size, so
   // nothing is clipped and nothing scrolls twice. A CSS transform keeps hit-testing and focus working (the browser maps them back).
   const { scale } = view;
   return {
     boxClass: "mx-auto",
-    box: { width: DESKTOP_LAYOUT_PX * scale + 2 * FRAME_BORDER_PX, height: FRAME_HEIGHT, overflow: "hidden" },
+    box: { width: DESKTOP_LAYOUT_PX * scale + 2 * FRAME_BORDER_PX, height: FRAME_HEIGHT, overflow: CLIP },
     frame: { width: DESKTOP_LAYOUT_PX, height: `calc((${FRAME_HEIGHT} - ${2 * FRAME_BORDER_PX}px) / ${scale})`, transform: `scale(${scale})`, transformOrigin: "top left" },
   };
 }

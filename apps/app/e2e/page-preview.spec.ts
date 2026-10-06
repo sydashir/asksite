@@ -222,3 +222,42 @@ test("the frame takes keyboard focus on a link in the scaled Desktop view", asyn
   await page.keyboard.press("Enter");
   await expect(linksOff).toBeVisible();
 });
+
+// Review m2: a pane that is hidden reads a column width of 0. That must not reset the scale (a 0 reading once gave scale 1, so the pane
+// came back with one frame drawn 1282 px wide). The last real width stays in place.
+test("a hidden pane keeps the Desktop scale it had, so showing it again does not draw a 1282 px frame", async ({ page }) => {
+  const { show } = await openHarness(page);
+  const narrow = windowWidth(page) < 768 ? 300 : 500; // narrower than the window, so the page itself never overflows
+  await show(WIDE_ONLY);
+  await desktopButton(page).click();
+  await expect(desktopButton(page)).toHaveAttribute("aria-pressed", "true");
+  await page.evaluate((w) => (document.getElementById("root")!.style.width = `${w}px`), narrow);
+  const boxWidth = () => page.locator("iframe").evaluate((el) => (el.parentElement as HTMLElement).style.width);
+  await expect.poll(boxWidth).toBe(`${narrow}px`);
+  await page.evaluate(() => (document.getElementById("root")!.style.display = "none"));
+  // The observer reports the 0 width before the next frame; three frames later it has certainly been handled.
+  await page.evaluate(async () => {
+    for (let i = 0; i < 3; i += 1) await new Promise((resolve) => requestAnimationFrame(resolve));
+  });
+  expect(await boxWidth()).toBe(`${narrow}px`);
+  await page.evaluate(() => (document.getElementById("root")!.style.display = ""));
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+});
+
+// Review m3: the clip box must not be a scroll container, so script cannot scroll the drawn page away from its frame.
+test("the Desktop frame's clip box cannot be scrolled by script", async ({ page }) => {
+  const { show } = await openHarness(page);
+  const narrow = windowWidth(page) < 768 ? 300 : 500; // narrower than the window, so the page itself never overflows
+  await show(WIDE_ONLY);
+  await desktopButton(page).click();
+  await expect(desktopButton(page)).toHaveAttribute("aria-pressed", "true");
+  await page.evaluate((w) => (document.getElementById("root")!.style.width = `${w}px`), narrow);
+  await expect.poll(() => page.locator("iframe").evaluate((el) => (el.parentElement as HTMLElement).style.width)).toBe(`${narrow}px`);
+  const moved = await page.locator("iframe").evaluate((el) => {
+    const box = el.parentElement as HTMLElement;
+    box.scrollLeft = 300;
+    box.scrollTop = 300;
+    return { left: box.scrollLeft, top: box.scrollTop };
+  });
+  expect(moved).toEqual({ left: 0, top: 0 });
+});
