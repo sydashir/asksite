@@ -562,6 +562,19 @@ describe("POST /api/sites/:siteId/uploads", () => {
     expect((await json<ErrorJson>(res)).error.code).toBe("site_taken_down");
     expect((await db.prepare("SELECT COUNT(*) AS n FROM uploads WHERE site_id = ?").bind(owner.siteId).first<{ n: number }>())?.n).toBe(0);
   });
+
+  it("a taken-down site refuses a non-image or too-small upload with 423 before any image work (decision 39)", async () => {
+    const owner = await h.signIn();
+    const db = await h.db();
+    await db.prepare("UPDATE sites SET taken_down_at = 1 WHERE id = ?").bind(owner.siteId).run();
+    const bodies = [upload(new TextEncoder().encode("%PDF-1.7"), "photo.jpg", "image/jpeg"), upload(await png(100, 100), "tiny.png")];
+    for (const body of bodies) {
+      const res = await h.call("POST", `/api/sites/${owner.siteId}/uploads`, { cookie: owner.cookie, body });
+      expect(res.status).toBe(423);
+      expect((await json<ErrorJson>(res)).error.code).toBe("site_taken_down");
+    }
+    expect((await db.prepare("SELECT COUNT(*) AS n FROM uploads WHERE site_id = ?").bind(owner.siteId).first<{ n: number }>())?.n).toBe(0);
+  });
 });
 
 // P4-21: the INSERT that reserves an upload's row, counted by both caps, runs before the billed transform, so only a
