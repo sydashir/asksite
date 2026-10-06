@@ -6,7 +6,7 @@ import { beforeAll, describe, expect, it, vi } from "vitest";
 import { checkFloor, projectFor, type FloorReport } from "../scripts/browser-floor/check.ts";
 import { main } from "../scripts/browser-floor/cli.ts";
 
-// The floor check (P4-7) run over floor-fixtures/, at the floor of src/browser-floor.ts (16.4; its
+// The floor check (P4-7) run over floor-fixtures/, at the floor of src/browser-floor.ts (Chrome and Edge 111, Firefox 128, Safari and iOS 16.4; its
 // own test pins that value). A fixture line that must fail carries `expect: <kind> <key>`, several
 // joined by "; ", and every other line must pass, so a miss and a false alarm both fail here.
 const FIXTURES = resolve(import.meta.dirname, "../floor-fixtures");
@@ -98,19 +98,19 @@ describe("check-browser-floor command", () => {
 
   it("exits 0 when nothing is above the floor", () => {
     const result = run("clean/tsconfig.json");
-    expect(result.stdout).toContain("Browser floor: safari 16.4, safari_ios 16.4 (MDN browser-compat-data 8.1.3, TypeScript 7.0.2)");
+    expect(result.stdout).toContain("Browser floor: chrome 111, edge 111, firefox 128, safari 16.4, safari_ios 16.4 (MDN browser-compat-data 8.1.3, TypeScript 7.0.2)");
     expect(result.stdout).toContain("files: 1, platform API uses: 2, failing: 0, accepted by floor-ok: 0");
     expect(result.status).toBe(0);
   }, 120_000);
 
   it("exits 1 and lists every failing use with its MDN key and version_added", () => {
     const result = run("tsconfig.json");
-    expect(result.stdout).toContain("baseline.ts:11:29  not supported  URL.canParse  api.URL.canParse_static  (safari: 17, safari_ios: 17)");
+    expect(result.stdout).toContain("baseline.ts:11:29  not supported  URL.canParse  api.URL.canParse_static  (chrome: 120, edge: 120, safari: 17, safari_ios: 17)");
     expect(result.stdout).toContain("baseline.ts:24:21  not supported  requestIdleCallback  api.Window.requestIdleCallback  (safari: preview, safari_ios: false)");
     expect(result.stdout).toContain("d-partial.ts:6:30  partial support  Window.open  api.Window.open  (safari_ios: partial since 1)");
     expect(result.stdout).toContain("c-mixins.ts:22:27  no MDN key  Window.pageXOffset");
     expect(result.stdout).toContain("e-suppressions.ts:14:40  floor-ok needs a reason");
-    expect(result.stdout).toContain("e-suppressions.ts:8:31  accepted  URL.canParse  api.URL.canParse_static  (safari: 17, safari_ios: 17)  floor-ok: the caller tests typeof URL.canParse first");
+    expect(result.stdout).toContain("e-suppressions.ts:8:31  accepted  URL.canParse  api.URL.canParse_static  (chrome: 120, edge: 120, safari: 17, safari_ios: 17)  floor-ok: the caller tests typeof URL.canParse first");
     expect(result.status).toBe(1);
   }, 120_000);
 
@@ -119,7 +119,7 @@ describe("check-browser-floor command", () => {
     // run past `*/` backtracks exponentially over such a line, and only run's limit would stop it.
     const result = run("comments/tsconfig.json");
     expect(result.error?.message).toBeUndefined();
-    expect(result.stdout).toContain("accepted  URL.canParse  api.URL.canParse_static  (safari: 17, safari_ios: 17)  floor-ok: two hundred comments stand before this code");
+    expect(result.stdout).toContain("accepted  URL.canParse  api.URL.canParse_static  (chrome: 120, edge: 120, safari: 17, safari_ios: 17)  floor-ok: two hundred comments stand before this code");
     expect(result.status).toBe(0);
   }, 120_000);
 

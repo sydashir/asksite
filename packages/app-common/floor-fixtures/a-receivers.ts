@@ -20,10 +20,11 @@ export const defaultClosed = defaultReader?.closed;
 export const byobClosed = byobReader?.closed; // expect: unsupported api.ReadableStreamBYOBReader.closed
 
 // The lib declares cssFloat on CSSStyleProperties (MDN: 26), MDN also lists it on CSSStyleDeclaration
-// (1): the receiver's entry wins, and the dropped `null` adds no lookup by the declaring interface.
+// (1; Firefox removed it in 17): the receiver's entry wins, so Firefox 128 fails here, and the dropped `null` adds no lookup
+// by the declaring interface.
 declare const style: CSSStyleDeclaration | null;
 declare const styleRule: CSSStyleRule | null;
-export const cssFloat = style?.cssFloat;
+export const cssFloat = style?.cssFloat; // expect: unsupported api.CSSStyleDeclaration.cssFloat
 export const nestedRules = styleRule?.cssRules; // expect: unsupported api.CSSStyleRule.cssRules
 
 // Our own type beside a lib type that declares the same member: the member is judged on the lib's

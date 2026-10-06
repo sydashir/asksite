@@ -43,10 +43,11 @@ function localBuildNotDeployable(root: string): Plugin {
   };
 }
 
-// Vite 8's own default target list (vite.dev/config/build-options, v8.3.1: "baseline-widely-available" is
-// ['chrome111', 'edge111', 'firefox114', 'safari16.4', 'ios16.4']) with the Safari/iOS entries taken from the
-// one floor module, so the floor is never written twice.
-const BUILD_TARGET = ["chrome111", "edge111", "firefox114", ...BROWSER_FLOOR_BUILD_TARGET];
+// The build target is the floor module's alone (packages/app-common/src/browser-floor.ts: chrome111, edge111, firefox128,
+// safari16.4, ios16.4). It must REPLACE any other list, not be added to one: Vite 8.3.1 keeps the LOWEST version per browser
+// when it converts the target for CSS (convertTargets, vite/dist/node/chunks/node.js:31257-31288), and cssTarget defaults to
+// target (:34260), so an extra firefox114 would hold the CSS at Firefox 114.
+const BUILD_TARGET = [...BROWSER_FLOOR_BUILD_TARGET];
 
 // Modes: production (`vite build`), development (`vite dev`, `vite build --mode development`)
 // and e2e (`vite build --mode e2e`: the Worker with test fakes, output in dist-e2e).

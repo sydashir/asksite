@@ -1,6 +1,9 @@
 # Browser floor check
 
-The owner client must run on iOS/Safari 16.4 (`src/browser-floor.ts`, the one place the floor lives).
+The owner client must run on Chrome 111, Edge 111, Firefox 128 and iOS/Safari 16.4 (`src/browser-floor.ts`, the
+one place the floor lives). Per browser it is the highest of four constraints: Vite 8's default build target,
+`Intl.Segmenter` (Chrome 87, Firefox 125, Safari 14.1), P4-7 (Safari 16.4, regular expression lookbehind) and
+Tailwind CSS v4 (Chrome 111, Safari 16.4, Firefox 128).
 This checker reads the client's TypeScript program. It fails on a runtime use of a platform API (one
 that TypeScript's default lib files declare), in the forms listed below, that MDN's browser-compat-data
 (8.1.3, pinned) does not list as fully supported at that floor. What it does not judge is listed
@@ -75,7 +78,8 @@ This is our own client code, not an attacker boundary. The check does not judge:
   declaration (a-receivers.ts `ownFirstIntersection`, `ownFirstUnion`; `ownOnlyMember` passes).
 - Sub-features under a member: options and parameters (`div.focus({ focusVisible: true })`, MDN
   `api.HTMLElement.focus.options_focusVisible_parameter`, iOS 18.4) and behaviors such as symbols as
-  WeakMap keys (`javascript.builtins.WeakMap.symbol_as_keys`, 16.4, so it passes at today's floor).
+  WeakMap keys (`javascript.builtins.WeakMap.symbol_as_keys`: Chrome 109, Safari 16.4, Firefox 146, so it
+  is above the Firefox floor and the check does not read it).
   The check reads the member's own MDN entry only. For DOM APIs nothing covers them: `lib.dom`
   declares the newest options (`FocusOptions.focusVisible`). For ES built-ins the TypeScript lib gate
   stops an option or parameter its es2023 files do not declare (`Intl.PluralRules` `roundingMode`,
@@ -83,7 +87,7 @@ This is our own client code, not an attacker boundary. The check does not judge:
   behavior: symbols as WeakMap keys pass it.
 - Iteration protocols: `for...of`, spread and `for await` use an object's iterator without naming it.
   In MDN 8.1.3 the only one above the floor on an interface that passes is `for await` over a
-  `ReadableStream` (`api.ReadableStream.@@asyncIterator`, 27). `lib.dom` declares that iterator, so
+  `ReadableStream` (`api.ReadableStream.@@asyncIterator`: Chrome and Edge 124, Safari 27). `lib.dom` declares that iterator, so
   the lib gate passes it too. Nothing covers it.
 - Regular expressions: only literals are read, and only for the `d` and `v` flags, lookbehind and
   modifiers. A pattern or flags in a string (`new RegExp("(?<=a)b")`) is not read, nor is any other
@@ -97,21 +101,21 @@ This is our own client code, not an attacker boundary. The check does not judge:
   global value. These are WebIDL dictionaries (`*Init`, `*Options`, `ReadableStreamReadResult`,
   `StorageEstimate`), TypeScript helper shapes (`IArguments`, `TemplateStringsArray`), deprecated
   aliases (`ClientRect`) and `Console`, plus `X.prototype` itself. Reading a dictionary's field is
-  not a browser feature (review r1 scanned the 724 such names and found no gap at 16.4). Nothing else
+  not a browser feature (review r1 scanned the 724 such names and found no gap at the Safari 16.4 floor; not re-run for Chrome, Edge and Firefox). Nothing else
   covers them.
 - CSS and HTML features: CSS properties and values, HTML elements and attributes (including JSX
   attributes such as `popover`), and DOM event names given as strings or React props
-  (`addEventListener("scrollend")`, `onScrollEnd`). Partly covered: Tailwind CSS v4 targets Safari 16.4
+  (`addEventListener("scrollend")`, `onScrollEnd`). Partly covered: Tailwind CSS v4 targets Chrome 111, Safari 16.4 and Firefox 128
   (tailwindcss.com/docs/compatibility), and Vite 8 minifies CSS with Lightning CSS, which lowers some
-  newer CSS syntax for `build.cssTarget` (defaults to `build.target`, which `apps/app/vite.config.ts` sets from
-  `BROWSER_FLOOR_BUILD_TARGET` plus Vite's default chrome111, edge111 and firefox114). That lowers syntax; it does not check for a property the floor lacks.
+  newer CSS syntax for `build.cssTarget` (defaults to `build.target`, which `apps/app/vite.config.ts` and `apps/admin/vite.config.ts` set from
+  `BROWSER_FLOOR_BUILD_TARGET` alone: all five browsers, chrome111, edge111, firefox128, safari16.4 and ios16.4). That lowers syntax; it does not check for a property the floor lacks.
   Nothing checks the rest.
-- A constructor reached through an alias (`const V = VideoColorSpace; new V()`): judged on the
+- A constructor reached through an alias (`const V = CustomElementRegistry; new V()`): judged on the
   interface's entry only, not on the constructor's (`new X()`, `new (X)()` and `class extends X` are
-  judged on both; aliases.ts `viaConstructorAlias` pins the miss). In MDN 8.1.3 nine APIs have a
-  constructor newer than their interface at the floor: eight DOM APIs (CSSMathMax, CSSMathMin,
-  CSSMathProduct, CSSMathSum, CustomElementRegistry, RTCEncodedAudioFrame, RTCEncodedVideoFrame,
-  VideoColorSpace), where nothing covers it, and the ES built-in Iterator, which the TypeScript lib
+  judged on both; aliases.ts `viaConstructorAlias` pins the miss). In MDN 8.1.3 eight APIs have a
+  constructor newer than their interface at the floor (a scan of the data at the floor, not run through the
+  checker): seven DOM APIs (AudioProcessingEvent, ClipboardItem, CustomElementRegistry, FontFaceSet,
+  IntersectionObserverEntry, RTCEncodedAudioFrame, RTCEncodedVideoFrame), where nothing covers it, and the ES built-in Iterator, which the TypeScript lib
   gate stops (es2023 declares no `Iterator` value: TS2693).
 
 Reported although the code may be fine (each fails loudly; check it by hand, then accept it with a
@@ -128,13 +132,13 @@ Reported although the code may be fine (each fails loudly; check it by hand, the
   last lines).
 - A `(` inside a regular expression's character class, where it is a plain character, is read as a
   group: `/[(?i:]/` is reported as not supported (modifiers, MDN 26), and `/[(?<=]/` would be too at
-  a floor below 16.4 (lookbehind, MDN 16.4). It only adds a false alarm, never a silent miss: a real
+  a Safari floor below 16.4 (lookbehind, MDN 16.4). It only adds a false alarm, never a silent miss: a real
   group beside such a class is still found.
 
 ## Backstops (what else would catch a too-new API)
 
-- Playwright's WebKit (1.63.0 ships WebKit 26.6, `playwright-core/browsers.json`) and the user's
-  iPhone run CURRENT WebKit, not iOS 16.4. So neither the browser tests (e.g. Task 16's photo tests)
+- Playwright's browsers (1.63.0 ships WebKit 26.6, `playwright-core/browsers.json`) and the user's
+  iPhone run CURRENT versions, not the floor (iOS 16.4, Chrome 111, Firefox 128). So neither the browser tests (e.g. Task 16's photo tests)
   nor the real-iPhone check (Task 27) catches a DOM API that is too new for the floor.
 - Only two gates do:
   - the TypeScript lib gate, for ES built-ins: the client's typecheck config (`apps/app/tsconfig.client.json`) uses `lib: ["es2023", "dom", "dom.iterable"]`, so an ES built-in

@@ -1,4 +1,4 @@
-// The research prototype's proven catches (ios16-floor-proposal.md section 3), at the 16.4 floor.
+// The research prototype's proven catches (ios16-floor-proposal.md section 3), at the floor of src/browser-floor.ts (Chrome and Edge 111, Firefox 128, Safari and iOS 16.4).
 // A line that must fail ends with an "expect" marker naming the result kind and the MDN key (several
 // joined by "; "); every other line must pass. Versions: MDN browser-compat-data 8.1.3.
 declare const x: string;
@@ -12,7 +12,7 @@ export const canParse = URL.canParse(x); // expect: unsupported api.URL.canParse
 export const groupBy = Object.groupBy(xs, (s) => s.charAt(0)); // expect: unsupported javascript.builtins.Object.groupBy
 export const withResolvers = Promise.withResolvers<void>(); // expect: unsupported javascript.builtins.Promise.withResolvers
 export const wellFormed = x.isWellFormed(); // 16.4
-export const fromAsync = Array.fromAsync(xs); // 16.4
+export const fromAsync = Array.fromAsync(xs); // expect: unsupported javascript.builtins.Array.fromAsync
 export const transition = document.startViewTransition(); // expect: unsupported api.Document.startViewTransition
 export const anySignal = AbortSignal.any([]); // expect: unsupported api.AbortSignal.any_static
 export const union = new Set([1]).union(new Set([2])); // expect: unsupported javascript.builtins.Set.union
@@ -39,13 +39,13 @@ export const last = arr.findLast((n) => n > 1);
 export const segmenter = new Intl.Segmenter("en", { granularity: "word" });
 export const copied = navigator.clipboard.writeText(x);
 dialog.showModal();
-export const timeout = AbortSignal.timeout(1000);
+export const timeout = AbortSignal.timeout(1000); // expect: partial api.AbortSignal.timeout_static
 export const uuid = crypto.randomUUID();
 export const at = arr.at(-1);
 export const json = res.json();
 div.append("x");
 export const supports = CSS.supports("display: grid");
 export const activation = navigator.userActivation.isActive; // 16.4
-export const duration = new Intl.DurationFormat("en"); // 16.4
+export const duration = new Intl.DurationFormat("en"); // expect: unsupported javascript.builtins.Intl.DurationFormat
 export const compression = new CompressionStream("gzip"); // 16.4
 export const offscreen = new OffscreenCanvas(1, 1); // 16.4

@@ -18,17 +18,17 @@ export const toBase64 = new Uint8Array(1).toBase64(); // expect: unsupported jav
 export const sharedAt = new Uint8Array(1).at(0);
 
 // MDN files a constructor under its interface (data-guidelines/api.md), and it can be newer than the
-// interface (VideoColorSpace 15.4, its constructor 17; Iterator 10, its constructor 18.4): `new X()`
+// interface (CustomElementRegistry 10.3 on iOS, its constructor 26; Iterator 10, its constructor 18.4): `new X()`
 // and `extends X` read the constructor too, also in parentheses or through a string-literal bracket
 // on the global object. The legacy element factories are filed under their element
 // (api.HTMLImageElement.Image).
-export const newerConstructor = new VideoColorSpace(); // expect: unsupported api.VideoColorSpace.VideoColorSpace
-export const parenthesizedConstructor = new (VideoColorSpace)(); // expect: unsupported api.VideoColorSpace.VideoColorSpace
-export const parenthesizedWindowConstructor = new (window.VideoColorSpace)(); // expect: unsupported api.VideoColorSpace.VideoColorSpace
-export const bracketWindowConstructor = new window["VideoColorSpace"](); // expect: unsupported api.VideoColorSpace.VideoColorSpace
-export const bracketGlobalThisConstructor = new (globalThis["VideoColorSpace"])(); // expect: unsupported api.VideoColorSpace.VideoColorSpace
-export class ViaBracketBase extends window["VideoColorSpace"] {} // expect: unsupported api.VideoColorSpace.VideoColorSpace
-export class ViaParenthesizedBase extends (VideoColorSpace) {} // expect: unsupported api.VideoColorSpace.VideoColorSpace
+export const newerConstructor = new CustomElementRegistry(); // expect: unsupported api.CustomElementRegistry.CustomElementRegistry
+export const parenthesizedConstructor = new (CustomElementRegistry)(); // expect: unsupported api.CustomElementRegistry.CustomElementRegistry
+export const parenthesizedWindowConstructor = new (window.CustomElementRegistry)(); // expect: unsupported api.CustomElementRegistry.CustomElementRegistry
+export const bracketWindowConstructor = new window["CustomElementRegistry"](); // expect: unsupported api.CustomElementRegistry.CustomElementRegistry
+export const bracketGlobalThisConstructor = new (globalThis["CustomElementRegistry"])(); // expect: unsupported api.CustomElementRegistry.CustomElementRegistry
+export class ViaBracketBase extends window["CustomElementRegistry"] {} // expect: unsupported api.CustomElementRegistry.CustomElementRegistry
+export class ViaParenthesizedBase extends (CustomElementRegistry) {} // expect: unsupported api.CustomElementRegistry.CustomElementRegistry
 export class ViaIteratorSubclass extends Iterator<number> { // expect: unsupported javascript.builtins.Iterator.Iterator
   next() {
     return { done: true as const, value: undefined };

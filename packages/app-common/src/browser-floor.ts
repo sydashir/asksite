@@ -1,9 +1,22 @@
-// The owner client's browser floor (P4-7, moderator decision 2026-09-25): iOS/Safari 16.4.
-// This is the one place the floor is written. The floor check (scripts/check-browser-floor.ts)
-// reads BROWSER_FLOOR, keyed by MDN browser-compat-data browser names; the Vite builds (Tasks 14
-// and 23) read BROWSER_FLOOR_BUILD_TARGET for `build.target`.
-export const BROWSER_FLOOR = { safari: "16.4", safari_ios: "16.4" } as const;
+// The owner client's browser floor (moderator decisions 2026-09-25 and 2026-10-06): Chrome 111, Edge 111,
+// Firefox 128, Safari 16.4 and iOS Safari 16.4. For each browser it is the HIGHEST of four constraints:
+// - Vite 8's default build target: chrome111, edge111, firefox114, safari16.4, ios16.4 (vite.dev/config/build-options);
+// - Intl.Segmenter, used by the renderer (render.ts): Chrome 87, Firefox 125, Safari 14.1 (MDN browser-compat-data
+//   javascript.builtins.Intl.Segmenter);
+// - P4-7: Safari and iOS Safari 16.4 (regular expression lookbehind);
+// - Tailwind CSS v4: Chrome 111, Safari 16.4, Firefox 128 (https://tailwindcss.com/docs/compatibility: "the core
+//   functionality of the framework specifically depends on these browser versions").
+// This is the one place the floor is written. The floor check (scripts/check-browser-floor.ts) reads
+// BROWSER_FLOOR, keyed by MDN browser-compat-data browser names; both Vite builds (owner app and admin) read
+// BROWSER_FLOOR_BUILD_TARGET for `build.target`.
+export const BROWSER_FLOOR = { chrome: "111", edge: "111", firefox: "128", safari: "16.4", safari_ios: "16.4" } as const;
 
-// Vite 8 `build.target` strings for the same floor (vite.dev/config/build-options: Vite's own
+// Vite 8 `build.target` strings for the same floor, one per browser (vite.dev/config/build-options: Vite's own
 // default resolves to ['chrome111', 'edge111', 'firefox114', 'safari16.4', 'ios16.4']).
-export const BROWSER_FLOOR_BUILD_TARGET = [`safari${BROWSER_FLOOR.safari}`, `ios${BROWSER_FLOOR.safari_ios}`] as const;
+export const BROWSER_FLOOR_BUILD_TARGET = [
+  `chrome${BROWSER_FLOOR.chrome}`,
+  `edge${BROWSER_FLOOR.edge}`,
+  `firefox${BROWSER_FLOOR.firefox}`,
+  `safari${BROWSER_FLOOR.safari}`,
+  `ios${BROWSER_FLOOR.safari_ios}`,
+] as const;

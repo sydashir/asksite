@@ -34,7 +34,7 @@ import { apiName, describe, isPlainObjectMember, isSupportedConstant, keysFor } 
 // - APIs typed by our own declarations (a structural annotation, `declare global`): only lib
 //   declarations are judged; nothing covers them;
 // - sub-features under a member: options and parameters (`focus({ focusVisible: true })`, iOS 18.4)
-//   and behaviors such as symbols as WeakMap keys (16.4): only the member's own entry is read; nothing
+//   and behaviors such as symbols as WeakMap keys (Safari 16.4, Firefox 146): only the member's own entry is read; nothing
 //   covers them for DOM APIs, and the lib gate stops only an ES option its es2023 files do not declare;
 // - iteration protocols: `for await` over a ReadableStream (MDN 27) is not judged; nothing covers it;
 // - regular expressions: only literals, for the d and v flags, lookbehind and modifiers; the lib gate
@@ -44,8 +44,8 @@ import { apiName, describe, isPlainObjectMember, isSupportedConstant, keysFor } 
 // - a constructor reached through an alias is judged on its interface only; the lib gate stops the
 //   Iterator one, nothing covers the eight DOM ones;
 // - CSS and HTML features (and event names in strings or React props): not checked; Tailwind v4
-//   targets Safari 16.4 and Vite lowers some CSS syntax for build.cssTarget, nothing checks the rest.
-// Backstops: Playwright's WebKit and the user's iPhone run CURRENT WebKit, not iOS 16.4, so the
+//   targets Chrome 111, Safari 16.4 and Firefox 128 and Vite lowers some CSS syntax for build.cssTarget, nothing checks the rest.
+// Backstops: Playwright's browsers and the user's iPhone run CURRENT versions, not the floor, so the
 // browser tests (Task 16) and the iPhone check (Task 27) miss a too-new DOM API. Only the TypeScript
 // lib gate (es2023, for ES built-ins) and this checker catch one, and neither reads dependency code.
 //

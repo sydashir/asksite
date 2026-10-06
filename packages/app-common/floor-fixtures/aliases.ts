@@ -49,9 +49,9 @@ export function ownShorthand(requestIdleCallback: () => void) {
 export const viaAny = (URL as any).canParse(x);
 export const viaReflect = Reflect.get(URL, "canParse");
 // A constructor reached through an alias is judged on its interface only (README.md "Known limits"):
-// VideoColorSpace passes (15.4), its constructor (17) is not judged.
-const ColorSpace = VideoColorSpace;
-export const viaConstructorAlias = new ColorSpace();
+// CustomElementRegistry passes (Safari 10.1, Chrome 54, Firefox 63), its constructor (Chrome 146, Safari 26) is not judged.
+const Registry = CustomElementRegistry;
+export const viaConstructorAlias = new Registry();
 
 // Same names that are not the platform API must pass.
 class OwnSet {
