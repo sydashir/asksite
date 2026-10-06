@@ -245,6 +245,26 @@ describe("POST /_f/<siteId>", () => {
     expect(await outboxFor(target.ownerEmail)).toEqual([]);
   });
 
+  // S1 Part L: a name that is an address, a link or blank-looking gets the name's usual words, and nothing is stored.
+  it.each(["Ann @ x", "a://b", "WWW.X", "\u3164", "\u2800 \u034F", "w\u034Fww.evil.com", "ann\uFF20evil.com", "\uFF57\uFF57\uFF57.evil.com", "http\uFF1A//evil.com"])("refuses the name %j with the usual name words and stores nothing", async (name) => {
+    const target = await seedSite(tools);
+    const response = await post(target, { ...GOOD, name });
+    expect(response.status).toBe(400);
+    expect(await response.text()).toContain("<li>Please enter your name (up to 80 characters).</li>");
+    expect(await leads(target.siteId)).toEqual([]);
+    expect(await outboxFor(target.ownerEmail)).toEqual([]);
+  });
+
+  it("counts a link once however it is written: www. and :// links make four links spam, https://www. counts once", async () => {
+    const spam = await seedSite(tools);
+    expect((await post(spam, { ...GOOD, message: "www.a www.b ftp://c https://www.d" })).status).toBe(303);
+    expect(await leads(spam.siteId)).toMatchObject([{ spam: 1, email_status: "skipped" }]);
+    expect(await outboxFor(spam.ownerEmail)).toEqual([]);
+    const three = await seedSite(tools);
+    expect((await post(three, { ...GOOD, message: "www.a ftp://b https://www.c" })).status).toBe(303);
+    expect(await leads(three.siteId)).toMatchObject([{ spam: 0 }]);
+  });
+
   it("removes control and invisible characters but keeps the message's line breaks", async () => {
     const target = await seedSite(tools);
     await post(target, { ...GOOD, name: "Da\u202Ena\u0007 P", message: "Line one\r\nLine\u200B two" });

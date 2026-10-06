@@ -1,11 +1,13 @@
 import type { AiDraft, FallbackReason, GenerationErrorCode, GenerationInputSnapshot } from "@asksite/core";
 import type { D1Database } from "@cloudflare/workers-types";
+import { retryWriteOnce } from "./d1-retry.ts";
 import { generateDraft, REAL_DEPS, type AttemptOutcome, type GenerateDeps, type GenerateResult } from "./generate.ts";
-import { costMicrousd } from "./models.ts";
+import { costMicrousd, modelSettings, worstCaseAttemptMicrousd, worstCaseJobMicrousd } from "./models.ts";
 import { ProviderError, type ModelProvider, type ProviderErrorKind } from "./provider.ts";
 import { createProvider, type ProviderEnv } from "./providers/create.ts";
 import { dailyModelLimit, isGenerationEnabled, utcDayStart } from "./settings.ts";
 import { parseSnapshot } from "./snapshot.ts";
+import { JOB_STUCK_AFTER_MS } from "./sweep.ts";
 import { templateDraft } from "./template.ts";
 
 export interface JobEnv extends ProviderEnv {
@@ -83,6 +85,9 @@ interface Spend {
 }
 const NO_SPEND: Spend = { provider: null, model: null, attempts: 0, inputTokens: 0, outputTokens: 0, cost: 0 };
 
+/** Room kept before the sweeper's threshold for the terminal write and clock differences: no attempt starts that could end later than this. */
+export const JOB_DEADLINE_MARGIN_MS = 30_000;
+
 /** The longest provider model string the job stores and logs as given (web-maker-99 D5c). */
 const MAX_MODEL_LENGTH = 200;
 
@@ -128,11 +133,17 @@ type ModelOutcome =
   | { ok: false; reason: FallbackReason; timedOut: boolean; spend: Spend; trace: Trace };
 
 /** §6.3 steps 2 and 3: no model call without a slot; otherwise up to MAX_ATTEMPTS validated attempts. */
-async function callModel(env: JobEnv, snapshot: GenerationInputSnapshot, hasSlot: boolean, enabled: boolean, deps: JobDeps): Promise<ModelOutcome> {
+async function callModel(env: JobEnv, snapshot: GenerationInputSnapshot, hasSlot: boolean, enabled: boolean, deps: JobDeps, startedAt: number): Promise<ModelOutcome> {
   if (!hasSlot) return { ok: false, reason: enabled ? "budget" : "disabled", timedOut: false, spend: NO_SPEND, trace: noTrace() };
   // Read once, before any call: a read that throws is then a throw before any call, which may give the slot back.
   const providerName = env.MODEL_PROVIDER;
   const requestedModel = env.MODEL_ID;
+  // An unpriced model is refused before any call: its cost could not be recorded or bounded (worstCaseJobMicrousd is null), so
+  // the daily limit would no longer bound the spend. A configuration error (bad_request, like createProvider's): the slot is
+  // given back and a first build gets the template.
+  if (modelSettings(providerName, requestedModel) === undefined) {
+    return { ok: false, reason: "provider_error", timedOut: false, spend: { ...NO_SPEND, provider: providerName }, trace: { ...noTrace(), providerErrorKind: "bad_request" } };
+  }
   let provider: ModelProvider;
   try {
     provider = deps.createProvider(env, snapshot);
@@ -142,10 +153,30 @@ async function callModel(env: JobEnv, snapshot: GenerationInputSnapshot, hasSlot
   }
   // From the first call on, every throw becomes DraftRejected, which keeps the model slot (Task 9 follow-up item 8).
   try {
-    return modelOutcome(await generateDraft(provider, snapshot, deps.generate), providerName, requestedModel);
+    // The time by which the job must be over, or the sweeper would end it: JOB_STUCK_AFTER_MS from started_at, less a margin. Anchored
+    // at started_at, so slow D1 work before this call counts. generateDraft compares it with its own clock (the same Date.now in production).
+    return modelOutcome(await generateDraft(provider, snapshot, deps.generate, startedAt + JOB_STUCK_AFTER_MS - JOB_DEADLINE_MARGIN_MS), providerName, requestedModel);
   } catch (error) {
     throw new DraftRejected({ ...NO_SPEND, provider: providerName, model: requestedModel }, { cause: error });
   }
+}
+
+/**
+ * The cost to record: the reported usage priced, plus the worst case of one attempt (the largest prompt and the full output cap)
+ * for each attempt whose usage is missing (the provider sent none, or a sent call that may be billed failed). So for a job whose
+ * terminal write lands, cost_microusd is an upper bound for those attempts, never a silent 0. It is not one for a job whose own
+ * code threw after a call (DraftRejected: attempts, tokens and cost are recorded as 0) nor for a row the sweeper ends after this
+ * job's write failed or was lost (the sweeper sets no cost): those record 0. Capped at the job's worst case, but never below the
+ * reported cost. No schema change: the column stays a plain integer.
+ */
+function jobCost(providerName: string, requestedModel: string, result: GenerateResult): number {
+  const reported = costMicrousd(providerName, requestedModel, result.usage);
+  const missing = result.log.filter((attempt) => attempt.usageMissing).length;
+  const attemptWorst = worstCaseAttemptMicrousd(providerName, requestedModel);
+  const jobWorst = worstCaseJobMicrousd(providerName, requestedModel);
+  if (missing === 0 || attemptWorst === null || jobWorst === null) return reported;
+  // Never below what was reported: a provider that reports more than the job's worst case (a count above the input bound) is recorded as reported.
+  return Math.max(reported, Math.min(reported + missing * attemptWorst, jobWorst));
 }
 
 /** The spend and trace of generateDraft's result, from its own values and the configuration read before any call. */
@@ -156,7 +187,7 @@ function modelOutcome(result: GenerateResult, providerName: string, requestedMod
     attempts: result.attempts,
     inputTokens: result.usage.inputTokens,
     outputTokens: result.usage.outputTokens,
-    cost: costMicrousd(providerName, requestedModel, result.usage),
+    cost: jobCost(providerName, requestedModel, result),
   };
   const trace: Trace = {
     providerErrorKind: result.ok ? null : result.providerErrorKind,
@@ -222,7 +253,7 @@ export async function runGenerationJob(env: JobEnv, generationId: string, deps: 
   } else {
     const kind = row.kind;
     try {
-      const model = await callModel(env, snapshot, row.model_slot === 1, enabled, deps);
+      const model = await callModel(env, snapshot, row.model_slot === 1, enabled, deps, startedAt);
       spend = model.spend;
       trace = model.trace;
       if (model.ok) ending = { status: "succeeded", draft: model.draft, fallbackReason: null };
@@ -246,7 +277,10 @@ export async function runGenerationJob(env: JobEnv, generationId: string, deps: 
   // FINISH ?14: known to have sent no provider call (the count is not unknown, and it is 0).
   const releaseSlot = spend.attempts === 0 && !trace.costUnknown;
   try {
-    const finish = await env.DB.prepare(FINISH)
+    // Retried once on D1's transient errors (the write is status-guarded, so a repeat after one that committed changes no row and
+    // reads as "lost": the row is right, only the report is not).
+    const finish = await retryWriteOnce(() =>
+      env.DB.prepare(FINISH)
       .bind(
         generationId,
         ending.status,
@@ -263,7 +297,7 @@ export async function runGenerationJob(env: JobEnv, generationId: string, deps: 
         deps.now(),
         releaseSlot ? 1 : 0,
       )
-      .run();
+      .run());
     if (finish.meta.changes !== 1) return report("lost", calls);
   } catch {
     return report("write_failed", calls);

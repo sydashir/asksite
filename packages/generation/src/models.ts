@@ -9,6 +9,14 @@ export interface ModelSettings {
   price: ModelPrice;
   /** Anthropic output_config.effort; left out for models that do not support it (Haiku 4.5; the effort docs list it as not supported). */
   anthropicEffort?: "low" | "medium" | "high";
+  /**
+   * Anthropic inference_geo, sent on every request for the model. "global" is the documented default ("Inference may run in any
+   * available geography"; platform.claude.com/docs/en/manage-claude/data-residency) and is priced at the standard rate; "us"
+   * would cost 1.1x, which the price table does not include. Sent explicitly so a workspace default_inference_geo of "us" cannot
+   * raise the cost above this table. Left out for a model that rejects the parameter: "Requests with `inference_geo` on Claude
+   * Opus 4.5, Claude Sonnet 4.5, Claude Haiku 4.5, or earlier models return a 400 error" (same page, "Model availability").
+   */
+  anthropicGeo?: "global";
   /** Extra top-level fields for an OpenAI-compatible request; they can never replace a field the adapter sets. */
   extraBody?: Readonly<Record<string, unknown>>;
 }
@@ -34,8 +42,8 @@ const price = (inputPerMillion: number, outputPerMillion: number, source: string
  * (eval/caps.ts) through the adapter and fails if the body it sends has a `cache_control` or `tools` key at any depth.
  */
 export const MODELS: Readonly<Record<string, ModelSettings>> = {
-  "anthropic:claude-opus-5-5": { price: price(4, 20, ANTHROPIC_PRICES), anthropicEffort: "low" },
-  "anthropic:claude-sonnet-5": { price: price(2, 10, ANTHROPIC_PRICES), anthropicEffort: "low" },
+  "anthropic:claude-opus-5-5": { price: price(4, 20, ANTHROPIC_PRICES), anthropicEffort: "low", anthropicGeo: "global" },
+  "anthropic:claude-sonnet-5": { price: price(2, 10, ANTHROPIC_PRICES), anthropicEffort: "low", anthropicGeo: "global" },
   "anthropic:claude-haiku-4-5": { price: price(1, 5, ANTHROPIC_PRICES) },
   "openai-compatible:@cf/openai/gpt-oss-120b": { price: price(0.35, 0.75, "https://developers.cloudflare.com/workers-ai/models/gpt-oss-120b/") },
   "openai-compatible:@cf/google/gemma-4-26b-a4b-it": { price: price(0.1, 0.3, "https://developers.cloudflare.com/workers-ai/models/gemma-4-26b-a4b-it/") },
@@ -63,6 +71,17 @@ export function costMicrousd(provider: string, modelId: string, usage: { inputTo
   if (settings === undefined) return 0;
   const { inputMicrousdPerToken, outputMicrousdPerToken } = settings.price;
   return Math.ceil(usage.inputTokens * inputMicrousdPerToken + usage.outputTokens * outputMicrousdPerToken);
+}
+
+/**
+ * Ceiling of one attempt's cost: the largest prompt (MAX_INPUT_TOKENS) and the full output cap, or null when the model has no
+ * recorded price. An attempt whose usage is missing is recorded at this cost, so cost_microusd is an upper bound for it.
+ */
+export function worstCaseAttemptMicrousd(provider: string, modelId: string): number | null {
+  const settings = modelSettings(provider, modelId);
+  if (settings === undefined) return null;
+  const { inputMicrousdPerToken, outputMicrousdPerToken } = settings.price;
+  return Math.ceil(MAX_INPUT_TOKENS * inputMicrousdPerToken + MAX_OUTPUT_TOKENS * outputMicrousdPerToken);
 }
 
 /**

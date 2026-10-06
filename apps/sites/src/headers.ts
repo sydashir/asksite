@@ -4,8 +4,9 @@
 export const rootHostname = (root: string): string => root.replace(/:\d+$/, "");
 
 /** HSTS is never sent for localhost: with includeSubDomains it would force https onto every local
- *  project on this machine (browsers apply HSTS per host, ignoring the port). */
-const isLocal = (root: string): boolean => {
+ *  project on this machine (browsers apply HSTS per host, ignoring the port). The same test exempts local
+ *  development from the http-to-https redirect (router.ts), because local development is http. */
+export const isLocal = (root: string): boolean => {
   const host = rootHostname(root);
   return host === "localhost" || host.endsWith(".localhost");
 };
@@ -41,9 +42,11 @@ export function livePageHeaders(root: string, indexable: boolean): Headers {
 }
 
 /**
- * The same headers for the copy kept in this data centre's cache: Cloudflare does not cache a response marked
- * no-cache, and s-maxage sets the edge's TTL (developers.cloudflare.com/workers/runtime-apis/cache/ and
- * /cache/concepts/cache-control/). The copy is only ever read back through a key that carries the version id.
+ * The same headers for the copy kept in this data centre's cache, with a Cache-Control of their own: the Cache API follows
+ * Cloudflare's Cache-Control directives (cache.put fails when Cache-Control instructs not to cache), so the copy carries
+ * "public, s-maxage=60" instead of the browsers' no-cache, and s-maxage sets the edge's TTL
+ * (developers.cloudflare.com/workers/runtime-apis/cache/ and /cache/concepts/cache-control/). The copy is only ever read
+ * back through a key that carries the version id.
  */
 export function edgeCopyHeaders(live: Headers): Headers {
   const headers = new Headers(live);
@@ -51,11 +54,13 @@ export function edgeCopyHeaders(live: Headers): Headers {
   return headers;
 }
 
-/** A cached copy's headers as the browser gets them: the same as a fresh page's. */
-export function browserCopyHeaders(edge: Headers): Headers {
-  const headers = new Headers(edge);
-  headers.set("Cache-Control", BROWSER_CACHE);
-  return headers;
+/**
+ * A cached copy's headers as the browser gets them: exactly a fresh page's. They are built again, never copied from
+ * the cache's response, which carries its own (Age, cf-cache-status) and the edge's Cache-Control; the one thing read
+ * back is whether the copy was sent noindex.
+ */
+export function browserCopyHeaders(root: string, edge: Headers): Headers {
+  return livePageHeaders(root, edge.get("X-Robots-Tag") === null);
 }
 
 /** Fixed pages (404, 503, thank-you, form errors, apex): never cached, never indexed. */
@@ -63,12 +68,12 @@ export function fixedPageHeaders(root: string): Headers {
   return new Headers({ "Content-Type": HTML, "Cache-Control": "no-store", "X-Robots-Tag": "noindex", ...securityHeaders(root) });
 }
 
-/** Photos: a day in browsers, 5 minutes at the edge (s-maxage wins for Cloudflare's cache), so a
- *  takedown stops them at the edge within 5 minutes. The type is always set here, never taken from R2. */
+/** Photos: an hour in browsers, a minute at the edge (s-maxage wins for Cloudflare's cache), so a
+ *  takedown stops them at the edge within a minute and in browsers within an hour. The type is always set here, never taken from R2. */
 export function mediaHeaders(): Headers {
   return new Headers({
     "Content-Type": "image/webp",
-    "Cache-Control": "public, max-age=86400, s-maxage=300",
+    "Cache-Control": "public, max-age=3600, s-maxage=60",
     "X-Content-Type-Options": "nosniff",
     "Content-Security-Policy": "default-src 'none'",
     "Cross-Origin-Resource-Policy": "cross-origin",

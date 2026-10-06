@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { CAPS_FILLS, CAPS_REPAIR, CAPS_SNAPSHOT, capsRepair, capsSnapshot } from "../eval/caps.ts";
 import { MAX_ATTEMPTS, MAX_OUTPUT_TOKENS } from "../src/generate.ts";
 import { MODEL_TEXT_CAPS } from "../src/model-facts.ts";
-import { costMicrousd, MAX_INPUT_TOKENS, MODELS, modelSettings, PROMPT_OVERHEAD_TOKENS, worstCaseJobMicrousd } from "../src/models.ts";
+import { costMicrousd, MAX_INPUT_TOKENS, MODELS, modelSettings, PROMPT_OVERHEAD_TOKENS, worstCaseAttemptMicrousd, worstCaseJobMicrousd } from "../src/models.ts";
 import { buildPrompt } from "../src/prompt.ts";
 import { templateAnswer } from "../src/template.ts";
 import { checkDraft } from "../src/validate.ts";
@@ -332,5 +332,28 @@ describe("worstCaseJobMicrousd", () => {
   it("is null, never a made-up ceiling and never an exception, for a model whose price is not recorded", () => {
     expect(worstCaseJobMicrousd("anthropic", "claude-unknown")).toBeNull();
     expect(worstCaseJobMicrousd("anthropic", "constructor")).toBeNull();
+  });
+});
+
+// Items 3 and 5 (G1).
+describe("worstCaseAttemptMicrousd (item 5)", () => {
+  it("is the largest prompt and the full output cap at the model's price, a third of the job's worst case, and null when unpriced", () => {
+    expect(worstCaseAttemptMicrousd("anthropic", "claude-opus-5-5")).toBe(70_000 * 4 + 8_192 * 20);
+    expect(worstCaseAttemptMicrousd("anthropic", "claude-opus-5-5")! * 3).toBe(worstCaseJobMicrousd("anthropic", "claude-opus-5-5"));
+    expect(worstCaseAttemptMicrousd("anthropic", "claude-fable-5-1")).toBeNull();
+    expect(worstCaseAttemptMicrousd("anthropic", "toString")).toBeNull();
+  });
+});
+
+describe("the configured model is priced (item 3)", () => {
+  it.each([
+    ["anthropic", "claude-opus-5-5", true],
+    ["anthropic", "claude-sonnet-5", true],
+    ["anthropic", "claude-haiku-4-5", true],
+    ["anthropic", "claude-fable-5-1", false],
+    ["anthropic", "claude-opus-5-5-20261001", false],
+    ["anthropic", "", false],
+  ])("%s:%s priced = %s", (provider, model, priced) => {
+    expect(modelSettings(provider, model) !== undefined).toBe(priced);
   });
 });

@@ -121,6 +121,32 @@ describe("queue: a message it cannot run", () => {
   });
 });
 
+describe("queue: a provider error that needs a human, and the retry backoff", () => {
+  it.each([
+    ["auth", false, true],
+    ["bad_request", false, true],
+    ["bad_request", true, false],
+    ["rate_limited", false, false],
+    ["timeout", false, false],
+    ["unavailable", false, false],
+    [null, false, false],
+  ] as const)("a job that ended with providerErrorKind %s (input guard %s): the extra line is %s", async (kind, inputBoundRefused, logsLine) => {
+    vi.mocked(runGenerationJob).mockResolvedValue({ ...REPORT, outcome: "fallback", providerErrorKind: kind, inputBoundRefused });
+    await worker.queue(delivery({ v: 1, generationId: ID }).batch, ENV);
+    const events = lines().map((line) => (line as { event: string }).event);
+    expect(events).toEqual(logsLine ? ["generation.job", "generation.needs_human"] : ["generation.job"]);
+    if (logsLine) expect(lines()[1]).toEqual({ event: "generation.needs_human", generationId: ID, providerErrorKind: kind, provider: "anthropic" });
+  });
+
+  it.each([[1, 15], [2, 30], [3, 60], [9, 60], [0, 15]])("retries a failed claim on delivery %s after %s s", async (attempts, seconds) => {
+    vi.mocked(runGenerationJob).mockRejectedValue(new Error("d1 down"));
+    const { message, batch } = delivery({ v: 1, generationId: ID });
+    (message as { attempts: number }).attempts = attempts;
+    await worker.queue(batch, ENV);
+    expect(message.retry.mock.calls).toEqual([[{ delaySeconds: seconds }]]);
+  });
+});
+
 describe("scheduled", () => {
   // Counts only: the line never carries an error's text (Task 10 follow-up 2, item 4).
   it.each([

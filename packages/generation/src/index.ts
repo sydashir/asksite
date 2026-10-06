@@ -1,4 +1,5 @@
 // Public API of @asksite/generation: design §6.4 for Plan 4, plus what the generator Worker runs.
+export { aiCopyIssues } from "./ai-claims.ts";
 export { runGenerationJob, type JobEnv, type JobReport } from "./job.ts";
 export { toModelFacts, type ModelFacts } from "./model-facts.ts";
 export { worstCaseJobMicrousd } from "./models.ts";

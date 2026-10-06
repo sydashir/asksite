@@ -3,6 +3,7 @@
 // Usage: pnpm deploy:check            (every apps/*/wrangler.jsonc)
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { modelSettings } from "../packages/generation/src/models.ts";
 
 export const PLACEHOLDER_DOMAIN = "asksite.example";
 export const PLACEHOLDER_DATABASE_ID = "00000000-0000-0000-0000-000000000000";
@@ -32,6 +33,9 @@ export function deployProblems(text: string, now: number): string[] {
   if (vars["MAILER"] !== undefined && vars["MAILER"] !== "resend") problems.push("vars.MAILER must be resend");
   if (vars["ADMIN_AUTH_MODE"] !== undefined && vars["ADMIN_AUTH_MODE"] !== "access") problems.push("vars.ADMIN_AUTH_MODE must be access");
   if (vars["MODEL_PROVIDER"] === "fake") problems.push("vars.MODEL_PROVIDER must not be fake");
+  // An unpriced model has no recorded cost and no worst case, so the daily limit would no longer bound the spend; the job refuses it too.
+  if (vars["MODEL_PROVIDER"] !== undefined && vars["MODEL_PROVIDER"] !== "fake" && modelSettings(vars["MODEL_PROVIDER"], vars["MODEL_ID"] ?? "") === undefined)
+    problems.push("vars.MODEL_PROVIDER and vars.MODEL_ID must name a priced model (packages/generation/src/models.ts)");
   for (const name of Object.keys(vars)) if (SECRET_LIKE.test(name) && !PUBLIC_VARS.has(name)) problems.push(`vars.${name} looks like a secret: use wrangler secret put`);
   if (/localhost|:\d+$/.test(vars["ROOT_DOMAIN"] ?? "")) problems.push("vars.ROOT_DOMAIN must be the real domain without a port");
   if (config.workers_dev !== false || config.preview_urls !== false) problems.push("workers_dev and preview_urls must be false");

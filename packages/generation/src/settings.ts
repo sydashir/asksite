@@ -29,7 +29,11 @@ const asLimit = (value: string | undefined): number | undefined => (value !== un
  * count the fallback applies and one fixed line says so (no value echoed, so nothing owner- or operator-typed is logged).
  */
 export async function dailyModelLimit(env: { DB: D1Database; DAILY_MODEL_LIMIT: string }): Promise<number> {
-  const limit = asLimit(await setting(env.DB, "generation.daily_model_limit")) ?? asLimit(env.DAILY_MODEL_LIMIT);
+  const row = await setting(env.DB, "generation.daily_model_limit");
+  const fromRow = asLimit(row);
+  // A row that exists but is not a count is a typo at the moment someone tried to change the limit: one fixed line, then the variable applies.
+  if (row !== undefined && fromRow === undefined) console.log(JSON.stringify({ event: "generation.config_error", setting: "generation.daily_model_limit" }));
+  const limit = fromRow ?? asLimit(env.DAILY_MODEL_LIMIT);
   if (limit !== undefined) return limit;
   console.log(JSON.stringify({ event: "generation.config_error", setting: "DAILY_MODEL_LIMIT" }));
   return LIMITS.defaultDailyModelLimit;

@@ -3,7 +3,7 @@ import type { D1Database, D1PreparedStatement, Queue } from "@cloudflare/workers
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { generationAllowance, requestGeneration, type RequestGenerationResult } from "../src/request.ts";
 import { utcDayStart } from "../src/settings.ts";
-import { clearTables, getGeneration, insertGeneration, seedOwnerSite, setSetting, startLocalD1, type LocalD1 } from "./support/d1.ts";
+import { clearTables, failingRuns, getGeneration, insertGeneration, seedOwnerSite, setSetting, startLocalD1, type LocalD1 } from "./support/d1.ts";
 import { FULL_SNAPSHOT } from "./support/samples.ts";
 
 const NOW = Date.UTC(2026, 8, 24, 15);
@@ -187,6 +187,19 @@ describe("requestGeneration", () => {
     expect(row).toEqual({ status: "failed", error_code: "internal", finished_at: NOW });
     const retry = await requestGeneration(env(queue().q), input());
     expect(retry.ok && retry.generation.kind).toBe("first");
+  });
+
+  it("retries the failed-send UPDATE once on a D1 transient error, so the site is freed; any other error is not retried", async () => {
+    const flaky = failingRuns(db, /SET status = 'failed', error_code = 'internal'/, "D1_ERROR: storage caused object to be reset");
+    expect(await requestGeneration({ ...env(queue(true).q), DB: flaky.db }, input())).toEqual({ ok: false, code: "internal" });
+    expect(flaky.runs()).toBe(2);
+    expect(await db.prepare("SELECT status, error_code FROM generations").first()).toEqual({ status: "failed", error_code: "internal" });
+    await clearTables(db);
+    await seedOwnerSite(db, "o1", "s1");
+    const broken = failingRuns(db, /SET status = 'failed', error_code = 'internal'/, "D1_ERROR: no such table: nope");
+    expect(await requestGeneration({ ...env(queue(true).q), DB: broken.db }, input())).toEqual({ ok: false, code: "internal" });
+    expect(broken.runs()).toBe(1);
+    expect(await db.prepare("SELECT status FROM generations").first()).toEqual({ status: "queued" });
   });
 
   it("leaves a row the job already claimed alone when the send then fails: the failed-send UPDATE ends only a queued row (P3-16 fix 4 b)", async () => {
@@ -478,5 +491,221 @@ describe("which rows count toward the site's day and the owner's total (P3-11 (p
     expect(results.map(outcome).sort()).toEqual(["generation_cap_reached", "generation_cap_reached", "generation_cap_reached", "generation_cap_reached", "regenerate"]);
     expect(await allowance()).toEqual({ generationsLeftToday: 0, generationsLeftTotal: 19 });
     expect(await db.prepare("SELECT COUNT(*) AS n FROM audit_log WHERE site_id = 's1'").first()).toEqual({ n: 1 });
+  });
+
+  // Ruling 3 (generation fixes G1, part B): 5 regenerations per owner per UTC day, across all the owner's sites, counted
+  // inside INSERT_JOB with the same COUNTS_TODAY rule as the site's day. First builds neither count toward it nor are
+  // refused by it (Decision 30); the lifetime 20 and the site's 5 are unchanged.
+  describe("the owner's 5 regenerations per UTC day (G1 part B)", () => {
+    /** Owner o1's s1 and s2 are built (yesterday); `onS1` and `onS2` of today's regenerations are seeded on them, each ended as `end`. */
+    async function today(onS1: number, onS2: number, end: Partial<GenerationRow> = { status: "succeeded", model_slot: 1, attempts: 1 }): Promise<void> {
+      await insertGeneration(db, { id: "built1", site_id: "s1", owner_id: "o1", status: "succeeded", model_slot: 1, attempts: 1, created_at: DAY - 5000, started_at: DAY - 5000, finished_at: DAY - 5000 });
+      await insertGeneration(db, { id: "built2", site_id: "s2", owner_id: "o1", status: "succeeded", model_slot: 1, attempts: 1, created_at: DAY - 4000, started_at: DAY - 4000, finished_at: DAY - 4000 });
+      for (let i = 0; i < onS1 + onS2; i++) {
+        const at = DAY + i;
+        await insertGeneration(db, { id: `t${i}`, site_id: i < onS1 ? "s1" : "s2", owner_id: "o1", kind: "regenerate", created_at: at, started_at: at, finished_at: at, ...end });
+      }
+    }
+
+    it("refuses the owner's 6th regeneration of the day even though each of their two sites has room", async () => {
+      await today(3, 2);
+      expect(await generationAllowance({ DB: db }, { siteId: "s1", ownerId: "o1", now: NOW })).toEqual({ generationsLeftToday: 0, generationsLeftTotal: 15 });
+      expect(await generationAllowance({ DB: db }, { siteId: "s2", ownerId: "o1", now: NOW })).toEqual({ generationsLeftToday: 0, generationsLeftTotal: 15 });
+      const { q, sent } = queue();
+      expect(await requestGeneration(env(q), input("s1"))).toEqual({ ok: false, code: "generation_cap_reached" });
+      expect(await requestGeneration(env(q), input("s2"))).toEqual({ ok: false, code: "generation_cap_reached" });
+      expect(sent).toEqual([]);
+      expect(await db.prepare("SELECT COUNT(*) AS n FROM audit_log").first()).toEqual({ n: 0 });
+    });
+
+    it("allows the 5th (the edge) and then refuses the 6th: five regenerations across two sites, requested one by one", async () => {
+      await today(0, 0);
+      for (let i = 0; i < 5; i++) {
+        const result = await requestGeneration(env(queue().q), input(i % 2 ? "s2" : "s1"));
+        expect(outcome(result)).toBe("regenerate");
+        if (result.ok) await finishJob(result.generation.id);
+      }
+      expect(await requestGeneration(env(queue().q), input("s1"))).toEqual({ ok: false, code: "generation_cap_reached" });
+      expect(await requestGeneration(env(queue().q), input("s2"))).toEqual({ ok: false, code: "generation_cap_reached" });
+      expect(await generationAllowance({ DB: db }, { siteId: "s2", ownerId: "o1", now: NOW })).toEqual({ generationsLeftToday: 0, generationsLeftTotal: 15 });
+    });
+
+    it("never refuses a first build and does not count it: at 5 regenerations a new site's first build queues, and shows the site's own allowance", async () => {
+      await today(3, 2);
+      await seedOwnerSite(db, "o1", "s3");
+      expect(await generationAllowance({ DB: db }, { siteId: "s3", ownerId: "o1", now: NOW })).toEqual({ generationsLeftToday: 5, generationsLeftTotal: 15 });
+      const first = await requestGeneration(env(queue().q), input("s3"));
+      expect(outcome(first)).toBe("first");
+      expect(await generationAllowance({ DB: db }, { siteId: "s3", ownerId: "o1", now: NOW })).toEqual({ generationsLeftToday: 4, generationsLeftTotal: 15 });
+    });
+
+    it("does not count first builds toward the 5: 4 regenerations and 3 first builds today, the 5th regeneration still queues", async () => {
+      await today(2, 2);
+      for (const site of ["s3", "s4", "s5"]) {
+        await seedOwnerSite(db, "o1", site);
+        await insertGeneration(db, { id: `first-${site}`, site_id: site, owner_id: "o1", status: "succeeded", used_fallback: 1, fallback_reason: "budget", created_at: DAY + 100, started_at: DAY + 100, finished_at: DAY + 100 });
+      }
+      expect(outcome(await requestGeneration(env(queue().q), input("s1")))).toBe("regenerate");
+    });
+
+    it("counts only today's regenerations, the owner's own, and only rows COUNTS_TODAY counts (a failed queue send does not)", async () => {
+      await today(0, 0);
+      // yesterday's five do not count
+      for (let i = 0; i < 5; i++) await insertGeneration(db, { id: `y${i}`, site_id: "s1", owner_id: "o1", kind: "regenerate", status: "succeeded", model_slot: 1, attempts: 1, created_at: DAY - 1 - i, started_at: DAY - 1 - i, finished_at: DAY - 1 - i });
+      // another owner's five today do not count
+      await seedOwnerSite(db, "o2", "s9");
+      await insertGeneration(db, { id: "o2-built", site_id: "s9", owner_id: "o2", status: "succeeded", created_at: 1 });
+      for (let i = 0; i < 5; i++) await insertGeneration(db, { id: `o2-${i}`, site_id: "s9", owner_id: "o2", kind: "regenerate", status: "succeeded", model_slot: 1, attempts: 1, created_at: DAY + i, started_at: DAY + i, finished_at: DAY + i });
+      // five regenerations whose queue send failed (never claimed, ended internal) do not count
+      for (let i = 0; i < 5; i++) await insertGeneration(db, { id: `f${i}`, site_id: "s2", owner_id: "o1", kind: "regenerate", status: "failed", error_code: "internal", created_at: DAY + 50 + i, finished_at: DAY + 50 + i });
+      expect(await generationAllowance({ DB: db }, { siteId: "s1", ownerId: "o1", now: NOW })).toEqual({ generationsLeftToday: 5, generationsLeftTotal: 15 }); // yesterday's five still count toward the lifetime
+      expect(outcome(await requestGeneration(env(queue().q), input("s1")))).toBe("regenerate");
+    });
+
+    it("counts a running regeneration and ones that failed after their model calls or a started claim toward the 5", async () => {
+      await today(0, 0);
+      const ended: Array<Partial<GenerationRow>> = [
+        { status: "failed", error_code: "invalid_output", model_slot: 1, attempts: 3 },
+        { status: "failed", error_code: "provider_unavailable", model_slot: 1, attempts: 3 },
+        { status: "failed", error_code: "budget_exhausted" },
+      ];
+      for (const [i, end] of ended.entries()) await insertGeneration(db, { id: `l${i}`, site_id: "s2", owner_id: "o1", kind: "regenerate", created_at: DAY + 20 + i, started_at: DAY + 20 + i, finished_at: DAY + 20 + i, ...end });
+      await insertGeneration(db, { id: "running", site_id: "s2", owner_id: "o1", kind: "regenerate", status: "running", model_slot: 1, created_at: DAY + 30, started_at: DAY + 30 });
+      expect((await generationAllowance({ DB: db }, { siteId: "s1", ownerId: "o1", now: NOW })).generationsLeftToday).toBe(1);
+      expect(outcome(await requestGeneration(env(queue().q), input("s1")))).toBe("regenerate");
+      expect((await generationAllowance({ DB: db }, { siteId: "s1", ownerId: "o1", now: NOW })).generationsLeftToday).toBe(0);
+      expect(await requestGeneration(env(queue().q), input("s1"))).toEqual({ ok: false, code: "generation_cap_reached" });
+    });
+
+    it("stays exact for two sites of one owner at once with 1 left today: exactly one queues", async () => {
+      await today(2, 2);
+      expect((await generationAllowance({ DB: db }, { siteId: "s1", ownerId: "o1", now: NOW })).generationsLeftToday).toBe(1);
+      const results = await atOnce(["s1", "s2"]);
+      expect(results.map(outcome).sort()).toEqual(["generation_cap_reached", "regenerate"]);
+      expect((await generationAllowance({ DB: db }, { siteId: "s1", ownerId: "o1", now: NOW })).generationsLeftToday).toBe(0);
+      expect(await db.prepare("SELECT COUNT(*) AS n FROM audit_log").first()).toEqual({ n: 1 });
+    });
+
+    it("leaves the site's 5 per day and the lifetime 20 as they were", async () => {
+      // the site's 5 still bites on its own: one first build and 4 regenerations today on s1 (the owner has only 4 regenerations today)
+      await insertGeneration(db, { id: "first", site_id: "s1", owner_id: "o1", status: "succeeded", used_fallback: 1, fallback_reason: "budget", created_at: DAY, started_at: DAY, finished_at: DAY });
+      for (let i = 0; i < 4; i++) await insertGeneration(db, { id: `r${i}`, site_id: "s1", owner_id: "o1", kind: "regenerate", status: "succeeded", model_slot: 1, attempts: 1, created_at: DAY + 1 + i, started_at: DAY + 1 + i, finished_at: DAY + 1 + i });
+      expect(await generationAllowance({ DB: db }, { siteId: "s1", ownerId: "o1", now: NOW })).toEqual({ generationsLeftToday: 0, generationsLeftTotal: 16 });
+      expect(await requestGeneration(env(queue().q), input("s1"))).toEqual({ ok: false, code: "generation_cap_reached" });
+      expect(outcome(await requestGeneration(env(queue().q), input("s2")))).toBe("first");
+      // the lifetime 20 still refuses, with nothing counted today
+      await clearTables(db);
+      await seedOwnerSite(db, "o1", "s1");
+      await insertGeneration(db, { id: "b1", site_id: "s1", owner_id: "o1", status: "succeeded", created_at: 1 });
+      for (let i = 0; i < 20; i++) await insertGeneration(db, { id: `old${i}`, site_id: "s1", owner_id: "o1", kind: "regenerate", status: "succeeded", model_slot: 1, attempts: 1, created_at: 2, started_at: 2, finished_at: 2 });
+      expect(await requestGeneration(env(queue().q), input("s1"))).toEqual({ ok: false, code: "generation_cap_reached" });
+    });
+  });
+});
+
+// Ruling 2(a) (generation fixes G1, part C): the caller's intent, and the two-tab race guard in INSERT_JOB (lens c's R1).
+describe("requestGeneration: the intended kind and the race guard (G1 part C)", () => {
+  const outcome = (result: RequestGenerationResult) => (result.ok ? result.generation.kind : result.code);
+  const rows = () => db.prepare("SELECT kind, status FROM generations ORDER BY created_at, id").all<{ kind: string; status: string }>().then((r) => r.results);
+  const audits = () => db.prepare("SELECT COUNT(*) AS n FROM audit_log").first<{ n: number }>().then((r) => r?.n);
+  const built = (site = "s1") => insertGeneration(db, { id: `built-${site}`, site_id: site, owner_id: "o1", status: "succeeded", model_slot: 1, attempts: 1, created_at: NOW - 86_400_000, started_at: NOW - 86_400_000, finished_at: NOW - 86_400_000 });
+
+  /** A database whose read of "does this site have a draft" answers "no" the first time only: the draft landed after it (another tab's job finished). */
+  function staleDraftRead(): D1Database {
+    let stale = true;
+    return {
+      prepare: (sql: string) => {
+        const statement = db.prepare(sql);
+        if (!/status = 'succeeded' LIMIT 1/.test(sql) || !stale) return statement;
+        return {
+          bind: () => ({
+            first: async () => {
+              stale = false;
+              return null;
+            },
+          }),
+        } as unknown as D1PreparedStatement;
+      },
+      batch: (statements: D1PreparedStatement[]) => db.batch(statements),
+    } as unknown as D1Database;
+  }
+
+  it("the race (R1): a first build whose draft read was stale inserts no row and sends nothing; the answer is generation_in_progress", async () => {
+    await built();
+    const { q, sent } = queue();
+    expect(await requestGeneration({ ...env(q), DB: staleDraftRead() }, input())).toEqual({ ok: false, code: "generation_in_progress" });
+    expect(sent).toEqual([]);
+    expect(await rows()).toEqual([{ kind: "first", status: "succeeded" }]);
+    expect(await audits()).toBe(0);
+    // the next request reads the draft and is an ordinary regeneration
+    expect(outcome(await requestGeneration(env(queue().q), input()))).toBe("regenerate");
+  });
+
+  it("the race with the site's day also used up is still generation_in_progress (the stale intent is answered, not the cap)", async () => {
+    await built();
+    for (let i = 0; i < 5; i++) await insertGeneration(db, { id: `d${i}`, site_id: "s1", owner_id: "o1", status: "succeeded", used_fallback: 1, fallback_reason: "budget", created_at: utcDayStart(NOW) + i, started_at: utcDayStart(NOW) + i, finished_at: utcDayStart(NOW) + i });
+    expect(await requestGeneration({ ...env(queue().q), DB: staleDraftRead() }, input())).toEqual({ ok: false, code: "generation_in_progress" });
+  });
+
+  it("a cap is still generation_cap_reached for a first build with no draft (the guard does not answer for it)", async () => {
+    for (let i = 0; i < 5; i++) await insertGeneration(db, { id: `t${i}`, site_id: "s1", owner_id: "o1", status: "failed", created_at: utcDayStart(NOW) + i });
+    expect(await requestGeneration(env(queue().q), input())).toEqual({ ok: false, code: "generation_cap_reached" });
+    expect(await requestGeneration(env(queue().q), { ...input(), kind: "first" })).toEqual({ ok: false, code: "generation_cap_reached" });
+  });
+
+  it("a stale first intent on a site with a draft is refused as generation_in_progress and inserts nothing", async () => {
+    await built();
+    const { q, sent } = queue();
+    expect(await requestGeneration(env(q), { ...input(), kind: "first" })).toEqual({ ok: false, code: "generation_in_progress" });
+    expect(sent).toEqual([]);
+    expect(await rows()).toEqual([{ kind: "first", status: "succeeded" }]);
+    expect(await audits()).toBe(0);
+  });
+
+  it("answers a stale intent before the caps, the kill switch and today's model limit", async () => {
+    await built();
+    expect(await requestGeneration(env(queue().q, "false", "0"), { ...input(), kind: "first" })).toEqual({ ok: false, code: "generation_in_progress" });
+  });
+
+  it("a regenerate intent on a site with no draft is refused as generation_in_progress, not treated as a first build", async () => {
+    const { q, sent } = queue();
+    expect(await requestGeneration(env(q), { ...input(), kind: "regenerate" })).toEqual({ ok: false, code: "generation_in_progress" });
+    expect(sent).toEqual([]);
+    expect(await rows()).toEqual([]);
+    // even at the owner's lifetime total, with the switch off: it never becomes a first build that skips the owner's caps
+    expect(await requestGeneration(env(queue().q, "false"), { ...input(), kind: "regenerate" })).toEqual({ ok: false, code: "generation_in_progress" });
+  });
+
+  it("a matching intent is the same as none: first on a new site, regenerate on a built one", async () => {
+    expect(outcome(await requestGeneration(env(queue().q), { ...input(), kind: "first" }))).toBe("first");
+    await built("s2");
+    expect(outcome(await requestGeneration(env(queue().q), { ...input("s2"), kind: "regenerate" }))).toBe("regenerate");
+  });
+
+  describe("every normal path is unchanged by the guard (lens c's guard paths)", () => {
+    it("P1: a first build, then a regeneration, then another", async () => {
+      const first = await requestGeneration(env(queue().q), input());
+      expect(outcome(first)).toBe("first");
+      await db.prepare("UPDATE generations SET status = 'succeeded', started_at = ?2, model_slot = 1, attempts = 1, finished_at = ?2 WHERE id = ?1").bind(first.ok ? first.generation.id : "", NOW).run();
+      const second = await requestGeneration(env(queue().q), input());
+      expect(outcome(second)).toBe("regenerate");
+      await db.prepare("UPDATE generations SET status = 'succeeded', started_at = ?2, model_slot = 1, attempts = 1, finished_at = ?2 WHERE id = ?1").bind(second.ok ? second.generation.id : "", NOW).run();
+      expect(outcome(await requestGeneration(env(queue().q), input()))).toBe("regenerate");
+    });
+
+    it("P2: a first build whose queue send failed can be retried as a first build", async () => {
+      expect(await requestGeneration(env(queue(true).q), input())).toEqual({ ok: false, code: "internal" });
+      expect(outcome(await requestGeneration(env(queue().q), input()))).toBe("first");
+    });
+
+    it("P3: a first build the sweeper ended as failed (no succeeded row) can be retried as a first build", async () => {
+      await insertGeneration(db, { id: "stuck", site_id: "s1", owner_id: "o1", status: "failed", error_code: "internal", created_at: NOW - 600_000, finished_at: NOW - 100_000 });
+      expect(outcome(await requestGeneration(env(queue().q), input()))).toBe("first");
+    });
+
+    it("P4: with no intent, a tab that finds the draft landed is a regeneration, as before", async () => {
+      await built();
+      expect(outcome(await requestGeneration(env(queue().q), input()))).toBe("regenerate");
+    });
   });
 });

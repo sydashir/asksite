@@ -176,14 +176,19 @@ describe("a site's pages", () => {
     expect((await get(at(site.slug, "/about"))).status).toBe(404);
   });
 
-  it("answers the named 404 that links Home for a missing optional page, and does not cache it", async () => {
+  it("answers the named 404 that links Home for a missing optional page, and caches it for this version for 60 s", async () => {
     const site = await seedPages({}, ["home", "services", "contact"]);
     const response = await get(at(site.slug, "/gallery"));
     expect(response.status).toBe(404);
     expect(response.headers.get("cache-control")).toBe("no-store");
     expect(await response.text()).toContain('<p><a href="/">Go to Reliable Rooter Plumbing\'s page</a></p>');
+    // A version's pages never change, so the 404 stays (named again from the pointer, uncached for browsers) until its 60 s are over.
     await putLive(tools, { ...site, html: pageHtml(site, "gallery") }, "gallery");
-    expect(await (await get(at(site.slug, "/gallery"))).text()).toBe(pageHtml(site, "gallery"));
+    const again = await get(at(site.slug, "/gallery"));
+    expect(again.status).toBe(404);
+    expect(again.headers.get("cache-control")).toBe("no-store");
+    expect(await again.text()).toContain("Go to Reliable Rooter Plumbing's page");
+    expect((await get(at(site.slug, "/services"))).status).toBe(200); // another page of the version is not in that entry
   });
 
   it("answers 503, uncached, for every page while the pointer names a version that is not D1's live one", async () => {
@@ -224,7 +229,7 @@ describe("a site's pages", () => {
         for (const method of ["GET", "HEAD"]) {
           const response = await get(at(site.slug, `${PAGES[page].path}/?x=1`), { method });
           expect(response.status, page).toBe(301);
-          expect(response.headers.get("location"), page).toBe(at(site.slug, PAGES[page].path));
+          expect(response.headers.get("location"), page).toBe(`${at(site.slug, PAGES[page].path)}?x=1`);
           expect(response.headers.get("cache-control"), page).toBe("no-store");
         }
       }
@@ -316,7 +321,7 @@ describe("photos on media.<root>", () => {
     expect(new Uint8Array(await response.arrayBuffer())).toEqual(bytes);
     expect(Object.fromEntries(response.headers)).toMatchObject({
       "content-type": "image/webp",
-      "cache-control": "public, max-age=86400, s-maxage=300",
+      "cache-control": "public, max-age=3600, s-maxage=60",
       "x-content-type-options": "nosniff",
       "content-security-policy": "default-src 'none'",
       "cross-origin-resource-policy": "cross-origin",
@@ -344,6 +349,17 @@ describe("photos on media.<root>", () => {
     } finally {
       await tools.DB.prepare("ALTER TABLE uploads_offline RENAME TO uploads").run();
     }
+  });
+
+  it("keeps a taken-down site's photo 404 in this data centre's cache, so a restore shows it again within the TTL (60 s)", async () => {
+    const site = await seedSite(tools, { takenDown: true });
+    const { uploadId } = await seedUpload(tools, site.siteId);
+    expect((await get(media(site.siteId, uploadId))).status).toBe(404);
+    await tools.DB.prepare("UPDATE sites SET taken_down_at = NULL WHERE id = ?").bind(site.siteId).run();
+    const cached = await get(media(site.siteId, uploadId));
+    expect(cached.status).toBe(404); // the cached 404, until its 60 s are over
+    expect(cached.headers.get("cache-control")).toBe("no-store");
+    expect(cached.headers.get("age")).toBeNull();
   });
 
   it("refuses another site's id, unknown ids, bad paths and writes", async () => {

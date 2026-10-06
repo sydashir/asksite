@@ -72,6 +72,7 @@ describe("AnthropicProvider", () => {
       max_tokens: 8192,
       system: "SYS",
       messages: [{ role: "user", content: "USER" }],
+      inference_geo: "global",
       output_config: { format: { type: "json_schema", schema: toWireSchema(AI_DRAFT_JSON_SCHEMA) }, effort: "low" },
     });
   });
@@ -959,5 +960,47 @@ describe("AnthropicProvider: never bills as if it cached or used tools (fix r2)"
     expect(JSON.stringify(body)).toContain(JSON.stringify(prompt.system));
     expect(JSON.stringify(body)).toContain(JSON.stringify(prompt.user));
     expect(findForbiddenKey(body, new Set(["cache_control", "tools"]))).toBeUndefined();
+  });
+});
+
+// Item 4 (G1): inference_geo, from platform.claude.com/docs/en/manage-claude/data-residency ("Model availability": supported on Claude
+// 4.6 and later; Opus 4.5, Sonnet 4.5, Haiku 4.5 or earlier "return a 400 error"). "global" is the default routing at standard price.
+describe("AnthropicProvider: inference_geo (item 4)", () => {
+  const sentBody = async (model: string): Promise<Record<string, unknown>> => {
+    const http = fakeFetch([{ status: 200, body: message('{"a":1}') }]);
+    await new AnthropicProvider({ apiKey: "k", model, fetch: http.fetch }).generate(request());
+    return http.calls[0]!.body;
+  };
+
+  it.each(["claude-opus-5-5", "claude-sonnet-5"])("sends inference_geo \"global\" explicitly for %s", async (model) => {
+    expect((await sentBody(model)).inference_geo).toBe("global");
+  });
+
+  it("sends none for a model that rejects the parameter, and none for a model with no entry", async () => {
+    expect(Object.keys(await sentBody("claude-haiku-4-5"))).not.toContain("inference_geo");
+    expect(Object.keys(await sentBody("claude-unlisted-1"))).not.toContain("inference_geo");
+  });
+
+  it("is set in MODELS for exactly the Anthropic models the docs list as supporting it (4.6 and later), never the pre-4.6 ones", () => {
+    const geo = Object.entries(MODELS).filter(([, settings]) => settings.anthropicGeo !== undefined).map(([key, settings]) => [key, settings.anthropicGeo]);
+    expect(geo).toEqual([["anthropic:claude-opus-5-5", "global"], ["anthropic:claude-sonnet-5", "global"]]);
+  });
+});
+
+// Item 6 (G1): the provider's Retry-After reaches generateDraft on the error.
+describe("AnthropicProvider: Retry-After (item 6)", () => {
+  const answerWith = (status: number, headers: Record<string, string>) => async (): Promise<Response> =>
+    new Response(JSON.stringify({ type: "error", error: { type: "rate_limit_error", message: "slow down" } }), { status, headers: { "content-type": "application/json", ...headers } });
+  const failure = async (fetchImpl: () => Promise<Response>): Promise<ProviderError> =>
+    (await new AnthropicProvider({ apiKey: "sk-secret", model: "claude-opus-5-5", fetch: fetchImpl }).generate(request()).catch((e: unknown) => e)) as ProviderError;
+
+  it("carries a Retry-After in seconds from a 429 and a 529", async () => {
+    expect(await failure(answerWith(429, { "retry-after": "12" }))).toMatchObject({ kind: "rate_limited", retryAfterSeconds: 12 });
+    expect(await failure(answerWith(529, { "retry-after": "3" }))).toMatchObject({ kind: "unavailable", retryAfterSeconds: 3 });
+  });
+
+  it("carries nothing when the header is absent or is a date", async () => {
+    expect(Object.hasOwn(await failure(answerWith(429, {})), "retryAfterSeconds")).toBe(false);
+    expect(Object.hasOwn(await failure(answerWith(429, { "retry-after": "Wed, 21 Oct 2026 07:28:00 GMT" })), "retryAfterSeconds")).toBe(false);
   });
 });

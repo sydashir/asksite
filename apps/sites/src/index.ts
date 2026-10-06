@@ -24,7 +24,14 @@ export default {
 
   async scheduled(controller, env): Promise<void> {
     const started = Date.now();
-    const deleted = await deleteOldLeads(env.DB, controller.scheduledTime);
-    logLine({ route: "cron_lead_retention", ms: Date.now() - started, deleted });
+    const result = await deleteOldLeads(env.DB, controller.scheduledTime);
+    logLine({
+      route: "cron_lead_retention",
+      ms: Date.now() - started,
+      deleted: result.deleted,
+      deletedSpam: result.spam,
+      deletedExpired: result.expired,
+      ...(result.sizeAfter === undefined ? {} : { dbBytes: result.sizeAfter }),
+    });
   },
 } satisfies ExportedHandler<Env>;
