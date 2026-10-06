@@ -148,6 +148,15 @@ for (const design of DESIGN_IDS) {
             }
             expect(badPhotos).toEqual([]);
             expect(await violations()).toEqual([]);
+            // Bold embeds its heading font as a data: woff2 in its sheet (A12 USER DECISION 2026-09-27): it must load
+            // under the CSP the Worker serves (font-src data:), on every page (moderator ruling 2026-10-01 22:47).
+            if (design === "impact") {
+              const faces = await page.evaluate(async () => {
+                await document.fonts.ready;
+                return [...document.fonts].filter((f) => f.family.replace(/"/g, "") === "Archivo Condensed").map((f) => f.status);
+              });
+              expect(faces).toEqual(["loaded"]);
+            }
           });
 
           test(`passes axe on ${id} (every WCAG 2.2 A/AA violation, plus the structure rules)`, async ({ page }) => {
