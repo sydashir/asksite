@@ -342,11 +342,10 @@ describe("photos on media.<root>", () => {
     expect(await tools.MEDIA.get(mediaKey(site.siteId, uploadId))).not.toBeNull();
   });
 
-  // D1 is asked before R2 (a taken-down site's photos must not cost an R2 read), so an id with no photo reaches D1 too.
-  it("asks D1 before R2: with D1's uploads table gone even a photo that is not stored is 503, not 404", async () => {
+  it("never asks D1 about a photo that is not stored: with D1's uploads table gone it is still 404, not 503", async () => {
     await tools.DB.prepare("ALTER TABLE uploads RENAME TO uploads_offline").run();
     try {
-      expect((await get(media(newId(), newId()))).status).toBe(503);
+      expect((await get(media(newId(), newId()))).status).toBe(404);
     } finally {
       await tools.DB.prepare("ALTER TABLE uploads_offline RENAME TO uploads").run();
     }

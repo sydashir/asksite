@@ -9,9 +9,10 @@ const DOWN_PHOTO_404_TTL_S = 60;
 const SERVABLE = "SELECT 1 AS ok FROM uploads u JOIN sites s ON s.id = u.site_id WHERE u.id = ? AND u.site_id = ? AND s.taken_down_at IS NULL";
 
 /**
- * GET /<siteId>/<uploadId>.webp on media.<root>. D1 first: served while the upload row exists for that site and the
- * site is not taken down, and only then is R2 read, so a down site's photos never cost an R2 read; their 404 is
- * kept in this data centre's cache for DOWN_PHOTO_404_TTL_S (a restore shows photos again within that time).
+ * GET /<siteId>/<uploadId>.webp on media.<root>. R2 first, so ids with no stored photo never reach D1 (Decision 24);
+ * then served while the upload row exists for that site and the site is not taken down. A stored photo D1 does not
+ * serve (a down site's) answers 404, kept in this data centre's cache for DOWN_PHOTO_404_TTL_S: repeats cost no R2
+ * or D1 read, and a restore shows the photos again within that time.
  * Soft-deleted uploads are still served (a live or pending version may show them). URLs are two random
  * UUIDs, so unapproved photos are unguessable, not secret.
  */
@@ -30,14 +31,14 @@ export async function serveMedia(env: Env, ctx: ExecutionContext, pathname: stri
 
   let body: ArrayBuffer;
   try {
-    const servable = await env.DB.prepare(SERVABLE).bind(uploadId, siteId).first();
-    if (servable === null) {
-      ctx.waitUntil(cache.put(cacheKey, new Response(null, { status: 404, headers: { "Cache-Control": `public, s-maxage=${DOWN_PHOTO_404_TTL_S}` } })));
-      return notFound(root);
-    }
     const object = await env.MEDIA.get(mediaKey(siteId, uploadId));
     if (object === null) return notFound(root);
     body = await object.arrayBuffer();
+    // A stored photo that D1 does not serve (a down site's, or one with no row): its 404 is kept, so repeats cost nothing.
+    if ((await env.DB.prepare(SERVABLE).bind(uploadId, siteId).first()) === null) {
+      ctx.waitUntil(cache.put(cacheKey, new Response(null, { status: 404, headers: { "Cache-Control": `public, s-maxage=${DOWN_PHOTO_404_TTL_S}` } })));
+      return notFound(root);
+    }
   } catch {
     return unavailable(root);
   }

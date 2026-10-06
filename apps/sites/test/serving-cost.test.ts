@@ -113,14 +113,12 @@ beforeEach(() => {
 });
 
 describe("photos of a taken-down site", () => {
-  it("asks D1 first and never reads R2 for a down site's photo; the 404 is then cached for 60 s", async () => {
+  it("reads R2 first, asks D1 only for a stored photo, and then keeps the 404 for 60 s: the second request costs no R2 and no D1", async () => {
     siteRow = null;
     uploadRow = null; // SERVABLE joins sites on taken_down_at IS NULL, so a down site's photo has no row
     const first = await call(photo);
     expect(first.response.status).toBe(404);
-    expect(first.ops["MEDIA.get"] ?? 0).toBe(0);
-    expect(first.ops["D1"]).toBe(1);
-    expect(first.ops["cache.put"]).toBe(1);
+    expect([first.ops["MEDIA.get"], first.ops["D1"], first.ops["cache.put"]]).toEqual([1, 1, 1]);
     expect(cacheStore.get(mediaUrl(ROOT, SITE, UPLOAD))?.headers).toContainEqual(["cache-control", "public, s-maxage=60"]);
 
     const second = await call(`${photo}?x=1`);
@@ -131,6 +129,16 @@ describe("photos of a taken-down site", () => {
     expect(second.response.headers.get("x-robots-tag")).toBe("noindex");
     expect(second.response.headers.get("age")).toBeNull();
     expect(second.response.headers.get("cf-cache-status")).toBeNull();
+  });
+
+  it("never asks D1 about an id with no stored photo (Decision 24), and caches nothing for it", async () => {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const { response, ops } = await call(`https://media.${ROOT}/${SITE}/${crypto.randomUUID()}.webp`);
+      expect(response.status).toBe(404);
+      expect(ops["D1"] ?? 0).toBe(0);
+      expect(ops["MEDIA.get"]).toBe(1);
+      expect(ops["cache.put"] ?? 0).toBe(0);
+    }
   });
 
   it("reads R2 once for a live site's photo (1 D1, 1 MEDIA.get) and serves it", async () => {
