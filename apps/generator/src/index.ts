@@ -1,5 +1,5 @@
 import { isId, type GenerationJob } from "@asksite/core";
-import { runGenerationJob, sweepStuckJobs } from "@asksite/generation";
+import { runGenerationJob, sweepStuckJobs, trimGenerationInputs } from "@asksite/generation";
 import type { ExportedHandler, MessageBatch } from "@cloudflare/workers-types";
 import type { Env } from "./env.ts";
 
@@ -11,6 +11,9 @@ const isJob = (body: unknown): body is GenerationJob =>
 
 /** 15 s after the first failed delivery, 30 s after the second; never more than 60 s. */
 const retryDelaySeconds = (attempts: number): number => Math.min(15 * 2 ** Math.max(0, attempts - 1), 60);
+
+/** The daily cron (wrangler.jsonc triggers.crons) that trims old inputs; any other cron string runs the sweeper. */
+const TRIM_CRON = "17 3 * * *";
 
 export default {
   /** asksite-generation consumer, one message per batch (§4.7). */
@@ -44,8 +47,21 @@ export default {
     }
   },
 
-  /** Every 5 minutes: end jobs stuck longer than JOB_STUCK_AFTER_MS (§6.3). */
-  async scheduled(_controller, env: Env): Promise<void> {
+  /**
+   * Every 5 minutes: end jobs stuck longer than JOB_STUCK_AFTER_MS (§6.3). Once a day (TRIM_CRON): clear the inputs of
+   * generations finished more than 30 days ago, at most TRIM_MAX_PER_RUN rows per run.
+   */
+  async scheduled(controller, env: Env): Promise<void> {
+    if (controller.cron === TRIM_CRON) {
+      try {
+        log({ event: "generation.trim", ...(await trimGenerationInputs(env, Date.now())) });
+      } catch (error) {
+        // A fixed line (never the error's text), then the failure goes on so the runtime records the cron run as failed.
+        log({ event: "generation.trim_failed" });
+        throw error;
+      }
+      return;
+    }
     try {
       log({ event: "generation.sweep", ...(await sweepStuckJobs(env, Date.now())) });
     } catch (error) {

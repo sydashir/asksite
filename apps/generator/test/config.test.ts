@@ -85,7 +85,8 @@ describe("apps/generator/wrangler.jsonc (production)", () => {
 
   it("consumes the generation queue one message at a time, retries twice, then dead-letters", () => {
     expect(config.queues).toEqual({ consumers: [{ queue: "asksite-generation", max_batch_size: 1, max_retries: 2, dead_letter_queue: "asksite-generation-dlq" }] });
-    expect(config.triggers).toEqual({ crons: ["*/5 * * * *"] });
+    // Pin changed (Part T): was { crons: ["*/5 * * * *"] }; the daily input trim is a second cron.
+    expect(config.triggers).toEqual({ crons: ["*/5 * * * *", "17 3 * * *"] });
   });
 
   it("binds only D1 (no AI binding, no R2, no queue producer)", () => {
