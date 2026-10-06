@@ -2,6 +2,7 @@ import { fileURLToPath } from "node:url";
 import { expect, type Page, test } from "@playwright/test";
 import react from "@vitejs/plugin-react";
 import { build } from "vite";
+import { DESIGN_CSS, renderFixturePage } from "../../../fixtures/index.ts";
 import { LINKS_OFF } from "./frame-links.ts";
 import { APP } from "./support.ts";
 
@@ -137,22 +138,23 @@ test("rapid updates show the last document and never say links are turned off", 
   await expect(frame.locator("h1")).toHaveText("Third draft");
 });
 
-// A synthetic font made for this test: one square glyph for "A" and an empty .notdef, 284 bytes, built locally with fontTools 4.62.1
-// (FontBuilder, then flavor "woff2"). It is our own drawing, not derived from any third-party font, so it carries no licence.
-// TODO: when the Bold design's real face lands in site-css, switch this test to it.
-const PROBE_FONT = "d09GMgABAAAAAAEcAAoAAAAAAmwAAADWAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAABmAANAocNgE2AiQDCAsGAAQgBVoHJhvLAUiuDngu+g4F+4IE3zLNyVxm4vls5N6fnU1PUA36FBpLKkEh6ziFxDikrbMc8fXoDXF/jk+OjyyPUkrzYEHyyv964MSRC66HT50cn+gAcqBjoB5ZGraAEgw8ZJFi06Sn7qJRh2RqZoB7FfZU3SUoDOwMwU67RGvB/l8WSwAUaASNCWhAejPP+uN4GgjC59fjz3g5xh/8fD9U1weqQ42hQBiXUEcfqsQAgMoJzGGUFlAAAGh3AmIioCxMQ3ol1rablHMXT23iGfUBmbMSOGhvhCNqErc=";
-
-// The Bold design embeds one font as a data: woff2. The preview frame inherits the app's `font-src 'self' data:`; this proves the face
-// really loads there, so what the owner previews is what publishes. No timing: load() settles once the face has loaded or failed.
-test("a data: font in the preview frame loads under the app's policy", async ({ page }) => {
+// The Bold design ("impact") embeds a real face, "Archivo Condensed", as a data: woff2 in its own sheet. The preview frame inherits the app's
+// `font-src 'self' data:`; this renders a real Bold page (the renderer, the real sheet) in the real preview and proves the face loads in the
+// frame and that an element of the page has it as its family, so what the owner previews is what publishes. No timing: load() settles
+// once the face has loaded or failed.
+test("Bold's real face, Archivo Condensed, loads in the preview frame under the app's policy and is the family of its display text", async ({ page }) => {
   const { frame, show } = await openHarness(page);
-  await show(`<style>@font-face{font-family:"Probe";src:url(data:font/woff2;base64,${PROBE_FONT}) format("woff2")}h1{font-family:"Probe"}</style><h1>A</h1>`);
-  const faces = await frame.locator("h1").evaluate(async () => {
-    await document.fonts.load('16px "Probe"', "A").catch(() => []);
+  await show(renderFixturePage("plumber-austin", "home", DESIGN_CSS, "impact"));
+  const proof = await frame.locator(".display").first().evaluate(async (element) => {
+    await document.fonts.load('800 16px "Archivo Condensed"', "A").catch(() => []);
     await document.fonts.ready;
-    return [...document.fonts].map((face) => `${face.family.replaceAll('"', "")} ${face.status}`);
+    return {
+      faces: [...document.fonts].map((face) => `${face.family.replaceAll('"', "")} ${face.status}`),
+      family: getComputedStyle(element).fontFamily,
+    };
   });
-  expect(faces).toEqual(["Probe loaded"]);
+  expect(proof.faces).toEqual(["Archivo Condensed loaded"]);
+  expect(proof.family.replaceAll('"', "").startsWith("Archivo Condensed")).toBe(true); // engines may quote the family differently
 });
 
 // N1 (the moderator, 2026-10-06): "Desktop width" is the true 1280 px layout scaled to fit the column (never above 1), and the preview

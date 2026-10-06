@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { expect, test, type Page } from "@playwright/test";
 import { expectFrameTitle, expectLinksStayInFrame, JOES_TITLE } from "../../app/e2e/frame-links.ts";
 import { ADMIN, expectAccessible, expectNoSidewaysScroll, FACTS, pendingSite, showEveryPage, tabTo, UNLOCKED, watchCsp } from "./support.ts";
@@ -358,30 +357,26 @@ test("a restore that lost its lease on a site that is live by the time the page 
   await expect(page.getByText("The live pages were copied again.")).toBeVisible();
 });
 
-// TODO: when Bold's real face lands (an embedded data: font in the page's own stylesheet), prove it here instead of this synthetic one.
-// The admin's CSP has `font-src 'self' data:` and the srcdoc frame inherits it: this proves a data: font really LOADS inside the frame.
-const SYNTHETIC_WOFF2 = "d09GMgABAAAAAAEkAAoAAAAAApQAAADeAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAABmAANAo4QAE2AiQDBgsGAAQgBWYHJhvfAQAuCuyGG4f4hpVcm7/GoeLUhXg+f287d95safT4KjSWrNDU+C6E/85S4vHoNi3oPuLvqeMKlRTCI9Zh83xB0sv/euDCeXaD44gGkIHGSQfigJftRaeFdx4SUUeMbMe9jUY9JzNNEuBWC3td3TkoDJwZgjPtHK0F+3/pkQAo0CgssQY0iHRvZjvEy9SEaRCEz6fRPOTlGL/w/WU984LyVxOGAmGcQz0TkgUAkO2NgtICymDtRkCs6LwsrAzplThx1Ek5cHmXAVM4v4/6AC0pgFHg2KSO79qeCnbj1w==";
-
-test("an embedded data: font loads inside the review's preview frame (the admin policy allows font-src data:)", async ({ page }) => {
+// Bold ("impact", the design of Joe's Plumbing) embeds a real face, "Archivo Condensed", as a data: woff2 in the page's own stylesheet. The admin's
+// CSP has `font-src 'self' data:` and the srcdoc frame inherits it: this proves the real face LOADS inside the review's frame, and that an
+// element of the stored page has it as its family. The page is the stored one, untouched.
+test("Bold's real face, Archivo Condensed, loads inside the review's preview frame (the admin policy allows font-src data:)", async ({ page }) => {
   const violations = await watchCsp(page);
   const site = await pendingSite(page.request);
-  const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Font proof</title><style>@font-face{font-family:"Synthetic";src:url(data:font/woff2;base64,${SYNTHETIC_WOFF2}) format("woff2")}p{font-family:"Synthetic"}</style></head><body><p>A</p></body></html>`;
-  // The page is the one the review proves by hash, so the listed hash is made to match it: nothing about the check is bypassed.
-  const sha256 = createHash("sha256").update(html).digest("hex");
-  await page.route(`**/api/admin/versions/${site.versionId}`, async (route) => {
-    const json = (await (await route.fetch()).json()) as { pages: Array<{ page: string; sha256: string }> };
-    await route.fulfill({ json: { ...json, pages: json.pages.map((p) => (p.page === "home" ? { ...p, sha256 } : p)) } });
-  });
-  await page.route("**/api/admin/versions/*/pages/home", (route) => route.fulfill({ status: 200, contentType: "text/html; charset=utf-8", body: html }));
   await page.goto(`/reviews/${site.versionId}`);
-  await expect(page.frameLocator(FRAME).getByText("A", { exact: true })).toBeAttached();
+  await expect(page.frameLocator(FRAME).locator(".display").first()).toBeAttached();
   const frame = page.frames().find((f) => f !== page.mainFrame() && f.url() === "about:srcdoc");
   expect(frame).toBeDefined();
-  const statuses = await frame!.evaluate(async () => {
-    await document.fonts.load('16px "Synthetic"', "A");
-    return [...document.fonts].map((face) => `${face.family}:${face.status}`);
+  const proof = await frame!.locator(".display").first().evaluate(async (element) => {
+    await document.fonts.load('800 16px "Archivo Condensed"', "A").catch(() => []);
+    await document.fonts.ready;
+    return {
+      faces: [...document.fonts].map((face) => `${face.family.replaceAll('"', "")} ${face.status}`),
+      family: getComputedStyle(element).fontFamily,
+    };
   });
-  expect(statuses).toEqual(["Synthetic:loaded"]);
+  expect(proof.faces).toEqual(["Archivo Condensed loaded"]);
+  expect(proof.family.replaceAll('"', "").startsWith("Archivo Condensed")).toBe(true); // engines may quote the family differently
   expect(await violations()).toEqual([]);
 });
 
