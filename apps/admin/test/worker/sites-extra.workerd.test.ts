@@ -59,7 +59,7 @@ describe("list queries read only what their views output (moderator ruling, 2026
   it("keeps the generation's cost and drops its stored input and output", async () => {
     const site = await h.pendingSite();
     const { generations } = await json<{ generations: Array<Record<string, unknown>> }>(await h.call("GET", `/api/admin/sites/${site.siteId}`));
-    expect(Object.keys(generations[0] ?? {}).sort()).toEqual(["attempts", "costMicrousd", "createdAt", "errorCode", "fallbackReason", "finishedAt", "id", "kind", "model", "provider", "status", "usedFallback"]);
+    expect(Object.keys(generations[0] ?? {}).sort()).toEqual(["attempts", "costMicrousd", "createdAt", "errorCode", "fallbackReason", "finishedAt", "id", "kind", "model", "modelSlot", "provider", "status", "usedFallback"]);
   });
 });
 
