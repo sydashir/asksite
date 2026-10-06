@@ -165,7 +165,7 @@ describe("asksite-generator", () => {
       producer.DB.prepare("INSERT INTO generations (id, site_id, owner_id, kind, status, input_json, output_json, created_at, finished_at) VALUES (?1, 's2', 'o1', 'first', 'succeeded', ?2, '{\"kept\":1}', 0, ?3)").bind(recent, JSON.stringify(FULL_SNAPSHOT), Date.now() - 29 * 86_400_000),
     ]);
     expect(await server.getWorker().scheduled({ cron: "17 3 * * *", scheduledTime: new Date() })).toMatchObject({ outcome: "ok" });
-    expect(await waitForLine((line) => line.event === "generation.trim")).toEqual({ event: "generation.trim", cleared: 1 });
+    expect(await waitForLine((line) => line.event === "generation.trim")).toEqual({ event: "generation.trim", cleared: 1, limited: false });
     expect(await producer.DB.prepare("SELECT id, input_json, output_json FROM generations ORDER BY finished_at").all()).toMatchObject({
       results: [{ id: old, input_json: "{}", output_json: '{"kept":1}' }, { id: recent, input_json: JSON.stringify(FULL_SNAPSHOT), output_json: '{"kept":1}' }],
     });

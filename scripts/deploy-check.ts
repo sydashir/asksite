@@ -18,6 +18,7 @@ interface WorkerConfig {
   preview_urls?: boolean;
   observability?: { logs?: { invocation_logs?: boolean } };
   vars?: Record<string, string>;
+  queues?: { consumers?: Array<{ queue?: string }> };
   d1_databases?: Array<{ database_id?: string }>;
 }
 
@@ -34,7 +35,10 @@ export function deployProblems(text: string, now: number): string[] {
   if (vars["ADMIN_AUTH_MODE"] !== undefined && vars["ADMIN_AUTH_MODE"] !== "access") problems.push("vars.ADMIN_AUTH_MODE must be access");
   if (vars["MODEL_PROVIDER"] === "fake") problems.push("vars.MODEL_PROVIDER must not be fake");
   // Production allows only the Anthropic provider (user decision 4); the generator refuses any other at run time too.
-  if (vars["MODEL_PROVIDER"] !== undefined && vars["MODEL_PROVIDER"] !== "fake" && vars["MODEL_PROVIDER"] !== "anthropic") problems.push("vars.MODEL_PROVIDER must be anthropic");
+  // A Worker that consumes the generation queue (the generator) must name it; others have no model variables.
+  const consumesGeneration = (config.queues?.consumers ?? []).some((consumer) => consumer.queue === "asksite-generation");
+  const provider = vars["MODEL_PROVIDER"];
+  if ((provider === undefined ? consumesGeneration : provider !== "fake" && provider !== "anthropic")) problems.push("vars.MODEL_PROVIDER must be anthropic");
   // An unpriced model has no recorded cost and no worst case, so the daily limit would no longer bound the spend; the job refuses it too.
   if (vars["MODEL_PROVIDER"] !== undefined && vars["MODEL_PROVIDER"] !== "fake" && modelSettings(vars["MODEL_PROVIDER"], vars["MODEL_ID"] ?? "") === undefined)
     problems.push("vars.MODEL_PROVIDER and vars.MODEL_ID must name a priced model (packages/generation/src/models.ts)");

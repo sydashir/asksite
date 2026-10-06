@@ -20,8 +20,9 @@ WHERE id IN (
  * more than LIMITS.generationInputRetentionDays days before `now` (a row finished exactly that long ago stays). output_json,
  * costs, tokens, status, error codes and every other column stay. Queued and running rows are never touched.
  */
-export async function trimGenerationInputs(env: { DB: D1Database }, now: number, limit = TRIM_MAX_PER_RUN): Promise<{ cleared: number }> {
+export async function trimGenerationInputs(env: { DB: D1Database }, now: number, limit = TRIM_MAX_PER_RUN): Promise<{ cleared: number; limited: boolean }> {
   const cutoff = now - LIMITS.generationInputRetentionDays * 86_400_000;
   const { meta } = await env.DB.prepare(TRIM).bind(cutoff, limit).run();
-  return { cleared: meta.changes };
+  // limited: the run stopped at its bound, so a backlog may be left for the next run.
+  return { cleared: meta.changes, limited: meta.changes === limit };
 }

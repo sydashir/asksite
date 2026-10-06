@@ -136,20 +136,21 @@ type ModelOutcome =
 async function callModel(env: JobEnv, snapshot: GenerationInputSnapshot, hasSlot: boolean, enabled: boolean, deps: JobDeps, startedAt: number): Promise<ModelOutcome> {
   if (!hasSlot) return { ok: false, reason: enabled ? "budget" : "disabled", timedOut: false, spend: NO_SPEND, trace: noTrace() };
   // Read once, before any call: a read that throws is then a throw before any call, which may give the slot back.
+  // A missing variable is undefined at run time although the type says string: a refusal stores null for it (D1 refuses undefined).
   const providerName = env.MODEL_PROVIDER;
   const requestedModel = env.MODEL_ID;
   // An unpriced model is refused before any call: its cost could not be recorded or bounded (worstCaseJobMicrousd is null), so
   // the daily limit would no longer bound the spend. A configuration error (bad_request, like createProvider's): the slot is
   // given back and a first build gets the template.
   if (modelSettings(providerName, requestedModel) === undefined) {
-    return { ok: false, reason: "provider_error", timedOut: false, spend: { ...NO_SPEND, provider: providerName }, trace: { ...noTrace(), providerErrorKind: "bad_request" } };
+    return { ok: false, reason: "provider_error", timedOut: false, spend: { ...NO_SPEND, provider: providerName ?? null }, trace: { ...noTrace(), providerErrorKind: "bad_request" } };
   }
   let provider: ModelProvider;
   try {
     provider = deps.createProvider(env, snapshot);
   } catch (error) {
     if (!(error instanceof ProviderError)) throw error;
-    return { ok: false, reason: "provider_error", timedOut: false, spend: { ...NO_SPEND, provider: providerName }, trace: { ...noTrace(), providerErrorKind: error.kind } };
+    return { ok: false, reason: "provider_error", timedOut: false, spend: { ...NO_SPEND, provider: providerName ?? null }, trace: { ...noTrace(), providerErrorKind: error.kind } };
   }
   // From the first call on, every throw becomes DraftRejected, which keeps the model slot (Task 9 follow-up item 8).
   try {

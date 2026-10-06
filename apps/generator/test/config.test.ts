@@ -2,6 +2,7 @@ import { readdirSync, readFileSync, existsSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { LIMITS } from "@asksite/core";
 import { worstCaseJobMicrousd } from "@asksite/generation";
+import { TRIM_CRON } from "../src/crons.ts";
 
 type Config = {
   workers_dev?: boolean;
@@ -87,6 +88,8 @@ describe("apps/generator/wrangler.jsonc (production)", () => {
     expect(config.queues).toEqual({ consumers: [{ queue: "asksite-generation", max_batch_size: 1, max_retries: 2, dead_letter_queue: "asksite-generation-dlq" }] });
     // Pin changed (Part T): was { crons: ["*/5 * * * *"] }; the daily input trim is a second cron.
     expect(config.triggers).toEqual({ crons: ["*/5 * * * *", "17 3 * * *"] });
+    // The Worker picks the trim by this string, so the code and the config cannot drift apart.
+    expect(config.triggers?.crons).toContain(TRIM_CRON);
   });
 
   it("binds only D1 (no AI binding, no R2, no queue producer)", () => {

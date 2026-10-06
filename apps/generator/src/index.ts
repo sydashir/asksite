@@ -1,6 +1,7 @@
 import { isId, type GenerationJob } from "@asksite/core";
 import { runGenerationJob, sweepStuckJobs, trimGenerationInputs } from "@asksite/generation";
 import type { ExportedHandler, MessageBatch } from "@cloudflare/workers-types";
+import { TRIM_CRON } from "./crons.ts";
 import type { Env } from "./env.ts";
 
 /** One structured line per event. IDs and codes only: never owner text, prompts, tokens or keys. */
@@ -11,9 +12,6 @@ const isJob = (body: unknown): body is GenerationJob =>
 
 /** 15 s after the first failed delivery, 30 s after the second; never more than 60 s. */
 const retryDelaySeconds = (attempts: number): number => Math.min(15 * 2 ** Math.max(0, attempts - 1), 60);
-
-/** The daily cron (wrangler.jsonc triggers.crons) that trims old inputs; any other cron string runs the sweeper. */
-const TRIM_CRON = "17 3 * * *";
 
 export default {
   /** asksite-generation consumer, one message per batch (§4.7). */

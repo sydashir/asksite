@@ -203,4 +203,19 @@ describe("deployProblems: Anthropic only", () => {
     expect(deployProblems(shipped, NOW).filter((problem) => problem.includes("MODEL_PROVIDER"))).toEqual([]);
     expect((JSON.parse(shipped) as { vars: Record<string, string> }).vars.MODEL_PROVIDER).toBe("anthropic");
   });
+
+  // A Worker that consumes the generation queue (the generator) must say anthropic: a missing MODEL_PROVIDER is refused.
+  const consumer = (vars: Record<string, string>): string =>
+    JSON.stringify({ ...JSON.parse(ready()), queues: { consumers: [{ queue: "asksite-generation" }] }, vars: { ENVIRONMENT: "production", ...vars } });
+
+  it("refuses a generation-queue consumer with no MODEL_PROVIDER, and accepts one that says anthropic", () => {
+    expect(deployProblems(consumer({ MODEL_ID: "claude-opus-5-5" }), NOW)).toEqual([ONLY]);
+    expect(deployProblems(consumer({ MODEL_PROVIDER: "anthropic", MODEL_ID: "claude-opus-5-5" }), NOW)).toEqual([]);
+  });
+
+  it("keeps today's rule for a Worker that does not consume the generation queue", () => {
+    const other = JSON.stringify({ ...JSON.parse(ready()), queues: { consumers: [{ queue: "other-queue" }] }, vars: { ENVIRONMENT: "production" } });
+    expect(deployProblems(other, NOW)).toEqual([]);
+    expect(deployProblems(withModel({}), NOW)).toEqual([]);
+  });
 });
