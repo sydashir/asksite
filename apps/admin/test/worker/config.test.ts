@@ -41,6 +41,14 @@ describe("production wrangler.jsonc", () => {
     expect(config.main).toBe("./src/worker/index.ts");
   });
 
+  it("exposes no /__test route: no file of the production entry's tree names one", () => {
+    const files = (dir: URL): string[] =>
+      readdirSync(dir, { withFileTypes: true }).flatMap((entry) => (entry.isDirectory() ? files(new URL(`${entry.name}/`, dir)) : [new URL(entry.name, dir).pathname]));
+    const sources = files(new URL("../../src/", import.meta.url));
+    expect(sources.length).toBeGreaterThan(10);
+    expect(sources.filter((file) => readFileSync(file, "utf8").includes("/__test"))).toEqual([]);
+  });
+
   it("is reachable only on its own route and keeps request logs off", () => {
     expect(config.workers_dev).toBe(false);
     expect(config.preview_urls).toBe(false);

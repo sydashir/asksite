@@ -856,6 +856,37 @@ test("settings show today's sign-in emails against the cap, and a banner when th
   await expect(page.getByText("40 of 40")).toBeVisible();
 });
 
+test("the cost labels: a site's jobs say Up to $X, Cost unknown and $0.00, and Spent today says Up to $X, not counting N jobs", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "chromium-1280", "Spent today counts every site's jobs, shared by every project: one project owns the seeded rows.");
+  const site = await pendingSite(page.request);
+  const seeded = await page.request.post(`${ADMIN}/__test/generations`, {
+    data: {
+      siteId: site.siteId,
+      rows: [
+        { status: "succeeded", modelSlot: 1, costMicrousd: 1_331_520, startedAt: "now" }, // known: Up to $1.34
+        { status: "failed", modelSlot: 1, costMicrousd: 0, startedAt: "now" }, // took a slot, no recorded cost: Cost unknown
+        { status: "running", modelSlot: 1, costMicrousd: 0, startedAt: "now" }, // still running: counted as unknown, no cost line
+        { status: "failed", modelSlot: 0, costMicrousd: 0, startedAt: "now" }, // no call sent: $0.00
+      ],
+    },
+  });
+  expect(seeded.ok()).toBe(true);
+
+  await page.goto(`/sites/${site.siteId}`);
+  const jobs = page.getByRole("region", { name: "AI writing jobs" });
+  await expect(jobs.getByText(/ · Up to \$1\.34 · /)).toHaveCount(1);
+  await expect(jobs.getByText(/ · Cost unknown · /)).toHaveCount(1);
+  await expect(jobs.getByText(/ · \$0\.00 · /)).toHaveCount(2); // the seeded model_slot 0 job and the site's own first job (no call sent)
+
+  await page.goto("/settings");
+  await expect(page.getByText("Up to $1.34, not counting 2 jobs whose cost is unknown")).toBeVisible();
+});
+
+test("the test seam for generations is refused for a bad body and an unknown site", async ({ request }) => {
+  expect((await request.post(`${ADMIN}/__test/generations`, { data: { siteId: "x", rows: [{ status: "bogus", modelSlot: 1, costMicrousd: 1, startedAt: "now" }] } })).status()).toBe(400);
+  expect((await request.post(`${ADMIN}/__test/generations`, { data: { siteId: "no-such-site", rows: [{ status: "failed", modelSlot: 1, costMicrousd: 1, startedAt: null }] } })).status()).toBe(404);
+});
+
 test("settings, by keyboard only: switch AI writing off and lower the daily limit", async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== "chromium-1280", "Changes a setting shared by every test: one project is enough.");
   await page.goto("/settings");

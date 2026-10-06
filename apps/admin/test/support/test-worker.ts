@@ -1,6 +1,7 @@
 import { livePageKey, livePointerKey, newId } from "@asksite/core";
 import { Facts, SiteDocument } from "@asksite/site-schema";
 import { Hono } from "hono";
+import { z } from "zod";
 import { createLocalJWKSet, type JSONWebKeySet } from "jose";
 import { errorName, fakeAiDraft, fakePublishing } from "../../../app/test/support/fakes.ts";
 import { createAdminWorker } from "../../src/worker/worker.ts";
@@ -89,6 +90,32 @@ helpers.post("/__test/sites", async (c) => {
   const version = await fakePublishing.createPendingVersion(c.env, { siteId, ownerId, slug: input.slug, document, edits, generationId, now });
   const row = await db.prepare("SELECT html_sha256 FROM site_versions WHERE id = ?").bind(version.id).first<{ html_sha256: string }>();
   return c.json({ ownerId, siteId, versionId: version.id, htmlSha256: row?.html_sha256 });
+});
+
+/** One AI writing job to seed: the columns that decide its cost label. "now" starts it today; null leaves started_at empty (a queued job). */
+const SeededGeneration = z.strictObject({
+  status: z.enum(["queued", "running", "succeeded", "failed"]),
+  modelSlot: z.union([z.literal(0), z.literal(1)]),
+  costMicrousd: z.number().int().nonnegative(),
+  startedAt: z.union([z.literal("now"), z.null()]),
+});
+const SeededGenerations = z.strictObject({ siteId: z.string().min(1), rows: z.array(SeededGeneration).min(1).max(20) });
+
+/** Adds generation rows (status, model_slot, cost_microusd, started_at) to an existing site, so an e2e can see the cost labels the real routes and SQL give. */
+helpers.post("/__test/generations", async (c) => {
+  const parsed = SeededGenerations.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return c.json({ error: "bad_request" }, 400);
+  const { siteId, rows } = parsed.data;
+  const site = await c.env.DB.prepare("SELECT owner_id FROM sites WHERE id = ?").bind(siteId).first<{ owner_id: string }>();
+  if (site === null) return c.json({ error: "not_found" }, 404);
+  const now = Date.now();
+  await c.env.DB.batch(
+    rows.map((row) =>
+      c.env.DB.prepare("INSERT INTO generations (id, site_id, owner_id, kind, status, input_json, model_slot, cost_microusd, created_at, started_at) VALUES (?, ?, ?, 'regenerate', ?, '{}', ?, ?, ?, ?)")
+        .bind(newId(), siteId, site.owner_id, row.status, row.modelSlot, row.costMicrousd, now, row.startedAt === "now" ? now : null),
+    ),
+  );
+  return c.json({ seeded: rows.length });
 });
 
 /**
