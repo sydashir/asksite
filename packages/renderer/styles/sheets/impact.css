@@ -320,9 +320,10 @@
     display: none;
   }
 
-  /* The phone and tablet menu: a <details> disclosure whose panel is a full-screen ink sheet under the header. It
-     covers the page and the call bar, carries Call (with the number) over the owner's call to action, and the page
-     behind it is hidden, so keyboard focus and screen readers stay in the sheet. */
+  /* The phone and tablet menu: a <details> disclosure in the Main navigation that opens a full-screen ink sheet under
+     the header (the panel right after that navigation, so Call and the call to action sit outside it). It covers the
+     page and the call bar, carries Call (with the number) over the owner's call to action, and the page behind it is
+     hidden, so keyboard focus and screen readers stay in the sheet. */
   .menu,
   .menu-panel {
     display: none;
@@ -410,7 +411,7 @@
     .menu {
       display: block;
     }
-    .menu[open] .menu-panel {
+    .nav:has(.menu[open]) + .menu-panel {
       display: flex;
     }
     html:has(.menu[open]) {

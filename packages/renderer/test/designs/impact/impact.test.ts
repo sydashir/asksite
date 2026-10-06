@@ -392,13 +392,17 @@ describe("the Bold pages", () => {
   });
 
   // Round 2 (judges, reviewer): the menu said "Get a quote" where the header and the hero say the owner's words, and on
-  // Contact its quote jump left the menu open over the form.
-  it("puts Call and the owner's call to action in the phone menu, and Call only on Contact", () => {
-    const menu = (html: string) => html.slice(html.indexOf('<div class="menu-acts">'), html.indexOf("</details>"));
+  // Contact its quote jump left the menu open over the form. A navigation landmark holds page links only (A16 sites
+  // suite, moderator ruling 2026-10-06), so they sit in the menu's sheet after its "Main menu" navigation, in no <nav>.
+  it("puts Call and the owner's call to action in the phone menu, outside its navigation, and Call only on Contact", () => {
+    const at = (html: string) => html.indexOf('<div class="menu-acts">');
+    const menu = (html: string) => html.slice(at(html), html.indexOf("</div>", at(html)));
     for (const { page, html } of all) {
       expect(menu(html), page).toMatch(/href="tel:\+15125550142" aria-label="Call \(512\) 555-0142">/);
       expect(menu(html).includes('href="/contact#quote">Get a free quote</a>'), page).toBe(page !== "contact");
       expect(menu(html), page).not.toContain("Get a quote<");
+      const before = html.slice(0, at(html));
+      expect(before.split("<nav").length, page).toBe(before.split("</nav>").length);
     }
   });
 

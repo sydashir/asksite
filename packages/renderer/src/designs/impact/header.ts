@@ -4,7 +4,10 @@
 // header and the hero word it. On Contact the menu holds Call only: the page is the form, and a jump to it would
 // leave the menu open over it (a <details> stays open on an in-page link).
 // The menu needs no JavaScript: it is a native <details> disclosure, so it opens and closes in place and adds no
-// history entry, and Back from another page never lands on a URL that reopens it (A16; a :target menu did).
+// history entry, and Back from another page never lands on a URL that reopens it (A16; a :target menu did). Its
+// toggle sits in the Main navigation with the inline links; the sheet it opens (impact.css: shown while the menu is
+// open) follows that navigation and holds its own, "Main menu", with the pages only, then Call and the call to action
+// outside any navigation, so a navigation landmark holds page links alone (moderator ruling, 2026-10-06).
 // The current page's link carries aria-current="page" and a slanted bar, so it is marked by more than colour
 // (WCAG 1.4.1). On Contact the header's call-to-action button stays a normal button (moderator ruling f).
 import { navItems, pageLink, quoteLink, type RenderContext } from "../../context.ts";
@@ -27,12 +30,12 @@ export function renderHeader(ctx: RenderContext): SafeHtml {
 <ul class="nav-desktop">${links.map((l) => html`<li><a href="${l.href}"${current(l.current)}>${l.label}</a></li>`)}</ul>
 <details class="menu">
 <summary class="menu-btn"><span class="sr-only">Menu</span>${icon("menu-2", "ic ic-open")}${icon("x", "ic ic-close")}</summary>
-<div class="menu-panel">
-<ul class="menu-list">${links.map((l) => html`<li><a href="${l.href}"${current(l.current)}><span>${l.label}</span>${icon("arrow-right")}</a></li>`)}</ul>
-<div class="menu-acts">${callButton(ctx, "action")}${ctx.page.id !== "contact" && ctaButton(ctx)}</div>
-</div>
 </details>
 </nav>
+<div class="menu-panel">
+<nav aria-label="Main menu"><ul class="menu-list">${links.map((l) => html`<li><a href="${l.href}"${current(l.current)}><span>${l.label}</span>${icon("arrow-right")}</a></li>`)}</ul></nav>
+<div class="menu-acts">${callButton(ctx, "action")}${ctx.page.id !== "contact" && ctaButton(ctx)}</div>
+</div>
 <a class="header-call whitespace-nowrap" href="${telUrl(facts.phone)}"><span class="kicker">${facts.emergency247 ? "Call 24/7" : "Call us"}</span><span class="header-num">${icon("phone")}<span>${formatPhone(facts.phone)}</span></span></a>
 ${contact && html`<a class="${buttonClass(ctx, "ghost")} header-cta" href="${quoteLink()}">${copy.ctaText}</a>`}
 </div>
