@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { expectFrameTitle, expectLinksStayInFrame, JOES_TITLE, LINKS_OFF } from "./frame-links.ts";
+import { expectFrameTitle, expectLinksStayInFrame, JOES_TITLE, LINKS_OFF, scrollFrameBottomIntoView } from "./frame-links.ts";
 import { APP, apiCall, builtSite, expectAccessible, expectNoSidewaysScroll, FACTS } from "./support.ts";
 
 const PREVIEW_FRAME = 'iframe[title="Preview of the pages we are reviewing"]';
@@ -93,6 +93,7 @@ test("moving Home, Services, Home in the preview says nothing about links, and o
   const target = frame.getByRole("link", { name: "Get a quote", exact: true }).first();
   // Below 1024 px the renderer's menu is a <details>: its links are hidden until the menu is opened.
   if ((await target.count()) === 0) await frame.locator("details > summary").click();
+  await scrollFrameBottomIntoView(page, PREVIEW_FRAME);
   await target.click();
   await expect(page.getByText(LINKS_OFF)).toBeVisible();
   await expectFrameTitle(frame, JOES_TITLE.home, "the frame stays on Home");

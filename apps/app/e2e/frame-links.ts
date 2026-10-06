@@ -12,6 +12,15 @@ export async function expectFrameTitle(frame: FrameLocator, title: RegExp, messa
 }
 
 /**
+ * Brings the preview frame's bottom onto the PAGE. Bold's call bar ("Get a quote") sits at the bottom of the frame, and Bold's
+ * `scroll-padding-bottom` makes Playwright's scroll-into-view scroll only the frame, not the page, so the link can stay below the
+ * fold and the click fails as "outside of the viewport". A no-op when the bottom is already on screen.
+ */
+export async function scrollFrameBottomIntoView(page: Page, frameSelector: string): Promise<void> {
+  await page.locator(frameSelector).evaluate((el) => el.scrollIntoView({ block: "end" }));
+}
+
+/**
  * The proof that links in the preview frame go nowhere (hand-off item 3). For each of a navigation link ("Services") and
  * "Get a quote", pressed by a mouse click and by Enter on the focused link: the frame stays on the shown page (its title
  * is that page's, and it is still an about:srcdoc frame, never another address), the page itself never navigates, and the
@@ -32,6 +41,7 @@ export async function expectLinksStayInFrame(page: Page, frameSelector: string, 
     const target = frame.getByRole("link", { name: link, exact: true }).first();
     // Below 1024 px the renderer's menu is a <details>: its links are hidden until the menu is opened (a click on the frame's own summary).
     if ((await target.count()) === 0) await frame.locator("details > summary").click();
+    await scrollFrameBottomIntoView(page, frameSelector);
     if (how === "click") await target.click();
     else {
       await target.focus();
