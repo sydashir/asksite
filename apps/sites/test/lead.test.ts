@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { looksLikeSpam, PROBLEM_TEXT, readLead } from "../src/lead.ts";
+import { HIDDEN, looksLikeSpam, PROBLEM_TEXT, readLead } from "../src/lead.ts";
 
 const fields = (values: Record<string, string>) => new URLSearchParams(values);
 
@@ -167,6 +167,19 @@ describe("looksLikeSpam", () => {
     expect(looksLikeSpam(lead("https://www.a https://www.b http://www.c"))).toBe(false);
   });
 
+  it("counts each ftp://www.a-style link once: three are not spam, four are", () => {
+    expect(looksLikeSpam(lead("ftp://www.a ftp://www.b ftp://www.c"))).toBe(false);
+    expect(looksLikeSpam(lead("ftp://www.a ftp://www.b ftp://www.c ftp://www.d"))).toBe(true);
+  });
+
+  // The count is "never below the old count", not "one per link": a later www. in a link, or an encoded link in a
+  // query, is another match (the comment in lead.ts says so).
+  it("counts a www. later in a link, and an encoded link in a query, as further matches", () => {
+    expect(looksLikeSpam(lead("https://www.x.com/www.y https://www.x.com/www.y"))).toBe(true);
+    expect(looksLikeSpam(lead("https://www.x.com/www.y https://www.x.com"))).toBe(false);
+    expect(looksLikeSpam(lead("https://a.com/?u=https%3A%2F%2Fwww.b.com https://c.com"))).toBe(true);
+  });
+
   it("counts mixed forms by link starts: each of http, www. and :// that is not part of the one before is a link", () => {
     expect(looksLikeSpam(lead("http://a www.b ftp://c"))).toBe(false);
     expect(looksLikeSpam(lead("http://a www.b ftp://c https://www.d"))).toBe(true);
@@ -197,6 +210,40 @@ describe("readLead names (S1)", () => {
 
   it.each(["Ann-Marie O'Neil", "José", "李雷", "Dana 2", "Mr. Smith", "7", "\u3164Al", "Al\u2800 B"])("keeps accepting the name %j", (name) => {
     expect(nameResult(name)).toEqual({ ok: true, lead: { name, phone: "5125550199", email: null, service: null, message: null } });
+  });
+
+  // S1 review M1: the rule looks at the NFKC form with the Default_Ignorable characters removed, so a joiner,
+  // a variation selector, a fullwidth or a look-alike form of "@", "://" or "www." does not get past it.
+  it.each([
+    "w\u034Fww.evil.com", "ww\uFE0Fw.evil.com", "www\u034F.evil.com", "http:/\u034F/evil.com", "a:\uFE00//b", "w\u{E0100}ww.evil.com",
+    "w\u180Bww.evil.com", "w\u17B4ww.evil.com", "ann\uFF20evil.com", "ann\uFE6Bevil.com", "\uFF57\uFF57\uFF57.evil.com", "www\uFF0Eevil.com",
+    "http\uFF1A//evil.com", "w\u200Bww.x",
+  ])("refuses the dodge %j", (name) => {
+    expect(nameResult(name)).toEqual({ ok: false, problems: ["name"] });
+  });
+
+  it("stores an accepted name exactly as cleaned, ignorable characters and all", () => {
+    for (const name of ["Al\u034F B", "Zo\uFE0F\u00EB", "\uFF21\uFF4C", "Ann\u2019s"]) expect(nameResult(name)).toMatchObject({ ok: true, lead: { name } });
+  });
+
+  // The reviewer's corpus of real names (names.mts of the strict leads review): accents, NFD, CJK, RTL, Indic,
+  // emoji, initials. (Cleaning, which this rule does not touch, already drops a ZWNJ, so "علی‌رضا" is stored without it.) The rule adds no refusal: the only one is "Awww. Ann", which holds "www." as it always did.
+  it("refuses none of the 77 real names but the one that holds www., and stores each as cleaned today", () => {
+    const REAL = [
+    "Ann-Marie O'Neil", "O'Neil", "O\u2019Neil", "D'Angelo", "Jean-Luc Picard", "Mary-Kate Olsen", "Kaʻiulani", "ʻIolani Kealoha", "Hawaiʻi Roofing", "N'Golo Kanté", "Mc'Donald",
+    "José", "Jose\u0301", "Zoë", "Björk Guðmundsdóttir", "François", "Nguyễn Văn An", "Đặng Thị Hà", "Øyvind Ærø", "Łukasz Żółć", "Şükrü Çelik", "İlker", "ß", "Ñuñez",
+    "李雷", "山田太郎", "やまだ はなこ", "김민준", "王 小明", "陳大文 (Chan Tai Man)",
+    "محمد", "مـحمد", "عبد الله", "علی‌رضا", "דוד כהן", "שָׁלוֹם", "عائشہ",
+    "अर्जुन", "क्षितिज", "श्री", "ਗੁਰਪ੍ਰੀਤ", "தமிழ்", "สมชาย ใจดี", "አበበ", "Ελένη", "Иван Петров", "Արամ", "ნინო",
+    "Ann \u{1F338}", "\u{1F469}\u200D\u{1F527} Maria", "Bob \u{1F44D}\u{1F3FD}",
+    "J.R.", "J. R. R. Tolkien", "A.", "Dr.", "Dr. Smith", "Mr. & Mrs. Smith", "Mr. and Mrs. Lee", "Unit 4 tenant", "7", "Apt 3B", "Smith & Sons", "Bob (landlord)", "Ann/Bob", "Bob #2", "John Smith Jr.", "Mary Smith, PhD", "St. John", "Rev. Dr. King",
+    "x", "Al", "\u3164Al", "Al\u2800 B",
+    "Awww. Ann", "Wwwilliam", "W.W. Norton", "Mr. W. W. Smith",
+    ];
+    expect(REAL).toHaveLength(77);
+    const refused = REAL.filter((name) => !nameResult(name).ok);
+    expect(refused).toEqual(["Awww. Ann"]);
+    for (const name of REAL.filter((n) => !refused.includes(n))) expect(nameResult(name)).toMatchObject({ ok: true, lead: { name: name.replace(HIDDEN, "").trim() } });
   });
 
   it("uses the name's existing words and adds none", () => {

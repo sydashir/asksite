@@ -15,6 +15,13 @@ const COUNT_SQL = (() => {
   if (found.length !== 1 || found[0]?.[1] === undefined) throw new Error("form.ts: the email count query was not found exactly once");
   return found[0][1];
 })();
+// The whole INSERT that insertLead prepares: the count sits inside it, with the repeat and limit checks beside it.
+const INSERT_SQL = (() => {
+  const source = readFileSync(resolve(import.meta.dirname, "../src/form.ts"), "utf8");
+  const found = [...source.matchAll(/`(INSERT INTO leads \(id, site_id[^`]*)`/g)];
+  if (found.length !== 1 || found[0]?.[1] === undefined) throw new Error("form.ts: the lead INSERT was not found exactly once");
+  return found[0][1];
+})();
 const DAY_MS = 86_400_000;
 
 const h = sitesHarness();
@@ -29,6 +36,12 @@ afterAll(async () => {
 /** The plan's detail lines for the count, binding twelve values because the SQL numbers its parameters up to ?12. */
 async function plan(): Promise<string[]> {
   const { results } = await tools.DB.prepare(`EXPLAIN QUERY PLAN ${COUNT_SQL}`).bind(...Array.from({ length: 12 }, (_, i) => (i === 11 ? 0 : null))).all<{ detail: string }>();
+  return results.map((row) => row.detail);
+}
+
+/** The plan's detail lines for the whole INSERT, binding sixteen values (the SQL numbers its parameters up to ?16). */
+async function insertPlan(): Promise<string[]> {
+  const { results } = await tools.DB.prepare(`EXPLAIN QUERY PLAN ${INSERT_SQL}`).bind(...Array.from({ length: 16 }, () => 0)).all<{ detail: string }>();
   return results.map((row) => row.detail);
 }
 
@@ -55,5 +68,13 @@ describe("the email count's query plan (migration 0007)", () => {
     expect((await tools.DB.prepare("SELECT COUNT(*) AS n FROM sqlite_stat1 WHERE idx = 'leads_emailed'").first<{ n: number }>())?.n).toBe(1);
     expect(await plan()).toEqual([expect.stringMatching(/USING (COVERING )?INDEX leads_emailed\b/)]);
     await tools.DB.batch([tools.DB.prepare("DELETE FROM leads"), tools.DB.prepare("DELETE FROM sqlite_stat1")]);
+  });
+
+  // A comment that quotes the old SQL, or a second subquery that scans leads, would not show in the count's own
+  // plan: so the whole statement a lead post runs is explained, and no line of it may scan the table.
+  it("scans leads nowhere in the whole INSERT, and reads leads_emailed in it", async () => {
+    const lines = await insertPlan();
+    expect(lines.filter((line) => /\bSCAN leads\b/.test(line))).toEqual([]);
+    expect(lines.filter((line) => /USING (COVERING )?INDEX leads_emailed\b/.test(line))).toHaveLength(1);
   });
 });

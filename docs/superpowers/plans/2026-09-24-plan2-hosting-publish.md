@@ -7740,6 +7740,11 @@ Expected: the diff shows only the domain, the database id, the sender name and t
 Run: `pnpm exec wrangler d1 migrations apply asksite --remote -c apps/sites/wrangler.jsonc`
 Expected: every file in `packages/core/migrations/` at the deployed commit (list them with `ls packages/core/migrations`) is applied in order and listed with ✅, through `0007` at least.
 
+Then run `PRAGMA optimize` once on production D1 and check that the lead email count uses its index (migration 0007's `leads_emailed`). Cloudflare's guide says: "After creating an index, run the `PRAGMA optimize` command to improve your database performance." and "`PRAGMA optimize` runs `ANALYZE` command on each table in the database, which collects statistics on the tables and indices. These statistics allows the query planner to generate the most efficient query plan when executing the user query." (developers.cloudflare.com/d1/best-practices/use-indexes/). Stale statistics can make the planner skip the new index.
+Run: `pnpm exec wrangler d1 execute asksite --remote -c apps/sites/wrangler.jsonc --command "PRAGMA optimize"`
+Run: `pnpm exec wrangler d1 execute asksite --remote -c apps/sites/wrangler.jsonc --json --command "EXPLAIN QUERY PLAN SELECT COUNT(*) FROM leads WHERE created_at >= 0 AND spam = 0 AND email_error IS NOT 'daily_cap'"`
+Expected: a `detail` line that names `leads_emailed` (`SEARCH leads USING INDEX leads_emailed (created_at>?)`), not `SCAN leads`. If it says `SCAN leads`, run `PRAGMA optimize` again and recheck before go-live.
+
 Then check that production D1 made every table STRICT (A9; local D1 is proven by `migration.workerd.test.ts`):
 Run: `pnpm exec wrangler d1 execute asksite --remote -c apps/sites/wrangler.jsonc --json --command "PRAGMA table_list"`
 Expected: every table those migrations create has `"strict": 1`; derive the list from the `CREATE TABLE` statements of the files at the deployed commit: `grep -hoiE '^[[:space:]]*create[[:space:]]+table([[:space:]]+if[[:space:]]+not[[:space:]]+exists)?[[:space:]]+"?[a-z0-9_]+' packages/core/migrations/*.sql | awk '{print $NF}' | tr -d '"'` (it reads one-line CREATE TABLE statements, the style every migration uses; a table created any other way, or renamed later, must be added to the list by hand). If any has `0`, stop and tell the moderator before deploying.
