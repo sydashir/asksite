@@ -1,8 +1,9 @@
 import type { PageId } from "@asksite/site-schema";
 import { livePageKey, livePointerKey, liveSitePrefix, newId, sha256Hex, versionKey, versionPageKey } from "@asksite/core";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { ADMIN_LEASE_MS, approveVersion, createPendingVersion, rejectVersion, takeDown } from "../src/index.ts";
+import { ADMIN_LEASE_MS, approveVersion, createPendingVersion, rejectVersion, takeDown, withdrawPending } from "../src/index.ts";
 import { publishFailure as failure } from "./support/errors.ts";
+import { watchDb } from "./support/lease.ts";
 import { auditActions, doc, EDITS, flakyBucket, liveKeysOf, pendingWithPages, publishingHarness, seedSite, siteRow, versionRow, type PublishEnv } from "./support/harness.ts";
 
 const harness = publishingHarness("publishing-review-test");
@@ -473,5 +474,154 @@ describe("approveVersion refuses a damaged version and changes nothing (A16)", (
       expect((await failure(approve(p.versionId, p.htmlSha256))).code).toBe("version_not_pending");
       expect(await liveKeysOf(env.LIVE, p.slug)).toEqual([]);
     }
+  });
+});
+
+
+// D-D (owner deletion brief): approve deletes the pages it copied when it fails before the version is live, so a later
+// slug change cannot strand them under the old slug; it logs only when the copies are LEFT.
+describe("approveVersion's failure-path cleanup of its copied pages", () => {
+  const BATCH = "UPDATE sites SET live_version_id";
+  const approveAs = (e: PublishEnv, p: { versionId: string; htmlSha256: string }, now = 20) =>
+    approveVersion(e, { versionId: p.versionId, htmlSha256: p.htmlSha256, reviewer: "admin@example.com", note: null, indexable: true, now });
+  /** A DB whose approve batch throws (before the commit, or after it) once; `seam` may run first. */
+  const batchFails = (when: "before" | "after", seam: () => Promise<void> = async () => {}) => {
+    let done = false;
+    const hook = async ({ sql, method }: { sql: string; method: string }) => {
+      if (method !== "batch" || !sql.includes(BATCH) || done) return;
+      done = true;
+      await seam();
+      throw new Error("D1 is unavailable");
+    };
+    return when === "before" ? watchDb(env.DB, hook) : watchDb(env.DB, async () => {}, hook);
+  };
+  /** A site that is live with its first version, and a second version pending. */
+  async function secondVersion() {
+    const first = await pending();
+    await approve(first.versionId, first.htmlSha256);
+    const created = await createPendingVersion(env, { siteId: first.siteId, ownerId: first.ownerId, slug: first.slug, document: doc(), edits: EDITS, generationId: null, now: 30 });
+    const row = await versionRow(env.DB, created.id);
+    return { first, secondId: created.id, secondSha: String(row?.html_sha256) };
+  }
+  const logged = () => vi.spyOn(console, "error").mockImplementation(() => {});
+
+  it("deletes its copies when the batch throws without committing, keeps the live version's pages and pointer, and approving again works", async () => {
+    const { first, secondId, secondSha } = await secondVersion();
+    const spy = logged();
+    try {
+      await expect(approveAs({ ...env, DB: batchFails("before") }, { versionId: secondId, htmlSha256: secondSha })).rejects.toThrow("D1 is unavailable");
+      expect(spy).not.toHaveBeenCalled(); // a cleanup that worked logs nothing
+    } finally {
+      spy.mockRestore();
+    }
+    expect(await liveKeysOf(env.LIVE, first.slug)).toEqual(await liveKeysOfVersion(first.slug, first.versionId));
+    expect((await env.LIVE.head(livePointerKey(first.slug)))?.customMetadata?.["versionId"]).toBe(first.versionId);
+    expect(await siteRow(env.DB, first.siteId)).toMatchObject({ live_version_id: first.versionId, pending_version_id: secondId });
+
+    await approveAs(env, { versionId: secondId, htmlSha256: secondSha }, 40);
+    expect(await liveKeysOf(env.LIVE, first.slug)).toEqual(await liveKeysOfVersion(first.slug, secondId));
+  });
+
+  it("keeps its copies when the batch commits and then throws, and approving again writes the pointer once", async () => {
+    const { first, secondId, secondSha } = await secondVersion();
+    await expect(approveAs({ ...env, DB: batchFails("after") }, { versionId: secondId, htmlSha256: secondSha })).rejects.toThrow("D1 is unavailable");
+    expect(await siteRow(env.DB, first.siteId)).toMatchObject({ live_version_id: secondId });
+    for (const page of await storedPages(secondId)) expect(await env.LIVE.head(livePageKey(first.slug, secondId, page.page))).not.toBeNull();
+    expect((await env.LIVE.head(livePointerKey(first.slug)))?.customMetadata?.["versionId"]).toBe(first.versionId); // not switched yet
+
+    await approveAs(env, { versionId: secondId, htmlSha256: secondSha }, 40);
+    expect((await env.LIVE.head(livePointerKey(first.slug)))?.customMetadata?.["versionId"]).toBe(secondId);
+    expect(await liveKeysOf(env.LIVE, first.slug)).toEqual(await liveKeysOfVersion(first.slug, secondId));
+    const approvals = (await env.DB.prepare("SELECT detail_json FROM audit_log WHERE site_id = ? AND action = 'version.approved'").bind(first.siteId).all<{ detail_json: string }>()).results;
+    expect(approvals.filter((r) => String(r.detail_json).includes(secondId))).toHaveLength(1);
+  });
+
+  it("deletes its copies when the owner withdraws the version between the copy and the batch, and a later slug change leaves nothing under the old slug", async () => {
+    const p = await pendingWithPages(env);
+    const seam = () => withdrawPending(env, { siteId: p.siteId, ownerId: p.ownerId, now: 25 });
+    expect((await failure(approveAs({ ...env, DB: watchDb(env.DB, async ({ sql, method }) => { if (method === "batch" && sql.includes(BATCH)) await seam(); }) }, p))).code).toBe("version_not_pending");
+    expect(await liveKeysOf(env.LIVE, p.slug)).toEqual([]);
+    const renamed = `${p.slug}-renamed`;
+    await env.DB.prepare("UPDATE sites SET slug = ? WHERE id = ?").bind(renamed, p.siteId).run();
+    expect((await listLive(`${p.slug}/`)).concat(await listLive(p.slug))).toEqual([]);
+  });
+
+  /** Every LIVE key under a prefix (no filter by slug shape). */
+  async function listLive(prefix: string) {
+    return (await env.LIVE.list({ prefix })).objects.map((o) => o.key);
+  }
+  const steal = (siteId: string) => async () => {
+    await env.DB.prepare("UPDATE sites SET admin_lock = 'thief', admin_lock_until = 9000000000000 WHERE id = ?").bind(siteId).run();
+  };
+
+  it("leaves its copies and logs approve_copy_left (ids only) when the lease was stolen before the batch", async () => {
+    const p = await pendingWithPages(env);
+    const spy = logged();
+    try {
+      const error = await failure(approveAs({ ...env, DB: watchDb(env.DB, async ({ sql, method }) => { if (method === "batch" && sql.includes(BATCH)) await steal(p.siteId)(); }) }, p));
+      expect({ code: error.code, detail: error.detail }).toEqual({ code: "site_busy", detail: { reason: "lease_lost" } });
+      expect(spy.mock.calls.map((c) => c.map(String))).toEqual([[JSON.stringify({ code: "approve_copy_left", siteId: p.siteId, versionId: p.versionId })]]);
+    } finally {
+      spy.mockRestore();
+    }
+    expect(await liveKeysOf(env.LIVE, p.slug)).toHaveLength(3); // left: the thief's action may own them
+    expect((await env.DB.prepare("SELECT admin_lock FROM sites WHERE id = ?").bind(p.siteId).first<{ admin_lock: string }>())?.admin_lock).toBe("thief");
+  });
+
+  it("rethrows the batch's error, leaves the copies and logs when the cleanup's read throws", async () => {
+    const p = await pendingWithPages(env);
+    let batchFailed = false;
+    const db = watchDb(env.DB, async ({ sql, method }) => {
+      if (method === "batch" && sql.includes(BATCH)) {
+        batchFailed = true;
+        throw new Error("batch failed");
+      }
+      if (batchFailed && method === "first" && sql.startsWith("SELECT live_version_id, admin_lock FROM sites")) throw new Error("read failed");
+    });
+    const spy = logged();
+    try {
+      await expect(approveAs({ ...env, DB: db }, p)).rejects.toThrow("batch failed");
+      expect(spy.mock.calls.map((c) => c.map(String))).toEqual([[JSON.stringify({ code: "approve_copy_left", siteId: p.siteId, versionId: p.versionId })]]);
+    } finally {
+      spy.mockRestore();
+    }
+    expect(await liveKeysOf(env.LIVE, p.slug)).toHaveLength(3);
+  });
+
+  it("rethrows the batch's error, leaves the copies and logs when the cleanup's delete throws", async () => {
+    const p = await pendingWithPages(env);
+    const deleteFails = flakyBucket(env.LIVE, (call, arg) => call === "delete" && Array.isArray(arg));
+    const spy = logged();
+    try {
+      await expect(approveAs({ ...env, DB: batchFails("before"), LIVE: deleteFails }, p)).rejects.toThrow("D1 is unavailable");
+      expect(spy.mock.calls.map((c) => c.map(String))).toEqual([[JSON.stringify({ code: "approve_copy_left", siteId: p.siteId, versionId: p.versionId })]]);
+    } finally {
+      spy.mockRestore();
+    }
+    expect(await liveKeysOf(env.LIVE, p.slug)).toHaveLength(3);
+  });
+
+  it("keeps the live version's pages when an accepted retry's batch throws", async () => {
+    const p = await pendingWithPages(env);
+    await approveAs(env, p);
+    const before = await liveKeysOf(env.LIVE, p.slug);
+    const spy = logged();
+    try {
+      await expect(approveAs({ ...env, DB: batchFails("before") }, p, 30)).rejects.toThrow("D1 is unavailable");
+      expect(spy).not.toHaveBeenCalled();
+    } finally {
+      spy.mockRestore();
+    }
+    expect(await liveKeysOf(env.LIVE, p.slug)).toEqual(before);
+    expect(before).toHaveLength(1 + 3);
+    expect((await env.LIVE.head(livePointerKey(p.slug)))?.customMetadata?.["versionId"]).toBe(p.versionId);
+  });
+
+  it("deletes the pages that landed when a page copy fails part-way", async () => {
+    const p = await pendingWithPages(env);
+    const servicesFails = flakyBucket(env.LIVE, (call, key) => call === "put" && key === livePageKey(p.slug, p.versionId, "services"));
+    await expect(approveAs({ ...env, LIVE: servicesFails }, p)).rejects.toThrow("R2 is unavailable");
+    expect(await liveKeysOf(env.LIVE, p.slug)).toEqual([]); // home and contact had landed
+    expect(await siteRow(env.DB, p.siteId)).toMatchObject({ live_version_id: null, pending_version_id: p.versionId });
   });
 });
