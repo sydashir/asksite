@@ -154,3 +154,71 @@ test("a data: font in the preview frame loads under the app's policy", async ({ 
   });
   expect(faces).toEqual(["Probe loaded"]);
 });
+
+// N1 (the moderator, 2026-10-06): "Desktop width" is the true 1280 px layout scaled to fit the column (never above 1), and the preview
+// opens on "Phone width" when its column is under 640 px, else on "Desktop width". The default is picked once, at mount.
+const WIDE_ONLY = `<style>.wide{display:none}@media(min-width:64rem){.wide{display:block}}</style><p class="wide">Seen from 64rem</p><a href="/services">Services</a>`;
+const desktopButton = (page: Page) => page.getByRole("button", { name: "Desktop width" });
+const phoneButton = (page: Page) => page.getByRole("button", { name: "Phone width" });
+const windowWidth = (page: Page) => page.viewportSize()?.width ?? 1280;
+
+test("a 1280 window opens Desktop width, drawn at 1280 px, so what shows from 64rem shows", async ({ page }) => {
+  test.skip(windowWidth(page) !== 1280, "the 1280 window");
+  const { frame, show } = await openHarness(page);
+  await show(WIDE_ONLY);
+  await expect(desktopButton(page)).toHaveAttribute("aria-pressed", "true");
+  await expect(phoneButton(page)).toHaveAttribute("aria-pressed", "false");
+  await expect(frame.locator(".wide")).toBeVisible();
+  expect(await frame.locator("body").evaluate(() => window.innerWidth)).toBe(1280);
+});
+
+test("a 390 window opens Phone width, and Desktop width is the true 1280 px layout scaled to fit", async ({ page }) => {
+  test.skip(windowWidth(page) !== 390, "the 390 window");
+  const { frame, linksOff, show } = await openHarness(page);
+  await show(WIDE_ONLY);
+  await expect(phoneButton(page)).toHaveAttribute("aria-pressed", "true");
+  await expect(desktopButton(page)).toHaveAttribute("aria-pressed", "false");
+  await expect(frame.locator(".wide")).toBeHidden();
+
+  await desktopButton(page).click();
+  await expect(desktopButton(page)).toHaveAttribute("aria-pressed", "true");
+  await expect(frame.locator(".wide")).toBeVisible();
+  expect(await frame.locator("body").evaluate(() => window.innerWidth)).toBe(1280);
+  // Scaled to fit the column: the frame is no wider than the window, the page has no sideways scroll, and its visible height is
+  // the preview's 80vh (the frame's own height is that divided by the scale), so nothing is clipped or scrolls twice.
+  const box = await page.locator("iframe").boundingBox();
+  expect(box?.width).toBeLessThanOrEqual(390);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+  const viewportHeight = page.viewportSize()?.height ?? 0;
+  expect(box?.height).toBeGreaterThan(viewportHeight * 0.8 - 6);
+  expect(box?.height).toBeLessThanOrEqual(viewportHeight * 0.8);
+
+  // Clicks and the keyboard still reach the page through the scaling.
+  await frame.getByRole("link", { name: "Services" }).click();
+  await expect(linksOff).toBeVisible();
+});
+
+test("the opening view is picked once: a window resized later keeps the view the viewer has", async ({ page }) => {
+  test.skip(windowWidth(page) !== 1280, "starts from the 1280 window");
+  const { frame, show } = await openHarness(page);
+  await show(WIDE_ONLY);
+  await expect(desktopButton(page)).toHaveAttribute("aria-pressed", "true");
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(frame.locator("body")).toBeVisible();
+  await expect(desktopButton(page)).toHaveAttribute("aria-pressed", "true");
+  await phoneButton(page).click();
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await expect(phoneButton(page)).toHaveAttribute("aria-pressed", "true");
+});
+
+test("the frame takes keyboard focus on a link in the scaled Desktop view", async ({ page }) => {
+  test.skip(windowWidth(page) !== 390, "scaled in the 390 window");
+  const { frame, linksOff, show } = await openHarness(page);
+  await show(WIDE_ONLY);
+  await desktopButton(page).click();
+  await expect(frame.locator(".wide")).toBeVisible();
+  await frame.getByRole("link", { name: "Services" }).focus();
+  await expect(frame.getByRole("link", { name: "Services" })).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(linksOff).toBeVisible();
+});

@@ -24,6 +24,7 @@ test("review a site: the stored page shows in a sandboxed frame, flags are liste
   await expect(page.getByRole("heading", { level: 1, name: "Review Joe's Plumbing (version 1)" })).toBeFocused();
 
   const frame = page.frameLocator(FRAME);
+  await page.getByRole("button", { name: "Desktop width" }).click(); // a 390 window opens Phone width (N1); Bold shows its call button from 64rem
   await expect(frame.getByRole("link", { name: "Call Joe today" }).first()).toBeAttached();
   await expect(page.locator(FRAME)).toHaveAttribute("sandbox", "");
   await expect(page.getByText("facts.testimonials.0.quote contains a web address", { exact: false })).toBeVisible();
@@ -80,7 +81,7 @@ test("the review shows every page of the version, as stored, and its links go no
   await expectLinksStayInFrame(page, FRAME, async () => {
     await page.goto(`/reviews/${site.versionId}`);
     await expect(page.getByRole("group", { name: "Page", exact: true })).toBeVisible();
-  });
+  }, "Call Joe today"); // the site's own wording: at the 1280 layout Bold shows it in the header, not as "Get a quote"
 });
 
 test("the review page says when the stored page could not load, and loads it on Try again", async ({ page }) => {
@@ -90,6 +91,7 @@ test("the review page says when the stored page could not load, and loads it on 
   await expect(page.getByText("The page couldn't load.")).toBeVisible();
   await page.unroute("**/api/admin/versions/*/pages/*");
   await page.getByRole("button", { name: "Try again" }).click();
+  await page.getByRole("button", { name: "Desktop width" }).click(); // a 390 window opens Phone width (N1); Bold shows its call button from 64rem
   await expect(page.frameLocator(FRAME).getByRole("link", { name: "Call Joe today" }).first()).toBeAttached();
 });
 
@@ -98,6 +100,7 @@ test("rejecting needs a note, which is then sent", async ({ page }) => {
   await page.goto(`/reviews/${site.versionId}`);
   // WebKit moves focus into an iframe that finishes loading after the textarea was focused: let the preview arrive first. (It now arrives
   // after every page was fetched and proved, so a click straight after goto can come first.)
+  await page.getByRole("button", { name: "Desktop width" }).click(); // a 390 window opens Phone width (N1); Bold shows its call button from 64rem
   await expect(page.frameLocator(FRAME).getByRole("link", { name: "Call Joe today" }).first()).toBeAttached();
   await page.getByRole("button", { name: "Reject and email the owner" }).click();
   await expect(page.getByLabel("Reason (the owner sees this)")).toBeFocused();
@@ -177,6 +180,7 @@ test("a page whose bytes do not match is not shown and cannot be approved; Rejec
   expect(approveRequests).toBe(0);
   await page.unroute(`**${urlOf("services")}`);
   await page.getByRole("button", { name: "Try again" }).click();
+  await page.getByRole("button", { name: "Desktop width" }).click(); // a 390 window opens Phone width (N1); Bold shows its call button from 64rem
   await expect(page.frameLocator(FRAME).getByRole("link", { name: "Call Joe today" }).first()).toBeAttached();
   await expect(page.getByText("doesn't match what was sent for review")).toHaveCount(0);
 });

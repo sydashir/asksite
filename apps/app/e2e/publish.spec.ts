@@ -100,6 +100,25 @@ test("moving Home, Services, Home in the preview says nothing about links, and o
   expect(await page.evaluate(() => (window as unknown as { linksOffSeen: { count: number } }).linksOffSeen.count)).toBe(1);
 });
 
+// N1 (2026-10-06): "Desktop width" is the real 1280 px layout, scaled to fit the column, so the owner sees what a visitor on a desktop sees.
+// Bold hides its header call button below 64rem; at the old 622 px frame it never showed, whatever the label said.
+test("Desktop width shows the 1280 px layout: Bold's header call button is visible, in a frame no wider than its column", async ({ page }) => {
+  const siteId = await builtSite(page);
+  await page.goto(`/sites/${siteId}/publish`);
+  await page.getByRole("button", { name: "Send for review" }).click();
+  await expect(page.getByRole("heading", { name: "Waiting for approval" })).toBeVisible();
+  await page.getByRole("button", { name: "Desktop width" }).click();
+  await expect(page.getByRole("button", { name: "Desktop width" })).toHaveAttribute("aria-pressed", "true");
+  const frame = page.frameLocator(PREVIEW_FRAME);
+  await expectFrameTitle(frame, JOES_TITLE.home);
+  await expect(page.locator(PREVIEW_FRAME), 'the design is Bold ("impact"), whose header button this test needs').toHaveAttribute("srcdoc", /data-design="impact"/);
+  await expect(frame.locator(".header-cta")).toBeVisible();
+  expect(await frame.locator("body").evaluate(() => window.innerWidth)).toBe(1280);
+  const column = await page.locator(PREVIEW_FRAME).locator("xpath=ancestor::div[2]").boundingBox();
+  const box = await page.locator(PREVIEW_FRAME).boundingBox();
+  expect(box?.width).toBeLessThanOrEqual((column?.width ?? 0) + 0.5);
+});
+
 test("publishing with reviews but no attestation lists the fix, with a link to it", async ({ page }) => {
   const siteId = await builtSite(page, { ...FACTS, testimonials: [{ quote: "Fixed our leak the same afternoon.", name: "Ana P." }] });
   await page.goto(`/sites/${siteId}/publish`);
