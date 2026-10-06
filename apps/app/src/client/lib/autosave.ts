@@ -68,8 +68,9 @@ export class AutoSaver {
   // Counts the drops this saver has found. A flush compares it with the count at its start: a drop found by the flush itself is new
   // to the owner, so that flush stops even when an earlier drop was already shown (the drop epoch).
   private dropsFound = 0;
-  // Counts the saves the server accepted. Sign out tells "the same unsaved change" from a new one by it.
-  private landedCount = 0;
+  // Counts the saves the server answered for good: accepted, or refused (it stored nothing and the unsaved values were dropped). A failed
+  // save does not move it. Sign out tells "the same unsaved change" from a new one by it.
+  private settledCount = 0;
   private disposed = false;
   private readonly send: SendPatch;
   private readonly report: (state: SaverState) => void;
@@ -91,9 +92,9 @@ export class AutoSaver {
     return this.status;
   }
 
-  /** How many saves the server has accepted from this saver. */
-  get landed(): number {
-    return this.landedCount;
+  /** How many saves the server has answered for good (accepted or refused) from this saver: a failed save does not count. */
+  get settled(): number {
+    return this.settledCount;
   }
 
   /** Replaced by a newer saver (a reload): it holds nothing the owner still has to be told about. */
@@ -187,7 +188,7 @@ export class AutoSaver {
       const result = await this.sendSafely(patch);
       if (result.ok) {
         this.rev = result.rev;
-        this.landedCount += 1;
+        this.settledCount += 1;
         if (result.wordingDropped === true) {
           this.dropsFound += 1;
           this.wordingDropped = true;
@@ -207,6 +208,7 @@ export class AutoSaver {
         // on screen either): it is never sent later, when the rewrite may have ended, behind the owner's back.
         clearTimeout(this.timer);
         this.pending = {};
+        this.settledCount += 1;
         this.dropsFound += 1;
         this.wordingDropped = true;
         this.stopped = false;

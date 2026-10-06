@@ -37,7 +37,8 @@ const plainClick = (event: MouseEvent<HTMLAnchorElement>): boolean =>
 //    A press after the grace while a save is still in flight signs out: a save that never answers must not trap the owner.
 // 3. After the save, the CAUSES left are collected, each identified by (site, kind) plus the saver or drop it came from (StopCause).
 // 4. A cause the owner was not told yet stops the press ONCE (the existing text for it, then PRESS_AGAIN) and joins the TOLD set.
-//    When every cause is already told, the press signs out.
+//    When every cause is already told, the press signs out. A closing drop a stop shows is marked stopped in place, so the site's next editor
+//    does not stop a leave again for it.
 // 5. A resolved cause leaves the told set (the next press builds it from what is left), so one that comes back stops once more.
 //    The alert goes when the causes it names are resolved. Nothing expires by time, and there is no page-wide flag.
 // 6. "Saving…" is said only while a save is actually pending. A new page on screen starts again (resetSignOutStop).
@@ -96,7 +97,7 @@ export function resetSignOutStop(): void {
   shown = [];
 }
 
-/** The alert goes when every cause it names is resolved (a save landed, the notice was dismissed, the conflicted draft was reloaded). */
+/** The alert goes when every cause it names is resolved (a save was answered, the notice was dismissed, the conflicted draft was reloaded). */
 function retireResolvedStop(): void {
   if (shown.length === 0 || shown.some((cause) => cause.still())) return;
   shown = [];
@@ -147,6 +148,7 @@ export async function mayEndSession(say: (message: string | null) => void): Prom
       return true;
     }
     shown = untold;
+    for (const cause of untold) cause.shown?.();
     stopSay = say;
     say(`${[...new Set(untold.map((cause) => cause.text))].join(" ")} ${PRESS_AGAIN}`);
     return false;

@@ -35,7 +35,7 @@ export async function settleLeaving(): Promise<StopCause[]> {
     const result = await saver.flush();
     if (result === false) {
       const kind = saver.currentStatus === "conflict" ? "closing-conflict" : "closing-failed";
-      causes.push({ key: causeKey(siteId, kind), text: stopText({ dropped: false, status: saver.currentStatus }), source: saver, landed: saver.landed, still: () => unsavedOnLeave.get(siteId) === saver });
+      causes.push({ key: causeKey(siteId, kind), text: stopText({ dropped: false, status: saver.currentStatus }), source: saver, settled: saver.settled, still: () => unsavedOnLeave.get(siteId) === saver });
       continue;
     }
     if (unsavedOnLeave.get(siteId) === saver) unsavedOnLeave.delete(siteId);
@@ -43,7 +43,7 @@ export async function settleLeaving(): Promise<StopCause[]> {
     if (result === "dropped") droppedOnLeave.set(siteId, { stopped: true, whileWriting: saver.unseenDrop?.whileWriting ?? false });
   }
   for (const [siteId, drop] of droppedOnLeave) {
-    causes.push({ key: causeKey(siteId, "closing-drop"), text: stopText({ dropped: { whileWriting: drop.whileWriting }, status: "saved" }), source: drop, landed: 0, still: () => droppedOnLeave.get(siteId) === drop });
+    causes.push({ key: causeKey(siteId, "closing-drop"), text: stopText({ dropped: { whileWriting: drop.whileWriting }, status: "saved" }), source: drop, settled: 0, still: () => droppedOnLeave.get(siteId) === drop, shown: () => { drop.stopped = true; } });
   }
   return causes;
 }
