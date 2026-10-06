@@ -8,6 +8,7 @@ import {
   Brief,
   canonicalJson,
   CreateInviteBody,
+  DeleteOwnerBody,
   EMPTY_EDITS,
   ERROR_STATUS,
   GOALS,
@@ -18,6 +19,7 @@ import {
   newToken,
   OwnerEdits,
   PatchDraftBody,
+  REDACTED_REASON,
   SECTION_IDS,
   SettingsBody,
   TakedownBody,
@@ -331,6 +333,21 @@ describe("request bodies", () => {
     expect(ApproveBody.safeParse({ htmlSha256: "A".repeat(64) }).success).toBe(false);
   });
 
+  it("DeleteOwnerBody trims the typed email and refuses a missing, empty, too long or extra field", () => {
+    expect(DeleteOwnerBody.parse({ confirmEmail: "  Joe@Example.com " })).toEqual({ confirmEmail: "Joe@Example.com" });
+    expect(DeleteOwnerBody.parse({ confirmEmail: "x".repeat(254) }).confirmEmail).toHaveLength(254);
+    expect(DeleteOwnerBody.safeParse({}).success).toBe(false);
+    expect(DeleteOwnerBody.safeParse({ confirmEmail: "" }).success).toBe(false);
+    expect(DeleteOwnerBody.safeParse({ confirmEmail: "   " }).success).toBe(false);
+    expect(DeleteOwnerBody.safeParse({ confirmEmail: "x".repeat(255) }).success).toBe(false);
+    expect(DeleteOwnerBody.safeParse({ confirmEmail: "a@b.co", extra: 1 }).success).toBe(false);
+    expect(DeleteOwnerBody.safeParse({ confirmEmail: 5 }).success).toBe(false);
+  });
+
+  it("REDACTED_REASON is the text account deletion writes over the admin reasons", () => {
+    expect(REDACTED_REASON).toBe("[deleted with the account]");
+  });
+
   it("TakedownBody and SettingsBody apply their caps", () => {
     expect(TakedownBody.parse({ reason: " phishing " })).toEqual({ reason: "phishing", purgeMedia: false });
     expect(TakedownBody.safeParse({ reason: "" }).success).toBe(false);
@@ -371,6 +388,7 @@ describe("constants", () => {
       "generation.requested", "version.requested", "version.withdrawn", "version.approved", "version.rejected",
       "site.taken_down", "site.restored", "site.indexable_changed", "owner.disabled", "owner.enabled",
       "settings.updated", "admin.login_link_sent",
+      "owner.deletion_started", "owner.deleted", // account deletion, appended last (the 16 before are unchanged)
     ]);
   });
 });
