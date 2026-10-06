@@ -3,7 +3,8 @@
 // keeps Send request in the first screen with "Choose a service" whole, and its head keeps the owner's standing on one
 // line; on iPad portrait widths the footer's credentials sit right under the business name; at 320 px every page, in
 // each of the three letterings, reflows with no text lost, and so does every page at 320-430 px with bigger text (root
-// font-size 125%); and no licence number on any page is split where it fits on one line.
+// font-size 125%); no licence number on any page is split where it fits on one line; and in a browser without :has()
+// every page's link still shows in the header and takes keyboard focus.
 // Every fixture's whole Bold site with the real Bold sheet, served from memory on its own origin (Playwright 1.63
 // BrowserContext.route and Route.fulfill; photos are a gray tile, anything else is aborted), in Chromium and WebKit.
 // The pages run no JavaScript; the checks are script text, since the renderer's TypeScript program has no DOM types.
@@ -40,12 +41,17 @@ afterAll(async () => {
 
 /**
  * A window of `size` in `engine` that serves every site's pages; `visit` opens one and runs `script` once its fonts are
- * ready; `reflow` makes the window `width` wide and runs `script` on the page already open.
+ * ready; `reflow` makes the window `width` wide and runs `script` on the page already open; `press` presses `key` on it
+ * and then runs `script`.
  */
 async function inWindow(
   engine: keyof typeof ENGINES,
   [width, height]: Size,
-  body: (visit: <T>(site: string, path: string, script: string) => Promise<T>, reflow: <T>(width: number, script: string) => Promise<T>) => Promise<void>,
+  body: (
+    visit: <T>(site: string, path: string, script: string) => Promise<T>,
+    reflow: <T>(width: number, script: string) => Promise<T>,
+    press: <T>(key: string, script: string) => Promise<T>,
+  ) => Promise<void>,
 ): Promise<void> {
   const browser = browsers.get(engine);
   if (browser === undefined) throw new Error(`${engine} did not start`);
@@ -69,6 +75,10 @@ async function inWindow(
       },
       async <T,>(to: number, script: string) => {
         await page.setViewportSize({ width: to, height });
+        return page.evaluate<T>(script);
+      },
+      async <T,>(key: string, script: string) => {
+        await page.keyboard.press(key);
         return page.evaluate<T>(script);
       },
     );
@@ -134,6 +144,38 @@ const OPEN_DETAILS = `for (const details of document.querySelectorAll("details:n
 
 /** The bigger-default-text setting: the root font-size at 125%. */
 const BIGGER_TEXT = `document.documentElement.style.setProperty("font-size", "125%", "important");`;
+
+/**
+ * A browser without :has() (Safari before 15.4, Firefox before 121): it drops every style rule whose selector holds
+ * :has(), as it cannot parse it, and applies each `@supports not selector(:has(…))` block, done here on the page's own
+ * sheets through the CSSOM.
+ */
+const WITHOUT_HAS = `(() => {
+  const walk = (list) => {
+    for (let i = list.cssRules.length - 1; i >= 0; i--) {
+      const rule = list.cssRules[i];
+      if (rule instanceof CSSStyleRule && rule.selectorText.includes(":has(")) list.deleteRule(i);
+      else if (rule instanceof CSSSupportsRule && /^not selector\\(:has\\(/.test(rule.conditionText)) {
+        const inner = [...rule.cssRules].map((r) => r.cssText);
+        list.deleteRule(i);
+        for (const text of inner.reverse()) list.insertRule(text, i);
+      } else if (rule.cssRules !== undefined) walk(rule);
+    }
+  };
+  for (const sheet of document.styleSheets) walk(sheet);
+})()`;
+
+/** The pages, of `paths`, that no visible header link inside the window leads to. */
+const UNSHOWN_PAGES = (paths: readonly string[]) => `${JSON.stringify(paths)}.filter((path) => ![...document.querySelectorAll("header a")].some((a) => {
+  const box = a.getBoundingClientRect();
+  return a.getAttribute("href") === path && a.checkVisibility({ visibilityProperty: true }) && box.width > 0 && box.height > 0 && box.left >= 0 && box.right <= innerWidth;
+}))`;
+
+/** Where keyboard focus is: the address of a link in the header, or "". */
+const FOCUSED_HEADER_LINK = `(document.activeElement?.closest("header a")?.getAttribute("href") ?? "")`;
+
+/** The key that moves keyboard focus to the next link: Playwright's WebKit on macOS skips links on Tab (as Safari does by default). */
+const NEXT_FOCUS_KEY = (engine: keyof typeof ENGINES) => (engine === "WebKit" && process.platform === "darwin" ? "Alt+Tab" : "Tab");
 
 /** No CSS animation or transition runs, so every box is measured where it comes to rest. */
 const NO_MOTION = `document.head.append(Object.assign(document.createElement("style"), { textContent: "*, ::before, ::after { animation: none !important; transition: none !important; }" }));`;
@@ -321,6 +363,31 @@ describe.each(Object.keys(ENGINES) as Array<keyof typeof ENGINES>)("Bold's licen
         }
       }
     });
+    expect(wrong).toEqual([]);
+  }, 300_000);
+});
+
+// Below 75rem the pages are behind the menu, whose sheet opens through :has() (continuation 6); a browser without
+// :has() would keep them out of reach. Every page of every fixture, at phone and tablet widths, with :has() taken away:
+// every page's link shows in the header and keyboard focus reaches it (WCAG 2.4.5, 2.1.1).
+const WITHOUT_HAS_WIDTHS = [320, 390, 768] as const;
+describe.each(Object.keys(ENGINES) as Array<keyof typeof ENGINES>)("Bold's page links without :has() in %s", (engine) => {
+  it(`show every page's link in the header and let keyboard focus reach it, on every page of every fixture at ${WITHOUT_HAS_WIDTHS.join(", ")} px`, async () => {
+    const wrong: string[] = [];
+    for (const width of WITHOUT_HAS_WIDTHS) {
+      await inWindow(engine, [width, 844], async (visit, _reflow, press) => {
+        for (const name of FIXTURES) {
+          const paths = (SITES.get(name) ?? []).map((p) => p.path);
+          for (const path of paths) {
+            const unshown = await visit<string[]>(name, path, `(() => { ${WITHOUT_HAS}; return ${UNSHOWN_PAGES(paths)}; })()`);
+            for (const other of unshown) wrong.push(`${name} ${path} at ${width}: no visible header link to ${other}`);
+            const reached = new Set<string>();
+            for (let step = 0; step < 20; step++) reached.add(await press<string>(NEXT_FOCUS_KEY(engine), FOCUSED_HEADER_LINK));
+            for (const other of paths.filter((p) => !reached.has(p))) wrong.push(`${name} ${path} at ${width}: keyboard focus never reaches a header link to ${other}`);
+          }
+        }
+      });
+    }
     expect(wrong).toEqual([]);
   }, 300_000);
 });

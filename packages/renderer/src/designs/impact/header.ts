@@ -7,7 +7,8 @@
 // history entry, and Back from another page never lands on a URL that reopens it (A16; a :target menu did). Its
 // toggle sits in the Main navigation with the inline links; the sheet it opens (impact.css: shown while the menu is
 // open) follows that navigation and holds its own, "Main menu", with the pages only, then Call and the call to action
-// outside any navigation, so a navigation landmark holds page links alone (moderator ruling, 2026-10-06).
+// outside any navigation, so a navigation landmark holds page links alone (moderator ruling, 2026-10-06). The sheet's
+// nav is labelled "Main menu" so the shared e2e helpers, which match the name "Main" as a case-insensitive substring, find it.
 // The current page's link carries aria-current="page" and a slanted bar, so it is marked by more than colour
 // (WCAG 1.4.1). On Contact the header's call-to-action button stays a normal button (moderator ruling f).
 import { navItems, pageLink, quoteLink, type RenderContext } from "../../context.ts";

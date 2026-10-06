@@ -421,6 +421,27 @@
       visibility: hidden;
     }
   }
+  /* Without :has() (older browsers) the menu button could not open its sheet: the button hides and the sheet's page
+     links show as a plain list under the header row (Call and the call to action stay in the call bar and header). */
+  @supports not selector(:has(*)) {
+    @media (max-width: 74.99rem) {
+      .header-row {
+        flex-wrap: wrap;
+      }
+      .header-row .menu,
+      .header-row .menu-acts {
+        display: none;
+      }
+      .header-row > .menu-panel {
+        position: static;
+        display: block;
+        order: 3;
+        width: 100%;
+        height: auto;
+        padding: 0;
+      }
+    }
+  }
   @media (min-width: 40rem) {
     .header-call {
       display: flex;
