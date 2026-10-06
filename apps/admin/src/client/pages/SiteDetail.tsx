@@ -22,6 +22,8 @@ interface SiteDetailData {
   site: AdminSiteRow;
   /** When the takedown happened (null while the site is up): Restore sends it back, and a different takedown is refused (A16-4c). */
   takenDownAt: number | null;
+  /** The newest moment the site came back up (null: never restored), read by the server: the up-site take-down form is keyed by it and sends it back. */
+  restoredAt: number | null;
   versions: VersionSummary[];
   generations: Array<GenerationView & { provider: string | null; model: string | null; costMicrousd: number; modelSlot: 0 | 1; attempts: number }>;
   leadCount: number;
@@ -36,12 +38,7 @@ export function SiteDetail({ siteId }: { siteId: string }) {
 }
 
 function SiteScreen({ data, reload }: { data: SiteDetailData; reload: () => Promise<void> }) {
-  const { site, takenDownAt } = data;
-  /**
-   * The state an up site's takedown form is opened for: the moment the site last came back up (its newest "site.restored" history row; the list is
-   * newest first), or none. The site data has no other field for it. A different moment remounts the form, empty and unticked.
-   */
-  const restoredAt = data.audit.find((a) => a.action === "site.restored")?.at ?? null;
+  const { site, takenDownAt, restoredAt } = data;
   const heading = usePageHeading<HTMLHeadingElement>(site.businessName ?? site.slug ?? "Site", "Admin");
   const [message, setMessage] = useState<Message | null>(null);
   const [disableReason, setDisableReason] = useState("");
@@ -172,7 +169,7 @@ function SiteScreen({ data, reload }: { data: SiteDetailData; reload: () => Prom
               <FinishForm key={takenDownAt} takenDownAt={takenDownAt} busy={takingDown} onFinish={(body, answered) => takeDown(body, RE_RUN, answered)} />
             </>
           ) : (
-            <TakedownForm key={`up-${restoredAt ?? "never"}`} busy={takingDown} onTakeDown={(body, answered) => takeDown(body, null, answered)} />
+            <TakedownForm key={`up-${restoredAt ?? "never"}`} restoredAt={restoredAt} busy={takingDown} onTakeDown={(body, answered) => takeDown(body, null, answered)} />
           )}
           {site.live ? (
             <div className="mt-4">

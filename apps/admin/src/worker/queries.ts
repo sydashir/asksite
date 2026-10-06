@@ -34,3 +34,6 @@ export const GENERATION_HISTORY = `SELECT id, site_id, owner_id, kind, status, '
 
 /** A site's audit trail: newest first, at most 100. */
 export const SITE_AUDIT = "SELECT at, actor, action, detail_json FROM audit_log WHERE site_id = ? ORDER BY at DESC, id DESC LIMIT 100";
+
+/** The newest moment the site came back up (its newest site.restored row), or NULL: served by the audit_site (site_id, at) index. */
+export const SITE_LAST_RESTORED = "SELECT MAX(at) AS at FROM audit_log WHERE site_id = ? AND action = 'site.restored'";

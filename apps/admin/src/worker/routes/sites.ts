@@ -2,12 +2,12 @@ import { ApiError, auditStatement, cleanOwnerText, logLine, readJson, runToEnd, 
 import { DisableOwnerBody, IndexableBody, TakedownBody, type AuditRow, type GenerationRow, type SiteVersionRow } from "@asksite/core";
 import { Hono } from "hono";
 import { z } from "zod";
-import { RESTORED_SINCE_OPENED } from "../../messages.ts";
+import { RESTORED_SINCE_OPENED, TAKEN_DOWN_SINCE_OPENED } from "../../messages.ts";
 import type { TakedownView } from "../../settings-view.ts";
 import { mailerEnv, siteWithOwner, toAdminSiteRow, toVersionSummary, type AdminSiteColumns } from "../db.ts";
 import type { AdminDeps, PublishErrorLike } from "../deps.ts";
 import { publishApiError, type PublishAction } from "../publish-errors.ts";
-import { GENERATION_HISTORY, SITE_AUDIT, SITE_LIST, SITE_LIST_TAIL, VERSION_HISTORY } from "../queries.ts";
+import { GENERATION_HISTORY, SITE_AUDIT, SITE_LAST_RESTORED, SITE_LIST, SITE_LIST_TAIL, VERSION_HISTORY } from "../queries.ts";
 import type { AdminEnv } from "../types.ts";
 
 const FILTERS = {
@@ -18,8 +18,11 @@ const FILTERS = {
   all: "1 = 1",
 } as const;
 
-/** The takedown body, plus the moment the admin's page showed the site down (sent only by Finish the takedown), extended here and not in core. */
-const FinishableTakedownBody = TakedownBody.extend({ expectedTakenDownAt: z.number().int().positive().optional() });
+/**
+ * The takedown body, plus the state the admin's page showed, extended here and not in core. Finish the takedown sends expectedTakenDownAt (the moment
+ * its form was opened for). The up-site form sends expectedRestoredAt: the newest site.restored moment its page showed, null when never restored.
+ */
+const StatefulTakedownBody = TakedownBody.extend({ expectedTakenDownAt: z.number().int().positive().optional(), expectedRestoredAt: z.number().int().positive().nullable().optional() });
 
 const SiteFilter = z.enum(["live", "in_review", "taken_down", "draft", "all"]).default("all");
 
@@ -73,16 +76,19 @@ export function siteRoutes(deps: AdminDeps): Hono<AdminEnv> {
   sites.get("/sites/:siteId", async (c) => {
     const db = c.env.DB;
     const site = await siteWithOwner(db, c.req.param("siteId"));
-    const [versions, generations, leads, audit] = await Promise.all([
+    const [versions, generations, leads, audit, restored] = await Promise.all([
       db.prepare(VERSION_HISTORY).bind(site.id).all<Pick<SiteVersionRow, "id" | "number" | "status" | "requested_at" | "reviewed_at" | "review_note">>(),
       db.prepare(GENERATION_HISTORY).bind(site.id).all<GenerationRow>(),
       db.prepare("SELECT COUNT(*) AS n FROM leads WHERE site_id = ?").bind(site.id).first<{ n: number }>(),
       db.prepare(SITE_AUDIT).bind(site.id).all<Pick<AuditRow, "at" | "actor" | "action" | "detail_json">>(),
+      db.prepare(SITE_LAST_RESTORED).bind(site.id).first<{ at: number | null }>(),
     ]);
     return c.json({
       site: toAdminSiteRow(site),
       // The moment the takedown happened, which Restore must send back (A16-4c): a restore refuses a different takedown. AdminSiteRow (core) has no field for it.
       takenDownAt: site.taken_down_at,
+      // The newest moment the site came back up (null: never restored), read by the server so it never depends on the 100-row audit list below. The up-site take-down form is keyed by it and sends it back.
+      restoredAt: restored?.at ?? null,
       versions: versions.results.map(toVersionSummary),
       generations: generations.results.map((g) => ({
         ...deps.generation.toGenerationView(g),
@@ -98,12 +104,19 @@ export function siteRoutes(deps: AdminDeps): Hono<AdminEnv> {
   });
 
   sites.post("/sites/:siteId/takedown", async (c) => {
-    const body = await readJson(c, FinishableTakedownBody);
+    const body = await readJson(c, StatefulTakedownBody);
     const site = await siteWithOwner(c.env.DB, c.req.param("siteId"));
     // A Finish names the takedown its page showed. If the site is not down at EXACTLY that moment (restored, or taken down again, since),
     // refuse before takeDown: this call would take a restored site down again and email the owner. Residual: a restore that lands between
     // this check and takeDown's own lease (milliseconds) is not caught, because Plan 2's takeDown has no expected-moment check.
     if (body.expectedTakenDownAt !== undefined && site.taken_down_at !== body.expectedTakenDownAt) throw new ApiError("conflict", RESTORED_SINCE_OPENED);
+    // The up-site form names the state its page showed (a site that was up, last restored at expectedRestoredAt). A site that is down now, or was restored since,
+    // is another state: refuse before takeDown, which would otherwise treat a stale press on a down site as a re-run with THIS body's purge choice, or email a restored site's owner.
+    if (body.expectedRestoredAt !== undefined) {
+      if (site.taken_down_at !== null) throw new ApiError("conflict", TAKEN_DOWN_SINCE_OPENED);
+      const restored = await c.env.DB.prepare(SITE_LAST_RESTORED).bind(site.id).first<{ at: number | null }>();
+      if ((restored?.at ?? null) !== body.expectedRestoredAt) throw new ApiError("conflict", RESTORED_SINCE_OPENED);
+    }
     // The notice is built before anything changes, so a configuration error (MAILER, APP_ORIGIN) is a 500 that
     // leaves the site up. After the takedown commits the notice is sent inside the same runToEnd and the answer says
     // whether it went out: a takedown is never undone by a failed email, but the admin must learn the owner was not told.

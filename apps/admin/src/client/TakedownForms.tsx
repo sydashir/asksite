@@ -2,8 +2,11 @@ import { useState, type FormEvent } from "react";
 import { ConfirmDialog } from "../../../app/src/client/components/dialog.tsx";
 import { Checkbox, TextArea, TextInput } from "../../../app/src/client/components/fields.tsx";
 
-/** `expectedTakenDownAt` is sent only by Finish the takedown: the moment its form was opened for (the server refuses a site restored since). */
-export type TakedownBody = { reason: string; ownerMessage?: string; purgeMedia: boolean; expectedTakenDownAt?: number };
+/**
+ * `expectedTakenDownAt` is sent only by Finish the takedown: the moment its form was opened for (the server refuses a site restored since).
+ * `expectedRestoredAt` is sent only by the up-site form: the newest restore moment its page showed, null when never restored (the server refuses a site that is down now or was restored since).
+ */
+export type TakedownBody = { reason: string; ownerMessage?: string; purgeMedia: boolean; expectedTakenDownAt?: number; expectedRestoredAt?: number | null };
 
 /** Sends the takedown call and runs `answered` the moment its answer arrives (success or error), before the page reloads: the form resets there, so text typed after the answer is never wiped. */
 export type SendTakedown = (body: TakedownBody, answered: () => void) => Promise<void>;
@@ -22,8 +25,8 @@ const reasonProblem = (value: string): string | null =>
  * (react.dev, "Preserving and Resetting State").
  */
 
-/** The up-site form: takes the site down. `busy`: a takedown call is running, so a press is ignored. */
-export function TakedownForm({ busy, onTakeDown }: { busy: boolean; onTakeDown: SendTakedown }) {
+/** The up-site form: takes the site down. `restoredAt`: the newest restore moment the page showed (null: never restored), sent so the server can refuse a site in another state. `busy`: a takedown call is running, so a press is ignored. */
+export function TakedownForm({ restoredAt, busy, onTakeDown }: { restoredAt: number | null; busy: boolean; onTakeDown: SendTakedown }) {
   const [reason, setReason] = useState("");
   const [ownerMessage, setOwnerMessage] = useState("");
   const [purge, setPurge] = useState(false);
@@ -45,7 +48,7 @@ export function TakedownForm({ busy, onTakeDown }: { busy: boolean; onTakeDown: 
   function confirm() {
     setConfirming(false);
     if (busy) return;
-    void onTakeDown({ reason: reason.trim(), ownerMessage: ownerMessage.trim(), purgeMedia: purge }, () => {
+    void onTakeDown({ reason: reason.trim(), ownerMessage: ownerMessage.trim(), purgeMedia: purge, expectedRestoredAt: restoredAt }, () => {
       setReason("");
       setOwnerMessage("");
       setPurge(false);

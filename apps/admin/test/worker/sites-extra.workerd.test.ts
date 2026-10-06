@@ -2,7 +2,7 @@ import { livePageKey, livePointerKey, newId, versionPageKey } from "@asksite/cor
 import { PAGE_IDS } from "@asksite/site-schema";
 import { describe, expect, it } from "vitest";
 import { LEASE_LOST, RESTORE_LIVE_COPY_FAILED, TAKEDOWN_LEASE_LOST } from "../../src/messages.ts";
-import { GENERATION_HISTORY, SITE_AUDIT, SITE_LIST, VERSION_HISTORY } from "../../src/worker/queries.ts";
+import { GENERATION_HISTORY, SITE_AUDIT, SITE_LAST_RESTORED, SITE_LIST, VERSION_HISTORY } from "../../src/worker/queries.ts";
 import { accessToken, json, useAdminHarness } from "../support/harness.ts";
 
 const h = useAdminHarness();
@@ -832,5 +832,95 @@ describe("the takedown's owner message is cleaned at the route input (lane B fix
     expect((await notice(site.email))?.text.replace(site.email, "")).toBe((await notice(empty.email))?.text.replace(empty.email, ""));
     await h.backgroundDone(takedown(site.siteId));
     await h.backgroundDone(takedown(empty.siteId));
+  });
+});
+
+// I-1 (stale-forms round, DECIDED 2026-10-07): the up-site take-down form names the state its page showed (expectedRestoredAt: the newest site.restored
+// moment, null when the site was never restored). A press that finds the site in another state is refused before takeDown: no purge, no email, no audit row.
+describe("a takedown names the site state its page showed (expectedRestoredAt)", () => {
+  const takedown = (siteId: string) => `/api/admin/sites/${siteId}/takedown`;
+  const DOWN_SINCE = "This site was taken down since you opened this page. Reload to see where it stands now.";
+  const RESTORED_SINCE = "This site was restored since you opened this page. Reload to see where it stands now.";
+  const detail = async (siteId: string) => json<{ takenDownAt: number | null; restoredAt: number | null }>(await h.call("GET", `/api/admin/sites/${siteId}`));
+  const count = async (sql: string, ...values: unknown[]) => (await (await h.db()).prepare(sql).bind(...values).first<{ n: number }>())?.n;
+  const auditRows = (siteId: string) => count("SELECT COUNT(*) AS n FROM audit_log WHERE site_id = ?", siteId);
+  const noticeRows = (email: string) => count("SELECT COUNT(*) AS n FROM dev_outbox WHERE to_addr = ? AND tag = 'site_notice'", email);
+  const downThenRestore = async (siteId: string) => {
+    expect((await h.call("POST", takedown(siteId), { body: { reason: "First report", purgeMedia: false } })).status).toBe(200);
+    await h.backgroundDone(takedown(siteId));
+    expect((await h.call("POST", `/api/admin/sites/${siteId}/restore`, { body: await h.restoreBody(siteId) })).status).toBe(200);
+  };
+
+  it("refuses a site that is down now with the taken-down text (409) and changes nothing: no purge, no email, no audit row", async () => {
+    const site = await liveSite();
+    expect((await h.call("POST", takedown(site.siteId), { body: { reason: "Other admin, keep photos", purgeMedia: false } })).status).toBe(200);
+    await h.backgroundDone(takedown(site.siteId));
+    const rows = await auditRows(site.siteId);
+    const notices = await noticeRows(site.email);
+    const stamp = (await detail(site.siteId)).takenDownAt;
+    const res = await h.call("POST", takedown(site.siteId), { body: { reason: "Stale page", ownerMessage: "Stale message", purgeMedia: true, expectedRestoredAt: null } });
+    expect(res.status).toBe(409);
+    expect(await json(res)).toEqual({ error: { code: "conflict", message: DOWN_SINCE } });
+    await h.backgroundDone(takedown(site.siteId));
+    expect(await auditRows(site.siteId)).toBe(rows);
+    expect(await noticeRows(site.email)).toBe(notices);
+    expect((await detail(site.siteId)).takenDownAt).toBe(stamp);
+  });
+
+  it("refuses a restore moment that differs from the server's newest (409, the restored text) and changes nothing", async () => {
+    const site = await liveSite();
+    await downThenRestore(site.siteId);
+    const restoredAt = (await detail(site.siteId)).restoredAt;
+    expect(restoredAt).toEqual(expect.any(Number));
+    const rows = await auditRows(site.siteId);
+    const notices = await noticeRows(site.email);
+    for (const stale of [null, restoredAt! - 1]) {
+      const res = await h.call("POST", takedown(site.siteId), { body: { reason: "Stale page", ownerMessage: "Stale message", purgeMedia: true, expectedRestoredAt: stale } });
+      expect(res.status).toBe(409);
+      expect(await json(res)).toEqual({ error: { code: "conflict", message: RESTORED_SINCE } });
+    }
+    await h.backgroundDone(takedown(site.siteId));
+    expect(await auditRows(site.siteId)).toBe(rows);
+    expect(await noticeRows(site.email)).toBe(notices);
+    expect((await detail(site.siteId)).takenDownAt).toBeNull();
+  });
+
+  it("takes the site down when the moment matches: null for a never-restored site, the newest restore after a restore", async () => {
+    const never = await liveSite();
+    expect((await detail(never.siteId)).restoredAt).toBeNull();
+    const first = await h.call("POST", takedown(never.siteId), { body: { reason: "Spam report", purgeMedia: false, expectedRestoredAt: null } });
+    expect(first.status).toBe(200);
+    expect(await first.json()).toEqual({ noticeSent: true });
+    await h.backgroundDone(takedown(never.siteId));
+    expect((await detail(never.siteId)).takenDownAt).not.toBeNull();
+
+    const again = await liveSite();
+    await downThenRestore(again.siteId);
+    const { restoredAt } = await detail(again.siteId);
+    const second = await h.call("POST", takedown(again.siteId), { body: { reason: "Spam report", purgeMedia: false, expectedRestoredAt: restoredAt } });
+    expect(second.status).toBe(200);
+    expect(await second.json()).toEqual({ noticeSent: true });
+    await h.backgroundDone(takedown(again.siteId));
+    expect((await detail(again.siteId)).takenDownAt).not.toBeNull();
+  });
+
+  it("keeps today's behaviour for a body with no expectedRestoredAt (Finish and legacy): a re-run on a down site is 200 and sends no notice", async () => {
+    const site = await liveSite();
+    expect((await h.call("POST", takedown(site.siteId), { body: { reason: "Spam report" } })).status).toBe(200);
+    await h.backgroundDone(takedown(site.siteId));
+    const notices = await noticeRows(site.email);
+    const again = await h.call("POST", takedown(site.siteId), { body: { reason: "Finish it", purgeMedia: true } });
+    expect(again.status).toBe(200);
+    expect(await again.json()).toEqual({ noticeSent: null });
+    await h.backgroundDone(takedown(site.siteId));
+    expect(await noticeRows(site.email)).toBe(notices);
+  });
+
+  it("reads the newest restore moment with the audit_site index, not a table scan (EXPLAIN QUERY PLAN)", async () => {
+    const site = await liveSite();
+    const plan = await (await h.db()).prepare(`EXPLAIN QUERY PLAN ${SITE_LAST_RESTORED}`).bind(site.siteId).all<{ detail: string }>();
+    const lines = plan.results.map((r) => r.detail);
+    expect(lines.join("\n")).toContain("USING INDEX audit_site (site_id=?)");
+    expect(lines.join("\n")).not.toMatch(/SCAN audit_log/);
   });
 });

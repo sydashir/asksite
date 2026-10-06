@@ -480,7 +480,7 @@ test("a takedown sends exactly what the admin entered: the reason, the owner mes
   const plain = await liveSite(page);
   await takeDown(page, plain.siteId);
   await expect(page.getByText("Site taken down.", { exact: false })).toBeVisible();
-  expect(bodies).toEqual([{ reason: "Phishing report", ownerMessage: "", purgeMedia: false }]);
+  expect(bodies).toEqual([{ reason: "Phishing report", ownerMessage: "", purgeMedia: false, expectedRestoredAt: null }]);
 
   const purged = await liveSite(page);
   await page.goto(`/sites/${purged.siteId}`);
@@ -492,7 +492,7 @@ test("a takedown sends exactly what the admin entered: the reason, the owner mes
   await expect(dialog).toContainText("its photos are deleted");
   await dialog.getByRole("button", { name: "Take it down" }).click();
   await expect(page.getByText("Site taken down.", { exact: false })).toBeVisible();
-  expect(bodies[1]).toEqual({ reason: "Copyright claim", ownerMessage: "Please send proof of the photos.", purgeMedia: true });
+  expect(bodies[1]).toEqual({ reason: "Copyright claim", ownerMessage: "Please send proof of the photos.", purgeMedia: true, expectedRestoredAt: null });
 });
 
 test("a takedown that errors AFTER the site went down offers the down-site form's Finish, which sends its own reason and the takedown moment and never says the owner was not emailed", async ({ page }) => {
@@ -896,6 +896,55 @@ test("a takedown form filled for an up site is empty again once another admin ha
   await expect(page.getByLabel("Reason for taking it down")).toHaveValue("");
   await expect(page.getByLabel("Message to the owner")).toHaveValue("");
   await expect(page.getByLabel("Also delete this site's photos")).not.toBeChecked();
+});
+
+// I-1 (customer data): the up-site form names the state its page showed, so a press on a stale page is refused, whatever it carries.
+test("a take-down pressed on a page that showed the site up, after another admin took it down and kept the photos, is refused: photos kept, no owner message, no audit row", async ({ page }) => {
+  const site = await liveSite(page);
+  await addPhoto(page, site.siteId);
+  await page.goto(`/sites/${site.siteId}`);
+  await page.getByLabel("Reason for taking it down").fill("A: copyright, delete the photos");
+  await page.getByLabel("Message to the owner").fill("A's message to the owner");
+  await page.getByLabel("Also delete this site's photos").check();
+  expect((await apiTakeDown(page, site.siteId, { reason: "B: keep the photos", purgeMedia: false })).status()).toBe(200);
+  const before = await siteView(page, site.siteId);
+  const notices = await siteNotices(page, site.email);
+  const answer = page.waitForResponse((r) => r.url().includes("/takedown") && r.request().method() === "POST");
+  await page.getByRole("button", { name: "Take the site down" }).click();
+  await page.getByRole("dialog", { name: "Take this site down?" }).getByRole("button", { name: "Take it down" }).click();
+  const res = await answer;
+  expect(res.status()).toBe(409);
+  expect(await res.json()).toEqual({ error: { code: "conflict", message: "This site was taken down since you opened this page. Reload to see where it stands now." } });
+  await expect(page.getByText("This site was taken down since you opened this page. Reload to see where it stands now.")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Restore the site" })).toBeVisible(); // the reload shows B's takedown
+  expect(await uploadsOf(page, site.siteId)).toEqual(KEPT);
+  expect(await siteNotices(page, site.email)).toBe(notices);
+  const after = await siteView(page, site.siteId);
+  expect(after.takenDownAt).toBe(before.takenDownAt);
+  expect(after.audit).toHaveLength(before.audit.length);
+});
+
+test("a take-down pressed on a page that showed the site up, after another admin took it down and restored it, is refused: the restore stands and no email goes out", async ({ page }) => {
+  const site = await liveSite(page);
+  await page.goto(`/sites/${site.siteId}`);
+  await page.getByLabel("Reason for taking it down").fill("A: typed for the first up state");
+  await page.getByLabel("Message to the owner").fill("A's message");
+  expect((await apiTakeDown(page, site.siteId, { reason: "B", purgeMedia: false })).status()).toBe(200);
+  expect((await apiRestore(page, site.siteId, (await siteView(page, site.siteId)).takenDownAt!)).status()).toBe(200);
+  const before = await siteView(page, site.siteId);
+  const notices = await siteNotices(page, site.email);
+  const answer = page.waitForResponse((r) => r.url().includes("/takedown") && r.request().method() === "POST");
+  await page.getByRole("button", { name: "Take the site down" }).click();
+  await page.getByRole("dialog", { name: "Take this site down?" }).getByRole("button", { name: "Take it down" }).click();
+  const res = await answer;
+  expect(res.status()).toBe(409);
+  expect(await res.json()).toEqual({ error: { code: "conflict", message: "This site was restored since you opened this page. Reload to see where it stands now." } });
+  await expect(page.getByText("This site was restored since you opened this page. Reload to see where it stands now.")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Take the site down" })).toBeVisible(); // still up
+  const after = await siteView(page, site.siteId);
+  expect(after.takenDownAt).toBeNull();
+  expect(after.audit).toHaveLength(before.audit.length);
+  expect(await siteNotices(page, site.email)).toBe(notices);
 });
 
 test("ticking the fresh Finish box still deletes the photos of the takedown the page shows", async ({ page }) => {

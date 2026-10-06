@@ -18,6 +18,8 @@ export const TAKEDOWN_LEASE_LOST = "This takedown ran too long and was stopped b
 export const SITE_BUSY = "Another admin action on this site is still running. Try again in a minute.";
 /** Restore found a different takedown than the one the page showed (site_taken_down, reason taken_down_again). */
 export const TAKEN_DOWN_AGAIN = "This site was taken down again since you opened this page. Reload to see where it stands now.";
+/** The up-site take-down form was opened for an up site, and the site is down now (another admin took it down). */
+export const TAKEN_DOWN_SINCE_OPENED = "This site was taken down since you opened this page. Reload to see where it stands now.";
 /** Finish the takedown named a takedown that is no longer the site's (the site was restored since the page showed it down). */
 export const RESTORED_SINCE_OPENED = "This site was restored since you opened this page. Reload to see where it stands now.";
 /** Copy the live pages again succeeded. */
