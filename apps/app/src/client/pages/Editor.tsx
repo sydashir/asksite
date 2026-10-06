@@ -122,7 +122,7 @@ function EditorScreen(props: { siteId: string; site: SiteState; view: SiteView; 
   const [sheets, retrySheets] = useStylesheets();
   const previewDoc = useDeferredValue(doc);
   const pages = useMemo(
-    () => (previewDoc === null || sheets.status !== "ready" ? null : renderPages(previewDoc, { id: siteId, slug: view.slug }, __ROOT_DOMAIN__, sheets.sheets)),
+    () => (previewDoc === null || sheets.status !== "ready" ? null : renderPages(previewDoc, { id: siteId, slug: view.slug }, __ROOT_DOMAIN__, sheets.renderer)),
     [previewDoc, sheets, siteId, view.slug],
   );
   // A change to an answer (Details, Photos) shows the page that draws it: the first page whose sections changed in the new preview (changedPage).

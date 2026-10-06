@@ -70,7 +70,15 @@ export default defineConfig(({ mode }) => {
       ...(mode === "development" ? [localBuildNotDeployable(fileURLToPath(new URL(".", import.meta.url)))] : []),
     ],
     define: { __ROOT_DOMAIN__: JSON.stringify(rootDomain), __SUPPORT_EMAIL__: JSON.stringify(supportEmail), __TURNSTILE_SITE_KEY__: JSON.stringify(siteKey) },
-    build: { outDir: mode === "e2e" ? "dist-e2e" : "dist", target: BUILD_TARGET },
+    build: {
+      outDir: mode === "e2e" ? "dist-e2e" : "dist",
+      target: BUILD_TARGET,
+      // The renderer's modules hold top-level statements the bundler cannot prove pure (`new Intl.Segmenter`, `Object.freeze`),
+      // so without this a static import of one small export (sitePages, FONTS) keeps render.ts and all three designs in the MAIN
+      // bundle, and the lazy chunk (render-chunk.ts) would import them back from it. Nothing there needs to run for its own sake:
+      // used exports still bring their code, and `render` is reached only through the lazy chunk (checked by e2e/bundle.spec.ts).
+      rolldownOptions: { treeshake: { moduleSideEffects: [{ test: /[\\/]packages[\\/]renderer[\\/]src[\\/]/, sideEffects: false }] } },
+    },
     server: { host: "app.localhost", port: 8787, strictPort: true },
     preview: { host: "app.localhost", port: 8787, strictPort: true },
   };

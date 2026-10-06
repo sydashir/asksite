@@ -5,8 +5,10 @@ import { describe, expect, it } from "vitest";
 import { DESIGN_CSS, FIXTURES, loadFixture, stubStylesheets } from "../../../../fixtures/index.ts";
 import { editsForAi, isAllowedKey, withCopy, withServiceDescription } from "../../src/client/lib/edits.ts";
 import { issuesAt } from "../../src/client/lib/messages.ts";
-import { buildPreview, checkDraft, stylesheetLoader } from "../../src/client/lib/preview.ts";
+import { buildPreview, checkDraft, rendererLoader } from "../../src/client/lib/preview.ts";
 import { canMove, listedSections, moveSection, pageRemovedByHiding, sectionHasContent, sectionOfCopy, sectionsByPage, setHidden } from "../../src/client/lib/sections.ts";
+
+const REAL = { render, sheets: DESIGN_CSS };
 
 // The renderer's DOM ids for each section (Plan 1 Task 10 DOM_ID).
 const DOM_ID: Record<SectionId, string> = {
@@ -196,7 +198,7 @@ describe("edits and preview", () => {
     if (good.ok) expect(good.doc.copy.heroHeadline).toBe(fixture.copy.heroHeadline);
     const edits = withCopy(ai, EMPTY_EDITS, (c) => ({ ...c, heroHeadline: "Call 555" }));
     const bad = checkDraft(ai, { facts: fixture.facts, brief: {}, edits });
-    const viaBuild = buildPreview(ai, { facts: fixture.facts, brief: {}, edits }, site, "localhost:8789", DESIGN_CSS);
+    const viaBuild = buildPreview(ai, { facts: fixture.facts, brief: {}, edits }, site, "localhost:8789", REAL);
     expect(bad.ok).toBe(false);
     expect(viaBuild.ok).toBe(false);
     if (!bad.ok && !viaBuild.ok) expect(viaBuild.issues).toEqual(bad.issues);
@@ -207,7 +209,7 @@ describe("edits and preview", () => {
 
   it("renders the draft exactly as composeDocument + render would, or returns the issues", () => {
     const edits = withCopy(ai, EMPTY_EDITS, (c) => ({ ...c, heroHeadline: "Drains   cleared\nfast" }));
-    const preview = buildPreview(ai, { facts: fixture.facts, brief: {}, edits }, site, "localhost:8789", DESIGN_CSS);
+    const preview = buildPreview(ai, { facts: fixture.facts, brief: {}, edits }, site, "localhost:8789", REAL);
     expect(preview.ok).toBe(true);
     if (preview.ok) {
       const html = (page: string) => preview.pages.find((p) => p.page === page)?.html ?? "";
@@ -219,20 +221,20 @@ describe("edits and preview", () => {
       const expected = SiteDocument.parse(composeDocument(fixture.facts, ai, edits));
       expect(listedSections(preview.doc)).toEqual(listedSections(expected));
     }
-    const bad = buildPreview(ai, { facts: fixture.facts, brief: {}, edits: withCopy(ai, EMPTY_EDITS, (c) => ({ ...c, heroHeadline: "Call 555" })) }, { id: "x", slug: null }, "localhost:8789", DESIGN_CSS);
+    const bad = buildPreview(ai, { facts: fixture.facts, brief: {}, edits: withCopy(ai, EMPTY_EDITS, (c) => ({ ...c, heroHeadline: "Call 555" })) }, { id: "x", slug: null }, "localhost:8789", REAL);
     expect(bad.ok).toBe(false);
     if (!bad.ok) expect(bad.issues[0]?.path).toEqual(["copy", "heroHeadline"]);
   });
 
   it("renders the canonical addresses of the site's own host once a web address is chosen", () => {
-    const preview = buildPreview(ai, { facts: fixture.facts, brief: {}, edits: EMPTY_EDITS }, { id: site.id, slug: "joes-plumbing" }, "localhost:8789", DESIGN_CSS);
+    const preview = buildPreview(ai, { facts: fixture.facts, brief: {}, edits: EMPTY_EDITS }, { id: site.id, slug: "joes-plumbing" }, "localhost:8789", REAL);
     expect(preview.ok).toBe(true);
     if (preview.ok) expect(preview.pages[0]?.html).toContain('<link rel="canonical" href="https://joes-plumbing.localhost:8789/">');
   });
 
   it("counts an empty closing time once (issuesToShow, Task 12 I-1 ruling (a))", () => {
     const facts = { ...fixture.facts, hours: [{ days: ["Monday"], opens: "08:00", closes: "" }] };
-    const preview = buildPreview(ai, { facts, brief: {}, edits: EMPTY_EDITS }, site, "localhost:8789", DESIGN_CSS);
+    const preview = buildPreview(ai, { facts, brief: {}, edits: EMPTY_EDITS }, site, "localhost:8789", REAL);
     expect(preview.ok).toBe(false);
     if (!preview.ok) expect(issuesAt(preview.issues, ["facts", "hours", 0, "closes"]).map((i) => i.code)).toEqual(["invalid_format"]);
   });
@@ -244,7 +246,7 @@ describe("edits and preview", () => {
     const refinedAi = { ...ai, draft: { ...ai.draft, theme: { ...ai.draft.theme, design: "refined" as const } } };
     expect(ai.draft.theme.design).toBe("impact");
     for (const [aiDraft, edits, design, other] of [[ai, EMPTY_EDITS, "impact", "modern"], [refinedAi, EMPTY_EDITS, "refined", "impact"], [ai, modern, "modern", "impact"]] as const) {
-      const preview = buildPreview(aiDraft, draft(edits), site, "localhost:8789", sheets);
+      const preview = buildPreview(aiDraft, draft(edits), site, "localhost:8789", { render, sheets });
       expect(preview.ok).toBe(true);
       if (preview.ok) {
         expect(preview.doc.theme.design).toBe(design);
@@ -257,37 +259,40 @@ describe("edits and preview", () => {
   });
 });
 
-describe("the stylesheet loader (P4-20 amendment)", () => {
+describe("the renderer loader (P4-20 amendment; render joined the lazy chunk 2026-10-06)", () => {
   const sheets: DesignStylesheets = stubStylesheets();
+  const renderer = { render, sheets };
 
   it("imports the sheets at most once, however often it is asked", async () => {
     let imports = 0;
-    const load = stylesheetLoader(async () => {
+    const load = rendererLoader(async () => {
       imports += 1;
-      return { DESIGN_CSS: sheets };
+      return { RENDERER: renderer };
     });
     const [first, second] = await Promise.all([load(), load()]);
-    expect(first).toBe(sheets);
-    expect(second).toBe(sheets);
-    expect(await load()).toBe(sheets);
+    expect(first).toBe(renderer);
+    expect(second).toBe(renderer);
+    expect(await load()).toBe(renderer);
     expect(imports).toBe(1);
   });
 
   it("keeps no failed import, so trying again imports again", async () => {
     let imports = 0;
-    const load = stylesheetLoader(async () => {
+    const load = rendererLoader(async () => {
       imports += 1;
       if (imports === 1) throw new TypeError("Failed to fetch dynamically imported module");
-      return { DESIGN_CSS: sheets };
+      return { RENDERER: renderer };
     });
     await expect(load()).rejects.toThrow("Failed to fetch dynamically imported module");
-    expect(await load()).toBe(sheets);
-    expect(await load()).toBe(sheets);
+    expect(await load()).toBe(renderer);
+    expect(await load()).toBe(renderer);
     expect(imports).toBe(2);
   });
 
-  it("hands over the real DESIGN_CSS of @asksite/site-css by default", async () => {
-    expect(await stylesheetLoader()()).toBe(DESIGN_CSS);
+  it("hands over the real render and DESIGN_CSS of @asksite/site-css by default", async () => {
+    const real = await rendererLoader()();
+    expect(real.sheets).toBe(DESIGN_CSS);
+    expect(real.render).toBe(render);
   });
 });
 

@@ -1,15 +1,15 @@
-import type { DesignStylesheets } from "@asksite/renderer";
 import type { FlushResult } from "./autosave.ts";
+import type { Renderer } from "./preview.ts";
 
-/** Where the preview's design stylesheets stand: loading (the lazy chunk), ready, or failed (counted, so a repeat is told from a first). */
-export type SheetsState = { status: "loading"; failures: number } | { status: "ready"; sheets: DesignStylesheets } | { status: "failed"; failures: number };
-export type SheetsEvent = { type: "retry" } | { type: "loaded"; sheets: DesignStylesheets } | { type: "failed" };
+/** Where the preview's renderer and design stylesheets stand: loading (the lazy chunk), ready, or failed (counted, so a repeat is told from a first). */
+export type SheetsState = { status: "loading"; failures: number } | { status: "ready"; renderer: Renderer } | { status: "failed"; failures: number };
+export type SheetsEvent = { type: "retry" } | { type: "loaded"; renderer: Renderer } | { type: "failed" };
 
 export function sheetsReducer(state: SheetsState, event: SheetsEvent): SheetsState {
   const failures = state.status === "ready" ? 0 : state.failures;
   switch (event.type) {
     case "loaded":
-      return { status: "ready", sheets: event.sheets };
+      return { status: "ready", renderer: event.renderer };
     case "failed":
       return { status: "failed", failures: failures + 1 };
     case "retry":
@@ -18,13 +18,13 @@ export function sheetsReducer(state: SheetsState, event: SheetsEvent): SheetsSta
 }
 
 /**
- * Asks the loader for the sheets and reports the answer, unless the returned function was called first (the screen went
+ * Asks the loader for the renderer and reports the answer, unless the returned function was called first (the screen went
  * away). The UI is driven only by the loader's rejections: nothing listens for vite:preloadError, and nothing prevents its default.
  */
-export function startSheetsLoad(load: () => Promise<DesignStylesheets>, dispatch: (event: SheetsEvent) => void): () => void {
+export function startSheetsLoad(load: () => Promise<Renderer>, dispatch: (event: SheetsEvent) => void): () => void {
   let live = true;
   load().then(
-    (sheets) => live && dispatch({ type: "loaded", sheets }),
+    (renderer) => live && dispatch({ type: "loaded", renderer }),
     () => live && dispatch({ type: "failed" }),
   );
   return () => {

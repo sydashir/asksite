@@ -1,5 +1,5 @@
 import { composeDocument, previewFormActionUrl, previewSiteUrl, toIssues, type CurrentAi, type Issue, type OwnerEdits } from "@asksite/core";
-import { render, type DesignStylesheets, type RenderedSitePage } from "@asksite/renderer";
+import type { DesignStylesheets, RenderedSite, RenderedSitePage, RenderOptions } from "@asksite/renderer";
 import { SiteDocument } from "@asksite/site-schema";
 import { issuesToShow } from "./messages.ts";
 
@@ -23,35 +23,43 @@ export function checkDraft(ai: CurrentAi, draft: DraftParts): Checked {
   return parsed.success ? { ok: true, doc: parsed.data } : { ok: false, issues: issuesToShow(toIssues(parsed.error)) };
 }
 
-/** The pages of a valid document, from the design sheets loadStylesheets gave (Home first, one to five of them). */
-export function renderPages(doc: SiteDocument, site: { id: string; slug: string | null }, root: string, stylesheets: DesignStylesheets): readonly RenderedSitePage[] {
-  return render(doc, { stylesheets, formAction: previewFormActionUrl(root, site.slug, site.id), siteUrl: previewSiteUrl(root, site.slug) }).pages;
+/**
+ * What the lazy chunk gives: Plan 1's pure `render` and the design sheets it needs. They load together, as one chunk, because
+ * `render` holds every design's code (about 67 KB raw) and only the preview draws pages.
+ */
+export interface Renderer {
+  readonly render: (doc: SiteDocument, options: RenderOptions) => RenderedSite;
+  readonly sheets: DesignStylesheets;
+}
+
+/** The pages of a valid document, drawn by the renderer loadRenderer gave (Home first, one to five of them). */
+export function renderPages(doc: SiteDocument, site: { id: string; slug: string | null }, root: string, renderer: Renderer): readonly RenderedSitePage[] {
+  return renderer.render(doc, { stylesheets: renderer.sheets, formAction: previewFormActionUrl(root, site.slug, site.id), siteUrl: previewSiteUrl(root, site.slug) }).pages;
 }
 
 /**
  * The exact pages the draft would publish (Home first, one to five of them), rendered in the browser with Plan 1's
- * pure render() (§3.1 step 5), from the design sheets loadStylesheets gave. The form action is previewFormActionUrl
+ * pure render() (§3.1 step 5), from the renderer loadRenderer gave. The form action is previewFormActionUrl
  * and the site address previewSiteUrl (the site's own, or the reserved "preview" host before a web address is chosen);
  * the sandboxed preview can never submit the form or follow a link.
  */
-export function buildPreview(ai: CurrentAi, draft: DraftParts, site: { id: string; slug: string | null }, root: string, stylesheets: DesignStylesheets): Preview {
+export function buildPreview(ai: CurrentAi, draft: DraftParts, site: { id: string; slug: string | null }, root: string, renderer: Renderer): Preview {
   const checked = checkDraft(ai, draft);
-  return checked.ok ? { ok: true, doc: checked.doc, pages: renderPages(checked.doc, site, root, stylesheets) } : checked;
+  return checked.ok ? { ok: true, doc: checked.doc, pages: renderPages(checked.doc, site, root, renderer) } : checked;
 }
 
-export type ImportStylesheets = () => Promise<{ readonly DESIGN_CSS: DesignStylesheets }>;
+export type ImportRenderer = () => Promise<{ readonly RENDERER: Renderer }>;
 
 /**
- * Loads every design's stylesheet on first use. The dynamic import keeps @asksite/site-css out of the
- * main bundle, in one lazy chunk (P4-20 amendment, option A). A successful import is kept, so the
- * importer runs at most once; a failed one is not, so asking again (the preview's "try again") calls
- * the importer again.
+ * Loads `render` and every design's stylesheet on first use. The dynamic import keeps them (and @asksite/site-css) out of the
+ * main bundle, in one lazy chunk (P4-20 amendment, option A; render joined it on 2026-10-06). A successful import is kept, so the
+ * importer runs at most once; a failed one is not, so asking again (the preview's "try again") calls the importer again.
  */
-export function stylesheetLoader(importSheets: ImportStylesheets = () => import("@asksite/site-css")): () => Promise<DesignStylesheets> {
-  let loaded: Promise<DesignStylesheets> | null = null;
+export function rendererLoader(importRenderer: ImportRenderer = () => import("./render-chunk.ts")): () => Promise<Renderer> {
+  let loaded: Promise<Renderer> | null = null;
   return () => {
-    loaded ??= importSheets().then(
-      (sheets) => sheets.DESIGN_CSS,
+    loaded ??= importRenderer().then(
+      (chunk) => chunk.RENDERER,
       (error: unknown) => {
         loaded = null;
         throw error;
@@ -62,4 +70,4 @@ export function stylesheetLoader(importSheets: ImportStylesheets = () => import(
 }
 
 /** The app's one loader, shared by every preview. */
-export const loadStylesheets = stylesheetLoader();
+export const loadRenderer = rendererLoader();

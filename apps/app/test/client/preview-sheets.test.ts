@@ -1,16 +1,16 @@
-import type { DesignStylesheets } from "@asksite/renderer";
+import { render } from "@asksite/renderer";
 import { describe, expect, it } from "vitest";
 import { stubStylesheets } from "../../../../fixtures/index.ts";
-import { stylesheetLoader } from "../../src/client/lib/preview.ts";
+import { rendererLoader, type Renderer } from "../../src/client/lib/preview.ts";
 import { PREVIEW_STILL_FAILING, PREVIEW_FIRST_FAILURE, SAVED_NOTE, previewFailureText, reloadAfterSave, sheetsReducer, startSheetsLoad, type SheetsEvent, type SheetsState } from "../../src/client/lib/preview-sheets.ts";
 
-const sheets: DesignStylesheets = stubStylesheets();
+const renderer: Renderer = { render, sheets: stubStylesheets() };
 const failing = () => new TypeError("Failed to fetch dynamically imported module");
 
 describe("the preview's stylesheet state (task-17-extra B3)", () => {
   it("starts loading, becomes ready with the sheets, and counts each failure", () => {
     const start: SheetsState = { status: "loading", failures: 0 };
-    expect(sheetsReducer(start, { type: "loaded", sheets })).toEqual({ status: "ready", sheets });
+    expect(sheetsReducer(start, { type: "loaded", renderer })).toEqual({ status: "ready", renderer });
     const once = sheetsReducer(start, { type: "failed" });
     expect(once).toEqual({ status: "failed", failures: 1 });
     expect(sheetsReducer(sheetsReducer(once, { type: "retry" }), { type: "failed" })).toEqual({ status: "failed", failures: 2 });
@@ -33,10 +33,10 @@ describe("the preview's stylesheet state (task-17-extra B3)", () => {
 
   it("runs a failing importer through the real loader: failure, failure, then Try again succeeds (a failed import is not kept)", async () => {
     let imports = 0;
-    const load = stylesheetLoader(async () => {
+    const load = rendererLoader(async () => {
       imports += 1;
       if (imports <= 2) throw failing();
-      return { DESIGN_CSS: sheets };
+      return { RENDERER: renderer };
     });
     let state: SheetsState = { status: "loading", failures: 0 };
     const settled = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0));
@@ -53,13 +53,13 @@ describe("the preview's stylesheet state (task-17-extra B3)", () => {
     dispatch({ type: "retry" });
     startSheetsLoad(load, dispatch);
     await settled();
-    expect(state).toEqual({ status: "ready", sheets });
+    expect(state).toEqual({ status: "ready", renderer });
     expect(imports).toBe(3);
   });
 
   it("ignores the answer of a load that was cancelled (the screen went away)", async () => {
     const events: SheetsEvent[] = [];
-    const cancel = startSheetsLoad(async () => sheets, (event) => events.push(event));
+    const cancel = startSheetsLoad(async () => renderer, (event) => events.push(event));
     cancel();
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(events).toEqual([]);
