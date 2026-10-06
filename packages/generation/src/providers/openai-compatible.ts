@@ -2,7 +2,7 @@ import { isSafeUrl } from "@asksite/site-schema";
 import { modelSettings } from "../models.ts";
 import { ProviderError, type ModelProvider, type ModelRequest, type ModelResponse, type ProviderErrorKind } from "../provider.ts";
 import { dropNulls, toWireSchema } from "../wire-schema.ts";
-import { checkApiKey, sharesKeyFragment, statusKind, tokenCount } from "./shared.ts";
+import { checkApiKey, retryAfterSeconds, sharesKeyFragment, statusKind, tokenCount } from "./shared.ts";
 
 export interface OpenAICompatibleOptions {
   /** e.g. https://api.cloudflare.com/client/v4/accounts/<id>/ai/v1 or https://router.huggingface.co/v1 */
@@ -179,7 +179,7 @@ export class OpenAICompatibleProvider implements ModelProvider {
     if (!response.ok) {
       const error = own(data, "error");
       // Our abort while the body was read is a timeout, whatever the status (P3-11 a).
-      throw this.#failure(req.signal.aborted ? "timeout" : kindOf(response.status, error), response.status, error);
+      throw this.#failure(req.signal.aborted ? "timeout" : kindOf(response.status, error), response.status, error, retryAfterSeconds(response.headers.get("retry-after")));
     }
     if (data === undefined) throw failedAnswer(req.signal, "OpenAI-compatible response was not JSON");
     const choices = own(data, "choices");
@@ -210,11 +210,11 @@ export class OpenAICompatibleProvider implements ModelProvider {
    * (OpenAI-style bodies: error.type, error.code): never its text, the key or headers. A token that shares
    * a fragment with the key (sharesKeyFragment) is left out too.
    */
-  #failure(kind: ProviderErrorKind, status: number, error: unknown): ProviderError {
+  #failure(kind: ProviderErrorKind, status: number, error: unknown, retryAfter?: number): ProviderError {
     const tokens = new Set<string>();
     for (const token of [own(error, "type"), own(error, "code")]) {
       if (typeof token === "string" && SAFE_ERROR_TOKEN.test(token) && !sharesKeyFragment(token, this.#apiKey)) tokens.add(token);
     }
-    return new ProviderError(kind, `OpenAI-compatible request failed (${[kind, `HTTP ${status}`, ...tokens].join(", ")})`);
+    return new ProviderError(kind, `OpenAI-compatible request failed (${[kind, `HTTP ${status}`, ...tokens].join(", ")})`, retryAfter === undefined ? {} : { retryAfterSeconds: retryAfter });
   }
 }

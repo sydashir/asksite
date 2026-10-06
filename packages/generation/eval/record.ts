@@ -1,3 +1,5 @@
+import { sharesKeyFragment } from "../src/providers/shared.ts";
+
 /** One live provider response, saved as a test fixture (Task 15) and replayed offline by recorded.test.ts. */
 export interface RecordedResponse {
   provider: "anthropic" | "openai-compatible";
@@ -77,12 +79,15 @@ export interface SecretFinding {
  * "authorized". Returns null for a clean fixture. The result names a rule and a header; the value never leaves here.
  */
 export function findRequestSecret(text: string, headers: readonly RequestHeader[], apiKey?: string): SecretFinding | null {
-  if (apiKey !== undefined && apiKey !== "" && text.includes(apiKey)) return { rule: 1, name: "API key" };
+  // A response that shares a run of KEY_FRAGMENT characters with a secret is refused too (sharesKeyFragment, as the adapters
+  // leave such a token out of an error message): a provider may echo part of a key, or an encoded form of it.
+  if (apiKey !== undefined && apiKey !== "" && (text.includes(apiKey) || sharesKeyFragment(text, apiKey))) return { rule: 1, name: "API key" };
   for (const [rawName, value] of headers) {
     const name = rawName.toLowerCase();
     if (!isAuthBearing(name)) continue;
     const bare = value.replace(/^Bearer\s+/i, "");
-    if ((value !== "" && text.includes(value)) || (bare !== "" && text.includes(bare))) return { rule: 1, name };
+    // The fragment check reads the bare value only: the "Bearer " prefix is no secret, and a run that holds it would match plain prose.
+    if ((value !== "" && text.includes(value)) || (bare !== "" && (text.includes(bare) || sharesKeyFragment(text, bare)))) return { rule: 1, name };
   }
   const lower = `${text}\n${decodedStrings(text)}`.toLowerCase();
   const names = new Set<string>([...ALWAYS_NAMES, ...headers.map(([name]) => name.toLowerCase())]);

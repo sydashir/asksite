@@ -9,6 +9,9 @@ const log = (entry: Record<string, unknown>): void => console.log(JSON.stringify
 const isJob = (body: unknown): body is GenerationJob =>
   typeof body === "object" && body !== null && (body as { v?: unknown }).v === 1 && typeof (body as { generationId?: unknown }).generationId === "string" && isId((body as { generationId: string }).generationId);
 
+/** 15 s after the first failed delivery, 30 s after the second; never more than 60 s. */
+const retryDelaySeconds = (attempts: number): number => Math.min(15 * 2 ** Math.max(0, attempts - 1), 60);
+
 export default {
   /** asksite-generation consumer, one message per batch (§4.7). */
   async queue(batch: MessageBatch<unknown>, env: Env): Promise<void> {
@@ -24,13 +27,19 @@ export default {
         log({ event: "generation.job", ...report });
         // One more line for each flag someone must follow up (P3-4a, Task 9 C); `model` is the one the job stored.
         if (report.usageMissing) log({ event: "usage_missing", generationId, provider: report.provider, model: report.model });
+        // A provider error only a human can fix: a missing, wrong or revoked key, billing or the spend cap ("auth"), or a request the
+        // provider or our configuration refuses ("bad_request": an unpriced or unknown model, a bad base URL). Not our input-size guard.
+        if ((report.providerErrorKind === "auth" || report.providerErrorKind === "bad_request") && !report.inputBoundRefused)
+          log({ event: "generation.needs_human", generationId, providerErrorKind: report.providerErrorKind, provider: report.provider });
         if (report.costUnknown) log({ event: "generation.internal", generationId, costUnknown: true });
         message.ack();
       } catch {
         // Only a failure before the claim lands here (the job never throws after it): let the
         // queue retry; after max_retries the message dead-letters and the sweeper ends the row.
         log({ event: "generation.claim_failed", generationId });
-        message.retry();
+        // Backs off 15 s, then 30 s (Queues: msg.retry({ delaySeconds }) with the message's attempts, "Batching and retries"),
+        // so a D1 outage that lasts a few seconds is not retried into at once; max_retries 2 and the dead-letter queue are unchanged.
+        message.retry({ delaySeconds: retryDelaySeconds(message.attempts) });
       }
     }
   },

@@ -3,7 +3,7 @@ import type { D1Database, D1PreparedStatement, Queue } from "@cloudflare/workers
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { generationAllowance, requestGeneration, type RequestGenerationResult } from "../src/request.ts";
 import { utcDayStart } from "../src/settings.ts";
-import { clearTables, getGeneration, insertGeneration, seedOwnerSite, setSetting, startLocalD1, type LocalD1 } from "./support/d1.ts";
+import { clearTables, failingRuns, getGeneration, insertGeneration, seedOwnerSite, setSetting, startLocalD1, type LocalD1 } from "./support/d1.ts";
 import { FULL_SNAPSHOT } from "./support/samples.ts";
 
 const NOW = Date.UTC(2026, 8, 24, 15);
@@ -187,6 +187,19 @@ describe("requestGeneration", () => {
     expect(row).toEqual({ status: "failed", error_code: "internal", finished_at: NOW });
     const retry = await requestGeneration(env(queue().q), input());
     expect(retry.ok && retry.generation.kind).toBe("first");
+  });
+
+  it("retries the failed-send UPDATE once on a D1 transient error, so the site is freed; any other error is not retried", async () => {
+    const flaky = failingRuns(db, /SET status = 'failed', error_code = 'internal'/, "D1_ERROR: storage caused object to be reset");
+    expect(await requestGeneration({ ...env(queue(true).q), DB: flaky.db }, input())).toEqual({ ok: false, code: "internal" });
+    expect(flaky.runs()).toBe(2);
+    expect(await db.prepare("SELECT status, error_code FROM generations").first()).toEqual({ status: "failed", error_code: "internal" });
+    await clearTables(db);
+    await seedOwnerSite(db, "o1", "s1");
+    const broken = failingRuns(db, /SET status = 'failed', error_code = 'internal'/, "D1_ERROR: no such table: nope");
+    expect(await requestGeneration({ ...env(queue(true).q), DB: broken.db }, input())).toEqual({ ok: false, code: "internal" });
+    expect(broken.runs()).toBe(1);
+    expect(await db.prepare("SELECT status FROM generations").first()).toEqual({ status: "queued" });
   });
 
   it("leaves a row the job already claimed alone when the send then fails: the failed-send UPDATE ends only a queued row (P3-16 fix 4 b)", async () => {

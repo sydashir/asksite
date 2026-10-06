@@ -789,3 +789,17 @@ describe("OpenAICompatibleProvider: the fetch call and stop mapping (P3-11 s)", 
     expect(res).toStrictEqual({ json: undefined, model: "@cf/openai/gpt-oss-120b", usage: { inputTokens: 2900, outputTokens: 1300 }, stop });
   });
 });
+
+describe("OpenAICompatibleProvider: Retry-After (item 6)", () => {
+  const failure = async (status: number, headers: Record<string, string>): Promise<ProviderError> => {
+    const fetchImpl = async (): Promise<Response> => new Response(JSON.stringify({ error: { type: "rate_limit" } }), { status, headers: { "content-type": "application/json", ...headers } });
+    const provider = new OpenAICompatibleProvider({ baseUrl: "https://x.example/v1", apiKey: "secret-key-1", model: "m", fetch: fetchImpl });
+    return (await provider.generate({ system: "s", user: "u", jsonSchema: AI_DRAFT_JSON_SCHEMA, maxOutputTokens: 10, signal: new AbortController().signal }).catch((e: unknown) => e)) as ProviderError;
+  };
+
+  it("carries a Retry-After in seconds, and nothing for a date or no header", async () => {
+    expect(await failure(429, { "retry-after": "20" })).toMatchObject({ kind: "rate_limited", retryAfterSeconds: 20 });
+    expect(Object.hasOwn(await failure(429, { "retry-after": "Wed, 21 Oct 2026 07:28:00 GMT" }), "retryAfterSeconds")).toBe(false);
+    expect(Object.hasOwn(await failure(429, {}), "retryAfterSeconds")).toBe(false);
+  });
+});

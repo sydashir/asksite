@@ -69,8 +69,9 @@ export function capsRepair(fill: string): Issue[] {
  * is the euro sign (U+20AC) except the service names, which are U+1F600: the prompt never cuts service
  * names at the model boundary, because bindServiceNames needs them exact (P3-7 Z1), so there a 4-byte
  * character costs its full 4 bytes, 1 more than the euro sign per counted character (12 x 40 = 480 bytes).
- * With them the snapshot is the true maximum: 66,696 bytes, 68,696 with PROMPT_OVERHEAD_TOKENS, leaving
- * 1,304 bytes of room under MAX_INPUT_TOKENS (measured at P3-7; re-measured after the forbidden word forms were named).
+ * With them the snapshot is the true maximum: 66,696 bytes, 68,696 with PROMPT_OVERHEAD_TOKENS (measured at P3-7). The repair
+ * attempt, which adds CAPS_REPAIR, is the largest prompt: inputBound 69,368, so 632 bytes of room under MAX_INPUT_TOKENS
+ * (measured 2026-10-06 after the forbidden word forms were named; the first attempt has 1,304).
  */
 export const CAPS_SNAPSHOT: GenerationInputSnapshot = capsSnapshot("€", "\u{1F600}");
 export const CAPS_REPAIR: Issue[] = capsRepair("€");

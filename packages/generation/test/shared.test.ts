@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { ProviderError } from "../src/provider.ts";
-import { checkApiKey, sharesKeyFragment, tokenCount } from "../src/providers/shared.ts";
+import { checkApiKey, retryAfterSeconds, sharesKeyFragment, tokenCount } from "../src/providers/shared.ts";
 
 // P3-11 (l): a token count is usable only if it is a finite integer from 0 to 10,000,000. NaN and Infinity cannot
 // come from a JSON body (JSON has no such values; 1e400 parses to Infinity), so they are tested here directly.
@@ -106,5 +106,14 @@ describe("sharesKeyFragment (P3-11 t)", () => {
     ["abcdefg", false],
   ])("matches a key of exactly 8 characters whole: %s gives %s", (token, found) => {
     expect(sharesKeyFragment(token, "ABCDEFGH")).toBe(found);
+  });
+});
+
+describe("retryAfterSeconds (item 6)", () => {
+  it.each([["30", 30], ["0", 0], [" 7 ", 7], ["999999", 999999]])("reads the seconds form %j", (value, seconds) => {
+    expect(retryAfterSeconds(value)).toBe(seconds);
+  });
+  it.each([[null], [undefined], [""], ["Wed, 21 Oct 2026 07:28:00 GMT"], ["-5"], ["1.5"], ["1e3"], ["1000000"], ["30 seconds"]])("ignores %j", (value) => {
+    expect(retryAfterSeconds(value)).toBeUndefined();
   });
 });

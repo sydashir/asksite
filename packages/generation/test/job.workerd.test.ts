@@ -12,7 +12,7 @@ import { generationAllowance, requestGeneration } from "../src/request.ts";
 import { modelCallsToday } from "../src/settings.ts";
 import { templateAnswer, templateDraft } from "../src/template.ts";
 import { AI_DRAFT_JSON_SCHEMA } from "../src/wire-schema.ts";
-import { clearTables, getGeneration, insertGeneration, seedOwnerSite, setSetting, startLocalD1, type LocalD1 } from "./support/d1.ts";
+import { clearTables, failingRuns, getGeneration, insertGeneration, seedOwnerSite, setSetting, startLocalD1, type LocalD1 } from "./support/d1.ts";
 import { FULL_SNAPSHOT } from "./support/samples.ts";
 import { answer, ProviderError, scriptedProvider } from "./support/scripted.ts";
 
@@ -699,5 +699,105 @@ describe("the job's end-states and the owner's lifetime total, end to end (task-
     expect(AiDraft.parse(JSON.parse(row.output_json!))).toEqual(templateDraft(AT_BOUND.facts, AT_BOUND.brief));
     expect(await modelCallsToday(db, NOW)).toBe(1);
     expect(await allowance()).toEqual({ generationsLeftToday: 4, generationsLeftTotal: 20 });
+  });
+});
+
+// Part D (G1): D1 write retries, an unpriced model, the cost of an attempt with no usage, the job's time budget.
+describe("runGenerationJob: G1 reliability and money", () => {
+  const OPUS = { MODEL_PROVIDER: "anthropic", MODEL_ID: "claude-opus-5-5", ANTHROPIC_API_KEY: "k" } as const;
+  // Opus 5.5: 70,000 input tokens x $4 + 8,192 output tokens x $20 per million (models.ts).
+  const ATTEMPT_WORST = 70_000 * 4 + 8_192 * 20;
+  const FINISH_SQL = /SET status = \?2, output_json/;
+
+  it("retries the terminal write once on a D1 transient error: the row ends and the report says so", async () => {
+    await queued("g1");
+    const flaky = failingRuns(db, FINISH_SQL, "D1_ERROR: Network connection lost");
+    expect(await runGenerationJob(envWith({ DB: flaky.db }), "g1", deps())).toMatchObject({ outcome: "succeeded" });
+    expect(flaky.runs()).toBe(2);
+    expect(await getGeneration(db, "g1")).toMatchObject({ status: "succeeded", finished_at: NOW });
+  });
+
+  it("does not retry an error that is not transient, and gives up after the one retry: the row stays running for the sweeper", async () => {
+    await queued("g1");
+    const broken = failingRuns(db, FINISH_SQL, "D1_ERROR: no such column: nope");
+    expect(await runGenerationJob(envWith({ DB: broken.db }), "g1", deps())).toMatchObject({ outcome: "write_failed" });
+    expect(broken.runs()).toBe(1);
+    await queued("g2", "first", "s2");
+    const down = failingRuns(db, FINISH_SQL, "D1_ERROR: Network connection lost", 5);
+    expect(await runGenerationJob(envWith({ DB: down.db }), "g2", deps())).toMatchObject({ outcome: "write_failed" });
+    expect(down.runs()).toBe(2);
+    expect(await getGeneration(db, "g2")).toMatchObject({ status: "running" });
+  });
+
+  it("refuses an unpriced model before any provider is built: no call, the slot given back, a first build gets the template", async () => {
+    await queued("g1");
+    const build = vi.fn(() => scriptedProvider([answer(MODEL_ANSWER)]));
+    const unpriced = { ...OPUS, MODEL_ID: "claude-fable-5-1" };
+    expect(await runGenerationJob(envWith(unpriced), "g1", { ...deps(), createProvider: build })).toMatchObject({
+      outcome: "fallback", attempts: 0, fallbackReason: "provider_error", providerErrorKind: "bad_request", provider: "anthropic",
+    });
+    expect(build).not.toHaveBeenCalled();
+    expect(await getGeneration(db, "g1")).toMatchObject({ status: "succeeded", used_fallback: 1, model_slot: 0, attempts: 0, cost_microusd: 0 });
+    expect(await modelCallsToday(db, NOW)).toBe(0);
+  });
+
+  it("refuses an unpriced model for a regeneration too: it fails as provider_unavailable and the owner's rewrite is not spent on a call", async () => {
+    await insertGeneration(db, { id: "d1", site_id: "s1", owner_id: "o1", kind: "first", status: "succeeded", input_json: INPUT, created_at: NOW - 5000, output_json: JSON.stringify(TEMPLATE) });
+    await queued("g1", "regenerate");
+    const build = vi.fn(() => scriptedProvider([answer(MODEL_ANSWER)]));
+    expect(await runGenerationJob(envWith({ ...OPUS, MODEL_ID: "claude-sonnet-5-5" }), "g1", { ...deps(), createProvider: build })).toMatchObject({ outcome: "failed", errorCode: "provider_unavailable", attempts: 0 });
+    expect(build).not.toHaveBeenCalled();
+    expect(await getGeneration(db, "g1")).toMatchObject({ status: "failed", model_slot: 0 });
+  });
+
+  it("records an attempt with no usage at its worst case, on top of the usage that was reported", async () => {
+    await queued("g1");
+    const provider = scriptedProvider([new ProviderError("timeout", "slow"), answer(MODEL_ANSWER, { inputTokens: 1000, outputTokens: 100 })]);
+    expect(await runGenerationJob(envWith(OPUS), "g1", deps(provider))).toMatchObject({ outcome: "succeeded", attempts: 2, usageMissing: true });
+    expect((await getGeneration(db, "g1")).cost_microusd).toBe(1000 * 4 + 100 * 20 + ATTEMPT_WORST);
+  });
+
+  it("records a returned answer whose usage was missing at its worst case too", async () => {
+    await queued("g1");
+    const provider = scriptedProvider([{ ...answer(MODEL_ANSWER, { inputTokens: 0, outputTokens: 0 }), usageMissing: true }]);
+    await runGenerationJob(envWith(OPUS), "g1", deps(provider));
+    expect((await getGeneration(db, "g1")).cost_microusd).toBe(ATTEMPT_WORST);
+  });
+
+  it("never records more than the job's worst case (three attempts), and an attempt with known usage is priced as before", async () => {
+    await queued("g1");
+    const timeouts = scriptedProvider([1, 2, 3].map(() => new ProviderError("timeout", "slow")));
+    await runGenerationJob(envWith(OPUS), "g1", deps(timeouts));
+    expect((await getGeneration(db, "g1")).cost_microusd).toBe(3 * ATTEMPT_WORST);
+    await queued("g2", "first", "s2");
+    await runGenerationJob(envWith(OPUS), "g2", deps(scriptedProvider([answer(MODEL_ANSWER, { inputTokens: 1000, outputTokens: 100 })])));
+    expect((await getGeneration(db, "g2")).cost_microusd).toBe(1000 * 4 + 100 * 20);
+  });
+
+  it("caps the sum at the job's worst case when the reported usage is already large and two attempts also flag it missing", async () => {
+    await queued("g1");
+    const big = { inputTokens: 70_000, outputTokens: 8_192 };
+    const provider = scriptedProvider([{ ...answer({}, big), usageMissing: true }, { ...answer({}, big), usageMissing: true }, answer(MODEL_ANSWER, big)]);
+    await runGenerationJob(envWith(OPUS), "g1", deps(provider));
+    expect((await getGeneration(db, "g1")).cost_microusd).toBe(3 * ATTEMPT_WORST);
+  });
+
+  // A clock the provider's own slowness moves: each failed call took 120 s. The sweeper ends a running job after 6 minutes
+  // (JOB_STUCK_AFTER_MS); with the 30 s margin the third attempt (starting at 248 s, 90 s to finish) cannot end in time.
+  it("does not start an attempt that could not finish before the sweeper's threshold: the job ends as a timeout, nothing is sent for it", async () => {
+    let clock = 0;
+    const sleeps: number[] = [];
+    let calls = 0;
+    const slow: ModelProvider = { id: "fake", generate: async () => { calls += 1; clock += 120_000; throw new ProviderError("unavailable", "down"); } };
+    const timed: JobDeps = { ...deps(slow), generate: { sleep: async (ms) => void ((clock += ms), sleeps.push(ms)), timeoutSignal: () => new AbortController().signal, now: () => clock } };
+    await queued("g1");
+    expect(await runGenerationJob(envWith(), "g1", timed)).toMatchObject({
+      outcome: "fallback", attempts: 2, providerErrorKind: "timeout", fallbackReason: "provider_error", attemptOutcomes: ["unavailable", "unavailable", "timeout"], usageMissing: false,
+    });
+    expect([calls, sleeps]).toEqual([2, [2_000]]);
+    await insertGeneration(db, { id: "d1", site_id: "s2", owner_id: "o1", kind: "first", status: "succeeded", input_json: INPUT, created_at: NOW - 5000, output_json: JSON.stringify(TEMPLATE) });
+    await queued("g2", "regenerate", "s2");
+    clock = 0;
+    expect(await runGenerationJob(envWith(), "g2", timed)).toMatchObject({ outcome: "failed", errorCode: "provider_timeout", attempts: 2 });
   });
 });

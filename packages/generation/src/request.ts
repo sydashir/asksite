@@ -1,5 +1,6 @@
 import { LIMITS, newId, type GenerationInputSnapshot, type GenerationJob, type GenerationView } from "@asksite/core";
 import type { D1Database, Queue } from "@cloudflare/workers-types";
+import { retryWriteOnce } from "./d1-retry.ts";
 import { dailyModelLimit, isGenerationEnabled, modelCallsToday, utcDayStart } from "./settings.ts";
 
 export type RequestGenerationResult =
@@ -100,7 +101,8 @@ export async function requestGeneration(
       await env.GEN_QUEUE.send({ v: 1, generationId: id });
     } catch {
       // Frees the one-active index so the owner can simply try again.
-      await env.DB.prepare("UPDATE generations SET status = 'failed', error_code = 'internal', finished_at = ?2 WHERE id = ?1 AND status = 'queued'").bind(id, now).run();
+      // Retried once on D1's transient errors: the one-active index stays taken while this row is queued. Status-guarded, so a repeat is safe.
+      await retryWriteOnce(() => env.DB.prepare("UPDATE generations SET status = 'failed', error_code = 'internal', finished_at = ?2 WHERE id = ?1 AND status = 'queued'").bind(id, now).run());
       return { ok: false, code: "internal" };
     }
     return { ok: true, generation: { id, kind, status: "queued", createdAt: now, finishedAt: null, errorCode: null, usedFallback: false, fallbackReason: null } };

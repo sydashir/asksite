@@ -1058,7 +1058,7 @@ Constants: `MAX_ATTEMPTS = 3`; 90 s per attempt; `JOB_STUCK_AFTER_MS = 6 × 60,0
    - Each attempt has a 90 s `AbortSignal.timeout`.
    - Transient `ProviderError` (`timeout`, `rate_limited`, `unavailable`) is retried inside the attempt budget after 2 s and then 6 s.
    - After each response, run `SiteDocument.safeParse({ facts, ...draft, hidden: [] })`. On failure, the next attempt includes the `toIssues()` list as repair feedback.
-   - Token usage is added up across attempts. `cost_microusd` comes from the `ModelPrice` table and is for reporting only.
+   - Token usage is added up across attempts. `cost_microusd` comes from the `ModelPrice` table and is for reporting only. An attempt whose usage is missing is recorded at its worst case (the largest prompt and the full output cap), so the cost, and any "spent today" figure summed from it, is "up to".
 4. **Terminal write**, always `… WHERE id = :id AND status = 'running'`, so a late or duplicate invocation never overwrites another one or the sweeper:
    - valid output: `output_json`, `status = 'succeeded'`, provider, model, tokens, cost, `finished_at`;
    - otherwise, apply the fallback rule below.

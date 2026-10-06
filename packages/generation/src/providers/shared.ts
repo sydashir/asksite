@@ -16,6 +16,13 @@ export function statusKind(status: number): ProviderErrorKind {
   return "unavailable";
 }
 
+/**
+ * A Retry-After header as whole seconds, or undefined. Only the delay-seconds form is read ("Retry-After: 120", RFC 9110
+ * section 10.2.3); the HTTP-date form and anything else is ignored, so a provider cannot make us wait by a malformed value.
+ */
+export const retryAfterSeconds = (value: string | null | undefined): number | undefined =>
+  typeof value === "string" && /^\d{1,6}$/.test(value.trim()) ? Number(value.trim()) : undefined;
+
 /** The largest token count we accept from a provider; any real call is far below it. */
 const MAX_TOKEN_COUNT = 10_000_000;
 
