@@ -50,7 +50,9 @@ const MAX_DESCRIPTION_LENGTH = 160;
 
 const fitsTitle = (title: string) => escapeText(title).length <= MAX_TITLE_LENGTH;
 
-const GRAPHEMES = new Intl.Segmenter("en", { granularity: "grapheme" });
+// Built on first use, not at load: the owner app's preview imports the renderer, and importing must work everywhere.
+// clipText needs Intl.Segmenter (floor: Chrome 87, Firefox 125, Safari 14.1).
+let graphemes: Intl.Segmenter | undefined;
 
 /**
  * `raw` itself when `fits` accepts it; otherwise its longest prefix, cut at a word boundary (else where a word starts or ends, else at a grapheme
@@ -59,7 +61,8 @@ const GRAPHEMES = new Intl.Segmenter("en", { granularity: "grapheme" });
  */
 export function clipText(raw: string, fits: (text: string) => boolean): string {
   if (fits(raw)) return raw;
-  const cuts = [...GRAPHEMES.segment(raw)].map((part) => part.index);
+  graphemes ??= new Intl.Segmenter("en", { granularity: "grapheme" });
+  const cuts = [...graphemes.segment(raw)].map((part) => part.index);
   const longest = cuts.findLast((cut) => fits(`${raw.slice(0, cut)}…`));
   if (longest === undefined) return "…";
   const wordEnd =

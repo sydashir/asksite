@@ -1,6 +1,6 @@
 import { DESIGN_IDS, PAGE_IDS, PAGES, SiteDocument, unbackedClaims, type PageId, type SiteDocumentInput } from "@asksite/site-schema";
 import { HtmlValidate, StaticConfigLoader } from "html-validate";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { FIXTURE_SITE_URL, FIXTURES, inDesign, loadFixture, stubStylesheets } from "../../../fixtures/index.ts";
 import { escapeText } from "../src/escape.ts";
 import { TRADE_LABEL } from "../src/format.ts";
@@ -209,6 +209,37 @@ describe("clipping (A16)", () => {
     for (const id of ["services", "gallery", "contact"] as const) {
       const text = escapeUnescaped(metaDescription(pagesOf(doc).find((p) => p.page === id)!.html) ?? "");
       expect(text.length).toBeLessThanOrEqual(160);
+    }
+  });
+});
+
+// Firefox has Intl.Segmenter only from 125; the owner app's preview imports the renderer, so loading it must build none.
+describe("loading the renderer", () => {
+  it("builds no Intl.Segmenter on import; the first clip builds the one it reuses", async () => {
+    const doc = SiteDocument.parse({ ...FULL, facts: { ...FULL.facts, businessName: "N".repeat(60) } });
+    const expected = pageTitle(doc, "services"); // "Services | " + 60 letters is 71: clipped
+    expect(expected.endsWith("…")).toBe(true);
+    const real = Intl.Segmenter;
+    let calls = 0;
+    let present = false;
+    class StandIn extends real {
+      constructor(...args: ConstructorParameters<typeof Intl.Segmenter>) {
+        calls += 1;
+        if (!present) throw new TypeError("Intl.Segmenter is not a constructor");
+        super(...args);
+      }
+    }
+    vi.resetModules();
+    Reflect.set(Intl, "Segmenter", StandIn);
+    try {
+      const fresh = await import("../src/index.ts");
+      expect(calls).toBe(0);
+      present = true;
+      expect(fresh.pageTitle(doc, "services")).toBe(expected);
+      expect(fresh.pageTitle(doc, "services")).toBe(expected);
+      expect(calls).toBe(1);
+    } finally {
+      Reflect.set(Intl, "Segmenter", real);
     }
   });
 });
