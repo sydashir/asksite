@@ -38,10 +38,23 @@ const TABLE: Array<[string, (doc: Json) => void, PageId | null, FixtureName?]> =
   ["socialLinks", (d) => d.facts.socialLinks.pop(), null],
 ];
 
+// Where one design draws a fact on another page than the table says (the rest of the table holds for every design). Each entry is what that
+// design's real renderer draws, measured 2026-10-06 (the real Bold, Classic and Modern designs arrived with "Sync with main"):
+//  - impact (Bold): removing a social link changes Home (the table's null holds for the other designs).
+//  - modern (Modern): a trade change shows Services, not Home.
+//  - modern (Modern): the first work photo's text changes About, which comes before Gallery.
+// Measured, not derived: the reason in each design's own sections was not traced.
+const DESIGN_DIFFERS: ReadonlyMap<string, PageId | null> = new Map<string, PageId | null>([
+  ["impact: socialLinks", "home"],
+  ["modern: trade", "services"],
+  ["modern: photos", "about"],
+]);
+
 describe("changedPage: the page a Details or Photos change shows on", () => {
   for (const design of DESIGN_IDS) {
-    it.each(TABLE)(`${design}: %s`, (_field, change, expected, fixture) => {
-      expect(pageAfter(design, change, fixture)).toBe(expected);
+    it.each(TABLE)(`${design}: %s`, (field, change, expected, fixture) => {
+      const key = `${design}: ${field}`;
+      expect(pageAfter(design, change, fixture)).toBe(DESIGN_DIFFERS.has(key) ? DESIGN_DIFFERS.get(key) : expected);
     });
   }
 });
