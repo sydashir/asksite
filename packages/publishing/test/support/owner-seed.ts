@@ -107,6 +107,11 @@ export async function seedClosingOwner(env: PublishEnv, label: string): Promise<
   const v2 = await create(aId, aSlug, null);
   // The admin route's repeat row: {"reason", "purgeMedia", "repeat"}.
   await db.prepare("INSERT INTO audit_log (at, actor, action, site_id, detail_json) VALUES (22, ?, 'site.taken_down', ?, ?)").bind(`admin:${ADMIN}`, aId, JSON.stringify({ reason: REPEAT_REASON, purgeMedia: true, repeat: true })).run();
+  // Rows without a reason (an older writer, or a takedown with none): redaction must leave them as they are.
+  await db.batch([
+    db.prepare("INSERT INTO audit_log (at, actor, action, site_id, detail_json) VALUES (22, ?, 'site.taken_down', ?, ?)").bind(`admin:${ADMIN}`, aId, JSON.stringify({ purgeMedia: false })),
+    db.prepare("INSERT INTO audit_log (at, actor, action, site_id, detail_json) VALUES (22, ?, 'owner.disabled', NULL, ?)").bind(`admin:${ADMIN}`, JSON.stringify({ ownerId })),
+  ]);
   const aMedia = await addMediaAndLeads(env, aId);
 
   // Site B: never live. vB pending then withdrawn; an approve's orphan copy under the first slug; the slug then renamed.

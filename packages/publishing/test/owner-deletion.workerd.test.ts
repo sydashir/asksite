@@ -111,11 +111,12 @@ describe("deleteOwner", () => {
       expect(now, `audit row ${row.id} still exists`).toBeDefined();
       const mine = row.site_id !== null && target.siteIds.includes(row.site_id) && row.action === "site.taken_down";
       const disabled = row.action === "owner.disabled" && JSON.parse(String(row.detail_json)).ownerId === target.ownerId;
-      if (mine || disabled) {
+      const hasReason = row.detail_json !== null && JSON.parse(row.detail_json).reason !== undefined;
+      if ((mine || disabled) && hasReason) {
         expect(JSON.parse(String(now?.detail_json))).toEqual({ ...JSON.parse(String(row.detail_json)), reason: REDACTED_REASON }); // every other key unchanged
         expect({ ...now, detail_json: null }).toEqual({ ...row, detail_json: null });
       } else {
-        expect(now).toEqual(row); // every other row byte-identical
+        expect(now).toEqual(row); // every other row byte-identical, and a row with no reason gets none (json_replace, not json_set)
       }
     }
     for (const reason of reasons) expect(await mentioning(reason, ids, target.ownerId), reason).toBe(0);
@@ -398,6 +399,24 @@ describe("deleteOwner R2 paging and leftovers", () => {
     expect(counts.objects.work).toBe(target.expected.work + 1);
     expect(counts.objects.media).toBe(target.expected.media + 1);
     expect(await dumpScope(env, control)).toEqual(controlBefore);
+  }, T);
+});
+
+describe("deleteOwner and an upload in flight", () => {
+  it("purges a MEDIA object that lands after the takedown's purge (the second MEDIA purge of each site)", async () => {
+    const { target } = await pair();
+    let late = false;
+    const live = watchBucket(env.LIVE, async (call, arg) => {
+      // The LIVE sweep is the first listing of the whole bucket; by then every takedown purge has run.
+      if (call === "list" && (arg as R2ListOptions | undefined)?.prefix === "" && !late) {
+        late = true;
+        await env.MEDIA.put(`${target.a.siteId}/${newId()}.webp`, "late photo");
+      }
+    });
+    const counts = deletedCounts(await del(target, { ...env, LIVE: live }));
+    expect(late).toBe(true);
+    expect(counts.objects.media).toBe(target.expected.media + 1);
+    expect(await listBucket(env.MEDIA, mediaSitePrefix(target.a.siteId))).toEqual([]);
   }, T);
 });
 

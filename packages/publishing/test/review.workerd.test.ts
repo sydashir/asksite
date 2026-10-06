@@ -617,6 +617,21 @@ describe("approveVersion's failure-path cleanup of its copied pages", () => {
     expect((await env.LIVE.head(livePointerKey(p.slug)))?.customMetadata?.["versionId"]).toBe(p.versionId);
   });
 
+  it("waits for a slow page copy before it cleans up, so no page lands after the cleanup", async () => {
+    const p = await pendingWithPages(env);
+    const slowHome = {
+      ...flakyBucket(env.LIVE, () => false),
+      put: async (...args: Parameters<R2Bucket["put"]>) => {
+        if (args[0] === livePageKey(p.slug, p.versionId, "services")) throw new Error("R2 is unavailable");
+        if (args[0] === livePageKey(p.slug, p.versionId, "home")) await new Promise((resolve) => setTimeout(resolve, 100));
+        return env.LIVE.put(...args);
+      },
+    } as R2Bucket;
+    await expect(approveAs({ ...env, LIVE: slowHome }, p)).rejects.toThrow("R2 is unavailable");
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(await liveKeysOf(env.LIVE, p.slug)).toEqual([]);
+  });
+
   it("deletes the pages that landed when a page copy fails part-way", async () => {
     const p = await pendingWithPages(env);
     const servicesFails = flakyBucket(env.LIVE, (call, key) => call === "put" && key === livePageKey(p.slug, p.versionId, "services"));
