@@ -81,9 +81,9 @@ export const FLAG_REASON: Record<"web_address" | "at_sign" | "other_phone" | "ph
 export interface TakedownResult {
   tone: "success" | "warning";
   text: string;
-  /** True: show the "Finish the takedown" button. */
+  /** True: the clean-up did not finish, and the text says so (the down-site form is where "Finish the takedown" is pressed). */
   cleanupFailed: boolean;
-  /** The owner's notice failed on the call that took the site down; a later "Finish" keeps saying so (its own answer is always null). */
+  /** The owner's notice failed on this call (`noticeSent` false). A Finish from the down-site form passes no earlier result, so it never repeats this. */
   ownerNotEmailed: boolean;
 }
 
@@ -91,7 +91,7 @@ export const NOT_EMAILED = "Owner not emailed — contact them.";
 const CLEANUP_FAILED = "Clean-up did not finish. The site is offline; old page files stay in storage until you finish it.";
 
 /**
- * What to tell the admin after a takedown, or after "Finish the takedown" (`previous` is then the earlier result). The
+ * What to tell the admin after a takedown, or after the down-site form's "Finish the takedown" (`previous` is then always the re-run marker, never an earlier result). The
  * "owner not emailed" line shows only for false, never for null (no notice was due). An unfinished clean-up is only
  * storage: the site's LIVE pointer is deleted first (A16), so the site is already offline and nothing is shown.
  */

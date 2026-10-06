@@ -495,7 +495,7 @@ test("a takedown sends exactly what the admin entered: the reason, the owner mes
   expect(bodies[1]).toEqual({ reason: "Copyright claim", ownerMessage: "Please send proof of the photos.", purgeMedia: true });
 });
 
-test("a takedown that errors AFTER the site went down offers Finish the takedown, which sends the same body and says the owner was not emailed", async ({ page }) => {
+test("a takedown that errors AFTER the site went down offers the down-site form's Finish, which sends its own reason and the takedown moment and never says the owner was not emailed", async ({ page }) => {
   const site = await liveSite(page);
   const bodies: unknown[] = [];
   let faulted = false;
@@ -542,7 +542,7 @@ test("a takedown that loses its lease after the commit says so, the owner is tol
   expect(urls[1]).not.toContain("notice=due");
 });
 
-// takedown-residuals: a lost lease must not hide that the owner notice FAILED: the 409 carries noticeSent false and the page says so, and Finish keeps saying it.
+// takedown-residuals: a lost lease must not hide that the owner notice FAILED: the 409 carries noticeSent false and the page says so until the next action; the form's Finish then says only its own result.
 test("a takedown that loses its lease after the commit with a failed owner email says the owner was not emailed", async ({ page }) => {
   const site = await liveSite(page, { emailDomain: "mail-fails.example" });
   const urls: string[] = [];
