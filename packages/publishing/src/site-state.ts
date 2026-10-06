@@ -29,12 +29,19 @@ export async function takeDown(
   }
 }
 
-async function takeDownUnderLease(
+/**
+ * takeDown's steps with the lease already held (deleteOwner takes the leases of all of an owner's sites up front).
+ * Returns how many LIVE page objects and MEDIA objects it deleted (the pointer is not counted: R2's delete says
+ * nothing about whether a key existed); takeDown ignores it.
+ */
+export async function takeDownUnderLease(
   env: { DB: D1Database; LIVE: R2Bucket; MEDIA: R2Bucket },
   input: { siteId: string; reviewer: string; reason: string; purgeMedia: boolean; now: number; token: string },
-): Promise<void> {
+): Promise<{ live: number; media: number }> {
   const { siteId, reviewer, reason, purgeMedia, now, token } = input;
   const db = env.DB;
+  let live = 0;
+  let media = 0;
   const site = await db.prepare("SELECT slug FROM sites WHERE id = ?").bind(siteId).first<{ slug: string | null }>();
   if (site === null) throw new PublishError("site_not_found");
 
@@ -59,16 +66,18 @@ async function takeDownUnderLease(
     await assertLease(db, siteId, token);
     await env.LIVE.delete(livePointerKey(site.slug));
     await assertLease(db, siteId, token);
-    await deletePrefix(env.LIVE, liveSitePrefix(site.slug));
+    live = await deletePrefix(env.LIVE, liveSitePrefix(site.slug));
   }
   if (purgeMedia) {
     const deletedObjects = await deletePrefix(env.MEDIA, `${siteId}/`);
+    media = deletedObjects;
     const markDeleted = db.prepare(`UPDATE uploads SET deleted_at = ? WHERE site_id = ? AND deleted_at IS NULL AND ${LEASE_HELD}`).bind(now, siteId, siteId, token);
     // This call's takedown row (written only when it took the site down) already records the purge.
     const firstCall = takenDown?.meta.changes === 1;
     const [marked] = await db.batch(firstCall ? [markDeleted] : [markDeleted, auditLaterPurge(db, { at: now, actor, siteId, reason }, deletedObjects)]);
     if (marked?.meta.changes === 0) await assertLease(db, siteId, token);
   }
+  return { live, media };
 }
 
 /**
