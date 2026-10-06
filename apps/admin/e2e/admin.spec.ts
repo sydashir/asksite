@@ -429,6 +429,15 @@ async function takeDown(page: Page, siteId: string) {
   await page.getByRole("dialog", { name: "Take this site down?" }).getByRole("button", { name: "Take it down" }).click();
 }
 
+/** What a takedown that asked to delete photos adds to its result when the delete may not have happened (DECIDED text; curly quotes around the label). */
+const PURGE_HINT = "To delete the photos, tick “Also delete this site's photos” again when you finish.";
+
+/** The down-site form is the only Finish: fills its reason and presses it. */
+async function finishFromForm(page: Page, reason: string) {
+  await page.getByLabel("Reason for finishing the takedown").fill(reason);
+  await page.getByRole("button", { name: "Finish the takedown" }).click();
+}
+
 test("a takedown whose owner email failed says to contact the owner", async ({ page }) => {
   const site = await liveSite(page, { emailDomain: "mail-fails.example" });
   await takeDown(page, site.siteId);
@@ -446,10 +455,11 @@ test("a takedown whose clean-up failed says so, and Finish the takedown finishes
   await takeDown(page, site.siteId);
   await expect(page.getByText("Clean-up did not finish. The site is offline; old page files stay in storage until you finish it.")).toBeVisible();
   await expect(page.locator("body")).not.toContainText("nothing from it is shown");
-  await page.getByRole("button", { name: "Finish the takedown" }).click();
+  await expect(page.locator("body")).not.toContainText(PURGE_HINT); // the takedown did not ask to delete photos
+  await expect(page.getByRole("status").getByRole("button", { name: "Finish the takedown" })).toHaveCount(0); // nothing is held in the result: the down-site form is the only Finish
+  await expect(page.getByRole("button", { name: "Finish the takedown" })).toHaveCount(1);
+  await finishFromForm(page, "Finish after failed clean-up");
   await expect(page.getByText("Clean-up finished.")).toBeVisible();
-  await expect(page.getByRole("status").getByRole("button", { name: "Finish the takedown" })).toHaveCount(0); // the in-session control is gone; the down-site form (outside the status region) remains
-  await expect(page.getByRole("button", { name: "Finish the takedown" })).toHaveCount(1); // exactly one Finish control on the page: the form's
   await expect(page.locator("body")).not.toContainText("Owner not emailed");
 });
 
@@ -500,14 +510,14 @@ test("a takedown that errors AFTER the site went down offers Finish the takedown
   await expect(page.getByText("The takedown may have partly happened, and the owner may not have been emailed. Finish it to make sure, and contact the owner:")).toBeVisible();
   await expect(page.getByRole("button", { name: "Restore the site" })).toBeVisible(); // the reload shows it down
   await expect(page.getByRole("status").filter({ hasText: "The takedown may have partly happened" })).toBeFocused(); // keyboard focus stays on the result
-  await page.getByRole("button", { name: "Finish the takedown" }).click();
-  await expect(page.getByText("Owner not emailed — contact them.", { exact: false })).toBeVisible();
+  await expect(page.getByRole("status").getByRole("button", { name: "Finish the takedown" })).toHaveCount(0); // the down-site form is the only Finish
+  await finishFromForm(page, "Finish after a 500");
   await expect(page.getByText("Clean-up finished.", { exact: false })).toBeVisible();
-  await expect(page.getByRole("status").getByRole("button", { name: "Finish the takedown" })).toHaveCount(0); // the in-session control is gone; the down-site form (outside the status region) remains
+  await expect(page.locator("body")).not.toContainText("Owner not emailed"); // the Finish answer never turns the hedged wording definite
   await expect(page.getByRole("button", { name: "Finish the takedown" })).toHaveCount(1); // exactly one Finish control on the page: the form's
   expect(bodies).toHaveLength(2);
-  // Finish sends the same body plus the takedown moment the page showed (takedown-truth B).
-  expect(bodies[1]).toEqual({ ...(bodies[0] as object), expectedTakenDownAt: expect.any(Number) });
+  // Finish sends what its own form holds plus the takedown moment the page showed (takedown-truth B).
+  expect(bodies[1]).toEqual({ reason: "Finish after a 500", purgeMedia: false, expectedTakenDownAt: expect.any(Number) });
 });
 
 // m6, then takedown-truth (A): a takedown's lease can run out after its commit. The text says so; the SERVER has already told the owner (once), and Finish the takedown only finishes the clean-up.
@@ -523,17 +533,17 @@ test("a takedown that loses its lease after the commit says so, the owner is tol
   await expect(page.getByText("This takedown ran too long and was stopped before it finished. Reload; if the site shows as taken down, press Finish the takedown.")).toBeVisible();
   await expect(page.getByRole("button", { name: "Restore the site" })).toBeVisible(); // the reload shows it down
   expect(await notices()).toBe(1); // the route sent it, though the call lost its lease
-  await page.getByRole("button", { name: "Finish the takedown" }).click();
+  await expect(page.getByRole("status").getByRole("button", { name: "Finish the takedown" })).toHaveCount(0); // the down-site form is the only Finish
+  await finishFromForm(page, "Finish after a lost lease");
   await expect(page.getByText("Clean-up finished.", { exact: false })).toBeVisible();
   await expect(page.locator("body")).not.toContainText("Owner not emailed");
-  await expect(page.getByRole("status").getByRole("button", { name: "Finish the takedown" })).toHaveCount(0); // the in-session control is gone; the down-site form (outside the status region) remains
   await expect(page.getByRole("button", { name: "Finish the takedown" })).toHaveCount(1); // exactly one Finish control on the page: the form's
   expect(await notices()).toBe(1);
   expect(urls[1]).not.toContain("notice=due");
 });
 
 // takedown-residuals: a lost lease must not hide that the owner notice FAILED: the 409 carries noticeSent false and the page says so, and Finish keeps saying it.
-test("a takedown that loses its lease after the commit with a failed owner email says the owner was not emailed, and Finish keeps saying so", async ({ page }) => {
+test("a takedown that loses its lease after the commit with a failed owner email says the owner was not emailed", async ({ page }) => {
   const site = await liveSite(page, { emailDomain: "mail-fails.example" });
   const urls: string[] = [];
   await page.route("**/api/admin/sites/*/takedown*", (route, request) => {
@@ -544,8 +554,7 @@ test("a takedown that loses its lease after the commit with a failed owner email
   await expect(page.getByText("This takedown ran too long and was stopped before it finished.", { exact: false })).toBeVisible();
   await expect(page.getByText("Owner not emailed — contact them.", { exact: false })).toBeVisible();
   await expect(page.getByRole("button", { name: "Restore the site" })).toBeVisible(); // the reload shows it down
-  await page.getByRole("button", { name: "Finish the takedown" }).click();
-  await expect(page.getByText("Owner not emailed — contact them. Clean-up finished.", { exact: false })).toBeVisible();
+  await expect(page.getByRole("status").getByRole("button", { name: "Finish the takedown" })).toHaveCount(0); // nothing is held: the form is the only Finish
 });
 
 test("a Finish that fails after an emailed takedown never claims the owner was not emailed", async ({ page }) => {
@@ -556,9 +565,9 @@ test("a Finish that fails after an emailed takedown never claims the owner was n
     return route.continue(fault ? { headers: { ...request.headers(), "x-test-takedown-fault": fault } } : undefined);
   });
   await takeDown(page, site.siteId); // 200, owner emailed, clean-up failed
-  await page.getByRole("button", { name: "Finish the takedown" }).click(); // 500
+  await finishFromForm(page, "Finish that fails"); // 500
   await expect(page.getByText("The takedown may have partly happened", { exact: false })).toBeVisible();
-  await page.getByRole("button", { name: "Finish the takedown" }).click(); // 200
+  await page.getByRole("button", { name: "Finish the takedown" }).click(); // 200, the form still holds its reason
   await expect(page.getByText("Clean-up finished.", { exact: false })).toBeVisible();
   await expect(page.locator("body")).not.toContainText("Owner not emailed");
 });
@@ -613,7 +622,7 @@ const siteView = async (page: Page, siteId: string) => (await (await page.reques
 const takedownAudits = (view: SiteView) => view.audit.filter((a) => a.action === "site.taken_down");
 
 // STRICT (honesty): a lease lost AND a failed re-read leave the notice outcome UNKNOWN (the 409 says noticeUnknown). After the reload the page says what it can know, never the definite "Owner not emailed".
-test("a lost lease with a failed re-read, the reload showing the site DOWN, says the owner may not have been emailed (not the definite line), and Finish still offers the clean-up", async ({ page }) => {
+test("a lost lease with a failed re-read, the reload showing the site DOWN, says the owner may not have been emailed (not the definite line), and the form still offers the clean-up", async ({ page }) => {
   const site = await liveSite(page);
   let posts = 0;
   await page.route("**/api/admin/sites/*/takedown", (route, request) => (++posts === 1 ? route.continue({ headers: { ...request.headers(), "x-test-takedown-fault": "lease-lost-after-batch-reread" } }) : route.continue()));
@@ -621,7 +630,8 @@ test("a lost lease with a failed re-read, the reload showing the site DOWN, says
   await expect(page.getByText("The takedown may have partly happened, and the owner may not have been emailed. Finish it to make sure, and contact the owner:")).toBeVisible();
   await expect(page.getByRole("button", { name: "Restore the site" })).toBeVisible(); // the reload shows it down
   await expect(page.locator("body")).not.toContainText("Owner not emailed — contact them.");
-  await expect(page.getByRole("status").getByRole("button", { name: "Finish the takedown" })).toBeVisible();
+  await expect(page.getByRole("status").getByRole("button", { name: "Finish the takedown" })).toHaveCount(0);
+  await expect(page.getByLabel("Reason for finishing the takedown")).toBeVisible(); // the down-site form offers the clean-up
 });
 
 test("a lost lease with a failed re-read, the reload showing the site UP, says the takedown did not go through, with no owner line and no Finish", async ({ page }) => {
@@ -670,51 +680,104 @@ test("a down-site page's Finish after another tab restored the site is refused: 
 });
 
 const uploadsOf = async (page: Page, siteId: string) => (await (await page.request.get(`${ADMIN}/__test/uploads?siteId=${siteId}`)).json()) as { deletedAt: Array<number | null>; objects: number };
+const KEPT = { deletedAt: [null], objects: 1 };
+const addPhoto = async (page: Page, siteId: string) => {
+  expect((await page.request.post(`${ADMIN}/__test/uploads`, { data: { siteId } })).ok()).toBe(true);
+  expect(await uploadsOf(page, siteId)).toEqual(KEPT);
+};
+const adminHeaders = { Origin: ADMIN };
+const apiRestore = (page: Page, siteId: string, expectedTakenDownAt: number) =>
+  page.request.post(`${ADMIN}/api/admin/sites/${siteId}/restore`, { data: { expectedTakenDownAt }, headers: adminHeaders });
+const apiTakeDown = (page: Page, siteId: string, data: object) => page.request.post(`${ADMIN}/api/admin/sites/${siteId}/takedown`, { data, headers: adminHeaders });
 
-/**
- * STRICT (customer data): page A takes the site down WITH "Also delete this site's photos" and loses its lease, so A holds the in-session
- * "Finish the takedown" for takedown T1 (its clean-up, the purge included, is not done: the photo is still stored). Then, from outside
- * A's page, the site is restored and taken down AGAIN WITHOUT the purge (T2): T2 chose to keep the photos. Returns A and the site.
- */
-async function pageHoldingFinishOfAnOlderTakedown(page: Page) {
-  const site = await liveSite(page);
-  await page.request.post(`${ADMIN}/__test/uploads`, { data: { siteId: site.siteId } });
-  let posts = 0;
-  await page.route("**/api/admin/sites/*/takedown", (route, request) => (++posts === 1 ? route.continue({ headers: { ...request.headers(), "x-test-takedown-fault": "lease-lost-after-batch" } }) : route.continue()));
-  await page.goto(`/sites/${site.siteId}`);
-  await page.getByLabel("Reason for taking it down").fill("Copyright claim");
-  await page.getByLabel("Also delete this site's photos").check();
-  await page.getByRole("button", { name: "Take the site down" }).click();
-  await page.getByRole("dialog", { name: "Take this site down?" }).getByRole("button", { name: "Take it down" }).click();
-  await expect(page.getByRole("status").getByRole("button", { name: "Finish the takedown" })).toBeVisible(); // A's in-session Finish, for T1
-  expect(await uploadsOf(page, site.siteId)).toEqual({ deletedAt: [null], objects: 1 }); // T1 never purged
-  const first = (await siteView(page, site.siteId)).takenDownAt;
-  const headers = { Origin: ADMIN };
-  expect((await page.request.post(`${ADMIN}/api/admin/sites/${site.siteId}/restore`, { data: { expectedTakenDownAt: first }, headers })).status()).toBe(200);
-  expect((await page.request.post(`${ADMIN}/api/admin/sites/${site.siteId}/takedown`, { data: { reason: "Second report", ownerMessage: "", purgeMedia: false }, headers })).status()).toBe(200);
-  expect((await siteView(page, site.siteId)).takenDownAt).toBeGreaterThan(first!);
-  return site;
+/** Another admin restores the site and takes it down AGAIN without the purge (T2: it chose to keep the photos). */
+async function otherAdminRetakesWithoutPurge(page: Page, siteId: string) {
+  const first = (await siteView(page, siteId)).takenDownAt;
+  expect((await apiRestore(page, siteId, first!)).status()).toBe(200);
+  expect((await apiTakeDown(page, siteId, { reason: "Second report, keep photos", ownerMessage: "", purgeMedia: false })).status()).toBe(200);
+  expect((await siteView(page, siteId)).takenDownAt).toBeGreaterThan(first!);
 }
 
-test("an older takedown's Finish is gone after a reload shows a newer takedown, and the photos are kept", async ({ page }) => {
-  const site = await pageHoldingFinishOfAnOlderTakedown(page);
-  await page.getByRole("button", { name: "Block search engines" }).click(); // any action reloads the page: it now shows T2
-  await expect(page.getByText("Search engines are now blocked.")).toBeVisible();
-  await expect(page.getByRole("button", { name: "Restore the site" })).toBeVisible();
-  await expect(page.getByRole("status").getByRole("button", { name: "Finish the takedown" })).toHaveCount(0); // T1's body is not offered for T2
-  expect(await uploadsOf(page, site.siteId)).toEqual({ deletedAt: [null], objects: 1 });
-});
+/** The first takedown POST reaches the server with `fault`; the call's answer is held back until another admin has restored the site and taken it down again without the purge. */
+async function otherAdminActsBeforeTheAnswer(page: Page, siteId: string, fault: string) {
+  let posts = 0;
+  await page.route("**/api/admin/sites/*/takedown", async (route, request) => {
+    if (++posts !== 1) return route.continue();
+    const answer = await route.fetch({ headers: { ...request.headers(), "x-test-takedown-fault": fault } });
+    await otherAdminRetakesWithoutPurge(page, siteId);
+    await route.fulfill({ response: answer });
+  });
+}
 
-test("an older takedown's Finish, pressed after a newer takedown, is refused and gone, and the photos are kept", async ({ page }) => {
-  const site = await pageHoldingFinishOfAnOlderTakedown(page);
+async function takeDownWithPurge(page: Page, siteId: string, purge = true) {
+  await page.goto(`/sites/${siteId}`);
+  await page.getByLabel("Reason for taking it down").fill("Copyright claim");
+  if (purge) await page.getByLabel("Also delete this site's photos").check();
+  await page.getByRole("button", { name: "Take the site down" }).click();
+  await page.getByRole("dialog", { name: "Take this site down?" }).getByRole("button", { name: "Take it down" }).click();
+}
+
+// STRICT (customer data): there is no held Finish. A takedown that asked to delete photos whose answer is a lost lease, a clean-up failure or a 500 must never
+// bind its purge to ANOTHER admin's newer takedown: when the page reloads and shows that takedown, the only Finish is the down-site form, its box unticked.
+for (const [label, fault] of [
+  ["lost its lease (409)", "lease-lost-after-batch"],
+  ["finished with its clean-up failed (200)", "prefix-delete"],
+  ["answered 500", "prefix-delete-reread"],
+] as const) {
+  test(`a purging takedown that ${label}, whose answer reaches the page after another admin restored and re-took down WITHOUT purge, leaves no held Finish and keeps the photos`, async ({ page }) => {
+    const site = await liveSite(page);
+    await addPhoto(page, site.siteId);
+    await otherAdminActsBeforeTheAnswer(page, site.siteId, fault);
+    await takeDownWithPurge(page, site.siteId);
+    await expect(page.getByRole("button", { name: "Restore the site" })).toBeVisible(); // the reload shows the newer takedown
+    await expect(page.getByRole("status").getByRole("button", { name: "Finish the takedown" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Finish the takedown" })).toHaveCount(1); // the form's
+    await expect(page.getByLabel("Also delete this site's photos")).not.toBeChecked();
+    expect(await uploadsOf(page, site.siteId)).toEqual(KEPT);
+    // The one Finish there is sends the form's own choice (unticked) for the takedown the page shows: 200, and the photos stay.
+    const answer = page.waitForResponse((r) => r.url().includes("/takedown") && r.request().method() === "POST");
+    await finishFromForm(page, "Finish the second takedown");
+    expect((await answer).status()).toBe(200);
+    expect(await uploadsOf(page, site.siteId)).toEqual(KEPT);
+  });
+}
+
+test("a down-site form's Finish with the photos box ticked, pressed after another admin restored and re-took down without purge, is refused, and the photos are kept", async ({ page }) => {
+  const site = await liveSite(page);
+  await addPhoto(page, site.siteId);
+  await takeDownWithPurge(page, site.siteId, false);
+  await expect(page.getByRole("button", { name: "Restore the site" })).toBeVisible();
+  await page.reload(); // the form, bound to the first takedown
+  await otherAdminRetakesWithoutPurge(page, site.siteId);
+  await page.getByLabel("Also delete this site's photos").check();
   const answer = page.waitForResponse((r) => r.url().includes("/takedown") && r.request().method() === "POST");
-  await page.getByRole("status").getByRole("button", { name: "Finish the takedown" }).click();
+  await finishFromForm(page, "Stale finish with purge");
   expect((await answer).status()).toBe(409);
   await expect(page.getByText("This site was restored since you opened this page. Reload to see where it stands now.")).toBeVisible();
   await expect(page.getByRole("button", { name: "Restore the site" })).toBeVisible();
-  await expect(page.getByRole("status").getByRole("button", { name: "Finish the takedown" })).toHaveCount(0);
-  expect(await uploadsOf(page, site.siteId)).toEqual({ deletedAt: [null], objects: 1 });
+  expect(await uploadsOf(page, site.siteId)).toEqual(KEPT);
 });
+
+// The hint is display only: nothing is held and nothing binds to an action.
+for (const [label, fault] of [
+  ["lost its lease", "lease-lost-after-batch"],
+  ["finished with its clean-up failed", "prefix-delete"],
+  ["lost its lease with a failed re-read, the site down", "lease-lost-after-batch-reread"],
+] as const) {
+  test(`a takedown that asked to delete the photos and ${label} says to tick the box again when finishing; without the photos choice it does not`, async ({ page }) => {
+    for (const purge of [true, false]) {
+      const site = await liveSite(page);
+      await page.unrouteAll({ behavior: "wait" });
+      let posts = 0;
+      await page.route("**/api/admin/sites/*/takedown", (route, request) => (++posts === 1 ? route.continue({ headers: { ...request.headers(), "x-test-takedown-fault": fault } }) : route.continue()));
+      await takeDownWithPurge(page, site.siteId, purge);
+      await expect(page.getByRole("button", { name: "Restore the site" })).toBeVisible();
+      if (purge) await expect(page.getByText(PURGE_HINT, { exact: false })).toBeVisible();
+      else await expect(page.locator("body")).not.toContainText("To delete the photos");
+      await expect(page.getByRole("status").getByRole("button", { name: "Finish the takedown" })).toHaveCount(0);
+    }
+  });
+}
 
 // QA Q-2: the lease-lost text says "Reload ... press Finish the takedown"; doing exactly that finishes the clean-up, and the owner (told by the server) is not emailed again.
 test("after a takedown lost its lease, a browser reload and the down-site form's Finish clear the pages with no second notice", async ({ page }) => {
@@ -734,7 +797,7 @@ test("after a takedown lost its lease, a browser reload and the down-site form's
 });
 
 // QA Q-3: a form re-run that loses its lease, then the offered Finish: still one notice in total, and the admin is not told "The owner has been emailed".
-test("a form re-run that loses its lease, then the offered Finish, sends no second notice", async ({ page }) => {
+test("a form re-run that loses its lease, then the form again, sends no second notice", async ({ page }) => {
   const site = await liveSite(page);
   await takeDown(page, site.siteId);
   await expect(page.getByRole("button", { name: "Restore the site" })).toBeVisible();
@@ -748,7 +811,7 @@ test("a form re-run that loses its lease, then the offered Finish, sends no seco
   await page.getByLabel("Reason for finishing the takedown").fill("Re-run that loses its lease");
   await page.getByRole("button", { name: "Finish the takedown" }).click();
   await expect(page.getByText("This takedown ran too long and was stopped before it finished.", { exact: false })).toBeVisible();
-  await page.getByRole("status").getByRole("button", { name: "Finish the takedown" }).click();
+  await page.getByRole("button", { name: "Finish the takedown" }).click(); // the form again: it still holds its reason
   await expect(page.getByText("Clean-up finished.", { exact: false })).toBeVisible();
   await expect(page.locator("body")).not.toContainText("The owner has been emailed");
   await expect(page.locator("body")).not.toContainText("Owner not emailed");
