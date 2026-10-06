@@ -149,23 +149,24 @@ describe("daily cron", () => {
     expect(results.map((r) => r.id)).toEqual(["aaaaaaaa-0000-4000-8000-000000000002", "aaaaaaaa-0000-4000-8000-000000000003"]);
   });
 
-  // The 180 days apply to every lead the form stores (form.ts), not only emailed ones. Owners never see
-  // spam-flagged leads (D6), so a cron that kept them would break the privacy promise unnoticed.
+  // The 180 days apply to every lead the form stores (form.ts), not only emailed ones; only spam-flagged leads,
+  // which owners never see (D6), go sooner, after 30 days. A cron that kept spam would break the privacy promise unnoticed.
   it("deletes old leads of every kind (spam, pending, sent, failed) and keeps recent ones of every kind", async () => {
     const site = await seedSite(tools);
     const now = Date.parse("2026-09-24T07:00:00.000Z");
     const day = 86_400_000;
     const kinds = [
-      { spam: 1, email_status: "skipped" },
-      { spam: 0, email_status: "pending" },
-      { spam: 0, email_status: "sent" },
-      { spam: 0, email_status: "failed" },
+      { spam: 1, email_status: "skipped", email_error: null },
+      { spam: 0, email_status: "pending", email_error: null },
+      { spam: 0, email_status: "sent", email_error: null },
+      { spam: 0, email_status: "failed", email_error: null },
+      { spam: 0, email_status: "failed", email_error: "daily_cap" },
     ];
     const old = kinds.map((kind) => ({ id: newId(), ...kind, createdAt: now - 181 * day }));
     const recent = kinds.map((kind) => ({ id: newId(), ...kind, createdAt: now - 1 * day }));
     await tools.DB.batch(
       [...old, ...recent].map((lead) =>
-        tools.DB.prepare("INSERT INTO leads (id, site_id, created_at, name, phone, spam, email_status, ip_hash) VALUES (?, ?, ?, 'n', 'p', ?, ?, 'h')").bind(lead.id, site.siteId, lead.createdAt, lead.spam, lead.email_status),
+        tools.DB.prepare("INSERT INTO leads (id, site_id, created_at, name, phone, spam, email_status, email_error, ip_hash) VALUES (?, ?, ?, 'n', 'p', ?, ?, ?, 'h')").bind(lead.id, site.siteId, lead.createdAt, lead.spam, lead.email_status, lead.email_error),
       ),
     );
     const byId = (a: { id: string }, b: { id: string }) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
@@ -177,5 +178,59 @@ describe("daily cron", () => {
     const result = await harness.server.getWorker("asksite-sites").scheduled({ cron: "0 7 * * *", scheduledTime: new Date(now) });
     expect(result.outcome).toBe("ok");
     expect(await stored()).toEqual(rows(recent));
+  });
+
+  // Spam-flagged leads (spam = 1) go after 30 days; EVERY other lead keeps the full 180, the daily_cap ones
+  // included (real leads whose email was held back). The shorter rule must never reach a spam = 0 row.
+  describe("spam retention (30 days, spam = 1 only)", () => {
+    const day = 86_400_000;
+    const now = Date.parse("2026-09-24T07:00:00.000Z");
+    const kinds = [
+      { name: "spam", spam: 1, email_status: "skipped", email_error: null },
+      { name: "pending", spam: 0, email_status: "pending", email_error: null },
+      { name: "sent", spam: 0, email_status: "sent", email_error: null },
+      { name: "failed", spam: 0, email_status: "failed", email_error: null },
+      { name: "daily_cap", spam: 0, email_status: "failed", email_error: "daily_cap" },
+    ];
+    // Seeds one lead of every kind at `age` (ms) and returns the names of the kinds still stored after the cron ran.
+    const survivors = async (age: number): Promise<string[]> => {
+      const site = await seedSite(tools);
+      const leads = kinds.map((kind) => ({ ...kind, id: newId() }));
+      await tools.DB.batch(
+        leads.map((lead) =>
+          tools.DB.prepare("INSERT INTO leads (id, site_id, created_at, name, phone, spam, email_status, email_error, ip_hash) VALUES (?, ?, ?, 'n', 'p', ?, ?, ?, 'h')").bind(
+            lead.id, site.siteId, now - age, lead.spam, lead.email_status, lead.email_error,
+          ),
+        ),
+      );
+      const result = await harness.server.getWorker("asksite-sites").scheduled({ cron: "0 7 * * *", scheduledTime: new Date(now) });
+      expect(result.outcome).toBe("ok");
+      const kept = new Set((await tools.DB.prepare("SELECT id FROM leads WHERE site_id = ?").bind(site.siteId).all<{ id: string }>()).results.map((r) => r.id));
+      return leads.filter((lead) => kept.has(lead.id)).map((lead) => lead.name);
+    };
+    const all = kinds.map((k) => k.name);
+    const real = all.filter((n) => n !== "spam");
+
+    it("at 31 days deletes only the spam lead: a normal, pending, failed and daily_cap lead are kept", async () => {
+      expect(await survivors(31 * day)).toEqual(real);
+    });
+    it("at 29 days deletes nothing", async () => {
+      expect(await survivors(29 * day)).toEqual(all);
+    });
+    it("at exactly 30 days keeps the spam lead (a lead is deleted only when older than the cutoff, as at 180 days)", async () => {
+      expect(await survivors(30 * day)).toEqual(all);
+    });
+    it("one millisecond past 30 days deletes the spam lead", async () => {
+      expect(await survivors(30 * day + 1)).toEqual(real);
+    });
+    it("at 179 days still keeps every non-spam lead", async () => {
+      expect(await survivors(179 * day)).toEqual(real);
+    });
+    it("at exactly 180 days keeps every non-spam lead", async () => {
+      expect(await survivors(180 * day)).toEqual(real);
+    });
+    it("at 181 days deletes every kind", async () => {
+      expect(await survivors(181 * day)).toEqual([]);
+    });
   });
 });

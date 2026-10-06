@@ -369,14 +369,33 @@ describe("page routing on a site host", () => {
 });
 
 // Pin added after Task 14's brief (test-only): the workerd cron test proves which leads are deleted;
-// only here can a test read the run's log line (design §7.3 item 5; one line with the count).
+// only here can a test read the run's log line (design §7.3 item 5; one line, counts only).
 describe("the scheduled handler", () => {
-  it("waits for the deletion and logs one line with the number of leads deleted", async () => {
+  // Two statements run in order: the spam rule (30 days, spam = 1 only), then the 180-day rule.
+  const fakeDb = (changes: number[], sizeAfter: number) => {
+    const sql: string[] = [];
     const db = {
-      prepare: () => ({ bind: () => ({ run: () => new Promise((done) => setTimeout(() => done({ meta: { changes: 3 } }), 5)) }) }),
+      prepare: (text: string) => ({
+        bind: () => ({
+          run: () => new Promise((done) => setTimeout(() => done({ meta: { changes: changes[sql.push(text) - 1], size_after: sizeAfter } }), 5)),
+        }),
+      }),
     } as unknown as D1Database;
+    return { db, sql };
+  };
+
+  it("waits for the deletions and logs one line with counts only: the total, per rule, and the database size", async () => {
+    const { db } = fakeDb([2, 1], 4096);
     await worker.scheduled({ scheduledTime: Date.parse("2026-09-24T07:00:00.000Z"), cron: "0 7 * * *", noRetry: () => {} }, { DB: db } as Env);
     expect(log).toHaveBeenCalledTimes(1);
-    expect(JSON.parse(String(log.mock.calls[0]?.[0]))).toEqual({ worker: "asksite-sites", route: "cron_lead_retention", ms: expect.any(Number), deleted: 3 });
+    expect(JSON.parse(String(log.mock.calls[0]?.[0]))).toEqual({
+      worker: "asksite-sites", route: "cron_lead_retention", ms: expect.any(Number), deleted: 3, deletedSpam: 2, deletedExpired: 1, dbBytes: 4096,
+    });
+  });
+
+  it("limits the 30-day rule to spam = 1 and gives the other statement no spam condition", async () => {
+    const { db, sql } = fakeDb([0, 0], 1);
+    await worker.scheduled({ scheduledTime: Date.parse("2026-09-24T07:00:00.000Z"), cron: "0 7 * * *", noRetry: () => {} }, { DB: db } as Env);
+    expect(sql).toEqual(["DELETE FROM leads WHERE spam = 1 AND created_at < ?", "DELETE FROM leads WHERE created_at < ?"]);
   });
 });

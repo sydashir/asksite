@@ -1264,7 +1264,7 @@ export async function setIndexable(env: { DB: D1Database }, input: { siteId: str
    - Headers: `Content-Type: image/webp` (always set by the Worker, never from object metadata), `X-Content-Type-Options: nosniff`, `Content-Security-Policy: default-src 'none'`, `Cross-Origin-Resource-Policy: cross-origin`, `Cache-Control: public, max-age=3600, s-maxage=60`.
    - Edge cache TTL is 60 s (`s-maxage`, which the Cache API follows, §7.3) and browsers keep a photo for an hour (`max-age`), so a taken-down site's photos stop being served from the edge within about a minute and from a browser that already holds one within an hour (S1 lowered these from 300 s and a day). A cached photo is not purged: Cache API entries stay in their data centre. Workerd's local cache honours the 60 s; the production cache's expiry is not measured without the real zone. If urgent takedowns need seconds, a Cache-Tag or purge-everything purge on takedown is the later option (Plan 2 runbook, Go-live checks).
 4. **Forms:** §7.5. The form reads the LIVE pointer first (`LIVE.head`, and the pointer's `siteId` must equal the form's), so a form for a site with no pointer never reaches D1; the pointer is written only after every page is copied, so a visitor who can see `/contact` always has a working form.
-5. **Cron** (`0 7 * * *`): delete leads older than `leadRetentionDays`.
+5. **Cron** (`0 7 * * *`): delete leads older than `leadRetentionDays`; spam-flagged leads, which owners never see, after `spamLeadRetentionDays` (30). Only `spam = 1` rows get the shorter period; daily_cap leads are real and keep 180 days. The log line carries counts only, with the database size in bytes.
 
 ### 7.4 Headers
 
@@ -1413,7 +1413,7 @@ export function createMailer(env: { MAILER: "resend" | "log"; MAIL_FROM: string;
 | Secrets | Only in Wrangler secrets (`wrangler secret put`) or the gitignored `.dev.vars` (already in `.gitignore`); `.dev.vars.example` files list names only; the model key only in the generator; never logged or in client code; `ANTHROPIC_API_KEY` and friends never in `vars` (All) |
 | Cookie tossing between customer subdomains | Customer pages are zero-JS and never set cookies; app and admin cookies are host-only `__Host-`; Public Suffix List submission (Plans 1, 4 and the user) |
 | Clickjacking | `frame-ancestors 'none'` on every page, plus `X-Frame-Options: DENY` on app and admin; the only exception is the stored-version review page, framable by its own origin only (`frame-ancestors 'self'`, §7.4) (All) |
-| Lead privacy | Raw IPs never stored (`hashIp` with the secret `IP_HASH_KEY`); invocation logs off, so request headers (IPs, cookies) are not logged (§1.2); leads deleted after 180 days; logs hold IDs only (Plan 2) |
+| Lead privacy | Raw IPs never stored (`hashIp` with the secret `IP_HASH_KEY`); invocation logs off, so request headers (IPs, cookies) are not logged (§1.2); leads deleted after 180 days; spam-flagged leads, which owners never see, after 30 days; logs hold IDs only (Plan 2) |
 | Supply chain | Exact version pins, pnpm lockfile, licences read from the actual LICENSE files (All) |
 
 **Static-asset headers.** The app and admin Workers ship a `_headers` file generated at build time with the real media host. Static Assets support `_headers` with at most 100 rules and 2,000 characters per line. `_headers` does **not** apply to responses from Worker code, so Hono middleware sets the same headers on `/api/*`. [verified] Both apps also send `Strict-Transport-Security: max-age=31536000; includeSubDomains`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer` and `X-Frame-Options: DENY`. The app and the admin use the same CSP (the admin needs `frame-src 'self'` for the review iframe):
@@ -1595,7 +1595,7 @@ If Plan 1 is still running when Stage 0 starts, the parts of Stage 0 that do not
    - **Resend Pro ($20 per month)** before about 20 live sites: Free's 100 emails a day is shared by leads, sign-in links and invites (§7.6).
 5. **Admin sign-in:** identity provider for Cloudflare Access (Google or GitHub, with MFA) and the admin email list.
 6. **Email provider:** Resend (recommended now) or Cloudflare Email Service once it leaves Beta.
-7. **Lead retention:** 180 days by default.
+7. **Lead retention:** 180 days by default; spam-flagged leads, which owners never see, after 30 days.
 8. **Owner-edit strictness:** the same rules as AI copy (recommended, §2.2). Relaxing would allow digits in owner edits, at the cost of the anti-phishing and fact-drift guarantees.
 9. **Brand name and sender address** for emails (`MAIL_FROM`) and the apex placeholder page.
 10. **Staging:** none in v1 (production without invites), or a second domain later.
