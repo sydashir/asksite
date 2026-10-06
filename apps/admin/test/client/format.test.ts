@@ -8,7 +8,7 @@ describe("admin messages", () => {
   });
 
   it("says the worst case is unknown when the model has no recorded price", () => {
-    expect(worstCaseText(8 * 1_331_520)).toBe("$10.65");
+    expect(worstCaseText(8 * 1_331_520)).toBe("$10.66");
     expect(worstCaseText(null)).toBe("Unknown: no price is recorded for this model (check MODEL_PROVIDER and MODEL_ID)");
   });
 
@@ -86,7 +86,7 @@ describe("jobCostText (one AI writing job's cost line)", () => {
 
   it("says Up to $X for a finished job that kept its model slot and recorded a cost", () => {
     expect(jobCostText(job("succeeded", 1, 336_000, 1))).toBe("Up to $0.34");
-    expect(jobCostText(job("failed", 1, 1_331_520, 3))).toBe("Up to $1.33");
+    expect(jobCostText(job("failed", 1, 1_331_520, 3))).toBe("Up to $1.34");
   });
 
   it("says Cost unknown for a finished job that kept its model slot and recorded no cost: our own code threw after a call (status failed, internal, attempts 0)", () => {
@@ -110,8 +110,8 @@ describe("spentTodayText (the Settings page's Spent today)", () => {
   });
 
   it("says Up to $X when every model-slot job finished with a recorded cost", () => {
-    expect(spentTodayText(700, 2, 0)).toBe("Up to $0.00");
-    expect(spentTodayText(10_652_160, 8, 0)).toBe("Up to $10.65");
+    expect(spentTodayText(700, 2, 0)).toBe("Up to $0.01");
+    expect(spentTodayText(10_652_160, 8, 0)).toBe("Up to $10.66");
   });
 
   it("names the one job whose cost is unknown", () => {
@@ -121,5 +121,37 @@ describe("spentTodayText (the Settings page's Spent today)", () => {
   it("counts the jobs whose cost is unknown, when there are several", () => {
     expect(spentTodayText(336_000, 4, 3)).toBe("Up to $0.34, not counting 3 jobs whose cost is unknown");
     expect(spentTodayText(0, 2, 2)).toBe("Up to $0.00, not counting 2 jobs whose cost is unknown");
+  });
+});
+
+// STRICT (money and honesty): an "Up to $X" figure is an upper bound, so it rounds UP to the cent (1 cent = 10,000 micro-dollars) and never
+// shows less than the recorded bound. Only an exact 0 shows "$0.00".
+describe("Up to figures round up to the cent", () => {
+  const BOUNDARIES: Array<[number, string]> = [
+    [0, "$0.00"],
+    [1, "$0.01"],
+    [700, "$0.01"],
+    [4_999, "$0.01"],
+    [5_000, "$0.01"],
+    [10_000, "$0.01"],
+    [10_001, "$0.02"],
+    [1_331_520, "$1.34"],
+  ];
+
+  it.each(BOUNDARIES)("spentTodayText with unknown jobs shows %i micro-dollars as %s", (microusd, dollarsText) => {
+    expect(spentTodayText(microusd, 2, 1)).toBe(`Up to ${dollarsText}, not counting 1 job whose cost is unknown`);
+  });
+
+  it.each(BOUNDARIES.filter(([microusd]) => microusd > 0))("jobCostText shows a recorded cost of %i micro-dollars as Up to %s", (microusd, dollarsText) => {
+    expect(jobCostText({ status: "succeeded", modelSlot: 1, costMicrousd: microusd })).toBe(`Up to ${dollarsText}`);
+  });
+
+  it.each(BOUNDARIES)("worstCaseText (Most it can cost per day) shows %i micro-dollars as %s", (microusd, dollarsText) => {
+    expect(worstCaseText(microusd)).toBe(dollarsText);
+  });
+
+  it("keeps an exact 0 at $0.00 in Spent today, and keeps the plain dollars format for the other figures", () => {
+    expect(spentTodayText(0, 1, 1)).toBe("Up to $0.00, not counting 1 job whose cost is unknown");
+    expect(dollars(1_331_520)).toBe("$1.33");
   });
 });

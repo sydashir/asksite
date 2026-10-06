@@ -2,6 +2,12 @@ import type { TakedownView } from "../../settings-view.ts";
 
 export const when = (ms: number | null): string => (ms === null ? "" : new Date(ms).toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" }));
 export const dollars = (microusd: number): string => `$${(microusd / 1_000_000).toFixed(2)}`;
+const MICROUSD_PER_CENT = 10_000;
+/** An upper bound (an "Up to" figure or a maximum) in dollars: rounded UP to the cent in integer cents, so it never shows less than the bound. Exact 0 is "$0.00". */
+export const dollarsUp = (microusd: number): string => {
+  const cents = Math.ceil(microusd / MICROUSD_PER_CENT);
+  return `$${Math.floor(cents / 100)}.${String(cents % 100).padStart(2, "0")}`;
+};
 /** The columns that decide what one AI writing job's cost line may say. */
 export interface JobCostInput {
   status: "queued" | "running" | "succeeded" | "failed";
@@ -20,7 +26,7 @@ export interface JobCostInput {
 export function jobCostText(job: JobCostInput): string | null {
   if (job.status === "queued" || job.status === "running") return null;
   if (job.modelSlot === 0) return dollars(0);
-  return job.costMicrousd > 0 ? `Up to ${dollars(job.costMicrousd)}` : "Cost unknown";
+  return job.costMicrousd > 0 ? `Up to ${dollarsUp(job.costMicrousd)}` : "Cost unknown";
 }
 
 /**
@@ -30,7 +36,7 @@ export function jobCostText(job: JobCostInput): string | null {
  */
 export function spentTodayText(spentMicrousd: number, modelCalls: number, unknownJobs: number): string {
   if (modelCalls === 0 && spentMicrousd === 0) return dollars(0);
-  const upTo = `Up to ${dollars(spentMicrousd)}`;
+  const upTo = `Up to ${dollarsUp(spentMicrousd)}`;
   if (unknownJobs === 0) return upTo;
   return `${upTo}, not counting ${unknownJobs === 1 ? "1 job" : `${unknownJobs} jobs`} whose cost is unknown`;
 }
@@ -42,7 +48,7 @@ export const restoredText = (missingPhotos: number): string =>
     : `Site restored. ${missingPhotos === 1 ? "1 photo on it was" : `${missingPhotos} photos on it were`} deleted when it was taken down and will not show. Ask the owner to upload new photos and publish again.`;
 /** The settings page's worst case per day; null means Plan 3 has no price for the configured model. */
 export const worstCaseText = (microusd: number | null): string =>
-  microusd === null ? "Unknown: no price is recorded for this model (check MODEL_PROVIDER and MODEL_ID)" : dollars(microusd);
+  microusd === null ? "Unknown: no price is recorded for this model (check MODEL_PROVIDER and MODEL_ID)" : dollarsUp(microusd);
 
 export const FLAG_REASON: Record<"web_address" | "at_sign" | "other_phone" | "phishing_word", string> = {
   web_address: "contains a web address",

@@ -173,7 +173,7 @@ describe("settings: model-slot jobs of today whose cost is unknown", () => {
     await seed([{ id: id(1), slot: 1, status: "succeeded", cost: 100, startedAt: Date.now(), attempts: 1 }, { id: id(2), slot: 1, status: "failed", cost: 600_000, startedAt: Date.now(), attempts: 3 }]);
     const got = await view();
     expect(got).toMatchObject({ modelCallsToday: 2, unknownCostJobsToday: 0 });
-    expect(spentTodayText(got.spentTodayMicrousd, got.modelCallsToday, got.unknownCostJobsToday)).toBe("Up to $0.60");
+    expect(spentTodayText(got.spentTodayMicrousd, got.modelCallsToday, got.unknownCostJobsToday)).toBe("Up to $0.61");
   });
 
   it("says $0.00 when no job took a model slot today (a model_slot 0 job does not count)", async () => {
