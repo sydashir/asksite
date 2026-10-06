@@ -12,9 +12,18 @@ import { useResource } from "../hooks.ts";
 import { COPIED_AGAIN, TAKEDOWN_LEASE_LOST } from "../../messages.ts";
 import type { TakedownView } from "../../settings-view.ts";
 import { CapNote } from "../CapNote.tsx";
-import { dollars, restoredText, takedownResult, when, type TakedownResult } from "../lib/format.ts";
+import { NOT_EMAILED, dollars, restoredText, takedownResult, when, type TakedownResult } from "../lib/format.ts";
 
-type TakedownBody = { reason: string; ownerMessage?: string; purgeMedia: boolean };
+/** `expectedTakenDownAt` is sent only by Finish the takedown: the moment this page showed the site down (the server refuses a site restored since). */
+type TakedownBody = { reason: string; ownerMessage?: string; purgeMedia: boolean; expectedTakenDownAt?: number };
+
+/** The takedown reason's limit (core's TakedownBody): longer is refused here, in words, before anything is sent. It counts code points of the trimmed text, as zod's .max does. */
+const REASON_MAX = 1000;
+/** What is wrong with a takedown reason, or null. */
+const reasonProblem = (value: string): string | null =>
+  value.trim() === "" ? "Write the reason. It is kept in the audit log." : [...value.trim()].length > REASON_MAX ? `Please use ${REASON_MAX} characters or fewer.` : null;
+/** Finish the takedown from the down-site form is a re-run with no earlier result: its answer is the clean-up text, and no owner line is owed. */
+const RE_RUN: TakedownResult = { tone: "success", text: "", cleanupFailed: false, ownerNotEmailed: false };
 
 type Message = { tone: "success" | "warning" | "error"; text: string };
 
@@ -54,6 +63,8 @@ function SiteScreen({ data, reload }: { data: SiteDetailData; reload: () => Prom
   const [disableErrors, setDisableErrors] = useState<string[]>([]);
   /** A takedown answered 5xx: what to say depends on whether the reloaded site is down, so the text is chosen at render. */
   const [takedownUnsure, setTakedownUnsure] = useState(false);
+  /** One takedown call at a time: a second press while one runs is ignored. */
+  const [takingDown, setTakingDown] = useState(false);
   const messageRef = useRef<HTMLDivElement>(null);
   /** An action can replace the control that ran it (take down becomes restore): keep keyboard focus on the result. */
   const show = (value: Message) => {
@@ -88,15 +99,24 @@ function SiteScreen({ data, reload }: { data: SiteDetailData; reload: () => Prom
 
   /** Takes the site down, or finishes a takedown that left its clean-up undone (the same call again; it never emails twice). */
   async function takeDown(body: TakedownBody, previous: TakedownResult | null) {
-    // After a lost lease the call that lost it never sent the owner's notice: Finish says so (notice=due), and this call sends it.
-    const res = await api<TakedownView>("POST", `/api/admin/sites/${site.id}/takedown${previous?.noticeDue === true ? "?notice=due" : ""}`, body);
+    if (takingDown) return;
+    setTakingDown(true);
+    try {
+      await runTakeDown(body, previous);
+    } finally {
+      setTakingDown(false);
+    }
+  }
+
+  async function runTakeDown(body: TakedownBody, previous: TakedownResult | null) {
+    const res = await api<TakedownView>("POST", `/api/admin/sites/${site.id}/takedown`, body);
     if (!res.ok) {
       // A 500 can come after the takedown committed: say so rather than a plain error, and let the reload show the truth. Keep the
       // body: if the reload shows the site down, "Finish the takedown" re-sends it. The owner notice is the route's last step and never
       // throws, so a call that answered 5xx sent none itself: keep the earlier result's owner-notice state, and with no earlier result
       // (this call may be the one that took the site down) mark the owner as not emailed.
       if (res.status >= 500) {
-        setTakedown({ body, result: { tone: "warning", text: "", cleanupFailed: true, ownerNotEmailed: previous?.ownerNotEmailed ?? true, ...(previous?.noticeDue === true ? { noticeDue: true } : {}) } });
+        setTakedown({ body, result: { tone: "warning", text: "", cleanupFailed: true, ownerNotEmailed: previous?.ownerNotEmailed ?? true } });
         // Wait for the reload, so the text below is chosen from the site's real state, not the one from before the takedown.
         await reload();
         setMessage(null);
@@ -105,10 +125,13 @@ function SiteScreen({ data, reload }: { data: SiteDetailData; reload: () => Prom
         requestAnimationFrame(() => messageRef.current?.focus());
         return;
       }
-      show({ tone: "error", text: res.error.message });
       // A lost lease (409, no Retry-After): the takedown may have committed. If the reload shows the site down, Finish the takedown finishes
-      // it and tells the owner; the owner was not told by this call.
-      if (res.error.message === TAKEDOWN_LEASE_LOST) setTakedown({ body, result: { tone: "warning", text: "", cleanupFailed: true, ownerNotEmailed: false, noticeDue: true } });
+      // its clean-up. The server already told the owner if this call took the site down and says how that went: noticeSent false means the
+      // email failed, so the admin is told to contact the owner (and Finish keeps saying so); Finish never emails.
+      const leaseLost = res.error.message === TAKEDOWN_LEASE_LOST;
+      const ownerNotEmailed = leaseLost && res.error.noticeSent === false;
+      show({ tone: "error", text: ownerNotEmailed ? `${res.error.message} ${NOT_EMAILED}` : res.error.message });
+      if (leaseLost) setTakedown({ body, result: { tone: "warning", text: "", cleanupFailed: true, ownerNotEmailed } });
     } else {
       const result = takedownResult(res.data, previous);
       setTakedown({ body, result });
@@ -124,8 +147,9 @@ function SiteScreen({ data, reload }: { data: SiteDetailData; reload: () => Prom
 
   function askTakedown(event: FormEvent) {
     event.preventDefault();
-    if (reason.trim() === "") {
-      setReasonErrors(["Write the reason. It is kept in the audit log."]);
+    const problem = reasonProblem(reason);
+    if (problem !== null) {
+      setReasonErrors([problem]);
       document.getElementById("takedown-reason")?.focus();
       return;
     }
@@ -135,14 +159,15 @@ function SiteScreen({ data, reload }: { data: SiteDetailData; reload: () => Prom
 
   function submitFinish(event: FormEvent) {
     event.preventDefault();
-    if (finishReason.trim() === "") {
-      setFinishErrors(["Write the reason. It is kept in the audit log."]);
+    const problem = reasonProblem(finishReason);
+    if (problem !== null) {
+      setFinishErrors([problem]);
       document.getElementById("finish-reason")?.focus();
       return;
     }
     setFinishErrors([]);
-    // No ?notice=due and no owner message: a re-run never emails (that stays the in-session lease-lost path above).
-    void takeDown({ reason: finishReason.trim(), purgeMedia: finishPurge }, null);
+    // No owner message: a re-run never emails. It names the takedown this page showed, so a site restored since is refused.
+    void takeDown({ reason: finishReason.trim(), purgeMedia: finishPurge, ...(takenDownAt === null ? {} : { expectedTakenDownAt: takenDownAt }) }, RE_RUN);
   }
 
   /** Only ONE "Finish the takedown" shows at a time: the in-session one wins, because it carries the stored body and the owner-notice state. */
@@ -180,7 +205,12 @@ function SiteScreen({ data, reload }: { data: SiteDetailData; reload: () => Prom
           </Notice>
         ) : null}
         {inSessionFinish ? (
-          <button type="button" className="btn-primary mt-3" onClick={() => void takeDown(takedown.body, takedown.result)}>
+          <button
+            type="button"
+            className="btn-primary mt-3"
+            aria-disabled={takingDown}
+            onClick={() => void takeDown({ ...takedown.body, ...(takenDownAt === null ? {} : { expectedTakenDownAt: takenDownAt }) }, takedown.result)}
+          >
             Finish the takedown
           </button>
         ) : null}
@@ -198,9 +228,9 @@ function SiteScreen({ data, reload }: { data: SiteDetailData; reload: () => Prom
               </button>
               {inSessionFinish ? null : (
                 <form noValidate onSubmit={submitFinish} className="mt-4">
-                  <TextInput id="finish-reason" label="Reason for finishing the takedown" value={finishReason} onChange={setFinishReason} errors={finishErrors} />
+                  <TextInput id="finish-reason" label="Reason for finishing the takedown" max={REASON_MAX} value={finishReason} onChange={setFinishReason} errors={finishErrors} />
                   <Checkbox id="finish-purge" label="Also delete this site's photos" checked={finishPurge} onChange={setFinishPurge} />
-                  <button type="submit" className="btn-secondary mt-3">
+                  <button type="submit" className="btn-secondary mt-3" aria-disabled={takingDown}>
                     Finish the takedown
                   </button>
                 </form>
@@ -208,7 +238,7 @@ function SiteScreen({ data, reload }: { data: SiteDetailData; reload: () => Prom
             </>
           ) : (
             <form noValidate onSubmit={askTakedown}>
-              <TextInput id="takedown-reason" label="Reason for taking it down" value={reason} onChange={setReason} errors={reasonErrors} />
+              <TextInput id="takedown-reason" label="Reason for taking it down" max={REASON_MAX} value={reason} onChange={setReason} errors={reasonErrors} />
               <TextArea id="takedown-message" label="Message to the owner" optional max={1000} value={ownerMessage} onChange={setOwnerMessage} />
               <Checkbox id="takedown-purge" label="Also delete this site's photos" checked={purge} onChange={setPurge} />
               <button type="submit" className="btn-secondary mt-3">

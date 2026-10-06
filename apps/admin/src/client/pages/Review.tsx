@@ -84,6 +84,8 @@ function ReviewScreen({ detail, onDone }: { detail: AdminVersionDetail; onDone: 
    * last step, and a retry is accepted). The reload then shows "approved", but the page may not be live: keep Approve until it works.
    */
   const [approveFailed, setApproveFailed] = useState(false);
+  /** One Approve at a time: a second press while one runs is ignored. */
+  const [approving, setApproving] = useState(false);
   const showApprove = pending || approveFailed;
   const email = (detail.document as { facts?: { email?: unknown } }).facts?.email;
   const publicEmail = typeof email === "string" ? email : "(none)";
@@ -96,8 +98,10 @@ function ReviewScreen({ detail, onDone }: { detail: AdminVersionDetail; onDone: 
   async function approve(event: FormEvent) {
     event.preventDefault();
     // Approve is aria-disabled (it keeps focus), so a press, or Enter in a field, still arrives here.
-    if (!canApprove) return;
+    if (!canApprove || approving) return;
+    setApproving(true);
     const res = await api<{ liveUrl: string }>("POST", `/api/admin/versions/${version.id}/approve`, { htmlSha256: version.htmlSha256, note: approveNote.trim(), indexable });
+    setApproving(false);
     // After a lost lease (409, no Retry-After) the approval may have been committed too: keep Approve so it can be pressed again.
     setApproveFailed(!res.ok && (res.status >= 500 || res.error.message === APPROVE_LEASE_LOST));
     if (res.ok) showResult({ tone: "success", text: "Approved. We'll email the owner. The site goes live within about a minute:", href: res.data.liveUrl });
@@ -282,7 +286,7 @@ function ReviewScreen({ detail, onDone }: { detail: AdminVersionDetail; onDone: 
                   </p>
                 )}
                 {/* aria-disabled, not disabled: Approve keeps keyboard focus, and its reason is read from the line above it. */}
-                <button type="submit" className="btn-primary mt-4" aria-disabled={!canApprove} aria-describedby={canApprove ? undefined : gateId}>
+                <button type="submit" className="btn-primary mt-4" aria-disabled={!canApprove || approving} aria-describedby={canApprove ? undefined : gateId}>
                   Approve and publish
                 </button>
                 <p role="status" className="sr-only">

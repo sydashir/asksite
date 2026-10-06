@@ -214,7 +214,7 @@ function delayingLease(db: D1Database, ms: number): D1Database {
 }
 
 /** The faults a request can be given (header X-Test-Takedown-Fault), each thrown as a plain Error, never a PublishError. */
-type TakedownFault = "pointer-delete" | "before-commit" | "prefix-delete" | "prefix-delete-once" | "prefix-delete-reread" | "pointer-write" | "lease-lost-after-batch" | "lease-lost-before-batch" | "lease-taken-over-before-batch";
+type TakedownFault = "pointer-delete" | "before-commit" | "prefix-delete" | "prefix-delete-once" | "prefix-delete-reread" | "pointer-write" | "lease-lost-after-batch" | "lease-lost-after-batch-reread" | "lease-lost-before-batch-reread" | "reread-only" | "lease-lost-before-batch" | "lease-taken-over-before-batch";
 
 /** The site an admin request acts on: /sites/<id>/... names it, /versions/<id>/... names a version whose site is looked up. null: neither. */
 async function requestSiteId(db: D1Database, path: string): Promise<string | null> {
@@ -234,7 +234,10 @@ async function requestSiteId(db: D1Database, path: string): Promise<string | nul
  * of taken_down_at; "pointer-write" fails the LIVE.put of a pointer (a key with no "/"), which approve reports as live_copy_failed.
  * "lease-lost-after-batch" runs the D1 batch and then frees the admin lease of the site the request acts on (and only that site), as an
  * action that ran past its lease would find it (approve then answers lease_lost with the approval committed and no pointer written; a
- * takedown, with the takedown committed and its LIVE clean-up not done). "lease-lost-before-batch" frees that lease BEFORE the D1 batch
+ * takedown, with the takedown committed and its LIVE clean-up not done). "lease-lost-after-batch-reread" is that and also fails the route's
+ * re-read of taken_down_at (the double fault: no notice is sent, the 409 says noticeSent false). "lease-lost-before-batch-reread" is the same
+ * with the lease lost BEFORE the batch (the site stays up). "reread-only" fails only the route's re-read: takeDown returns normally (the
+ * toward-sending fallback). "lease-lost-before-batch" frees that lease BEFORE the D1 batch
  * runs (a restore whose clear is then fenced out: 0 rows changed). "lease-taken-over-before-batch" does the same as another action
  * would: it gives the lease to "another-call" and overwrites the pointer with one that action wrote (writer "another-call").
  * Every other call passes through.
@@ -264,7 +267,7 @@ function withFault(env: TestEnv, fault: TakedownFault, path: string): TestEnv {
   const db = new Proxy(env.DB, {
     get(target, key) {
       if (key === "batch" && fault === "before-commit") return () => Promise.reject(new Error("D1 batch failed"));
-      if (key === "batch" && fault === "lease-lost-after-batch") {
+      if (key === "batch" && (fault === "lease-lost-after-batch" || fault === "lease-lost-after-batch-reread")) {
         return async (statements: D1PreparedStatement[]) => {
           const results = await target.batch(statements);
           // Only the site the request acts on (an approve names a version, the others a site): another site's lease must stay held.
@@ -273,10 +276,10 @@ function withFault(env: TestEnv, fault: TakedownFault, path: string): TestEnv {
           return results;
         };
       }
-      if (key === "batch" && (fault === "lease-lost-before-batch" || fault === "lease-taken-over-before-batch")) {
+      if (key === "batch" && (fault === "lease-lost-before-batch" || fault === "lease-lost-before-batch-reread" || fault === "lease-taken-over-before-batch")) {
         return async (statements: D1PreparedStatement[]) => {
           const siteId = await requestSiteId(target, path);
-          if (fault === "lease-lost-before-batch") {
+          if (fault === "lease-lost-before-batch" || fault === "lease-lost-before-batch-reread") {
             await target.prepare("UPDATE sites SET admin_lock = NULL, admin_lock_until = NULL WHERE id = ?").bind(siteId).run();
           } else {
             await target.prepare("UPDATE sites SET admin_lock = 'another-call', admin_lock_until = ? WHERE id = ?").bind(Date.now() + 60_000, siteId).run();
@@ -286,7 +289,7 @@ function withFault(env: TestEnv, fault: TakedownFault, path: string): TestEnv {
           return target.batch(statements);
         };
       }
-      if (key === "prepare" && fault === "prefix-delete-reread") {
+      if (key === "prepare" && (fault === "prefix-delete-reread" || fault === "lease-lost-after-batch-reread" || fault === "lease-lost-before-batch-reread" || fault === "reread-only")) {
         return (sql: string) => {
           if (sql.startsWith("SELECT taken_down_at FROM sites")) throw new Error("D1 read failed");
           return target.prepare(sql);

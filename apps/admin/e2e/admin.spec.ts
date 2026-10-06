@@ -341,6 +341,7 @@ test("a restore that lost its lease on a site that is live by the time the page 
   const takedownAnswered = page.waitForResponse((r) => r.request().method() === "POST" && r.url().includes("/takedown"));
   await takeDown(page, site.siteId); // this page shows the takedown and Restore
   expect((await takedownAnswered).status()).toBe(200); // wait for the takedown's answer: reading takenDownAt earlier raced it (Q-11)
+  await expect(page.getByRole("button", { name: "Restore the site" })).toBeVisible(); // the takedown has committed: takenDownAt below is its moment, not null
   const shown = ((await (await page.request.get(`${ADMIN}/api/admin/sites/${site.siteId}`)).json()) as { takenDownAt: number }).takenDownAt;
   // Another admin's restore went through meanwhile; this page's own Restore is answered "lost its lease" (the rare case in the contract).
   expect((await page.request.post(`${ADMIN}/api/admin/sites/${site.siteId}/restore`, { data: { expectedTakenDownAt: shown }, headers: { Origin: ADMIN } })).status()).toBe(200);
@@ -449,6 +450,7 @@ test("a takedown whose clean-up failed says so, and Finish the takedown finishes
   await page.getByRole("button", { name: "Finish the takedown" }).click();
   await expect(page.getByText("Clean-up finished.")).toBeVisible();
   await expect(page.getByRole("status").getByRole("button", { name: "Finish the takedown" })).toHaveCount(0); // the in-session control is gone; the down-site form (outside the status region) remains
+  await expect(page.getByRole("button", { name: "Finish the takedown" })).toHaveCount(1); // exactly one Finish control on the page: the form's
   await expect(page.locator("body")).not.toContainText("Owner not emailed");
 });
 
@@ -503,12 +505,14 @@ test("a takedown that errors AFTER the site went down offers Finish the takedown
   await expect(page.getByText("Owner not emailed — contact them.", { exact: false })).toBeVisible();
   await expect(page.getByText("Clean-up finished.", { exact: false })).toBeVisible();
   await expect(page.getByRole("status").getByRole("button", { name: "Finish the takedown" })).toHaveCount(0); // the in-session control is gone; the down-site form (outside the status region) remains
+  await expect(page.getByRole("button", { name: "Finish the takedown" })).toHaveCount(1); // exactly one Finish control on the page: the form's
   expect(bodies).toHaveLength(2);
-  expect(bodies[1]).toEqual(bodies[0]);
+  // Finish sends the same body plus the takedown moment the page showed (takedown-truth B).
+  expect(bodies[1]).toEqual({ ...(bodies[0] as object), expectedTakenDownAt: expect.any(Number) });
 });
 
-// m6: a takedown's lease can run out after its commit. The text says so; Finish the takedown tells the owner (once) and finishes the clean-up.
-test("a takedown that loses its lease after the commit says so, and Finish the takedown tells the owner once and clears the pages", async ({ page }) => {
+// m6, then takedown-truth (A): a takedown's lease can run out after its commit. The text says so; the SERVER has already told the owner (once), and Finish the takedown only finishes the clean-up.
+test("a takedown that loses its lease after the commit says so, the owner is told once by the server, and Finish the takedown clears the pages without a second notice", async ({ page }) => {
   const site = await liveSite(page);
   const notices = async () => ((await (await page.request.get(`${ADMIN}/__test/outbox?to=${encodeURIComponent(site.email)}`)).json()) as Array<{ tag: string }>).filter((m) => m.tag === "site_notice").length;
   const urls: string[] = [];
@@ -519,13 +523,30 @@ test("a takedown that loses its lease after the commit says so, and Finish the t
   await takeDown(page, site.siteId);
   await expect(page.getByText("This takedown ran too long and was stopped before it finished. Reload; if the site shows as taken down, press Finish the takedown.")).toBeVisible();
   await expect(page.getByRole("button", { name: "Restore the site" })).toBeVisible(); // the reload shows it down
-  expect(await notices()).toBe(0);
+  expect(await notices()).toBe(1); // the route sent it, though the call lost its lease
   await page.getByRole("button", { name: "Finish the takedown" }).click();
   await expect(page.getByText("Clean-up finished.", { exact: false })).toBeVisible();
   await expect(page.locator("body")).not.toContainText("Owner not emailed");
   await expect(page.getByRole("status").getByRole("button", { name: "Finish the takedown" })).toHaveCount(0); // the in-session control is gone; the down-site form (outside the status region) remains
+  await expect(page.getByRole("button", { name: "Finish the takedown" })).toHaveCount(1); // exactly one Finish control on the page: the form's
   expect(await notices()).toBe(1);
-  expect(urls[1]).toContain("notice=due");
+  expect(urls[1]).not.toContain("notice=due");
+});
+
+// takedown-residuals: a lost lease must not hide that the owner notice FAILED: the 409 carries noticeSent false and the page says so, and Finish keeps saying it.
+test("a takedown that loses its lease after the commit with a failed owner email says the owner was not emailed, and Finish keeps saying so", async ({ page }) => {
+  const site = await liveSite(page, { emailDomain: "mail-fails.example" });
+  const urls: string[] = [];
+  await page.route("**/api/admin/sites/*/takedown*", (route, request) => {
+    urls.push(request.url());
+    return urls.length === 1 ? route.continue({ headers: { ...request.headers(), "x-test-takedown-fault": "lease-lost-after-batch" } }) : route.continue();
+  });
+  await takeDown(page, site.siteId);
+  await expect(page.getByText("This takedown ran too long and was stopped before it finished.", { exact: false })).toBeVisible();
+  await expect(page.getByText("Owner not emailed — contact them.", { exact: false })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Restore the site" })).toBeVisible(); // the reload shows it down
+  await page.getByRole("button", { name: "Finish the takedown" }).click();
+  await expect(page.getByText("Owner not emailed — contact them. Clean-up finished.", { exact: false })).toBeVisible();
 });
 
 test("a Finish that fails after an emailed takedown never claims the owner was not emailed", async ({ page }) => {
@@ -548,7 +569,13 @@ test("a down site shows Finish the takedown after a reload; it needs a reason, r
   const site = await liveSite(page);
   const notices = async () => ((await (await page.request.get(`${ADMIN}/__test/outbox?to=${encodeURIComponent(site.email)}`)).json()) as Array<{ tag: string }>).filter((m) => m.tag === "site_notice").length;
   const posts: string[] = [];
-  page.on("request", (request) => request.method() === "POST" && request.url().includes("/takedown") && posts.push(request.url()));
+  const bodies: unknown[] = [];
+  page.on("request", (request) => {
+    if (request.method() === "POST" && request.url().includes("/takedown")) {
+      posts.push(request.url());
+      bodies.push(request.postDataJSON());
+    }
+  });
   await takeDown(page, site.siteId);
   await expect(page.getByRole("button", { name: "Restore the site" })).toBeVisible();
   await page.reload();
@@ -571,10 +598,180 @@ test("a down site shows Finish the takedown after a reload; it needs a reason, r
   expect((await answer).status()).toBe(200);
   expect(posts).toHaveLength(2);
   expect(posts[1]).not.toContain("notice=due");
+  expect(bodies[1]).toEqual({ reason: "Stale pointer check", purgeMedia: false, expectedTakenDownAt: expect.any(Number) });
+  await expect(page.getByText("Clean-up finished.", { exact: false })).toBeVisible(); // a re-run says the clean-up text, not the first takedown's
+  await expect(page.getByText("Site taken down.", { exact: false })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Restore the site" })).toBeVisible(); // still down
   const detail = (await (await page.request.get(`${ADMIN}/api/admin/sites/${site.siteId}`)).json()) as { audit: Array<{ action: string; detail: { reason?: string; repeat?: boolean } | null }> };
   expect(detail.audit.filter((a) => a.action === "site.taken_down" && a.detail?.reason === "Stale pointer check" && a.detail.repeat === true)).toHaveLength(1);
   expect(await notices()).toBe(1);
+});
+
+const siteNotices = async (page: Page, email: string) =>
+  ((await (await page.request.get(`${ADMIN}/__test/outbox?to=${encodeURIComponent(email)}`)).json()) as Array<{ tag: string }>).filter((m) => m.tag === "site_notice").length;
+type SiteView = { takenDownAt: number | null; audit: Array<{ action: string; detail: { repeat?: boolean } | null }> };
+const siteView = async (page: Page, siteId: string) => (await (await page.request.get(`${ADMIN}/api/admin/sites/${siteId}`)).json()) as SiteView;
+const takedownAudits = (view: SiteView) => view.audit.filter((a) => a.action === "site.taken_down");
+
+// takedown-truth (B), QA Q-1: Finish from a stale page must not take a restored site down again or email the owner again.
+test("a down-site page's Finish after another tab restored the site is refused: the text, no notice, no audit row, the site stays up", async ({ page }) => {
+  const site = await liveSite(page);
+  await page.goto(`/sites/${site.siteId}`);
+  await page.getByLabel("Reason for taking it down").fill("Phishing report");
+  await page.getByRole("button", { name: "Take the site down" }).click();
+  // Wait for the takedown's answer (a state, not the clock) before looking for the Restore button; the waiter is registered before the click.
+  const takenDown = page.waitForResponse((r) => r.url().includes("/takedown") && r.request().method() === "POST");
+  await page.getByRole("dialog", { name: "Take this site down?" }).getByRole("button", { name: "Take it down" }).click();
+  expect((await takenDown).status()).toBe(200);
+  await expect(page.getByRole("button", { name: "Restore the site" })).toBeVisible();
+  await page.reload();
+  await expect(page.getByRole("button", { name: "Finish the takedown" })).toHaveCount(1);
+  const other = await page.context().newPage();
+  await other.goto(`/sites/${site.siteId}`);
+  await other.getByRole("button", { name: "Restore the site" }).click();
+  await expect(other.getByText("Site restored.")).toBeVisible();
+  await other.close();
+  const before = takedownAudits(await siteView(page, site.siteId)).length;
+  expect(await siteNotices(page, site.email)).toBe(1);
+
+  await page.getByLabel("Reason for finishing the takedown").fill("Stale finish");
+  const answer = page.waitForResponse((r) => r.url().includes("/takedown") && r.request().method() === "POST");
+  await page.getByRole("button", { name: "Finish the takedown" }).click();
+  expect((await answer).status()).toBe(409);
+  await expect(page.getByText("This site was restored since you opened this page. Reload to see where it stands now.")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Take the site down" })).toBeVisible(); // the reload shows the site up
+  const after = await siteView(page, site.siteId);
+  expect(after.takenDownAt).toBeNull();
+  expect(takedownAudits(after)).toHaveLength(before);
+  expect(await siteNotices(page, site.email)).toBe(1);
+});
+
+// QA Q-2: the lease-lost text says "Reload ... press Finish the takedown"; doing exactly that finishes the clean-up, and the owner (told by the server) is not emailed again.
+test("after a takedown lost its lease, a browser reload and the down-site form's Finish clear the pages with no second notice", async ({ page }) => {
+  const site = await liveSite(page);
+  let posts = 0;
+  await page.route("**/api/admin/sites/*/takedown", (route, request) => (++posts === 1 ? route.continue({ headers: { ...request.headers(), "x-test-takedown-fault": "lease-lost-after-batch" } }) : route.continue()));
+  await takeDown(page, site.siteId);
+  await expect(page.getByText("This takedown ran too long and was stopped before it finished.", { exact: false })).toBeVisible();
+  expect(await siteNotices(page, site.email)).toBe(1);
+  await page.reload();
+  await page.getByLabel("Reason for finishing the takedown").fill("Finishing after reload");
+  const answer = page.waitForResponse((r) => r.url().includes("/takedown") && r.request().method() === "POST");
+  await page.getByRole("button", { name: "Finish the takedown" }).click();
+  expect((await answer).status()).toBe(200);
+  await expect(page.getByText("Clean-up finished.", { exact: false })).toBeVisible();
+  expect(await siteNotices(page, site.email)).toBe(1);
+});
+
+// QA Q-3: a form re-run that loses its lease, then the offered Finish: still one notice in total, and the admin is not told "The owner has been emailed".
+test("a form re-run that loses its lease, then the offered Finish, sends no second notice", async ({ page }) => {
+  const site = await liveSite(page);
+  await takeDown(page, site.siteId);
+  await expect(page.getByRole("button", { name: "Restore the site" })).toBeVisible();
+  await page.reload();
+  const bodies: unknown[] = [];
+  let reruns = 0;
+  await page.route("**/api/admin/sites/*/takedown", (route, request) => {
+    bodies.push(request.postDataJSON());
+    return ++reruns === 1 ? route.continue({ headers: { ...request.headers(), "x-test-takedown-fault": "lease-lost-after-batch" } }) : route.continue();
+  });
+  await page.getByLabel("Reason for finishing the takedown").fill("Re-run that loses its lease");
+  await page.getByRole("button", { name: "Finish the takedown" }).click();
+  await expect(page.getByText("This takedown ran too long and was stopped before it finished.", { exact: false })).toBeVisible();
+  await page.getByRole("status").getByRole("button", { name: "Finish the takedown" }).click();
+  await expect(page.getByText("Clean-up finished.", { exact: false })).toBeVisible();
+  await expect(page.locator("body")).not.toContainText("The owner has been emailed");
+  await expect(page.locator("body")).not.toContainText("Owner not emailed");
+  expect(await siteNotices(page, site.email)).toBe(1);
+  expect(bodies).toHaveLength(2);
+  expect(bodies[1]).toMatchObject({ reason: "Re-run that loses its lease", expectedTakenDownAt: expect.any(Number) });
+});
+
+// QA Q-7: one POST in flight. The first answer is held back, so the second press of the double-click lands while it runs.
+test("a double-click on the form's Finish the takedown sends one POST and writes one repeat audit row", async ({ page }) => {
+  const site = await liveSite(page);
+  await takeDown(page, site.siteId);
+  await expect(page.getByRole("button", { name: "Restore the site" })).toBeVisible();
+  await page.reload();
+  let posts = 0;
+  await page.route("**/api/admin/sites/*/takedown", async (route) => {
+    posts += 1;
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    await route.continue();
+  });
+  await page.getByLabel("Reason for finishing the takedown").fill("Double press");
+  const answered = page.waitForResponse((r) => r.url().includes("/takedown") && r.request().method() === "POST");
+  await page.getByRole("button", { name: "Finish the takedown" }).dblclick();
+  await answered; // both presses landed while this answer was held back
+  expect(posts).toBe(1);
+  await expect(page.getByText("Clean-up finished.", { exact: false })).toBeVisible();
+  expect((await siteView(page, site.siteId)).audit.filter((a) => a.action === "site.taken_down" && a.detail?.repeat === true)).toHaveLength(1);
+});
+
+// QA Q-8: Approve and publish, same rule.
+test("a double-click on Approve and publish sends one approve POST", async ({ page }) => {
+  const site = await pendingSite(page.request);
+  await page.goto(`/reviews/${site.versionId}`);
+  await showEveryPage(page);
+  let posts = 0;
+  await page.route("**/api/admin/versions/*/approve", async (route) => {
+    posts += 1;
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    await route.continue();
+  });
+  await page.getByRole("button", { name: "Approve and publish" }).dblclick();
+  await expect(page.getByText("Approved.", { exact: false })).toBeVisible();
+  expect(posts).toBe(1);
+});
+
+// QA Q-9: the takedown reasons stop at 1000 characters with the counter and a field error, and nothing is sent.
+test("a takedown reason over 1000 characters shows the counter and the error on both forms, and sends nothing", async ({ page }) => {
+  const site = await liveSite(page);
+  const posts: string[] = [];
+  page.on("request", (request) => request.method() === "POST" && request.url().includes("/takedown") && posts.push(request.url()));
+  await page.goto(`/sites/${site.siteId}`);
+  const first = page.getByLabel("Reason for taking it down");
+  await first.fill("x".repeat(1001));
+  await expect(page.getByText("1001 of 1000 characters")).toBeVisible();
+  await page.getByRole("button", { name: "Take the site down" }).click();
+  await expect(page.getByText("Please use 1000 characters or fewer.")).toBeVisible();
+  await expect(first).toHaveAttribute("aria-invalid", "true");
+  await expect(first).toBeFocused();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  expect(posts).toHaveLength(0);
+
+  await first.fill("Phishing report");
+  await page.getByRole("button", { name: "Take the site down" }).click();
+  await page.getByRole("dialog", { name: "Take this site down?" }).getByRole("button", { name: "Take it down" }).click();
+  await expect(page.getByRole("button", { name: "Restore the site" })).toBeVisible();
+  expect(posts).toHaveLength(1);
+  const finish = page.getByLabel("Reason for finishing the takedown");
+  await finish.fill("y".repeat(1001));
+  await expect(page.getByText("1001 of 1000 characters")).toBeVisible();
+  await page.getByRole("button", { name: "Finish the takedown" }).click();
+  await expect(page.getByText("Please use 1000 characters or fewer.")).toBeVisible();
+  await expect(finish).toHaveAttribute("aria-invalid", "true");
+  expect(posts).toHaveLength(1);
+});
+
+// The reason is counted in code points, like the server's zod .max: 1000 emoji (2000 UTF-16 units) pass on the client and the server, 1001 are refused with the same text.
+test("a takedown reason of 1000 emoji is sent and accepted, and 1001 emoji are refused with the same text and counter", async ({ page }) => {
+  const site = await liveSite(page);
+  const statuses: number[] = [];
+  page.on("response", (response) => response.request().method() === "POST" && response.url().includes("/takedown") && statuses.push(response.status()));
+  await page.goto(`/sites/${site.siteId}`);
+  const first = page.getByLabel("Reason for taking it down");
+  await first.fill("\u{1F600}".repeat(1001));
+  await expect(page.getByText("1001 of 1000 characters")).toBeVisible();
+  await page.getByRole("button", { name: "Take the site down" }).click();
+  await expect(page.getByText("Please use 1000 characters or fewer.")).toBeVisible();
+  expect(statuses).toHaveLength(0);
+  await first.fill("\u{1F600}".repeat(1000));
+  await expect(page.getByText("1000 of 1000 characters")).toBeVisible();
+  await page.getByRole("button", { name: "Take the site down" }).click();
+  await page.getByRole("dialog", { name: "Take this site down?" }).getByRole("button", { name: "Take it down" }).click();
+  await expect(page.getByRole("button", { name: "Restore the site" })).toBeVisible();
+  expect(statuses).toEqual([200]);
 });
 
 test("send an owner a sign-in link from their site; a disabled owner has no such button", async ({ page }) => {
