@@ -879,7 +879,7 @@ test("the cost labels: a site's jobs say Up to $X, Cost unknown and $0.00, and S
   await expect(jobs.getByText(/ · \$0\.00 · /)).toHaveCount(2); // the seeded model_slot 0 job and the site's own first job (no call sent)
 
   await page.goto("/settings");
-  await expect(page.getByText("Up to $1.34, not counting 2 jobs whose cost is unknown")).toBeVisible();
+  await expect(page.locator('dt:text-is("Spent today") + dd')).toHaveText("Up to $1.34, not counting 2 jobs whose cost is unknown");
 });
 
 test("the test seam for generations is refused for a bad body and an unknown site", async ({ request }) => {
