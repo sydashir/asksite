@@ -140,11 +140,34 @@ export function aiClaims(text: string, facts: Facts): string[] {
   return found;
 }
 
+/**
+ * The dotted path core's ownerEditedPaths uses for a copy field that proseIn found at `path`: "copy.heroHeadline",
+ * "copy.sectionIntros.faq", "copy.serviceDescriptions.<trimmed service name>", and "copy.faq" for any part of the faq.
+ */
+function ownerPathOf(copy: Copy, path: ReadonlyArray<string | number>): string {
+  const [head, index] = path;
+  if (head === "faq") return "copy.faq";
+  if (head === "serviceDescriptions" && typeof index === "number") return `copy.serviceDescriptions.${copy.serviceDescriptions[index]?.service.trim() ?? ""}`;
+  return ["copy", ...path].join(".");
+}
+
 /** One issue per copy field that makes a claim, in the shape and words of SiteDocument's claim issues, so the repair loop feeds them back. */
-export function aiClaimIssues(copy: Copy, facts: Facts): Issue[] {
+export function aiClaimIssues(copy: Copy, facts: Facts, ownerEditedPaths: readonly string[] = []): Issue[] {
+  const skipped = new Set(ownerEditedPaths);
   return proseIn(copy).flatMap(([path, text]) => {
+    if (skipped.has(ownerPathOf(copy, path))) return [];
     const claims = aiClaims(text, facts);
     if (claims.length === 0) return [];
     return [{ path: ["copy", ...path], code: "custom", message: `Copy states something the owner's facts do not back: ${claims.map((c) => JSON.stringify(c)).join(", ")}` }];
   });
+}
+
+/**
+ * The AI-only claim check over a composed page's copy, for the facts as they are now (public: Plan 4 runs it where it composes
+ * the page, after SiteDocument, because SiteDocument alone accepts AI wording whose fact the owner has since turned off). Fields
+ * whose path is in `ownerEditedPaths` (core's ownerEditedPaths) are the owner's own text and are skipped; the owner's text stays
+ * under claims.ts. Issues are the ones checkDraft gives.
+ */
+export function aiCopyIssues(facts: Facts, copy: Copy, ownerEditedPaths: readonly string[]): Issue[] {
+  return aiClaimIssues(copy, facts, ownerEditedPaths);
 }
