@@ -479,4 +479,113 @@ describe("which rows count toward the site's day and the owner's total (P3-11 (p
     expect(await allowance()).toEqual({ generationsLeftToday: 0, generationsLeftTotal: 19 });
     expect(await db.prepare("SELECT COUNT(*) AS n FROM audit_log WHERE site_id = 's1'").first()).toEqual({ n: 1 });
   });
+
+  // Ruling 3 (generation fixes G1, part B): 5 regenerations per owner per UTC day, across all the owner's sites, counted
+  // inside INSERT_JOB with the same COUNTS_TODAY rule as the site's day. First builds neither count toward it nor are
+  // refused by it (Decision 30); the lifetime 20 and the site's 5 are unchanged.
+  describe("the owner's 5 regenerations per UTC day (G1 part B)", () => {
+    /** Owner o1's s1 and s2 are built (yesterday); `onS1` and `onS2` of today's regenerations are seeded on them, each ended as `end`. */
+    async function today(onS1: number, onS2: number, end: Partial<GenerationRow> = { status: "succeeded", model_slot: 1, attempts: 1 }): Promise<void> {
+      await insertGeneration(db, { id: "built1", site_id: "s1", owner_id: "o1", status: "succeeded", model_slot: 1, attempts: 1, created_at: DAY - 5000, started_at: DAY - 5000, finished_at: DAY - 5000 });
+      await insertGeneration(db, { id: "built2", site_id: "s2", owner_id: "o1", status: "succeeded", model_slot: 1, attempts: 1, created_at: DAY - 4000, started_at: DAY - 4000, finished_at: DAY - 4000 });
+      for (let i = 0; i < onS1 + onS2; i++) {
+        const at = DAY + i;
+        await insertGeneration(db, { id: `t${i}`, site_id: i < onS1 ? "s1" : "s2", owner_id: "o1", kind: "regenerate", created_at: at, started_at: at, finished_at: at, ...end });
+      }
+    }
+
+    it("refuses the owner's 6th regeneration of the day even though each of their two sites has room", async () => {
+      await today(3, 2);
+      expect(await generationAllowance({ DB: db }, { siteId: "s1", ownerId: "o1", now: NOW })).toEqual({ generationsLeftToday: 0, generationsLeftTotal: 15 });
+      expect(await generationAllowance({ DB: db }, { siteId: "s2", ownerId: "o1", now: NOW })).toEqual({ generationsLeftToday: 0, generationsLeftTotal: 15 });
+      const { q, sent } = queue();
+      expect(await requestGeneration(env(q), input("s1"))).toEqual({ ok: false, code: "generation_cap_reached" });
+      expect(await requestGeneration(env(q), input("s2"))).toEqual({ ok: false, code: "generation_cap_reached" });
+      expect(sent).toEqual([]);
+      expect(await db.prepare("SELECT COUNT(*) AS n FROM audit_log").first()).toEqual({ n: 0 });
+    });
+
+    it("allows the 5th (the edge) and then refuses the 6th: five regenerations across two sites, requested one by one", async () => {
+      await today(0, 0);
+      for (let i = 0; i < 5; i++) {
+        const result = await requestGeneration(env(queue().q), input(i % 2 ? "s2" : "s1"));
+        expect(outcome(result)).toBe("regenerate");
+        if (result.ok) await finishJob(result.generation.id);
+      }
+      expect(await requestGeneration(env(queue().q), input("s1"))).toEqual({ ok: false, code: "generation_cap_reached" });
+      expect(await requestGeneration(env(queue().q), input("s2"))).toEqual({ ok: false, code: "generation_cap_reached" });
+      expect(await generationAllowance({ DB: db }, { siteId: "s2", ownerId: "o1", now: NOW })).toEqual({ generationsLeftToday: 0, generationsLeftTotal: 15 });
+    });
+
+    it("never refuses a first build and does not count it: at 5 regenerations a new site's first build queues, and shows the site's own allowance", async () => {
+      await today(3, 2);
+      await seedOwnerSite(db, "o1", "s3");
+      expect(await generationAllowance({ DB: db }, { siteId: "s3", ownerId: "o1", now: NOW })).toEqual({ generationsLeftToday: 5, generationsLeftTotal: 15 });
+      const first = await requestGeneration(env(queue().q), input("s3"));
+      expect(outcome(first)).toBe("first");
+      expect(await generationAllowance({ DB: db }, { siteId: "s3", ownerId: "o1", now: NOW })).toEqual({ generationsLeftToday: 4, generationsLeftTotal: 15 });
+    });
+
+    it("does not count first builds toward the 5: 4 regenerations and 3 first builds today, the 5th regeneration still queues", async () => {
+      await today(2, 2);
+      for (const site of ["s3", "s4", "s5"]) {
+        await seedOwnerSite(db, "o1", site);
+        await insertGeneration(db, { id: `first-${site}`, site_id: site, owner_id: "o1", status: "succeeded", used_fallback: 1, fallback_reason: "budget", created_at: DAY + 100, started_at: DAY + 100, finished_at: DAY + 100 });
+      }
+      expect(outcome(await requestGeneration(env(queue().q), input("s1")))).toBe("regenerate");
+    });
+
+    it("counts only today's regenerations, the owner's own, and only rows COUNTS_TODAY counts (a failed queue send does not)", async () => {
+      await today(0, 0);
+      // yesterday's five do not count
+      for (let i = 0; i < 5; i++) await insertGeneration(db, { id: `y${i}`, site_id: "s1", owner_id: "o1", kind: "regenerate", status: "succeeded", model_slot: 1, attempts: 1, created_at: DAY - 1 - i, started_at: DAY - 1 - i, finished_at: DAY - 1 - i });
+      // another owner's five today do not count
+      await seedOwnerSite(db, "o2", "s9");
+      await insertGeneration(db, { id: "o2-built", site_id: "s9", owner_id: "o2", status: "succeeded", created_at: 1 });
+      for (let i = 0; i < 5; i++) await insertGeneration(db, { id: `o2-${i}`, site_id: "s9", owner_id: "o2", kind: "regenerate", status: "succeeded", model_slot: 1, attempts: 1, created_at: DAY + i, started_at: DAY + i, finished_at: DAY + i });
+      // five regenerations whose queue send failed (never claimed, ended internal) do not count
+      for (let i = 0; i < 5; i++) await insertGeneration(db, { id: `f${i}`, site_id: "s2", owner_id: "o1", kind: "regenerate", status: "failed", error_code: "internal", created_at: DAY + 50 + i, finished_at: DAY + 50 + i });
+      expect(await generationAllowance({ DB: db }, { siteId: "s1", ownerId: "o1", now: NOW })).toEqual({ generationsLeftToday: 5, generationsLeftTotal: 15 }); // yesterday's five still count toward the lifetime
+      expect(outcome(await requestGeneration(env(queue().q), input("s1")))).toBe("regenerate");
+    });
+
+    it("counts a running regeneration and ones that failed after their model calls or a started claim toward the 5", async () => {
+      await today(0, 0);
+      const ended: Array<Partial<GenerationRow>> = [
+        { status: "failed", error_code: "invalid_output", model_slot: 1, attempts: 3 },
+        { status: "failed", error_code: "provider_unavailable", model_slot: 1, attempts: 3 },
+        { status: "failed", error_code: "budget_exhausted" },
+      ];
+      for (const [i, end] of ended.entries()) await insertGeneration(db, { id: `l${i}`, site_id: "s2", owner_id: "o1", kind: "regenerate", created_at: DAY + 20 + i, started_at: DAY + 20 + i, finished_at: DAY + 20 + i, ...end });
+      await insertGeneration(db, { id: "running", site_id: "s2", owner_id: "o1", kind: "regenerate", status: "running", model_slot: 1, created_at: DAY + 30, started_at: DAY + 30 });
+      expect((await generationAllowance({ DB: db }, { siteId: "s1", ownerId: "o1", now: NOW })).generationsLeftToday).toBe(1);
+      expect(outcome(await requestGeneration(env(queue().q), input("s1")))).toBe("regenerate");
+      expect((await generationAllowance({ DB: db }, { siteId: "s1", ownerId: "o1", now: NOW })).generationsLeftToday).toBe(0);
+      expect(await requestGeneration(env(queue().q), input("s1"))).toEqual({ ok: false, code: "generation_cap_reached" });
+    });
+
+    it("stays exact for two sites of one owner at once with 1 left today: exactly one queues", async () => {
+      await today(2, 2);
+      expect((await generationAllowance({ DB: db }, { siteId: "s1", ownerId: "o1", now: NOW })).generationsLeftToday).toBe(1);
+      const results = await atOnce(["s1", "s2"]);
+      expect(results.map(outcome).sort()).toEqual(["generation_cap_reached", "regenerate"]);
+      expect((await generationAllowance({ DB: db }, { siteId: "s1", ownerId: "o1", now: NOW })).generationsLeftToday).toBe(0);
+      expect(await db.prepare("SELECT COUNT(*) AS n FROM audit_log").first()).toEqual({ n: 1 });
+    });
+
+    it("leaves the site's 5 per day and the lifetime 20 as they were", async () => {
+      // the site's 5 still bites on its own: one first build and 4 regenerations today on s1 (the owner has only 4 regenerations today)
+      await insertGeneration(db, { id: "first", site_id: "s1", owner_id: "o1", status: "succeeded", used_fallback: 1, fallback_reason: "budget", created_at: DAY, started_at: DAY, finished_at: DAY });
+      for (let i = 0; i < 4; i++) await insertGeneration(db, { id: `r${i}`, site_id: "s1", owner_id: "o1", kind: "regenerate", status: "succeeded", model_slot: 1, attempts: 1, created_at: DAY + 1 + i, started_at: DAY + 1 + i, finished_at: DAY + 1 + i });
+      expect(await generationAllowance({ DB: db }, { siteId: "s1", ownerId: "o1", now: NOW })).toEqual({ generationsLeftToday: 0, generationsLeftTotal: 16 });
+      expect(await requestGeneration(env(queue().q), input("s1"))).toEqual({ ok: false, code: "generation_cap_reached" });
+      expect(outcome(await requestGeneration(env(queue().q), input("s2")))).toBe("first");
+      // the lifetime 20 still refuses, with nothing counted today
+      await clearTables(db);
+      await seedOwnerSite(db, "o1", "s1");
+      await insertGeneration(db, { id: "b1", site_id: "s1", owner_id: "o1", status: "succeeded", created_at: 1 });
+      for (let i = 0; i < 20; i++) await insertGeneration(db, { id: `old${i}`, site_id: "s1", owner_id: "o1", kind: "regenerate", status: "succeeded", model_slot: 1, attempts: 1, created_at: 2, started_at: 2, finished_at: 2 });
+      expect(await requestGeneration(env(queue().q), input("s1"))).toEqual({ ok: false, code: "generation_cap_reached" });
+    });
+  });
 });

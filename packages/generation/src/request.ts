@@ -12,19 +12,22 @@ const COUNTS_TODAY = "NOT (error_code IS 'internal' AND started_at IS NULL)";
 // IS (not =) keeps this NULL-safe if it is ever negated, as COUNTS_TODAY is; inside these plain WHERE clauses = and IS select the same rows, so no test can tell them apart.
 const COUNTS_TOWARD_TOTAL = "kind = 'regenerate' AND (status IN ('queued', 'running', 'succeeded') OR (status = 'failed' AND error_code IS 'invalid_output'))";
 
-// The per-site daily count and the per-owner total are checked in the INSERT itself, so they are
-// exact even when one owner acts on two sites at once (design §6.4).
+// The per-site daily count, the per-owner daily count of regenerations and the per-owner total are checked in the INSERT itself,
+// so they are exact even when one owner acts on two sites at once (design §6.4).
 // Rows that failed before any job claimed them do not count (a failed queue send, or a stuck queued job the sweeper
 // ended as internal). A first build the sweeper finished with the template does count: the owner received a draft.
 // A first build neither counts toward nor is refused by the per-owner total (Decision 30).
 // A regeneration counts toward the owner's total while it is queued or running, once it succeeded, or once it failed
 // with invalid_output (P3-16 (B)). Failures that are not the owner's fault never count (a revoked key, the spend cap,
 // 5xx, timeouts, internal errors). invalid_output counts because it is billed (up to 3 model calls) and the owner's own
-// text can cause it. The daily model limit and the per-site 5 per UTC day keep protecting cost.
+// text can cause it. The daily model limit, the per-site 5 per UTC day and the per-owner 5 regenerations per UTC day keep
+// protecting cost. The owner's day counts a regeneration by the same COUNTS_TODAY rule as the site's day (so a failed queue
+// send does not count), from the owner's rows of every site; a first build is not in it, as it is not in the total.
 const INSERT_JOB = `INSERT INTO generations (id, site_id, owner_id, kind, status, input_json, created_at)
 SELECT ?1, ?2, ?3, ?4, 'queued', ?5, ?6
 WHERE (SELECT COUNT(*) FROM generations WHERE site_id = ?2 AND created_at >= ?7 AND (${COUNTS_TODAY})) < ?8
-  AND (?4 = 'first' OR (SELECT COUNT(*) FROM generations WHERE owner_id = ?3 AND (${COUNTS_TOWARD_TOTAL})) < ?9)`;
+  AND (?4 = 'first' OR ((SELECT COUNT(*) FROM generations WHERE owner_id = ?3 AND (${COUNTS_TOWARD_TOTAL})) < ?9
+    AND (SELECT COUNT(*) FROM generations WHERE owner_id = ?3 AND kind = 'regenerate' AND created_at >= ?7 AND (${COUNTS_TODAY})) < ?10))`;
 // The owner's regenerations that count toward the total, counted exactly as INSERT_JOB counts them.
 const OWNER_TOTAL = `SELECT COUNT(*) AS n FROM generations WHERE owner_id = ?1 AND (${COUNTS_TOWARD_TOTAL})`;
 // In the same batch (one transaction): the audit row exists exactly when the job row does.
@@ -64,7 +67,7 @@ export async function requestGeneration(
     let inserted: number;
     try {
       const [job] = await env.DB.batch([
-        env.DB.prepare(INSERT_JOB).bind(id, siteId, ownerId, kind, JSON.stringify(snapshot), now, utcDayStart(now), LIMITS.generationsPerSitePerDay, LIMITS.generationsPerOwnerTotal),
+        env.DB.prepare(INSERT_JOB).bind(id, siteId, ownerId, kind, JSON.stringify(snapshot), now, utcDayStart(now), LIMITS.generationsPerSitePerDay, LIMITS.generationsPerOwnerTotal, LIMITS.generationsPerOwnerPerDay),
         env.DB.prepare(INSERT_AUDIT).bind(now, `owner:${ownerId}`, siteId, JSON.stringify({ generationId: id, kind }), id),
       ]);
       inserted = job?.meta.changes ?? 0;
@@ -87,19 +90,27 @@ export async function requestGeneration(
   }
 }
 
-/** What the owner has left (SiteView.limits): today for this site, and regenerations in total for this owner, counted exactly as INSERT_JOB counts them. */
+/**
+ * What the owner has left (SiteView.limits): today, and regenerations in total for this owner, counted exactly as INSERT_JOB counts them.
+ * generationsLeftToday is the site's allowance for a site with no draft (its next request is a first build, which the owner's daily
+ * cap does not touch) and the smaller of the site's and the owner's regenerations left today for a site that has one.
+ */
 export async function generationAllowance(
   env: { DB: D1Database },
   input: { siteId: string; ownerId: string; now: number },
 ): Promise<{ generationsLeftToday: number; generationsLeftTotal: number }> {
   const row = await env.DB.prepare(
     `SELECT (SELECT COUNT(*) FROM generations WHERE site_id = ?1 AND created_at >= ?3 AND (${COUNTS_TODAY})) AS today,
-            (SELECT COUNT(*) FROM generations WHERE owner_id = ?2 AND (${COUNTS_TOWARD_TOTAL})) AS total`,
+            (SELECT COUNT(*) FROM generations WHERE owner_id = ?2 AND kind = 'regenerate' AND created_at >= ?3 AND (${COUNTS_TODAY})) AS ownerToday,
+            (SELECT COUNT(*) FROM generations WHERE owner_id = ?2 AND (${COUNTS_TOWARD_TOTAL})) AS total,
+            EXISTS (SELECT 1 FROM generations WHERE site_id = ?1 AND status = 'succeeded') AS drafted`,
   )
     .bind(input.siteId, input.ownerId, utcDayStart(input.now))
-    .first<{ today: number; total: number }>();
+    .first<{ today: number; ownerToday: number; total: number; drafted: number }>();
+  const siteLeft = Math.max(0, LIMITS.generationsPerSitePerDay - (row?.today ?? 0));
+  const ownerLeft = Math.max(0, LIMITS.generationsPerOwnerPerDay - (row?.ownerToday ?? 0));
   return {
-    generationsLeftToday: Math.max(0, LIMITS.generationsPerSitePerDay - (row?.today ?? 0)),
+    generationsLeftToday: row?.drafted ? Math.min(siteLeft, ownerLeft) : siteLeft,
     generationsLeftTotal: Math.max(0, LIMITS.generationsPerOwnerTotal - (row?.total ?? 0)),
   };
 }
