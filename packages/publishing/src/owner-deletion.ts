@@ -34,6 +34,16 @@ interface OwnerRow {
 const SITE_CHILDREN = ["leads", "uploads", "site_versions", "invites", "generations"] as const;
 type SiteChild = (typeof SITE_CHILDREN)[number];
 
+/**
+ * The audit rows the closure redacts: this owner's owner.disabled rows and the site.taken_down rows of its sites, only
+ * those with a text reason that is not redacted yet. The placeholders name the reason, the site-id JSON and the owner id.
+ */
+const redactionWhere = (reason: string, siteIds: string, ownerId: string): string =>
+  `((action = 'site.taken_down' AND site_id IN (SELECT value FROM json_each(${siteIds})))
+     OR (action = 'owner.disabled' AND site_id IS NULL AND json_extract(detail_json, '$.ownerId') = ${ownerId}))
+   AND json_type(detail_json, '$.reason') = 'text'
+   AND json_extract(detail_json, '$.reason') IS NOT ${reason}`;
+
 const childDeletes = (db: D1Database, siteId: string, token: string, ownerId: string): D1PreparedStatement[] =>
   SITE_CHILDREN.map((table) => db.prepare(`DELETE FROM ${table} WHERE site_id = ? AND ${LEASE_HELD} AND ${OWNER_CLOSING}`).bind(siteId, siteId, token, ownerId));
 
@@ -47,9 +57,10 @@ const childDeletes = (db: D1Database, siteId: string, token: string, ownerId: st
  * 3a) per site: takeDownUnderLease with a media purge (every page stops at once, the pointer first), then WORK emptied;
  * 3b) one LIVE sweep by version id (pages left under an older slug by a failed approve), before any version row goes;
  * 3c) per site: MEDIA again and one batch of the bulk rows (leads, uploads, versions, invites, generations);
- * 4a) the two free-text audit reasons redacted (REDACTED_REASON), prefixes of sites with no row emptied;
- * 4b) ONE batch: the emptied sites rows, the owner-level rows (generations, sessions, sign-in links, every invite for the
- *     owner or the owner's email, dev outbox), the owners row and the owner.deleted row (counts only), all or nothing.
+ * 4a) prefixes of sites with no row emptied;
+ * 4b) ONE batch: the two free-text audit reasons redacted (REDACTED_REASON), the emptied sites rows, the owner-level rows
+ *     (generations, sessions, sign-in links, every invite for the owner or the owner's email, dev outbox), the owners row
+ *     and the owner.deleted row (counts only), all or nothing and fenced by OWNER_CLOSING: an owner who stays keeps its reasons.
  * Every D1 write carries the lease of its site and/or OWNER_CLOSING. Throws site_busy with retryAfter (a site is held;
  * nothing was deleted) or site_busy lease_lost (the run outlived ADMIN_LEASE_MS; call again); any D1 or R2 error as it is.
  */
@@ -150,24 +161,14 @@ async function deleteUnderLeases(
   }
   if ((await readOwner(db, ownerId))?.disabled_at === null) return { outcome: "not_disabled" }; // enabled again mid-run
 
-  // Phase 4a: leftover prefixes of sites with no row, and the audit redaction.
+  // Phase 4a: leftover prefixes of sites with no row.
   for (const siteId of allSiteIds) {
     if (presentIds.includes(siteId)) continue;
     objects.work += await deletePrefix(env.WORK, workSitePrefix(siteId));
     objects.media += await deletePrefix(env.MEDIA, mediaSitePrefix(siteId));
   }
-  const redacted = await db
-    .prepare(
-      `UPDATE audit_log SET detail_json = json_replace(detail_json, '$.reason', ?1)
-       WHERE ((action = 'site.taken_down' AND site_id IN (SELECT value FROM json_each(?2)))
-           OR (action = 'owner.disabled' AND site_id IS NULL AND json_extract(detail_json, '$.ownerId') = ?3))
-         AND json_type(detail_json, '$.reason') = 'text'
-         AND json_extract(detail_json, '$.reason') IS NOT ?1`,
-    )
-    .bind(REDACTED_REASON, JSON.stringify(allSiteIds), ownerId)
-    .run();
-
-  // Phase 4b: the final batch. The counts first (the batch's own changes are unknown when its audit row is bound).
+  // Phase 4b: the final batch. The counts first (the batch's own changes are unknown when its audit row is bound):
+  // counted just before the final transaction; a row that arrives in between is deleted but not counted.
   const left = await db
     .prepare(
       `SELECT (SELECT COUNT(*) FROM leads WHERE site_id IN (SELECT value FROM json_each(?1))) AS leads,
@@ -178,10 +179,11 @@ async function deleteUnderLeases(
               (SELECT COUNT(*) FROM sites WHERE owner_id = ?2) AS sites,
               (SELECT COUNT(*) FROM sessions WHERE owner_id = ?2) AS sessions,
               (SELECT COUNT(*) FROM login_tokens WHERE owner_id = ?2) AS login_tokens,
-              (SELECT COUNT(*) FROM dev_outbox WHERE to_addr = ?3) AS dev_outbox`,
+              (SELECT COUNT(*) FROM dev_outbox WHERE to_addr = ?3) AS dev_outbox,
+              (SELECT COUNT(*) FROM audit_log WHERE ${redactionWhere("?5", "?4", "?2")}) AS redacted`,
     )
-    .bind(JSON.stringify(presentIds), ownerId, email)
-    .first<Record<"leads" | "uploads" | "site_versions" | "invites" | "generations" | "sites" | "sessions" | "login_tokens" | "dev_outbox", number>>();
+    .bind(JSON.stringify(presentIds), ownerId, email, JSON.stringify(allSiteIds), REDACTED_REASON)
+    .first<Record<"leads" | "uploads" | "site_versions" | "invites" | "generations" | "sites" | "sessions" | "login_tokens" | "dev_outbox" | "redacted", number>>();
   if (left === null) throw new Error("owner_delete_count_missing");
   const counts: OwnerDeletionCounts = {
     attempts,
@@ -199,10 +201,15 @@ async function deleteUnderLeases(
       owners: 1,
     },
     objects,
-    auditRedacted: redacted.meta.changes,
+    auditRedacted: left.redacted,
   };
 
-  const statements: D1PreparedStatement[] = [];
+  // The redaction is the batch's first statement (the owner row's changes() must stay the one just before owner.deleted).
+  const statements: D1PreparedStatement[] = [
+    db
+      .prepare(`UPDATE audit_log SET detail_json = json_replace(detail_json, '$.reason', ?1) WHERE ${redactionWhere("?1", "?2", "?3")} AND ${OWNER_CLOSING}`)
+      .bind(REDACTED_REASON, JSON.stringify(allSiteIds), ownerId, ownerId), // OWNER_CLOSING's bare ? is parameter 4
+  ];
   for (const siteId of presentIds) {
     statements.push(...childDeletes(db, siteId, tokenOf(siteId), ownerId));
     statements.push(db.prepare(`DELETE FROM sites WHERE id = ? AND owner_id = ? AND admin_lock = ? AND ${OWNER_CLOSING}`).bind(siteId, ownerId, tokenOf(siteId), ownerId));
@@ -226,14 +233,17 @@ async function deleteUnderLeases(
     results = await db.batch(statements);
   } catch (error) {
     // D1 can commit a batch and still throw (versions.ts): the owner gone and its owner.deleted row there means it did.
-    let after: OwnerRow | null;
+    // Whatever goes wrong while looking, the batch's own error is the one that surfaces.
+    let verdict: "deleted" | "lease_lost" | "unknown" = "unknown";
     try {
-      after = await readOwner(db, ownerId);
+      const after = await readOwner(db, ownerId);
+      if (after === null && (await deletedRowExists(db, ownerId))) verdict = "deleted";
+      else if (after !== null && !(await sitesStillOurs(db, ownerId, presentIds, tokens).catch(() => true))) verdict = "lease_lost";
     } catch {
-      throw error;
+      // unknown: rethrow the batch's error
     }
-    if (after === null && (await deletedRowExists(db, ownerId))) return { outcome: "deleted", counts };
-    if (after !== null && !(await sitesStillOurs(db, ownerId, presentIds, tokens).catch(() => true))) throw new PublishError("site_busy", { reason: "lease_lost" });
+    if (verdict === "deleted") return { outcome: "deleted", counts };
+    if (verdict === "lease_lost") throw new PublishError("site_busy", { reason: "lease_lost" });
     throw error;
   }
   if (results[ownerDeleted]?.meta.changes === 1) return { outcome: "deleted", counts };

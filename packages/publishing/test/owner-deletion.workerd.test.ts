@@ -177,6 +177,35 @@ describe("deleteOwner refusals change nothing and leave no lease", () => {
     expect(await dumpAll(env)).toEqual(before);
   }, T);
 
+  /** Every D1 write: a refusal in Phase 0 must make none (no lease, no row). */
+  const writesOf = (log: string[]) =>
+    watchDb(env.DB, async ({ sql, method }) => {
+      if (method === "batch" || (method === "run" && !sql.trimStart().startsWith("SELECT"))) log.push(sql);
+    });
+
+  // Ported from review R1 (finding I-1, mutant 10 "Phase 0 disabled check removed"): without the check the email answer
+  // comes first and Phase 1 writes leases on the sites of an owner who is not closing.
+  it("an enabled owner with a wrong email is not_disabled (not email_mismatch), and nothing is written", async () => {
+    const t = await seedClosingOwner(env, "enabled-wrong-email");
+    await env.DB.prepare("UPDATE owners SET disabled_at = NULL WHERE id = ?").bind(t.ownerId).run();
+    const writes: string[] = [];
+    expect(await del(t, { ...env, DB: writesOf(writes) }, { confirmEmail: "someone@example.com" })).toEqual({ outcome: "not_disabled" });
+    expect(writes).toEqual([]);
+  }, T);
+
+  // Ported from review R2 (I-1): an enabled owner's busy site must not turn the answer into site_busy, and the holder's lock stays.
+  it("an enabled owner whose site another action holds is not_disabled (not site_busy), the holder's lock untouched, nothing written", async () => {
+    const t = await seedClosingOwner(env, "enabled-held");
+    await env.DB.prepare("UPDATE owners SET disabled_at = NULL WHERE id = ?").bind(t.ownerId).run();
+    const held = t.siteIds[0] ?? "";
+    await env.DB.prepare("UPDATE sites SET admin_lock = 'someone-else', admin_lock_until = ? WHERE id = ?").bind(NOW + 60_000, held).run();
+    const writes: string[] = [];
+    expect(await del(t, { ...env, DB: writesOf(writes) })).toEqual({ outcome: "not_disabled" });
+    expect((await lockOf(held))?.admin_lock).toBe("someone-else");
+    expect(writes).toEqual([]);
+    await env.DB.prepare("UPDATE sites SET admin_lock = NULL, admin_lock_until = NULL WHERE id = ?").bind(held).run();
+  }, T);
+
   it("wrong email", async () => {
     const { target } = await pair();
     const before = await dumpAll(env);
@@ -342,6 +371,9 @@ describe("deleteOwner under a lost lease or an owner enabled again", () => {
     expect(await count("SELECT COUNT(*) AS n FROM dev_outbox WHERE to_addr = ?", target.email)).toBe(1);
     expect(await count("SELECT COUNT(*) AS n FROM audit_log WHERE action = 'owner.deleted' AND json_extract(detail_json, '$.ownerId') = ?", target.ownerId)).toBe(0);
     for (const id of target.siteIds) expect(await lockOf(id)).toEqual({ admin_lock: null, admin_lock_until: null });
+    // pin changed: old (not asserted; the redaction ran before batch F, so a re-enabled owner's reasons were redacted)
+    // -> new: the redaction is part of the fenced final batch, so an owner who stays keeps the admin's own words.
+    for (const reason of [TAKEDOWN_REASON, REPEAT_REASON, DISABLE_REASON]) expect(await mentionsOf(target, reason), reason).toBeGreaterThan(0);
     expect(await dumpScope(env, control)).toEqual(controlBefore);
   }, T);
 
@@ -354,6 +386,195 @@ describe("deleteOwner under a lost lease or an owner enabled again", () => {
     expect(await del(target, watched)).toEqual({ outcome: "already_deleted" });
     expect(await dumpAll(env)).toEqual(before);
     expect(calls).toEqual([]);
+  }, T);
+});
+
+const insertLead = (siteId: string) =>
+  env.DB.prepare("INSERT INTO leads (id, site_id, created_at, name, phone, email_status, ip_hash) VALUES (?, ?, 9, 'Late', '+15125550100', 'pending', 'x')").bind(newId(), siteId).run();
+const isFinalBatch = (call: { sql: string; method: string }) => call.method === "batch" && call.sql.includes("DELETE FROM owners");
+/** Audit rows of this owner (its sites' rows and rows naming its id) that mention `needle` in their detail. */
+const mentionsOf = (t: ClosingOwner, needle: string) =>
+  count("SELECT COUNT(*) AS n FROM audit_log WHERE instr(detail_json, ?) > 0 AND (site_id IN (SELECT value FROM json_each(?)) OR json_extract(detail_json, '$.ownerId') = ?)", needle, JSON.stringify(t.siteIds), t.ownerId);
+
+describe("deleteOwner fences and stragglers (review round)", () => {
+  // Ported from review R3 (finding m-1): G1 is defence in depth for a row the app never writes but the schema allows.
+  it("deletes a generation of the owner that sits on another owner's site (G1), not an FK failure", async () => {
+    const t = await seedClosingOwner(env, "g1-target");
+    const c = await seedClosingOwner(env, "g1-control");
+    await env.DB.prepare("INSERT INTO generations (id, site_id, owner_id, kind, status, input_json, created_at) VALUES (?, ?, ?, 'first', 'failed', '{}', 3)").bind(newId(), c.a.siteId, t.ownerId).run();
+    expect((await del(t)).outcome).toBe("deleted");
+    expect(await count("SELECT COUNT(*) AS n FROM generations WHERE owner_id = ?", t.ownerId)).toBe(0);
+    expect(await count("SELECT COUNT(*) AS n FROM generations WHERE owner_id = ?", c.ownerId)).toBe(c.expected.generations); // the control's own are untouched
+  }, T);
+
+  // Ported from review R4 (finding I-2): the check right after the LIVE sweep. Without it Phase 3c runs under a lost lease
+  // and deletes the other site's version rows, after which no retry can find the version id of an orphan under an old slug.
+  it("a lease lost during the LIVE sweep: lease_lost before any bulk row goes, and a retry still finds the orphan", async () => {
+    const t = await seedClosingOwner(env, "sweep-lease");
+    let stolen = false;
+    const db = watchDb(env.DB, async ({ sql, method }) => {
+      if (!stolen && method === "all" && sql.startsWith("SELECT id, admin_lock FROM sites WHERE owner_id")) {
+        stolen = true;
+        await env.DB.prepare("UPDATE sites SET admin_lock = 'thief', admin_lock_until = 9000000000000 WHERE id = ?").bind(t.a.siteId).run();
+      }
+    });
+    const error = await failure(del(t, { ...env, DB: db }));
+    expect({ code: error.code, detail: error.detail }).toEqual({ code: "site_busy", detail: { reason: "lease_lost" } });
+    expect(stolen).toBe(true);
+    expect(await count("SELECT COUNT(*) AS n FROM site_versions WHERE site_id = ?", t.b.siteId)).toBe(1); // b's bulk rows untouched
+    await env.DB.prepare("UPDATE sites SET admin_lock = NULL, admin_lock_until = NULL WHERE id = ?").bind(t.a.siteId).run();
+    expect((await del(t, env, { now: NOW + 1000 })).outcome).toBe("deleted");
+    await expectTargetGone(t, allVersionIds(t));
+  }, T);
+
+  // Finding m-7: the sweep's own per-page lease check. Without it the check after the sweep still throws lease_lost, but the
+  // sweep has already deleted this owner's version keys under a lease it no longer holds.
+  it("a lease lost at the sweep's first page: the sweep deletes nothing", async () => {
+    const t = await seedClosingOwner(env, "sweep-page-lease");
+    let stolen = false;
+    const swept: string[] = [];
+    const db = watchDb(env.DB, async ({ sql, method }) => {
+      if (!stolen && method === "all" && sql.startsWith("SELECT id, admin_lock FROM sites WHERE owner_id")) {
+        stolen = true;
+        await env.DB.prepare("UPDATE sites SET admin_lock = 'thief', admin_lock_until = 9000000000000 WHERE id = ?").bind(t.a.siteId).run();
+      }
+    });
+    const live = watchBucket(env.LIVE, async (call, arg) => {
+      if (call === "delete" && stolen) swept.push(...(Array.isArray(arg) ? (arg as string[]) : [String(arg)]));
+    });
+    expect((await failure(del(t, { ...env, DB: db, LIVE: live }))).code).toBe("site_busy");
+    expect(stolen).toBe(true);
+    expect(swept).toEqual([]);
+    expect(await env.LIVE.head(t.b.orphanKey)).not.toBeNull();
+    await env.DB.prepare("UPDATE sites SET admin_lock = NULL, admin_lock_until = NULL WHERE id = ?").bind(t.a.siteId).run();
+  }, T);
+
+  // Ported from review R8 (finding I-3): OWNER_CLOSING on the intent row, the only guard for the window before the row exists.
+  it("an owner enabled between Phase 0 and the intent row: not_disabled, no site taken down, the pointer and pages stay", async () => {
+    const t = await seedClosingOwner(env, "intent-fence");
+    const pagesBefore = (await listBucket(env.LIVE, liveSitePrefix(t.a.slug))).length;
+    expect(pagesBefore).toBeGreaterThan(0);
+    let enabled = false;
+    const db = watchDb(env.DB, async ({ sql, method }) => {
+      if (!enabled && method === "run" && sql.includes("'owner.deletion_started'")) {
+        enabled = true;
+        await env.DB.prepare("UPDATE owners SET disabled_at = NULL WHERE id = ?").bind(t.ownerId).run();
+      }
+    });
+    expect(await del(t, { ...env, DB: db })).toEqual({ outcome: "not_disabled" });
+    expect(enabled).toBe(true);
+    expect(await count("SELECT COUNT(*) AS n FROM sites WHERE owner_id = ? AND taken_down_at IS NOT NULL", t.ownerId)).toBe(0);
+    expect(await env.LIVE.head(livePointerKey(t.a.slug))).not.toBeNull();
+    expect((await listBucket(env.LIVE, liveSitePrefix(t.a.slug))).length).toBe(pagesBefore);
+    expect(await auditRows("action = 'owner.deletion_started' AND json_extract(detail_json, '$.ownerId') = ?", t.ownerId)).toEqual([]);
+  }, T);
+
+  // Ported from review R6 (finding m-3): OWNER_CLOSING on batch C (batch F's fence is tested apart, by the enabled-again test).
+  it("an owner enabled right before the bulk batches: not_disabled, every bulk row stays, the reasons are not redacted", async () => {
+    const t = await seedClosingOwner(env, "batch-c-fence");
+    let enabled = false;
+    const db = watchDb(env.DB, async ({ sql, method }) => {
+      if (!enabled && method === "batch" && sql.includes("DELETE FROM leads")) {
+        enabled = true;
+        await env.DB.prepare("UPDATE owners SET disabled_at = NULL WHERE id = ?").bind(t.ownerId).run();
+      }
+    });
+    expect(await del(t, { ...env, DB: db })).toEqual({ outcome: "not_disabled" });
+    expect(enabled).toBe(true);
+    expect(await count("SELECT COUNT(*) AS n FROM leads WHERE site_id IN (?, ?)", t.a.siteId, t.b.siteId)).toBe(6);
+    expect(await count("SELECT COUNT(*) AS n FROM site_versions WHERE site_id IN (?, ?)", t.a.siteId, t.b.siteId)).toBe(4);
+    expect(await mentionsOf(t, DISABLE_REASON)).toBeGreaterThan(0);
+  }, T);
+
+  // Ported from review R5, widened (finding m-2): a row of EACH child table that lands after the bulk batches and before
+  // batch F, so each of F1-F5 is the only thing that deletes its row (the invite has another email, the generation another
+  // owner: neither is reached by the owner-level deletes).
+  it("batch F deletes a leads, uploads, versions, invites and generations row that lands after the bulk batches", async () => {
+    const t = await seedClosingOwner(env, "stragglers");
+    const other = await seedClosingOwner(env, "stragglers-other");
+    let planted = false;
+    const db = watchDb(env.DB, async (call) => {
+      if (planted || !isFinalBatch(call)) return;
+      planted = true;
+      const site = t.a.siteId;
+      await insertLead(site);
+      await env.DB.prepare("INSERT INTO uploads (id, site_id, width, height, bytes, created_at) VALUES (?, ?, 1, 1, 1, 9)").bind(newId(), site).run();
+      await env.DB.prepare(
+        "INSERT INTO site_versions (id, site_id, number, status, document_json, document_sha256, edits_json, html_key, html_sha256, stylesheet_sha256, requested_by, requested_at) VALUES (?, ?, 99, 'rejected', '{}', 'x', '{}', 'k', 'x', 'x', ?, 9)",
+      ).bind(newId(), site, t.ownerId).run();
+      await env.DB.prepare("INSERT INTO invites (id, token_hash, email, created_by, created_at, expires_at, site_id) VALUES (?, ?, 'stranger@example.net', ?, 9, 9000000000000, ?)").bind(newId(), newId(), ADMIN, site).run();
+      await env.DB.prepare("INSERT INTO generations (id, site_id, owner_id, kind, status, input_json, created_at) VALUES (?, ?, ?, 'first', 'failed', '{}', 9)").bind(newId(), site, other.ownerId).run();
+    });
+    expect((await del(t, { ...env, DB: db })).outcome).toBe("deleted");
+    expect(planted).toBe(true);
+    await expectTargetGone(t, allVersionIds(t));
+    expect(await count("SELECT COUNT(*) AS n FROM invites WHERE email = 'stranger@example.net'")).toBe(0);
+    expect(await count("SELECT COUNT(*) AS n FROM generations WHERE site_id = ?", t.a.siteId)).toBe(0);
+  }, T);
+
+  // Ported from review R5b (finding m-5, ACCEPTED and documented at the counts in owner-deletion.ts): the counts are taken
+  // just before the final transaction, so a row that arrives in between is deleted but not counted.
+  it("a lead that lands between the counts and the final batch is deleted but not counted", async () => {
+    const t = await seedClosingOwner(env, "late-lead");
+    let planted = false;
+    const db = watchDb(env.DB, async (call) => {
+      if (planted || !isFinalBatch(call)) return;
+      planted = true;
+      await insertLead(t.a.siteId);
+    });
+    const counts = deletedCounts(await del(t, { ...env, DB: db }));
+    expect(planted).toBe(true);
+    expect(await count("SELECT COUNT(*) AS n FROM leads WHERE site_id IN (?, ?)", t.a.siteId, t.b.siteId)).toBe(0);
+    expect(counts.rows.leads).toBe(t.expected.leads); // 6 seeded: the late one is not counted
+  }, T);
+
+  // Finding m-4: the redaction is part of batch F. A reason written after the old redaction point is still redacted.
+  it("redacts an owner.disabled and a site.taken_down reason written just before the final batch", async () => {
+    const t = await seedClosingOwner(env, "late-reason");
+    let planted = false;
+    const db = watchDb(env.DB, async (call) => {
+      if (planted || !isFinalBatch(call)) return;
+      planted = true;
+      await env.DB.prepare("INSERT INTO audit_log (at, actor, action, site_id, detail_json) VALUES (30, ?, 'owner.disabled', NULL, ?)").bind(`admin:${ADMIN}`, JSON.stringify({ ownerId: t.ownerId, reason: "Late note about Joe" })).run();
+      await env.DB.prepare("INSERT INTO audit_log (at, actor, action, site_id, detail_json) VALUES (30, ?, 'site.taken_down', ?, ?)").bind(`admin:${ADMIN}`, t.a.siteId, JSON.stringify({ reason: "Late takedown note about Joe", purgeMedia: false })).run();
+    });
+    const counts = deletedCounts(await del(t, { ...env, DB: db }));
+    expect(planted).toBe(true);
+    expect(await mentionsOf(t, "Late")).toBe(0);
+    expect(await mentionsOf(t, "Joe")).toBe(0);
+    const late = (await auditRows("at = 30")).filter((r) => r.site_id === t.a.siteId || String(r.detail_json).includes(t.ownerId));
+    expect(late).toHaveLength(2);
+    for (const row of late) expect(JSON.parse(String(row.detail_json)).reason).toBe(REDACTED_REASON);
+    expect(counts.auditRedacted).toBe(3); // the two late rows are redacted but, like a late lead, not counted
+  }, T);
+
+  it("redacts nothing when the final batch throws before it commits (the redaction is part of the batch)", async () => {
+    const t = await seedClosingOwner(env, "reason-atomic");
+    const db = watchDb(env.DB, async (call) => {
+      if (isFinalBatch(call)) throw new Error("D1 is unavailable");
+    });
+    await expect(del(t, { ...env, DB: db })).rejects.toThrow("D1 is unavailable");
+    for (const reason of [TAKEDOWN_REASON, REPEAT_REASON, DISABLE_REASON]) expect(await mentionsOf(t, reason), reason).toBeGreaterThan(0);
+  }, T);
+
+  // Finding m-6: when D1 commits the batch, throws, and the check afterwards also throws, the batch's error is the one that surfaces.
+  it("keeps the final batch's own error when the check after it throws too", async () => {
+    const t = await seedClosingOwner(env, "check-throws");
+    let committed = false;
+    const db = watchDb(
+      env.DB,
+      async ({ sql, method }) => {
+        if (committed && method === "first" && sql.includes("action = 'owner.deleted'")) throw new Error("the check failed");
+      },
+      async (call) => {
+        if (!isFinalBatch(call)) return;
+        committed = true;
+        throw new Error("D1 timed out after commit");
+      },
+    );
+    await expect(del(t, { ...env, DB: db })).rejects.toThrow("D1 timed out after commit");
+    expect(committed).toBe(true);
+    expect(await count("SELECT COUNT(*) AS n FROM owners WHERE id = ?", t.ownerId)).toBe(0); // it did commit
   }, T);
 });
 
