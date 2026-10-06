@@ -346,9 +346,12 @@ test("the last step tells the owner the answers may go to Anthropic before Build
   await page.goto(`/sites/${siteId}/setup/business`);
   await expect(page.getByRole("heading", { level: 1, name: "Your business" })).toBeFocused();
   await expect(page.getByText(AI_NOTICE)).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Save and continue" })).not.toHaveAttribute("aria-describedby", /.*/); // no notice here, so nothing is described
   await page.goto(`/sites/${siteId}/setup/address`);
   await expect(page.getByRole("button", { name: "Build my website" })).toBeVisible();
   await expect(page.getByText(AI_NOTICE, { exact: true })).toBeVisible();
+  // Pressing Build (also by Enter in a field) is announced WITH the notice: the button's accessible description is the notice's text (MDN aria-describedby; Playwright 1.63 toHaveAccessibleDescription).
+  await expect(page.getByRole("button", { name: "Build my website" })).toHaveAccessibleDescription(AI_NOTICE);
   await expectNoSidewaysScroll(page);
   await page.getByRole("button", { name: "Build my website" }).click();
   await page.waitForURL(`${APP}/sites/${siteId}/build`);

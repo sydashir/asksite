@@ -19,6 +19,7 @@ import { STEP_BODY } from "../steps/index.tsx";
 const ANSWERS_NOT_SAVED = "Your latest answers are not saved yet. Please try again in a moment.";
 
 /** Said above the Build button: the answers may go to the AI provider (honesty; shown while the button builds, not at "Go to the editor"). */
+const AI_NOTICE_ID = "ai-provider-notice";
 const AI_PROVIDER_NOTICE = "To write your website, we may send your answers to our AI provider, Anthropic. They don't use them to train their AI.";
 
 export function Questionnaire({ siteId, step }: { siteId: string; step: StepId }) {
@@ -47,6 +48,8 @@ function StepPage({ siteId, step, site, view, draft }: { siteId: string; step: S
   const { props, issues } = useStepProps(siteId, site, view, draft, showErrors, me.state === "ready" ? me.owner.email : null);
   const Body = STEP_BODY[step];
   const last = nextStep(step) === null;
+  /** The AI-provider notice shows on the last step until the site has a draft; the Build button is described by it while it shows. */
+  const aiNoticeShown = last && view.ai === null;
   const blocking = last ? issues : issuesForStep(issues, step);
   // A save that did not go through stops the action. A dropped wording change (carried from the editor) shows its own notice, given
   // focus; it never says "not saved yet" (the answers were saved), and the next attempt goes on.
@@ -158,7 +161,11 @@ function StepPage({ siteId, step, site, view, draft }: { siteId: string; step: S
           <Notice tone="error">{message}</Notice>
         </div>
       ) : null}
-      {last && view.ai === null ? <p className="mt-6 text-sm text-slate-700">{AI_PROVIDER_NOTICE}</p> : null}
+      {aiNoticeShown ? (
+        <p id={AI_NOTICE_ID} className="mt-6 text-sm text-slate-700">
+          {AI_PROVIDER_NOTICE}
+        </p>
+      ) : null}
       <div className="mt-6 flex flex-wrap items-center justify-between gap-4">
         <SaveStatus
           state={site.saver}
@@ -176,7 +183,7 @@ function StepPage({ siteId, step, site, view, draft }: { siteId: string; step: S
               Back
             </a>
           ) : null}
-          <button type="submit" className="btn-primary" aria-disabled={busy || site.locked}>
+          <button type="submit" className="btn-primary" aria-disabled={busy || site.locked} aria-describedby={aiNoticeShown ? AI_NOTICE_ID : undefined}>
             {last ? (view.ai !== null ? "Go to the editor" : busy ? "Starting…" : "Build my website") : "Save and continue"}
           </button>
         </div>
