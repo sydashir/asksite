@@ -33,6 +33,8 @@ export function deployProblems(text: string, now: number): string[] {
   if (vars["MAILER"] !== undefined && vars["MAILER"] !== "resend") problems.push("vars.MAILER must be resend");
   if (vars["ADMIN_AUTH_MODE"] !== undefined && vars["ADMIN_AUTH_MODE"] !== "access") problems.push("vars.ADMIN_AUTH_MODE must be access");
   if (vars["MODEL_PROVIDER"] === "fake") problems.push("vars.MODEL_PROVIDER must not be fake");
+  // Production allows only the Anthropic provider (user decision 4); the generator refuses any other at run time too.
+  if (vars["MODEL_PROVIDER"] !== undefined && vars["MODEL_PROVIDER"] !== "fake" && vars["MODEL_PROVIDER"] !== "anthropic") problems.push("vars.MODEL_PROVIDER must be anthropic");
   // An unpriced model has no recorded cost and no worst case, so the daily limit would no longer bound the spend; the job refuses it too.
   if (vars["MODEL_PROVIDER"] !== undefined && vars["MODEL_PROVIDER"] !== "fake" && modelSettings(vars["MODEL_PROVIDER"], vars["MODEL_ID"] ?? "") === undefined)
     problems.push("vars.MODEL_PROVIDER and vars.MODEL_ID must name a priced model (packages/generation/src/models.ts)");

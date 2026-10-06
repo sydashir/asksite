@@ -41,7 +41,7 @@ describe("apps/generator/wrangler.jsonc (production)", () => {
   it("is a production config that can never run the fake model or leak through workers.dev", () => {
     expect(config.vars?.ENVIRONMENT).toBe("production");
     expect(config.vars?.MODEL_PROVIDER).not.toBe("fake");
-    expect(["anthropic", "openai-compatible"]).toContain(config.vars?.MODEL_PROVIDER);
+    expect(config.vars?.MODEL_PROVIDER).toBe("anthropic");
     expect(config.workers_dev).toBe(false);
     expect(config.preview_urls).toBe(false);
     expect(config.observability).toEqual({ enabled: true, logs: { invocation_logs: false } });

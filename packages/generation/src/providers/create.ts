@@ -23,6 +23,11 @@ const isFakeMode = (mode: string): mode is FakeMode => (FAKE_MODES as readonly s
  */
 export function createProvider(env: ProviderEnv, snapshot: GenerationInputSnapshot, fetchImpl?: typeof fetch): ModelProvider {
   const withFetch = fetchImpl === undefined ? {} : { fetch: fetchImpl };
+  // Fails closed (user decision 4): production allows only Anthropic, whose terms bar training on customer content. Any
+  // other provider builds only when ENVIRONMENT is exactly "development" or "test", so a missing, empty, mistyped or
+  // differently cased value refuses it. Checked before any key is read, so no call can follow a refusal.
+  if (env.MODEL_PROVIDER !== "anthropic" && env.ENVIRONMENT !== "development" && env.ENVIRONMENT !== "test")
+    throw new ProviderError("bad_request", "Only the anthropic provider is allowed outside development and test");
   switch (env.MODEL_PROVIDER) {
     case "anthropic":
       if (!env.ANTHROPIC_API_KEY) throw new ProviderError("auth", "ANTHROPIC_API_KEY is not set");
@@ -32,8 +37,7 @@ export function createProvider(env: ProviderEnv, snapshot: GenerationInputSnapsh
       if (!env.OPENAI_COMPAT_BASE_URL) throw new ProviderError("bad_request", "OPENAI_COMPAT_BASE_URL is not set");
       return new OpenAICompatibleProvider({ baseUrl: env.OPENAI_COMPAT_BASE_URL, apiKey: env.OPENAI_COMPAT_API_KEY, model: env.MODEL_ID, ...withFetch });
     case "fake": {
-      // Fails closed: the fake needs no key, so only the exact values "development" and "test" may build it.
-      if (env.ENVIRONMENT !== "development" && env.ENVIRONMENT !== "test") throw new ProviderError("bad_request", "The fake provider is allowed only in development and test");
+      // The fake needs no key; the check above already limits it to development and test.
       const mode = env.FAKE_MODE ?? "ok";
       if (!isFakeMode(mode)) throw new ProviderError("bad_request", "Unknown FAKE_MODE");
       return new FakeProvider(mode, snapshot);

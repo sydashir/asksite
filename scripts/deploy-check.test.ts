@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { deployProblems } from "./deploy-check.ts";
 
@@ -151,15 +153,18 @@ describe("deployProblems: the model is priced", () => {
     ["an unpriced Anthropic model", { MODEL_PROVIDER: "anthropic", MODEL_ID: "claude-fable-5-1" }],
     ["a dated alias of a priced one", { MODEL_PROVIDER: "anthropic", MODEL_ID: "claude-opus-5-5-20261001" }],
     ["no model id", { MODEL_PROVIDER: "anthropic" }],
-    ["an unknown provider", { MODEL_PROVIDER: "other", MODEL_ID: "claude-opus-5-5" }],
   ])("refuses %s", (_name, vars) => {
     expect(deployProblems(withModel(vars), NOW)).toEqual([PRICED]);
+  });
+
+  // Pin changed (item 4): was [PRICED]; an unknown provider is now also refused as not anthropic.
+  it("refuses an unknown provider as unpriced and as not anthropic", () => {
+    expect(deployProblems(withModel({ MODEL_PROVIDER: "other", MODEL_ID: "claude-opus-5-5" }), NOW)).toEqual(["vars.MODEL_PROVIDER must be anthropic", PRICED]);
   });
 
   it.each([
     ["anthropic", "claude-opus-5-5"],
     ["anthropic", "claude-sonnet-5"],
-    ["openai-compatible", "@cf/openai/gpt-oss-120b"],
   ])("passes the priced model %s:%s, and a Worker with no model variables", (provider, model) => {
     expect(deployProblems(withModel({ MODEL_PROVIDER: provider, MODEL_ID: model }), NOW)).toEqual([]);
     expect(deployProblems(withModel({}), NOW)).toEqual([]);
@@ -167,5 +172,35 @@ describe("deployProblems: the model is priced", () => {
 
   it("says only the fake-provider problem for the fake provider", () => {
     expect(deployProblems(withModel({ MODEL_PROVIDER: "fake", MODEL_ID: "fake-template" }), NOW)).toEqual(["vars.MODEL_PROVIDER must not be fake"]);
+  });
+});
+
+// Item 4: production allows only the Anthropic provider (the runtime refuses the others too).
+describe("deployProblems: Anthropic only", () => {
+  const ONLY = "vars.MODEL_PROVIDER must be anthropic";
+  const withModel = (vars: Record<string, string>): string => JSON.stringify({ ...JSON.parse(ready()), vars: { ENVIRONMENT: "production", ...vars } });
+
+  it.each([
+    ["openai-compatible", "@cf/openai/gpt-oss-120b"],
+    ["openai-compatible", "openai/gpt-oss-120b:groq"],
+    ["Anthropic", "claude-opus-5-5"],
+    ["", "claude-opus-5-5"],
+  ])("refuses the provider %j with model %s", (provider, model) => {
+    expect(deployProblems(withModel({ MODEL_PROVIDER: provider, MODEL_ID: model }), NOW)).toContain(ONLY);
+  });
+
+  // Pin moved here (item 4): "passes the priced model openai-compatible:@cf/openai/gpt-oss-120b" is now refused, and only for the provider.
+  it("refuses a priced openai-compatible model for the provider alone", () => {
+    expect(deployProblems(withModel({ MODEL_PROVIDER: "openai-compatible", MODEL_ID: "@cf/openai/gpt-oss-120b" }), NOW)).toEqual([ONLY]);
+  });
+
+  it("accepts anthropic and says nothing about the provider", () => {
+    expect(deployProblems(withModel({ MODEL_PROVIDER: "anthropic", MODEL_ID: "claude-opus-5-5" }), NOW)).toEqual([]);
+  });
+
+  it("accepts the shipped generator config as far as the provider goes", () => {
+    const shipped = readFileSync(resolve(import.meta.dirname, "../apps/generator/wrangler.jsonc"), "utf8");
+    expect(deployProblems(shipped, NOW).filter((problem) => problem.includes("MODEL_PROVIDER"))).toEqual([]);
+    expect((JSON.parse(shipped) as { vars: Record<string, string> }).vars.MODEL_PROVIDER).toBe("anthropic");
   });
 });

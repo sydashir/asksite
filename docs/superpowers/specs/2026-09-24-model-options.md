@@ -121,6 +121,7 @@ Assumes about 6k input and 2k output tokens and one attempt. Retries and reasoni
 - Use `CopyGenerator.generate(facts, notes) -> { copy, usage, model, attempts }` with two adapters. `AnthropicAdapter` uses the Messages API with structured outputs. `OpenAICompatibleAdapter` takes a base URL, a key and a model, and sends `response_format: json_schema` built with `z.toJSONSchema(Copy)`. I tested that this conversion works on our schema: 1,304 bytes, and `maxLength` is kept.
 - The prompt, the JSON schema and the validation (`SiteDocument.safeParse`) are shared by every adapter. On failure, retry up to 2 times and send the validator's messages back to the model. After that, hand it to a human. The provider and model live in config, so switching is a config change plus an eval run.
 - Keys go only in `.dev.vars` or Worker secrets. Real owner data is never sent to a free route that may train on it (section 2).
+- Production uses only the Anthropic provider (user decision 4, 2026-10-06); the other routes in this note are for local development and the eval, and the generator refuses them when `ENVIRONMENT` is not exactly `development` or `test`.
 
 **Default: Claude.** Quality comes first, and the 25-site pilot costs a few dollars at most on any model, even with retries. The eval also decides Opus 5.5 vs Sonnet 5.
 
