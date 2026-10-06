@@ -555,3 +555,111 @@ test("Publish: Sign out stops once on a dropped wording change carried from the 
   await pressAfterGrace(page);
   await expect(page.getByRole("heading", { level: 1, name: "Sign in" })).toBeVisible();
 });
+
+/** Draft saves and the logout tagged with the site they belong to (an owner with several sites): "X:patch-sent", "Y:patch-answered-500", "logout-sent". */
+function watchSavesBySite(page: Page, sites: Record<string, string>) {
+  const events: string[] = [];
+  const tag = (url: string) => Object.entries(sites).find(([, id]) => url.includes(id))?.[0] ?? "";
+  page.on("request", (r) => {
+    if (r.method() === "PATCH" && r.url().includes("/draft")) events.push(`${tag(r.url())}:patch-sent`);
+    if (r.method() === "POST" && r.url().endsWith("/api/auth/logout")) events.push("logout-sent");
+  });
+  page.on("response", (r) => {
+    if (r.request().method() === "PATCH" && r.url().includes("/draft")) events.push(`${tag(r.url())}:patch-answered-${r.status()}`);
+  });
+  return events;
+}
+
+/** Waits until React has rendered and run the effects of the state the page is in now. */
+const settleRender = (page: Page) => page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(resolve, 500)))));
+
+/** Leaves an editor whose save fails by the header link, so the save it started as it closed fails too and stays unsaved. */
+async function leaveFailingEditor(page: Page, siteId: string, typed: string) {
+  await page.locator(`a[href="/sites/${siteId}/edit"]`).click();
+  await expect(page.getByRole("heading", { level: 1, name: "Edit your website" })).toBeFocused();
+  await page.route(`**/api/sites/${siteId}/draft`, (route) => (route.request().method() === "PATCH" ? route.fulfill(FAIL_500) : route.fallback()));
+  await page.getByLabel("Headline", { exact: true }).fill(typed);
+  await expect(page.getByText("Your changes are not saved yet", { exact: false }).first()).toBeVisible();
+  await page.getByRole("link", { name: "Your website" }).click();
+  await expect(page.getByRole("heading", { level: 1, name: "Your websites" })).toBeVisible();
+}
+
+// PX: a failed closing save on site Y stops Sign out on site X's editor. The press always saves the page on screen first, so a fresh edit on X
+// is saved before the logout, however often Y's failure was told.
+test("PX: a stop caused by another site's failed closing save never lets a fresh edit on this site be skipped", async ({ page, browser }) => {
+  const email = uniqueEmail("px");
+  const siteY = await builtSiteAs(page, email);
+  const siteX = await builtSiteAs(page, email);
+  await page.goto("/");
+  await expect(page.getByRole("heading", { level: 1, name: "Your websites" })).toBeVisible();
+  const events = watchSavesBySite(page, { X: siteX, Y: siteY });
+  await leaveFailingEditor(page, siteY, "Y, never saved");
+  await page.locator(`a[href="/sites/${siteX}/edit"]`).click();
+  await expect(page.getByRole("heading", { level: 1, name: "Edit your website" })).toBeFocused();
+  const headline = page.getByLabel("Headline", { exact: true });
+  await expect(headline).toHaveValue("Plumbing done right");
+  await page.getByRole("button", { name: "Sign out" }).click();
+  await expect(page.getByRole("alert").filter({ hasText: NOT_SAVED })).toContainText(PRESS_AGAIN);
+  await page.waitForTimeout(GRACE_MS + 100);
+  await headline.fill("X, later saved");
+  await expect.poll(() => events.filter((e) => e === "X:patch-answered-200").length).toBe(1);
+  await settleRender(page);
+  await headline.fill("X, final words");
+  await page.getByRole("button", { name: "Sign out" }).click();
+  await expect(page.getByRole("heading", { level: 1, name: "Sign in" })).toBeVisible();
+  // The press saved the fresh edit (a second save on X) before the logout.
+  expect(events.filter((e) => e === "X:patch-answered-200")).toHaveLength(2);
+  expect(events.at(-1)).toBe("logout-sent");
+  expect(await storedHeadline(browser, email, siteX)).toBe("X, final words");
+});
+
+// A cause is identified by its site as well as its kind: two sites that each left a failed closing save are two causes, both told by one stop.
+test("Two sites that each left a failed closing save stop Sign out once, and the next press signs out", async ({ page }) => {
+  const email = uniqueEmail("px2");
+  const siteY = await builtSiteAs(page, email);
+  const siteZ = await builtSiteAs(page, email);
+  await page.goto("/");
+  await expect(page.getByRole("heading", { level: 1, name: "Your websites" })).toBeVisible();
+  const events = watchSavesBySite(page, { Y: siteY, Z: siteZ });
+  await leaveFailingEditor(page, siteY, "Y, never saved");
+  await leaveFailingEditor(page, siteZ, "Z, never saved");
+  await page.getByRole("button", { name: "Sign out" }).click();
+  await expect(page.getByRole("alert").filter({ hasText: NOT_SAVED })).toContainText(PRESS_AGAIN);
+  expect(events).not.toContain("logout-sent");
+  await pressAfterGrace(page);
+  await expect(page.getByRole("heading", { level: 1, name: "Sign in" })).toBeVisible();
+  expect(events.at(-1)).toBe("logout-sent");
+});
+
+// PA: the press's OWN save is the one that finds the dropped wording change. The stop it then shows stays up: no alert node is removed.
+test("PA: a dropped wording change found by the press's own save keeps the stop up", async ({ page, browser }) => {
+  const siteId = await builtSiteAs(page, uniqueEmail("pa"));
+  const rev = (await apiCall(page, "GET", `/api/sites/${siteId}`)).json!["rev"] as number;
+  expect((await apiCall(page, "PATCH", `/api/sites/${siteId}/draft`, { rev, facts: { ...FACTS, trade: "roofing" } })).status).toBe(200);
+  await page.goto(`/sites/${siteId}/edit`);
+  const headline = page.getByLabel("Headline", { exact: true });
+  await expect(headline).toHaveValue("Plumbing done right");
+  await rewriteElsewhere(page, browser, siteId);
+  await page.evaluate(() => {
+    const w = window as unknown as { alertsRemoved: string[] };
+    w.alertsRemoved = [];
+    new MutationObserver((records) => {
+      for (const record of records) {
+        for (const node of record.removedNodes) {
+          if (node instanceof Element && (node.matches("[role=alert]") || node.querySelector("[role=alert]") !== null)) w.alertsRemoved.push(node.textContent ?? "");
+        }
+      }
+    }).observe(document.body, { childList: true, subtree: true });
+  });
+  const events = watchSaves(page);
+  await headline.fill("Mine, then Sign out at once");
+  await page.getByRole("button", { name: "Sign out" }).click();
+  await expect(page.getByRole("status").filter({ hasText: WORDING_DROPPED })).toBeFocused();
+  await expect.poll(() => events).toContain("patch-answered-200");
+  await settleRender(page);
+  // The "Saving…" alert of the press is replaced by the stop; the stop itself is never taken out.
+  const removed = await page.evaluate(() => (window as unknown as { alertsRemoved: string[] }).alertsRemoved);
+  expect(removed.filter((text) => text.includes(WORDING_DROPPED))).toEqual([]);
+  await expect(page.getByRole("alert").filter({ hasText: WORDING_DROPPED })).toContainText(PRESS_AGAIN);
+  expect(events).not.toContain("logout-sent");
+});
