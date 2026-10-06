@@ -1,5 +1,5 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
-import { acceptInvite, apiCall, APP, BRIEF, builtSite, expectAccessible, expectNoSidewaysScroll, FACTS, finishGeneration, uniqueEmail, uniqueSlug } from "./support.ts";
+import { acceptInvite, apiCall, APP, BRIEF, builtSite, expectAccessible, expectNoSidewaysScroll, FACTS, finishGeneration, seedDraft, uniqueEmail, uniqueSlug } from "./support.ts";
 
 /** The Business name field's id (fieldId(["facts", "businessName"])). */
 const NAME_FIELD_ID = "f-facts-businessName";
@@ -172,8 +172,7 @@ test("a second tab that saves later is stopped with a clear message", async ({ p
 
 test("a problem in a step's own comment box is listed on that step, and its link focuses the box", async ({ page }) => {
   const siteId = await acceptInvite(page);
-  await apiCall(page, "PATCH", `/api/sites/${siteId}/draft`, { rev: 1, facts: FACTS, brief: BRIEF });
-  await apiCall(page, "PUT", `/api/sites/${siteId}/slug`, { rev: 2, slug: uniqueSlug("comment") });
+  await seedDraft(page, siteId, "comment");
   await page.goto(`/sites/${siteId}/setup/business`);
   await page.getByLabel("Anything we should know about this?").fill("Park on the street\u200B please");
   await page.getByRole("button", { name: "Save and continue" }).click();
