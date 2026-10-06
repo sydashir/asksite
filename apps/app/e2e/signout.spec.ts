@@ -174,6 +174,23 @@ test("Sign out retries a failed closing save, and the next press after the save 
   expect(await storedHeadline(browser, email, siteId)).toBe("Kept after a failed save");
 });
 
+/** Starts logging the text of every alert node added to the page from now on (a node added and removed inside one task is still seen). */
+async function watchAlertsAdded(page: Page) {
+  await page.evaluate(() => {
+    const w = window as unknown as { alertsAdded: string[] };
+    w.alertsAdded = [];
+    new MutationObserver((records) => {
+      for (const record of records) {
+        for (const node of record.addedNodes) {
+          if (node instanceof Element && (node.matches("[role=alert]") || node.querySelector("[role=alert]") !== null)) w.alertsAdded.push(node.textContent ?? "");
+        }
+      }
+    }).observe(document.body, { childList: true, subtree: true });
+  });
+}
+
+const alertsAdded = (page: Page) => page.evaluate(() => (window as unknown as { alertsAdded: string[] }).alertsAdded);
+
 /** An editor in conflict (another writer saved first), left by the header link to Home with the owner's text unsaved. Returns the save events. */
 async function leaveConflictedEditor(page: Page): Promise<string[]> {
   const siteId = await builtSiteAs(page, uniqueEmail("trapc"));
@@ -194,8 +211,11 @@ async function leaveConflictedEditor(page: Page): Promise<string[]> {
 // leaves on an ordinary failure. A conflict can never be saved, so nothing retried can help: Sign out says so once, then goes on.
 test("Sign out after leaving a conflicted editor stops once with the conflict text, then the next press signs out", async ({ page }) => {
   const events = await leaveConflictedEditor(page);
+  await watchAlertsAdded(page);
   await page.getByRole("button", { name: "Sign out" }).click();
   await expect(page.getByRole("alert").filter({ hasText: CONFLICT })).toContainText(PRESS_AGAIN);
+  // A conflict sends nothing, so nothing is pending: "Saving…" is never put on the page, not even for one task.
+  expect((await alertsAdded(page)).filter((text) => text.includes(SAVING))).toEqual([]);
   expect(events).not.toContain("logout-sent");
   await pressAfterGrace(page);
   await expect(page.getByRole("heading", { level: 1, name: "Sign in" })).toBeVisible();
@@ -349,6 +369,39 @@ test("A Sign out stop expires once the changes are saved: no alert is left, and 
   expect(await storedHeadline(browser, email, siteId)).toBe("Final words");
 });
 
+// A stop is about its cause, and a NEW edit that is still pending or saving is not the cause resolved: the alert stays until a save lands.
+test("A Sign out stop never expires while a new edit is pending or saving; after it expires, a new failed save stops again", async ({ page }) => {
+  const siteId = await builtSite(page);
+  await page.goto(`/sites/${siteId}/edit`);
+  let failing = true;
+  await page.route(`**/api/sites/${siteId}/draft`, (route) => (route.request().method() === "PATCH" && failing ? route.fulfill(FAIL_500) : route.fallback()));
+  const events = watchSaves(page);
+  const headline = page.getByLabel("Headline", { exact: true });
+  const stop = page.getByRole("alert").filter({ hasText: NOT_SAVED });
+  await headline.fill("First try");
+  await expect(page.getByText("Your changes are not saved yet", { exact: false }).first()).toBeVisible();
+  await page.getByRole("button", { name: "Sign out" }).click();
+  await expect(stop).toContainText(PRESS_AGAIN);
+  const failed = () => events.filter((e) => e === "patch-answered-500").length;
+  const failsBefore = failed();
+  await headline.fill("Second, still failing");
+  await expect(page.getByRole("alert")).toHaveCount(1);
+  await expect.poll(failed).toBe(failsBefore + 1);
+  await expect(stop).toHaveCount(1);
+  failing = false;
+  await page.getByRole("button", { name: "Try again" }).click();
+  await expect(page.getByRole("status").filter({ hasText: "All changes saved." })).toBeVisible();
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  failing = true;
+  await headline.fill("Third, failing");
+  await expect(page.getByText("Your changes are not saved yet", { exact: false }).first()).toBeVisible();
+  const sentBefore = events.filter((e) => e === "patch-sent").length;
+  await page.getByRole("button", { name: "Sign out" }).click();
+  await expect(stop).toContainText(PRESS_AGAIN);
+  expect(events.filter((e) => e === "patch-sent").length).toBeGreaterThan(sentBefore);
+  expect(events).not.toContain("logout-sent");
+});
+
 // "Saving…" is said only for a save that is really pending: with nothing to save no alert is ever added to the page, and the logout goes out at once.
 test("Sign out with nothing to save adds no alert and signs out at once", async ({ page }) => {
   await builtSite(page);
@@ -392,8 +445,8 @@ async function rewriteElsewhere(page: Page, browser: Browser, siteId: string) {
 }
 
 /** The editor holds a wording change the server refused (new wording arrived elsewhere): its notice is up, and nobody was stopped for it yet. */
-async function editorWithDroppedWording(page: Page, browser: Browser) {
-  const siteId = await builtSiteAs(page, uniqueEmail("dropped"));
+async function editorWithDroppedWording(page: Page, browser: Browser, email = uniqueEmail("dropped")) {
+  const siteId = await builtSiteAs(page, email);
   const rev = (await apiCall(page, "GET", `/api/sites/${siteId}`)).json!["rev"] as number;
   expect((await apiCall(page, "PATCH", `/api/sites/${siteId}/draft`, { rev, facts: { ...FACTS, trade: "roofing" } })).status).toBe(200);
   await page.goto(`/sites/${siteId}/edit`);
@@ -403,7 +456,7 @@ async function editorWithDroppedWording(page: Page, browser: Browser) {
   await headline.fill("Mine");
   const notice = page.getByRole("status").filter({ hasText: WORDING_DROPPED });
   await expect(notice).toBeVisible();
-  return { siteId, notice };
+  return { siteId, notice, headline };
 }
 
 // R3: the save the editor sends as it closes is the one that finds the drop, so no screen is left to say it: Sign out says it, once.
@@ -438,6 +491,26 @@ test("Sign out stops once on a dropped wording change, says so, and the next pre
   await pressAfterGrace(page);
   await expect(page.getByRole("heading", { level: 1, name: "Sign in" })).toBeVisible();
   expect(events).toContain("logout-sent");
+});
+
+// IMP-1: the notice of a dropped change stays up until Dismiss, but the STOP is about the unsaved change. Once a later save has landed, the
+// next press runs the full guard again, so an edit typed just before it is saved first.
+test("A Sign out stop on a dropped wording change expires once a later save lands: a fresh edit is saved before the logout", async ({ page, browser }) => {
+  const email = uniqueEmail("dropexpire");
+  const { siteId, notice, headline } = await editorWithDroppedWording(page, browser, email);
+  const events = watchSaves(page);
+  await page.getByRole("button", { name: "Sign out" }).click();
+  await expect(notice).toBeFocused();
+  await expect(page.getByRole("alert").filter({ hasText: WORDING_DROPPED })).toContainText(PRESS_AGAIN);
+  await page.waitForTimeout(GRACE_MS + 100);
+  await headline.fill("Later, saved");
+  await expect.poll(() => events.filter((e) => e === "patch-answered-200").length).toBe(1);
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  await headline.fill("Final words");
+  await page.getByRole("button", { name: "Sign out" }).click();
+  await expect(page.getByRole("heading", { level: 1, name: "Sign in" })).toBeVisible();
+  expect(events).toEqual(["patch-sent", "patch-answered-200", "patch-sent", "patch-answered-200", "logout-sent"]);
+  expect(await storedHeadline(browser, email, siteId)).toBe("Final words");
 });
 
 // The Questionnaire holds the owner's answers: the same Sign out rule as the editor.

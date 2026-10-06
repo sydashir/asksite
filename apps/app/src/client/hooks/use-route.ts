@@ -62,13 +62,17 @@ export function useLeaveGuard(site: Pick<SiteState, "flush" | "saving" | "saver"
   }, [flush, saving]);
   const { status, wordingDropped } = site.saver;
   useEffect(() => {
-    if ((status === "saved" || status === "idle") && wordingDropped !== true) expireSignOutStop();
+    if (status === "saving") noteSaveAfterStop();
+    // A drop notice stays up until Dismiss, but it does not keep the stop: a save that began after the stop and has landed ends it too.
+    else if ((status === "saved" || status === "idle") && (wordingDropped !== true || savedSinceStop)) expireSignOutStop();
   }, [status, wordingDropped]);
 }
 
 // "Sign out" stops AT MOST ONCE (on every page and path): a press that finds something unsaved says so and stays; the next press signs out.
 // A press that has to wait says so ("Saving…"); a second press inside the grace is ignored, one after it signs out (a save that never answers must not trap the owner).
 let stopShown = false;
+// A save began after the stop was shown (so its landing is news the stop did not know).
+let savedSinceStop = false;
 let presses = 0;
 let waiting = false;
 let firstPressAt = 0;
@@ -82,10 +86,15 @@ export function resetSignOutStop(): void {
   stopShown = false;
 }
 
+function noteSaveAfterStop(): void {
+  if (stopShown) savedSinceStop = true;
+}
+
 /** The cause of the stop is resolved (everything saved, no closing save pending or failed): the alert goes, and the next press runs the full guard again. */
 function expireSignOutStop(): void {
   if (!stopShown || hasLeftBehind()) return;
   stopShown = false;
+  savedSinceStop = false;
   stopSay?.(null);
 }
 
@@ -121,6 +130,7 @@ export async function mayEndSession(say: (message: string | null) => void): Prom
       return true;
     }
     stopShown = true;
+    savedSinceStop = false;
     stopSay = say;
     say(message);
     return false;

@@ -41,14 +41,14 @@ export async function settleLeaving(): Promise<string | null> {
   return drop === undefined ? null : signOutStopMessage({ dropped: { whileWriting: drop.whileWriting }, status: "saved" });
 }
 
-/** Whether a save a closed editor started (or failed) is still to be sent: Sign out has something to wait for. */
+/** Whether a save a closed editor started (or failed) is still to be sent: Sign out has something to wait for. A saver in conflict sends nothing. */
 export function hasClosingSave(): boolean {
-  return leaving.size > 0 || unsavedOnLeave.size > 0;
+  return leaving.size > 0 || [...unsavedOnLeave.values()].some((saver) => saver.hasUnsent);
 }
 
-/** Whether a closed editor left anything the owner must be told (a save in flight, one that failed, or a dropped wording change). */
+/** Whether a closed editor left anything the owner must be told (a save in flight, one that failed or conflicts, or a dropped wording change). */
 export function hasLeftBehind(): boolean {
-  return hasClosingSave() || droppedOnLeave.size > 0;
+  return leaving.size > 0 || unsavedOnLeave.size > 0 || droppedOnLeave.size > 0;
 }
 
 const AI_RETRY_MS = 1_000;
