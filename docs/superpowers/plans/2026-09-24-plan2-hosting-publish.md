@@ -7738,7 +7738,7 @@ Expected: the diff shows only the domain, the database id, the sender name and t
 - [ ] **Step 5: Apply the schema to the real database**
 
 Run: `pnpm exec wrangler d1 migrations apply asksite --remote -c apps/sites/wrangler.jsonc`
-Expected: every file in `packages/core/migrations/` at the deployed commit (list them with `ls packages/core/migrations`) is applied in order and listed with ✅, through `0006` at least.
+Expected: every file in `packages/core/migrations/` at the deployed commit (list them with `ls packages/core/migrations`) is applied in order and listed with ✅, through `0007` at least.
 
 Then check that production D1 made every table STRICT (A9; local D1 is proven by `migration.workerd.test.ts`):
 Run: `pnpm exec wrangler d1 execute asksite --remote -c apps/sites/wrangler.jsonc --json --command "PRAGMA table_list"`
