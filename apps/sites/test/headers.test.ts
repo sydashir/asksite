@@ -30,8 +30,8 @@ describe("headers", () => {
     expect(fixedPageHeaders("asksite.example").get("x-robots-tag")).toBe("noindex");
   });
 
-  it("gives photos a day in browsers and five minutes at the edge", () => {
-    expect(mediaHeaders().get("cache-control")).toBe("public, max-age=86400, s-maxage=300");
+  it("gives photos an hour in browsers and a minute at the edge", () => {
+    expect(mediaHeaders().get("cache-control")).toBe("public, max-age=3600, s-maxage=60");
     expect(mediaHeaders().get("content-type")).toBe("image/webp");
   });
 

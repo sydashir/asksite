@@ -176,7 +176,7 @@ describe("0005_version_pages.sql", () => {
   });
 });
 
-// A16-4c: one admin action per site at a time. Numbered 0006 by the moderator; Plan 4's next migration is 0007.
+// A16-4c: one admin action per site at a time. Numbered 0006 by the moderator; Plan 4's next migration is 0008 (0007 is S1's leads_emailed).
 describe("0006_site_admin_lock.sql", () => {
   it("adds the lease columns, empty by default", async () => {
     const { site } = await newSite();
@@ -188,5 +188,22 @@ describe("0006_site_admin_lock.sql", () => {
     await db.prepare("UPDATE sites SET admin_lock = ?, admin_lock_until = ? WHERE id = ?").bind("token", 5, site).run();
     await expect(db.prepare("UPDATE sites SET admin_lock_until = ? WHERE id = ?").bind("soon", site).run()).rejects.toThrow(/SQLITE_CONSTRAINT_DATATYPE/);
     await expect(db.prepare("UPDATE sites SET admin_lock_until = ? WHERE id = ?").bind(1.5, site).run()).rejects.toThrow(/SQLITE_CONSTRAINT_DATATYPE/);
+  });
+});
+
+// S1 Part I: the form's count of today's emailed leads reads this partial index (apps/sites/test/lead-index.workerd.test.ts
+// proves the plan; this pins the index itself, so a renamed or widened one is noticed here).
+describe("0007_leads_emailed.sql", () => {
+  it("creates leads_emailed on created_at, partial on the count's own terms", async () => {
+    const row = await db.prepare("SELECT sql FROM sqlite_master WHERE type = 'index' AND name = 'leads_emailed'").all<{ sql: string }>();
+    expect(row.results.map((r) => r.sql)).toEqual(["CREATE INDEX leads_emailed ON leads(created_at) WHERE spam = 0 AND email_error IS NOT 'daily_cap'"]);
+    const { results } = await db.prepare("PRAGMA index_list('leads')").all<{ name: string; partial: number }>();
+    expect(results.find((index) => index.name === "leads_emailed")?.partial).toBe(1);
+  });
+
+  it("changes no table: still the 12 STRICT tables of 0001", async () => {
+    const { results } = await db.prepare("PRAGMA table_list").all<{ name: string; strict: number }>();
+    const ours = results.filter((t) => !/^(sqlite_|_cf_|d1_migrations$)/.test(t.name));
+    expect(ours).toHaveLength(12);
   });
 });

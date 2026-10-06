@@ -38,6 +38,14 @@ describe("apex", () => {
     expect((await get(`https://${ROOT}/`)).headers.get("strict-transport-security")).toBeNull();
   });
 
+  it("answers plain http on a localhost root as it does https (local development is http; the http 301 is for real roots)", async () => {
+    expect((await get(`http://${ROOT}/`)).status).toBe(200);
+    expect((await get(`http://joes.${ROOT}/services/`)).status).toBe(301);
+    // The harness may rewrite the redirect's scheme to the request's; the path and the kept query are what this checks.
+    const location = new URL((await get(`http://joes.${ROOT}/services/?x=1`)).headers.get("location") ?? "");
+    expect([location.pathname, location.search]).toEqual(["/services", "?x=1"]);
+  });
+
   it("serves security.txt with Contact and Expires", async () => {
     const response = await get(`https://${ROOT}/.well-known/security.txt`);
     expect(response.status).toBe(200);

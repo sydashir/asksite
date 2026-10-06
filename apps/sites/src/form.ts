@@ -132,7 +132,8 @@ const REPEAT_WINDOW_MS = 120_000;
  * D1 bills every row scanned. The repeat check reads only the network's (or the site's) rows of the last
  * REPEAT_WINDOW_MS, the network counts only the network's rows for today (leads_network, migration 0002)
  * and the site count only the site's (leads_site), so a refused post reads a bounded number of rows. The
- * email count scans leads (A11c adds no index; the retention cron keeps the table small), so only a stored
+ * email count reads the partial index leads_emailed (migration 0007: spam = 0 and not capped, as that count's
+ * WHERE says), so only a stored
  * lead that is not spam runs it: `tried` has a row only while every rule allows the insert (measured
  * locally: this SQLite checks that WHERE before it runs the columns), and CASE is lazy, so spam skips it.
  * Production SQL has no RETURNING (A10), so a SELECT in the same batch (a transaction) reads back the

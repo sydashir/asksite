@@ -329,14 +329,25 @@ describe("AI claim check: claim-word gaps", () => {
     ["never charges with freeEstimates", "Never charges for a quote"],
   ]);
   accepted(SEVEN_DAYS, [
-    ["afterhours with hours on all 7 days", "Afterhours cleaning"],
     ["every single day with hours on all 7 days", "Open every single day"],
     ["open everyday with hours on all 7 days", "Open everyday"],
     ["available everyday with hours on all 7 days", "Available everyday in Austin"],
-    ["every holiday with hours on all 7 days", "Open every holiday"],
-    ["any holiday with hours on all 7 days", "Open any holiday"],
   ]);
-  accepted(EMERGENCY, [["every single day with emergency247", "Open every single day"]]);
+  // Hours on all 7 days do not back service outside the working day: only 24/7 service backs these.
+  refused(SEVEN_DAYS, [
+    ["afterhours with hours on all 7 days", "Afterhours cleaning", ["Afterhours"]],
+    ["every holiday with hours on all 7 days", "Open every holiday", ["every holiday"]],
+    ["any holiday with hours on all 7 days", "Open any holiday", ["any holiday"]],
+    ["after-hours with hours on all 7 days", "After-hours service", ["After-hours"]],
+    ["all hours with hours on all 7 days", "Available at all hours", ["all hours"]],
+    ["holidays with hours on all 7 days", "Open on holidays", ["holidays"]],
+  ]);
+  accepted(EMERGENCY, [
+    ["afterhours with emergency247", "Afterhours cleaning"],
+    ["every holiday with emergency247", "Open every holiday"],
+    ["any holiday with emergency247", "Open any holiday"],
+    ["every single day with emergency247", "Open every single day"],
+  ]);
   refused(SIX_DAYS, [["six days of hours do not back every single day", "Open every single day", ["every single day"]]]);
   refused(FREE, [["freeEstimates does not back afterhours", "Afterhours cleaning", ["Afterhours"]]]);
   refused(INSURED, [["insurance does not back a freebie", "A freebie with every visit", ["freebie"]]]);
@@ -455,7 +466,8 @@ describe("AI claim check: an underscore hides nothing", () => {
     ["liability backed", "Fully_liability coverage"],
   ]);
   accepted(LICENSED, [["lic. backed", "Fully_lic. crew"]]);
-  accepted(SEVEN_DAYS, [["after hours backed", "After_hours cleaning"]]);
+  accepted(EMERGENCY, [["after hours backed", "After_hours cleaning"]]);
+  refused(SEVEN_DAYS, [["hours on all 7 days do not back after hours", "After_hours cleaning", ["After hours"]]]);
 });
 
 // A symbol between the words of a multi-word wording is still that wording: readings() also reads U+00B7, U+2022, "~", "*", "|", U+2219, U+30FB and U+25CF as a space when glued between two non-space characters (a quote that opens right after one counts too, glued or not).
@@ -481,7 +493,8 @@ describe("AI claim check: a symbol separator hides nothing", () => {
     ["quote after a katakana middle dot, text start", "\u30FB'Tidy' crew", ["'Tidy'"]],
     ["quote after a spaced black circle", "Our motto \u25CF'clean homes'", ["'clean homes'"]],
   ]);
-  accepted(SEVEN_DAYS, [["after hours backed, middle dot", "After\u00B7hours cleaning"]]);
+  accepted(EMERGENCY, [["after hours backed, middle dot", "After\u00B7hours cleaning"]]);
+  refused(SEVEN_DAYS, [["hours on all 7 days do not back after hours, middle dot", "After\u00B7hours cleaning", ["After hours"]]]);
   accepted(MINIMAL_FACTS, [
     ["trade and place", "Cleaning \u00B7 Austin"],
     ["pipe list", "Repairs | Installs"],

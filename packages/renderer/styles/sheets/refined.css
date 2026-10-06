@@ -1,0 +1,682 @@
+/* Classic (refined), compiled by scripts/build-css.ts to styles/out/refined.css (A12). Mobile first. It scans only
+   render.ts and its own folder. Colours, fonts and each font preset's character (weight, case, italics, corners,
+   rules) come from the page's --aw-refined-* properties (src/designs/refined/tokens.ts); every text/background
+   pair is checked in test/designs/refined. No text ever sits on a photo. Hover styles apply only where a pointer
+   can hover. The call bar's position comes from its utilities (sticky, focus-outside:static), never from here. */
+@import "tailwindcss" source(none);
+@import "../shared.css";
+@source "../../src/render.ts";
+@source "../../src/designs/refined";
+/* The tokens file holds CSS values, not class names ("uppercase", "italic" would add unused utilities). */
+@source not "../../src/designs/refined/tokens.ts";
+
+/* The shared skip link's focus:shadow-lg, as one plain rule: Tailwind's own shadow utilities register 14 custom
+   properties and a fallback block (about 1.9 KB) that nothing else on a Classic page uses. The theme's shadow
+   namespace is cleared, so only this utility (Tailwind's shadow-lg value) is generated. */
+@theme { --shadow-*: initial; }
+@utility shadow-lg { box-shadow: 0 10px 15px -3px #0000001a, 0 4px 6px -4px #0000001a; }
+
+/* ---------- Tokens and base ---------- */
+:root{--sh:0 1px 2px #0000000f,0 22px 44px -24px #00000061}
+.classic{background:var(--aw-refined-surface);color:var(--aw-refined-text);font-family:var(--aw-refined-body);font-size-adjust:var(--aw-refined-body-adjust);line-height:1.6;-webkit-font-smoothing:antialiased;overflow-wrap:anywhere}
+h1,h2,h3,.brand,.seal,.hq p,.hq::before,.bc-ph,.pr,.qm,.lq p,.qc p,.print figcaption,.letter-b,.letter-s,.svc-mt,.c-ph,.ft-name{font-family:var(--aw-refined-head);font-size-adjust:var(--aw-refined-head-adjust)}
+h1,h2,h3{font-weight:700;line-height:1.15;color:var(--aw-refined-ink);text-wrap:balance}
+.ht,.st{font-weight:var(--aw-refined-head-weight)}
+:focus-visible{outline:2px solid var(--aw-refined-ink);outline-offset:3px}
+.c-list :focus-visible,.ft :focus-visible,.h247 :focus-visible,.cl-p :focus-visible,.af :focus-visible{outline-color:var(--aw-refined-on-dark)}
+.wr{max-width:76rem;margin-inline:auto;padding-inline:1.25rem}
+.i{width:1.25rem;height:1.25rem;flex:none;color:var(--aw-refined-accent-text)}
+.lic{display:inline-block}
+/* A line of short facts joined by a dot: each dot is the ::before of the item after it, in a column the row
+   pushes past the clip box's left edge, so the first item on every line hides its dot. */
+.dots{--dot:1.25em;display:block;min-width:0;overflow:hidden;padding-right:.2em}
+.dots-r{display:flex;flex-wrap:wrap;margin-left:calc(var(--dot)*-1)}
+.dots-r>span{display:flex;min-width:0}
+.dots-r>span::before{content:"\b7";content:"\b7"/"";flex:none;width:var(--dot);font-style:normal;letter-spacing:0;text-align:center}
+
+/* ---------- Buttons: one action colour for Call and Send, never the colour of the band behind ---------- */
+.bt{display:inline-flex;align-items:center;justify-content:center;gap:.5rem;min-height:3rem;padding:.6875rem 1.25rem;border:2px solid #0000;border-radius:var(--aw-refined-radius);font-size:1rem;font-weight:650;line-height:1.25;text-align:center;white-space:nowrap;cursor:pointer;transition:.15s}
+.bt-act{border-color:var(--aw-refined-action);background:var(--aw-refined-action);color:var(--aw-refined-on-action);box-shadow:0 1px 2px #00000024}
+.bt-out{border-color:var(--aw-refined-brand);color:var(--aw-refined-brand)}
+.bt-lg{min-height:3.5rem;padding-inline:1.625rem;font-size:1.0625rem}
+.bt .i{width:1.125rem;height:1.125rem;color:inherit}
+.bt-t{display:flex;flex-direction:column;align-items:flex-start;text-align:left}
+.bt-n{font-size:.75rem;font-weight:500;line-height:1.2;letter-spacing:.01em}
+.bt-2l{padding-block:.3125rem}
+.bt-lg .bt-n{font-size:.8125rem}
+
+/* ---------- Header: phones get the name and a <details> menu that scrolls away with the header ---------- */
+.hd{position:relative;z-index:30;border-bottom:1px solid var(--aw-refined-line);background:var(--aw-refined-paper)}
+.hd-row{display:flex;align-items:center;column-gap:.75rem;min-height:4rem;padding-block:.5rem}
+/* The name's box is trimmed to its capitals and baseline (text-box, "trim-both" when left out), so the row centres the
+   letters themselves, in every lettering (Sturdy's tall line box set them 4-5 px high), as the approved mockup does. */
+.brand{min-width:0;margin-right:auto;padding-block:.625rem;font-size:1.1875rem;font-weight:700;line-height:1.2;color:var(--aw-refined-ink);text-wrap:balance;text-box:cap alphabetic}
+.hd-long .brand{font-size:1.0625rem}
+.nav{order:3}
+.nav-l,.hd-q,.hd-c,.i-close,.menu[open] .i-open{display:none}
+.nav-l a{display:inline-flex;align-items:center;padding-inline:.5rem;border-radius:.25rem;font-size:.9375rem;font-weight:500;white-space:nowrap}
+.menu summary{display:flex;align-items:center;justify-content:center;width:2.75rem;height:2.75rem;border-radius:.375rem;color:var(--aw-refined-ink);cursor:pointer;list-style:none}
+.menu summary .i{width:1.5rem;height:1.5rem;color:inherit}
+.menu[open] .i-close{display:block}
+.menu ul{position:absolute;top:calc(100% - .25rem);right:1rem;width:min(16rem,calc(100vw - 2rem));padding:.5rem;border:1px solid var(--aw-refined-line);border-radius:var(--aw-refined-radius-card);background:var(--aw-refined-surface);box-shadow:0 18px 40px -18px #0006}
+.menu a{display:flex;align-items:center;min-height:2.75rem;padding-inline:.75rem;border-radius:.25rem;font-weight:500}
+/* The current page: heavier, in ink, underlined in the accent (WCAG 1.4.1: more than colour). */
+.nav [aria-current]{font-weight:650;color:var(--aw-refined-ink);text-decoration:underline var(--aw-refined-accent-text);text-decoration-thickness:2px;text-underline-offset:.4em}
+
+/* ---------- Hero ---------- */
+.hero{overflow-x:clip;background:var(--aw-refined-paper);padding-block:1.5rem 2.75rem}
+.eb{display:flex;align-items:flex-start;gap:.75rem;font:var(--aw-refined-eyebrow);letter-spacing:var(--aw-refined-eyebrow-track);text-transform:var(--aw-refined-eyebrow-case);color:var(--aw-refined-accent-text)}
+.eb::before{content:"";flex:none;width:1.75rem;height:var(--aw-refined-rule-h);margin-top:calc(.7em - var(--aw-refined-rule-h)/2);background:var(--aw-refined-accent)}
+.eb .dots,.proof .dots,.c-list .dots,.af-l .dots{flex:1 1 auto}
+/* One size curve: a long headline (--kl) and a short desktop window (--ks) scale it down. */
+.ht{margin-top:var(--aw-refined-hero-gap);font-size:calc(clamp(2.125rem,1.45rem + 2.9vw,3.75rem)*var(--aw-refined-hero-scale)*var(--kl,1)*var(--ks,1));line-height:1.07;letter-spacing:var(--aw-refined-hero-track)}
+.ht-long{--kl:.82}
+.hs{max-width:34em;margin-top:.875rem;font-size:1.0625rem;line-height:1.55;color:var(--aw-refined-muted);text-wrap:pretty}
+/* The hero's actions; on phones only the quote button (the call bar under the thumb carries Call). */
+.ha{display:flex;flex-wrap:wrap;gap:.75rem;margin-top:1.25rem}
+.proof{display:flex;align-items:flex-start;gap:.5rem;margin-top:1.125rem;font-size:.9375rem;font-weight:650;line-height:1.4;color:var(--aw-refined-ink)}
+.proof .i{margin-top:.0625rem}
+/* The credential ledger (phones and tablets, when the credentials come straight after the hero), and the
+   credentials band: an icon, the fact, and a quiet second line. */
+.ledger{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.875rem 1rem;margin-top:1.25rem;padding-top:1.125rem;border-top:1px solid var(--aw-refined-line);font-size:.9375rem;line-height:1.3}
+.ledger li,.ti{display:flex;align-items:flex-start;gap:.5rem;min-width:0}
+.tm{display:block;font-weight:650;color:var(--aw-refined-ink)}
+.tsub{display:block;margin-top:.125rem;font-size:.8125rem;color:var(--aw-refined-muted)}
+.ti-w{grid-column:1/-1}
+.hm{position:relative;isolation:isolate;margin:1.75rem .75rem 0 0}
+.hm::before{content:"";position:absolute;z-index:-1;inset:1rem -.75rem -.75rem 1rem;border:1.5px solid var(--aw-refined-accent);border-radius:var(--aw-refined-radius-paper)}
+.frame{padding:.5rem;border:1px solid var(--aw-refined-line);border-radius:var(--aw-refined-radius-paper);background:var(--aw-refined-surface);box-shadow:var(--sh)}
+/* contain:size sizes a photo by its width and aspect ratio alone, so one that fails to load keeps its box. */
+.frame img,.print img{width:100%;aspect-ratio:4/3;contain:size;object-fit:cover}
+.frame img{border-radius:calc(var(--aw-refined-radius-paper)*.6);background:var(--aw-refined-line)}
+.seal{position:absolute;left:-.375rem;bottom:-1.25rem;display:none;place-content:center;width:5.25rem;height:5.25rem;border-radius:50%;background:var(--aw-refined-dark);color:var(--aw-refined-on-dark);text-align:center;line-height:1;box-shadow:0 0 0 3px var(--aw-refined-paper),0 0 0 4.5px var(--aw-refined-accent),0 14px 26px -12px #0000008c}
+.seal::after{content:"";position:absolute;inset:.3125rem;border:1px solid var(--aw-refined-accent-on-dark);border-radius:50%;opacity:.5}
+.seal-l{font-size:.8125rem;font-style:italic;color:var(--aw-refined-accent-on-dark)}
+.seal-y{margin-top:.1875rem;font-size:1.4375rem;font-weight:700;letter-spacing:.01em}
+.hq{position:relative;margin-top:1.5rem;padding:1.125rem 0 0 2.125rem;border-top:1px solid var(--aw-refined-line)}
+.hq::before{content:"\201c";content:"\201c"/"";position:absolute;top:.875rem;left:-.0625rem;font-size:3.25rem;font-weight:var(--aw-refined-quote-weight);line-height:1;color:var(--aw-refined-accent)}
+.hq p{font-size:1.125rem;line-height:1.45;color:var(--aw-refined-ink);text-wrap:pretty}
+.hq figcaption,.lq figcaption{display:flex;flex-wrap:wrap;align-items:baseline;gap:.125rem .625rem;margin-top:.625rem}
+.plate{margin:0;padding:.875rem .625rem .375rem;border-top:0}
+.plate::before{content:none}
+.plate p{font-size:1.0625rem}
+.plate p::before,.qc p::before{content:"\201c";color:var(--aw-refined-accent-text);font-weight:700}
+.plate p::after,.qc p::after{content:"\201d";color:var(--aw-refined-accent-text);font-weight:700}
+.plate figcaption{margin-top:.375rem;font-size:.9375rem}
+.qn{font-weight:650;color:var(--aw-refined-ink)}
+.qp{font-size:.9375rem;color:var(--aw-refined-muted)}
+
+/* The business card: stands in for the photo. Its number is sized from the card's own width, leaving room for the seal. */
+.bc{position:relative;container-type:inline-size;padding:1.5rem 1.375rem 1.375rem;border:1px solid var(--aw-refined-line);border-radius:var(--aw-refined-radius-paper);background:var(--aw-refined-surface);box-shadow:var(--sh)}
+.bc::after,.letter::after,.hcard::after{content:"";position:absolute;inset:.4375rem;border:1px solid var(--aw-refined-line);border-radius:calc(var(--aw-refined-radius-paper)*.6);pointer-events:none}
+.bc-l{color:var(--aw-refined-accent-text)}
+.bc-ph{display:inline-flex;align-items:center;gap:.3em;margin-top:.3125rem;font-size:clamp(1.25rem,calc((100cqi - 2.5rem - var(--seal-clear,0px))/8),2.5rem);font-weight:700;line-height:1.15;color:var(--aw-refined-ink)}
+.bc-ph .i{width:.62em;height:.62em}
+.bc-l,.bc-s,.ft-h{font-size:.75rem;font-weight:650;letter-spacing:.13em;text-transform:uppercase}
+.bc-s{margin-bottom:.25rem;color:var(--aw-refined-muted)}
+.bc-h{margin-top:1.125rem;padding-top:.875rem;border-top:1px solid var(--aw-refined-line)}
+.bc-h,.hours{font-variant-numeric:tabular-nums}
+.bc-h div{display:flex;flex-wrap:wrap;justify-content:space-between;gap:0 1rem;padding-block:.25rem}
+.bc-h dt,.hours dt{font-weight:650;color:var(--aw-refined-ink)}
+.bc-m{display:grid;gap:.5rem;margin-top:1rem;padding-top:1rem;border-top:1px solid var(--aw-refined-line);font-size:.9375rem}
+.bc-m li{display:flex;gap:.5rem;min-width:0}
+.bc-m .i{width:1.125rem;height:1.125rem;margin-top:.1875rem}
+.bc-m a{display:inline-block;min-height:1.75rem;padding-block:.125rem;font-weight:600;color:var(--aw-refined-brand)}
+.hm-card .seal{top:-1.75rem;right:-.5rem;bottom:auto;left:auto}
+
+/* ---------- Sections: light bands alternate over the sections that render; contact is dark ---------- */
+.sec{padding-block:3.5rem}
+.bp{--band:var(--aw-refined-paper);--card:var(--aw-refined-surface);background:var(--aw-refined-paper)}
+.bw{--band:var(--aw-refined-surface);--card:var(--aw-refined-paper);background:var(--aw-refined-surface)}
+.sh{max-width:42rem;margin-bottom:2.25rem}
+.sh::before{content:"";display:block;width:var(--aw-refined-rule-w);height:var(--aw-refined-rule-h);margin-bottom:1rem;border-radius:var(--aw-refined-rule-h);background:var(--aw-refined-accent)}
+.st{font-size:calc(clamp(1.875rem,1.4rem + 1.7vw,2.75rem)*var(--aw-refined-title-scale));letter-spacing:var(--aw-refined-title-track);text-transform:var(--aw-refined-title-case)}
+.st+p{margin-top:.75rem;font-size:1.125rem;line-height:1.5;color:var(--aw-refined-muted);text-wrap:pretty}
+/* An inner page opens on its first section (A16): the hero's eyebrow, then the page's <h1>, set larger. */
+main>.sec:first-child{padding-top:2.5rem}
+.sh-pg::before{content:none}
+.sh-pg .proof{margin-top:1.25rem}
+/* An area-first Contact page: Call and the call to action on its first screen. */
+.pg-a{display:flex;flex-wrap:wrap;gap:.75rem;margin-top:1.5rem}
+.sh-pg .st{margin-top:var(--aw-refined-hero-gap);font-size:calc(clamp(2.125rem,1.5rem + 2.6vw,3.375rem)*var(--aw-refined-title-scale))}
+.dark .eb{color:var(--aw-refined-accent-on-dark)}
+.dark .eb::before{background:var(--aw-refined-accent-on-dark)}
+
+/* ---------- Credentials: the column count follows the item count (tg-N), so a row never ends with one alone ---------- */
+.trust{border-block:1px solid var(--aw-refined-line)}
+.tg{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1.125rem 1rem;padding-block:1.75rem}
+.ti{gap:.625rem;font-size:.9375rem;line-height:1.3}
+.ti .i{width:1.375rem;height:1.375rem}
+.tr-lift{display:none}
+
+/* ---------- Services: a price list. Phones: the price under the name. From 36rem the name fills the width beside the
+   price, and the dots are an empty inline-block at the start of the price, so their bottom edge sits on the baseline the
+   price shares with the name's last line (last-baseline alignment), in every font; they reach left under the name,
+   whose words (on the band's colour) cover them, so they run from the end of the words to the price, at least 3rem.
+   The row clips them sideways only: its padding and negative margin leave room for tall glyphs. ---------- */
+.svc-list{display:grid;grid-template-columns:minmax(0,1fr);column-gap:4.5rem}
+.svc{padding-block:1.25rem 1.375rem;border-bottom:1px solid var(--aw-refined-line)}
+.svc:first-child{border-top:1px solid var(--aw-refined-line)}
+.svc-n{font-size:1.25rem;line-height:1.25;text-wrap:pretty}
+.pr{margin-top:.25rem;font-size:1.0625rem;font-weight:700;line-height:1.3;color:var(--aw-refined-accent-text);white-space:nowrap}
+.pr-ask{font-family:var(--aw-refined-body);font-size-adjust:var(--aw-refined-body-adjust);font-size:.9375rem;font-weight:500;color:var(--aw-refined-muted)}
+.svc-d{max-width:34em;margin-top:.5rem;color:var(--aw-refined-muted);text-wrap:pretty}
+.svc-more{justify-content:space-between;gap:1rem 1.5rem;color:var(--aw-refined-muted)}
+.svc-mt{font-size:1.3125rem;font-weight:700;line-height:1.25;color:var(--aw-refined-ink)}
+.svc-mt+p{margin-top:.25rem}
+.svc-more .bt,.fcard .bt{white-space:normal}
+
+/* ---------- Reviews: one pull quote, then letter cards whose rules and names share a line (subgrid) ---------- */
+.lq{max-width:54rem}
+.qm{display:block;height:2.25rem;font-size:4.5rem;font-weight:var(--aw-refined-quote-weight);line-height:1;color:var(--aw-refined-accent)}
+.lq p{font-size:clamp(1.375rem,1.05rem + 1.35vw,2.125rem);line-height:1.38;color:var(--aw-refined-ink);text-wrap:pretty}
+.lq-long p{font-size:clamp(1.1875rem,1rem + .8vw,1.625rem)}
+.lq figcaption{gap:.25rem .75rem;margin-top:1.25rem}
+.lq figcaption::before{content:"";align-self:center;width:1.5rem;height:var(--aw-refined-rule-h);background:var(--aw-refined-accent)}
+.qgrid{display:grid;grid-template-columns:minmax(0,1fr);column-gap:1.25rem;margin-top:2.5rem}
+.gal>li,.print{display:grid;grid-row:span 2;grid-template-rows:subgrid;row-gap:0}
+/* Up to 64rem each card keeps its own height, the name right under its quote, so a short review is never a tall empty
+   card; from 64rem a row shares one height (subgrid). */
+.qc{align-self:start;margin-bottom:1.25rem;break-inside:avoid}
+.qc figure{padding:1.5rem 1.5rem 1.25rem;border:1px solid var(--aw-refined-line);border-radius:var(--aw-refined-radius-paper);background:var(--card)}
+.qc p{font-size:1.125rem;line-height:1.5;color:var(--aw-refined-ink)}
+.qc figcaption{margin-top:1.125rem;padding-top:.875rem;border-top:1px solid var(--aw-refined-line)}
+.qc figcaption span{display:block}
+.qg-1{max-width:40rem}
+
+/* ---------- Home's services preview: the intro, three rows of the price list and a link to the Services page ---------- */
+.pv-m{margin-top:1.75rem}
+
+/* ---------- Gallery: page-sized framed prints, each caption under its own print (subgrid); one per row on phones.
+   With any caption, every print keeps a caption line, so the rows keep one rhythm. ---------- */
+.gal{display:grid;grid-template-columns:minmax(0,1fr);column-gap:.75rem}
+.gal-c{grid-auto-rows:auto minmax(2.25rem,auto)}
+.gal>li{margin-bottom:1rem}
+.print img{padding:.375rem;border:1px solid var(--aw-refined-line);border-radius:var(--aw-refined-radius-paper);background:var(--aw-refined-surface);box-shadow:0 1px 2px #0000000d,0 16px 32px -24px #0000004d}
+.print figcaption{padding:.5rem .125rem 0;font-style:italic;line-height:1.35;color:var(--aw-refined-ink)}
+
+/* ---------- About: a letter from the business, signed as the approved letter, its credentials at its foot, the seal on
+   its corner or on the owner's photo ---------- */
+.ab{display:grid;grid-template-columns:minmax(0,1fr);gap:1rem}
+.letter{position:relative;max-width:52rem;padding:2rem 1.5rem 1.75rem;border:1px solid var(--aw-refined-line);border-radius:var(--aw-refined-radius-paper);background:var(--card);box-shadow:var(--sh)}
+.letter::after{inset:.5rem}
+.rule{width:7rem;height:.75rem;margin-bottom:1.25rem;color:var(--aw-refined-accent)}
+.letter-b{max-width:36em;font-size:clamp(1.1875rem,1.05rem + .5vw,1.375rem);line-height:1.65;text-wrap:pretty}
+/* The sign-off: the business name, then the trade and the town (clear of a drop cap on a one-line story). */
+.letter-s{clear:both;margin-top:1.75rem;font-size:1.125rem;font-style:italic;line-height:1.4;color:var(--aw-refined-ink)}
+.letter-s>span{font-size:.9375rem;font-style:normal;line-height:1.5;color:var(--aw-refined-muted)}
+/* Two columns at every width (the letter is narrow), an odd count's first fact on a row of its own. */
+.letter .ledger{grid-template-columns:repeat(2,minmax(0,1fr));margin-top:1.75rem}
+.letter .ledger .ti-w{grid-column:1/-1}
+/* About's seal shows at every width (the page's eyebrow leaves the year to it). */
+.letter .seal,.ab-m .seal{display:grid}
+.letter .seal{z-index:1;top:-1.75rem;right:-.375rem;bottom:auto;left:auto}
+.letter-sl{margin-top:1.75rem}
+.ab-m{margin:1.25rem .75rem 1.25rem 0}
+/* Under the letter (up to 60rem) the photo is at most 34rem wide, centred on the letter with its offset frame, so the
+   letter stays the page's subject on a tablet; from 60rem they sit side by side. */
+@media (width < 60rem){
+  .ab-ph{max-width:52rem}
+  .ab-m{justify-self:center;width:min(100% - .75rem,34rem)}
+}
+.letter-s>span,.ft-h{display:block;font-family:var(--aw-refined-body);font-size-adjust:var(--aw-refined-body-adjust)}
+
+/* ---------- Service area and hours ---------- */
+.area{display:grid;grid-template-columns:minmax(0,1fr);gap:2.75rem}
+.h3r{display:flex;align-items:center;gap:.625rem;font-size:1.3125rem}
+.h3r .i{width:1.5rem;height:1.5rem}
+.places{columns:2;column-gap:1.5rem;margin-top:1.125rem}
+.pc-1{columns:1}
+.places li{display:flex;align-items:baseline;gap:.625rem;padding-block:.25rem;break-inside:avoid;color:var(--aw-refined-ink)}
+.places li::before{content:"";flex:none;width:.4375rem;height:.4375rem;background:var(--aw-refined-accent);transform:translateY(-.125rem) rotate(45deg)}
+.addr{display:flex;gap:.625rem;margin-top:1.75rem;padding-top:1.25rem;border-top:1px solid var(--aw-refined-line);font-style:normal}
+.addr .i{margin-top:.1875rem}
+.hcard{position:relative;align-self:start;padding:1.75rem 1.375rem 1.375rem;border:1px solid var(--aw-refined-line);border-radius:var(--aw-refined-radius-paper);background:var(--card)}
+/* Each hours row is one element, so its dotted rule runs unbroken: a repeating background, the same in every engine. */
+.hours{margin-top:.75rem}
+.hours div{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:0 1rem;padding-top:.6875rem}
+.hours div::after{content:"";flex:0 0 100%;height:1px;margin-top:calc(.6875rem - 1px);background:linear-gradient(90deg,var(--aw-refined-rule) 50%,#0000 0) 0 0/2px 1px repeat-x}
+.hours dd{margin-left:auto;text-align:right}
+.h247{position:relative;z-index:1;display:flex;flex-wrap:wrap;align-items:baseline;gap:.25rem .75rem;margin-top:1.25rem;padding:.875rem 1.125rem .875rem 2.875rem;border-radius:calc(var(--aw-refined-radius-paper)*.6);background:var(--aw-refined-dark);color:var(--aw-refined-on-dark)}
+.h247 strong,.h247 a{font-weight:650}
+.h247 strong{text-wrap:balance}
+.h247 .i{position:absolute;top:1.0625rem;left:1.125rem;color:var(--aw-refined-accent-on-dark)}
+.base{margin-top:.875rem;padding-left:2.125rem;font-style:normal;font-size:1.0625rem;line-height:1.55;color:var(--aw-refined-ink)}
+/* One town and nothing else to show: a small heading and one line, at the foot of the contact band in its colours. */
+.af{padding-bottom:3rem}
+.af .wr::before{content:"";display:block;height:1px;margin-bottom:1.75rem;background:#ffffff2e}
+.af .h3r{color:var(--aw-refined-on-dark)}
+.af .i{color:var(--aw-refined-accent-on-dark)}
+.af-l{display:flex;margin:.375rem 0 0 2.125rem;font-size:1.0625rem}
+
+/* ---------- FAQ: the "Still have a question?" box follows the questions on phones, sits under the heading when wide ---------- */
+.faq{display:grid;grid-template-columns:minmax(0,1fr)}
+/* A light box with an accent edge: "Still have a question?" here, "Need a price?" after the price list. */
+.ask,.svc-more{position:relative;display:flex;flex-wrap:wrap;align-items:center;gap:.75rem 1rem;margin-top:1.75rem;padding:1.125rem 1.25rem 1.125rem 1.375rem;border:1px solid var(--aw-refined-line);border-left:0;border-radius:0 var(--aw-refined-radius-card) var(--aw-refined-radius-card) 0;background:var(--card)}
+.ask::before,.svc-more::before{content:"";position:absolute;top:-1px;bottom:-1px;left:0;width:3px;background:var(--aw-refined-accent)}
+.ask p{font-weight:650;color:var(--aw-refined-ink)}
+@media (width < 56rem){.ask-l{display:none}}
+.faq-l{display:grid;gap:.75rem}
+.faq-i{border:1px solid var(--aw-refined-line);border-radius:var(--aw-refined-radius-card);background:var(--card)}
+.faq-i summary{display:flex;align-items:center;justify-content:space-between;gap:1rem;padding:1.125rem 1.125rem 1.125rem 1.375rem;border-radius:var(--aw-refined-radius-card);cursor:pointer;list-style:none}
+/* WebKit's marker on the page's two <summary>s, the menu's and the questions'. */
+summary::-webkit-details-marker{display:none}
+.faq-q{min-width:0;font-size:1.125rem;line-height:1.35;text-wrap:pretty}
+.faq-t{display:grid;flex:none;place-items:center;width:2rem;height:2rem;border:1px solid var(--aw-refined-rule);border-radius:50%;color:var(--aw-refined-accent-text)}
+.faq-t .i{width:1rem;height:1rem}
+.faq-i[open] .faq-t{transform:rotate(45deg)}
+.faq-a{padding:0 3.25rem 1.375rem 1.375rem;color:var(--aw-refined-muted)}
+.faq-o li{padding-block:1.375rem;border-top:1px solid var(--aw-refined-line)}
+.faq-o li:last-child{border-bottom:1px solid var(--aw-refined-line)}
+.faq-o .faq-a{margin-top:.5rem;padding:0}
+
+/* ---------- Contact band ---------- */
+.dark{background:var(--aw-refined-dark);color:var(--aw-refined-on-dark-muted)}
+/* The info column repeats the band's colour (unseen). WebKit's iPhone emulation restyles the form's ancestors when the
+   meta viewport narrows the page, and getComputedStyle then drops their inherited custom properties, so axe read
+   the band as white behind this light text; the painted band was right. The column is not the form's ancestor. */
+.c-info{background:var(--aw-refined-dark)}
+.dark .sh::before{background:var(--aw-refined-accent-on-dark)}
+.dark .st{color:var(--aw-refined-on-dark)}
+.dark .st+p{color:var(--aw-refined-on-dark-muted)}
+.contact{display:grid;grid-template-columns:minmax(0,1fr);gap:2.5rem}
+.c-list{display:grid;gap:1.25rem}
+.c-list li{display:flex;gap:.875rem;min-width:0}
+.c-list .i{margin-top:.25rem;color:var(--aw-refined-accent-on-dark)}
+.c-list a{font-weight:600;color:var(--aw-refined-on-dark)}
+/* Links in running text keep an underline (preflight's a{text-decoration:inherit} drops the browser's): the accent on
+   light, its dark-band tint on dark. */
+.bc-m a,.fcall a{text-decoration:underline var(--aw-refined-accent);text-underline-offset:.25em}
+.c-list a,.h247 a{text-decoration:underline var(--aw-refined-accent-on-dark);text-underline-offset:.25em}
+/* Bigger default text on a phone (root 125%, moderator 2026-10-05): the big number to tap (Contact, the closing band)
+   and the Call and quote buttons that open a page with the Service area (.pg-a) wrap instead of running off the page,
+   and stay on one line wherever they fit. white-space works in every engine (text-wrap:balance needs Safari 17.5, under
+   the iOS 16.4 floor); it outranks .bt's nowrap and the markup's whitespace-nowrap utility (this sheet is unlayered).
+   The rest after the area code is a no-wrap span (phoneParts), so the number breaks only at that space. 10vw keeps
+   the rest on one line at 320 px with the root at 125% (at 100% the cap, 1.75rem, applies from 280 px). */
+.c-ph,.pg-a .bt{white-space:normal}
+.c-ph{font-size:min(1.75rem,10vw);line-height:1.2}
+.c-note{display:block;margin-top:.25rem;font-size:.9375rem}
+/* The hours and a one-town area line beside the form, from 60rem (phones get them in the Service area section). */
+.c-list .c-sub{display:none}
+.fcard{padding:1.5rem 1.25rem;border-radius:var(--aw-refined-radius-card);background:var(--aw-refined-surface);color:var(--aw-refined-text);box-shadow:0 30px 60px -30px #0009}
+/* The form is a grid, so Name + Phone and Email + Service share rows from 40rem without extra markup; inputs line up if a label wraps.
+   It is where every "Get a quote" link lands (/contact#quote): the card's top edge stays in view above it. */
+.fcard form{display:grid;grid-template-columns:minmax(0,1fr);column-gap:1rem;align-items:end;scroll-margin-top:2.5rem}
+.f{margin-bottom:1.25rem}
+.f label{display:block;margin-bottom:.375rem;font-size:.9375rem;font-weight:650;color:var(--aw-refined-ink)}
+.in{display:block;width:100%;min-height:3rem;padding:.75rem 1rem;border:1px solid var(--aw-refined-field);border-radius:min(var(--aw-refined-radius-card),.5rem);background:var(--aw-refined-surface);font-size:1rem}
+.in:focus-visible{outline-offset:1px;border-color:var(--aw-refined-ink)}
+.sel{position:relative;color:var(--aw-refined-ink)}
+/* WebKit counts a chosen option's whole text as page width, so the select clips it (a 40-character name scrolled a
+   320 px page sideways). */
+.sel .in{appearance:none;padding-right:3rem;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.sel-i{position:absolute;top:50%;right:1rem;width:1.25rem;height:1.25rem;transform:translateY(-50%);pointer-events:none}
+.hp{position:absolute;left:-9999px;width:1px;height:1px;overflow:hidden}
+.fcard .bt{width:100%;margin-top:.5rem}
+/* A call link right under Send: the call bar stops sticking while a field has focus. */
+.fcall{display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:0 .5rem;margin-top:1rem;padding-top:.5rem;border-top:1px solid var(--aw-refined-line);font-size:.9375rem;line-height:1.4;color:var(--aw-refined-muted);text-align:center}
+.fcall a{display:inline-flex;align-items:center;gap:.375rem;min-height:2.75rem;font-weight:650;color:var(--aw-refined-brand);text-decoration-thickness:1.5px}
+.fcall .i{width:1.0625rem;height:1.0625rem}
+.fcall-n{flex-basis:100%;margin-top:-.25rem;font-size:.875rem}
+
+/* ---------- The closing band: a dark panel on the last light band, at the foot of every page but Contact. Its buttons
+   show where the sticky header does; wherever the call bar shows (phones, and windows under 32rem tall such as a phone
+   held sideways) it carries Call and the quote button, and the panel the number. ---------- */
+.cl{padding-block:2.5rem 3.5rem}
+.cl-p{position:relative;display:grid;gap:1.5rem;padding:2.25rem 1.5rem 2rem;border-radius:var(--aw-refined-radius-paper);background:var(--aw-refined-dark);color:var(--aw-refined-on-dark-muted);box-shadow:var(--sh)}
+.cl-p::after{content:"";position:absolute;inset:.4375rem;border:1px solid var(--aw-refined-accent-on-dark);border-radius:calc(var(--aw-refined-radius-paper)*.6);opacity:.4;pointer-events:none}
+.cl-k{display:flex;align-items:center;gap:.75rem;font:var(--aw-refined-eyebrow);letter-spacing:var(--aw-refined-eyebrow-track);text-transform:var(--aw-refined-eyebrow-case);color:var(--aw-refined-accent-on-dark)}
+.cl-k::before{content:"";flex:none;width:1.75rem;height:var(--aw-refined-rule-h);background:var(--aw-refined-accent-on-dark)}
+.cl-t{margin-top:var(--aw-refined-hero-gap);font-family:var(--aw-refined-head);font-size-adjust:var(--aw-refined-head-adjust);font-size:calc(clamp(1.75rem,1.3rem + 1.8vw,2.75rem)*var(--aw-refined-title-scale));font-weight:var(--aw-refined-head-weight);line-height:1.12;letter-spacing:var(--aw-refined-title-track);text-transform:var(--aw-refined-title-case);color:var(--aw-refined-on-dark);text-wrap:balance}
+.cl-i{max-width:32em;margin-top:.875rem;font-size:1.125rem;line-height:1.5;text-wrap:pretty}
+.cl-l{display:grid;gap:.875rem}
+.cl-l li{display:flex;gap:.75rem;min-width:0}
+.cl-l .i{margin-top:.1875rem;color:var(--aw-refined-accent-on-dark)}
+.cl-l .dots{flex:1 1 auto}
+.cl-l a{font-weight:600;color:var(--aw-refined-on-dark);text-decoration:underline var(--aw-refined-accent-on-dark);text-underline-offset:.25em}
+/* The number, large, to tap wherever the call bar shows (it carries the buttons there); else the buttons. */
+.c-list .i-lg,.cl-l .i-lg{width:1.5rem;height:1.5rem;margin-top:.5rem}
+.cl-a{display:none}
+.cl .bt-out{border-color:var(--aw-refined-on-dark);color:var(--aw-refined-on-dark)}
+
+/* ---------- Footer ---------- */
+.ft{background:var(--aw-refined-dark2);color:var(--aw-refined-on-dark-muted);font-size:.9375rem}
+.ft-grid{display:grid;grid-template-columns:minmax(0,1fr);gap:2rem;padding-block:3.25rem 2.25rem}
+.ft-name{font-size:1.375rem;font-weight:700;line-height:1.2;color:var(--aw-refined-on-dark)}
+.ft-trade{margin-top:.375rem}
+/* Every page again, so the end of a long phone page leads on without scrolling back up; the current one marked as in the menu. */
+.ft-nav ul{display:flex;flex-wrap:wrap;column-gap:1.25rem;margin-top:.75rem}
+.ft .ft-nav li{margin:0}
+.ft-nav a{display:inline-flex;align-items:center;min-height:2.75rem;font-weight:500;color:var(--aw-refined-on-dark)}
+.ft-nav [aria-current]{font-weight:650;text-decoration:underline var(--aw-refined-accent-on-dark);text-decoration-thickness:2px;text-underline-offset:.4em}
+/* A page that ends on the dark contact band: an accent rule between the band and the footer. */
+.ft-r{border-top:3px solid var(--aw-refined-accent)}
+.ft-h{font-size:.8125rem;color:var(--aw-refined-on-dark)}
+.ft-h{margin-bottom:.625rem}
+.ft li{margin-bottom:.375rem}
+.ft a{text-underline-offset:.2em}
+.ft-links{display:flex;flex-wrap:wrap;gap:.25rem 1.5rem;padding-block:1.25rem 1.75rem;border-top:1px solid #ffffff24}
+.ft-links a{display:inline-flex;align-items:center;min-height:2.75rem;gap:.375rem}
+.ft-links .i{width:1rem;height:1rem;color:inherit}
+
+/* ---------- Phone call bar: Call and the quote button under the thumb ---------- */
+.cb{display:flex;gap:.5rem;padding:.625rem .75rem calc(.625rem + env(safe-area-inset-bottom));border-top:1px solid var(--aw-refined-line);background:var(--aw-refined-paper);box-shadow:0 -8px 20px -14px #00000059}
+/* The small block padding keeps the bar at one height when the quote label takes two lines on the narrowest phones. */
+.cb .bt{min-height:3.125rem;padding:.25rem .875rem}
+.cb .bt-act{flex:1 1 auto}
+.cb .bt-out{flex:0 1 auto;background:var(--aw-refined-surface);white-space:normal;text-wrap:balance;line-height:1.15}
+
+/* ---------- Hover (pointers that can hover only, so a tapped button never stays looking pressed) ---------- */
+@media (hover:hover){
+  .bt-act:hover{border-color:var(--aw-refined-action-hover);background:var(--aw-refined-action-hover)}
+  .bt.bt-out:hover{background:var(--aw-refined-brand);color:var(--aw-refined-surface)}
+  .cl .bt.bt-out:hover{background:var(--aw-refined-on-dark);color:var(--aw-refined-dark)}
+  .nav-l a:hover,.faq-i summary:hover .faq-q{color:var(--aw-refined-brand)}
+  .menu summary:hover{background:var(--aw-refined-line)}
+  .menu a:hover{background:var(--aw-refined-paper)}
+  .c-list a:hover,.fcall a:hover,.bc-m a:hover,.h247 a:hover,.cl-l a:hover{text-decoration-thickness:2px}
+  .ft a:hover{color:var(--aw-refined-on-dark);text-decoration:underline}
+}
+
+/* ---------- Phones only ---------- */
+@media (width < 23.4375rem){
+  /* Below 375 px (the iPhone SE, mini and 6-8 width keeps the whole bar) only the icon steps aside: Call with the number
+     and the owner's 24/7 line keep their words, centred in the button. */
+  .cb .bt{padding-inline:.625rem}
+  .cb .bt-act>.i{display:none}
+  .cb .bt-t{align-items:center;text-align:center}
+}
+/* Wherever the call bar shows (phones, and windows under 32rem tall, such as a phone held sideways: "not" negates the
+   whole query, so this is the exact opposite of the sticky-header query below) it carries Call and the quote, so the
+   page leaves the quote to it: one label on every first screen (moderator quote rule, 2026-10-05). The hero leaves its
+   buttons to it (one of each on the first screen, as the approved Home), the Services box and the header their quote
+   buttons (.bt.hd-q outranks the header's 48rem rule below); the email leaves the card (it sits where the call bar
+   covers the first screen). */
+@media not all and (min-width:48rem) and (min-height:32rem){
+  .bc-m .bc-e,.ha,.svc-more .bt,.bt.hd-q{display:none}
+}
+/* A town so long that it and the year cannot share one phone row (parts.ts GROUP_TIERS): the year steps aside below
+   the width where they fit, so it is never alone on a line. */
+@media (width < 24rem){.dots-r>.eb-g1{display:none}}
+@media (width < 30rem){.dots-r>.eb-g2{display:none}}
+@media (width < 40rem){.dots-r>.eb-g3{display:none}}
+@media (width < 48rem){.dots-r>.eb-g4{display:none}}
+
+/* ---------- 30rem ---------- */
+@media (min-width:30rem){
+  .brand{font-size:1.3125rem}
+  .hd-long .brand{font-size:1.1875rem}
+  .places{columns:3}
+  .pw-2{columns:2}
+  .pw-1{columns:1}
+}
+
+/* ---------- 36rem: the price joins the name's last line, after a dotted leader; two prints a row ---------- */
+@media (min-width:36rem){
+  .gal{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .g-1{grid-template-columns:minmax(0,1fr)}
+  .svc-l{display:flex;align-items:flex-end;align-items:last baseline;gap:.5rem;overflow:hidden;padding-block:.4em;margin-block:-.4em}
+  .svc-n{position:relative;flex:1 1 auto;min-width:0}
+  .svc-n span{margin-right:3rem;padding-right:.5rem;background:var(--band)}
+  .pr{flex:none;margin:0}
+  .pr:before{content:"";display:inline-block;width:100vw;height:2px;margin:0 .5rem 0 -100vw;background:linear-gradient(90deg,var(--aw-refined-rule) 50%,#0000 0) 100% 0/4px 2px repeat-x}
+}
+
+/* Two prints a row: an odd count opens with one full-width print, so no row holds a print alone. */
+@media (36rem <= width < 64rem){
+  .gal>li:first-child:nth-last-child(odd){grid-column:1/-1}
+}
+
+/* ---------- 40rem ---------- */
+@media (min-width:40rem){
+  .fcard form{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .f-w{grid-column:1/-1}
+  .fcard{padding:2.25rem}
+}
+
+/* ---------- 48rem: tablets. The header shows every page link and carries Quote and Call ---------- */
+@media (min-width:48rem){
+  .classic{font-size:1.0625rem}
+  .wr{padding-inline:2rem}
+  .hd-row{flex-wrap:wrap;min-height:0;padding-block:.5rem 0}
+  .hd-q,.hd-c{display:inline-flex;min-height:2.75rem;padding:.3125rem 1rem;font-size:.9375rem}
+  .hd-q{background:var(--aw-refined-surface)}
+  .menu,.dots-r>.eb-y{display:none}
+  .brand{flex:1 1 0}
+  .nav{flex:1 0 100%;margin-top:.5rem;border-top:1px solid var(--aw-refined-line)}
+  .nav-l{display:flex;flex-wrap:wrap;column-gap:.5rem;margin-inline:-.5rem}
+  .nav-l a{min-height:2.5rem}
+  .hero{padding-block:2rem 4rem}
+  .hs{margin-top:1.125rem;font-size:1.1875rem}
+  .ha{margin-top:1.5rem}
+  .proof{margin-top:1.375rem}
+  .ledger{grid-template-columns:repeat(3,minmax(0,1fr));margin-top:1.5rem;padding-top:1.125rem}
+  .lg-1{grid-template-columns:minmax(0,1fr)}
+  .lg-2{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .lg-4{grid-template-columns:repeat(4,minmax(0,1fr))}
+  .ledger .ti-w{grid-column:auto}
+  .hm{margin-top:1.5rem}
+  .hq{max-width:36rem;margin-top:1.75rem}
+  .plate{max-width:none;margin:0;padding:1rem 1rem .5rem 7.3125rem}
+  .fq img{aspect-ratio:16/10}
+  /* The seal shows from here; on phones the year is in the eyebrow instead. */
+  .seal{display:grid;left:.3125rem;width:6.5rem;height:6.5rem}
+  .seal-l{font-size:.9375rem}
+  .seal-y{font-size:1.8125rem}
+  .bc{padding:2rem 2rem 1.75rem}
+  .bc::after,.cl-p::after{inset:.5625rem}
+  .hm-card .seal{width:6rem;height:6rem;top:-2.25rem;right:-.4375rem}
+  .hm-card .seal-y,.letter .seal-y{font-size:1.625rem}
+  .bc-sealed .bc-ph{--seal-clear:3rem}
+  .sec{padding-block:5.5rem}
+  main>.sec:first-child{padding-top:4rem}
+  .cl{padding-block:3.5rem 5rem}
+  .cl-p{padding:3rem}
+  .sh{margin-bottom:3rem}
+  .ti{font-size:1rem}
+  .ti .i{width:1.5rem;height:1.5rem}
+  .tsub{font-size:.875rem}
+  .gal{column-gap:1.5rem}
+  .gal-c{grid-auto-rows:auto minmax(2.5rem,auto)}
+  .gal>li{margin-bottom:1.5rem}
+  .print img{padding:.5rem}
+  .print figcaption{padding-top:.625rem;font-size:1.0625rem}
+  .letter{padding:3.25rem 3.5rem 3rem}
+  .letter::after{inset:.75rem}
+  .letter .seal{width:6rem;height:6rem;top:-2.25rem;right:-.5rem}
+  /* The drop cap only on a story that opens with a letter (about.ts), so it is never a quote mark or bracket. */
+  .dc::first-letter{float:left;margin:.28rem .5rem 0 0;font-size:4.25rem;font-weight:700;line-height:.8;color:var(--aw-refined-accent-text)}
+  .ft-grid{grid-template-columns:repeat(2,minmax(0,1fr));column-gap:2.5rem}
+  .ft-grid>:first-child{grid-column:1/-1}
+  .cb{justify-content:center}
+  .cb .bt-act{flex:0 1 22rem}
+}
+/* From 48rem the header stays on screen with Quote and Call (in windows at least 32rem tall); scroll-padding keeps
+   focused and linked content clear of it (WCAG technique C43). It stacks above Send (z-index 20). A shorter
+   landscape window keeps a static header with Call, and the call bar carries the quote on every screen: the closing
+   band's buttons show only here, with the call bar gone (moderator ruling, 2026-10-05). */
+@media (min-width:48rem) and (min-height:32rem){
+  html{scroll-padding-top:8rem}
+  html:has(.hd-long){scroll-padding-top:9.5rem}
+  .hd{position:sticky;top:0;box-shadow:0 12px 24px -24px #0000008c}
+  .cb,.cl-l .cl-n{display:none}
+  .cl-a{display:flex;flex-wrap:wrap;gap:.75rem;margin-top:1.75rem}
+}
+/* Tablets held upright: a wider crop, so the review plate and the seal reach the first screen. */
+@media (48rem <= width < 60rem){
+  .fq img{aspect-ratio:12/5}
+}
+@media (48rem <= width < 64rem){
+  /* Review cards in two CSS columns, each at its own height, so no short card leaves a hole in a row; three stack in one
+     column (two columns would leave one card alone under a long one). */
+  .qg-2,.qg-n{display:block;columns:2;column-gap:1.25rem}
+}
+
+/* ---------- 56rem ---------- */
+@media (min-width:56rem){
+  .svc-list{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .svc-list>.svc:nth-child(2){border-top:1px solid var(--aw-refined-line)}
+  .svc-more{align-self:start;margin:1.5rem 0 0;padding:1.75rem}
+  .svc-more:nth-child(odd){grid-column:1/-1}
+  .area{grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);gap:5rem}
+  .hcard{padding:2.25rem 2rem 2rem}
+  .faq,.pv{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.55fr);grid-template-rows:auto 1fr;column-gap:4.5rem;align-items:start}
+  .faq>.sh{grid-column:1;grid-row:1}
+  .faq>.faq-l,.faq>.faq-o{grid-column:2;grid-row:1/span 2}
+  .faq>.ask{grid-column:1;grid-row:2;margin-top:0}
+  /* The preview: the heading and intro beside the rows, the link under them. */
+  .pv>.sh{grid-column:1;grid-row:1/span 2;margin-bottom:0}
+  .pv-l{grid-column:2;grid-row:1}
+  .pv-m{grid-column:2;grid-row:2}
+}
+
+/* ---------- 60rem: desktops ---------- */
+@media (min-width:60rem){
+  .hero{padding-block:3rem 5rem}
+  .h-grid{display:grid;grid-template-columns:minmax(0,1.06fr) minmax(0,1fr);gap:4.5rem;align-items:center}
+  .hm{margin:0 1.25rem 1.25rem 0}
+  /* The seal rises 2.5rem (and its 4.5px ring) above the card, 3.5px short of the hero's top padding, so the card must
+     never start at the row's top. The row centres the card's margin box, so .5rem more above and below leaves a card
+     centred lower where it was, and starts a card taller than the words beside it (a short headline, a narrower font)
+     .5rem down: the ring stays 11.5px inside the hero, whatever the words and the font. */
+  .hm-sealed{margin-block:.5rem 1.75rem}
+  .hm::before{inset:1.625rem -1.25rem -1.25rem 1.625rem}
+  .seal{left:-2.25rem;bottom:-1.75rem;width:7.75rem;height:7.75rem}
+  .plate{padding-left:6rem}
+  .seal-l{font-size:1rem}
+  .seal-y{font-size:2.125rem}
+  /* The credentials card straddles the hero's lower edge, so the license and Insured stay on the first screen. */
+  .h-lift{padding-bottom:7rem}
+  .h-copy .hq{margin-top:1.25rem;padding-top:.875rem}
+  .h-copy .hq::before{top:.625rem}
+  .h-copy .hq p{font-size:1.0625rem;line-height:1.42}
+  .h-copy .hq figcaption{margin-top:.375rem}
+  .h-copy .ledger{display:none}
+  .bc{padding:2.5rem 2.375rem 2.125rem}
+  .hm-card .seal{width:7rem;height:7rem;top:-2.5rem;right:-.9375rem}
+  .hm-card .seal-l{font-size:.9375rem}
+  .hm-card .seal-y,.letter .seal-y{font-size:1.875rem}
+  .bc-sealed .bc-ph{--seal-clear:3.5rem}
+  .tg{gap:1.25rem 2.5rem;padding-block:2rem}
+  .ti-w{grid-column:auto}
+  .tg-1{grid-template-columns:minmax(0,1fr)}
+  .tg-3,.tg-5{grid-template-columns:repeat(3,minmax(0,1fr))}
+  .tg-4{grid-template-columns:repeat(4,minmax(0,1fr))}
+  .tr-lift{position:relative;display:block;margin-top:-4.5rem;border-block:0;background:linear-gradient(var(--aw-refined-paper) 50%,var(--aw-refined-surface) 50%)}
+  .tr-lift .tg{padding:1.75rem 2.25rem;border:1px solid var(--aw-refined-line);border-radius:var(--aw-refined-radius-paper);background:var(--aw-refined-surface);box-shadow:var(--sh)}
+  .tr-lift .ti{justify-content:center;align-items:center}
+  .tr-lift.tg-many .ti{justify-content:flex-start;align-items:flex-start}
+  .solo{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.55fr);column-gap:4.5rem;align-items:start}
+  .solo>.sh{margin-bottom:0}
+  .cl-p{grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);column-gap:4.5rem;align-items:center;padding:3.5rem 4rem}
+  /* The buttons fill the panel's narrow column: one width when they stack, the row's width when they share it. */
+  .cl-a>.bt{flex:1 1 0}
+  .letter .seal{width:7rem;height:7rem;top:-2.5rem;right:-1rem}
+  /* With the owner's photo, the letter and the framed photo side by side, the photo centred on a long letter. */
+  .ab-ph{grid-template-columns:minmax(0,1.2fr) minmax(0,1fr);column-gap:4.5rem;align-items:center}
+  .ab-m{margin:1.5rem 1.25rem 0 0}
+  /* The facts are centred on the form beside them, as the hero's words are on its photo, so a shorter column never
+     stops at the form's top third. */
+  .contact{grid-template-columns:minmax(0,1fr) minmax(0,1.25fr);gap:5rem;align-items:start}
+  .c-info{align-self:center}
+  .c-ph{font-size:2.125rem}
+  .c-list{gap:1.5rem}
+  .c-list .c-sub{display:flex}
+  .af{display:none}
+  .fcard textarea{height:6.75rem}
+  /* An owner with little on file: heading, phone, the other facts and the form, stacked and centred. */
+  .c-stack{grid-template-columns:minmax(0,44rem);justify-content:center;gap:2.5rem}
+  .c-stack .sh{margin-inline:auto;margin-bottom:1.5rem;text-align:center}
+  .c-stack .sh::before{margin-inline:auto}
+  .c-stack .c-list{display:flex;flex-wrap:wrap;justify-content:center;gap:.75rem 2rem}
+  .c-stack .c-list>li:first-child{flex-basis:100%;justify-content:center}
+}
+/* Short desktop windows (laptops are often only 570-700px tall): the hero's ledger shows the credentials in one row
+   under the buttons and the lifted card hides, so the license and Insured stay on the first screen. */
+@media (min-width:60rem) and (max-height:47.99rem),(min-width:60rem) and (max-width:79.99rem) and (max-height:53.99rem){
+  .hero{padding-top:2rem}
+  .ht{--ks:.86}
+  .hs{margin-top:.875rem;font-size:1.125rem}
+  .ha{margin-top:1.25rem}
+  .h-lift.h-swap{padding-bottom:4rem}
+  .h-swap .ledger{display:grid;grid-template-columns:repeat(3,minmax(0,auto));justify-content:start;gap:.75rem 2rem;margin-top:1.125rem;padding-top:.875rem}
+  .h-swap .lg-1{grid-template-columns:minmax(0,auto)}
+  .h-swap :is(.lg-2,.lg-4){grid-template-columns:repeat(2,minmax(0,auto))}
+  .tr-swap{display:none}
+  /* A card taller than the words beside it would centre them low; the words start at the top instead. The seal rises
+     2.5rem (and its 4.5px ring) above the card, so a sealed card starts lower, keeping the seal inside the hero. The
+     desktop .5rem below goes back to the frame's 1.25rem (the narrower windows below are inside this query too). */
+  .h-card .h-copy{align-self:start}
+  .hm-sealed{margin-block:1.625rem 1.25rem}
+}
+@media (min-width:60rem) and (max-width:79.99rem) and (max-height:53.99rem){
+  .hero{padding-top:1.25rem}
+  .hm-sealed{margin-top:2.375rem}
+  .h-grid{column-gap:3rem}
+  .ha .bt-lg{padding-inline:1.25rem}
+  .h-swap .ledger{column-gap:1.5rem;margin-top:1rem;padding-top:.75rem}
+}
+/* When the column beside the form is the taller one, the form travels with it, clear of the sticky header. */
+@media (min-width:60rem) and (min-height:50rem){
+  .contact:not(.c-stack) .fcard{position:sticky;top:9rem}
+}
+
+/* ---------- 64rem and wider ---------- */
+@media (min-width:64rem){
+  /* A row of review cards shares one height and its names one line, as the approved Home (a subgrid; a subgrid is
+     always stretched, so the cards' align-self no longer applies). */
+  .qc,.qc figure{display:grid;grid-row:span 2;grid-template-rows:subgrid;row-gap:0}
+  .qc figcaption{align-self:start}
+  .qg-2{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .qg-3,.qg-n{grid-template-columns:repeat(3,minmax(0,1fr))}
+  .qg-n>.qc:last-child:nth-child(3n+1){grid-column:2}
+  /* A pull quote and one card share a row, instead of a lone card under the pull quote. */
+  .qpair{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,1fr);column-gap:4.5rem;align-items:center}
+  .qpair .qgrid{max-width:none;margin-top:0}
+  .qpair .qc{margin-bottom:0}
+  /* Three prints a row from 6 up (2 and 4 stay two big columns): the lead print spans two columns and two items'
+     rows, its photo filling photo, caption and photo; 7 and 10 open with one wide print. Five: a lead print and a
+     stacked pair, then two halves (a six-column grid). */
+  .g-lead,.g-wide,.g-3{grid-template-columns:repeat(3,minmax(0,1fr))}
+  .g-5{grid-template-columns:repeat(6,minmax(0,1fr))}
+  .g-5>li{grid-column:span 3}
+  .g-5>li:nth-child(2),.g-5>li:nth-child(3){grid-column:span 2}
+  .g-lead>li:first-child,.g-5>li:first-child{grid-column:span 4;grid-row:span 4}
+  .g-lead>li:first-child{grid-column:span 2}
+  .g-lead>li:first-child .print,.g-5>li:first-child .print{grid-row:span 4}
+  .g-lead>li:first-child img,.g-5>li:first-child img{grid-row:1/4}
+  .g-lead>li:first-child figcaption,.g-5>li:first-child figcaption{grid-row:4}
+  .g-wide>li:first-child{grid-column:span 2}
+  .g-lead>li:first-child img,.g-wide>li:first-child img,.g-5>li:first-child img{height:0;min-height:100%;aspect-ratio:auto}
+  .ft-grid{grid-template-columns:1.4fr 1fr 1fr}
+  .ft-grid>:first-child{grid-column:auto}
+  /* A letter without a photo takes the page's width: the story in its measure, the credentials in a column beside it. */
+  .lt-w{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,19rem);column-gap:4rem;max-width:none}
+  .lt-w .ledger{grid-column:2;grid-row:1/span 3;grid-template-columns:minmax(0,1fr);align-content:start;margin:0;padding:2.25rem 0 0 2.25rem;border-top:0;border-left:1px solid var(--aw-refined-line)}
+}
+@media (min-width:72rem){
+  .tg-5{grid-template-columns:repeat(5,minmax(0,1fr))}
+}
+/* One header row once the links fit beside the name, Quote and Call (a long name waits for 90rem). */
+@media (min-width:80rem){
+  .hd-row{flex-wrap:nowrap;min-height:4.25rem;padding-block:.625rem}
+  .brand{flex:0 1 auto}
+  .nav{order:0;flex:0 1 auto;margin-top:0;border-top:0}
+  .nav-l{column-gap:0;margin-inline:0}
+  .nav-l a{min-height:2.75rem}
+}
+@media (min-width:80rem) and (min-height:32rem){
+  html{scroll-padding-top:5.5rem}
+}
+@media (80rem <= width < 90rem){
+  .hd-long .hd-row{flex-wrap:wrap;min-height:0;padding-block:.5rem 0}
+  .hd-long .brand{flex:1 1 0}
+  .hd-long .nav{order:3;flex:1 0 100%;margin-top:.5rem;border-top:1px solid var(--aw-refined-line)}
+  .hd-long .nav-l{column-gap:.5rem;margin-inline:-.5rem}
+  .hd-long .nav-l a{min-height:2.5rem}
+}
+@media (min-width:90rem){
+  .hd-long .brand{max-width:22rem}
+}
+

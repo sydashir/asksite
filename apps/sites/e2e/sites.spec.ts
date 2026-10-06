@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import { DESIGN_IDS, PAGE_IDS, PAGES, type DesignId, type PageId } from "@asksite/site-schema";
 import { expect, test, type Page, type TestInfo } from "@playwright/test";
 import { loadFixture, renderFixture } from "../../../fixtures/index.ts";
-import { apexPlaceholder, formProblems, messageTooLong, notFound, siteBusy, thankYou, tooManyRequests, unavailable, unreadableForm } from "../src/pages.ts";
+import { apexPlaceholder, formProblems, messageTooLong, notFound, siteBusy, thankYou, tooManyRequests, unavailable, unreadableForm, useHttps } from "../src/pages.ts";
 import { watchCsp } from "./csp.ts";
 import { E2E_FIXTURES, e2eSlug, type E2eFixture } from "./global-setup.ts";
 import { LIFECYCLE_ENGINES, lifecycleSlug, V2_COPY, type LifecycleEngine } from "./lifecycle.ts";
@@ -357,6 +357,7 @@ test.describe("fixed pages", () => {
     ["site busy with the business phone", () => siteBusy(ROOT, Date.now(), PHONE)],
     ["unreadable form", () => unreadableForm(ROOT)],
     ["message too long", () => messageTooLong(ROOT)],
+    ["please use https", () => useHttps(ROOT)],
     ["form problems", () => formProblems(ROOT, ["Please enter your name (up to 80 characters).", "Please check your email address, or leave it empty."])],
   ];
 

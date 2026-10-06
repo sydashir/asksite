@@ -4,10 +4,10 @@ import { securityTxt } from "./apex.ts";
 import { formBusiness, liveSiteName } from "./business.ts";
 import type { Env } from "./env.ts";
 import { handleForm } from "./form.ts";
-import { plainHeaders } from "./headers.ts";
+import { isLocal, plainHeaders } from "./headers.ts";
 import { serveMedia } from "./media.ts";
 import { servePage } from "./page.ts";
-import { apexPlaceholder, notFound, thankYou } from "./pages.ts";
+import { apexPlaceholder, notFound, thankYou, useHttps } from "./pages.ts";
 
 export interface Routed {
   route: string;
@@ -30,6 +30,14 @@ export async function route(request: Request, env: Env, ctx: ExecutionContext, n
   const path = url.pathname;
   const root = env.ROOT_DOMAIN;
   const read = request.method === "GET" || request.method === "HEAD";
+  // Plain http gets nothing but a redirect to the same address over https (no HSTS: browsers ignore it over http)
+  // or, for a method a redirect would turn into a GET, the 400 page. A localhost root is exempt: local development is http.
+  if (url.protocol === "http:" && !isLocal(root)) {
+    if (!read) return { route: "http", response: useHttps(root) };
+    url.protocol = "https:";
+    url.port = ""; // a port named for http is not https's
+    return { route: "http", response: new Response(null, { status: 301, headers: plainHeaders({ Location: url.href }) }) };
+  }
   const host = parseHost(url.host, root);
   if (read && path === "/favicon.ico" && (host.kind === "site" || host.kind === "apex")) return { route: "favicon", response: noFavicon() };
 
@@ -49,7 +57,7 @@ export async function route(request: Request, env: Env, ctx: ExecutionContext, n
       // "/services/" is the page's one canonical address; Home has none (its path is "/" itself).
       const slashed = read && path.endsWith("/") ? pageForPath(path.slice(0, -1)) : null;
       if (slashed !== null && slashed !== "home") {
-        return { route: "page_redirect", response: new Response(null, { status: 301, headers: plainHeaders({ Location: publicPageUrl(root, host.slug, slashed) }) }) };
+        return { route: "page_redirect", response: new Response(null, { status: 301, headers: plainHeaders({ Location: publicPageUrl(root, host.slug, slashed) + url.search }) }) };
       }
       const form = FORM.exec(path);
       if (form !== null && request.method === "POST") {
