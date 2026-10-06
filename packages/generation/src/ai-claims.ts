@@ -1,10 +1,11 @@
 import type { Issue } from "@asksite/core";
 import { NEEDS_A_FACT, proseIn, readings, type Copy, type Facts } from "@asksite/site-schema";
 
-// Claims the model must not make in its copy. These rules are AI-only: aiClaims runs in checkDraft and nowhere
-// else. Owner text, stored documents and render() are not checked by them. The owner may write "lic." or "free
-// of charge" on their own site, and a stored page never starts failing a rule added after it was made; only what the
-// model writes is held to the stricter list, because the model has no facts it can point to. A refusal goes back to
+// Claims the model must not make in its copy. These rules are AI-only: aiClaims runs in checkDraft (at generation) and in
+// aiCopyIssues (exported for Plan 4, which re-checks stored AI copy against today's facts when it composes a page, so a stored
+// AI draft can start failing a fact that was turned off, or a rule added after it was made). Owner text is never held to them:
+// aiCopyIssues skips the fields the owner edited, and render() does not check them. The owner may write "lic." or "free
+// of charge" on their own site; only what the model writes is held to the stricter list, because the model has no facts it can point to. A refusal goes back to
 // the model as a repair issue (generate.ts); if every attempt is refused, the generation ends without that answer. The
 // owner never sees these refusals. site-schema's checker (claims.ts) is unchanged and runs first.
 //

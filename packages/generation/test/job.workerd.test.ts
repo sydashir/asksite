@@ -717,6 +717,14 @@ describe("runGenerationJob: G1 reliability and money", () => {
     expect(await getGeneration(db, "g1")).toMatchObject({ status: "succeeded", finished_at: NOW });
   });
 
+  it("a retried write whose first try had committed (the reply was lost): the row is right and the report says lost (F6)", async () => {
+    await queued("g1");
+    const lost = failingRuns(db, FINISH_SQL, "D1_ERROR: Network connection lost", 1, true);
+    expect(await runGenerationJob(envWith({ DB: lost.db }), "g1", deps())).toMatchObject({ outcome: "lost" });
+    expect(lost.runs()).toBe(2);
+    expect(await getGeneration(db, "g1")).toMatchObject({ status: "succeeded", finished_at: NOW, used_fallback: 0 });
+  });
+
   it("does not retry an error that is not transient, and gives up after the one retry: the row stays running for the sweeper", async () => {
     await queued("g1");
     const broken = failingRuns(db, FINISH_SQL, "D1_ERROR: no such column: nope");
@@ -774,6 +782,14 @@ describe("runGenerationJob: G1 reliability and money", () => {
     expect((await getGeneration(db, "g2")).cost_microusd).toBe(1000 * 4 + 100 * 20);
   });
 
+  it("never records less than the reported usage, even when it is above the job's worst case (M1)", async () => {
+    await queued("g1");
+    const huge = { inputTokens: 2_000_000, outputTokens: 0 };
+    const provider = scriptedProvider([{ ...answer(MODEL_ANSWER, huge), usageMissing: true }]);
+    await runGenerationJob(envWith(OPUS), "g1", deps(provider));
+    expect((await getGeneration(db, "g1")).cost_microusd).toBe(2_000_000 * 4);
+  });
+
   it("caps the sum at the job's worst case when the reported usage is already large and two attempts also flag it missing", async () => {
     await queued("g1");
     const big = { inputTokens: 70_000, outputTokens: 8_192 };
@@ -785,19 +801,31 @@ describe("runGenerationJob: G1 reliability and money", () => {
   // A clock the provider's own slowness moves: each failed call took 120 s. The sweeper ends a running job after 6 minutes
   // (JOB_STUCK_AFTER_MS); with the 30 s margin the third attempt (starting at 248 s, 90 s to finish) cannot end in time.
   it("does not start an attempt that could not finish before the sweeper's threshold: the job ends as a timeout, nothing is sent for it", async () => {
-    let clock = 0;
+    let clock = NOW;
     const sleeps: number[] = [];
     let calls = 0;
     const slow: ModelProvider = { id: "fake", generate: async () => { calls += 1; clock += 120_000; throw new ProviderError("unavailable", "down"); } };
     const timed: JobDeps = { ...deps(slow), generate: { sleep: async (ms) => void ((clock += ms), sleeps.push(ms)), timeoutSignal: () => new AbortController().signal, now: () => clock } };
     await queued("g1");
     expect(await runGenerationJob(envWith(), "g1", timed)).toMatchObject({
-      outcome: "fallback", attempts: 2, providerErrorKind: "timeout", fallbackReason: "provider_error", attemptOutcomes: ["unavailable", "unavailable", "timeout"], usageMissing: false,
+      outcome: "fallback", attempts: 2, providerErrorKind: "unavailable", fallbackReason: "provider_error", attemptOutcomes: ["unavailable", "unavailable"], usageMissing: false,
     });
     expect([calls, sleeps]).toEqual([2, [2_000]]);
     await insertGeneration(db, { id: "d1", site_id: "s2", owner_id: "o1", kind: "first", status: "succeeded", input_json: INPUT, created_at: NOW - 5000, output_json: JSON.stringify(TEMPLATE) });
     await queued("g2", "regenerate", "s2");
-    clock = 0;
-    expect(await runGenerationJob(envWith(), "g2", timed)).toMatchObject({ outcome: "failed", errorCode: "provider_timeout", attempts: 2 });
+    clock = NOW;
+    expect(await runGenerationJob(envWith(), "g2", timed)).toMatchObject({ outcome: "failed", errorCode: "provider_unavailable", attempts: 2 });
+  });
+
+  it("anchors the deadline at started_at: 250 s of slow work before the model call leave no room for an attempt (F1)", async () => {
+    let clock = NOW;
+    let calls = 0;
+    const provider: ModelProvider = { id: "fake", generate: async () => { calls += 1; throw new ProviderError("unavailable", "down"); } };
+    // The job's own clock says started_at is NOW; the generate clock has moved 250 s on by the time the call would be made.
+    const late: JobDeps = { ...deps(provider), createProvider: () => { clock += 250_000; return provider; }, generate: { sleep: async () => {}, timeoutSignal: () => new AbortController().signal, now: () => clock } };
+    await queued("g1");
+    expect(await runGenerationJob(envWith(), "g1", late)).toMatchObject({ outcome: "fallback", attempts: 0, providerErrorKind: "timeout", fallbackReason: "provider_error", attemptOutcomes: [] });
+    expect(calls).toBe(0);
+    expect(await getGeneration(db, "g1")).toMatchObject({ status: "succeeded", used_fallback: 1, attempts: 0, model_slot: 0 });
   });
 });

@@ -76,10 +76,10 @@ export async function getGeneration(db: D1Database, id: string): Promise<Generat
 
 /**
  * The same D1 with the first `times` .run() of each statement whose SQL matches `sql` throwing `message`, as D1 does on a
- * transient error (the statement is not executed). Everything else, batch included, goes to the real binding. `runs` counts
+ * transient error (the statement is not executed, unless `afterCommit`: then it ran and committed, and only the reply is lost). Everything else, batch included, goes to the real binding. `runs` counts
  * every .run() of a matching statement, failed or not.
  */
-export function failingRuns(real: D1Database, sql: RegExp, message: string, times = 1): { db: D1Database; runs: () => number } {
+export function failingRuns(real: D1Database, sql: RegExp, message: string, times = 1, afterCommit = false): { db: D1Database; runs: () => number } {
   let runs = 0;
   let failed = 0;
   const db = {
@@ -93,6 +93,7 @@ export function failingRuns(real: D1Database, sql: RegExp, message: string, time
             runs += 1;
             if (failed < times) {
               failed += 1;
+              if (afterCommit) await inner.run(); // the write landed and the reply was lost
               throw new Error(message);
             }
             return inner.run();

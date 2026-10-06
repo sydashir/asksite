@@ -1039,7 +1039,7 @@ JSON schema facts checked on 2026-09-24:
 
 `apps/generator` `queue()` handler. Each message is `{ v: 1, generationId }`. After the claim in step 1 the handler never throws: every path ends in the terminal write of step 4, so a queue retry happens only when the runtime itself dies.
 
-Constants: `MAX_ATTEMPTS = 3`; 90 s per attempt; `JOB_STUCK_AFTER_MS = 6 × 60,000` (the longest normal job is 3 × 90 s plus 8 s of backoff, about 4.6 minutes). The consumer's wall-clock limit is 15 minutes. [verified: Queues limits page]
+Constants: `MAX_ATTEMPTS = 3`; 90 s per attempt; `JOB_STUCK_AFTER_MS = 6 × 60,000` (the longest normal job is 3 × 90 s plus two pauses of at most 30 s, 330 s: a provider's Retry-After, capped at 30 s, replaces the fixed 2 s and 6 s pauses; the job starts no attempt that could not finish before `JOB_STUCK_AFTER_MS` minus 30 s, measured from `started_at`, and then ends with what the last attempt left, as a timeout only if nothing was sent). The consumer's wall-clock limit is 15 minutes. [verified: Queues limits page]
 
 1. **Claim the job and, in the same statement, one of today's model calls.** One statement, so the daily limit is exact under concurrent consumers:
    ```sql
@@ -1056,10 +1056,10 @@ Constants: `MAX_ATTEMPTS = 3`; 90 s per attempt; `JOB_STUCK_AFTER_MS = 6 × 60,0
 2. **No model call allowed** (`model_slot = 0`): go to step 4 with no output. The reason is `disabled` if the kill switch is off, else `budget`.
 3. Run up to **3 attempts** (`MAX_ATTEMPTS`).
    - Each attempt has a 90 s `AbortSignal.timeout`.
-   - Transient `ProviderError` (`timeout`, `rate_limited`, `unavailable`) is retried inside the attempt budget after 2 s and then 6 s.
+   - Transient `ProviderError` (`timeout`, `rate_limited`, `unavailable`) is retried inside the attempt budget after the provider's `Retry-After` (whole seconds, at most 30 s) or else 2 s and then 6 s, and only while the next attempt can finish before the deadline above.
    - After each response, run `SiteDocument.safeParse({ facts, ...draft, hidden: [] })`. On failure, the next attempt includes the `toIssues()` list as repair feedback.
-   - Token usage is added up across attempts. `cost_microusd` comes from the `ModelPrice` table and is for reporting only. An attempt whose usage is missing is recorded at its worst case (the largest prompt and the full output cap), so the cost, and any "spent today" figure summed from it, is "up to".
-4. **Terminal write**, always `… WHERE id = :id AND status = 'running'`, so a late or duplicate invocation never overwrites another one or the sweeper:
+   - Token usage is added up across attempts. `cost_microusd` comes from the `ModelPrice` table and is for reporting only. For a job whose terminal write lands, an attempt whose usage is missing is recorded at its worst case (the largest prompt and the full output cap), so its cost is "up to" (never above the job's worst case unless the provider reported more). A job whose own code threw after a call records cost 0, and so does a row the sweeper ends after the job's write failed or was lost; a "spent today" sum is an upper bound only for the rest.
+4. **Terminal write**, retried once on D1's transient errors (the write is status-guarded, so a repeat is safe; if the first one had committed, the repeat changes no row and the log says `lost`). A failed queue delivery is retried by the queue after 15 s, then 30 s (`retry({ delaySeconds })`), twice, before dead-lettering. Always `… WHERE id = :id AND status = 'running'`, so a late or duplicate invocation never overwrites another one or the sweeper:
    - valid output: `output_json`, `status = 'succeeded'`, provider, model, tokens, cost, `finished_at`;
    - otherwise, apply the fallback rule below.
 

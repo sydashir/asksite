@@ -123,11 +123,15 @@ describe("aiCopyIssues: owner-edited fields are skipped", () => {
   });
 
   it("does not skip edits made on an older draft (core reports no path for them)", () => {
-    const { ai } = composed("Request a quote today", on, on);
-    const edits: OwnerEdits = { ...EMPTY_EDITS, baseGenerationId: "older", copy: { heroHeadline: OWNER_WORD } };
+    // The AI's own heroSubheadline holds a claim the facts no longer back, and the edit (on an older draft) targets that very field:
+    // core applies no such edit and reports no path, so the AI's claim must still be reported. A skip taken from the edit alone would hide it.
+    const { ai } = composed("Estimates are on the house", on, on);
+    const edits: OwnerEdits = { ...EMPTY_EDITS, baseGenerationId: "older", copy: { heroSubheadline: "Call us today" } };
     const doc = composeDocument(NO_FREE, ai, edits) as SiteDocument;
     expect(ownerEditedPaths(ai, edits)).toEqual([]);
-    expect(aiCopyIssues(NO_FREE, doc.copy, ownerEditedPaths(ai, edits))).toEqual([]); // the AI's own headline is clean
+    expect(aiCopyIssues(NO_FREE, doc.copy, ownerEditedPaths(ai, edits))).toEqual([
+      { path: ["copy", "heroSubheadline"], code: "custom", message: message(["on the house"]) },
+    ]);
   });
 });
 

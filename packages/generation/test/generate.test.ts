@@ -918,9 +918,9 @@ describe("generateDraft: Retry-After and the time budget", () => {
     const provider = slowProvider(120_000, clock);
     const result = await generateDraft(provider, FULL_SNAPSHOT, timedDeps(clock), 330_000);
     expect(provider.calls).toBe(2);
-    expect(result).toMatchObject({ ok: false, failure: "provider_error", providerErrorKind: "timeout", attempts: 2 });
-    expect(result.log.map((a) => a.outcome)).toEqual(["unavailable", "unavailable", "timeout"]);
-    expect(result.log[2]).toMatchObject({ usageMissing: false });
+    // The last error keeps its kind, and the attempt that was not started is no outcome (F5).
+    expect(result).toMatchObject({ ok: false, failure: "provider_error", providerErrorKind: "unavailable", attempts: 2 });
+    expect(result.log.map((a) => a.outcome)).toEqual(["unavailable", "unavailable"]);
     expect(clock.t).toBe(242_000); // 2 x 120 s and the 2 s pause; the 6 s pause before the third attempt was never waited
   });
 
@@ -937,13 +937,36 @@ describe("generateDraft: Retry-After and the time budget", () => {
     const provider = slowProvider(1, clock);
     const result = await generateDraft(provider, FULL_SNAPSHOT, timedDeps(clock), ATTEMPT_TIMEOUT_MS - 1);
     expect([provider.calls, result.attempts, result.ok]).toEqual([0, 0, false]);
+    expect(result).toMatchObject({ failure: "provider_error", providerErrorKind: "timeout", log: [] }); // nothing was sent: the one case that is a timeout
+  });
+
+  it("the deadline is a point in time: time spent before the call counts (F1)", async () => {
+    const clock = { t: 250_000 }; // 250 s of slow work after started_at, before generateDraft
+    const provider = slowProvider(1, clock);
+    const result = await generateDraft(provider, FULL_SNAPSHOT, timedDeps(clock), 330_000); // started_at + 360 s - 30 s
+    expect([provider.calls, result.attempts]).toEqual([0, 0]);
+    clock.t = 240_000;
+    expect((await generateDraft(slowProvider(1, clock), FULL_SNAPSHOT, timedDeps(clock), 330_000)).attempts).toBeGreaterThan(0); // 240 s + 90 s fits exactly
+  });
+
+  it("a job ended by the deadline after an invalid answer stays invalid_output, with no timeout outcome (F5)", async () => {
+    const clock = { t: 0 };
+    const provider = providerOf(async () => { clock.t += 250_000; return answer({}); });
+    const result = await generateDraft(provider, FULL_SNAPSHOT, timedDeps(clock), 330_000);
+    expect(provider.calls).toBe(1);
+    expect(result).toMatchObject({ ok: false, failure: "invalid_output", providerErrorKind: null, attempts: 1 });
+    expect(result.log.map((a) => a.outcome)).toEqual(["invalid"]);
   });
 
   it("a Retry-After that does not fit the budget ends the job as well", async () => {
     const clock = { t: 0 };
     const provider = providerOf(async () => { clock.t += 1000; throw limited(30); });
-    const result = await generateDraft(provider, FULL_SNAPSHOT, timedDeps(clock), 100_000);
+    const sleeps: number[] = [];
+    const result = await generateDraft(provider, FULL_SNAPSHOT, { ...timedDeps(clock), sleep: async (ms) => void sleeps.push(ms) }, 100_000);
     expect(provider.calls).toBe(1);
-    expect(result).toMatchObject({ ok: false, providerErrorKind: "timeout" });
+    expect(result).toMatchObject({ ok: false, providerErrorKind: "rate_limited" });
+    // The 30 s pause was not waited (F2): 1 s + 30 s + 90 s would end after 100 s.
+    expect(sleeps).toEqual([]);
+    expect(clock.t).toBe(1000);
   });
 });
