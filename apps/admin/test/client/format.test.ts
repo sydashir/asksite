@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { dollars, jobCostText, restoredText, revokeNotice, spentTodayText, takedownResult, worstCaseText } from "../../src/client/lib/format.ts";
+import { dollars, jobCostText, jobLineText, restoredText, revokeNotice, spentTodayText, takedownResult, when, worstCaseText } from "../../src/client/lib/format.ts";
 
 describe("admin messages", () => {
   it("shows micro-dollars as dollars and cents", () => {
@@ -153,5 +153,35 @@ describe("Up to figures round up to the cent", () => {
   it("keeps an exact 0 at $0.00 in Spent today, and keeps the plain dollars format for the other figures", () => {
     expect(spentTodayText(0, 1, 1)).toBe("Up to $0.00, not counting 1 job whose cost is unknown");
     expect(dollars(1_331_520)).toBe("$1.33");
+  });
+});
+
+// The job line may not state "no model" or "0 attempts" as facts when its cost is unknown: those rows (swept, or DraftRejected) keep provider null
+// or attempts 0 although a paid call may have been made.
+describe("jobLineText (one AI writing job's line on the site page)", () => {
+  const AT = Date.UTC(2026, 9, 7, 12, 0);
+  const row = (over: Partial<Parameters<typeof jobLineText>[0]>) => ({
+    createdAt: AT, kind: "regenerate", status: "succeeded" as const, usedFallback: false, provider: "anthropic" as string | null, model: "claude-opus-5-5" as string | null, modelSlot: 1 as 0 | 1, costMicrousd: 336_000, attempts: 1, ...over,
+  });
+  const head = `${when(AT)}: regenerate`;
+
+  it("states provider, model, the capped cost and attempts for a job whose cost is known", () => {
+    expect(jobLineText(row({}))).toBe(`${head}, succeeded · anthropic claude-opus-5-5 · Up to $0.34 · 1 attempts`);
+  });
+
+  it("says only Cost unknown, with no model and no attempts, when the cost is unknown (a swept row: no provider, 0 attempts)", () => {
+    expect(jobLineText(row({ status: "failed", provider: null, model: null, costMicrousd: 0, attempts: 0 }))).toBe(`${head}, failed · Cost unknown`);
+  });
+
+  it("says only Cost unknown for a rejected draft that stored the configured model and 0 attempts", () => {
+    expect(jobLineText(row({ status: "failed", costMicrousd: 0, attempts: 0 }))).toBe(`${head}, failed · Cost unknown`);
+  });
+
+  it("keeps the starter-wording note and states $0.00 with its attempts for a job that sent no call", () => {
+    expect(jobLineText(row({ usedFallback: true, modelSlot: 0, costMicrousd: 0, attempts: 0, provider: null, model: null }))).toBe(`${head}, succeeded (starter wording) · no model  · $0.00 · 0 attempts`);
+  });
+
+  it("shows no cost yet for a running job, and keeps its provider and attempts", () => {
+    expect(jobLineText(row({ status: "running", costMicrousd: 0, attempts: 0, provider: null, model: null }))).toBe(`${head}, running · no model  · 0 attempts`);
   });
 });

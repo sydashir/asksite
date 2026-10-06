@@ -12,7 +12,7 @@ import { useResource } from "../hooks.ts";
 import { COPIED_AGAIN, RESTORED_SINCE_OPENED, TAKEDOWN_LEASE_LOST } from "../../messages.ts";
 import type { TakedownView } from "../../settings-view.ts";
 import { CapNote } from "../CapNote.tsx";
-import { NOT_EMAILED, jobCostText, restoredText, takedownResult, when, type TakedownResult } from "../lib/format.ts";
+import { NOT_EMAILED, jobLineText, restoredText, takedownResult, when, type TakedownResult } from "../lib/format.ts";
 
 /** `expectedTakenDownAt` is sent only by Finish the takedown: the moment this page showed the site down (the server refuses a site restored since). */
 type TakedownBody = { reason: string; ownerMessage?: string; purgeMedia: boolean; expectedTakenDownAt?: number };
@@ -344,16 +344,9 @@ function SiteScreen({ data, reload: fetchAgain }: { data: SiteDetailData; reload
             AI writing jobs
           </h2>
           <ul className="mt-2 space-y-1">
-            {data.generations.map((g) => {
-              const cost = jobCostText(g); // null while the job has not finished: no cost is shown yet
-              return (
-                <li key={g.id}>
-                  {when(g.createdAt)}: {g.kind}, {g.status}
-                  {g.usedFallback ? " (starter wording)" : ""} · {g.provider ?? "no model"} {g.model ?? ""}
-                  {cost === null ? "" : ` · ${cost}`} · {g.attempts} attempts
-                </li>
-              );
-            })}
+            {data.generations.map((g) => (
+              <li key={g.id}>{jobLineText(g)}</li>
+            ))}
           </ul>
           <CapNote count={data.generations.length} cap={50} />
         </section>

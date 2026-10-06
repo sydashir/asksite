@@ -29,6 +29,27 @@ export function jobCostText(job: JobCostInput): string | null {
   return job.costMicrousd > 0 ? `Up to ${dollarsUp(job.costMicrousd)}` : "Cost unknown";
 }
 
+/** The columns of one AI writing job's line on the site page. */
+export interface JobLineInput extends JobCostInput {
+  createdAt: number;
+  kind: string;
+  usedFallback: boolean;
+  provider: string | null;
+  model: string | null;
+  attempts: number;
+}
+
+/**
+ * One AI writing job's line. When its cost is unknown the provider, model and attempts are not stated either: a swept or rejected row
+ * keeps "no model" and 0 attempts although a paid call may have been made (see jobCostText), so only "Cost unknown" is said for them.
+ */
+export function jobLineText(job: JobLineInput): string {
+  const cost = jobCostText(job);
+  const head = `${when(job.createdAt)}: ${job.kind}, ${job.status}${job.usedFallback ? " (starter wording)" : ""}`;
+  if (cost === "Cost unknown") return `${head} · ${cost}`;
+  return `${head} · ${job.provider ?? "no model"} ${job.model ?? ""}${cost === null ? "" : ` · ${cost}`} · ${job.attempts} attempts`;
+}
+
 /**
  * The settings page's "Spent today": the recorded cost is an upper bound, and the jobs that took a model slot today without a
  * recorded cost (running, or finished with cost 0: see jobCostText) are not in it, so they are named.
