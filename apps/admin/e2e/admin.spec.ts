@@ -645,6 +645,53 @@ test("a down-site page's Finish after another tab restored the site is refused: 
   expect(await siteNotices(page, site.email)).toBe(1);
 });
 
+const uploadsOf = async (page: Page, siteId: string) => (await (await page.request.get(`${ADMIN}/__test/uploads?siteId=${siteId}`)).json()) as { deletedAt: Array<number | null>; objects: number };
+
+/**
+ * STRICT (customer data): page A takes the site down WITH "Also delete this site's photos" and loses its lease, so A holds the in-session
+ * "Finish the takedown" for takedown T1 (its clean-up, the purge included, is not done: the photo is still stored). Then, from outside
+ * A's page, the site is restored and taken down AGAIN WITHOUT the purge (T2): T2 chose to keep the photos. Returns A and the site.
+ */
+async function pageHoldingFinishOfAnOlderTakedown(page: Page) {
+  const site = await liveSite(page);
+  await page.request.post(`${ADMIN}/__test/uploads`, { data: { siteId: site.siteId } });
+  let posts = 0;
+  await page.route("**/api/admin/sites/*/takedown", (route, request) => (++posts === 1 ? route.continue({ headers: { ...request.headers(), "x-test-takedown-fault": "lease-lost-after-batch" } }) : route.continue()));
+  await page.goto(`/sites/${site.siteId}`);
+  await page.getByLabel("Reason for taking it down").fill("Copyright claim");
+  await page.getByLabel("Also delete this site's photos").check();
+  await page.getByRole("button", { name: "Take the site down" }).click();
+  await page.getByRole("dialog", { name: "Take this site down?" }).getByRole("button", { name: "Take it down" }).click();
+  await expect(page.getByRole("status").getByRole("button", { name: "Finish the takedown" })).toBeVisible(); // A's in-session Finish, for T1
+  expect(await uploadsOf(page, site.siteId)).toEqual({ deletedAt: [null], objects: 1 }); // T1 never purged
+  const first = (await siteView(page, site.siteId)).takenDownAt;
+  const headers = { Origin: ADMIN };
+  expect((await page.request.post(`${ADMIN}/api/admin/sites/${site.siteId}/restore`, { data: { expectedTakenDownAt: first }, headers })).status()).toBe(200);
+  expect((await page.request.post(`${ADMIN}/api/admin/sites/${site.siteId}/takedown`, { data: { reason: "Second report", ownerMessage: "", purgeMedia: false }, headers })).status()).toBe(200);
+  expect((await siteView(page, site.siteId)).takenDownAt).toBeGreaterThan(first!);
+  return site;
+}
+
+test("an older takedown's Finish is gone after a reload shows a newer takedown, and the photos are kept", async ({ page }) => {
+  const site = await pageHoldingFinishOfAnOlderTakedown(page);
+  await page.getByRole("button", { name: "Block search engines" }).click(); // any action reloads the page: it now shows T2
+  await expect(page.getByText("Search engines are now blocked.")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Restore the site" })).toBeVisible();
+  await expect(page.getByRole("status").getByRole("button", { name: "Finish the takedown" })).toHaveCount(0); // T1's body is not offered for T2
+  expect(await uploadsOf(page, site.siteId)).toEqual({ deletedAt: [null], objects: 1 });
+});
+
+test("an older takedown's Finish, pressed after a newer takedown, is refused and gone, and the photos are kept", async ({ page }) => {
+  const site = await pageHoldingFinishOfAnOlderTakedown(page);
+  const answer = page.waitForResponse((r) => r.url().includes("/takedown") && r.request().method() === "POST");
+  await page.getByRole("status").getByRole("button", { name: "Finish the takedown" }).click();
+  expect((await answer).status()).toBe(409);
+  await expect(page.getByText("This site was restored since you opened this page. Reload to see where it stands now.")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Restore the site" })).toBeVisible();
+  await expect(page.getByRole("status").getByRole("button", { name: "Finish the takedown" })).toHaveCount(0);
+  expect(await uploadsOf(page, site.siteId)).toEqual({ deletedAt: [null], objects: 1 });
+});
+
 // QA Q-2: the lease-lost text says "Reload ... press Finish the takedown"; doing exactly that finishes the clean-up, and the owner (told by the server) is not emailed again.
 test("after a takedown lost its lease, a browser reload and the down-site form's Finish clear the pages with no second notice", async ({ page }) => {
   const site = await liveSite(page);

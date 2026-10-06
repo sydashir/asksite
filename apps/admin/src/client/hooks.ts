@@ -6,12 +6,13 @@ import { verifiedHtml } from "./lib/verified-page.ts";
 
 export type Load<T> = { state: "loading" } | { state: "error"; error: ApiError } | { state: "ready"; data: T };
 
-/** GET a JSON resource; `reload` fetches it again. */
+/** GET a JSON resource; `reload` fetches it again and answers what it got (null when the request failed). */
 export function useResource<T>(path: string) {
   const [load, setLoad] = useState<Load<T>>({ state: "loading" });
-  const reload = useCallback(async () => {
+  const reload = useCallback(async (): Promise<T | null> => {
     const res = await api<T>("GET", path);
     setLoad(res.ok ? { state: "ready", data: res.data } : { state: "error", error: res.error });
+    return res.ok ? res.data : null;
   }, [path]);
   useEffect(() => {
     void reload();

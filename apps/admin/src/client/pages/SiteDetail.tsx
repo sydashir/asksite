@@ -9,7 +9,7 @@ import { usePageHeading } from "../../../../app/src/client/hooks/use-page-headin
 import { onLinkClick } from "../../../../app/src/client/hooks/use-route.ts";
 import { api } from "../../../../app/src/client/lib/api.ts";
 import { useResource } from "../hooks.ts";
-import { COPIED_AGAIN, TAKEDOWN_LEASE_LOST } from "../../messages.ts";
+import { COPIED_AGAIN, RESTORED_SINCE_OPENED, TAKEDOWN_LEASE_LOST } from "../../messages.ts";
 import type { TakedownView } from "../../settings-view.ts";
 import { CapNote } from "../CapNote.tsx";
 import { NOT_EMAILED, jobCostText, restoredText, takedownResult, when, type TakedownResult } from "../lib/format.ts";
@@ -41,15 +41,18 @@ export function SiteDetail({ siteId }: { siteId: string }) {
   const { load, reload } = useResource<SiteDetailData>(`/api/admin/sites/${siteId}`);
   if (load.state === "loading") return <p role="status">Loading…</p>;
   if (load.state === "error") return <Notice tone="error">{load.error.message}</Notice>;
-  return <SiteScreen data={load.data} reload={() => reload()} />;
+  return <SiteScreen data={load.data} reload={reload} />;
 }
 
-function SiteScreen({ data, reload }: { data: SiteDetailData; reload: () => Promise<void> }) {
+function SiteScreen({ data, reload: fetchAgain }: { data: SiteDetailData; reload: () => Promise<SiteDetailData | null> }) {
   const { site, takenDownAt } = data;
   const heading = usePageHeading<HTMLHeadingElement>(site.businessName ?? site.slug ?? "Site", "Admin");
   const [message, setMessage] = useState<Message | null>(null);
-  /** The last takedown and the body it sent: "Finish the takedown" re-sends exactly that body, and keeps its owner-notice line. */
-  const [takedown, setTakedown] = useState<{ body: TakedownBody; result: TakedownResult } | null>(null);
+  /**
+   * The last takedown, the body it sent and the takedown moment (`stamp`) it belongs to: "Finish the takedown" re-sends exactly that body
+   * for exactly that moment, and keeps its owner-notice line. A reload that shows a different takedown drops it (see `reload`).
+   */
+  const [takedown, setTakedown] = useState<{ body: TakedownBody; result: TakedownResult; stamp: number } | null>(null);
   const [reason, setReason] = useState("");
   const [ownerMessage, setOwnerMessage] = useState("");
   const [purge, setPurge] = useState(false);
@@ -67,6 +70,19 @@ function SiteScreen({ data, reload }: { data: SiteDetailData; reload: () => Prom
   const [takingDown, setTakingDown] = useState(false);
   const messageRef = useRef<HTMLDivElement>(null);
   /** An action can replace the control that ran it (take down becomes restore): keep keyboard focus on the result. */
+  /** Loads the site again. The takedown held in this session belongs to one takedown moment: a reload that shows a different takedown drops it, body and owner-notice line with it. */
+  async function reload() {
+    const fresh = await fetchAgain();
+    setTakedown((held) => (held === null || fresh === null || fresh.takenDownAt === null || fresh.takenDownAt === held.stamp ? held : null));
+    return fresh;
+  }
+
+  /** Keeps a takedown result for Finish, bound to ITS takedown: the moment the call named (Finish) or the one the reload after the call shows (a takedown just made). Not down at that moment (or no reload): nothing to finish. */
+  function keepTakedown(body: TakedownBody, result: TakedownResult, fresh: SiteDetailData | null) {
+    const stamp = body.expectedTakenDownAt ?? fresh?.takenDownAt ?? null;
+    setTakedown(stamp !== null && fresh?.takenDownAt === stamp ? { body, result, stamp } : null);
+  }
+
   const show = (value: Message) => {
     setMessage(value);
     setTakedownUnsure(false);
@@ -116,9 +132,8 @@ function SiteScreen({ data, reload }: { data: SiteDetailData; reload: () => Prom
       // throws, so a call that answered 5xx sent none itself: keep the earlier result's owner-notice state, and with no earlier result
       // (this call may be the one that took the site down) mark the owner as not emailed.
       if (res.status >= 500) {
-        setTakedown({ body, result: { tone: "warning", text: "", cleanupFailed: true, ownerNotEmailed: previous?.ownerNotEmailed ?? true } });
         // Wait for the reload, so the text below is chosen from the site's real state, not the one from before the takedown.
-        await reload();
+        keepTakedown(body, { tone: "warning", text: "", cleanupFailed: true, ownerNotEmailed: previous?.ownerNotEmailed ?? true }, await reload());
         setMessage(null);
         setTakedownUnsure(true);
         // The status region exists in both cases (site down or up): keep keyboard focus on the result, as show() does.
@@ -131,13 +146,15 @@ function SiteScreen({ data, reload }: { data: SiteDetailData; reload: () => Prom
       const leaseLost = res.error.message === TAKEDOWN_LEASE_LOST;
       const ownerNotEmailed = leaseLost && res.error.noticeSent === false;
       show({ tone: "error", text: ownerNotEmailed ? `${res.error.message} ${NOT_EMAILED}` : res.error.message });
-      if (leaseLost) setTakedown({ body, result: { tone: "warning", text: "", cleanupFailed: true, ownerNotEmailed } });
+      // A Finish refused as a restored site is no longer the takedown its page held: drop it (the reload below shows where the site stands).
+      if (res.error.message === RESTORED_SINCE_OPENED) setTakedown(null);
+      const fresh = await reload();
+      if (leaseLost) keepTakedown(body, { tone: "warning", text: "", cleanupFailed: true, ownerNotEmailed }, fresh);
     } else {
       const result = takedownResult(res.data, previous);
-      setTakedown({ body, result });
       show({ tone: result.tone, text: result.text });
+      keepTakedown(body, result, await reload());
     }
-    reload();
   }
 
   async function sendSignInLink() {
@@ -209,7 +226,7 @@ function SiteScreen({ data, reload }: { data: SiteDetailData; reload: () => Prom
             type="button"
             className="btn-primary mt-3"
             aria-disabled={takingDown}
-            onClick={() => void takeDown({ ...takedown.body, ...(takenDownAt === null ? {} : { expectedTakenDownAt: takenDownAt }) }, takedown.result)}
+            onClick={() => void takeDown({ ...takedown.body, expectedTakenDownAt: takedown.stamp }, takedown.result)}
           >
             Finish the takedown
           </button>

@@ -118,6 +118,23 @@ helpers.post("/__test/generations", async (c) => {
   return c.json({ seeded: rows.length });
 });
 
+/** Gives a site one stored photo: an uploads row and the MEDIA object under `<siteId>/`, so an e2e can see whether a takedown purged it. */
+helpers.post("/__test/uploads", async (c) => {
+  const { siteId } = z.strictObject({ siteId: z.string().min(1) }).parse(await c.req.json());
+  const id = newId();
+  await c.env.MEDIA.put(`${siteId}/${id}.bin`, "photo");
+  await c.env.DB.prepare("INSERT INTO uploads (id, site_id, width, height, bytes, created_at) VALUES (?, ?, 1, 1, 5, ?)").bind(id, siteId, Date.now()).run();
+  return c.json({ id });
+});
+
+/** The site's photos as stored: each uploads row's deleted_at, and how many MEDIA objects are left under `<siteId>/`. */
+helpers.get("/__test/uploads", async (c) => {
+  const siteId = c.req.query("siteId") ?? "";
+  const { results } = await c.env.DB.prepare("SELECT deleted_at FROM uploads WHERE site_id = ?").bind(siteId).all<{ deleted_at: number | null }>();
+  const listed = await c.env.MEDIA.list({ prefix: `${siteId}/` });
+  return c.json({ deletedAt: results.map((r) => r.deleted_at), objects: listed.objects.length });
+});
+
 /**
  * What the sites Worker would find in LIVE for a slug: the pointer's version id (null when there is no pointer: every page is then
  * "not found") and whether that version's home page is stored under its own LIVE key. There is no sites Worker in these e2e runs, so
