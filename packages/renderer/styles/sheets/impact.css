@@ -254,8 +254,10 @@
   }
 
   /* Header: static below 64rem (the call bar carries Call and "Get a quote" there); from 64rem it sticks,
-     with the number and the owner's call-to-action button. The site's pages as inline links from 75rem. */
+     with the number and the owner's call-to-action button. The site's pages as inline links from 75rem. The header is
+     a query container for bigger text (below). */
   .site-header {
+    container-type: inline-size;
     position: relative;
     z-index: 30;
     background: var(--aw-impact-ink);
@@ -535,6 +537,21 @@
   @media (min-width: 75rem) and (max-width: 79.99rem) {
     .brand--long {
       font-size: 1.0625rem;
+    }
+  }
+  /* Bigger text (a larger root font-size): the name, the inline links, the number and the call to action outgrew one
+     row, and only the name gave way, down to nothing (a letter a line) and past the page's edge. Where the header is
+     narrower than 64 root-rem, what does not fit moves to a second row, at the right (the name's auto margin keeps
+     the first row as it was); when all fits, the row is unchanged. A container query's rem follows the root's
+     font-size; at the default size the header is at least 64rem wide wherever the links show (from 75rem), so this
+     never applies there. */
+  @container (max-width: 63.99rem) {
+    @media (min-width: 75rem) {
+      .header-row {
+        flex-wrap: wrap;
+        justify-content: flex-end;
+        row-gap: 0;
+      }
     }
   }
 
@@ -1332,8 +1349,10 @@
   .spec {
     min-width: 0;
   }
+  /* The label goes under its icon where the two outgrow the column (bigger text on a phone). */
   .spec dt {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: 0.5rem;
     color: var(--fg-m);
@@ -2744,6 +2763,23 @@
   @container (max-width: 18.4rem) {
     .callbar .bt-ghost {
       white-space: normal;
+    }
+  }
+  /* Bigger still (150% on a phone up to about 393 px wide): Call's phone icon goes (the button still reads "Call" over
+     the number), so the pair stays side by side inside the bar. Narrower again (150% up to about 345 px): even then
+     they do not fit, so Call goes over "Get a quote", each a whole row, and the icon comes back. At 125% on a 320 px
+     phone the bar's content is 14.5rem wide, so neither applies there. */
+  @container (max-width: 14.4rem) {
+    .callbar .cb-call .ic {
+      display: none;
+    }
+  }
+  @container (max-width: 12.9rem) {
+    .callbar .bt {
+      grid-column: 1 / -1;
+    }
+    .callbar .cb-call .ic {
+      display: inline;
     }
   }
   @media (min-width: 48rem) {
