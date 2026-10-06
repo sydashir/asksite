@@ -119,8 +119,9 @@ Assumes about 6k input and 2k output tokens and one attempt. Retries and reasoni
 
 **Build this, provider-neutral** [inferred design, KISS]:
 - Use `CopyGenerator.generate(facts, notes) -> { copy, usage, model, attempts }` with two adapters. `AnthropicAdapter` uses the Messages API with structured outputs. `OpenAICompatibleAdapter` takes a base URL, a key and a model, and sends `response_format: json_schema` built with `z.toJSONSchema(Copy)`. I tested that this conversion works on our schema: 1,304 bytes, and `maxLength` is kept.
-- The prompt, the JSON schema and the validation (`SiteDocument.safeParse`) are shared by every adapter. On failure, retry up to 2 times and send the validator's messages back to the model. After that, hand it to a human. The provider and model live in config, so switching is a config change plus an eval run.
+- The prompt, the JSON schema and the validation (`SiteDocument.safeParse`) are shared by every adapter. On failure, retry up to 2 times and send the validator's messages back to the model. After that, hand it to a human. The provider and model live in config, so switching is a config change plus an eval run, for local development, dev and the eval; production allows only the Anthropic provider (user decision 4, 2026-10-06), so changing that needs the user's decision.
 - Keys go only in `.dev.vars` or Worker secrets. Real owner data is never sent to a free route that may train on it (section 2).
+- Production uses only the Anthropic provider (user decision 4, 2026-10-06); the other routes in this note are for local development and the eval, and the generator refuses them when `ENVIRONMENT` is not exactly `development` or `test`.
 
 **Default: Claude.** Quality comes first, and the 25-site pilot costs a few dollars at most on any model, even with retries. The eval also decides Opus 5.5 vs Sonnet 5.
 
@@ -134,7 +135,7 @@ Assumes about 6k input and 2k output tokens and one attempt. Retries and reasoni
 2. **Runs:** 3 per business per model (60 calls per model), with the same prompt and validators.
 3. **Automatic measures:** first-try pass rate, pass rate within 2 retries, which rule failed, p50/p95 latency, and cost per *passing* site.
 4. **Human rating:** 2 people rate every passing output blind (model hidden, order shuffled), 1 to 5 each on "sounds like a real local tradesperson", "specific to these services" and "owner would publish without edits". Plus yes/no: "states anything not in the facts". That last question also measures what our claim checker misses, which matters for every model.
-5. **Gate (proposed):** an open model becomes the default only if (a) at least 95% of runs pass within 2 retries and at least 80% pass first time, (b) no human finds an unbacked claim, and (c) its mean human score is within 0.3 of Claude's. Otherwise it stays as a fallback for when Claude is down.
+5. **Gate (proposed):** an open model becomes the default only if (a) at least 95% of runs pass within 2 retries and at least 80% pass first time, (b) no human finds an unbacked claim, and (c) its mean human score is within 0.3 of Claude's. Otherwise it is not used. Production allows only the Anthropic provider (user decision 4, 2026-10-06), so an open model is not a production fallback for when Claude is down; it stays an eval and local-development route.
 6. **Eval cost:** about 300 to 400 calls, roughly $6 to $20 at list prices depending on retries, mostly for Opus [inferred]. It needs a Cloudflare API token, an Anthropic key and optionally a Groq or OpenRouter key.
 
 ## Sources (read 2026-09-24 unless stated)

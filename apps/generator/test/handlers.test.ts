@@ -1,4 +1,4 @@
-import { runGenerationJob, sweepStuckJobs, type JobReport } from "@asksite/generation";
+import { runGenerationJob, sweepStuckJobs, trimGenerationInputs, type JobReport } from "@asksite/generation";
 import type { MessageBatch } from "@cloudflare/workers-types";
 import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from "vitest";
 import type { Env } from "../src/env.ts";
@@ -6,7 +6,7 @@ import worker from "../src/index.ts";
 
 // The Worker's handlers with the job and the sweeper replaced, so every log line can be pinned, including the ones the
 // fake model never causes (usage_missing, generation.internal). worker.workerd.test.ts runs the real job end to end.
-vi.mock("@asksite/generation", () => ({ runGenerationJob: vi.fn(), sweepStuckJobs: vi.fn() }));
+vi.mock("@asksite/generation", () => ({ runGenerationJob: vi.fn(), sweepStuckJobs: vi.fn(), trimGenerationInputs: vi.fn() }));
 
 const ID = "0f8fad5b-d9cb-469f-a165-70867728950e";
 const ENV = { MODEL_PROVIDER: "anthropic", MODEL_ID: "requested-model" } as unknown as Env;
@@ -44,6 +44,7 @@ const lines = (): unknown[] =>
 beforeEach(() => {
   vi.mocked(runGenerationJob).mockReset();
   vi.mocked(sweepStuckJobs).mockReset();
+  vi.mocked(trimGenerationInputs).mockReset();
   logged = vi.spyOn(console, "log").mockImplementation(() => undefined);
 });
 afterEach(() => {
@@ -168,5 +169,39 @@ describe("scheduled", () => {
     vi.mocked(sweepStuckJobs).mockRejectedValue(failure);
     await expect(worker.scheduled({ cron: "*/5 * * * *", scheduledTime: 0, type: "scheduled", noRetry: () => undefined } as never, ENV)).rejects.toBe(failure);
     expect(logged.mock.calls).toEqual([['{"event":"generation.sweep_failed"}']]);
+  });
+
+  // Part T: the daily cron trims inputs older than 30 days; counts only, and never the sweeper's work.
+  const scheduledAt = (cron: string) => worker.scheduled({ cron, scheduledTime: 0, type: "scheduled", noRetry: () => undefined } as never, ENV);
+
+  it("trims old generation inputs on the daily cron, logs the count, and does not sweep", async () => {
+    vi.mocked(trimGenerationInputs).mockResolvedValue({ cleared: 7, limited: false });
+    const before = Date.now();
+    await scheduledAt("17 3 * * *");
+    const [[env, now]] = vi.mocked(trimGenerationInputs).mock.calls as [[Env, number]];
+    expect(env).toBe(ENV);
+    expect(now).toBeGreaterThanOrEqual(before);
+    expect(now).toBeLessThanOrEqual(Date.now());
+    expect(lines()).toEqual([{ event: "generation.trim", cleared: 7, limited: false }]);
+    expect(sweepStuckJobs).not.toHaveBeenCalled();
+  });
+
+  it("does not trim on the five-minute cron", async () => {
+    vi.mocked(sweepStuckJobs).mockResolvedValue({ fallback: 0, failed: 0, errors: 0 });
+    await scheduledAt("*/5 * * * *");
+    expect(trimGenerationInputs).not.toHaveBeenCalled();
+  });
+
+  it("logs generation.needs_human for a job that could not name a provider (MODEL_PROVIDER missing), with a null provider", async () => {
+    vi.mocked(runGenerationJob).mockResolvedValue({ ...REPORT, outcome: "fallback", usedFallback: true, fallbackReason: "provider_error", providerErrorKind: "bad_request", provider: null, model: null });
+    await worker.queue(delivery({ v: 1, generationId: ID }).batch, ENV);
+    expect(lines()).toContainEqual({ event: "generation.needs_human", generationId: ID, providerErrorKind: "bad_request", provider: null });
+  });
+
+  it("logs one fixed generation.trim_failed line, without the error's text, and rethrows", async () => {
+    const failure = new Error("d1 said secret-marker");
+    vi.mocked(trimGenerationInputs).mockRejectedValue(failure);
+    await expect(scheduledAt("17 3 * * *")).rejects.toBe(failure);
+    expect(logged.mock.calls).toEqual([['{"event":"generation.trim_failed"}']]);
   });
 });

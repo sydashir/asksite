@@ -1,6 +1,7 @@
 import { isId, type GenerationJob } from "@asksite/core";
-import { runGenerationJob, sweepStuckJobs } from "@asksite/generation";
+import { runGenerationJob, sweepStuckJobs, trimGenerationInputs } from "@asksite/generation";
 import type { ExportedHandler, MessageBatch } from "@cloudflare/workers-types";
+import { TRIM_CRON } from "./crons.ts";
 import type { Env } from "./env.ts";
 
 /** One structured line per event. IDs and codes only: never owner text, prompts, tokens or keys. */
@@ -44,8 +45,21 @@ export default {
     }
   },
 
-  /** Every 5 minutes: end jobs stuck longer than JOB_STUCK_AFTER_MS (§6.3). */
-  async scheduled(_controller, env: Env): Promise<void> {
+  /**
+   * Every 5 minutes: end jobs stuck longer than JOB_STUCK_AFTER_MS (§6.3). Once a day (TRIM_CRON): clear the inputs of
+   * generations finished more than 30 days ago, at most TRIM_MAX_PER_RUN rows per run.
+   */
+  async scheduled(controller, env: Env): Promise<void> {
+    if (controller.cron === TRIM_CRON) {
+      try {
+        log({ event: "generation.trim", ...(await trimGenerationInputs(env, Date.now())) });
+      } catch (error) {
+        // A fixed line (never the error's text), then the failure goes on so the runtime records the cron run as failed.
+        log({ event: "generation.trim_failed" });
+        throw error;
+      }
+      return;
+    }
     try {
       log({ event: "generation.sweep", ...(await sweepStuckJobs(env, Date.now())) });
     } catch (error) {

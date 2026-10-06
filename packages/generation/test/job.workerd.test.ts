@@ -829,3 +829,20 @@ describe("runGenerationJob: G1 reliability and money", () => {
     expect(await getGeneration(db, "g1")).toMatchObject({ status: "succeeded", used_fallback: 1, attempts: 0, model_slot: 0 });
   });
 });
+
+// Anthropic only in production, and the configuration the job cannot run on: a MODEL_PROVIDER that is missing in production
+// refuses before any call, so the slot goes back (model_slot 0), a first build gets the template, and the row stores a null
+// provider (an undefined one made the D1 write throw, so the row stayed running with its slot spent).
+describe("a missing MODEL_PROVIDER in production", () => {
+  it("gives a first build the template, with no call, the slot back and a null provider", async () => {
+    await queued("g1");
+    const { MODEL_PROVIDER: _missing, ...withoutProvider } = envWith({ ENVIRONMENT: "production", MODEL_ID: "claude-opus-5-5", ANTHROPIC_API_KEY: "k" });
+    const report = await runGenerationJob(withoutProvider as unknown as JobEnv, "g1", deps());
+    expect(report).toMatchObject({ outcome: "fallback", usedFallback: true, fallbackReason: "provider_error", attempts: 0, providerErrorKind: "bad_request", provider: null });
+    const row = await getGeneration(db, "g1");
+    expect(row).toMatchObject({ status: "succeeded", used_fallback: 1, fallback_reason: "provider_error", model_slot: 0, attempts: 0, provider: null, model: null });
+    expect(row.finished_at).toBe(NOW);
+    expect(AiDraft.parse(JSON.parse(row.output_json!))).toEqual(templateDraft(FULL_SNAPSHOT.facts, FULL_SNAPSHOT.brief));
+    expect(await modelCallsToday(db, NOW)).toBe(0);
+  });
+});

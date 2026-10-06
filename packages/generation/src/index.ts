@@ -6,5 +6,6 @@ export { worstCaseJobMicrousd } from "./models.ts";
 export { generationAllowance, requestGeneration, type RequestGenerationResult } from "./request.ts";
 export { dailyModelLimit, isGenerationEnabled } from "./settings.ts";
 export { JOB_STUCK_AFTER_MS, sweepStuckJobs } from "./sweep.ts";
+export { trimGenerationInputs } from "./trim.ts";
 export { templateDraft } from "./template.ts";
 export { toGenerationView } from "./view.ts";

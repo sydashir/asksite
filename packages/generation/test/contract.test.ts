@@ -47,6 +47,7 @@ describe("@asksite/generation public API", () => {
       "templateDraft",
       "toGenerationView",
       "toModelFacts",
+      "trimGenerationInputs",
       "worstCaseJobMicrousd",
     ]);
   });

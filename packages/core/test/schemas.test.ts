@@ -359,6 +359,7 @@ describe("constants", () => {
     expect(LIMITS.leadsPerSitePerDay).toBe(50);
     expect(LIMITS.leadRetentionDays).toBe(180);
     expect(LIMITS.spamLeadRetentionDays).toBe(30); // spam = 1 rows only; owners never see them
+    expect(LIMITS.generationInputRetentionDays).toBe(30); // finished generations only; output_json and costs stay
     expect(LIMITS.publishRequestsPerSitePerDay).toBe(20);
     expect(AUDIT_ACTIONS).toContain("site.taken_down");
   });
