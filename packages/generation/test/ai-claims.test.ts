@@ -1,5 +1,5 @@
 import { GOALS, TONES } from "@asksite/core";
-import { DAYS, Facts, SiteDocument, TRADES } from "@asksite/site-schema";
+import { DAYS, Facts, SiteDocument, TRADES, unbackedClaims } from "@asksite/site-schema";
 import { describe, expect, it } from "vitest";
 import { FIXTURES, loadFixture } from "../../../fixtures/index.ts";
 import { CAPS_SNAPSHOT } from "../eval/caps.ts";
@@ -96,7 +96,9 @@ describe("AI claim check: insurance", () => {
     ["known gap: Fully-ins.", "Fully-ins. crew"],
     ["known gap: Fully, U+2010, ins.", "Fully\u2010ins. crew"],
   ]);
-  accepted(LICENSED, [["known gap: Licensed-and-ins. (licensed is backed by the licence)", "A Licensed-and-ins. crew"]]);
+  // "ins." after a word and a hyphen is no "ins." to the rule above, but the mixed-pair rule refuses "Licensed-and-ins." without the insured fact.
+  refused(LICENSED, [["Licensed-and-ins. needs the insured fact", "A Licensed-and-ins. crew", ["Licensed-and-ins."]]]);
+  accepted(withFacts({ licences: [{ label: "Texas cleaner", number: "C-1" }], insured: true }), [["Licensed-and-ins. with both facts", "A Licensed-and-ins. crew"]]);
   accepted(INSURED, [
     ["liability with the insured fact", "Covered by full liability coverage"],
     ["ins. with the insured fact", "Our ins. crew"],
@@ -269,6 +271,162 @@ describe("AI claim check: allowed wording", () => {
   ]);
 });
 
+// The claim-word gaps of the claims review (2026-10-05): each evasion below was accepted by both checkers at 5b6a8bb, except the two one-dot
+// "lic and ins" rows (the dotted word was already refused by name, the pair is new). The new rules are AI-only.
+describe("AI claim check: claim-word gaps", () => {
+  const LICENSED_AND_INSURED = withFacts({ licences: [{ label: "Texas cleaner", number: "C-1" }], insured: true });
+
+  refused(MINIMAL_FACTS, [
+    ["zero costs", "Zero costs to you", ["Zero costs"]],
+    ["freebie", "A freebie with every visit", ["freebie"]],
+    ["freebies", "Freebies for new customers", ["Freebies"]],
+    ["never charged", "Never charged a call-out fee", ["Never charged"]],
+    ["never charges", "Never charges for a quote", ["Never charges"]],
+    ["afterhours, closed", "Afterhours cleaning", ["Afterhours"]],
+    ["every single day", "Open every single day", ["every single day"]],
+    ["open everyday", "Open everyday", ["Open everyday"]],
+    ["available everyday", "Available everyday in Austin", ["Available everyday"]],
+    ["every holiday", "Open every holiday", ["every holiday"]],
+    ["any holiday", "Open any holiday", ["any holiday"]],
+    ["raving", "Neighbors are raving about us", ["raving"]],
+    ["recommends us", "Everyone recommends us", ["recommends us"]],
+    ["recommend us", "Locals recommend us", ["recommend us"]],
+    ["vet every", "We vet every cleaner", ["vet every"]],
+    ["vetting", "Careful vetting of the crew", ["vetting"]],
+    ["vets all", "She vets all of them", ["vets all"]],
+    ["vet our", "We vet our crew", ["vet our"]],
+    ["vet each", "They vet each cleaner", ["vet each"]],
+    ["lic and ins", "Fully lic and ins crew", ["lic and ins"]],
+    ["lic & ins", "Fully lic & ins crew", ["lic & ins"]],
+    ["lic&ins", "Fully lic&ins crew", ["lic&ins"]],
+    ["lic. and ins, one dot", "Fully lic. and ins crew", ["lic.", "lic. and ins"]],
+    ["lic and ins., one dot", "Fully lic and ins. crew", ["ins.", "lic and ins."]],
+  ]);
+  // A response time: "within one hour" like "within an hour", and an arrival phrase that leads in. The written residual: other
+  // paraphrases ("we get to you fast", "a quick hour away") are accepted (the prompt's "Invent nothing: ... response times" is the backstop).
+  refused(MINIMAL_FACTS, [
+    ["within one hour", "We arrive within one hour", ["within one hour"]],
+    // "dries within an hour" is refused today, so "dries within one hour" is the same class.
+    ["dries within one hour", "Dries within one hour", ["within one hour"]],
+    ["here in under an hour", "Here in under an hour", ["Here in under an hour"]],
+    ["there in under an hour", "There in under an hour", ["There in under an hour"]],
+    ["arriving in less than an hour", "Arriving in less than an hour", ["Arriving in less than an hour"]],
+    ["arrive in under an hour", "We arrive in under an hour", ["arrive in under an hour"]],
+    ["at your door in less than an hour", "At your door in less than an hour", ["At your door in less than an hour"]],
+    ["out to you in under an hour", "Out to you in under an hour", ["Out to you in under an hour"]],
+    ["on site in under an hour", "On site in under an hour", ["On site in under an hour"]],
+    ["onsite in under an hour", "Onsite in under an hour", ["Onsite in under an hour"]],
+    ["arrive in under one hour", "We arrive in under one hour", ["arrive in under one hour"]],
+    ["at your door in less than one hour", "At your door in less than one hour", ["At your door in less than one hour"]],
+  ]);
+  refused(EMERGENCY, [["no fact backs an arrival time", "Here in under an hour", ["Here in under an hour"]]]);
+  // The gated words, backed.
+  accepted(FREE, [
+    ["zero costs with freeEstimates", "Zero costs to you"],
+    ["freebie with freeEstimates", "A freebie with every visit"],
+    ["freebies with freeEstimates", "Freebies for new customers"],
+    ["never charged with freeEstimates", "Never charged a call-out fee"],
+    ["never charges with freeEstimates", "Never charges for a quote"],
+  ]);
+  accepted(SEVEN_DAYS, [
+    ["every single day with hours on all 7 days", "Open every single day"],
+    ["open everyday with hours on all 7 days", "Open everyday"],
+    ["available everyday with hours on all 7 days", "Available everyday in Austin"],
+  ]);
+  // Hours on all 7 days do not back service outside the working day: only 24/7 service backs these.
+  refused(SEVEN_DAYS, [
+    ["afterhours with hours on all 7 days", "Afterhours cleaning", ["Afterhours"]],
+    ["every holiday with hours on all 7 days", "Open every holiday", ["every holiday"]],
+    ["any holiday with hours on all 7 days", "Open any holiday", ["any holiday"]],
+    ["after-hours with hours on all 7 days", "After-hours service", ["After-hours"]],
+    ["all hours with hours on all 7 days", "Available at all hours", ["all hours"]],
+    ["holidays with hours on all 7 days", "Open on holidays", ["holidays"]],
+  ]);
+  accepted(EMERGENCY, [
+    ["afterhours with emergency247", "Afterhours cleaning"],
+    ["every holiday with emergency247", "Open every holiday"],
+    ["any holiday with emergency247", "Open any holiday"],
+    ["every single day with emergency247", "Open every single day"],
+  ]);
+  refused(SIX_DAYS, [["six days of hours do not back every single day", "Open every single day", ["every single day"]]]);
+  refused(FREE, [["freeEstimates does not back afterhours", "Afterhours cleaning", ["Afterhours"]]]);
+  refused(INSURED, [["insurance does not back a freebie", "A freebie with every visit", ["freebie"]]]);
+  // "lic and ins" needs the licence AND the insured fact.
+  refused(LICENSED, [["a licence alone does not back lic and ins", "Fully lic and ins crew", ["lic and ins"]]]);
+  // "d-ins." is no "ins." to the insurance rule (a word, a hyphen, then "ins."), so the pair is the only rule that refuses this one.
+  refused(LICENSED, [["a licence alone does not back lic.-and-ins.", "A lic.-and-ins. crew", ["lic.-and-ins."]]]);
+  refused(INSURED, [["insurance alone does not back lic and ins", "Fully lic & ins crew", ["lic & ins"]]]);
+  accepted(LICENSED_AND_INSURED, [
+    ["lic and ins with both facts", "Fully lic and ins crew"],
+    ["lic & ins with both facts", "Fully lic & ins crew"],
+    ["lic&ins with both facts", "Fully lic&ins crew"],
+  ]);
+  // Round 2: the -ing forms, the plurals and the mixed lic/insured pairs.
+  refused(MINIMAL_FACTS, [
+    ["recommending us", "Locals are recommending us", ["recommending us"]],
+    ["never charging", "Never charging for a quote", ["Never charging"]],
+    ["zero fees", "Zero fees on quotes", ["Zero fees"]],
+    ["zero fee", "Zero fee on quotes", ["Zero fee"]],
+    ["zero charges", "Zero charges for a quote", ["Zero charges"]],
+    ["zero charge", "Zero charge for a quote", ["Zero charge"]],
+    ["no costs", "No costs for a quote", ["No costs"]],
+    ["no charges", "No charges for a quote", ["No charges"]],
+  ]);
+  accepted(FREE, [
+    ["never charging with freeEstimates", "Never charging for a quote"],
+    ["zero fees with freeEstimates", "Zero fees on quotes"],
+    ["zero charges with freeEstimates", "Zero charges for a quote"],
+    ["no costs with freeEstimates", "No costs for a quote"],
+    ["no charges with freeEstimates", "No charges for a quote"],
+  ]);
+  // The pair needs both facts: the dotless abbreviation next to a full word is no claim of its own.
+  refused(INSURED, [
+    ["insurance alone does not back lic and insured", "Lic and insured crew", ["Lic and insured"]],
+    ["insurance alone does not back lic & insured", "Lic & insured crew", ["Lic & insured"]],
+    ["insurance alone does not back lic&insured", "Lic&insured crew", ["Lic&insured"]],
+  ]);
+  refused(LICENSED, [
+    ["a licence alone does not back licensed & ins", "Licensed & ins crew", ["Licensed & ins"]],
+    ["a licence alone does not back licensed and ins", "Licensed and ins crew", ["Licensed and ins"]],
+  ]);
+  accepted(LICENSED_AND_INSURED, [
+    ["lic and insured with both facts", "Lic and insured crew"],
+    ["licensed & ins with both facts", "Licensed & ins crew"],
+  ]);
+  // False positives, each pinned: the narrow forms stay narrow.
+  accepted(MINIMAL_FACTS, [
+    ["everyday chores", "Everyday chores, done right"],
+    ["everyday wear and tear", "Fixes everyday wear and tear"],
+    ["holiday lights", "Holiday lights hung and taken down"],
+    ["holiday cleaning", "Holiday cleaning for your home"],
+    ["takes under an hour", "Drain cleaning takes under an hour"],
+    ["done in under an hour", "Most jobs are done in under an hour"],
+    ["takes less than an hour", "Drain cleaning takes less than an hour"],
+    ["we recommend annual service", "We recommend annual service"],
+    ["we recommend using a mat", "We recommend using a mat"],
+    ["vet-owned", "A vet-owned business"],
+    ["veteran owned", "Veteran owned and operated"],
+    ["pet vet", "Pet vet clinic floors"],
+    ["the ins and outs", "The ins and outs of drains"],
+    ["freedom from clutter", "Freedom from clutter"],
+    ["FreeFlow in a name", "FreeFlow drains"],
+    ["daily alone", "Daily cleaning for busy offices"],
+    // Round 1's rule refused "Here under an hour"; round 2 requires "in" after the arrival phrase, so a duration without it is accepted.
+    ["on site under an hour (a duration, no \"in\")", "On site under an hour"],
+    ["here under an hour (no \"in\")", "Here under an hour"],
+    ["known gap: a response time without an arrival phrase", "We get to you fast, a quick hour away"],
+  ]);
+  // AI-only: the owner checker accepts every refused wording above, on facts that back nothing.
+  it.each([
+    "Zero costs to you", "A freebie with every visit", "Freebies for new customers", "Never charged a call-out fee", "Never charges for a quote",
+    "Afterhours cleaning", "Open every single day", "Open everyday", "Open every holiday", "Open any holiday", "Neighbors are raving about us",
+    "Everyone recommends us", "We vet every cleaner", "Careful vetting of the crew", "Fully lic and ins crew", "Fully lic & ins crew",
+    "Here in under an hour", "On site in under an hour",
+  ])("leaves %s to the AI check: the owner checker accepts it", (text) => {
+    expect(unbackedClaims(text, MINIMAL_FACTS)).toEqual([]);
+  });
+});
+
 describe("aiClaims: readings and quote marks", () => {
   it("refuses U+FF02, which Copy's NFKC turns into a straight double quote before checkDraft sees it", () => {
     expect(aiClaims("\uFF02Best cleaners ever\uFF02", MINIMAL_FACTS)).toEqual(["\uFF02"]);
@@ -308,7 +466,8 @@ describe("AI claim check: an underscore hides nothing", () => {
     ["liability backed", "Fully_liability coverage"],
   ]);
   accepted(LICENSED, [["lic. backed", "Fully_lic. crew"]]);
-  accepted(SEVEN_DAYS, [["after hours backed", "After_hours cleaning"]]);
+  accepted(EMERGENCY, [["after hours backed", "After_hours cleaning"]]);
+  refused(SEVEN_DAYS, [["hours on all 7 days do not back after hours", "After_hours cleaning", ["After hours"]]]);
 });
 
 // A symbol between the words of a multi-word wording is still that wording: readings() also reads U+00B7, U+2022, "~", "*", "|", U+2219, U+30FB and U+25CF as a space when glued between two non-space characters (a quote that opens right after one counts too, glued or not).
@@ -334,7 +493,8 @@ describe("AI claim check: a symbol separator hides nothing", () => {
     ["quote after a katakana middle dot, text start", "\u30FB'Tidy' crew", ["'Tidy'"]],
     ["quote after a spaced black circle", "Our motto \u25CF'clean homes'", ["'clean homes'"]],
   ]);
-  accepted(SEVEN_DAYS, [["after hours backed, middle dot", "After\u00B7hours cleaning"]]);
+  accepted(EMERGENCY, [["after hours backed, middle dot", "After\u00B7hours cleaning"]]);
+  refused(SEVEN_DAYS, [["hours on all 7 days do not back after hours, middle dot", "After\u00B7hours cleaning", ["After hours"]]]);
   accepted(MINIMAL_FACTS, [
     ["trade and place", "Cleaning \u00B7 Austin"],
     ["pipe list", "Repairs | Installs"],
