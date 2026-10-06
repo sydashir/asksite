@@ -507,7 +507,7 @@ test("a takedown that errors AFTER the site went down offers Finish the takedown
     return route.continue({ headers: { ...request.headers(), "x-test-takedown-fault": "prefix-delete-reread" } });
   });
   await takeDown(page, site.siteId);
-  await expect(page.getByText("The takedown may have partly happened, and the owner may not have been emailed. Finish it to make sure, and contact the owner:")).toBeVisible();
+  await expect(page.getByText("The takedown may have partly happened, and the owner may not have been emailed. Finish it to make sure, and contact the owner.")).toBeVisible();
   await expect(page.getByRole("button", { name: "Restore the site" })).toBeVisible(); // the reload shows it down
   await expect(page.getByRole("status").filter({ hasText: "The takedown may have partly happened" })).toBeFocused(); // keyboard focus stays on the result
   await expect(page.getByRole("status").getByRole("button", { name: "Finish the takedown" })).toHaveCount(0); // the down-site form is the only Finish
@@ -627,7 +627,7 @@ test("a lost lease with a failed re-read, the reload showing the site DOWN, says
   let posts = 0;
   await page.route("**/api/admin/sites/*/takedown", (route, request) => (++posts === 1 ? route.continue({ headers: { ...request.headers(), "x-test-takedown-fault": "lease-lost-after-batch-reread" } }) : route.continue()));
   await takeDown(page, site.siteId);
-  await expect(page.getByText("The takedown may have partly happened, and the owner may not have been emailed. Finish it to make sure, and contact the owner:")).toBeVisible();
+  await expect(page.getByText("The takedown may have partly happened, and the owner may not have been emailed. Finish it to make sure, and contact the owner.")).toBeVisible();
   await expect(page.getByRole("button", { name: "Restore the site" })).toBeVisible(); // the reload shows it down
   await expect(page.locator("body")).not.toContainText("Owner not emailed — contact them.");
   await expect(page.getByRole("status").getByRole("button", { name: "Finish the takedown" })).toHaveCount(0);

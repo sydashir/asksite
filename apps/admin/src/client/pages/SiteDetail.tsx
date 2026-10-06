@@ -153,7 +153,7 @@ function SiteScreen({ data, reload }: { data: SiteDetailData; reload: () => Prom
         {takedownUnsure ? (
           <Notice tone="error">
             {site.takenDown
-              ? "The takedown may have partly happened, and the owner may not have been emailed. Finish it to make sure, and contact the owner:"
+              ? "The takedown may have partly happened, and the owner may not have been emailed. Finish it to make sure, and contact the owner."
               : "The takedown did not go through. Try again."}
           </Notice>
         ) : null}
