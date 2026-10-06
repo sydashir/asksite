@@ -68,6 +68,9 @@ export class AutoSaver {
   // Counts the drops this saver has found. A flush compares it with the count at its start: a drop found by the flush itself is new
   // to the owner, so that flush stops even when an earlier drop was already shown (the drop epoch).
   private dropsFound = 0;
+  // Counts the saves the server accepted. Sign out tells "the same unsaved change" from a new one by it.
+  private landedCount = 0;
+  private disposed = false;
   private readonly send: SendPatch;
   private readonly report: (state: SaverState) => void;
   private readonly delayMs: number;
@@ -86,6 +89,16 @@ export class AutoSaver {
 
   get currentStatus(): SaveStatus {
     return this.status;
+  }
+
+  /** How many saves the server has accepted from this saver. */
+  get landed(): number {
+    return this.landedCount;
+  }
+
+  /** Replaced by a newer saver (a reload): it holds nothing the owner still has to be told about. */
+  get isDisposed(): boolean {
+    return this.disposed;
   }
 
   /** Whether a flush would send a save now: something is unsent or in flight (a conflict sends nothing). */
@@ -155,6 +168,7 @@ export class AutoSaver {
   }
 
   dispose(): void {
+    this.disposed = true;
     clearTimeout(this.timer);
   }
 
@@ -173,6 +187,7 @@ export class AutoSaver {
       const result = await this.sendSafely(patch);
       if (result.ok) {
         this.rev = result.rev;
+        this.landedCount += 1;
         if (result.wordingDropped === true) {
           this.dropsFound += 1;
           this.wordingDropped = true;

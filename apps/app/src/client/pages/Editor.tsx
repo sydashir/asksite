@@ -100,7 +100,7 @@ function EditorScreen(props: { siteId: string; site: SiteState; view: SiteView; 
   const leave = linkAfter(site.flush, stopped);
   // The header's link home leaves the editor too: the same save first, and the same stop for a dropped wording change. An ordinary failed
   // save does not stop it (decision 37: any other way of leaving still sends the unsaved changes), so "Your website" works in a conflict.
-  useLeaveGuard(site, stopped, (result) => site.stopMessage(result));
+  useLeaveGuard(site, stopped);
   // A rewrite the view names (seen at mount, on a refetch, or after the server refused a save because another tab started one) is
   // followed like one started here: the whole editor locks until it lands or fails.
   useEffect(() => {

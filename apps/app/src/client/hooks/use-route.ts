@@ -2,7 +2,8 @@ import { useEffect, useRef, useState, type MouseEvent } from "react";
 import type { FlushResult } from "../lib/autosave.ts";
 import { matchRoute, type Route } from "../lib/route.ts";
 import { PRESS_AGAIN, SAVING } from "../lib/save-message.ts";
-import { hasClosingSave, hasLeftBehind, settleLeaving, type SiteState } from "./use-site.ts";
+import { sameIncident, type StopCause } from "../lib/stop-cause.ts";
+import { hasClosingSave, settleLeaving, type SiteState } from "./use-site.ts";
 
 const CHANGE = "asksite:navigate";
 
@@ -29,14 +30,26 @@ export function useRoute(): Route {
 const plainClick = (event: MouseEvent<HTMLAnchorElement>): boolean =>
   event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey;
 
+// SIGN OUT, in one place. The rules:
+// 1. EVERY press first saves the page on screen (its flush) and settles the saves closed editors left (settleLeaving). No state can let a
+//    press skip that, so nothing the owner typed is lost, and nothing is remembered between presses that could make it skip.
+// 2. A second press within SIGN_OUT_GRACE_MS of a press that is still waiting, or whose stop is on screen, is IGNORED (a double click).
+//    A press after the grace while a save is still in flight signs out: a save that never answers must not trap the owner.
+// 3. After the save, the CAUSES left are collected, each identified by (site, kind) plus the saver or drop it came from (StopCause).
+// 4. A cause the owner was not told yet stops the press ONCE (the existing text for it, then PRESS_AGAIN) and joins the TOLD set.
+//    When every cause is already told, the press signs out.
+// 5. A resolved cause leaves the told set (the next press builds it from what is left), so one that comes back stops once more.
+//    The alert goes when the causes it names are resolved. Nothing expires by time, and there is no page-wide flag.
+// 6. "Saving…" is said only while a save is actually pending. A new page on screen starts again (resetSignOutStop).
+
 /** What a page that holds a draft gives the app: how to save it, and how to tell the owner when a leave was stopped (false: not saved; "dropped": a wording change was not applied). */
 export interface LeaveGuard {
   flush: () => Promise<FlushResult>;
   /** Whether a flush would send a save now (the page holds something unsent). */
   saving: () => boolean;
   stopped: (result: false | "dropped") => void;
-  /** The text that stops "Sign out" for what the flush answered (it ends with PRESS_AGAIN). */
-  message: (result: false | "dropped") => string;
+  /** Why a flush that answered `result` did not end clean. */
+  cause: (result: false | "dropped") => StopCause | null;
 }
 
 /** Set by a page that holds an unsaved draft: every plain link click (onLinkClick) and Sign out wait for it. */
@@ -47,32 +60,28 @@ export function setLeaveGuard(guard: LeaveGuard | null): void {
 
 /**
  * Registers the page's guard while it is mounted. `stopped` may change on every render; the guard always calls the newest.
- * Every page that holds a draft (the editor, the questionnaire, Publish) uses this. A Sign out stop expires once the page's saver has
- * nothing left to tell (everything saved, or a replaced draft after a reload), so the page never keeps saying "not saved yet" after it is.
+ * Every page that holds a draft (the editor, the questionnaire, Publish) uses this. `notSaved` is the page's own words for a failed save.
+ * When the page's saver changes, the alert of a Sign out stop goes if every cause it names is resolved (retireResolvedStop).
  */
-export function useLeaveGuard(site: Pick<SiteState, "flush" | "saving" | "saver">, stopped: (result: false | "dropped") => void, message: (result: false | "dropped") => string): void {
-  const { flush, saving } = site;
-  const latest = useRef({ stopped, message });
+export function useLeaveGuard(site: Pick<SiteState, "flush" | "saving" | "saver" | "stopCause">, stopped: (result: false | "dropped") => void, notSaved?: string): void {
+  const { flush, saving, stopCause } = site;
+  const latest = useRef({ stopped, notSaved });
   useEffect(() => {
-    latest.current = { stopped, message };
+    latest.current = { stopped, notSaved };
   });
   useEffect(() => {
-    setLeaveGuard({ flush, saving, stopped: (result) => latest.current.stopped(result), message: (result) => latest.current.message(result) });
+    setLeaveGuard({ flush, saving, stopped: (result) => latest.current.stopped(result), cause: (result) => stopCause(result, latest.current.notSaved) });
     return () => setLeaveGuard(null);
-  }, [flush, saving]);
+  }, [flush, saving, stopCause]);
   const { status, wordingDropped } = site.saver;
   useEffect(() => {
-    if (status === "saving") noteSaveAfterStop();
-    // A drop notice stays up until Dismiss, but it does not keep the stop: a save that began after the stop and has landed ends it too.
-    else if ((status === "saved" || status === "idle") && (wordingDropped !== true || savedSinceStop)) expireSignOutStop();
+    retireResolvedStop();
   }, [status, wordingDropped]);
 }
 
-// "Sign out" stops AT MOST ONCE (on every page and path): a press that finds something unsaved says so and stays; the next press signs out.
-// A press that has to wait says so ("Saving…"); a second press inside the grace is ignored, one after it signs out (a save that never answers must not trap the owner).
-let stopShown = false;
-// A save began after the stop was shown (so its landing is news the stop did not know).
-let savedSinceStop = false;
+/** The causes the owner was told about (by key), the causes the alert on screen names, and the press in progress. */
+let told = new Map<string, StopCause>();
+let shown: StopCause[] = [];
 let presses = 0;
 let waiting = false;
 let firstPressAt = 0;
@@ -81,37 +90,42 @@ let stopSay: ((message: string | null) => void) | null = null;
 /** How long a first press waits alone: absorbs a double-click, and leaves time to read the message. */
 export const SIGN_OUT_GRACE_MS = 1_500;
 
-/** A new page is on screen: its first stop is its own to say. */
+/** A new page is on screen: its stops are its own to say. */
 export function resetSignOutStop(): void {
-  stopShown = false;
+  told = new Map();
+  shown = [];
 }
 
-function noteSaveAfterStop(): void {
-  if (stopShown) savedSinceStop = true;
-}
-
-/** The cause of the stop is resolved (everything saved, no closing save pending or failed): the alert goes, and the next press runs the full guard again. */
-function expireSignOutStop(): void {
-  if (!stopShown || hasLeftBehind()) return;
-  stopShown = false;
-  savedSinceStop = false;
+/** The alert goes when every cause it names is resolved (a save landed, the notice was dismissed, the conflicted draft was reloaded). */
+function retireResolvedStop(): void {
+  if (shown.length === 0 || shown.some((cause) => cause.still())) return;
+  shown = [];
   stopSay?.(null);
 }
 
+/** Saves the page on screen, settles the saves closed editors left, and answers the causes still unsaved. */
+async function collectCauses(): Promise<StopCause[]> {
+  const causes: StopCause[] = [];
+  const guard = leaveGuard;
+  if (guard !== null) {
+    const result = await guard.flush();
+    if (result !== true) {
+      // A failed save is said by the alert alone (the page would say the same words again); a drop also focuses the page's own notice.
+      if (result === "dropped") guard.stopped(result);
+      const cause = guard.cause(result);
+      if (cause !== null) causes.push(cause);
+    }
+  }
+  return [...causes, ...(await settleLeaving())];
+}
+
 /**
- * Whether the session may end now. The saves a page started as it closed finish first (settleLeaving), then the page on screen saves
- * what it holds. Nothing can be saved after the logout, so anything left unsaved stops the press once: `say` gets the text (the
- * existing wording for what went wrong, then PRESS_AGAIN) and the next press goes on without saving. While the first press waits, `say`
- * gets "Saving…" and PRESS_AGAIN; a press inside SIGN_OUT_GRACE_MS of it is ignored, a later one goes on at once and the first press
- * then ends without a word (it was overtaken). If the save answers first, the first press completes. Pages with nothing to save pass at once.
+ * Whether the session may end now (the rules at the top of this section). `say` gets the alert: "Saving…" and PRESS_AGAIN while a
+ * press has to wait, then, if it stops, the text of the causes not told yet and PRESS_AGAIN. A press overtaken by a later one ends silently.
  */
 export async function mayEndSession(say: (message: string | null) => void): Promise<boolean> {
-  // The grace runs from the FIRST press, whether it is still waiting or has already stopped: a double click is one press.
-  if ((stopShown || waiting) && performance.now() - firstPressAt < SIGN_OUT_GRACE_MS) return false;
-  if (stopShown) {
-    presses += 1;
-    return true;
-  }
+  const pressing = waiting || shown.length > 0;
+  if (pressing && performance.now() - firstPressAt < SIGN_OUT_GRACE_MS) return false;
   if (waiting) {
     presses += 1;
     return true;
@@ -119,37 +133,26 @@ export async function mayEndSession(say: (message: string | null) => void): Prom
   const mine = ++presses;
   waiting = true;
   firstPressAt = performance.now();
+  shown = [];
   // "Saving…" only when a save is actually pending; with nothing to save the press goes on at once and nothing is shown.
   const saving = hasClosingSave() || (leaveGuard?.saving() ?? false);
   if (saving) say(`${SAVING} ${PRESS_AGAIN}`);
   try {
-    const message = await firstStop();
+    const causes = await collectCauses();
     if (mine !== presses) return false;
-    if (message === null) {
+    const untold = causes.filter((cause) => !sameIncident(cause, told.get(cause.key)));
+    told = new Map(causes.map((cause) => [cause.key, cause]));
+    if (untold.length === 0) {
       if (saving) say(null);
       return true;
     }
-    stopShown = true;
-    savedSinceStop = false;
+    shown = untold;
     stopSay = say;
-    say(message);
+    say(`${[...new Set(untold.map((cause) => cause.text))].join(" ")} ${PRESS_AGAIN}`);
     return false;
   } finally {
     if (mine === presses) waiting = false;
   }
-}
-
-/** The text that stops this press (and, for a dropped wording change, the page's own notice is shown too), or null when all is saved. */
-async function firstStop(): Promise<string | null> {
-  const leftBehind = await settleLeaving();
-  if (leftBehind !== null) return leftBehind;
-  const guard = leaveGuard;
-  if (guard === null) return null;
-  const result = await guard.flush();
-  if (result === true) return null;
-  // A failed save is said by the message alone (the page would say the same words again); a drop also focuses the page's own notice.
-  if (result === "dropped") guard.stopped(result);
-  return guard.message(result);
 }
 
 /** For <a href> links inside the app: a plain left click navigates without reloading the page (after the page's leave guard, if it set one). */

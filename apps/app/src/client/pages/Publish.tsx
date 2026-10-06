@@ -51,7 +51,7 @@ function PublishScreen({ siteId, site, view, facts }: { siteId: string; site: Si
   };
 
   // Sign out and every link wait for the draft to be saved; a dropped wording change shows its notice (given focus), anything else says so below.
-  useLeaveGuard(site, (result) => (result === "dropped" ? requestAnimationFrame(() => noticeRef.current?.focus()) : showResult(NOT_SAVED)), (result) => site.stopMessage(result));
+  useLeaveGuard(site, (result) => (result === "dropped" ? requestAnimationFrame(() => noticeRef.current?.focus()) : showResult(NOT_SAVED)));
 
   const loadVersions = async () => {
     const res = await api<{ versions: VersionSummary[] }>("GET", `/api/sites/${siteId}/versions`);

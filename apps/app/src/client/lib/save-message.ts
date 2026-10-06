@@ -18,11 +18,10 @@ export const CONFLICT_MESSAGE = "This site changed in another tab or window. Rel
 /** Added to every message that stops "Sign out": the owner has been told, so the next press goes on. */
 export const PRESS_AGAIN = "Press Sign out again to sign out without saving.";
 
-/** The text that stops "Sign out": what is wrong (the existing wording for it), then PRESS_AGAIN. */
-export function signOutStopMessage(reason: { dropped: false | { whileWriting: boolean }; status: SaverState["status"]; notSaved?: string }): string {
+/** What is wrong when "Sign out" stops, in the existing wording for it (a drop, a conflict, or a failed save: `notSaved` is the page's own words for that). */
+export function stopText(reason: { dropped: false | { whileWriting: boolean }; status: SaverState["status"]; notSaved?: string }): string {
   const { dropped, status, notSaved = NOT_SAVED } = reason;
-  const text = dropped !== false ? (dropped.whileWriting ? WRITING_DROPPED : WORDING_DROPPED) : status === "conflict" ? CONFLICT_MESSAGE : notSaved;
-  return `${text} ${PRESS_AGAIN}`;
+  return dropped !== false ? (dropped.whileWriting ? WRITING_DROPPED : WORDING_DROPPED) : status === "conflict" ? CONFLICT_MESSAGE : notSaved;
 }
 
 /**

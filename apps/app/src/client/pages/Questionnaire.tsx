@@ -54,7 +54,7 @@ function StepPage({ siteId, step, site, view, draft }: { siteId: string; step: S
     } else setMessage(ANSWERS_NOT_SAVED);
   };
 
-  useLeaveGuard(site, stopped, (result) => site.stopMessage(result, ANSWERS_NOT_SAVED));
+  useLeaveGuard(site, stopped, ANSWERS_NOT_SAVED);
 
   // Arriving from a "fix this" link (#field-id): show the errors and focus that field.
   useEffect(() => {
