@@ -89,8 +89,9 @@ export function generationRoutes(deps: AppDeps): Hono<AppEnv> {
       now,
     });
     if (!result.ok) {
-      // Which cap was hit: the site's daily one ("tomorrow") or the owner's lifetime one (decision 40). Only a
-      // regeneration meets the lifetime cap, so a refused first build always hit the daily cap, even at 0 left in total.
+      // Which cap was hit: a daily one ("tomorrow": the site's, or, for a regeneration, the owner's daily regeneration
+      // cap, LIMITS.generationsPerOwnerPerDay) or the owner's lifetime one (decision 40). Only a regeneration meets the
+      // lifetime cap, so a refused first build always hit a daily cap, even at 0 left in total.
       const lifetime =
         result.code === "generation_cap_reached" &&
         (await isRegeneration(db, site.id)) &&
