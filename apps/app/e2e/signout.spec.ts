@@ -757,9 +757,9 @@ test("K0: a drop found by the closing save itself (R3) is told by a Sign out sto
 const WRITING_DROPPED = "New wording is being written. Your last change was not saved. Make it again when the new wording is ready.";
 const WRITING_LOCK = "Writing new wording. You can edit again when it is ready.";
 
-// A refused save (generation_in_progress) stores nothing, so the saver's `landed` does not move. A second refused drop after the first
-// was told and dismissed has the same (key, source, landed) as the told one. The DECIDED rule: a resolved cause leaves the told set, and
-// one that comes back stops once more.
+// A refused save (generation_in_progress) stores nothing. A second refused drop after the first was told and dismissed must stop Sign out
+// again. The counter that tells incidents apart (`settled`, autosave.ts) moves on accepted and refused saves. The DECIDED rule: a
+// resolved cause leaves the told set, and one that comes back stops once more.
 test("W2: a second refused save (another tab's second rewrite), after the first was told and dismissed, stops Sign out again", async ({ page, browser }) => {
   const siteId = await builtSite(page);
   await page.goto(`/sites/${siteId}/edit`);
@@ -834,6 +834,7 @@ test("F2: a failure told, resolved by a refused save, then a NEW failed edit: Si
     await expect(page.getByRole("status").filter({ hasText: WRITING_DROPPED })).toBeVisible();
     await settleRender(page);
     const alertsAfterRefusal = await page.getByRole("alert").filter({ hasText: PRESS_AGAIN }).allTextContents();
+    expect(alertsAfterRefusal).toEqual([]);
     await finishGeneration(tabB.request, id1, "failed");
     await expect(page.getByText(WRITING_LOCK)).toHaveCount(0, { timeout: 15_000 });
     await page.getByRole("button", { name: "Dismiss" }).click();
