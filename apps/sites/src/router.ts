@@ -35,6 +35,7 @@ export async function route(request: Request, env: Env, ctx: ExecutionContext, n
   if (url.protocol === "http:" && !isLocal(root)) {
     if (!read) return { route: "http", response: useHttps(root) };
     url.protocol = "https:";
+    url.port = ""; // a port named for http is not https's
     return { route: "http", response: new Response(null, { status: 301, headers: plainHeaders({ Location: url.href }) }) };
   }
   const host = parseHost(url.host, root);

@@ -4,7 +4,7 @@
 
 **Goal:** Put approved pages on the internet safely: the shared contracts every later plan codes against (Stage 0), the publish pipeline that turns an owner's document into exact reviewed bytes and makes only admin-approved bytes live, the public Cloudflare Worker that serves `<slug>.<root>`, photos and contact forms, lead emails, one-command local development, CI, and a deploy runbook, all testable locally with no account or key.
 
-**Architecture:** Part A (Stage 0, design §11.3) adds `@asksite/core` (ids, tokens, host parsing, schemas, `composeDocument`, API types), the D1 migration, `@asksite/site-css` (the compiled stylesheet as a module) and Plan 1 amendment A6 (owner-hidden sections). Part B adds `@asksite/mailer` (Resend or a local outbox table), `@asksite/publishing` (conditional D1 batches plus R2 copies: pending version → approve → live, reject, withdraw, takedown, restore, search-engine switch) and the `asksite-sites` Worker, which routes by Host header, lets D1 decide what is served while R2 only holds bytes, caches per data centre for 60 s (photos 300 s at the edge), and stores and emails contact-form leads. Everything runs in workerd locally through wrangler's `createTestHarness` (Vitest) and `wrangler dev` over https (Playwright + axe).
+**Architecture:** Part A (Stage 0, design §11.3) adds `@asksite/core` (ids, tokens, host parsing, schemas, `composeDocument`, API types), the D1 migration, `@asksite/site-css` (the compiled stylesheet as a module) and Plan 1 amendment A6 (owner-hidden sections). Part B adds `@asksite/mailer` (Resend or a local outbox table), `@asksite/publishing` (conditional D1 batches plus R2 copies: pending version → approve → live, reject, withdraw, takedown, restore, search-engine switch) and the `asksite-sites` Worker, which routes by Host header, lets D1 decide what is served while R2 only holds bytes, caches per data centre for 60 s (photos 60 s at the edge), and stores and emails contact-form leads. Everything runs in workerd locally through wrangler's `createTestHarness` (Vitest) and `wrangler dev` over https (Playwright + axe).
 
 **Tech Stack:** Node 24.21.0 LTS or 25.6.1, pnpm 10.33.0 workspaces, TypeScript 7.0.2, Zod 4.6.5, wrangler 4.138.0 (workerd 1.20260921.1, Miniflare 5.20260921.1-alpha), @cloudflare/workers-types 5.20260924.1, Vitest 5.0.1, Playwright 1.63.0, @axe-core/playwright 4.13.0, Cloudflare Workers + D1 + R2 + Workers Rate Limiting + Cache API, Resend's HTTP API.
 
@@ -7691,7 +7691,7 @@ Everything above ran with no account. This task needs the user, in this order: t
 
 **Interfaces:**
 - Consumes: `pnpm deploy:check` (Task 17), `deploy/dns-records.json` (Task 17), the migration (Task 5), `apps/sites/dev/seed.ts --remote` (Task 15), `apps/sites/e2e/smoke.config.ts` (Task 16).
-- Produces: `asksite-sites` live on `*.<domain>/*` and `<domain>/*`, and a smoke test proving on the real edge: TLS on first-level subdomains, HSTS, the D1 gate, that visitors get exactly the approved bytes (no Cloudflare feature rewrites or injects anything), the publishing functions and their audit rows on the production D1, lead email through Resend with DMARC passing, and photos stopping within 5 minutes of a takedown (Decision 7).
+- Produces: `asksite-sites` live on `*.<domain>/*` and `<domain>/*`, and a smoke test proving on the real edge: TLS on first-level subdomains, HSTS, the D1 gate, that visitors get exactly the approved bytes (no Cloudflare feature rewrites or injects anything), the publishing functions and their audit rows on the production D1, lead email through Resend with DMARC passing, and photos stopping within about a minute of a takedown (Decision 7).
 
 - [ ] **Step 1: The user's calls (design §12)**
 
@@ -7812,7 +7812,7 @@ PHOTO=$(curl -s --compressed "https://smoke-test.$DOMAIN/" | grep -o "https://me
 curl -sI "$PHOTO" | grep -iE '^HTTP|content-type|cache-control'
 ```
 
-Expected: the audit rows `version.requested` and `version.approved`, one each (production D1 writes the `INSERT … WHERE changes() = 1` audit rows as local D1 does, Decision 11); the page `HTTP/2 200`, `x-robots-tag: noindex` (approved with `--noindex`), `cache-control: no-cache` (browsers revalidate on every view; the edge's own copy is `public, s-maxage=60`, which a visitor never sees); the photo's `https://media.$DOMAIN/…webp` address; the photo `HTTP/2 200`, `content-type: image/webp`, `cache-control: public, max-age=86400, s-maxage=300`.
+Expected: the audit rows `version.requested` and `version.approved`, one each (production D1 writes the `INSERT … WHERE changes() = 1` audit rows as local D1 does, Decision 11); the page `HTTP/2 200`, `x-robots-tag: noindex` (approved with `--noindex`), `cache-control: no-cache` (browsers revalidate on every view; the edge's own copy is `public, s-maxage=60`, which a visitor never sees); the photo's `https://media.$DOMAIN/…webp` address; the photo `HTTP/2 200`, `content-type: image/webp`, `cache-control: public, max-age=3600, s-maxage=60`.
 
 Visitors must get exactly the approved bytes of every page, with nothing injected (Step 6). A version has 1 to 5 pages (Home, Services, About, Gallery, Contact; A16); `pages_json` lists the live version's pages with the SHA-256 of each page's exact bytes, and a page's path is `/` for Home and `/<page id>` for the others:
 

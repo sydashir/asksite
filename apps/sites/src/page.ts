@@ -53,10 +53,12 @@ async function serveVersion(env: Env, ctx: ExecutionContext, slug: string, page:
 
   let body: ArrayBuffer;
   let site: { indexable: number; live_version_id: string } | null;
+  let pointerGone = false;
   try {
     const object = await env.LIVE.get(livePageKey(slug, versionId, page));
     if (object === null && rereadPointer) {
       const latest = await env.LIVE.head(livePointerKey(slug));
+      pointerGone = latest === null;
       const latestId = latest?.customMetadata?.["versionId"];
       if (latest !== null && latestId !== undefined && latestId !== versionId && isId(latestId)) return await serveVersion(env, ctx, slug, page, latest, false);
     }
@@ -65,7 +67,8 @@ async function serveVersion(env: Env, ctx: ExecutionContext, slug: string, page:
     // the pointer head (the page get, the dearer read, is skipped).
     if (object === null) {
       if (page === "home") return unavailable(root);
-      ctx.waitUntil(cache.put(cacheKey, new Response(null, { status: 404, headers: { "Cache-Control": `public, s-maxage=${MISSING_PAGE_404_TTL_S}` } })));
+      // Not when the pointer vanished meanwhile (a takedown): a quick restore must not meet a cached 404.
+      if (!pointerGone) ctx.waitUntil(cache.put(cacheKey, new Response(null, { status: 404, headers: { "Cache-Control": `public, s-maxage=${MISSING_PAGE_404_TTL_S}` } })));
       return notFound(root, businessOf(pointer.customMetadata).name);
     }
     body = await object.arrayBuffer();

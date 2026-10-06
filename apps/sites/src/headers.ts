@@ -4,7 +4,8 @@
 export const rootHostname = (root: string): string => root.replace(/:\d+$/, "");
 
 /** HSTS is never sent for localhost: with includeSubDomains it would force https onto every local
- *  project on this machine (browsers apply HSTS per host, ignoring the port). */
+ *  project on this machine (browsers apply HSTS per host, ignoring the port). The same test exempts local
+ *  development from the http-to-https redirect (router.ts), because local development is http. */
 export const isLocal = (root: string): boolean => {
   const host = rootHostname(root);
   return host === "localhost" || host.endsWith(".localhost");

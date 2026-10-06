@@ -220,6 +220,16 @@ describe("a page the site lacks", () => {
     expect(cacheStore.has(pageCacheUrl(ROOT, SLUG, V1, "about"))).toBe(false);
   });
 
+  it("caches no 404 when the pointer re-read finds no pointer (a takedown raced the request)", async () => {
+    onGet = (key) => {
+      if (key === livePageKey(SLUG, V1, "about")) live.delete(livePointerKey(SLUG));
+    };
+    const { response, ops } = await call(at("/about"));
+    expect(response.status).toBe(404);
+    expect(ops["cache.put"] ?? 0).toBe(0);
+    expect(cacheStore.size).toBe(0);
+  });
+
   it("is still an uncached 503 for a missing Home", async () => {
     live.delete(livePageKey(SLUG, V1, "home"));
     for (let attempt = 0; attempt < 2; attempt++) {
@@ -259,10 +269,19 @@ describe("plain http", () => {
     }
   });
 
+  it("drops a non-default port from the https address", async () => {
+    const { response } = await call(`http://${SLUG}.${ROOT}:8080/services/x?utm=1`);
+    expect(response.status).toBe(301);
+    expect(response.headers.get("location")).toBe(`https://${SLUG}.${ROOT}/services/x?utm=1`);
+  });
+
   it("answers other methods over http with the plain 400 page, and does not run the form", async () => {
     const { response, ops } = await call(`http://${SLUG}.${ROOT}/_f/${SITE}`, { method: "POST", body: "name=Ann" });
     expect(response.status).toBe(400);
     expect(response.headers.get("location")).toBeNull();
+    expect(response.headers.get("strict-transport-security")).toBeNull(); // only ever sent over http, where browsers ignore it
+    expect(response.headers.get("content-security-policy")).toContain("default-src 'none'");
+    expect(response.headers.get("x-content-type-options")).toBe("nosniff");
     expect(response.headers.get("cache-control")).toBe("no-store");
     expect(response.headers.get("x-robots-tag")).toBe("noindex");
     expect(await response.text()).toContain("<h1>Please use https</h1>");
