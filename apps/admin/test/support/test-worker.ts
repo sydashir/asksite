@@ -279,7 +279,7 @@ async function requestSiteId(db: D1Database, path: string): Promise<string | nul
  * "lease-lost-after-batch" runs the D1 batch and then frees the admin lease of the site the request acts on (and only that site), as an
  * action that ran past its lease would find it (approve then answers lease_lost with the approval committed and no pointer written; a
  * takedown, with the takedown committed and its LIVE clean-up not done). "lease-lost-after-batch-reread" is that and also fails the route's
- * re-read of taken_down_at (the double fault: no notice is sent, the 409 says noticeSent false). "lease-lost-before-batch-reread" is the same
+ * re-read of taken_down_at (the double fault: no notice is sent, and the 409 says noticeSent null with noticeUnknown true). "lease-lost-before-batch-reread" is the same
  * with the lease lost BEFORE the batch (the site stays up). "reread-only" fails only the route's re-read: takeDown returns normally (the
  * toward-sending fallback). "lease-lost-before-batch" frees that lease BEFORE the D1 batch
  * runs (a restore whose clear is then fenced out: 0 rows changed). "lease-taken-over-before-batch" does the same as another action

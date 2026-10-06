@@ -18,8 +18,9 @@ import { STEP_BODY } from "../steps/index.tsx";
 /** Said when the answers are not saved (the Questionnaire holds answers, not "changes"). */
 const ANSWERS_NOT_SAVED = "Your latest answers are not saved yet. Please try again in a moment.";
 
-/** Said above the Build button: the answers may go to the AI provider (honesty; shown while the button builds, not at "Go to the editor"). */
+/** The id of the notice below; the Build button points at it with aria-describedby while it is shown. */
 const AI_NOTICE_ID = "ai-provider-notice";
+/** Said above the Build button: the answers may go to the AI provider (honesty; shown while the button builds, not at "Go to the editor"). */
 const AI_PROVIDER_NOTICE = "To write your website, we may send your answers to our AI provider, Anthropic. They don't use them to train their AI.";
 
 export function Questionnaire({ siteId, step }: { siteId: string; step: StepId }) {
