@@ -131,7 +131,9 @@ function SiteScreen({ data, reload: fetchAgain }: { data: SiteDetailData; reload
       // body: if the reload shows the site down, "Finish the takedown" re-sends it. The owner notice is the route's last step and never
       // throws, so a call that answered 5xx sent none itself: keep the earlier result's owner-notice state, and with no earlier result
       // (this call may be the one that took the site down) mark the owner as not emailed.
-      if (res.status >= 500) {
+      // A lost lease whose re-read failed (noticeUnknown) is the same question: unknown whether this call took the site down, so the text is chosen from the reloaded site, never the definite NOT_EMAILED.
+      const leaseLost = res.error.message === TAKEDOWN_LEASE_LOST;
+      if (res.status >= 500 || (leaseLost && res.error.noticeUnknown === true)) {
         // Wait for the reload, so the text below is chosen from the site's real state, not the one from before the takedown.
         keepTakedown(body, { tone: "warning", text: "", cleanupFailed: true, ownerNotEmailed: previous?.ownerNotEmailed ?? true }, await reload());
         setMessage(null);
@@ -143,7 +145,6 @@ function SiteScreen({ data, reload: fetchAgain }: { data: SiteDetailData; reload
       // A lost lease (409, no Retry-After): the takedown may have committed. If the reload shows the site down, Finish the takedown finishes
       // its clean-up. The server already told the owner if this call took the site down and says how that went: noticeSent false means the
       // email failed, so the admin is told to contact the owner (and Finish keeps saying so); Finish never emails.
-      const leaseLost = res.error.message === TAKEDOWN_LEASE_LOST;
       const ownerNotEmailed = leaseLost && res.error.noticeSent === false;
       show({ tone: "error", text: ownerNotEmailed ? `${res.error.message} ${NOT_EMAILED}` : res.error.message });
       // A Finish refused as a restored site is no longer the takedown its page held: drop it (the reload below shows where the site stands).

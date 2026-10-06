@@ -159,12 +159,14 @@ export function siteRoutes(deps: AdminDeps): Hono<AdminEnv> {
             const tookItDown = rereadFailed ? !alreadyDown && leaseLost === null : stored !== null && stamps.includes(stored);
             // The key names the takedown (its stored moment), so every call that sends the notice for it is the same message to the mail provider.
             const send = () => trySend(mailer, { to: site.owner_email, ...email, replyTo: c.env.SUPPORT_EMAIL, tag: "site_notice", idempotencyKey: `takedown:${site.id}:${stored ?? site.taken_down_at ?? now}` });
-            // A lost lease: tell the owner if THIS call took the site down (the re-read decides; a failed re-read sends nothing and answers false), then answer
+            // A lost lease: tell the owner if THIS call took the site down (the re-read decides; a failed re-read sends nothing), then answer
             // the 409 with the notice's outcome as noticeSent (true sent, false failed, null this call sent none), so the admin knows whether the owner was told.
+            // A failed re-read on a site that was up leaves it UNKNOWN whether this call took the site down: noticeSent null plus noticeUnknown true, never false.
             if (leaseLost !== null) {
-              const noticeSent = tookItDown ? await send() : rereadFailed && !alreadyDown ? false : null;
+              const unknown = !tookItDown && rereadFailed && !alreadyDown;
+              const noticeSent = tookItDown ? await send() : null;
               const mapped = publishApiError((leaseLost as PublishErrorLike).code, "takedown", (leaseLost as PublishErrorLike).detail);
-              throw mapped === null ? leaseLost : new ApiError(mapped.code, mapped.message, { ...mapped.extra, noticeSent });
+              throw mapped === null ? leaseLost : new ApiError(mapped.code, mapped.message, { ...mapped.extra, noticeSent, ...(unknown ? { noticeUnknown: true as const } : {}) });
             }
             // Plan 2 audits only the call that took the site down (and a later purge that deleted something), so a re-run that
             // only finishes the clean-up would leave no trace of this admin action: record it here.

@@ -612,6 +612,30 @@ type SiteView = { takenDownAt: number | null; audit: Array<{ action: string; det
 const siteView = async (page: Page, siteId: string) => (await (await page.request.get(`${ADMIN}/api/admin/sites/${siteId}`)).json()) as SiteView;
 const takedownAudits = (view: SiteView) => view.audit.filter((a) => a.action === "site.taken_down");
 
+// STRICT (honesty): a lease lost AND a failed re-read leave the notice outcome UNKNOWN (the 409 says noticeUnknown). After the reload the page says what it can know, never the definite "Owner not emailed".
+test("a lost lease with a failed re-read, the reload showing the site DOWN, says the owner may not have been emailed (not the definite line), and Finish still offers the clean-up", async ({ page }) => {
+  const site = await liveSite(page);
+  let posts = 0;
+  await page.route("**/api/admin/sites/*/takedown", (route, request) => (++posts === 1 ? route.continue({ headers: { ...request.headers(), "x-test-takedown-fault": "lease-lost-after-batch-reread" } }) : route.continue()));
+  await takeDown(page, site.siteId);
+  await expect(page.getByText("The takedown may have partly happened, and the owner may not have been emailed. Finish it to make sure, and contact the owner:")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Restore the site" })).toBeVisible(); // the reload shows it down
+  await expect(page.locator("body")).not.toContainText("Owner not emailed — contact them.");
+  await expect(page.getByRole("status").getByRole("button", { name: "Finish the takedown" })).toBeVisible();
+});
+
+test("a lost lease with a failed re-read, the reload showing the site UP, says the takedown did not go through, with no owner line and no Finish", async ({ page }) => {
+  const site = await liveSite(page);
+  let posts = 0;
+  await page.route("**/api/admin/sites/*/takedown", (route, request) => (++posts === 1 ? route.continue({ headers: { ...request.headers(), "x-test-takedown-fault": "lease-lost-before-batch-reread" } }) : route.continue()));
+  await takeDown(page, site.siteId);
+  await expect(page.getByText("The takedown did not go through. Try again.")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Take the site down" })).toBeVisible(); // the reload shows it up
+  await expect(page.locator("body")).not.toContainText("Owner not emailed");
+  await expect(page.locator("body")).not.toContainText("may not have been emailed");
+  await expect(page.getByRole("button", { name: "Finish the takedown" })).toHaveCount(0);
+});
+
 // takedown-truth (B), QA Q-1: Finish from a stale page must not take a restored site down again or email the owner again.
 test("a down-site page's Finish after another tab restored the site is refused: the text, no notice, no audit row, the site stays up", async ({ page }) => {
   const site = await liveSite(page);

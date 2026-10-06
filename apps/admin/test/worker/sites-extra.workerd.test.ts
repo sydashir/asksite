@@ -299,7 +299,8 @@ describe("a takedown that loses its lease after the commit (23-A16 f2, m6)", () 
     await (await h.db()).prepare("UPDATE owners SET email = ? WHERE id = ?").bind("lease@mail-fails.example", site.ownerId).run();
     const lost = await h.call("POST", takedown(site.siteId), { body: { reason: "Spam report" }, headers: { "X-Test-Takedown-Fault": "lease-lost-after-batch" } });
     expect(lost.status).toBe(409);
-    expect(await json<{ error: { code: string; noticeSent?: boolean | null } }>(lost)).toMatchObject({ error: { code: "conflict", noticeSent: false } });
+    // Case A: the failed email is DEFINITE (false), never "unknown".
+    expect(await json(lost)).toEqual({ error: { code: "conflict", message: TAKEDOWN_LEASE_LOST, noticeSent: false } });
     expect(await downAt(site.siteId)).not.toBeNull();
     expect(await notices("lease@mail-fails.example")).toHaveLength(0);
     await h.backgroundDone(takedown(site.siteId));
@@ -317,21 +318,21 @@ describe("a takedown that loses its lease after the commit (23-A16 f2, m6)", () 
     await h.backgroundDone(takedown(site.siteId));
   });
 
-  it("when takeDown loses its lease AFTER the commit and the re-read also fails, nothing is sent and the 409 says noticeSent false (the admin checks by reloading)", async () => {
+  it("when takeDown loses its lease AFTER the commit and the re-read also fails, nothing is sent and the 409 says the notice outcome is unknown: noticeSent null, noticeUnknown true", async () => {
     const site = await liveSite();
     const lost = await h.call("POST", takedown(site.siteId), { body: { reason: "Spam report" }, headers: { "X-Test-Takedown-Fault": "lease-lost-after-batch-reread" } });
     expect(lost.status).toBe(409);
-    expect((await json<{ error: { noticeSent?: boolean | null } }>(lost)).error.noticeSent).toBe(false);
+    expect(await json(lost)).toEqual({ error: { code: "conflict", message: TAKEDOWN_LEASE_LOST, noticeSent: null, noticeUnknown: true } });
     expect(await downAt(site.siteId)).not.toBeNull();
     expect(await notices(site.email)).toHaveLength(0);
     await h.backgroundDone(takedown(site.siteId));
   });
 
-  it("when takeDown loses its lease BEFORE the commit (the site stays up) and the re-read also fails, no notice goes to the owner and the 409 says noticeSent false", async () => {
+  it("when takeDown loses its lease BEFORE the commit (the site stays up) and the re-read also fails, no notice goes to the owner and the 409 says the notice outcome is unknown: noticeSent null, noticeUnknown true", async () => {
     const site = await liveSite();
     const lost = await h.call("POST", takedown(site.siteId), { body: { reason: "Spam report" }, headers: { "X-Test-Takedown-Fault": "lease-lost-before-batch-reread" } });
     expect(lost.status).toBe(409);
-    expect((await json<{ error: { noticeSent?: boolean | null } }>(lost)).error.noticeSent).toBe(false);
+    expect(await json(lost)).toEqual({ error: { code: "conflict", message: TAKEDOWN_LEASE_LOST, noticeSent: null, noticeUnknown: true } });
     expect(await downAt(site.siteId)).toBeNull();
     expect(await notices(site.email)).toHaveLength(0);
     await h.backgroundDone(takedown(site.siteId));
