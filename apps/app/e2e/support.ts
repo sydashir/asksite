@@ -33,11 +33,24 @@ export async function apiCall(page: Page, method: string, path: string, data?: u
   return { status: res.status(), json: (await res.json().catch(() => null)) as Record<string, unknown> | null };
 }
 
+/**
+ * Writes a first draft and a web address for the site acceptInvite just opened. That page saves its own prefill (the business email,
+ * BusinessStep.tsx) at rev 1 soon after it loads, so a write at a fixed rev 1 can be refused with 409. This waits for that save, writes
+ * at the rev the server holds, and asserts both writes worked (a refused seed would otherwise show up as a hang much later).
+ */
+export async function seedDraft(page: Page, siteId: string, slugLabel: string, facts: object = FACTS): Promise<void> {
+  await expect(page.getByRole("status").filter({ hasText: "All changes saved." })).toBeVisible();
+  const rev = (await apiCall(page, "GET", `/api/sites/${siteId}`)).json!["rev"] as number;
+  const draft = await apiCall(page, "PATCH", `/api/sites/${siteId}/draft`, { rev, facts, brief: BRIEF });
+  expect(draft.status).toBe(200);
+  const slug = await apiCall(page, "PUT", `/api/sites/${siteId}/slug`, { rev: draft.json!["rev"], slug: uniqueSlug(slugLabel) });
+  expect(slug.status).toBe(200);
+}
+
 /** A signed-in owner whose first draft has been written. Returns the site id. */
 export async function builtSite(page: Page, facts: object = FACTS): Promise<string> {
   const siteId = await acceptInvite(page);
-  await apiCall(page, "PATCH", `/api/sites/${siteId}/draft`, { rev: 1, facts, brief: BRIEF });
-  await apiCall(page, "PUT", `/api/sites/${siteId}/slug`, { rev: 2, slug: uniqueSlug("joes") });
+  await seedDraft(page, siteId, "joes", facts);
   const started = await apiCall(page, "POST", `/api/sites/${siteId}/generations`, {});
   const generationId = (started.json?.["generation"] as { id: string }).id;
   await finishGeneration(page.request, generationId);

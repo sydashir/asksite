@@ -1,5 +1,5 @@
 import { expect, test, type Browser, type Page } from "@playwright/test";
-import { acceptInvite, apiCall, APP, askNewWording, BRIEF, builtSite, FACTS, finishGeneration, stubTurnstile, uniqueEmail, uniqueSlug, waitForSecurityCheck } from "./support.ts";
+import { acceptInvite, apiCall, APP, askNewWording, BRIEF, builtSite, FACTS, finishGeneration, seedDraft, stubTurnstile, uniqueEmail, waitForSecurityCheck } from "./support.ts";
 
 const NOT_SAVED = "Your latest changes are not saved yet. Please try again in a moment.";
 const CONFLICT = "This site changed in another tab or window. Reload to see the latest version.";
@@ -8,6 +8,12 @@ const PRESS_AGAIN = "Press Sign out again to sign out without saving.";
 const SAVING = "Saving…";
 const GRACE_MS = 1_500;
 const FAIL_500 = { status: 500, json: { error: { code: "internal", message: "Something went wrong. Please try again." } } };
+
+/** A press after a stop: it waits out the grace (a press inside it is a double click and is ignored), a bounded wait on purpose as nothing observable marks its end. */
+async function pressAfterGrace(page: Page) {
+  await page.waitForTimeout(GRACE_MS + 100);
+  await page.getByRole("button", { name: "Sign out" }).click();
+}
 
 /** Every request and answer for the draft and the logout, in the order the browser saw them. */
 function watchSaves(page: Page) {
@@ -60,8 +66,7 @@ async function browserBack(page: Page) {
 /** A signed-in owner (known email, so a second session can be started) whose first draft is written. */
 async function builtSiteAs(page: Page, email: string): Promise<string> {
   const siteId = await acceptInvite(page, email);
-  expect((await apiCall(page, "PATCH", `/api/sites/${siteId}/draft`, { rev: 1, facts: FACTS, brief: BRIEF })).status).toBe(200);
-  expect((await apiCall(page, "PUT", `/api/sites/${siteId}/slug`, { rev: 2, slug: uniqueSlug("joes") })).status).toBe(200);
+  await seedDraft(page, siteId, "joes");
   const started = await apiCall(page, "POST", `/api/sites/${siteId}/generations`, {});
   await finishGeneration(page.request, (started.json?.["generation"] as { id: string }).id);
   return siteId;
@@ -141,7 +146,7 @@ test("Sign out stays and says so when the save the editor started as it closed f
   expect(events).not.toContain("logout-sent");
   expect(new URL(page.url()).pathname).toBe("/");
   // The owner was told once: the server keeps failing, and the second press signs out anyway.
-  await page.getByRole("button", { name: "Sign out" }).click();
+  await pressAfterGrace(page);
   await expect(page.getByRole("heading", { level: 1, name: "Sign in" })).toBeVisible();
   expect(events.at(-1)).toBe("logout-sent");
   expect(await storedHeadline(browser, email, siteId)).toBeUndefined();
@@ -169,9 +174,8 @@ test("Sign out retries a failed closing save, and the next press after the save 
   expect(await storedHeadline(browser, email, siteId)).toBe("Kept after a failed save");
 });
 
-// R1 (conflict): the editor's saver is in conflict (another writer saved first) and the owner leaves by the header link, which still
-// leaves on an ordinary failure. A conflict can never be saved, so nothing retried can help: Sign out says so once, then goes on.
-test("Sign out after leaving a conflicted editor stops once with the conflict text, then the next press signs out", async ({ page }) => {
+/** An editor in conflict (another writer saved first), left by the header link to Home with the owner's text unsaved. Returns the save events. */
+async function leaveConflictedEditor(page: Page): Promise<string[]> {
   const siteId = await builtSiteAs(page, uniqueEmail("trapc"));
   await page.goto("/");
   await page.getByRole("link", { name: "Open" }).click();
@@ -183,12 +187,31 @@ test("Sign out after leaving a conflicted editor stops once with the conflict te
   await expect(page.getByRole("status").filter({ hasText: CONFLICT })).toBeVisible();
   await page.getByRole("link", { name: "Your website" }).click();
   await expect(page.getByRole("heading", { level: 1, name: "Your websites" })).toBeVisible();
+  return events;
+}
+
+// R1 (conflict): the editor's saver is in conflict (another writer saved first) and the owner leaves by the header link, which still
+// leaves on an ordinary failure. A conflict can never be saved, so nothing retried can help: Sign out says so once, then goes on.
+test("Sign out after leaving a conflicted editor stops once with the conflict text, then the next press signs out", async ({ page }) => {
+  const events = await leaveConflictedEditor(page);
   await page.getByRole("button", { name: "Sign out" }).click();
   await expect(page.getByRole("alert").filter({ hasText: CONFLICT })).toContainText(PRESS_AGAIN);
   expect(events).not.toContain("logout-sent");
-  await page.getByRole("button", { name: "Sign out" }).click();
+  await pressAfterGrace(page);
   await expect(page.getByRole("heading", { level: 1, name: "Sign in" })).toBeVisible();
   expect(events.at(-1)).toBe("logout-sent");
+});
+
+// A new page is on screen: its first stop is its own to say, so the stop of the page before does not let this press sign out unasked.
+test("Sign out stops again on a new page: a route change resets the stop", async ({ page }) => {
+  const events = await leaveConflictedEditor(page);
+  await page.getByRole("button", { name: "Sign out" }).click();
+  await expect(page.getByRole("alert").filter({ hasText: CONFLICT })).toContainText(PRESS_AGAIN);
+  await page.getByRole("link", { name: "Your website" }).click();
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  await page.getByRole("button", { name: "Sign out" }).click();
+  await expect(page.getByRole("alert").filter({ hasText: CONFLICT })).toContainText(PRESS_AGAIN);
+  expect(events).not.toContain("logout-sent");
 });
 
 // R5: the page on screen holds a save that keeps failing.
@@ -204,7 +227,7 @@ test("Sign out on the editor with a save that keeps failing stops once, says wha
   await expect(page.getByRole("alert").filter({ hasText: NOT_SAVED })).toHaveText(`${NOT_SAVED} ${PRESS_AGAIN}`);
   expect(events).not.toContain("logout-sent");
   expect(new URL(page.url()).pathname).toBe(`/sites/${siteId}/edit`);
-  await page.getByRole("button", { name: "Sign out" }).click();
+  await pressAfterGrace(page);
   await expect(page.getByRole("heading", { level: 1, name: "Sign in" })).toBeVisible();
   expect(events.at(-1)).toBe("logout-sent");
 });
@@ -267,6 +290,91 @@ test("A double click on Sign out during a slow save waits for the save, then sig
   expect(await storedHeadline(browser, email, siteId)).toBe("Double click");
 });
 
+// A double click is ONE press even when the first press stops at once (nothing to wait for): the owner must get to read the stop.
+test("A double click on Sign out with a conflict on screen stops once and stays", async ({ page }) => {
+  const siteId = await builtSiteAs(page, uniqueEmail("dblstop"));
+  await page.goto(`/sites/${siteId}/edit`);
+  await expect(page.getByRole("heading", { level: 1, name: "Edit your website" })).toBeFocused();
+  const rev = (await apiCall(page, "GET", `/api/sites/${siteId}`)).json!["rev"] as number;
+  expect((await apiCall(page, "PATCH", `/api/sites/${siteId}/draft`, { rev, brief: BRIEF })).status).toBe(200);
+  const events = watchSaves(page);
+  await page.getByLabel("Headline", { exact: true }).fill("Typed in a stale tab");
+  await expect(page.getByRole("status").filter({ hasText: CONFLICT })).toBeVisible();
+  await page.getByRole("button", { name: "Sign out" }).dblclick();
+  await expect(page.getByRole("alert").filter({ hasText: CONFLICT })).toContainText(PRESS_AGAIN);
+  // Nothing observable marks a logout that does not happen, so this waits a bounded while (well inside the grace) and checks it stayed.
+  await page.waitForTimeout(500);
+  expect(events).not.toContain("logout-sent");
+  await expect(page.getByLabel("Headline", { exact: true })).toHaveValue("Typed in a stale tab");
+});
+
+test("Two presses on Sign out 250 ms apart while the save fails fast stop once and stay", async ({ page }) => {
+  const siteId = await builtSite(page);
+  await page.goto(`/sites/${siteId}/edit`);
+  await page.route(`**/api/sites/${siteId}/draft`, (route) => (route.request().method() === "PATCH" ? route.fulfill(FAIL_500) : route.fallback()));
+  const events = watchSaves(page);
+  await page.getByLabel("Headline", { exact: true }).fill("Typed, then a slow double click");
+  const button = page.getByRole("button", { name: "Sign out" });
+  await button.click();
+  await page.waitForTimeout(250);
+  await button.click();
+  await expect(page.getByRole("alert").filter({ hasText: NOT_SAVED })).toContainText(PRESS_AGAIN);
+  await page.waitForTimeout(500);
+  expect(events).not.toContain("logout-sent");
+  await expect(page.getByLabel("Headline", { exact: true })).toHaveValue("Typed, then a slow double click");
+});
+
+// A stop is about its cause: once everything is saved the alert goes (it would be untrue), and the next press saves a fresh edit first.
+test("A Sign out stop expires once the changes are saved: no alert is left, and a fresh edit is saved before the logout", async ({ page, browser }) => {
+  const email = uniqueEmail("expire");
+  const siteId = await builtSiteAs(page, email);
+  await page.goto(`/sites/${siteId}/edit`);
+  await expect(page.getByRole("heading", { level: 1, name: "Edit your website" })).toBeFocused();
+  let failing = true;
+  await page.route(`**/api/sites/${siteId}/draft`, (route) => (route.request().method() === "PATCH" && failing ? route.fulfill(FAIL_500) : route.fallback()));
+  const events = watchSaves(page);
+  const headline = page.getByLabel("Headline", { exact: true });
+  await headline.fill("First try");
+  await expect(page.getByText("Your changes are not saved yet", { exact: false }).first()).toBeVisible();
+  await page.getByRole("button", { name: "Sign out" }).click();
+  await expect(page.getByRole("alert").filter({ hasText: NOT_SAVED })).toContainText(PRESS_AGAIN);
+  failing = false;
+  await page.getByRole("button", { name: "Try again" }).click();
+  await expect(page.getByRole("status").filter({ hasText: "All changes saved." })).toBeVisible();
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  await headline.fill("Final words");
+  await page.getByRole("button", { name: "Sign out" }).click();
+  await expect(page.getByRole("heading", { level: 1, name: "Sign in" })).toBeVisible();
+  expect(events.slice(-3)).toEqual(["patch-sent", "patch-answered-200", "logout-sent"]);
+  expect(await storedHeadline(browser, email, siteId)).toBe("Final words");
+});
+
+// "Saving…" is said only for a save that is really pending: with nothing to save no alert is ever added to the page, and the logout goes out at once.
+test("Sign out with nothing to save adds no alert and signs out at once", async ({ page }) => {
+  await builtSite(page);
+  await page.goto("/");
+  await expect(page.getByRole("heading", { level: 1, name: "Your websites" })).toBeVisible();
+  const added: string[] = [];
+  page.on("console", (message) => {
+    if (message.text().startsWith("ALERT-ADDED ")) added.push(message.text());
+  });
+  // Logged by console so it survives the reload; a MutationObserver sees a node added and removed inside one task, which no frame would show.
+  await page.evaluate(() => {
+    new MutationObserver((records) => {
+      for (const record of records) {
+        for (const node of record.addedNodes) {
+          if (node instanceof Element && (node.matches("[role=alert]") || node.querySelector("[role=alert]") !== null)) console.log(`ALERT-ADDED ${node.textContent}`);
+        }
+      }
+    }).observe(document.body, { childList: true, subtree: true });
+  });
+  const events = watchSaves(page);
+  await page.getByRole("button", { name: "Sign out" }).click();
+  await expect(page.getByRole("heading", { level: 1, name: "Sign in" })).toBeVisible();
+  expect(events).toContain("logout-sent");
+  expect(added).toEqual([]);
+});
+
 const WORDING_DROPPED = "New wording arrived, so your last wording change wasn't applied. Make it again on the new wording if you still want it.";
 
 /** The owner's draft is on the old wording (roofing facts), then another tab of the same owner writes new wording and it lands. */
@@ -316,7 +424,7 @@ test("Sign out stops once on a wording change dropped by the save the editor sta
   await page.getByRole("button", { name: "Sign out" }).click();
   await expect(page.getByRole("alert").filter({ hasText: WORDING_DROPPED })).toContainText(PRESS_AGAIN);
   expect(events).not.toContain("logout-sent");
-  await page.getByRole("button", { name: "Sign out" }).click();
+  await pressAfterGrace(page);
   await expect(page.getByRole("heading", { level: 1, name: "Sign in" })).toBeVisible();
   expect(events.at(-1)).toBe("logout-sent");
 });
@@ -327,7 +435,7 @@ test("Sign out stops once on a dropped wording change, says so, and the next pre
   await page.getByRole("button", { name: "Sign out" }).click();
   await expect(notice).toBeFocused();
   expect(events).not.toContain("logout-sent");
-  await page.getByRole("button", { name: "Sign out" }).click();
+  await pressAfterGrace(page);
   await expect(page.getByRole("heading", { level: 1, name: "Sign in" })).toBeVisible();
   expect(events).toContain("logout-sent");
 });
@@ -342,7 +450,7 @@ test("Questionnaire: Sign out stays and says so once while the answers are not s
   await expect(page.getByRole("alert").filter({ hasText: "Your latest answers are not saved yet. Please try again in a moment." })).toContainText(PRESS_AGAIN);
   expect(events).not.toContain("logout-sent");
   expect(new URL(page.url()).pathname).toMatch(/\/setup\/business$/);
-  await page.getByRole("button", { name: "Sign out" }).click();
+  await pressAfterGrace(page);
   await expect(page.getByRole("heading", { level: 1, name: "Sign in" })).toBeVisible();
   expect(events.at(-1)).toBe("logout-sent");
 });
@@ -371,6 +479,6 @@ test("Publish: Sign out stops once on a dropped wording change carried from the 
   await page.getByRole("button", { name: "Sign out" }).click();
   await expect(notice).toBeFocused();
   expect(events).not.toContain("logout-sent");
-  await page.getByRole("button", { name: "Sign out" }).click();
+  await pressAfterGrace(page);
   await expect(page.getByRole("heading", { level: 1, name: "Sign in" })).toBeVisible();
 });

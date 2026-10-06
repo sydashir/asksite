@@ -88,6 +88,11 @@ export class AutoSaver {
     return this.status;
   }
 
+  /** Whether a flush would send a save now: something is unsent or in flight (a conflict sends nothing). */
+  get hasUnsent(): boolean {
+    return this.status !== "conflict" && (Object.keys(this.pending).length > 0 || this.running !== null);
+  }
+
   change(patch: DraftPatch): void {
     this.pending = { ...this.pending, ...patch };
     if (this.status === "conflict") return;

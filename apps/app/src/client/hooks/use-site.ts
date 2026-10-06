@@ -41,6 +41,16 @@ export async function settleLeaving(): Promise<string | null> {
   return drop === undefined ? null : signOutStopMessage({ dropped: { whileWriting: drop.whileWriting }, status: "saved" });
 }
 
+/** Whether a save a closed editor started (or failed) is still to be sent: Sign out has something to wait for. */
+export function hasClosingSave(): boolean {
+  return leaving.size > 0 || unsavedOnLeave.size > 0;
+}
+
+/** Whether a closed editor left anything the owner must be told (a save in flight, one that failed, or a dropped wording change). */
+export function hasLeftBehind(): boolean {
+  return hasClosingSave() || droppedOnLeave.size > 0;
+}
+
 const AI_RETRY_MS = 1_000;
 
 /** The site's newest view, or null when it could not be fetched or read (it has no AI wording, or the answer is not a view). */
@@ -214,6 +224,8 @@ export function useSite(siteId: string) {
   }, []);
 
   const flush = useCallback(async (): Promise<FlushResult> => (saverRef.current === null ? true : saverRef.current.flush()), []);
+  /** Whether a flush would send a save now. */
+  const saving = useCallback((): boolean => saverRef.current?.hasUnsent ?? false, []);
   /** "Try again": saves what is unsaved, without counting as the owner having seen the wording notice. */
   const retry = useCallback(async (): Promise<boolean> => (saverRef.current === null ? true : saverRef.current.saveNow()), []);
   /** The owner has seen the "wording wasn't applied" notice. */
@@ -229,7 +241,7 @@ export function useSite(siteId: string) {
     [],
   );
 
-  return { load, draft, saver, locked, factsChanges, update, exclusive, flush, retry, dismissDrop, reload, refreshAi, rev, stopMessage };
+  return { load, draft, saver, locked, factsChanges, update, exclusive, flush, saving, retry, dismissDrop, reload, refreshAi, rev, stopMessage };
 }
 
 export type SiteState = ReturnType<typeof useSite>;
