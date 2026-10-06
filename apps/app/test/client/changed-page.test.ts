@@ -39,11 +39,15 @@ const TABLE: Array<[string, (doc: Json) => void, PageId | null, FixtureName?]> =
 ];
 
 // Where one design draws a fact on another page than the table says (the rest of the table holds for every design). Each entry is what that
-// design's real renderer draws, measured 2026-10-06 (the real Bold, Classic and Modern designs arrived with "Sync with main"):
-//  - impact (Bold): removing a social link changes Home (the table's null holds for the other designs).
-//  - modern (Modern): a trade change shows Services, not Home.
-//  - modern (Modern): the first work photo's text changes About, which comes before Gallery.
-// Measured, not derived: the reason in each design's own sections was not traced.
+// design's real renderer draws, measured 2026-10-06 (the real Bold, Classic and Modern designs arrived with "Sync with main"), and traced:
+//  - impact (Bold), socialLinks -> home: Home's Reviews section draws "Read more reviews on Google/Yelp" links (impact/reviews.ts:11, :31-34, :42),
+//    and the table removes the fixture's last link, Yelp (fixtures/plumber-austin.json:43-45). Classic and Modern draw social links only in the
+//    shared footer, which changedPage does not compare, so the table's null holds for them.
+//  - modern (Modern), trade -> services: every inner page opens with a brand strip that names the trade (modern/parts.ts:48-55). Home's hero
+//    hides the trade when the headline names the city (modern/hero.ts:40-41, modern/text.ts:17-21), and the fixture's headline does. Services
+//    is the first inner page.
+//  - modern (Modern), photos -> about: About shows photos[0] while the gallery is on the site (modern/sections.ts:103-108, :124), and About comes
+//    before Gallery. Bold's About prefers a different photo (impact/about.ts:20-23), so Bold keeps "gallery".
 const DESIGN_DIFFERS: ReadonlyMap<string, PageId | null> = new Map<string, PageId | null>([
   ["impact: socialLinks", "home"],
   ["modern: trade", "services"],
