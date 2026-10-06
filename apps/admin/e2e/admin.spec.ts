@@ -946,7 +946,8 @@ test("the cost labels: a site's jobs say Up to $X, Cost unknown and $0.00, and S
   await page.goto(`/sites/${site.siteId}`);
   const jobs = page.getByRole("region", { name: "AI writing jobs" });
   await expect(jobs.getByText(/ · Up to \$1\.34 · /)).toHaveCount(1);
-  await expect(jobs.getByText(/ · Cost unknown · /)).toHaveCount(1);
+  await expect(jobs.getByText(/ · Cost unknown$/)).toHaveCount(1); // only "Cost unknown": no "no model" or "0 attempts" stated as facts for it
+  await expect(jobs.getByText(/Cost unknown · /)).toHaveCount(0);
   await expect(jobs.getByText(/ · \$0\.00 · /)).toHaveCount(2); // the seeded model_slot 0 job and the site's own first job (no call sent)
 
   await page.goto("/settings");
