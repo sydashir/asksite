@@ -77,6 +77,7 @@ export default defineConfig(({ mode }) => {
       // so without this a static import of one small export (sitePages, FONTS) keeps render.ts and all three designs in the MAIN
       // bundle, and the lazy chunk (render-chunk.ts) would import them back from it. Nothing there needs to run for its own sake:
       // used exports still bring their code, and `render` is reached only through the lazy chunk (checked by e2e/bundle.spec.ts).
+      // If a renderer module ever needs an import-time effect, this override must be removed.
       rolldownOptions: { treeshake: { moduleSideEffects: [{ test: /[\\/]packages[\\/]renderer[\\/]src[\\/]/, sideEffects: false }] } },
     },
     server: { host: "app.localhost", port: 8787, strictPort: true },
