@@ -37,10 +37,17 @@ function page(route: Route) {
   }
 }
 
+const SIGN_OUT_FAILED = "We could not sign you out. Check your connection and try again.";
+
 /** Saves what the page holds, then ends the session and reloads so no signed-in state survives in memory. A press that waits says "Saving…"; anything unsaved stops it once, with the reason (mayEndSession); the next press goes on. */
 async function signOut(say: (message: string | null) => void) {
   if (!(await mayEndSession(say))) return;
-  await api("POST", "/api/auth/logout");
+  // Leave only once the server ended the session (204): a failed logout leaves it alive, so stay and say so (the next press tries again).
+  const res = await api("POST", "/api/auth/logout");
+  if (!res.ok) {
+    say(SIGN_OUT_FAILED);
+    return;
+  }
   location.assign("/");
 }
 

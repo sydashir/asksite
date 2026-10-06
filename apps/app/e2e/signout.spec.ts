@@ -55,6 +55,21 @@ test("Sign out stays and says so while the changes are not saved", async ({ page
   await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible();
 });
 
+// STRICT (security): the page may only leave once the server ended the session; a failed logout leaves the session alive, so say so and stay.
+test("Sign out stays and says so when the logout request fails, then signs out when it works", async ({ page }) => {
+  const siteId = await builtSite(page);
+  await page.goto(`/sites/${siteId}/edit`);
+  let failing = true;
+  await page.route("**/api/auth/logout", (route) => (failing ? route.abort("internetdisconnected") : route.fallback()));
+  await page.getByRole("button", { name: "Sign out" }).click();
+  await expect(page.getByRole("alert").filter({ hasText: "We could not sign you out. Check your connection and try again." })).toBeVisible();
+  expect(new URL(page.url()).pathname).toBe(`/sites/${siteId}/edit`);
+  await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible();
+  failing = false;
+  await page.getByRole("button", { name: "Sign out" }).click();
+  await page.waitForURL((url) => url.pathname === "/");
+});
+
 /** What the app sees on the browser's Back: a popstate to Home, so no link and no guard runs. (Playwright's goBack stalls while a save is in flight.) */
 async function browserBack(page: Page) {
   await page.evaluate(() => {
