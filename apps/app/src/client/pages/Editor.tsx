@@ -12,7 +12,7 @@ import { WordsTab } from "../editor/WordsTab.tsx";
 import { useGeneration } from "../hooks/use-generation.ts";
 import { useMe } from "../hooks/use-me.ts";
 import { usePageHeading } from "../hooks/use-page-heading.ts";
-import { linkAfter, navigate, setLeaveGuard } from "../hooks/use-route.ts";
+import { linkAfter, navigate, useLeaveGuard } from "../hooks/use-route.ts";
 import { useSite, type Draft, type SiteState } from "../hooks/use-site.ts";
 import { useStepProps } from "../hooks/use-step-props.ts";
 import { useStylesheets } from "../hooks/use-stylesheets.ts";
@@ -20,6 +20,7 @@ import { api } from "../lib/api.ts";
 import { stepOf } from "../lib/draft-issues.ts";
 import { STEP_TITLE } from "../lib/labels.ts";
 import { isThemeIssue, issuesAt, ownerMessage, type Fix } from "../lib/messages.ts";
+import { changedPage } from "../lib/changed-page.ts";
 import { checkDraft, renderPages } from "../lib/preview.ts";
 import { pageWasReloaded } from "../lib/page-reload.ts";
 import { reloadAfterSave } from "../lib/preview-sheets.ts";
@@ -27,6 +28,7 @@ import { paths, STEPS, type StepId } from "../lib/route.ts";
 import { issueTarget, type Path } from "../lib/values.ts";
 import { STEP_BODY } from "../steps/index.tsx";
 import { PhotoManager } from "../steps/PhotosStep.tsx";
+import { NOT_SAVED } from "../lib/save-message.ts";
 
 type EditorTab = "words" | "look" | "sections" | "photos" | "details";
 const TABS: ReadonlyArray<{ id: EditorTab; label: string }> = [
@@ -43,7 +45,6 @@ const REWRITING = "Writing new wording…";
 export const WRITING_LOCK = "Writing new wording. You can edit again when it is ready.";
 /** Why the whole editor is locked when the new wording is ready but could not be loaded. */
 const NOT_LOADED_LOCK = "The new wording is ready, but we couldn't load it. Reload the page to see it. You can edit again when it shows.";
-const NOT_SAVED = "Your latest changes are not saved yet. Please try again in a moment.";
 
 export function Editor({ siteId }: { siteId: string }) {
   const site = useSite(siteId);
@@ -75,7 +76,11 @@ function EditorScreen(props: { siteId: string; site: SiteState; view: SiteView; 
   const [aiState, setAiState] = useState<"fresh" | "refreshing" | "unloaded">("fresh");
   // Generations this editor has seen end: a view that still names one of them (it is refreshed only on success) must not lock the editor again.
   const endedRewrites = useRef(new Set<string>());
-  const writing = requesting || rewriteId !== null;
+  // The view names a rewrite this editor has not ended: the editor is locked by the VIEW itself, in the same render that shows it, so there is no
+  // moment between a refused request (another tab's rewrite) and the effect that follows it in which the lock is off.
+  const running = view.activeGeneration;
+  const viewRunning = running !== null && running.kind === "regenerate" && !endedRewrites.current.has(running.id);
+  const writing = requesting || rewriteId !== null || viewRunning;
   // FROZEN, from the request for new wording until it is shown (or it fails): every tab is read-only. A save that carried edits would be
   // refused by the server (answer and brief saves are stored), and one that carried the owner's wording would be replaced anyway. The same when the rewrite succeeded
   // but its wording could not be loaded ("unloaded"): nothing is editable until it is (Reload the page).
@@ -95,20 +100,9 @@ function EditorScreen(props: { siteId: string; site: SiteState; view: SiteView; 
   const leave = linkAfter(site.flush, stopped);
   // The header's link home leaves the editor too: the same save first, and the same stop for a dropped wording change. An ordinary failed
   // save does not stop it (decision 37: any other way of leaving still sends the unsaved changes), so "Your website" works in a conflict.
-  const { flush } = site;
-  const stoppedRef = useRef(stopped);
-  stoppedRef.current = stopped;
-  useEffect(() => {
-    setLeaveGuard(async () => {
-      const result = await flush();
-      if (result === "dropped") stoppedRef.current(result);
-      return result !== "dropped";
-    });
-    return () => setLeaveGuard(null);
-  }, [flush]);
+  useLeaveGuard(site, stopped);
   // A rewrite the view names (seen at mount, on a refetch, or after the server refused a save because another tab started one) is
   // followed like one started here: the whole editor locks until it lands or fails.
-  const running = view.activeGeneration;
   useEffect(() => {
     if (running === null || running.kind !== "regenerate" || rewriteId !== null || requesting || endedRewrites.current.has(running.id)) return;
     setRewriteMessage(REWRITING);
@@ -131,6 +125,20 @@ function EditorScreen(props: { siteId: string; site: SiteState; view: SiteView; 
     () => (previewDoc === null || sheets.status !== "ready" ? null : renderPages(previewDoc, { id: siteId, slug: view.slug }, __ROOT_DOMAIN__, sheets.sheets)),
     [previewDoc, sheets, siteId, view.slug],
   );
+  // A change to an answer (Details, Photos) shows the page that draws it: the first page whose sections changed in the new preview (changedPage).
+  // It waits for the preview to draw the change, and a change that no page section shows (only the shared footer) keeps the page on screen.
+  const lastPages = useRef(pages);
+  const handledChanges = useRef(site.factsChanges);
+  const factsChanges = site.factsChanges;
+  useEffect(() => {
+    const before = lastPages.current;
+    if (pages === before) return;
+    lastPages.current = pages;
+    if (factsChanges === handledChanges.current || before === null || pages === null || previewDoc === null) return;
+    handledChanges.current = factsChanges;
+    const page = changedPage(before, pages, previewDoc);
+    if (page !== null) setFollow((last) => ({ page, n: (last?.n ?? 0) + 1 }));
+  }, [pages, factsChanges, previewDoc]);
   const afterReload = useMemo(pageWasReloaded, []);
   const reloadPage = () => void reloadAfterSave(site.flush, () => location.reload()).then((reloaded) => (reloaded === true ? undefined : stopped(reloaded)));
 

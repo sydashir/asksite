@@ -2,7 +2,7 @@ import { PALETTES } from "@asksite/renderer";
 import { expect, test, type Browser, type Page, type Request } from "@playwright/test";
 import sharp from "sharp";
 import { sheetsChunk } from "./dist-assets.ts";
-import { acceptInvite, apiCall, APP, askNewWording, BRIEF, builtSite, expectAccessible, expectNoSidewaysScroll, FACTS, failSiteGets, finishGeneration, showPreview, uniqueSlug, watchCsp } from "./support.ts";
+import { acceptInvite, apiCall, APP, askNewWording, builtSite, expectAccessible, expectNoSidewaysScroll, FACTS, failSiteGets, finishGeneration, seedDraft, showPreview, uniqueSlug, watchCsp } from "./support.ts";
 
 const FRAME = 'iframe[title="Preview of your website"]';
 const previewHtml = (page: Page) => page.locator(FRAME).getAttribute("srcdoc");
@@ -25,7 +25,7 @@ async function openEditor(page: Page) {
 
 test("when the first draft is ready, the build page opens the editor with the page in the preview", async ({ page }) => {
   const siteId = await acceptInvite(page);
-  await apiCall(page, "PATCH", `/api/sites/${siteId}/draft`, { rev: 1, facts: FACTS, brief: BRIEF });
+  await seedDraft(page, siteId, "first");
   const started = await apiCall(page, "POST", `/api/sites/${siteId}/generations`, {});
   await page.goto(`/sites/${siteId}/build`);
   await expect(page.getByRole("heading", { level: 1, name: "Building your website" })).toBeFocused();
@@ -1122,6 +1122,41 @@ test("a refused request for new wording (another tab's rewrite runs) locks the t
   }
 });
 
+// Q-4 (STRICT, customer data): the lock must not lift between the refused request and the editor following the other tab's rewrite. A
+// MutationObserver sees every commit, so a gap of a few milliseconds (a commit with no lock) is caught every time, not by luck of a keystroke.
+test("a refused request for new wording keeps the editor locked with no gap until it follows the running rewrite", async ({ page, browser }) => {
+  const siteId = await openEditor(page);
+  const other = await browser.newContext({ baseURL: APP, ignoreHTTPSErrors: true, storageState: await page.context().storageState() });
+  try {
+    const tabB = await other.newPage();
+    await tabB.goto(`/sites/${siteId}/edit`);
+    const idB = await askNewWording(tabB, siteId);
+    await page.getByRole("tab", { name: "Words" }).click();
+    await page.getByRole("button", { name: "Write new wording" }).click();
+    await page.evaluate((lock) => {
+      const w = window as unknown as { __lock: { seen: boolean; gap: boolean } };
+      w.__lock = { seen: false, gap: false };
+      new MutationObserver(() => {
+        if (document.body.textContent?.includes(lock)) w.__lock.seen = true;
+        else if (w.__lock.seen) w.__lock.gap = true;
+      }).observe(document.body, { subtree: true, childList: true, characterData: true, attributes: true });
+    }, WRITING_LOCK);
+    const [refused] = await Promise.all([
+      page.waitForResponse((r) => r.url().endsWith(`/api/sites/${siteId}/generations`) && r.request().method() === "POST"),
+      page.getByRole("dialog", { name: "Write new wording?" }).getByRole("button", { name: "Write new wording" }).click(),
+    ]);
+    expect(refused.status()).toBe(409);
+    // The editor has followed the other tab's rewrite once its own status line says so.
+    await expect(page.getByRole("status").filter({ hasText: "Writing new wording…" })).toBeVisible();
+    await expect(page.getByText(WRITING_LOCK)).toHaveCount(1);
+    expect(await page.evaluate(() => (window as unknown as { __lock: { seen: boolean; gap: boolean } }).__lock)).toEqual({ seen: true, gap: false });
+    await finishGeneration(tabB.request, idB);
+    await expect(page.getByText("New wording is ready.")).toBeVisible({ timeout: 15_000 });
+  } finally {
+    await other.close();
+  }
+});
+
 // m-6: the frozen editor blocks Photos upload, delete and move by behaviour, not only by the wrapper's attribute.
 test("while new wording is written, Photos upload, delete and move send nothing and change nothing", async ({ page }) => {
   const siteId = await openEditor(page);
@@ -1191,4 +1226,14 @@ test("while new wording is written, the web address Save sends nothing and the a
   expect((await siteView(page, siteId))["slug"]).toBe(slugBefore);
   await finishGeneration(page.request, id, "failed");
   await expect(page.getByText("We could not write new wording this time. Your current wording is unchanged.")).toBeVisible({ timeout: 15_000 });
+});
+
+// STRICT (customer data): the wording counter measures like the server (NFKC first). "…" (typed automatically on iOS) counts 3 there, so
+// 79 letters and "…" must read over the limit here too, not "80 of 80" followed by a refused Publish.
+test("the headline counter counts an ellipsis as the server does (NFKC): 79 letters and … read 82 of 80", async ({ page }) => {
+  await openEditor(page);
+  await headlineField(page).fill(`${"a".repeat(79)}…`);
+  await expect(page.getByText("82 of 80 characters")).toBeVisible();
+  await headlineField(page).fill("a".repeat(80));
+  await expect(page.getByText("80 of 80 characters")).toBeVisible();
 });

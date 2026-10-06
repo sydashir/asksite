@@ -4,6 +4,7 @@ import { Group, TextArea, TextInput } from "../components/fields.tsx";
 import { isAllowedKey, withCopy, withServiceDescription } from "../lib/edits.ts";
 import type { Fix } from "../lib/messages.ts";
 import { sectionOfCopy } from "../lib/sections.ts";
+import { wordingLength } from "../lib/wording-length.ts";
 import { asArray, asRecord, asString, fieldId, moveItem, type Path } from "../lib/values.ts";
 import { focusFirstEnabled, focusSoon } from "../steps/types.ts";
 
@@ -62,6 +63,7 @@ export function WordsTab({ ai, edits, composed, facts, setEdits, errors, fixFor,
     return {
       id: fieldId(["copy", ...path]),
       readOnly,
+      countLength: wordingLength,
       errors: errors(["copy", ...path]),
       onFocus: () => onSection(sectionOfCopy(["copy", ...path])),
       after:

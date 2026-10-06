@@ -6,13 +6,31 @@ export const WORDING_DROPPED = "New wording arrived, so your last wording change
 /** Said when the server refused the owner's change because new wording is being written: nothing was stored, and the editor is locked until it is ready. */
 export const WRITING_DROPPED = "New wording is being written. Your last change was not saved. Make it again when the new wording is ready.";
 
+/** The editor's status while a change is being saved (also said by Sign out while its first press waits). */
+export const SAVING = "Saving…";
+
+/** Said when a save failed for any reason but a conflict. */
+export const NOT_SAVED = "Your latest changes are not saved yet. Please try again in a moment.";
+
+/** Said when the save was refused because another tab or window saved the site first. */
+export const CONFLICT_MESSAGE = "This site changed in another tab or window. Reload to see the latest version.";
+
+/** Added to every message that stops "Sign out": the owner has been told, so the next press goes on. */
+export const PRESS_AGAIN = "Press Sign out again to sign out without saving.";
+
+/** What is wrong when "Sign out" stops, in the existing wording for it (a drop, a conflict, or a failed save: `notSaved` is the page's own words for that). */
+export function stopText(reason: { dropped: false | { whileWriting: boolean }; status: SaverState["status"]; notSaved?: string }): string {
+  const { dropped, status, notSaved = NOT_SAVED } = reason;
+  return dropped !== false ? (dropped.whileWriting ? WRITING_DROPPED : WORDING_DROPPED) : status === "conflict" ? CONFLICT_MESSAGE : notSaved;
+}
+
 /**
  * What the save status says. A failed save's own warning comes first; the wording notice then stays through every later save
  * (also while saving) until the owner has seen it; only without it can everything be "saved". Typing alone says nothing.
  */
 export function saveAnnouncement(state: SaverState): string {
   if (state.status === "error") return `Your changes are not saved yet. ${state.message ?? ""}`;
-  if (state.status === "conflict") return "This site changed in another tab or window. Reload to see the latest version.";
+  if (state.status === "conflict") return CONFLICT_MESSAGE;
   if (state.wordingDropped === true) return state.droppedWhileWriting === true ? WRITING_DROPPED : WORDING_DROPPED;
   return state.status === "saved" ? "All changes saved." : "";
 }

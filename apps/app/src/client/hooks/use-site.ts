@@ -3,6 +3,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api, GENERIC_ERROR_MESSAGE } from "../lib/api.ts";
 import { AutoSaver, mayReplaceDraft, type DraftPatch, type DropState, type FlushResult, type SaverState, type SendPatch } from "../lib/autosave.ts";
 import { editsForAi } from "../lib/edits.ts";
+import { stopText } from "../lib/save-message.ts";
+import { causeKey, pageCause, type StopCause } from "../lib/stop-cause.ts";
 
 export interface Draft {
   facts: unknown;
@@ -15,8 +17,41 @@ export type SiteLoad = { state: "loading" } | { state: "error"; message: string;
 /** Saves a page started as it closed, by site: the next page's first load waits for them (decision 37). */
 const leaving = new Map<string, Promise<unknown>>();
 
+/** Savers of editors that closed with a save that did not go through: they still hold the values. Gone once saved, or once the site is loaded again. */
+const unsavedOnLeave = new Map<string, AutoSaver>();
+
 /** Sites whose editor closed after a save that dropped the owner's wording: the next editor for the site says so (no screen was left to say it). */
 const droppedOnLeave = new Map<string, DropState>();
+
+/**
+ * Waits for every save a page started as it closed, tries again the ones that failed, and answers the causes left for the owner (one per
+ * closed editor that still holds unsaved values, in conflict, or with a dropped wording change). Sign out collects them after every press:
+ * nothing can be saved after the logout, and the page the owner went back to (Home) holds no draft of its own to wait for.
+ */
+export async function settleLeaving(): Promise<StopCause[]> {
+  while (leaving.size > 0) await Promise.all([...leaving.values()]);
+  const causes: StopCause[] = [];
+  for (const [siteId, saver] of [...unsavedOnLeave]) {
+    const result = await saver.flush();
+    if (result === false) {
+      const kind = saver.currentStatus === "conflict" ? "closing-conflict" : "closing-failed";
+      causes.push({ key: causeKey(siteId, kind), text: stopText({ dropped: false, status: saver.currentStatus }), source: saver, settled: saver.settled, still: () => unsavedOnLeave.get(siteId) === saver });
+      continue;
+    }
+    if (unsavedOnLeave.get(siteId) === saver) unsavedOnLeave.delete(siteId);
+    // Saved, but without the owner's wording change: it is left behind like any closed editor's drop (told once, already stopped for).
+    if (result === "dropped") droppedOnLeave.set(siteId, { stopped: true, whileWriting: saver.unseenDrop?.whileWriting ?? false });
+  }
+  for (const [siteId, drop] of droppedOnLeave) {
+    causes.push({ key: causeKey(siteId, "closing-drop"), text: stopText({ dropped: { whileWriting: drop.whileWriting }, status: "saved" }), source: drop, settled: 0, still: () => droppedOnLeave.get(siteId) === drop, shown: () => { drop.stopped = true; } });
+  }
+  return causes;
+}
+
+/** Whether a save a closed editor started (or failed) is still to be sent: Sign out has something to wait for. A saver in conflict sends nothing. */
+export function hasClosingSave(): boolean {
+  return leaving.size > 0 || [...unsavedOnLeave.values()].some((saver) => saver.hasUnsent);
+}
 
 const AI_RETRY_MS = 1_000;
 
@@ -43,6 +78,8 @@ export function useSite(siteId: string) {
   // The AI draft the editor shows: the generation an edit's wording and order are bound to.
   const aiRef = useRef<CurrentAi | null>(null);
   const [locked, setLocked] = useState(false);
+  // Counts the owner's changes to answers (facts): the editor shows the page a Details or Photos change lands on.
+  const [factsChanges, setFactsChanges] = useState(0);
 
   /**
    * Takes only the AI's wording (and the counters beside it) from the server's newest view. The owner's local draft and the
@@ -118,6 +155,8 @@ export function useSite(siteId: string) {
     if (current !== null && !mayReplaceDraft(await current.saveNow(), current.currentStatus)) return null;
     // Wait for a save the previous page started as it closed.
     await leaving.get(siteId);
+    // This load replaces what a closed editor failed to save (as before: a link still leaves after an ordinary failed save).
+    unsavedOnLeave.delete(siteId);
     const res = await api<SiteView>("GET", `/api/sites/${siteId}`);
     if (!res.ok) {
       setLoad({ state: "error", message: res.error.message, status: res.status });
@@ -150,6 +189,7 @@ export function useSite(siteId: string) {
       const saving: Promise<unknown> = current.flush().then((result) => {
         // Nothing was stopped (the screen is gone), so the next editor starts un-stopped: it shows the notice and stops once.
         if (result === "dropped") droppedOnLeave.set(siteId, { stopped: false, whileWriting: current.unseenDrop?.whileWriting ?? false });
+        if (result === false) unsavedOnLeave.set(siteId, current);
       }).finally(() => {
         if (leaving.get(siteId) === saving) leaving.delete(siteId);
       });
@@ -169,6 +209,7 @@ export function useSite(siteId: string) {
     draftRef.current = { ...current, ...patch } as Draft;
     setDraft(draftRef.current);
     saverRef.current?.change(patch);
+    if (patch.facts !== undefined) setFactsChanges((n) => n + 1);
   }, []);
 
   /**
@@ -185,13 +226,17 @@ export function useSite(siteId: string) {
   }, []);
 
   const flush = useCallback(async (): Promise<FlushResult> => (saverRef.current === null ? true : saverRef.current.flush()), []);
+  /** Whether a flush would send a save now. */
+  const saving = useCallback((): boolean => saverRef.current?.hasUnsent ?? false, []);
   /** "Try again": saves what is unsaved, without counting as the owner having seen the wording notice. */
   const retry = useCallback(async (): Promise<boolean> => (saverRef.current === null ? true : saverRef.current.saveNow()), []);
   /** The owner has seen the "wording wasn't applied" notice. */
   const dismissDrop = useCallback(() => saverRef.current?.acknowledgeDrop(), []);
   const rev = () => saverRef.current?.currentRev ?? 0;
+  /** The cause of a flush that did not end clean, for Sign out (`notSaved`: the page's own words for a failed save). */
+  const stopCause = useCallback((result: false | "dropped", notSaved?: string): StopCause | null => (saverRef.current === null ? null : pageCause(siteId, saverRef.current, result, notSaved)), [siteId]);
 
-  return { load, draft, saver, locked, update, exclusive, flush, retry, dismissDrop, reload, refreshAi, rev };
+  return { load, draft, saver, locked, factsChanges, update, exclusive, flush, saving, retry, dismissDrop, reload, refreshAi, rev, stopCause };
 }
 
 export type SiteState = ReturnType<typeof useSite>;

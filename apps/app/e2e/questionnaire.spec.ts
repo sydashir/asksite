@@ -1,5 +1,5 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
-import { acceptInvite, apiCall, APP, BRIEF, builtSite, expectAccessible, expectNoSidewaysScroll, FACTS, finishGeneration, uniqueEmail, uniqueSlug } from "./support.ts";
+import { acceptInvite, apiCall, APP, builtSite, expectAccessible, expectNoSidewaysScroll, finishGeneration, seedDraft, uniqueEmail, uniqueSlug } from "./support.ts";
 
 /** The Business name field's id (fieldId(["facts", "businessName"])). */
 const NAME_FIELD_ID = "f-facts-businessName";
@@ -103,7 +103,7 @@ test("invite, then the seven questionnaire steps, then Build starts writing the 
 
 test("the build page tries again through a server hiccup, and offers Try again if it lasts @mobile", async ({ page }) => {
   const siteId = await acceptInvite(page);
-  await apiCall(page, "PATCH", `/api/sites/${siteId}/draft`, { rev: 1, facts: FACTS, brief: BRIEF });
+  await seedDraft(page, siteId, "hiccup");
   await apiCall(page, "POST", `/api/sites/${siteId}/generations`, {});
   const polled = () => page.waitForRequest((req) => req.url().includes(`/api/sites/${siteId}/generations/`));
   let failures = 1;
@@ -155,8 +155,13 @@ test("answers are saved automatically and survive a reload @firefox", async ({ p
 
 test("a second tab that saves later is stopped with a clear message", async ({ page, context }) => {
   const siteId = await acceptInvite(page);
+  // The business email starts as the sign-in email and is saved by itself soon after the step loads (BusinessStep.tsx). Wait for that save
+  // first: a second tab opened before it would load the same rev, save the same prefill first, and make THIS tab the stale one.
+  await expect(page.getByLabel("Business email address")).not.toHaveValue("");
+  await expect(page.getByRole("status").filter({ hasText: "All changes saved." })).toBeVisible();
   const other = await context.newPage();
   await other.goto(`/sites/${siteId}/setup/business`);
+  await expect(other.getByLabel("Business email address")).not.toHaveValue("");
   await page.getByLabel("City").fill("Austin");
   await expect(page.getByRole("status").filter({ hasText: "All changes saved." })).toBeVisible();
   await other.getByLabel("City").fill("Dallas");
@@ -167,8 +172,7 @@ test("a second tab that saves later is stopped with a clear message", async ({ p
 
 test("a problem in a step's own comment box is listed on that step, and its link focuses the box", async ({ page }) => {
   const siteId = await acceptInvite(page);
-  await apiCall(page, "PATCH", `/api/sites/${siteId}/draft`, { rev: 1, facts: FACTS, brief: BRIEF });
-  await apiCall(page, "PUT", `/api/sites/${siteId}/slug`, { rev: 2, slug: uniqueSlug("comment") });
+  await seedDraft(page, siteId, "comment");
   await page.goto(`/sites/${siteId}/setup/business`);
   await page.getByLabel("Anything we should know about this?").fill("Park on the street\u200B please");
   await page.getByRole("button", { name: "Save and continue" }).click();
@@ -416,8 +420,7 @@ test("the web address is not saved while the owner's latest answers are unsaved"
 
 test("after a failed first build, opening the build page again goes to the last step, not the first", async ({ page }) => {
   const siteId = await acceptInvite(page);
-  await apiCall(page, "PATCH", `/api/sites/${siteId}/draft`, { rev: 1, facts: FACTS, brief: BRIEF });
-  await apiCall(page, "PUT", `/api/sites/${siteId}/slug`, { rev: 2, slug: uniqueSlug("failed") });
+  await seedDraft(page, siteId, "failed");
   const started = await apiCall(page, "POST", `/api/sites/${siteId}/generations`, {});
   await finishGeneration(page.request, (started.json?.["generation"] as { id: string }).id, "failed");
   await page.goto(`/sites/${siteId}/build`);

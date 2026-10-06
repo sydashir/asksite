@@ -4,7 +4,7 @@ import { TextArea } from "../components/fields.tsx";
 import { ErrorSummary, Notice, SaveStatus, type SummaryItem } from "../components/feedback.tsx";
 import { useMe } from "../hooks/use-me.ts";
 import { usePageHeading } from "../hooks/use-page-heading.ts";
-import { linkAfter, navigate } from "../hooks/use-route.ts";
+import { linkAfter, navigate, useLeaveGuard } from "../hooks/use-route.ts";
 import { useSite, type Draft, type SiteState } from "../hooks/use-site.ts";
 import { useStepProps } from "../hooks/use-step-props.ts";
 import { api } from "../lib/api.ts";
@@ -14,6 +14,9 @@ import { ownerMessage } from "../lib/messages.ts";
 import { nextStep, paths, previousStep, STEPS, type StepId } from "../lib/route.ts";
 import { asRecord, asString, fieldId, issueTarget } from "../lib/values.ts";
 import { STEP_BODY } from "../steps/index.tsx";
+
+/** Said when the answers are not saved (the Questionnaire holds answers, not "changes"). */
+const ANSWERS_NOT_SAVED = "Your latest answers are not saved yet. Please try again in a moment.";
 
 export function Questionnaire({ siteId, step }: { siteId: string; step: StepId }) {
   const site = useSite(siteId);
@@ -48,8 +51,10 @@ function StepPage({ siteId, step, site, view, draft }: { siteId: string; step: S
     if (result === "dropped") {
       setMessage(null);
       requestAnimationFrame(() => noticeRef.current?.focus());
-    } else setMessage("Your latest answers are not saved yet. Please try again in a moment.");
+    } else setMessage(ANSWERS_NOT_SAVED);
   };
+
+  useLeaveGuard(site, stopped, ANSWERS_NOT_SAVED);
 
   // Arriving from a "fix this" link (#field-id): show the errors and focus that field.
   useEffect(() => {

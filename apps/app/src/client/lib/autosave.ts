@@ -65,6 +65,13 @@ export class AutoSaver {
   private stopped = false;
   // The drop is a refusal made while new wording is being written (it has its own notice).
   private whileWriting = false;
+  // Counts the drops this saver has found. A flush compares it with the count at its start: a drop found by the flush itself is new
+  // to the owner, so that flush stops even when an earlier drop was already shown (the drop epoch).
+  private dropsFound = 0;
+  // Counts the saves the server answered for good: accepted, or refused (it stored nothing and the unsaved values were dropped). A failed
+  // save does not move it. Sign out tells "the same unsaved change" from a new one by it.
+  private settledCount = 0;
+  private disposed = false;
   private readonly send: SendPatch;
   private readonly report: (state: SaverState) => void;
   private readonly delayMs: number;
@@ -85,6 +92,21 @@ export class AutoSaver {
     return this.status;
   }
 
+  /** How many saves the server has answered for good (accepted or refused) from this saver: a failed save does not count. */
+  get settled(): number {
+    return this.settledCount;
+  }
+
+  /** Replaced by a newer saver (a reload): it holds nothing the owner still has to be told about. */
+  get isDisposed(): boolean {
+    return this.disposed;
+  }
+
+  /** Whether a flush would send a save now: something is unsent or in flight (a conflict sends nothing). */
+  get hasUnsent(): boolean {
+    return this.status !== "conflict" && (Object.keys(this.pending).length > 0 || this.running !== null);
+  }
+
   change(patch: DraftPatch): void {
     this.pending = { ...this.pending, ...patch };
     if (this.status === "conflict") return;
@@ -103,14 +125,16 @@ export class AutoSaver {
   /**
    * saveNow for an action that leaves the editor (Publish, Messages, reload, a link). When the owner's wording change was dropped
    * and they have not been told yet, it answers "dropped" so the action stops; an attempt that STARTS after the owner was stopped once
-   * (and is not itself the one that found the drop) clears the notice and goes on. Whether this is the second attempt is decided
-   * before anything is awaited: a double click runs two flushes over one save, and both of them stop.
+   * (and did not itself find a new drop) clears the notice and goes on. Whether this is the second attempt is decided before
+   * anything is awaited: a double click runs two flushes over one save, and both of them stop. A drop found while this flush ran
+   * (dropsFound moved) is new to the owner: this flush stops too.
    */
   async flush(): Promise<FlushResult> {
     const secondAttempt = this.wordingDropped && this.stopped;
+    const dropsAtStart = this.dropsFound;
     if (!(await this.saveNow())) return false;
     if (!this.wordingDropped) return true;
-    if (secondAttempt) {
+    if (secondAttempt && this.dropsFound === dropsAtStart) {
       this.acknowledgeDrop();
       return true;
     }
@@ -145,6 +169,7 @@ export class AutoSaver {
   }
 
   dispose(): void {
+    this.disposed = true;
     clearTimeout(this.timer);
   }
 
@@ -163,7 +188,9 @@ export class AutoSaver {
       const result = await this.sendSafely(patch);
       if (result.ok) {
         this.rev = result.rev;
+        this.settledCount += 1;
         if (result.wordingDropped === true) {
+          this.dropsFound += 1;
           this.wordingDropped = true;
           this.stopped = false;
           this.whileWriting = false;
@@ -181,6 +208,8 @@ export class AutoSaver {
         // on screen either): it is never sent later, when the rewrite may have ended, behind the owner's back.
         clearTimeout(this.timer);
         this.pending = {};
+        this.settledCount += 1;
+        this.dropsFound += 1;
         this.wordingDropped = true;
         this.stopped = false;
         this.whileWriting = true;

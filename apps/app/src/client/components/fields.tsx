@@ -16,7 +16,11 @@ interface Common {
   readOnly?: boolean;
   /** Called when the control gains focus (the editor's preview follows the owner to the field's page). */
   onFocus?: () => void;
+  /** How the counter measures `value` against `max`; the default is its length in code points. A field the server measures after changing the text passes the same measure. */
+  countLength?: (value: string) => number;
 }
+
+const codePoints = (value: string): number => [...value].length;
 
 function describedBy(id: string, hint: string | undefined, errors: readonly string[], counter: boolean): string | undefined {
   const ids = [hint ? `${id}-hint` : "", counter ? `${id}-count` : "", errors.length > 0 ? `${id}-error` : ""].filter(Boolean);
@@ -90,7 +94,7 @@ export function TextInput(
         aria-invalid={errors.length > 0 ? true : undefined}
         aria-describedby={describedBy(props.id, props.hint, errors, counted)}
       />
-      {counted ? <Counter id={props.id} length={[...props.value].length} max={props.max!} /> : null}
+      {counted ? <Counter id={props.id} length={(props.countLength ?? codePoints)(props.value)} max={props.max!} /> : null}
       <Errors id={props.id} errors={errors} />
       {props.after}
     </div>
@@ -115,7 +119,7 @@ export function TextArea(props: Common & { value: string; onChange: (value: stri
         aria-invalid={errors.length > 0 ? true : undefined}
         aria-describedby={describedBy(props.id, props.hint, errors, counted)}
       />
-      {counted ? <Counter id={props.id} length={[...props.value].length} max={props.max!} /> : null}
+      {counted ? <Counter id={props.id} length={(props.countLength ?? codePoints)(props.value)} max={props.max!} /> : null}
       <Errors id={props.id} errors={errors} />
       {props.after}
     </div>

@@ -1,5 +1,7 @@
+import { useEffect, useState } from "react";
+import { Notice } from "./components/feedback.tsx";
 import { useMe } from "./hooks/use-me.ts";
-import { onLinkClick, useRoute } from "./hooks/use-route.ts";
+import { mayEndSession, onLinkClick, resetSignOutStop, useRoute } from "./hooks/use-route.ts";
 import { api } from "./lib/api.ts";
 import type { Route } from "./lib/route.ts";
 import { AcceptInvite } from "./pages/AcceptInvite.tsx";
@@ -35,8 +37,9 @@ function page(route: Route) {
   }
 }
 
-/** Ends the session, then reloads so no signed-in state survives in memory. */
-async function signOut() {
+/** Saves what the page holds, then ends the session and reloads so no signed-in state survives in memory. A press that waits says "Saving…"; anything unsaved stops it once, with the reason (mayEndSession); the next press goes on. */
+async function signOut(say: (message: string | null) => void) {
+  if (!(await mayEndSession(say))) return;
   await api("POST", "/api/auth/logout");
   location.assign("/");
 }
@@ -45,6 +48,12 @@ export function App() {
   const route = useRoute();
   // Asked again for every kind of page, so "Sign out" shows once signed in and never on the sign-in page.
   const me = useMe(route.name);
+  // Why Sign out stopped (it stops once): said here, whatever page is on screen.
+  const [stopMessage, setStopMessage] = useState<string | null>(null);
+  useEffect(() => {
+    setStopMessage(null);
+    resetSignOutStop();
+  }, [route]);
   return (
     <>
       <a href="#main" className="sr-only focus:not-sr-only focus:absolute focus:left-2 focus:top-2 focus:z-10 focus:rounded focus:bg-white focus:p-3">
@@ -56,13 +65,18 @@ export function App() {
             Your website
           </a>
           {me.state === "ready" ? (
-            <button type="button" className="btn-secondary" onClick={() => void signOut()}>
+            <button type="button" className="btn-secondary" onClick={() => void signOut(setStopMessage)}>
               Sign out
             </button>
           ) : null}
         </div>
       </header>
       <main id="main" tabIndex={-1} className="mx-auto max-w-6xl px-4 py-6 break-words">
+        {stopMessage !== null ? (
+          <div role="alert">
+            <Notice tone="error">{stopMessage}</Notice>
+          </div>
+        ) : null}
         {page(route)}
       </main>
       {/* The same help in the same place on every page (WCAG 3.2.6); "Contact us" messages point here. */}

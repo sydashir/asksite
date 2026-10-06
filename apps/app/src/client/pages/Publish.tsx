@@ -5,7 +5,7 @@ import { ConfirmDialog } from "../components/dialog.tsx";
 import { ErrorSummary, Notice, SaveStatus, type SummaryItem } from "../components/feedback.tsx";
 import { ReviewPreview } from "../components/review-preview.tsx";
 import { usePageHeading } from "../hooks/use-page-heading.ts";
-import { onLinkClick } from "../hooks/use-route.ts";
+import { onLinkClick, useLeaveGuard } from "../hooks/use-route.ts";
 import { useSite, type SiteState } from "../hooks/use-site.ts";
 import { api } from "../lib/api.ts";
 import { stepOf } from "../lib/draft-issues.ts";
@@ -13,6 +13,7 @@ import { STEP_TITLE } from "../lib/labels.ts";
 import { issuesToShow, ownerMessage } from "../lib/messages.ts";
 import { paths } from "../lib/route.ts";
 import { issueTarget } from "../lib/values.ts";
+import { NOT_SAVED } from "../lib/save-message.ts";
 
 const when = (ms: number) => new Date(ms).toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" });
 
@@ -49,6 +50,9 @@ function PublishScreen({ siteId, site, view, facts }: { siteId: string; site: Si
     requestAnimationFrame(() => messageRef.current?.focus());
   };
 
+  // Sign out and every link wait for the draft to be saved; a dropped wording change shows its notice (given focus), anything else says so below.
+  useLeaveGuard(site, (result) => (result === "dropped" ? requestAnimationFrame(() => noticeRef.current?.focus()) : showResult(NOT_SAVED)));
+
   const loadVersions = async () => {
     const res = await api<{ versions: VersionSummary[] }>("GET", `/api/sites/${siteId}/versions`);
     if (res.ok) setVersions(res.data.versions);
@@ -67,7 +71,7 @@ function PublishScreen({ siteId, site, view, facts }: { siteId: string; site: Si
       setBusy(false);
       // A dropped wording change (carried from the editor) stops this once: its notice is shown above and given focus, and the next press goes on.
       if (saved === "dropped") requestAnimationFrame(() => noticeRef.current?.focus());
-      else showResult("Your latest changes are not saved yet. Please try again in a moment.");
+      else showResult(NOT_SAVED);
       return;
     }
     const res = await api<{ version: VersionSummary }>("POST", `/api/sites/${siteId}/publish-requests`, { rev: site.rev() });

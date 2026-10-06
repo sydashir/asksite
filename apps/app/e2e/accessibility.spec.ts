@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { acceptInvite, apiCall, askNewWording, builtSite, expectAccessible, expectNoSidewaysScroll, failSiteGets, finishGeneration, showPreview, watchCsp } from "./support.ts";
+import { acceptInvite, apiCall, askNewWording, builtSite, expectAccessible, expectNoSidewaysScroll, failSiteGets, finishGeneration, seedDraft, showPreview, watchCsp } from "./support.ts";
 
 const STEPS = ["business", "services", "area", "trust", "photos", "words", "address"];
 const TABS = ["Words", "Look", "Sections", "Photos", "Details"];
@@ -50,10 +50,14 @@ test("every screen, and every editor tab, reflows at 320 px without sideways scr
 
 test("the build page announces progress politely and passes axe", async ({ page }) => {
   const siteId = await acceptInvite(page);
-  await apiCall(page, "PATCH", `/api/sites/${siteId}/draft`, {
-    rev: 1,
-    facts: { businessName: "Joe's", trade: "plumbing", phone: "+15125550142", email: "a@example.com", location: { city: "Austin", state: "TX" }, serviceArea: { places: ["Austin"] }, services: [{ name: "Drains" }] },
-    brief: { tone: "friendly", goal: "call" },
+  await seedDraft(page, siteId, "progress", {
+    businessName: "Joe's",
+    trade: "plumbing",
+    phone: "+15125550142",
+    email: "a@example.com",
+    location: { city: "Austin", state: "TX" },
+    serviceArea: { places: ["Austin"] },
+    services: [{ name: "Drains" }],
   });
   await apiCall(page, "POST", `/api/sites/${siteId}/generations`, {});
   await page.goto(`/sites/${siteId}/build`);
