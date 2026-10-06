@@ -617,19 +617,58 @@ describe("approveVersion's failure-path cleanup of its copied pages", () => {
     expect((await env.LIVE.head(livePointerKey(p.slug)))?.customMetadata?.["versionId"]).toBe(p.versionId);
   });
 
+  // Finding m-10, deterministic: Home's put is held until the cleanup's delete is called (the Promise.all mutant: it IS
+  // called, while Home is still in flight) or 1 s has passed (the real code: approve waits for every put to settle, so the
+  // delete cannot be called yet). The order of the two events is the assertion; no timing margin decides it.
   it("waits for a slow page copy before it cleans up, so no page lands after the cleanup", async () => {
     const p = await pendingWithPages(env);
+    const events: string[] = [];
+    let deleteCalled: () => void = () => {};
+    const deleteSeen = new Promise<void>((resolve) => (deleteCalled = resolve));
     const slowHome = {
       ...flakyBucket(env.LIVE, () => false),
       put: async (...args: Parameters<R2Bucket["put"]>) => {
         if (args[0] === livePageKey(p.slug, p.versionId, "services")) throw new Error("R2 is unavailable");
-        if (args[0] === livePageKey(p.slug, p.versionId, "home")) await new Promise((resolve) => setTimeout(resolve, 100));
+        if (args[0] === livePageKey(p.slug, p.versionId, "home")) {
+          await Promise.race([deleteSeen, new Promise((resolve) => setTimeout(resolve, 1000))]);
+          const landed = await env.LIVE.put(...args);
+          events.push("home landed");
+          return landed;
+        }
         return env.LIVE.put(...args);
+      },
+      delete: async (keys: string | string[]) => {
+        events.push("cleanup delete");
+        deleteCalled();
+        return env.LIVE.delete(keys);
       },
     } as R2Bucket;
     await expect(approveAs({ ...env, LIVE: slowHome }, p)).rejects.toThrow("R2 is unavailable");
-    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(events).toEqual(["home landed", "cleanup delete"]);
     expect(await liveKeysOf(env.LIVE, p.slug)).toEqual([]);
+  });
+
+  // Finding m-8: the site row is gone (an owner deletion finished while this approve outlived its lease). The copies are
+  // this call's own exact keys under a version id no other site can own: they are deleted, nothing else is, nothing is logged.
+  it("deletes its own copied keys, and only those, when the site row is gone", async () => {
+    const p = await pendingWithPages(env);
+    const otherVersion = newId();
+    const otherKey = livePageKey(p.slug, otherVersion, "home");
+    await env.LIVE.put(otherKey, "another version's page under the same slug");
+    const gone = watchDb(env.DB, async ({ sql, method }) => {
+      if (method === "batch" && sql.includes(BATCH)) await env.DB.batch([env.DB.prepare("UPDATE sites SET pending_version_id = NULL WHERE id = ?").bind(p.siteId), env.DB.prepare("DELETE FROM site_versions WHERE site_id = ?").bind(p.siteId), env.DB.prepare("DELETE FROM sites WHERE id = ?").bind(p.siteId)]);
+    });
+    const spy = logged();
+    try {
+      const error = await failure(approveAs({ ...env, DB: gone }, p));
+      expect({ code: error.code, detail: error.detail }).toEqual({ code: "site_busy", detail: { reason: "lease_lost" } });
+      expect(spy).not.toHaveBeenCalled();
+    } finally {
+      spy.mockRestore();
+    }
+    for (const page of p.pages) expect(await env.LIVE.head(livePageKey(p.slug, p.versionId, page.page)), page.page).toBeNull();
+    expect(await env.LIVE.head(otherKey)).not.toBeNull();
+    await env.LIVE.delete(otherKey);
   });
 
   it("deletes the pages that landed when a page copy fails part-way", async () => {

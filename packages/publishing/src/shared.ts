@@ -171,7 +171,8 @@ export async function copyLivePages(live: R2Bucket, slug: string, ids: { siteId:
  * failed before its batch made the version live, so a later slug change cannot leave them stored under the old slug.
  * Only while D1 still shows this action's lease and a live version other than this one: a batch that committed and then
  * threw, or an accepted retry, leaves the version live in D1, and "Approve again" writes its pointer; another action
- * may own those keys once the lease is lost. When the copies are LEFT (D1 unreadable, the lease lost, the site gone, the
+ * may own those keys once the lease is lost. A site row that is gone does not stop the delete (the owner's account was
+ * deleted meanwhile: nothing else would remove them). When the copies are LEFT (D1 unreadable, the lease lost, the
  * delete failed) it logs ids only (approve_copy_left). Never throws: approve rethrows its own error.
  */
 export async function removeUnservedCopy(
@@ -184,8 +185,12 @@ export async function removeUnservedCopy(
 ): Promise<void> {
   try {
     const row = await db.prepare("SELECT live_version_id, admin_lock FROM sites WHERE id = ?").bind(ids.siteId).first<{ live_version_id: string | null; admin_lock: string | null }>();
-    if (row === null || row.admin_lock !== token) throw new Error("copies left");
-    if (row.live_version_id === ids.versionId) return; // live in D1: the copies are its pages
+    if (row !== null) {
+      if (row.admin_lock !== token) throw new Error("copies left");
+      if (row.live_version_id === ids.versionId) return; // live in D1: the copies are its pages
+    }
+    // A site row that is gone (an owner deletion finished while this approve outlived its lease) leaves nobody to clean
+    // up later: these exact keys name this version id, which no other site can own, so they are deleted (never a prefix).
     await live.delete(pages.map((page) => livePageKey(slug, ids.versionId, page)));
   } catch {
     console.error(JSON.stringify({ code: "approve_copy_left", siteId: ids.siteId, versionId: ids.versionId }));
