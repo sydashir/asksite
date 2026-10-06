@@ -4,6 +4,7 @@ import { EMPTY_EDITS, LIMITS, newId, versionKey, versionPageKey } from "@asksite
 import { approveVersion, createPendingVersion, restore, takeDown } from "@asksite/publishing";
 import { PAGE_IDS, PAGES, SiteDocument } from "@asksite/site-schema";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { deleteOldLeads } from "../src/cron.ts";
 import { at, ROOT, seedSite, settledLeads, sitesHarness, type ToolsEnv } from "./support/harness.ts";
 
 // Plan 2 end to end: publish (as the app Worker will), approve (as the admin Worker will), then the
@@ -231,6 +232,27 @@ describe("daily cron", () => {
     });
     it("at 181 days deletes every kind", async () => {
       expect(await survivors(181 * day)).toEqual([]);
+    });
+
+    // `expired` counts every lead over 180 days (spam included, the 180-day rule runs first); `spam` counts the spam leads
+    // aged 30 to 180 days. Same `now` as above, so the rows the other tests left (never past a cutoff at this `now`) stay out.
+    it("returns the exact count per rule on the real D1, and the database size", async () => {
+      const site = await seedSite(tools);
+      const seeds = [
+        [200, 1, null], [200, 0, null], [200, 0, "daily_cap"], // over 180 days: all three counted as expired
+        [31, 1, null], [31, 1, null], [31, 0, null], [31, 0, "daily_cap"], // spam over 30 days: 2 counted as spam; the others stay
+      ] as const;
+      await tools.DB.batch(
+        seeds.map(([age, spam, error]) =>
+          tools.DB.prepare("INSERT INTO leads (id, site_id, created_at, name, phone, spam, email_status, email_error, ip_hash) VALUES (?, ?, ?, 'n', 'p', ?, 'failed', ?, 'h')").bind(
+            newId(), site.siteId, now - age * day, spam, error,
+          ),
+        ),
+      );
+      const result = await deleteOldLeads(tools.DB, now);
+      expect({ spam: result.spam, expired: result.expired, deleted: result.deleted }).toEqual({ spam: 2, expired: 3, deleted: 5 });
+      expect(typeof result.sizeAfter).toBe("number");
+      expect((await tools.DB.prepare("SELECT COUNT(*) AS n FROM leads WHERE site_id = ?").bind(site.siteId).first<{ n: number }>())?.n).toBe(2);
     });
   });
 });
