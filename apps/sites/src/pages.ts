@@ -118,6 +118,10 @@ export const siteBusy = (root: string, now: number, phone: BusinessPhone | null)
     { "Retry-After": String(secondsToNextUtcDay(now)) },
   );
 
+/** 400: a request that came in over plain http and is not one a redirect can answer (anything but GET and HEAD). */
+export const useHttps = (root: string) =>
+  respond(root, 400, page("Please use https", "<p>This address only works over a secure connection. Please use https:// and try again.</p>"));
+
 export const unreadableForm = (root: string) =>
   respond(root, 415, page("We could not send that", `<p>Your message could not be read. Please go back and try again.</p>\n<p><a href="${QUOTE}">Go back to the form</a></p>`));
 
