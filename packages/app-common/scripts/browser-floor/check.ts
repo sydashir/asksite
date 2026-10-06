@@ -36,13 +36,13 @@ import { apiName, describe, isPlainObjectMember, isSupportedConstant, keysFor } 
 // - sub-features under a member: options and parameters (`focus({ focusVisible: true })`, iOS 18.4)
 //   and behaviors such as symbols as WeakMap keys (Safari 16.4, Firefox 146): only the member's own entry is read; nothing
 //   covers them for DOM APIs, and the lib gate stops only an ES option its es2023 files do not declare;
-// - iteration protocols: `for await` over a ReadableStream (MDN 27) is not judged; nothing covers it;
+// - iteration protocols: `for await` over a ReadableStream (MDN: Chrome and Edge 124, Safari 27) is not judged; nothing covers it;
 // - regular expressions: only literals, for the d and v flags, lookbehind and modifiers; the lib gate
 //   stops only the v flag; nothing covers the rest (duplicate named groups, patterns in strings);
 // - code in node_modules: read by neither this check nor the lib gate; nothing covers it;
 // - members of plain-object types (mapping.ts isPlainObjectMember) pass; nothing else covers them;
 // - a constructor reached through an alias is judged on its interface only; the lib gate stops the
-//   Iterator one, nothing covers the eight DOM ones;
+//   Iterator one, nothing covers the seven DOM ones;
 // - CSS and HTML features (and event names in strings or React props): not checked; Tailwind v4
 //   targets Chrome 111, Safari 16.4 and Firefox 128 and Vite lowers some CSS syntax for build.cssTarget, nothing checks the rest.
 // Backstops: Playwright's browsers and the user's iPhone run CURRENT versions, not the floor, so the

@@ -2,7 +2,7 @@
 
 The owner client must run on Chrome 111, Edge 111, Firefox 128 and iOS/Safari 16.4 (`src/browser-floor.ts`, the
 one place the floor lives). Per browser it is the highest of four constraints: Vite 8's default build target,
-`Intl.Segmenter` (Chrome 87, Firefox 125, Safari 14.1), P4-7 (Safari 16.4, regular expression lookbehind) and
+`Intl.Segmenter` (Chrome 87, Firefox 125, Safari 14.1), P4-7 (Safari 16.4: every iOS-16-capable iPhone can update to 16.7.x, and it matches Vite's default and Tailwind v4's minimum; the code's regex lookbehind literals need it today too) and
 Tailwind CSS v4 (Chrome 111, Safari 16.4, Firefox 128).
 This checker reads the client's TypeScript program. It fails on a runtime use of a platform API (one
 that TypeScript's default lib files declare), in the forms listed below, that MDN's browser-compat-data

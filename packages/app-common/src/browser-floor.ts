@@ -3,7 +3,8 @@
 // - Vite 8's default build target: chrome111, edge111, firefox114, safari16.4, ios16.4 (vite.dev/config/build-options);
 // - Intl.Segmenter, used by the renderer (render.ts): Chrome 87, Firefox 125, Safari 14.1 (MDN browser-compat-data
 //   javascript.builtins.Intl.Segmenter);
-// - P4-7: Safari and iOS Safari 16.4 (regular expression lookbehind);
+// - P4-7: Safari and iOS Safari 16.4 (every iOS-16-capable iPhone can update to 16.7.x; matches Vite's default and
+//   Tailwind v4's minimum; today the code's regex lookbehind literals need it too, but that was not P4-7's reason);
 // - Tailwind CSS v4: Chrome 111, Safari 16.4, Firefox 128 (https://tailwindcss.com/docs/compatibility: "the core
 //   functionality of the framework specifically depends on these browser versions").
 // This is the one place the floor is written. The floor check (scripts/check-browser-floor.ts) reads
