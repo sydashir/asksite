@@ -176,7 +176,7 @@ describe("0005_version_pages.sql", () => {
   });
 });
 
-// A16-4c: one admin action per site at a time. Numbered 0006 by the moderator; Plan 4's next migration is 0007.
+// A16-4c: one admin action per site at a time. Numbered 0006 by the moderator; Plan 4's next migration is 0008 (0007 is S1's leads_emailed).
 describe("0006_site_admin_lock.sql", () => {
   it("adds the lease columns, empty by default", async () => {
     const { site } = await newSite();
