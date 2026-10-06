@@ -2,7 +2,7 @@ import { PALETTES } from "@asksite/renderer";
 import { expect, test, type Browser, type Page, type Request } from "@playwright/test";
 import sharp from "sharp";
 import { sheetsChunk } from "./dist-assets.ts";
-import { acceptInvite, apiCall, APP, askNewWording, BRIEF, builtSite, expectAccessible, expectNoSidewaysScroll, FACTS, failSiteGets, finishGeneration, showPreview, uniqueSlug, watchCsp } from "./support.ts";
+import { acceptInvite, apiCall, APP, askNewWording, builtSite, expectAccessible, expectNoSidewaysScroll, FACTS, failSiteGets, finishGeneration, seedDraft, showPreview, uniqueSlug, watchCsp } from "./support.ts";
 
 const FRAME = 'iframe[title="Preview of your website"]';
 const previewHtml = (page: Page) => page.locator(FRAME).getAttribute("srcdoc");
@@ -25,7 +25,7 @@ async function openEditor(page: Page) {
 
 test("when the first draft is ready, the build page opens the editor with the page in the preview", async ({ page }) => {
   const siteId = await acceptInvite(page);
-  await apiCall(page, "PATCH", `/api/sites/${siteId}/draft`, { rev: 1, facts: FACTS, brief: BRIEF });
+  await seedDraft(page, siteId, "first");
   const started = await apiCall(page, "POST", `/api/sites/${siteId}/generations`, {});
   await page.goto(`/sites/${siteId}/build`);
   await expect(page.getByRole("heading", { level: 1, name: "Building your website" })).toBeFocused();
