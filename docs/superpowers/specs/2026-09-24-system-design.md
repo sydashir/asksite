@@ -661,7 +661,13 @@ export const ERROR_STATUS = {
   internal: 500, email_failed: 502, generation_disabled: 503, budget_exhausted: 503,
 } as const;
 export type ErrorCode = keyof typeof ERROR_STATUS;
-export interface ErrorBody { error: { code: ErrorCode; message: string; issues?: Issue[]; retryAfter?: number; currentRev?: number } }
+export interface ErrorBody {
+  error: {
+    code: ErrorCode; message: string; issues?: Issue[]; retryAfter?: number; currentRev?: number;
+    noticeSent?: boolean | null; // the admin takedown route's lease_lost 409 only: true (this call took the site down and the owner notice went out), false (that notice failed), null (this call sent none)
+    noticeUnknown?: true;        // with noticeSent null: the takedown's re-read failed, so it is unknown whether this call took the site down (and whether the owner was owed a notice)
+  };
+}
 
 // generation.ts (types shared with Plan 3)
 export const GENERATION_ERROR_CODES = ["generation_disabled", "budget_exhausted",
@@ -918,7 +924,7 @@ Every route requires Access plus the allowlist (§5.3), and every response carri
 | `GET /api/admin/versions/:versionId/page` (**PLANNED A16 adapt, Plan 4 builds it:** `…/versions/:versionId/pages/:pageId`) | — | `200` stored HTML with the review headers (§7.4) | 404 |
 | `POST /api/admin/versions/:versionId/approve` | `ApproveBody` | `200 { siteId, liveUrl }` (idempotent, §7.2) | 409 `version_not_pending`, 423 `site_taken_down`, 500 `internal` (`PublishError("integrity")`: the stored bytes or the reviewed `htmlSha256` do not match; audited and never expected in normal operation) |
 | `POST /api/admin/versions/:versionId/reject` | `RejectBody` | `200 { siteId }` | 409 `version_not_pending` |
-| `POST /api/admin/sites/:siteId/takedown` | `TakedownBody` | `200 {}` (idempotent) | 404 |
+| `POST /api/admin/sites/:siteId/takedown` | `FinishableTakedownBody` (`TakedownBody` plus an optional `expectedTakenDownAt`, sent only by "Finish the takedown": the `taken_down_at` the admin's page showed) | `200 TakedownView` (`{ noticeSent: boolean or null, cleanupFailed?: true }`, idempotent; only the call that took the site down sends the owner notice) | 404; 409 `conflict` (`RESTORED_SINCE_OPENED`) when `expectedTakenDownAt` is not the site's current `taken_down_at`; 409 `conflict` (`TAKEDOWN_LEASE_LOST`, no `Retry-After`) when the takedown's lease ran out, carrying `noticeSent` and, when the re-read failed, `noticeUnknown` (§2.8 `ErrorBody`) |
 | `POST /api/admin/sites/:siteId/restore` | `{}` | `200 { liveUrl }` | 409 `conflict` if the site was never live (`PublishError("not_live")`) |
 | `PUT /api/admin/sites/:siteId/indexable` | `IndexableBody` | `200 {}` | 404 |
 | `POST /api/admin/owners/:ownerId/disable` | `DisableOwnerBody` | `200 {}` (deletes that owner's sessions) | 404 |
