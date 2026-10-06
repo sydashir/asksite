@@ -18,6 +18,9 @@ import { STEP_BODY } from "../steps/index.tsx";
 /** Said when the answers are not saved (the Questionnaire holds answers, not "changes"). */
 const ANSWERS_NOT_SAVED = "Your latest answers are not saved yet. Please try again in a moment.";
 
+/** Said above the Build button: the answers may go to the AI provider (honesty; shown while the button builds, not at "Go to the editor"). */
+const AI_PROVIDER_NOTICE = "To write your website, we may send your answers to our AI provider, Anthropic. They don't use them to train their AI.";
+
 export function Questionnaire({ siteId, step }: { siteId: string; step: StepId }) {
   const site = useSite(siteId);
   if (site.load.state === "error") return <Notice tone="error">{site.load.message}</Notice>;
@@ -155,6 +158,7 @@ function StepPage({ siteId, step, site, view, draft }: { siteId: string; step: S
           <Notice tone="error">{message}</Notice>
         </div>
       ) : null}
+      {last && view.ai === null ? <p className="mt-6 text-sm text-slate-700">{AI_PROVIDER_NOTICE}</p> : null}
       <div className="mt-6 flex flex-wrap items-center justify-between gap-4">
         <SaveStatus
           state={site.saver}

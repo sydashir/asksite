@@ -1,6 +1,9 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import { acceptInvite, apiCall, APP, builtSite, expectAccessible, expectNoSidewaysScroll, finishGeneration, seedDraft, uniqueEmail, uniqueSlug } from "./support.ts";
 
+/** The line the owner reads before Build sends the answers to the AI provider (honesty: the owner is told who gets them). */
+const AI_NOTICE = "To write your website, we may send your answers to our AI provider, Anthropic. They don't use them to train their AI.";
+
 /** The Business name field's id (fieldId(["facts", "businessName"])). */
 const NAME_FIELD_ID = "f-facts-businessName";
 
@@ -337,6 +340,20 @@ test("an opening-time error links to that day's opens field and shows its messag
   await expect(page.getByLabel("Monday opens at")).toHaveAccessibleDescription(/Please enter a time\./);
 });
 
+test("the last step tells the owner the answers may go to Anthropic before Build is pressed", async ({ page }) => {
+  const siteId = await acceptInvite(page);
+  await seedDraft(page, siteId, "notice");
+  await page.goto(`/sites/${siteId}/setup/business`);
+  await expect(page.getByRole("heading", { level: 1, name: "Your business" })).toBeFocused();
+  await expect(page.getByText(AI_NOTICE)).toHaveCount(0);
+  await page.goto(`/sites/${siteId}/setup/address`);
+  await expect(page.getByRole("button", { name: "Build my website" })).toBeVisible();
+  await expect(page.getByText(AI_NOTICE, { exact: true })).toBeVisible();
+  await expectNoSidewaysScroll(page);
+  await page.getByRole("button", { name: "Build my website" }).click();
+  await page.waitForURL(`${APP}/sites/${siteId}/build`);
+});
+
 test("with a draft already written, the last step says Go to the editor and starts no new writing", async ({ page }) => {
   const siteId = await builtSite(page);
   const generationPosts: string[] = [];
@@ -346,6 +363,7 @@ test("with a draft already written, the last step says Go to the editor and star
   await page.goto(`/sites/${siteId}/setup/address`);
   await expect(page.getByRole("button", { name: "Go to the editor" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Build my website" })).toHaveCount(0);
+  await expect(page.getByText(AI_NOTICE)).toHaveCount(0);
   await page.getByRole("button", { name: "Go to the editor" }).click();
   await page.waitForURL(`${APP}/sites/${siteId}/edit`);
   expect(generationPosts).toEqual([]);
