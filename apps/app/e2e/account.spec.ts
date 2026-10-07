@@ -10,15 +10,19 @@ test("sign in with an emailed link; the button, not the page load, uses the toke
   await stubTurnstile(page);
   const violations = await watchCsp(page);
   await page.goto("/");
-  await expect(page.getByRole("heading", { level: 1, name: "Sign in" })).toBeVisible();
+  // Open self sign-up (DECIDED 2026-10-07): one form for both, with the decided heading, helper, button and answer.
+  await expect(page.getByRole("heading", { level: 1, name: "Sign in or sign up", exact: true })).toBeVisible();
+  await expect(page.getByText("Enter your email and we'll send you a link.", { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Sign out" })).toHaveCount(0);
   await expect(page.getByRole("contentinfo").getByRole("link", { name: "help@example.com" })).toHaveAttribute("href", "mailto:help@example.com");
   await waitForSecurityCheck(page);
   await expectAccessible(page);
-  await page.getByLabel("Your email address").fill(email);
-  await page.getByRole("button", { name: "Email me a sign-in link" }).click();
-  await expect(page.getByText("If that email has an account, we've sent a link. It can take a few minutes. Didn't get it? Email", { exact: false })).toBeVisible();
+  await page.getByLabel("Your email address", { exact: true }).fill(` ${email.toUpperCase()} `);
+  await page.getByRole("button", { name: "Email me a link", exact: true }).click();
+  // {email} is the address as the server uses it: trimmed and lower-cased.
+  await expect(page.getByRole("status")).toHaveText(`If we can send a link to ${email} right now, it's on its way. It can take a few minutes. Didn't get it? Email help@example.com.`);
   await expect(page.getByRole("status").getByRole("link", { name: "help@example.com" })).toHaveAttribute("href", "mailto:help@example.com");
+  await expectAccessible(page);
   expect(await violations()).toEqual([]);
 
   let text = "";
@@ -40,6 +44,41 @@ test("sign in with an emailed link; the button, not the page load, uses the toke
   await page.getByRole("button", { name: "Sign in" }).click();
   await expect(page.getByRole("heading", { level: 1, name: "Your websites" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible();
+});
+
+// Open self sign-up (DECIDED 2026-10-07): an unknown email on the same form gets a sign-up link; the existing invite page
+// sets up the owner and the site and opens the questionnaire. Each run uses its own visitor network (CF-Connecting-IP on
+// the sign-in request), so the limit of 3 sign-ups per network a day never mixes projects or tests.
+test("an unknown email signs up on the same form: the emailed link sets up the website and opens the questionnaire", async ({ page }) => {
+  const email = uniqueEmail("signup");
+  const network = `198.18.${Math.floor(Math.random() * 256)}.${Math.floor(Math.random() * 254) + 1}`;
+  await page.route("**/api/auth/login", (route) => route.continue({ headers: { ...route.request().headers(), "cf-connecting-ip": network } }));
+  await stubTurnstile(page);
+  await page.goto("/");
+  await waitForSecurityCheck(page);
+  await page.getByLabel("Your email address").fill(email);
+  await page.getByRole("button", { name: "Email me a link" }).click();
+  await expect(page.getByRole("status")).toHaveText(`If we can send a link to ${email} right now, it's on its way. It can take a few minutes. Didn't get it? Email help@example.com.`);
+
+  let message = { subject: "", text: "", tag: "" };
+  await expect
+    .poll(async () => {
+      const res = await page.request.get(`${APP}/api/dev/outbox?to=${encodeURIComponent(email)}`);
+      message = ((await res.json()) as { messages: Array<typeof message> }).messages[0] ?? message;
+      return message.text;
+    })
+    .toContain(`${APP}/invite#`);
+  expect(message.subject).toBe("Set up your business website");
+  expect(message.tag).toBe("signup_invite");
+  const link = /https:\/\/app\.localhost:8787\/invite#[A-Za-z0-9_-]{43}/.exec(message.text)![0];
+
+  await page.goto(link);
+  // RULED 2026-10-07: one neutral text on the invite page for admin invites and sign-up links alike.
+  await expect(page.getByText("Build a website for your business. It takes about 15 minutes, and you can stop and come back at any time.", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Set up my website" }).click();
+  await page.waitForURL(/\/sites\/[0-9a-f-]{36}\/setup\/business$/);
+  await expect(page.getByRole("heading", { level: 1, name: "Your business" })).toBeVisible();
+  expect((await page.request.get(`${APP}/api/me`)).status()).toBe(200);
 });
 
 // Decision 31 on the invite page: the token leaves the address bar on open, and only the button spends it.
@@ -121,9 +160,10 @@ test("if the security check cannot load, the owner is told and Try again brings 
   await page.getByRole("button", { name: "Try again" }).click();
   await waitForSecurityCheck(page);
   await expect(page.getByText("The security check didn't load.")).toHaveCount(0);
-  await page.getByLabel("Your email address").fill(uniqueEmail("retry"));
-  await page.getByRole("button", { name: "Email me a sign-in link" }).click();
-  await expect(page.getByText("If that email has an account, we've sent a link.", { exact: false })).toBeVisible();
+  const retry = uniqueEmail("retry");
+  await page.getByLabel("Your email address").fill(retry);
+  await page.getByRole("button", { name: "Email me a link" }).click();
+  await expect(page.getByRole("status")).toHaveText(`If we can send a link to ${retry} right now, it's on its way. It can take a few minutes. Didn't get it? Email help@example.com.`);
 });
 
 test("the app's policy lets Cloudflare's widget script and frame in, and nothing else new", async ({ request }) => {
