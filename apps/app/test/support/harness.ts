@@ -189,10 +189,16 @@ export function useAppHarness(options: { vars?: Record<string, string> } = {}) {
     return { cookie, ownerId: owner.id, siteId, email };
   }
 
-  /** Waits for the sign-in background work, then deletes every login email, so none counts toward a later test's caps. */
+  /**
+   * Waits for the sign-in background work, then deletes every login email and every self-serve sign-up (its invite, which
+   * counts toward the same day's cap, and its network and alert rows), so none counts toward a later test's caps.
+   */
   async function clearLoginTokens(): Promise<void> {
     await backgroundDone("/api/auth/login");
-    await (await db()).prepare("DELETE FROM login_tokens").bind().run();
+    const database = await db();
+    await database.prepare("DELETE FROM login_tokens").bind().run();
+    await database.prepare("DELETE FROM invites WHERE created_by = 'signup'").bind().run();
+    await database.prepare("DELETE FROM audit_log WHERE action IN ('owner.signup_requested', 'signin.cap_alert_sent')").bind().run();
   }
 
   return { server, call, db, work, invite, signIn, login, siteverifyCalls, waitUntilCount, backgroundDone, clearLoginTokens, logLines, recordSql, recordedSql };

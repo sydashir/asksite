@@ -7,6 +7,8 @@ import {
   magicLinkEmail,
   reviewApprovedEmail,
   reviewRejectedEmail,
+  signInCapAlertEmail,
+  signupInviteEmail,
   siteNoticeEmail,
 } from "../src/emails.ts";
 import * as appCommon from "../src/index.ts";
@@ -86,6 +88,60 @@ describe("inviteEmail", () => {
   });
 });
 
+describe("the admin invite text (open sign-up keeps it unchanged)", () => {
+  it("is word for word today's invite", () => {
+    const email = inviteEmail({ appOrigin: APP, token: TOKEN });
+    const link = `${APP}/invite#${TOKEN}`;
+    expect(email.text).toBe(
+      [
+        "Hi,",
+        "You have been invited to build a website for your business. It takes about 15 minutes.",
+        `Set up your website: ${link}`,
+        `If the link does not open, copy this address into your browser: ${link}`,
+        "The link works once and expires in 7 days. If you were not expecting this email, you can ignore it.",
+      ].join("\n\n") + "\n",
+    );
+  });
+});
+
+describe("signupInviteEmail (open sign-up, DECIDED text)", () => {
+  it("has the decided subject and body, and links to the invite page with the token in the fragment", () => {
+    const email = signupInviteEmail({ appOrigin: APP, token: TOKEN });
+    const link = `${APP}/invite#${TOKEN}`;
+    expect(email.subject).toBe("Set up your business website");
+    expect(email.text).toBe(
+      [
+        "Hi, here is your link to build a website for your business. It takes about 15 minutes.",
+        `Set up your website: ${link}`,
+        `If the link does not open, copy this address into your browser: ${link}`,
+        "The link works once and expires in 7 days. If you did not ask for this, you can ignore this email.",
+      ].join("\n\n") + "\n",
+    );
+    expect(hrefs(email.html)).toEqual([link]);
+  });
+
+  it("refuses a malformed token or a non-https origin instead of building a bad link", () => {
+    expect(() => signupInviteEmail({ appOrigin: APP, token: "short" })).toThrow("Invalid token");
+    expect(() => signupInviteEmail({ appOrigin: "http://app.asksite.example", token: TOKEN })).toThrow("Invalid origin");
+  });
+
+  it("is exported by the package", () => {
+    expect(typeof appCommon.signupInviteEmail).toBe("function");
+    expect(typeof appCommon.signInCapAlertEmail).toBe("function");
+    expect(appCommon.signupInviteEmail).toBe(signupInviteEmail);
+    expect(appCommon.signInCapAlertEmail).toBe(signInCapAlertEmail);
+  });
+});
+
+describe("signInCapAlertEmail", () => {
+  it("names today's count and the day's cap in the subject", () => {
+    const email = signInCapAlertEmail({ sent: 32, cap: 40 });
+    expect(email.subject).toBe("Sign-in emails today: 32 of 40");
+    expect(email.text).toContain("Sign-in and sign-up emails sent today: 32 of 40.");
+    expect(hrefs(email.html)).toEqual([]);
+  });
+});
+
 describe("magicLinkEmail", () => {
   it("links to the login page and says it lasts 15 minutes", () => {
     const email = magicLinkEmail({ appOrigin: APP, token: TOKEN });
@@ -160,6 +216,8 @@ describe("every template", () => {
       reviewRejectedEmail({ appOrigin: APP, note: "Please fix the phone number." }),
       siteNoticeEmail({ appOrigin: APP, supportEmail: "help@asksite.example", ownerMessage: null }),
       adminAlertEmail({ slug: "abc", versionNumber: 1, businessName: null }),
+      signupInviteEmail({ appOrigin: APP, token: TOKEN }),
+      signInCapAlertEmail({ sent: 32, cap: 40 }),
     ]) {
       expect(email.html).not.toMatch(/<img|<script|<style|<iframe/i);
       expect(email.subject).not.toMatch(/[\r\n]/);

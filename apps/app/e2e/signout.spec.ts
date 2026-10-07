@@ -141,7 +141,7 @@ async function storedHeadline(browser: Browser, email: string, siteId: string): 
     await page.goto("/");
     await waitForSecurityCheck(page);
     await page.getByLabel("Your email address").fill(email);
-    await page.getByRole("button", { name: "Email me a sign-in link" }).click();
+    await page.getByRole("button", { name: "Email me a link" }).click();
     let text = "";
     await expect
       .poll(async () => {
