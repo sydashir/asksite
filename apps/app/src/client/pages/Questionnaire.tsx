@@ -26,7 +26,13 @@ const AI_PROVIDER_NOTICE = "To write your website, we may send your answers to o
 export function Questionnaire({ siteId, step }: { siteId: string; step: StepId }) {
   const site = useSite(siteId);
   if (site.load.state === "error") return <Notice tone="error">{site.load.message}</Notice>;
-  if (site.load.state === "loading" || site.draft === null) return <p role="status">Loading your answers…</p>;
+  if (site.load.state === "loading" || site.draft === null)
+    return (
+      <p role="status" className="flex items-center gap-2 text-slate-600">
+        <span className="spinner" aria-hidden="true" />
+        Loading your answers…
+      </p>
+    );
   return <StepPage siteId={siteId} step={step} site={site} view={site.load.view} draft={site.draft} />;
 }
 
@@ -124,71 +130,79 @@ function StepPage({ siteId, step, site, view, draft }: { siteId: string; step: S
   // Links to other steps save first and stay here if that fails (decision 37).
   const leave = linkAfter(site.flush, stopped);
   return (
-    <form noValidate onSubmit={onSubmit} aria-busy={site.locked || undefined} className="mx-auto max-w-2xl">
-      <p className="text-slate-700">
-        Step {number} of {STEPS.length}
-      </p>
-      <h1 ref={heading} tabIndex={-1} className="text-2xl font-bold">
-        {STEP_TITLE[step]}
-      </h1>
-      <nav aria-label="Questionnaire steps" className="mt-3">
-        <ol className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
+    <form noValidate onSubmit={onSubmit} aria-busy={site.locked || undefined} className="wizard">
+      <div className="wizard-head">
+        <p className="eyebrow">
+          Step {number} of {STEPS.length}
+        </p>
+        {/* Decorative: the line above says the same. */}
+        <div className="progress-track mt-2" aria-hidden="true">
+          <div className="progress-fill" style={{ width: `${(number / STEPS.length) * 100}%` }} />
+        </div>
+        <h1 ref={heading} tabIndex={-1} className="page-title mt-5">
+          {STEP_TITLE[step]}
+        </h1>
+      </div>
+      <nav aria-label="Questionnaire steps" className="wizard-steps">
+        <ol>
           {STEPS.map((s, i) => (
             <li key={s}>
-              <a href={paths.setup(siteId, s)} onClick={leave} aria-current={s === step ? "step" : undefined} className={s === step ? "font-semibold text-slate-900" : "link"}>
+              <a href={paths.setup(siteId, s)} onClick={leave} aria-current={s === step ? "step" : undefined} className="step-link">
                 {i + 1}. {STEP_TITLE[s]}
               </a>
             </li>
           ))}
         </ol>
       </nav>
-      <ErrorSummary items={showErrors ? blocking.map((i) => summaryItem(siteId, step, i, draft.facts)) : []} focusSignal={focusSignal} />
-      <div className="card mt-6">
-        {/* Read-only while a change that bypasses the autosaver runs (the web address): see useSite.exclusive. Not disabled: that drops keyboard focus. */}
-        <div>
-          <Body {...props} />
-          <TextArea
-            id={fieldId(["brief", "comments", step])}
-            label="Anything we should know about this?"
-            optional
-            max={500}
-            readOnly={site.locked}
-            value={asString(comments[step])}
-            errors={props.errors(["brief", "comments", step])}
-            onChange={(v) => props.setBrief(["comments", step], v === "" ? undefined : v)}
+      <div className="wizard-body">
+        <ErrorSummary items={showErrors ? blocking.map((i) => summaryItem(siteId, step, i, draft.facts)) : []} focusSignal={focusSignal} />
+        <div className="card mt-6">
+          {/* Read-only while a change that bypasses the autosaver runs (the web address): see useSite.exclusive. Not disabled: that drops keyboard focus. */}
+          <div>
+            <Body {...props} />
+            <TextArea
+              id={fieldId(["brief", "comments", step])}
+              label="Anything we should know about this?"
+              optional
+              max={500}
+              readOnly={site.locked}
+              value={asString(comments[step])}
+              errors={props.errors(["brief", "comments", step])}
+              onChange={(v) => props.setBrief(["comments", step], v === "" ? undefined : v)}
+            />
+          </div>
+        </div>
+        {message !== null ? (
+          <div role="alert">
+            <Notice tone="error">{message}</Notice>
+          </div>
+        ) : null}
+        {aiNoticeShown ? (
+          <p id={AI_NOTICE_ID} className="mt-6 text-sm text-slate-700">
+            {AI_PROVIDER_NOTICE}
+          </p>
+        ) : null}
+        <div className="mt-6 flex flex-wrap items-center justify-between gap-4">
+          <SaveStatus
+            state={site.saver}
+            onRetry={() => void site.retry()}
+            onReload={() => void site.reload()}
+            messageRef={noticeRef}
+            onDismiss={() => {
+              site.dismissDrop();
+              noticeRef.current?.focus();
+            }}
           />
-        </div>
-      </div>
-      {message !== null ? (
-        <div role="alert">
-          <Notice tone="error">{message}</Notice>
-        </div>
-      ) : null}
-      {aiNoticeShown ? (
-        <p id={AI_NOTICE_ID} className="mt-6 text-sm text-slate-700">
-          {AI_PROVIDER_NOTICE}
-        </p>
-      ) : null}
-      <div className="mt-6 flex flex-wrap items-center justify-between gap-4">
-        <SaveStatus
-          state={site.saver}
-          onRetry={() => void site.retry()}
-          onReload={() => void site.reload()}
-          messageRef={noticeRef}
-          onDismiss={() => {
-            site.dismissDrop();
-            noticeRef.current?.focus();
-          }}
-        />
-        <div className="flex flex-wrap gap-3">
-          {previous !== null ? (
-            <a className="btn-secondary" href={paths.setup(siteId, previous)} onClick={leave}>
-              Back
-            </a>
-          ) : null}
-          <button type="submit" className="btn-primary" aria-disabled={busy || site.locked} aria-describedby={aiNoticeShown ? AI_NOTICE_ID : undefined}>
-            {last ? (view.ai !== null ? "Go to the editor" : busy ? "Starting…" : "Build my website") : "Save and continue"}
-          </button>
+          <div className="flex flex-wrap gap-3">
+            {previous !== null ? (
+              <a className="btn-secondary" href={paths.setup(siteId, previous)} onClick={leave}>
+                Back
+              </a>
+            ) : null}
+            <button type="submit" className="btn-primary" aria-disabled={busy || site.locked} aria-describedby={aiNoticeShown ? AI_NOTICE_ID : undefined}>
+              {last ? (view.ai !== null ? "Go to the editor" : busy ? "Starting…" : "Build my website") : "Save and continue"}
+            </button>
+          </div>
         </div>
       </div>
     </form>

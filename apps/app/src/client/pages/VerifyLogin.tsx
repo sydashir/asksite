@@ -1,5 +1,6 @@
 import { TOKEN_PATTERN } from "@asksite/core";
 import { useEffect, useState } from "react";
+import { AuthIntro } from "../components/auth-intro.tsx";
 import { Notice } from "../components/feedback.tsx";
 import { usePageHeading } from "../hooks/use-page-heading.ts";
 import { navigate } from "../hooks/use-route.ts";
@@ -26,27 +27,30 @@ export function VerifyLogin() {
   }
 
   return (
-    <section className="card mx-auto max-w-xl">
-      <h1 ref={heading} tabIndex={-1} className="text-2xl font-bold">
-        Sign in
-      </h1>
-      {TOKEN_PATTERN.test(token) ? (
-        <button type="button" className="btn-primary mt-6" onClick={() => void signIn()} disabled={busy}>
-          {busy ? "Signing in…" : "Sign in"}
-        </button>
-      ) : (
-        <Notice tone="error">This link is not complete. Please open the link in your email again, or ask for a new one.</Notice>
-      )}
-      {error !== null ? (
-        <div role="alert">
-          <Notice tone="error">
-            {error}{" "}
-            <a href="/" className="link">
-              Ask for a new link
-            </a>
-          </Notice>
-        </div>
-      ) : null}
-    </section>
+    <div className="auth">
+      <section className="auth-panel">
+        <h1 ref={heading} tabIndex={-1} className="page-title">
+          Sign in
+        </h1>
+        {TOKEN_PATTERN.test(token) ? (
+          <button type="button" className="btn-primary btn-lg mt-6 w-full" onClick={() => void signIn()} disabled={busy}>
+            {busy ? "Signing in…" : "Sign in"}
+          </button>
+        ) : (
+          <Notice tone="error">This link is not complete. Please open the link in your email again, or ask for a new one.</Notice>
+        )}
+        {error !== null ? (
+          <div role="alert">
+            <Notice tone="error">
+              {error}{" "}
+              <a href="/" className="link">
+                Ask for a new link
+              </a>
+            </Notice>
+          </div>
+        ) : null}
+      </section>
+      <AuthIntro />
+    </div>
   );
 }

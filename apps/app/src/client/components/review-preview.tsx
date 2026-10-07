@@ -36,8 +36,8 @@ export function ReviewPreview({ siteId, version }: { siteId: string; version: Ow
   }, [siteId, version.id, pageList, attempt]);
 
   return (
-    <div className="mt-3">
-      <h3 className="font-semibold">See what we are reviewing</h3>
+    <div className="mt-5">
+      <h3 className="mb-3 font-semibold text-ink">See what we are reviewing</h3>
       {load.state === "loading" ? (
         <p role="status" className="mt-2">
           Loading the pages…

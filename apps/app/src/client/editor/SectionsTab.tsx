@@ -45,7 +45,7 @@ export function SectionsTab({ ai, composed, edits, setEdits, readOnly, onSection
               const hidden = (edits.hidden as readonly string[]).includes(id);
               const removes = hidden ? null : pageRemovedByHiding(listed, edits.hidden, id);
               return (
-                <li key={id} className="rounded-lg border border-slate-300 bg-white p-3">
+                <li key={id} className="rounded-xl border border-slate-200 bg-white p-3.5">
                   <p className="font-medium">
                     {SECTION_LABEL[id]}
                     {hidden ? <span className="font-normal text-slate-600"> (hidden)</span> : null}
@@ -66,7 +66,7 @@ export function SectionsTab({ ai, composed, edits, setEdits, readOnly, onSection
                         <input
                           id={`hide-${id}`}
                           type="checkbox"
-                          className="size-6 accent-blue-700"
+                          className="size-6 accent-brand-800"
                           checked={hidden}
                           aria-disabled={readOnly}
                           aria-describedby={removes === null ? undefined : `hide-${id}-note`}

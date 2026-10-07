@@ -29,7 +29,7 @@ function describedBy(id: string, hint: string | undefined, errors: readonly stri
 
 function Label({ id, label, optional }: { id: string; label: string; optional?: boolean | undefined }) {
   return (
-    <label htmlFor={id} className="block font-medium text-slate-900">
+    <label htmlFor={id} className="block font-medium text-ink">
       {label}
       {optional ? <span className="font-normal text-slate-600"> (optional)</span> : null}
     </label>
@@ -60,8 +60,7 @@ function Counter({ id, length, max }: { id: string; length: number; max: number 
   );
 }
 
-const INPUT =
-  "mt-1 block w-full rounded-md border border-slate-500 bg-white px-3 py-2 text-base text-slate-900 aria-[invalid=true]:border-red-700 aria-[invalid=true]:border-2";
+const INPUT = "field-input";
 
 export function TextInput(
   props: Common & {
@@ -163,14 +162,14 @@ export function Checkbox(props: { id: string; label: string; hint?: string; chec
         <input
           id={props.id}
           type="checkbox"
-          className="mt-1 size-6 shrink-0 accent-blue-700"
+          className="mt-0.5 size-6 shrink-0 accent-brand-800"
           checked={props.checked}
           onChange={(e) => props.onChange(e.target.checked)}
           aria-invalid={errors.length > 0 ? true : undefined}
           aria-describedby={describedBy(props.id, props.hint, errors, false)}
         />
         <div>
-          <label htmlFor={props.id} className="font-medium text-slate-900">
+          <label htmlFor={props.id} className="font-medium text-ink">
             {props.label}
           </label>
           <Hint id={props.id} hint={props.hint} />
@@ -187,7 +186,7 @@ export function RadioGroup(
   const errors = props.errors ?? [];
   return (
     <fieldset id={props.id} tabIndex={-1} className="mt-5" aria-describedby={describedBy(props.id, props.hint, errors, false)}>
-      <legend className="font-medium text-slate-900">{props.label}</legend>
+      <legend className="font-medium text-ink">{props.label}</legend>
       <Hint id={props.id} hint={props.hint} />
       <div className="mt-2 space-y-2">
         {props.options.map((o) => (
@@ -196,7 +195,7 @@ export function RadioGroup(
               id={`${props.id}-${o.value}`}
               type="radio"
               name={props.name}
-              className="mt-1 size-6 shrink-0 accent-blue-700"
+              className="mt-0.5 size-6 shrink-0 accent-brand-800"
               value={o.value}
               checked={props.value === o.value}
               onChange={() => props.onChange(o.value)}
@@ -217,8 +216,8 @@ export function RadioGroup(
 export function Group(props: { id: string; legend: string; hint?: string; errors?: readonly string[]; children: ReactNode }) {
   const errors = props.errors ?? [];
   return (
-    <fieldset id={props.id} tabIndex={-1} className="mt-6 rounded-lg border border-slate-300 p-4" aria-describedby={describedBy(props.id, props.hint, errors, false)}>
-      <legend className="px-1 font-semibold text-slate-900">{props.legend}</legend>
+    <fieldset id={props.id} tabIndex={-1} className="mt-6 rounded-xl border border-slate-300 bg-white p-4 sm:p-5" aria-describedby={describedBy(props.id, props.hint, errors, false)}>
+      <legend className="px-1 font-semibold text-ink">{props.legend}</legend>
       <Hint id={props.id} hint={props.hint} />
       <Errors id={props.id} errors={errors} />
       {props.children}

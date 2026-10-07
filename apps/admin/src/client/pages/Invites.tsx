@@ -46,7 +46,7 @@ export function Invites() {
 
   return (
     <section>
-      <h1 ref={heading} tabIndex={-1} className="text-2xl font-bold">
+      <h1 ref={heading} tabIndex={-1} className="page-title">
         Invites
       </h1>
       <form className="card mt-4 max-w-xl" noValidate onSubmit={(e) => void send(e)}>

@@ -225,7 +225,7 @@ function LoadedFrame({ html, view, frameTitle, onLeftPage, onShown }: { html: st
   }, [html]);
   const styles = frameStyles(view);
   return (
-    <div className={`mt-3 rounded-lg border border-slate-400 bg-white ${styles.boxClass}`} style={styles.box}>
+    <div className={`mt-3 rounded-xl border border-slate-300 bg-white shadow-[0_1px_3px_rgba(10,10,10,0.06)] ${styles.boxClass}`} style={styles.box}>
       <iframe
         key={mount}
         title={frameTitle}

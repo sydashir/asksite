@@ -69,17 +69,25 @@ export function Build({ siteId }: { siteId: string }) {
 
   const failed = generation?.status === "failed";
   return (
-    <section className="card mx-auto max-w-xl">
-      <h1 ref={heading} tabIndex={-1} className="text-2xl font-bold">
+    <section className="card mx-auto mt-2 max-w-xl sm:mt-6 sm:p-8">
+      <span className="icon-tile" aria-hidden="true">
+        <svg viewBox="0 0 24 24" className="size-6" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M12 20h9" />
+          <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />
+        </svg>
+      </span>
+      <h1 ref={heading} tabIndex={-1} className="page-title mt-5">
         Building your website
       </h1>
-      <p role="status" className="mt-4 text-lg">
+      <p role="status" className="mt-3 text-lg text-slate-700">
         {failed
           ? "Something went wrong while writing your website."
           : slow
             ? "Still working… This can take a few minutes. You can close this page and come back later."
             : "We are writing your website. This usually takes under a minute."}
       </p>
+      {/* Decorative: the status line above says what is happening. */}
+      {failed || error !== null ? null : <div className="progress-indeterminate mt-6" aria-hidden="true" />}
       {failed ? (
         <button type="button" className="btn-primary mt-6" onClick={() => void retry()}>
           Try again

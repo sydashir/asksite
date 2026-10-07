@@ -93,7 +93,7 @@ export function AddressStep({ siteId, view, site, facts, errors, frozen }: StepP
       <p className="mt-2 break-all text-slate-800">
         Your website will be at <strong>{siteUrl(__ROOT_DOMAIN__, value === "" ? "your-name" : value)}</strong>
       </p>
-      <p role="status" className={unsaved || check?.ok === false ? "mt-2 font-medium text-red-700" : "mt-2 text-green-800"}>
+      <p role="status" className={unsaved || check?.ok === false ? "mt-2 font-medium text-red-700" : "mt-2 font-medium text-brand-800"}>
         {unsaved ? "Your latest answers are not saved yet. Please try again in a moment." : (check?.text ?? "")}
       </p>
       <button type="button" className="btn-secondary mt-4" aria-disabled={cannotSave} onClick={() => void save()}>

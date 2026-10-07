@@ -1,5 +1,6 @@
 import { TOKEN_PATTERN } from "@asksite/core";
 import { useEffect, useState } from "react";
+import { AuthIntro } from "../components/auth-intro.tsx";
 import { Notice } from "../components/feedback.tsx";
 import { usePageHeading } from "../hooks/use-page-heading.ts";
 import { navigate } from "../hooks/use-route.ts";
@@ -31,27 +32,30 @@ export function AcceptInvite() {
   }
 
   return (
-    <section className="card mx-auto max-w-xl">
-      <h1 ref={heading} tabIndex={-1} className="text-2xl font-bold">
-        Set up your website
-      </h1>
-      {TOKEN_PATTERN.test(token) ? (
-        <>
-          <p className="mt-3">
-            Build a website for your business. It takes about 15 minutes, and you can stop and come back at any time.
-          </p>
-          <button type="button" className="btn-primary mt-6" onClick={() => void accept()} disabled={busy}>
-            {busy ? "Setting up…" : "Set up my website"}
-          </button>
-        </>
-      ) : (
-        <Notice tone="error">This link is not complete. Please open the link in your invite email again.</Notice>
-      )}
-      {error !== null ? (
-        <div role="alert">
-          <Notice tone="error">{error}</Notice>
-        </div>
-      ) : null}
-    </section>
+    <div className="auth">
+      <section className="auth-panel">
+        <h1 ref={heading} tabIndex={-1} className="page-title">
+          Set up your website
+        </h1>
+        {TOKEN_PATTERN.test(token) ? (
+          <>
+            <p className="page-sub">
+              Build a website for your business. It takes about 15 minutes, and you can stop and come back at any time.
+            </p>
+            <button type="button" className="btn-primary btn-lg mt-6 w-full" onClick={() => void accept()} disabled={busy}>
+              {busy ? "Setting up…" : "Set up my website"}
+            </button>
+          </>
+        ) : (
+          <Notice tone="error">This link is not complete. Please open the link in your invite email again.</Notice>
+        )}
+        {error !== null ? (
+          <div role="alert">
+            <Notice tone="error">{error}</Notice>
+          </div>
+        ) : null}
+      </section>
+      <AuthIntro />
+    </div>
   );
 }

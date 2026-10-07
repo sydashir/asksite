@@ -1,33 +1,301 @@
 @import "tailwindcss";
 
+/*
+ * The Hybrid Mediaworks design system, shared by the owner app and the admin app (the admin imports this file).
+ * Brand green #7BDD4C is a dark-text colour: near-black text on a green fill, or green on near-black. It is never text,
+ * a border or a focus ring on white, and white text never sits on it. On light surfaces green text uses brand-800
+ * (7.2:1 on white) and the focus ring brand-800; on dark surfaces both use brand-500 (11.6:1 on #0A0A0A).
+ */
+@theme {
+  --color-brand-50: #ecfde6;
+  --color-brand-100: #d7fbca;
+  --color-brand-200: #bbf7a4;
+  --color-brand-300: #a1f080;
+  --color-brand-400: #93ea68;
+  --color-brand-500: #7bdd4c;
+  --color-brand-600: #4da419;
+  --color-brand-700: #3a820a;
+  --color-brand-800: #296400;
+  --color-brand-900: #1e4905;
+  --color-brand-950: #102c02;
+  /* Near-black text and dark chrome; graphite panels; secondary text on dark (8.5:1 on ink). */
+  --color-ink: #0a0a0a;
+  --color-graphite: #171717;
+  --color-mist: #a3abb5;
+  /* The page behind the cards: light enough that slate-500 text on it stays at 4.5:1. */
+  --color-canvas: #fafafa;
+  --radius-card: 14px;
+  --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
 @layer base {
   html {
-    background-color: var(--color-slate-50);
+    background-color: var(--color-canvas);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
   }
   body {
     color: var(--color-slate-900);
   }
+  h1,
+  h2,
+  h3 {
+    text-wrap: balance;
+  }
   :focus-visible {
-    outline: 3px solid var(--color-blue-700);
+    outline: 3px solid var(--focus-ring, var(--color-brand-800));
     outline-offset: 2px;
+  }
+  /* Page headings and <main> take focus only so a screen reader starts there (route changes, the skip link); they are not
+     controls (WCAG 2.4.7), so they show no ring. */
+  :where(h1, h2, main)[tabindex="-1"]:focus-visible {
+    outline: none;
+  }
+  ::selection {
+    background-color: var(--color-brand-500);
+    color: var(--color-ink);
   }
 }
 
 @layer components {
+  /* Dark chrome (top bar, sign-in panel): white text, brand-green focus ring. */
+  .surface-dark {
+    --focus-ring: var(--color-brand-500);
+    background-color: var(--color-ink);
+    color: var(--color-white);
+    color-scheme: dark;
+  }
   .btn-primary {
-    @apply inline-flex min-h-11 items-center justify-center rounded-md bg-blue-700 px-5 py-2 font-semibold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:bg-slate-500 aria-disabled:cursor-not-allowed aria-disabled:bg-slate-500;
+    @apply inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-brand-600 bg-brand-500 px-5 py-2 font-semibold text-ink hover:bg-brand-400 active:translate-y-px disabled:cursor-not-allowed disabled:border-slate-300 disabled:bg-slate-200 disabled:text-slate-700 aria-disabled:cursor-not-allowed aria-disabled:border-slate-300 aria-disabled:bg-slate-200 aria-disabled:text-slate-700;
   }
   .btn-secondary {
-    @apply inline-flex min-h-11 items-center justify-center rounded-md border border-slate-500 bg-white px-4 py-2 font-medium text-slate-900 hover:bg-slate-100 aria-disabled:cursor-not-allowed aria-disabled:opacity-60;
+    @apply inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-slate-500 bg-white px-4 py-2 font-medium text-ink hover:border-ink hover:bg-slate-50 active:translate-y-px aria-disabled:cursor-not-allowed aria-disabled:opacity-60 aria-pressed:border-ink aria-pressed:bg-ink aria-pressed:font-semibold aria-pressed:text-white;
   }
   .btn-small {
-    @apply inline-flex min-h-8 min-w-8 items-center justify-center rounded border border-slate-500 bg-white px-2 text-sm text-slate-900 hover:bg-slate-100 disabled:text-slate-500 aria-disabled:cursor-not-allowed aria-disabled:opacity-60 aria-pressed:border-blue-700 aria-pressed:bg-blue-700 aria-pressed:font-semibold aria-pressed:text-white;
+    @apply inline-flex min-h-11 min-w-11 items-center justify-center rounded-lg border border-slate-500 bg-white px-3 text-sm font-medium text-ink hover:bg-slate-100 disabled:text-slate-500 aria-disabled:cursor-not-allowed aria-disabled:opacity-60 aria-pressed:border-ink aria-pressed:bg-ink aria-pressed:font-semibold aria-pressed:text-white;
+  }
+  /* An outline button on dark chrome (Sign out). */
+  .btn-on-dark {
+    @apply inline-flex min-h-11 items-center justify-center rounded-lg border border-white/45 px-4 py-2 font-medium text-white hover:border-white/70 hover:bg-white/10 active:translate-y-px;
   }
   .link {
-    @apply text-blue-800 underline underline-offset-2;
+    @apply font-medium text-brand-800 underline decoration-brand-600 underline-offset-[3px] hover:text-brand-900 hover:decoration-2;
   }
   .card {
-    @apply rounded-lg border border-slate-300 bg-white p-4 sm:p-6;
+    @apply rounded-card border border-slate-200 bg-white p-4 sm:p-6;
+  }
+  .page-title {
+    @apply text-[1.75rem] leading-tight font-semibold tracking-[-0.025em] text-ink sm:text-[2rem];
+  }
+  .section-title {
+    @apply text-lg font-semibold tracking-[-0.01em] text-ink;
+  }
+  .meta {
+    @apply text-slate-600;
+  }
+  /* Small rounded labels: neutral, or brand (brand-800 on brand-50 is 6.8:1). */
+  .pill {
+    @apply inline-flex min-h-6 items-center rounded-full bg-slate-100 px-2.5 py-0.5 text-[0.8125rem] font-medium text-slate-700;
+  }
+  .pill-brand {
+    @apply inline-flex min-h-6 items-center rounded-full bg-brand-50 px-2.5 py-0.5 text-[0.8125rem] font-semibold text-brand-800 ring-1 ring-brand-600/40 ring-inset;
+  }
+  /* A destructive action that is not the main one (Reject): red outline, red-800 text (8.3:1 on white). */
+  .btn-danger {
+    @apply inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-red-700 bg-white px-4 py-2 font-medium text-red-800 hover:bg-red-50 active:translate-y-px aria-disabled:cursor-not-allowed aria-disabled:opacity-60;
+  }
+  /* A small spinner beside "Loading…" text (decorative: the text says it). Still under reduced motion. */
+  .spinner {
+    @apply inline-block size-4 shrink-0 animate-spin rounded-full border-2 border-slate-300 border-t-brand-700 align-[-2px];
+  }
+  /* A bordered, centred panel for "nothing here" states. */
+  .empty-state {
+    @apply rounded-card border border-dashed border-slate-300 bg-white px-6 py-12 text-center sm:py-16;
+  }
+  /* Inline code-like labels (field paths). */
+  .code-tag {
+    @apply rounded-md bg-slate-100 px-1.5 py-0.5 font-mono text-[0.8125rem] text-slate-800;
+  }
+  /* The skip link: hidden until focused, then a green tab at the top left. */
+  .skip-link {
+    @apply sr-only focus:not-sr-only focus:absolute focus:top-3 focus:left-3 focus:z-20 focus:rounded-lg focus:bg-brand-500 focus:px-4 focus:py-3 focus:font-semibold focus:text-ink;
+  }
+  /* The top bar's home link: the mark (decorative) and the product name. */
+  .brand-link {
+    @apply -ml-1 inline-flex min-h-11 items-center gap-3 rounded-lg px-1 text-[1.0625rem] font-semibold tracking-[-0.01em] text-white;
+  }
+  .brand-mark {
+    @apply size-10 rounded-[10px];
+  }
+  /* Text inputs, text areas and selects (46px tall); an invalid one gets a 2px red border. */
+  .field-input {
+    @apply mt-1.5 block min-h-11 w-full rounded-lg border border-slate-500 bg-white px-3.5 py-2.5 text-base text-ink hover:border-slate-700 focus:border-brand-800 aria-[invalid=true]:border-2 aria-[invalid=true]:border-red-700;
+  }
+  /* Notices: a tinted box with a 4px bar on the left. */
+  .notice {
+    @apply mt-4 rounded-xl border border-l-4 p-4 text-slate-900;
+  }
+  .notice-info {
+    @apply border-slate-200 border-l-slate-700 bg-white;
+  }
+  .notice-warning {
+    @apply border-amber-200 border-l-amber-600 bg-amber-50;
+  }
+  .notice-success {
+    @apply border-brand-200 border-l-brand-700 bg-brand-50;
+  }
+  .notice-error {
+    @apply border-red-200 border-l-red-700 bg-red-50;
+  }
+  .dialog {
+    @apply m-auto w-[calc(100%-2rem)] max-w-md rounded-2xl border border-slate-200 p-6 text-slate-900 shadow-[0_30px_90px_rgba(0,0,0,0.35)] backdrop:bg-black/70 sm:p-7;
+  }
+  /* Progress: a 6px track with a green fill. Decorative: the text beside it says the same thing. */
+  .progress-track {
+    @apply h-1.5 w-full overflow-hidden rounded-full bg-slate-200;
+  }
+  .progress-fill {
+    @apply h-full rounded-full bg-brand-600 transition-[width] duration-300 ease-out;
+  }
+  /* Work of unknown length (the first build): a green segment slides along the track. */
+  .progress-indeterminate {
+    @apply relative h-1.5 w-full overflow-hidden rounded-full bg-slate-200;
+  }
+  .progress-indeterminate::after {
+    content: "";
+    position: absolute;
+    inset-block: 0;
+    left: 0;
+    width: 35%;
+    border-radius: 9999px;
+    background-color: var(--color-brand-600);
+    animation: progress-slide 1.4s ease-in-out infinite;
+  }
+  /* The questionnaire: on wide screens the step list is a rail on the left of the heading and the form; on phones it is
+     one swipeable row under the heading. DOM order (heading, steps, form) is the same at every width. */
+  .wizard {
+    @apply mx-auto max-w-2xl lg:grid lg:max-w-[57rem] lg:grid-cols-[13rem_minmax(0,1fr)] lg:gap-x-10;
+  }
+  .wizard-head,
+  .wizard-body {
+    @apply lg:col-start-2;
+  }
+  /* The step's first field sits at the card's top padding, not below an extra gap. */
+  .wizard-body .card > div > :first-child {
+    @apply mt-0;
+  }
+  .wizard-steps {
+    @apply mt-5 lg:col-start-1 lg:row-span-2 lg:row-start-1 lg:mt-1 lg:self-start;
+  }
+  .wizard-steps > ol {
+    @apply -mx-4 flex gap-1.5 overflow-x-auto px-4 py-1.5 lg:mx-0 lg:flex-col lg:gap-1 lg:overflow-visible lg:px-0;
+  }
+  .wizard-steps li {
+    @apply shrink-0;
+  }
+  .wizard-steps .step-link {
+    @apply whitespace-nowrap lg:flex lg:whitespace-normal;
+  }
+  /* Sign-in, invite and sign-up: a white form panel, and from 1024px a dark Hybrid panel beside it. Below 640px the chrome
+     around the form is 1px border + 16px padding (+ main's 16px), the same as the old card, so the security check keeps its width. */
+  .auth {
+    @apply mx-auto max-w-xl overflow-hidden rounded-card border border-slate-200 bg-white lg:grid lg:max-w-5xl lg:grid-cols-2;
+  }
+  .auth-panel {
+    @apply p-4 sm:p-8 lg:flex lg:flex-col lg:justify-center lg:p-12;
+  }
+  .auth-intro {
+    @apply hidden;
+  }
+  @media (width >= 64rem) {
+    .auth-intro {
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+      padding: 3rem;
+      color: var(--color-mist);
+      color-scheme: dark;
+      background:
+        radial-gradient(70% 80% at 100% 0%, rgb(123 221 76 / 0.22), transparent 65%),
+        radial-gradient(60% 80% at 0% 100%, #0f1c0e, transparent 70%),
+        var(--color-ink);
+    }
+  }
+  .auth-intro-mark {
+    @apply mb-auto size-14 rounded-xl;
+  }
+  .auth-intro-title {
+    @apply text-[clamp(2rem,1.4rem+2vw,3rem)] leading-[1.05] font-semibold tracking-[-0.035em] text-balance text-white;
+  }
+  .auth-intro-text {
+    @apply max-w-[38ch] text-[1.0625rem];
+  }
+  /* The sentence under an h1. */
+  .page-sub {
+    @apply mt-3 text-[1.0625rem] text-slate-700;
+  }
+  .btn-lg {
+    @apply min-h-12 px-6 text-[1.0625rem];
+  }
+  /* A 48px brand tile holding a line icon (near-black on green, 11.6:1). */
+  .icon-tile {
+    @apply inline-flex size-12 items-center justify-center rounded-xl bg-brand-500 text-ink;
+  }
+  /* A link back to the previous screen, with a chevron. */
+  .back-link {
+    @apply inline-flex min-h-11 items-center gap-1.5;
+  }
+  /* The card that holds a screen's main action: a green bar on its top edge. */
+  .card-action {
+    @apply border-t-4 border-t-brand-500;
+  }
+  /* Tabs: the selected tab is near-black and semibold, with a 3px green bar under it. */
+  .tab-list {
+    @apply flex flex-wrap gap-x-1 border-b border-slate-200;
+  }
+  .tab {
+    @apply -mb-px min-h-11 border-b-[3px] border-transparent px-3 font-medium text-slate-600 hover:border-slate-300 hover:text-ink aria-selected:border-brand-600 aria-selected:font-semibold aria-selected:text-ink;
+  }
+  /* The editor's left column: its tools in one white panel. */
+  .editor-panel {
+    @apply rounded-card border border-slate-200 bg-white p-4 sm:p-5;
+  }
+  /* A choice shown as a card (designs, colours): the checked one gets a green edge and tint. */
+  .choice-card {
+    @apply flex items-center gap-3 rounded-xl border border-slate-300 bg-white p-3 hover:border-slate-500 has-checked:border-brand-700 has-checked:bg-brand-50;
+  }
+  .eyebrow {
+    @apply text-sm font-medium text-slate-600;
+  }
+  /* The questionnaire's step links; the current step is near-black with white text. */
+  .step-link {
+    @apply inline-flex min-h-11 items-center rounded-lg px-3 py-1.5 text-[0.9375rem] font-medium text-slate-700 hover:bg-slate-200/70 hover:text-ink;
+  }
+  .step-link[aria-current="step"] {
+    @apply bg-ink font-semibold text-white;
+  }
+  /* Links in the dark top bar: the current page is white with a 2px brand bar on its bottom edge. */
+  .nav-link {
+    @apply relative inline-flex min-h-11 items-center rounded-md px-2.5 font-medium text-mist hover:bg-white/10 hover:text-white aria-[current=page]:text-white sm:px-3;
+  }
+  .nav-link[aria-current="page"]::after {
+    content: "";
+    position: absolute;
+    inset-inline: 0.625rem;
+    bottom: 0;
+    height: 2px;
+    border-radius: 2px;
+    background-color: var(--color-brand-500);
+  }
+}
+
+@keyframes progress-slide {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(290%);
   }
 }
 
@@ -38,5 +306,10 @@
     animation: none !important;
     transition: none !important;
     scroll-behavior: auto !important;
+  }
+  /* With no motion the unknown-length bar rests as a faint full track. */
+  .progress-indeterminate::after {
+    width: 100%;
+    opacity: 0.35;
   }
 }

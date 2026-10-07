@@ -227,7 +227,7 @@ function EditorScreen(props: { siteId: string; site: SiteState; view: SiteView; 
   return (
     <div>
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 ref={heading} tabIndex={-1} className="text-2xl font-bold">
+        <h1 ref={heading} tabIndex={-1} className="page-title">
           Edit your website
         </h1>
         <div className="flex flex-wrap gap-2">
@@ -278,7 +278,7 @@ function EditorScreen(props: { siteId: string; site: SiteState; view: SiteView; 
       </div>
 
       <div className="mt-4 grid grid-cols-1 gap-6 md:grid-cols-[minmax(0,28rem)_minmax(0,1fr)]">
-        <section aria-label="Edit" className={pane === "edit" ? "min-w-0" : "hidden min-w-0 md:block"}>
+        <section aria-label="Edit" className={pane === "edit" ? "editor-panel min-w-0" : "editor-panel hidden min-w-0 md:block"}>
           <Tabs label="What to edit" idPrefix="editor" tabs={TABS} selected={tab} onSelect={setTab} />
           <div role="tabpanel" id={`editor-panel-${tab}`} aria-labelledby={`editor-tab-${tab}`} tabIndex={0} className="pt-2">
             <Frozen frozen={frozen}>
@@ -307,7 +307,7 @@ function EditorScreen(props: { siteId: string; site: SiteState; view: SiteView; 
                 <label htmlFor="details-step" className="mt-4 block font-medium">
                   Which answers?
                 </label>
-                <select id="details-step" className="mt-1 block w-full rounded-md border border-slate-500 bg-white px-3 py-2" value={detailsStep} onChange={(e) => setDetailsStep(e.target.value as StepId)}>
+                <select id="details-step" className="field-input" value={detailsStep} onChange={(e) => setDetailsStep(e.target.value as StepId)}>
                   {STEPS.map((s) => (
                     <option key={s} value={s}>
                       {STEP_TITLE[s]}
@@ -330,7 +330,7 @@ function EditorScreen(props: { siteId: string; site: SiteState; view: SiteView; 
         </section>
 
         <section aria-label="Preview" className={pane === "preview" ? "min-w-0" : "hidden min-w-0 md:block"}>
-          <h2 id={PREVIEW_HEADING_ID} tabIndex={-1} className="mb-2 font-semibold">
+          <h2 id={PREVIEW_HEADING_ID} tabIndex={-1} className="section-title mb-3">
             Preview
           </h2>
           <PreviewPane saved={site.saver.status === "saved" && site.saver.wordingDropped !== true} sheets={sheets} pages={pages} follow={follow} afterReload={afterReload} onRetry={retrySheets} onReload={reloadPage} />

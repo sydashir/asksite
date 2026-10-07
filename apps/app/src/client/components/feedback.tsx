@@ -21,7 +21,7 @@ export function ErrorSummary({ items, focusSignal }: { items: readonly SummaryIt
   }, [focusSignal]);
   if (items.length === 0) return null;
   return (
-    <div ref={ref} tabIndex={-1} className="mt-6 rounded-lg border-2 border-red-700 bg-red-50 p-4" aria-labelledby="error-summary-title">
+    <div ref={ref} tabIndex={-1} className="mt-6 rounded-card border-2 border-red-700 bg-red-50 p-4 sm:p-5" aria-labelledby="error-summary-title">
       <h2 id="error-summary-title" className="font-semibold text-red-800">
         {items.length === 1 ? "There is 1 thing to fix" : `There are ${items.length} things to fix`}
       </h2>
@@ -98,10 +98,10 @@ export function SaveStatus({
 
 export function Notice({ tone, children }: { tone: "info" | "warning" | "success" | "error"; children: ReactNode }) {
   const style = {
-    info: "border-blue-700 bg-blue-50 text-slate-900",
-    warning: "border-amber-700 bg-amber-50 text-slate-900",
-    success: "border-green-700 bg-green-50 text-slate-900",
-    error: "border-red-700 bg-red-50 text-slate-900",
+    info: "notice-info",
+    warning: "notice-warning",
+    success: "notice-success",
+    error: "notice-error",
   }[tone];
-  return <div className={`mt-4 rounded-lg border-l-4 p-4 ${style}`}>{children}</div>;
+  return <div className={`notice ${style}`}>{children}</div>;
 }

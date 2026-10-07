@@ -56,7 +56,7 @@ export function Settings() {
 
   return (
     <section className="max-w-2xl">
-      <h1 ref={heading} tabIndex={-1} className="text-2xl font-bold">
+      <h1 ref={heading} tabIndex={-1} className="page-title">
         Settings
       </h1>
       {load.state === "error" ? <Notice tone="error">{load.error.message}</Notice> : null}

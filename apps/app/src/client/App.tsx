@@ -66,22 +66,24 @@ export function App() {
   }, [route]);
   return (
     <>
-      <a href="#main" className="sr-only focus:not-sr-only focus:absolute focus:left-2 focus:top-2 focus:z-10 focus:rounded focus:bg-white focus:p-3">
+      <a href="#main" className="skip-link">
         Skip to main content
       </a>
-      <header className="border-b border-slate-300 bg-white">
-        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-2 px-4 py-3">
-          <a href="/" onClick={onLinkClick} className="text-lg font-bold text-slate-900">
+      <header className="surface-dark border-b border-white/10">
+        <div className="mx-auto flex min-h-16 max-w-6xl flex-wrap items-center justify-between gap-3 px-4 py-2.5">
+          {/* The mark is decorative here: the link's name stays "Your website". */}
+          <a href="/" onClick={onLinkClick} className="brand-link">
+            <img src="/hybrid.png" alt="" width={40} height={40} className="brand-mark" />
             Your website
           </a>
           {me.state === "ready" ? (
-            <button type="button" className="btn-secondary" onClick={() => void signOut(setStopMessage)}>
+            <button type="button" className="btn-on-dark" onClick={() => void signOut(setStopMessage)}>
               Sign out
             </button>
           ) : null}
         </div>
       </header>
-      <main id="main" tabIndex={-1} className="mx-auto max-w-6xl px-4 py-6 break-words">
+      <main id="main" tabIndex={-1} className="mx-auto max-w-6xl px-4 py-8 break-words sm:py-10">
         {stopMessage !== null ? (
           <div role="alert">
             <Notice tone="error">{stopMessage}</Notice>
@@ -90,7 +92,7 @@ export function App() {
         {page(route)}
       </main>
       {/* The same help in the same place on every page (WCAG 3.2.6); "Contact us" messages point here. */}
-      <footer className="mx-auto max-w-6xl px-4 pb-8 text-sm text-slate-700">
+      <footer className="mx-auto max-w-6xl border-t border-slate-200 px-4 pt-6 pb-10 text-sm text-slate-700">
         Questions? Email{" "}
         <a className="link break-all" href={`mailto:${__SUPPORT_EMAIL__}`}>
           {__SUPPORT_EMAIL__}
