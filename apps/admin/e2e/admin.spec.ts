@@ -1223,34 +1223,75 @@ test("the test seam for generations is refused for a bad body and an unknown sit
   expect((await request.post(`${ADMIN}/__test/generations`, { data: { siteId: "no-such-site", rows: [{ status: "failed", modelSlot: 1, costMicrousd: 1, startedAt: null }] } })).status()).toBe(404);
 });
 
-test("settings, by keyboard only: switch AI writing off and lower the daily limit", async ({ page }, testInfo) => {
-  test.skip(testInfo.project.name !== "chromium-1280", "Changes a setting shared by every test: one project is enough.");
-  await page.goto("/settings");
-  await expect(page.getByRole("heading", { level: 1, name: "Settings" })).toBeFocused();
-  await expectAccessible(page);
-  const enabled = page.getByLabel("AI writing is on");
-  const limit = page.getByLabel("Most AI writing jobs per day, for all owners");
-  await tabTo(page, enabled);
-  await page.keyboard.press("Space");
-  await expect(enabled).not.toBeChecked();
-  await tabTo(page, limit);
-  await page.keyboard.press("ControlOrMeta+A");
-  await page.keyboard.type("abc");
-  await page.keyboard.press("Enter");
-  await expect(page.getByText("Enter a whole number from 0 to 1000.")).toBeVisible();
-  await expect(limit).toBeFocused();
-  await page.keyboard.press("ControlOrMeta+A");
-  await page.keyboard.type("5");
-  await page.keyboard.press("Enter");
-  await expect(page.getByText("Settings saved.")).toBeVisible();
-  await page.reload();
-  await expect(enabled).not.toBeChecked();
-  await expect(limit).toHaveValue("5");
-  await tabTo(page, enabled);
-  await page.keyboard.press("Space");
-  await tabTo(page, page.getByRole("button", { name: "Save settings" }));
-  await page.keyboard.press("Enter");
-  await expect(page.getByText("Settings saved.")).toBeVisible();
+// Both settings tests below change the AI settings every test shares, so they run one after the other, in chromium-1280 only.
+test.describe("settings that change the shared AI settings", () => {
+  test.describe.configure({ mode: "serial" });
+
+  // I-2 (money): a stale Settings page sends only what its admin changed, so saving a new limit cannot switch the AI kill switch back on.
+  test("a stale Settings page that saves only a new daily limit sends no AI switch: the switch another admin turned off stays off", async ({ page }, testInfo) => {
+    test.skip(testInfo.project.name !== "chromium-1280", "Changes a setting shared by every test: one project is enough.");
+    const put = (data: object) => page.request.put(`${ADMIN}/api/admin/settings`, { data, headers: adminHeaders });
+    const start = (await (await page.request.get(`${ADMIN}/api/admin/settings`)).json()) as { generationEnabled: boolean; dailyModelLimit: number };
+    try {
+      expect((await put({ generationEnabled: true })).status()).toBe(200);
+      await page.goto("/settings");
+      const enabled = page.getByLabel("AI writing is on");
+      const limit = page.getByLabel("Most AI writing jobs per day, for all owners");
+      await expect(enabled).toBeChecked();
+      const loadedLimit = await limit.inputValue();
+      // Another admin switches AI writing OFF. This page is not reloaded.
+      const off = await put({ generationEnabled: false });
+      expect(((await off.json()) as { generationEnabled: boolean }).generationEnabled).toBe(false);
+      const bodies: unknown[] = [];
+      page.on("request", (r) => {
+        if (r.method() === "PUT" && r.url().endsWith("/api/admin/settings")) bodies.push(r.postDataJSON());
+      });
+      const newLimit = loadedLimit === "7" ? 8 : 7;
+      await limit.fill(String(newLimit));
+      const saved = page.waitForResponse((r) => r.url().endsWith("/api/admin/settings") && r.request().method() === "PUT");
+      await page.getByRole("button", { name: "Save settings" }).click();
+      expect((await saved).status()).toBe(200);
+      await expect(page.getByText("Settings saved.")).toBeVisible();
+      expect(bodies).toEqual([{ dailyModelLimit: newLimit }]); // no generationEnabled
+      const server = (await (await page.request.get(`${ADMIN}/api/admin/settings`)).json()) as { generationEnabled: boolean; dailyModelLimit: number };
+      expect(server).toMatchObject({ generationEnabled: false, dailyModelLimit: newLimit });
+      // The page reloaded the settings: it now shows what the server holds.
+      await expect(enabled).not.toBeChecked();
+      await expect(limit).toHaveValue(String(newLimit));
+    } finally {
+      await put({ generationEnabled: start.generationEnabled, dailyModelLimit: start.dailyModelLimit });
+    }
+  });
+
+  test("settings, by keyboard only: switch AI writing off and lower the daily limit", async ({ page }, testInfo) => {
+    test.skip(testInfo.project.name !== "chromium-1280", "Changes a setting shared by every test: one project is enough.");
+    await page.goto("/settings");
+    await expect(page.getByRole("heading", { level: 1, name: "Settings" })).toBeFocused();
+    await expectAccessible(page);
+    const enabled = page.getByLabel("AI writing is on");
+    const limit = page.getByLabel("Most AI writing jobs per day, for all owners");
+    await tabTo(page, enabled);
+    await page.keyboard.press("Space");
+    await expect(enabled).not.toBeChecked();
+    await tabTo(page, limit);
+    await page.keyboard.press("ControlOrMeta+A");
+    await page.keyboard.type("abc");
+    await page.keyboard.press("Enter");
+    await expect(page.getByText("Enter a whole number from 0 to 1000.")).toBeVisible();
+    await expect(limit).toBeFocused();
+    await page.keyboard.press("ControlOrMeta+A");
+    await page.keyboard.type("5");
+    await page.keyboard.press("Enter");
+    await expect(page.getByText("Settings saved.")).toBeVisible();
+    await page.reload();
+    await expect(enabled).not.toBeChecked();
+    await expect(limit).toHaveValue("5");
+    await tabTo(page, enabled);
+    await page.keyboard.press("Space");
+    await tabTo(page, page.getByRole("button", { name: "Save settings" }));
+    await page.keyboard.press("Enter");
+    await expect(page.getByText("Settings saved.")).toBeVisible();
+  });
 });
 
 test("every admin screen passes axe and reflows at 320 px", async ({ page }) => {

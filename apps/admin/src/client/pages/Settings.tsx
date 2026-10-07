@@ -10,7 +10,7 @@ import { spentTodayText, worstCaseText } from "../lib/format.ts";
 /** The AI kill switch and daily model limit, with today's usage and the worst case (§3.2 step 5, §6.3). */
 export function Settings() {
   const heading = usePageHeading<HTMLHeadingElement>("Settings", "Admin");
-  const { load } = useResource<SettingsView>("/api/admin/settings");
+  const { load, reload } = useResource<SettingsView>("/api/admin/settings");
   const signIn = useResource<SignInEmailsView>("/api/admin/sign-in-emails").load;
   const [settings, setSettings] = useState<SettingsView | null>(null);
   const [enabled, setEnabled] = useState(true);
@@ -33,10 +33,17 @@ export function Settings() {
       document.getElementById("daily-limit")?.focus();
       return;
     }
+    if (settings === null) return;
     setErrors([]);
-    const res = await api<SettingsView>("PUT", "/api/admin/settings", { generationEnabled: enabled, dailyModelLimit: value });
+    // Only what this admin changed, compared with what the page loaded: another admin may have changed the other setting since (the AI kill switch
+    // must not be switched back on by a save that only touched the limit). The API accepts either field alone.
+    const changes = {
+      ...(enabled === settings.generationEnabled ? {} : { generationEnabled: enabled }),
+      ...(value === settings.dailyModelLimit ? {} : { dailyModelLimit: value }),
+    };
+    const res = await api<SettingsView>("PUT", "/api/admin/settings", changes);
     if (res.ok) {
-      setSettings(res.data);
+      await reload(); // the form shows what the server holds now, including any change another admin made
       setMessage({ tone: "success", text: "Settings saved." });
     } else setMessage({ tone: "error", text: res.error.message });
   }
