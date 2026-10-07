@@ -1460,7 +1460,7 @@ test("delete a disabled owner's account: hint while enabled, typed email, dialog
   await expect(field).toHaveValue(site.email.toUpperCase()); // a type=email field drops the spaces itself (the unit test covers trim)
   expect((await page.request.get(`${ADMIN}/api/admin/sites/${site.siteId}`)).status()).toBe(200); // Cancel deleted nothing
 
-  // Confirm, with a double-click on "Delete everything": ONE POST, the result is shown and focused, and the site page is not reloaded.
+  // Confirm, with two presses of "Delete everything" in one tick: ONE POST, the result is shown and focused, and the site page is not reloaded.
   let held = 0;
   await page.route(DELETE_URL, async (route) => {
     held += 1;
@@ -1469,7 +1469,11 @@ test("delete a disabled owner's account: hint while enabled, typed email, dialog
   });
   const readsBefore = siteReads;
   await page.getByRole("button", { name: "Delete the account" }).click();
-  await dialog.getByRole("button", { name: "Delete everything" }).dblclick();
+  // Two presses in one tick: the dialog closes after the first, so a real double-click would miss the button; the second press must still be ignored.
+  await dialog.getByRole("button", { name: "Delete everything" }).evaluate((button) => {
+    (button as HTMLButtonElement).click();
+    (button as HTMLButtonElement).click();
+  });
   await expect(page.getByRole("heading", { level: 1, name: "Account deleted" })).toBeFocused();
   await expect(page.getByText("Deleted 1 site, ", { exact: false })).toBeVisible();
   expect(posts).toHaveLength(1);
