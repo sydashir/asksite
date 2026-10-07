@@ -20,11 +20,15 @@ export function signInRoutes(deps: AdminDeps): Hono<AdminEnv> {
     const db = c.env.DB;
     const dayStart = utcDayStart(Date.now());
     const dailyCap = loginEmailsPerDay(c.env.LOGIN_EMAILS_PER_DAY);
-    // Both skip links the owner app kept after an "unavailable" send (send_failed_at set, B1-15), as its day cap does.
+    // The owner app's day count (apps/app/src/worker/sign-in-emails.ts sentToday), exactly: the sign-in links, skipping
+    // those kept after an "unavailable" send (send_failed_at set, B1-15), plus the self-serve sign-up invites (open
+    // sign-up, created_by 'signup'; a failed sign-up send deletes its invite).
+    const emailsToday = `SELECT created_at, token_hash AS k FROM login_tokens WHERE created_at >= ?1 AND send_failed_at IS NULL
+      UNION ALL SELECT created_at, id AS k FROM invites WHERE created_by = 'signup' AND created_at >= ?1`;
     const [count, reached] = await db.batch([
-      db.prepare("SELECT COUNT(*) AS n FROM login_tokens WHERE created_at >= ? AND send_failed_at IS NULL").bind(dayStart),
-      // The cap-th link of the day, by time: when the app started refusing.
-      db.prepare("SELECT created_at FROM login_tokens WHERE created_at >= ? AND send_failed_at IS NULL ORDER BY created_at, token_hash LIMIT 1 OFFSET ?").bind(dayStart, dailyCap - 1),
+      db.prepare(`SELECT COUNT(*) AS n FROM (${emailsToday})`).bind(dayStart),
+      // The cap-th email of the day, by time: when the app started refusing.
+      db.prepare(`SELECT created_at FROM (${emailsToday}) ORDER BY created_at, k LIMIT 1 OFFSET ?2`).bind(dayStart, dailyCap - 1),
     ]);
     const view: SignInEmailsView = {
       sentToday: (count?.results[0] as { n: number } | undefined)?.n ?? 0,

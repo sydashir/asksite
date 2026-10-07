@@ -2,7 +2,7 @@ import { logLine } from "./http.ts";
 
 // The @asksite/mailer contract (design §7.6, Plan 2), restated here so Plan 4 can be built and
 // tested before Plan 2 lands. The integration task checks the real package against it.
-export type EmailTag = "lead" | "magic_link" | "invite" | "review_result" | "site_notice" | "admin_alert";
+export type EmailTag = "lead" | "magic_link" | "invite" | "review_result" | "site_notice" | "admin_alert" | "signup_invite";
 
 export interface OutgoingEmail {
   to: string;

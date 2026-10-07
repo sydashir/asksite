@@ -6,6 +6,8 @@ import { clientIp, mailerEnv } from "../db.ts";
 import type { AppDeps } from "../deps.ts";
 import { claimInvite } from "../invite-claim.ts";
 import { endSession, EXPIRED_SESSION_COOKIE, insertSession, sessionCookie } from "../session.ts";
+import { alertNearCap, countSentToday, sentToday } from "../sign-in-emails.ts";
+import { sendSignupLink } from "../signup.ts";
 import { requireTurnstile } from "../turnstile.ts";
 import type { AppEnv } from "../types.ts";
 
@@ -22,7 +24,7 @@ const authLimit: MiddlewareHandler<AppEnv> = async (c, next) => {
   await next();
 };
 
-/** /api/auth/*: invite acceptance, magic-link sign-in and sign-out (§4.4, §5.2). */
+/** /api/auth/*: invite acceptance, magic-link sign-in or self-serve sign-up, and sign-out (§4.4, §5.2). */
 export function authRoutes(deps: AppDeps): Hono<AppEnv> {
   const auth = new Hono<AppEnv>();
 
@@ -48,8 +50,8 @@ export function authRoutes(deps: AppDeps): Hono<AppEnv> {
     // A11: the security check comes before any lookup, write or email, so its refusal says nothing about owners.
     await requireTurnstile(c, deps.siteverify);
     // Always the same answer, sent before any lookup, so neither the body nor the timing says
-    // whether the address has an account or which cap applied.
-    inBackground(c.executionCtx, "login_link_failed", sendLoginLink(c.env, deps, email.trim().toLowerCase(), Date.now()));
+    // whether the address has an account, is new (a sign-up) or which cap applied.
+    inBackground(c.executionCtx, "login_link_failed", sendLink(c.env, deps, email.trim().toLowerCase(), clientIp(c.req.raw), Date.now()));
     return c.json({ ok: true }, 202);
   });
 
@@ -160,10 +162,19 @@ async function verifyLogin(db: D1Database, tokenHash: string, now: number): Prom
   return { owner: { id: owner.id, email: owner.email }, sessionToken };
 }
 
-/** Runs after the 202: create a token (within the per-owner caps and the day's cap for all owners) and email the link. */
-async function sendLoginLink(env: Env, deps: AppDeps, email: string, now: number): Promise<void> {
-  const owner = await env.DB.prepare("SELECT id FROM owners WHERE email = ? AND disabled_at IS NULL").bind(email).first<{ id: string }>();
-  if (owner === null) return;
+/**
+ * Runs after the 202. A known owner gets a sign-in link, a disabled owner nothing, and an address with no owner a
+ * self-serve sign-up link (open sign-up, DECIDED 2026-10-07: signup.ts).
+ */
+async function sendLink(env: Env, deps: AppDeps, email: string, ip: string, now: number): Promise<void> {
+  const owner = await env.DB.prepare("SELECT id, disabled_at FROM owners WHERE email = ?").bind(email).first<{ id: string; disabled_at: number | null }>();
+  if (owner === null) return sendSignupLink(env, deps, email, ip, now);
+  if (owner.disabled_at !== null) return;
+  return sendLoginLink(env, deps, { id: owner.id }, email, now);
+}
+
+/** Creates a token (within the per-owner caps and the day's cap for all owners) and emails the link. */
+async function sendLoginLink(env: Env, deps: AppDeps, owner: { id: string }, email: string, now: number): Promise<void> {
   const mailer = deps.createMailer(mailerEnv(env));
   const token = newToken();
   const tokenHash = await sha256Hex(token);
@@ -171,13 +182,13 @@ async function sendLoginLink(env: Env, deps: AppDeps, email: string, now: number
   // A11: LOGIN_EMAILS_PER_DAY (40) for all owners keeps most of Resend Free's 100 emails a day for leads.
   const perDay = loginEmailsPerDay(env.LOGIN_EMAILS_PER_DAY);
   // Every cap is an exact count in the same statement as the insert. The owner's own caps count every link; the day's
-  // cap for all owners skips links kept after an "unavailable" send (B1-15, below).
+  // cap for all owners skips links kept after an "unavailable" send (B1-15, below) and counts sign-up emails (sentToday).
   const inserted = await env.DB.prepare(
     `INSERT INTO login_tokens (token_hash, owner_id, created_at, expires_at)
      SELECT ?1, ?2, ?3, ?4
      WHERE (SELECT COUNT(*) FROM login_tokens WHERE owner_id = ?2 AND created_at > ?5) < ?6
        AND (SELECT COUNT(*) FROM login_tokens WHERE owner_id = ?2 AND created_at > ?7) < ?8
-       AND (SELECT COUNT(*) FROM login_tokens WHERE created_at >= ?9 AND send_failed_at IS NULL) < ?10`,
+       AND ${sentToday("?9")} < ?10`,
   )
     .bind(
       tokenHash,
@@ -193,13 +204,12 @@ async function sendLoginLink(env: Env, deps: AppDeps, email: string, now: number
     )
     .run();
   if (inserted.meta.changes !== 1) {
-    const today = await env.DB.prepare("SELECT COUNT(*) AS n FROM login_tokens WHERE created_at >= ? AND send_failed_at IS NULL").bind(dayStart).first<{ n: number }>();
-    if ((today?.n ?? 0) >= perDay) logLine({ event: "login_email_cap_reached" });
+    if ((await countSentToday(env.DB, dayStart)) >= perDay) logLine({ event: "login_email_cap_reached" });
     return;
   }
   const content = magicLinkEmail({ appOrigin: env.APP_ORIGIN, token });
   const failure = await sendReporting(mailer, { to: email, ...content, tag: "magic_link", idempotencyKey: `login:${tokenHash}` });
-  if (failure === null) return;
+  if (failure === null) return alertNearCap(env, deps, perDay, now);
   // After "unavailable" (a 5xx, a timeout, a network failure or an answer with no email id) the provider may have
   // delivered the link (F26), so it stays valid and counts toward the owner's own caps: deleting it would leave the
   // owner a dead "expired or already used" link. It is marked with the time the send failed, so the day's cap for all

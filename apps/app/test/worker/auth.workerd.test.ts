@@ -415,7 +415,8 @@ describe("invite acceptance", () => {
 });
 
 describe("magic-link sign-in", () => {
-  it("always answers 202, and emails a link only to a known owner", async () => {
+  // Open self sign-up (DECIDED 2026-10-07): an unknown address now gets a sign-up link (signup.workerd.test.ts), never a sign-in link.
+  it("always answers 202; a known owner gets a sign-in link and an unknown address a sign-up link, never a sign-in link", async () => {
     await h.signIn("known@example.com");
     for (const email of ["known@example.com", "nobody@example.com"]) {
       const res = await h.login(email);
@@ -424,8 +425,8 @@ describe("magic-link sign-in", () => {
     }
     const messages = await waitForEmail("known@example.com");
     expect(messages[0]).toMatchObject({ subject: "Your sign-in link", tag: "magic_link" });
-    await new Promise((r) => setTimeout(r, 300));
-    expect(await outbox("nobody@example.com")).toEqual([]);
+    await h.backgroundDone("/api/auth/login");
+    expect((await outbox("nobody@example.com")).map(({ subject, tag }) => ({ subject, tag }))).toEqual([{ subject: "Set up your business website", tag: "signup_invite" }]);
   });
 
   it("signs in with the emailed token once, then the token is spent", async () => {
