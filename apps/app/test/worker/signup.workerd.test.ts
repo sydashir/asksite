@@ -164,14 +164,14 @@ describe("an unknown address signs up (open self sign-up)", () => {
     expect(await outbox("busy-4@example.com")).toEqual([]);
   });
 
-  it("sends a disabled owner nothing: no sign-in link, no sign-up link and no network row", async () => {
+  it("sends a disabled owner nothing: no sign-in link and no sign-up link (its network row is written, as for every request: I3)", async () => {
     const owner = await h.signIn("disabled-signup@example.com");
     await (await h.db()).prepare("UPDATE owners SET disabled_at = 1 WHERE id = ?").bind(owner.ownerId).run();
     const ip = "203.0.113.41";
     await requestLink(owner.email, ip);
     expect(await outbox(owner.email)).toEqual([]);
     expect(await signupInvites(owner.email)).toEqual([]);
-    expect(await networkRows(ip)).toEqual([]);
+    expect(await networkRows(ip)).toHaveLength(1);
     expect(await (await h.db()).prepare("SELECT COUNT(*) AS n FROM login_tokens WHERE owner_id = ?").bind(owner.ownerId).first()).toEqual({ n: 0 });
   });
 
@@ -181,7 +181,7 @@ describe("an unknown address signs up (open self sign-up)", () => {
     await requestLink(owner.email, ip);
     expect((await outbox(owner.email)).map(({ subject, tag }) => ({ subject, tag }))).toEqual([{ subject: "Your sign-in link", tag: "magic_link" }]);
     expect(await signupInvites(owner.email)).toEqual([]);
-    expect(await networkRows(ip)).toEqual([]);
+    expect(await networkRows(ip)).toHaveLength(1);
   });
 });
 
@@ -293,6 +293,58 @@ describe("at most 3 sign-ups per visitor network per UTC day", () => {
     console.log(`EXPLAIN QUERY PLAN of the network count:\n${lines}`);
     expect(lines).toContain("USING INDEX audit_site (site_id=? AND at>?)");
     expect(lines).not.toMatch(/SCAN audit_log/);
+  });
+});
+
+// I3 (DECIDED, moderator 2026-10-07): every request that passed Turnstile writes its network's row, owner or not, so the
+// network's count cannot tell whether an address has an account. The limit of 3 refuses only sign-ups.
+describe("the network count says nothing about accounts (I3)", () => {
+  it("gives the same number of sign-up emails after a known, a disabled or an unknown target address", async () => {
+    const known = await h.signIn("oracle-known@example.com");
+    const disabled = await h.signIn("oracle-disabled@example.com");
+    await (await h.db()).prepare("UPDATE owners SET disabled_at = 1 WHERE id = ?").bind(disabled.ownerId).run();
+    await awayFromUtcMidnight();
+    const counts: Record<string, number> = {};
+    for (const [label, target, ip] of [["known", known.email, "203.0.113.70"], ["disabled", disabled.email, "203.0.113.71"], ["unknown", "oracle-unknown@example.com", "203.0.113.72"]] as const) {
+      await requestLink(target, ip);
+      let sent = 0;
+      for (const n of [1, 2, 3]) {
+        await requestLink(`oracle-${label}-${n}@example.com`, ip);
+        sent += (await outbox(`oracle-${label}-${n}@example.com`)).length;
+      }
+      counts[label] = sent;
+    }
+    expect(counts).toEqual({ known: 2, disabled: 2, unknown: 2 });
+  });
+
+  it("never refuses a known owner's sign-in: the 4th and 5th requests from a network past its 3 still get their links", async () => {
+    const owner = await h.signIn("busy-network-owner@example.com");
+    const ip = "203.0.113.73";
+    await awayFromUtcMidnight();
+    for (const n of [1, 2, 3]) await requestLink(`busy-network-${n}@example.com`, ip);
+    await requestLink(owner.email, ip);
+    await requestLink(owner.email, ip);
+    expect((await outbox(owner.email)).map((mail) => mail.tag)).toEqual(["magic_link", "magic_link"]);
+    expect(await networkRows(ip)).toHaveLength(5);
+  });
+});
+
+// I1 (DECIDED, moderator 2026-10-07): sign-ups may use at most half of the day's cap (20 of 40), so bot sign-ups can never
+// use up the sign-in emails of every owner.
+describe("sign-ups use at most half of the day's sign-in email cap (I1)", () => {
+  it("sends no sign-up once today's sign-ups reach 20, and a known owner still gets a sign-in link", async () => {
+    const owner = await h.signIn("still-signs-in@example.com");
+    const dayStart = await awayFromUtcMidnight();
+    for (let i = 0; i < LOGIN_EMAILS_PER_DAY / 2 - 1; i += 1) await addSignupInvite(`earlier-signup-${i}@example.com`, dayStart);
+    await requestLink("twentieth-signup@example.com");
+    expect(await outbox("twentieth-signup@example.com")).toHaveLength(1);
+    h.server.clearLogs();
+    await requestLink("twenty-first-signup@example.com");
+    expect(await outbox("twenty-first-signup@example.com")).toEqual([]);
+    expect(await signupInvites("twenty-first-signup@example.com")).toEqual([]);
+    expect(events("signup_cap_reached")).toEqual([{ event: "signup_cap_reached" }]);
+    await requestLink(owner.email);
+    expect((await outbox(owner.email)).map((mail) => mail.tag)).toEqual(["magic_link"]);
   });
 });
 

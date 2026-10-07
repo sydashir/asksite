@@ -7,7 +7,8 @@ import type { AppDeps } from "../deps.ts";
 import { claimInvite } from "../invite-claim.ts";
 import { endSession, EXPIRED_SESSION_COOKIE, insertSession, sessionCookie } from "../session.ts";
 import { alertNearCap, countSentToday, sentToday } from "../sign-in-emails.ts";
-import { sendSignupLink } from "../signup.ts";
+import { networkDetail, sendSignupLink } from "../signup.ts";
+import { NETWORK_ROW_SQL } from "../signup-sql.ts";
 import { requireTurnstile } from "../turnstile.ts";
 import type { AppEnv } from "../types.ts";
 
@@ -176,8 +177,11 @@ async function verifyLogin(db: D1Database, tokenHash: string, now: number): Prom
  * self-serve sign-up link (open sign-up, DECIDED 2026-10-07: signup.ts).
  */
 async function sendLink(env: Env, deps: AppDeps, email: string, ip: string, now: number): Promise<void> {
+  const network = await networkDetail(env, ip);
   const owner = await env.DB.prepare("SELECT id, disabled_at FROM owners WHERE email = ?").bind(email).first<{ id: string; disabled_at: number | null }>();
-  if (owner === null) return sendSignupLink(env, deps, email, ip, now);
+  if (owner === null) return sendSignupLink(env, deps, email, network, now);
+  // I3: an owner's request writes its network's row too (never refused by it), so the count says nothing about accounts.
+  await env.DB.prepare(NETWORK_ROW_SQL).bind(now, network).run();
   if (owner.disabled_at !== null) return;
   return sendLoginLink(env, deps, { id: owner.id }, email, now);
 }
