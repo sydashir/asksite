@@ -21,13 +21,26 @@
 }
 
 @layer base {
+  /* Room kept clear of the phone call bar (and from 64rem of the sticky header) when the page scrolls something into
+     view: at least the bar's height at every text size. In em: on the root, WebKit takes rem as 16 px whatever the
+     root's font-size, so a rem padding stayed 84 px under a taller bar with bigger text. */
   html {
-    scroll-padding-bottom: calc(5.25rem + env(safe-area-inset-bottom));
+    scroll-padding-bottom: calc(5.5em + env(safe-area-inset-bottom));
   }
+  /* From 64rem the header sticks, so the top room is at least its height (a jump never lands under it). Measured, every
+     fixture in each lettering, 100-150%: one row is at most 5.11em (a long name on three lines); with bigger text it can
+     take two rows, at most 6.62em below the inline links (from about 128%) and 7.85em with them (from just above
+     100%). So the room is 5.15em at the default size and steps up above it: "(1em - Npx) * 9999" is 0 or less at N px
+     and huge above, and clamp() keeps it between the two heights. */
   @media (min-width: 64rem) {
     html {
       scroll-padding-bottom: 0;
-      scroll-padding-top: calc(4.5rem + 1px);
+      scroll-padding-top: clamp(5.15em, (1em - 16px) * 9999, 8em);
+    }
+  }
+  @media (min-width: 64rem) and (max-width: 74.99rem) {
+    html {
+      scroll-padding-top: clamp(5.15em, (1em - 20px) * 9999, 6.7em);
     }
   }
   :root {
@@ -490,9 +503,14 @@
       white-space: nowrap;
     }
   }
+  /* With the inline links the row may wrap: what does not fit (with bigger text, or a long name and call to action)
+     moves to a second row at the right, rather than squeezing the name to a column of letters. The name's auto margin
+     keeps the first row as it was, so a row that fits is unchanged. */
   @media (min-width: 75rem) {
     .header-row {
-      gap: 1.5rem;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      gap: 0 1.5rem;
     }
     .brand {
       font-size: 1.375rem;
@@ -539,18 +557,40 @@
       font-size: 1.0625rem;
     }
   }
-  /* Bigger text (a larger root font-size): the name, the inline links, the number and the call to action outgrew one
-     row, and only the name gave way, down to nothing (a letter a line) and past the page's edge. Where the header is
-     narrower than 64 root-rem, what does not fit moves to a second row, at the right (the name's auto margin keeps
-     the first row as it was); when all fits, the row is unchanged. A container query's rem follows the root's
+  /* Bigger text (a larger root font-size) where the header is narrower than 64 root-rem: a long name takes fewer lines
+     beside the links (both still fit one row at 150% and 1200 px). A container query's rem follows the root's
      font-size; at the default size the header is at least 64rem wide wherever the links show (from 75rem), so this
      never applies there. */
   @container (max-width: 63.99rem) {
     @media (min-width: 75rem) {
+      .brand--long {
+        max-width: 20rem;
+      }
+    }
+  }
+  /* Bigger still below the inline links (150% from 64 to 75rem): one row squeezed a long name to a column of words or
+     broke a word. Here the header always takes two rows, as on a tablet with the actions under it: the name (as wide
+     as the row leaves beside the menu button) and the menu button, then the number and the call to action at the
+     right. The empty ::before is the row break. At 125% the header is wider than 50 root-rem from 64rem, so this
+     applies from about 128%; below 36 root-rem (about 180% at 1024 px) two rows outgrow a quarter of the screen too, so
+     it stops there and leaves the header as it was. */
+  @container (min-width: 36rem) and (max-width: 50rem) {
+    @media (min-width: 64rem) and (max-width: 74.99rem) {
       .header-row {
         flex-wrap: wrap;
         justify-content: flex-end;
         row-gap: 0;
+      }
+      .header-row::before {
+        content: "";
+        flex-basis: 100%;
+        order: 1;
+      }
+      .nav {
+        order: 0;
+      }
+      .brand {
+        max-width: calc(100% - 4.25rem);
       }
     }
   }
@@ -2767,19 +2807,19 @@
   }
   /* Bigger still (150% on a phone up to about 393 px wide): Call's phone icon goes (the button still reads "Call" over
      the number), so the pair stays side by side inside the bar. Narrower again (150% up to about 345 px): even then
-     they do not fit, so Call goes over "Get a quote", each a whole row, and the icon comes back. At 125% on a 320 px
-     phone the bar's content is 14.5rem wide, so neither applies there. */
+     they do not fit, so the number wraps on two balanced lines, "(512)" over "555-0142" (a plain greedy wrap, in
+     browsers without text-wrap: balance, splits it after the hyphen instead). The pair stays side by side, so the bar
+     stays low (at most a quarter of a 320x568 screen). At 125% on a 320 px phone the bar's content is 14.5rem wide,
+     so neither applies there. */
   @container (max-width: 14.4rem) {
     .callbar .cb-call .ic {
       display: none;
     }
   }
   @container (max-width: 12.9rem) {
-    .callbar .bt {
-      grid-column: 1 / -1;
-    }
-    .callbar .cb-call .ic {
-      display: inline;
+    .callbar .cb-k + span {
+      white-space: normal;
+      text-wrap: balance;
     }
   }
   @media (min-width: 48rem) {

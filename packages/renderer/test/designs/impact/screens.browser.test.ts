@@ -3,8 +3,9 @@
 // keeps Send request in the first screen with "Choose a service" whole, and its head keeps the owner's standing on one
 // line; on iPad portrait widths the footer's credentials sit right under the business name; at 320 px every page, in
 // each of the three letterings, reflows with no text lost, and so does every page at 320-430 px with bigger text (root
-// font-size 125%), and every page at 320, 360, 1200 and 1280 px with much bigger text (150%), the business name whole on
-// the desktop; no licence number on any page is split where it fits on one line; and in a browser without :has()
+// font-size 125%), and every page at 320-1280 px with much bigger text (150%), the business name whole on the desktop and
+// each sticky bar at most a quarter of the screen; no licence number on any page is split where it fits on one line; and
+// in a browser without :has()
 // every page's link still shows in the header and takes keyboard focus.
 // Every fixture's whole Bold site with the real Bold sheet, served from memory on its own origin (Playwright 1.63
 // BrowserContext.route and Route.fulfill; photos are a gray tile, anything else is aborted), in Chromium and WebKit.
@@ -351,8 +352,27 @@ describe.each(Object.keys(ENGINES) as Array<keyof typeof ENGINES>)("Bold's pages
 // the business name to a letter a line and pushed the page sideways (moderator's probe, 2026-10-06). Every page of every
 // fixture, in its own lettering, at phone and desktop widths, with every <details> but the menu open: no text cut or
 // past the right edge, and on the desktop the business name no narrower than its longest word (WCAG 1.4.4, 1.4.10).
+// The moderator's rulings (2026-10-06): a sticky bar covers at most a quarter of the screen (568 px tall up to 430 px
+// wide, else 768 px), so the stacked call bar (199 px at 320) and the header at 1024 px (239 px) failed; and nothing is
+// hidden under a sticky bar, so the root's scroll padding is at least the bar's height at its edge (the call bar at the
+// bottom, the header at the top: an in-page jump landed under the header, 2026-10-07).
 const MUCH_BIGGER_TEXT = `document.documentElement.style.setProperty("font-size", "150%", "important");`;
-const MUCH_BIGGER_TEXT_WIDTHS = [320, 360, 1200, 1280] as const;
+const MUCH_BIGGER_TEXT_WIDTHS = [320, 360, 1024, 1200, 1280] as const;
+/**
+ * Each sticky bar (the header, the call bar) taller than a quarter of the screen, or taller than the root's scroll
+ * padding at its edge.
+ */
+const BAR_ROOM = `(() => {
+  const wrong = [], screen = innerWidth <= 430 ? 568 : 768, root = getComputedStyle(document.documentElement);
+  for (const bar of document.querySelectorAll("header.site-header, aside.callbar")) {
+    const height = bar.getBoundingClientRect().height;
+    if (getComputedStyle(bar).position !== "sticky" || height === 0 || !bar.checkVisibility({ visibilityProperty: true })) continue;
+    if (height > screen / 4 + 0.5) wrong.push(bar.tagName.toLowerCase() + " is " + height.toFixed(1) + " px tall, over a quarter of " + screen + " px");
+    const edge = bar.matches("aside") ? "bottom" : "top", pad = parseFloat(edge === "top" ? root.scrollPaddingTop : root.scrollPaddingBottom) || 0;
+    if (pad + 0.5 < height) wrong.push("scroll-padding-" + edge + " " + pad + " px is under the " + bar.tagName.toLowerCase() + "'s " + height.toFixed(1) + " px");
+  }
+  return wrong;
+})()`;
 /**
  * The business name when it is narrower than its longest word (a hidden copy of it at its min-content width; the copy
  * keeps the name's own inline style, as a font override may set one).
@@ -366,14 +386,14 @@ const SQUEEZED_NAME = `(() => {
   return width + 1 < word ? ["the business name is " + width.toFixed(1) + " px wide, narrower than its longest word (" + word.toFixed(1) + " px)"] : [];
 })()`;
 describe.each(Object.keys(ENGINES) as Array<keyof typeof ENGINES>)("Bold's pages with much bigger text in %s", (engine) => {
-  it(`keep every page of every fixture at root font-size 150% and ${MUCH_BIGGER_TEXT_WIDTHS.join(", ")} px within the window with no text cut or past its right edge, and the business name whole from 1200 px`, async () => {
+  it(`keep every page of every fixture at root font-size 150% and ${MUCH_BIGGER_TEXT_WIDTHS.join(", ")} px within the window with no text cut or past its right edge, the business name whole from 1024 px, each sticky bar at most a quarter of the screen, and the call bar inside the scroll padding`, async () => {
     const wrong: string[] = [];
     await inWindow(engine, [MUCH_BIGGER_TEXT_WIDTHS[0], 800], async (visit, reflow) => {
       for (const name of FIXTURES) {
         for (const { path } of SITES.get(name) ?? []) {
           await visit(name, path, `(() => { ${NO_MOTION} ${MUCH_BIGGER_TEXT} ${OPEN_DETAILS} })()`);
           for (const width of MUCH_BIGGER_TEXT_WIDTHS) {
-            const problems = await reflow<string[]>(width, width >= 1200 ? `[...${LOST_TEXT}, ...${SQUEEZED_NAME}]` : LOST_TEXT);
+            const problems = await reflow<string[]>(width, `[...${LOST_TEXT}, ...${BAR_ROOM}${width >= 1024 ? `, ...${SQUEEZED_NAME}` : ""}]`);
             for (const problem of problems) wrong.push(`${name} ${path} at ${width}: ${problem}`);
           }
         }
