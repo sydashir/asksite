@@ -1,4 +1,4 @@
-import { expect, test, type Browser, type Page } from "@playwright/test";
+import { expect, test, type Browser, type Locator, type Page } from "@playwright/test";
 import { acceptInvite, apiCall, APP, askNewWording, BRIEF, builtSite, FACTS, finishGeneration, seedDraft, stubTurnstile, uniqueEmail, waitForSecurityCheck } from "./support.ts";
 
 const NOT_SAVED = "Your latest changes are not saved yet. Please try again in a moment.";
@@ -13,6 +13,25 @@ const FAIL_500 = { status: 500, json: { error: { code: "internal", message: "Som
 async function pressAfterGrace(page: Page) {
   await page.waitForTimeout(GRACE_MS + 100);
   await page.getByRole("button", { name: "Sign out" }).click();
+}
+
+/**
+ * Pins the edit as typed and still pending, right before Sign out is pressed. WebKit can drop the text of fill() without any error (the field
+ * keeps its old value, so nothing is queued and Sign out correctly sends only the logout). That is the test's loss, not the product's, so a
+ * missing text is filled again; an edit that is no longer pending fails here, loudly, and is never papered over.
+ * The bound is below the autosave delay (AutoSaver delayMs = 800, apps/app/src/client/lib/autosave.ts:79), so the edit is still inside the
+ * delay when Sign out is pressed; every re-fill also restarts that delay. Asserts: (a) the field shows the text, (b) "Saving…" is shown,
+ * (c) no PATCH went out since this was called.
+ */
+const TYPED_EDIT_BOUND_MS = 400; // half the 800 ms delay
+async function confirmTypedEdit(page: Page, field: Locator, text: string, events: string[]) {
+  const sentBefore = events.filter((e) => e === "patch-sent").length;
+  await expect(async () => {
+    if ((await field.inputValue()) !== text) await field.fill(text, { timeout: 150 });
+    await expect(field).toHaveValue(text, { timeout: 100 });
+    await expect(page.getByText(SAVING)).toBeVisible({ timeout: 100 });
+    expect(events.filter((e) => e === "patch-sent")).toHaveLength(sentBefore);
+  }).toPass({ timeout: TYPED_EDIT_BOUND_MS });
 }
 
 /** Every request and answer for the draft and the logout, in the order the browser saw them. */
@@ -34,6 +53,7 @@ test("Sign out saves an edit still inside the autosave delay, and the save finis
   await page.goto(`/sites/${siteId}/edit`);
   const events = watchSaves(page);
   await page.getByLabel("Headline", { exact: true }).fill("Plumbers who answer the phone");
+  await confirmTypedEdit(page, page.getByLabel("Headline", { exact: true }), "Plumbers who answer the phone", events);
   await page.getByRole("button", { name: "Sign out" }).click();
   await page.waitForURL((url) => url.pathname === "/" && !url.pathname.includes("/sites/"));
   await expect.poll(() => events).toContain("logout-sent");
@@ -306,6 +326,7 @@ test("Sign out on a save that never answers says Saving…, and a press after th
   const events = watchSaves(page);
   try {
     await page.getByLabel("Headline", { exact: true }).fill("Held for ever");
+    await confirmTypedEdit(page, page.getByLabel("Headline", { exact: true }), "Held for ever", events);
     await page.getByRole("button", { name: "Sign out" }).click();
     await expect(page.getByRole("alert")).toHaveText(`${SAVING} ${PRESS_AGAIN}`);
     await expect.poll(() => events).toContain("patch-sent");
@@ -403,6 +424,7 @@ test("A Sign out stop expires once the changes are saved: no alert is left, and 
   await expect(page.getByRole("status").filter({ hasText: "All changes saved." })).toBeVisible();
   await expect(page.getByRole("alert")).toHaveCount(0);
   await headline.fill("Final words");
+  await confirmTypedEdit(page, headline, "Final words", events);
   await page.getByRole("button", { name: "Sign out" }).click();
   await expect(page.getByRole("heading", { level: 1, name: "Sign in" })).toBeVisible();
   expect(events.slice(-3)).toEqual(["patch-sent", "patch-answered-200", "logout-sent"]);
@@ -547,6 +569,7 @@ test("A Sign out stop on a dropped wording change expires once a later save land
   await expect.poll(() => events.filter((e) => e === "patch-answered-200").length).toBe(1);
   await expect(page.getByRole("alert")).toHaveCount(0);
   await headline.fill("Final words");
+  await confirmTypedEdit(page, headline, "Final words", events);
   await page.getByRole("button", { name: "Sign out" }).click();
   await expect(page.getByRole("heading", { level: 1, name: "Sign in" })).toBeVisible();
   expect(events).toEqual(["patch-sent", "patch-answered-200", "patch-sent", "patch-answered-200", "logout-sent"]);
@@ -559,6 +582,7 @@ test("Questionnaire: Sign out stays and says so once while the answers are not s
   await page.route("**/api/sites/*/draft", (route) => (route.request().method() === "PATCH" ? route.fulfill(FAIL_500) : route.fallback()));
   const events = watchSaves(page);
   await page.getByLabel("Business name").fill("Probe Plumbing");
+  await confirmTypedEdit(page, page.getByLabel("Business name"), "Probe Plumbing", events);
   await page.getByRole("button", { name: "Sign out" }).click();
   await expect(page.getByRole("alert").filter({ hasText: "Your latest answers are not saved yet. Please try again in a moment." })).toContainText(PRESS_AGAIN);
   expect(events).not.toContain("logout-sent");
@@ -572,6 +596,7 @@ test("Questionnaire: Sign out saves the answers first, and the save finishes bef
   await acceptInvite(page, uniqueEmail("setupok"));
   const events = watchSaves(page);
   await page.getByLabel("Business name").fill("Probe Plumbing");
+  await confirmTypedEdit(page, page.getByLabel("Business name"), "Probe Plumbing", events);
   await page.getByRole("button", { name: "Sign out" }).click();
   await expect(page.getByRole("heading", { level: 1, name: "Sign in" })).toBeVisible();
   expect(events.at(-1)).toBe("logout-sent");
@@ -645,6 +670,7 @@ test("PX: a stop caused by another site's failed closing save never lets a fresh
   await expect.poll(() => events.filter((e) => e === "X:patch-answered-200").length).toBe(1);
   await settleRender(page);
   await headline.fill("X, final words");
+  await confirmTypedEdit(page, headline, "X, final words", events);
   await page.getByRole("button", { name: "Sign out" }).click();
   await expect(page.getByRole("heading", { level: 1, name: "Sign in" })).toBeVisible();
   // The press saved the fresh edit (a second save on X) before the logout.
@@ -693,6 +719,7 @@ test("PA: a dropped wording change found by the press's own save keeps the stop 
   });
   const events = watchSaves(page);
   await headline.fill("Mine, then Sign out at once");
+  await confirmTypedEdit(page, headline, "Mine, then Sign out at once", events);
   await page.getByRole("button", { name: "Sign out" }).click();
   await expect(page.getByRole("status").filter({ hasText: WORDING_DROPPED })).toBeFocused();
   await expect.poll(() => events).toContain("patch-answered-200");
