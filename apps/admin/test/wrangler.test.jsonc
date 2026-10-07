@@ -1,0 +1,44 @@
+{
+  "name": "asksite-admin-test",
+  "main": "./support/test-worker.ts",
+  "compatibility_date": "2026-09-21",
+  "compatibility_flags": ["no_nodejs_compat", "no_nodejs_compat_v2"],
+  "workers_dev": false,
+  "preview_urls": false,
+  "dev": { "local_protocol": "https" },
+  "vars": {
+    "ENVIRONMENT": "development",
+    "ROOT_DOMAIN": "localhost:8789",
+    "APP_ORIGIN": "https://app.localhost:8787",
+    "ADMIN_ORIGIN": "https://admin.localhost:8788",
+    "MAILER": "log",
+    "MAIL_FROM": "Test <test@mail.localhost>",
+    "SUPPORT_EMAIL": "help@example.com",
+    "GENERATION_ENABLED": "true",
+    "DAILY_MODEL_LIMIT": "30",
+    "LOGIN_EMAILS_PER_DAY": "40",
+    "ACCESS_TEAM_DOMAIN": "https://test-team.cloudflareaccess.com",
+    "ACCESS_AUD": "test-aud",
+    "ADMIN_EMAILS": "Admin@Example.com, second@example.com",
+    "ADMIN_AUTH_MODE": "access",
+    "DEV_ADMIN_EMAIL": "dev-admin@example.com",
+    "MODEL_PROVIDER": "fake",
+    "MODEL_ID": "fake",
+    "RESEND_API_KEY": "unused-in-tests",
+    "TEST_ACCESS_JWKS": "{\"keys\":[]}"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "asksite",
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "../../../packages/core/migrations"
+    }
+  ],
+  "r2_buckets": [
+    { "binding": "WORK", "bucket_name": "asksite-work" },
+    { "binding": "LIVE", "bucket_name": "asksite-live" },
+    { "binding": "MEDIA", "bucket_name": "asksite-media" }
+  ],
+  "ratelimits": [{ "name": "ADMIN_RL", "namespace_id": "1005", "simple": { "limit": 300, "period": 60 } }]
+}

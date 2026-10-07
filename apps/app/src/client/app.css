@@ -1,0 +1,42 @@
+@import "tailwindcss";
+
+@layer base {
+  html {
+    background-color: var(--color-slate-50);
+  }
+  body {
+    color: var(--color-slate-900);
+  }
+  :focus-visible {
+    outline: 3px solid var(--color-blue-700);
+    outline-offset: 2px;
+  }
+}
+
+@layer components {
+  .btn-primary {
+    @apply inline-flex min-h-11 items-center justify-center rounded-md bg-blue-700 px-5 py-2 font-semibold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:bg-slate-500 aria-disabled:cursor-not-allowed aria-disabled:bg-slate-500;
+  }
+  .btn-secondary {
+    @apply inline-flex min-h-11 items-center justify-center rounded-md border border-slate-500 bg-white px-4 py-2 font-medium text-slate-900 hover:bg-slate-100 aria-disabled:cursor-not-allowed aria-disabled:opacity-60;
+  }
+  .btn-small {
+    @apply inline-flex min-h-8 min-w-8 items-center justify-center rounded border border-slate-500 bg-white px-2 text-sm text-slate-900 hover:bg-slate-100 disabled:text-slate-500 aria-disabled:cursor-not-allowed aria-disabled:opacity-60 aria-pressed:border-blue-700 aria-pressed:bg-blue-700 aria-pressed:font-semibold aria-pressed:text-white;
+  }
+  .link {
+    @apply text-blue-800 underline underline-offset-2;
+  }
+  .card {
+    @apply rounded-lg border border-slate-300 bg-white p-4 sm:p-6;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
+}

@@ -1,0 +1,5 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": { "lib": ["es2023"], "types": ["node"] },
+  "include": ["test/worker", "test/client", "test/support/harness.ts", "vitest.config.ts"]
+}

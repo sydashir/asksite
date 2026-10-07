@@ -1,0 +1,30 @@
+import { describe, expect, it } from "vitest";
+import { json, useAppHarness } from "../support/harness.ts";
+
+// A13: with Node.js compatibility off (no_nodejs_compat and no_nodejs_compat_v2), the Worker has no
+// `process`, so no library can read its variables and secrets from process.env.
+const h = useAppHarness();
+
+interface RuntimeProbe {
+  process: string;
+  nodeProcess: { importable: true; envKeys: string[]; readable: string[]; checked: string[] } | { importable: false; error: string };
+}
+
+describe("runtime (A13)", () => {
+  it("has no Node.js process global inside the app Worker", async () => {
+    const res = await h.call("GET", "/__test/runtime");
+    expect(res.status).toBe(200);
+    expect((await json<RuntimeProbe>(res)).process).toBe("undefined");
+  });
+
+  it("gives node:process nothing to read: it is either not importable, or its env is empty", async () => {
+    const { nodeProcess } = await json<RuntimeProbe>(await h.call("GET", "/__test/runtime"));
+    if (nodeProcess.importable) {
+      // Every binding name of the Worker was tried on it, the secrets included (names only, never values).
+      expect(nodeProcess.checked).toEqual(expect.arrayContaining(["RESEND_API_KEY", "IP_HASH_KEY", "TURNSTILE_SECRET_KEY", "APP_ORIGIN", "DB"]));
+      expect({ envKeys: nodeProcess.envKeys, readable: nodeProcess.readable }).toEqual({ envKeys: [], readable: [] });
+    } else {
+      expect(nodeProcess.error).not.toBe("");
+    }
+  });
+});

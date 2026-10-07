@@ -14,5 +14,15 @@ export const ERROR_STATUS = {
 } as const;
 export type ErrorCode = keyof typeof ERROR_STATUS;
 export interface ErrorBody {
-  error: { code: ErrorCode; message: string; issues?: Issue[]; retryAfter?: number; currentRev?: number };
+  error: {
+    code: ErrorCode;
+    message: string;
+    issues?: Issue[];
+    retryAfter?: number;
+    currentRev?: number;
+    /** The takedown route's lease_lost 409 only: true (this call took the site down and the owner notice went out), false (it failed), null (this call sent none). */
+    noticeSent?: boolean | null;
+    /** The takedown route's lease_lost 409 only, with `noticeSent: null`: the re-read of the takedown failed, so it is UNKNOWN whether this call took the site down (and so whether the owner was owed a notice). Absent otherwise. */
+    noticeUnknown?: true;
+  };
 }

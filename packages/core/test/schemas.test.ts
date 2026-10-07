@@ -403,6 +403,8 @@ describe("row and view types", () => {
     const lead: LeadView = { id: "l", createdAt: 1, name: "n", phone: "p", email: null, service: null, message: null, emailStatus: "sent" };
     const body: ErrorBody = { error: { code: "conflict", message: "Changed elsewhere", currentRev: 2 } };
     expect([site.indexable, version.status, lead.emailStatus, ERROR_STATUS[body.error.code]]).toEqual([1, "pending", "sent", 409]);
+    // The takedown route's lease_lost 409 says whether the owner notice went out: true, false, or null (this call sent none).
+    expectTypeOf<ErrorBody["error"]["noticeSent"]>().toEqualTypeOf<boolean | null | undefined>();
   });
 
   it("allow an unknown worst-case daily cost: null when the model has no recorded price (M3)", () => {

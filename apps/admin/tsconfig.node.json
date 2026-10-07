@@ -1,0 +1,5 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": { "lib": ["es2023", "dom"], "types": ["node"] },
+  "include": ["vite.config.ts", "build-config.ts", "release-guard.ts", "playwright.config.ts", "e2e"]
+}

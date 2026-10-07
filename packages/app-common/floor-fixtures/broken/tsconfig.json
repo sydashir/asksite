@@ -1,0 +1,6 @@
+{
+  // A program that does not type-check: the floor check must refuse it, because a use whose type
+  // does not resolve is silently not a use.
+  "extends": "../tsconfig.json",
+  "include": ["*.ts"]
+}
