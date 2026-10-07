@@ -11,7 +11,7 @@ import { describe, expect, it } from "vitest";
 const USED = {
   core: [
     "AcceptInviteBody", "AiDraft", "ApproveBody", "AUDIT_ACTIONS", "Brief", "canonicalJson", "composeDocument", "CreateInviteBody",
-    "DESIGN_FOR_TRADE", "designForTrade", "hashPages", "pageCacheUrl", "pagesDigest", "previewSiteUrl", "publicPageUrl", "versionPageKey", "VersionPages", "DisableOwnerBody", "documentSha256", "EMPTY_EDITS", "ERROR_STATUS", "formActionUrl", "hashIp",
+    "DeleteOwnerBody", "DESIGN_FOR_TRADE", "designForTrade", "hashPages", "pageCacheUrl", "pagesDigest", "previewSiteUrl", "publicPageUrl", "versionPageKey", "VersionPages", "DisableOwnerBody", "documentSha256", "EMPTY_EDITS", "ERROR_STATUS", "formActionUrl", "hashIp",
     "IndexableBody", "ipRateKey", "isId", "LIMITS", "livePageKey", "livePointerKey", "liveSitePrefix", "LoginBody", "LOOKS", "mediaKey", "mediaUrl", "newId", "newToken",
     "OwnerEdits", "ownerEditedPaths", "PAGE_DESIGNS", "PatchDraftBody", "photoRefIssues", "previewFormActionUrl", "PublishBody",
     "RejectBody", "RESERVED_SLUGS", "SECTION_IDS", "SetSlugBody", "SettingsBody", "sha256Hex", "siteUrl", "slugIssue", "TakedownBody",
