@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { LIMITS, sha256Hex } from "@asksite/core";
+import { LIMITS, newToken, sha256Hex, TTL } from "@asksite/core";
 import { Facts } from "@asksite/site-schema";
 import { afterEach, describe, expect, it } from "vitest";
 import { claimInvite } from "../../src/worker/invite-claim.ts";
@@ -583,14 +583,63 @@ describe("magic-link sign-in", () => {
     ]);
   });
 
-  // F26: after an "unavailable" (a 5xx) the provider may have delivered, so the link must still work and still count.
-  it("keeps the link, and its place in the caps, when the email service was unavailable", async () => {
+  // F26: after an "unavailable" (a 5xx) the provider may have delivered, so the link must still work and still count
+  // toward the owner's own caps. B1-15: it is marked with the time its send failed, so the day's cap for all owners skips it
+  // (login-cap.workerd.test.ts). Every other failure deletes the link (the test above).
+  it("keeps the link, marked with when its send failed, when the email service was unavailable", async () => {
     const owner = await h.signIn("flaky@mail-unavailable.example");
     h.server.clearLogs();
     await h.login("flaky@mail-unavailable.example");
     await h.backgroundDone("/api/auth/login");
+    const after = Date.now();
     expect(h.logLines().filter((line) => line["event"] === "email_failed")).toEqual([{ event: "email_failed", tag: "magic_link", error: "unavailable" }]);
-    expect(await tokenRows(owner.ownerId)).toHaveLength(1);
+    const { results } = await (await h.db())
+      .prepare("SELECT created_at, send_failed_at FROM login_tokens WHERE owner_id = ?")
+      .bind(owner.ownerId)
+      .all<{ created_at: number; send_failed_at: number | null }>();
+    expect(results).toEqual([{ created_at: expect.any(Number), send_failed_at: expect.any(Number) }]);
+    const [link] = results;
+    expect(link?.send_failed_at).toBeGreaterThanOrEqual(link?.created_at ?? Infinity);
+    expect(link?.send_failed_at).toBeLessThanOrEqual(after);
+  });
+
+  // B1-15: a failed mark leaves the link unmarked, so it stays counted (the safe direction), and the background job
+  // reports it the way it reports any failure: one login_link_failed line with the error's class name.
+  it("leaves the link kept and counted, unmarked, when marking it fails, and logs one job failure line without the address", async () => {
+    const owner = await h.signIn("markfails@mail-unavailable.example");
+    h.server.clearLogs();
+    await withTrigger(
+      "fail_mark",
+      `CREATE TRIGGER fail_mark BEFORE UPDATE OF send_failed_at ON login_tokens WHEN NEW.owner_id = '${owner.ownerId}' BEGIN SELECT RAISE(ABORT, 'test failure'); END`,
+      async () => {
+        expect((await h.login("markfails@mail-unavailable.example")).status).toBe(202);
+        await h.backgroundDone("/api/auth/login");
+      },
+    );
+    expect(h.logLines().filter((line) => "event" in line)).toEqual([
+      { event: "email_failed", tag: "magic_link", error: "unavailable" },
+      { event: "login_link_failed", error: "Error" },
+    ]);
+    expect((await (await h.db()).prepare("SELECT send_failed_at FROM login_tokens WHERE owner_id = ?").bind(owner.ownerId).all()).results).toEqual([{ send_failed_at: null }]);
+    expect(h.server.getLogs().map((entry) => entry.message).join("\n")).not.toContain("markfails");
+  });
+
+  // B1-15: the mark only takes the link out of the day's count; a delivered link whose send was marked failed still signs in, once.
+  it("signs in with a link whose send was marked failed, then the link is spent", async () => {
+    const owner = await h.signIn("delivered-anyway@example.com");
+    const token = newToken();
+    const now = Date.now();
+    await (await h.db())
+      .prepare("INSERT INTO login_tokens (token_hash, owner_id, created_at, expires_at, send_failed_at) VALUES (?, ?, ?, ?, ?)")
+      .bind(await sha256Hex(token), owner.ownerId, now, now + TTL.loginTokenMs, now)
+      .run();
+    const res = await h.call("POST", "/api/auth/login/verify", { body: { token }, ip: nextIp() });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ owner: { id: owner.ownerId, email: "delivered-anyway@example.com" } });
+    const me = await h.call("GET", "/api/me", { cookie: (res.headers.get("Set-Cookie") ?? "").split(";")[0] ?? "" });
+    expect((await json<{ owner: { id: string } }>(me)).owner.id).toBe(owner.ownerId);
+    const again = await h.call("POST", "/api/auth/login/verify", { body: { token }, ip: nextIp() });
+    expect(again.status).toBe(410);
   });
 
   it("logs a sign-in link job that failed as one line, without the address", async () => {

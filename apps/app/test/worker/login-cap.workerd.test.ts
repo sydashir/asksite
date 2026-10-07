@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { awayFromUtcHourEnd, useAppHarness } from "../support/harness.ts";
 
 // A11: every sign-in email of a UTC day, for all owners, is counted exactly in D1 (login_tokens created
-// since 00:00 UTC). Controlled time: the Worker's clock is real, and each test places the rows it needs
+// since 00:00 UTC, except kept links whose send ended "unavailable", B1-15). Controlled time: the Worker's clock is real, and each test places the rows it needs
 // before or after the day's first millisecond. Its own file, so the day's count starts from a fresh D1.
 const h = useAppHarness();
 
@@ -50,6 +50,22 @@ async function addTokens(ownerId: string, count: number, at: number): Promise<vo
   for (let i = 0; i < count; i += 1) {
     await db.prepare("INSERT INTO login_tokens (token_hash, owner_id, created_at, expires_at) VALUES (?, ?, ?, ?)").bind(`earlier-${crypto.randomUUID()}`, ownerId, at, at + 1).run();
   }
+}
+
+/** Adds `count` of the owner's links, all created at `at`, kept after a send that ended "unavailable" and marked failed at `at` (B1-15). */
+async function addFailedSends(ownerId: string, count: number, at: number): Promise<void> {
+  const db = await h.db();
+  for (let i = 0; i < count; i += 1) {
+    await db
+      .prepare("INSERT INTO login_tokens (token_hash, owner_id, created_at, expires_at, send_failed_at) VALUES (?, ?, ?, ?, ?)")
+      .bind(`failed-${crypto.randomUUID()}`, ownerId, at, at + 1, at)
+      .run();
+  }
+}
+
+/** The Worker's login_email_cap_reached lines since the last clearLogs. */
+function capLines(): string[] {
+  return h.server.getLogs().filter((entry) => entry.message.includes("login_email_cap_reached")).map((entry) => entry.message);
 }
 
 /** Requests a sign-in link for `email` and waits for the background work. */
@@ -98,6 +114,61 @@ describe("the daily cap on sign-in emails for all owners (A11)", () => {
     await h.backgroundDone("/api/auth/login");
     expect(await tokenCount(over.ownerId)).toBe(1);
     expect(await outbox(over.email)).toHaveLength(1);
+  });
+});
+
+// B1-15: during an email outage the owner app keeps each link whose send ended "unavailable" (F26) and marks it. The day's
+// cap for all owners skips marked links, so retries in an outage cannot pause sign-in emails for every owner; each
+// owner's own caps still count them, so one inbox stays bounded if the provider delivered after all.
+describe("links kept after an unavailable send and the day's cap for all owners (B1-15)", () => {
+  it(`still sends another owner a link when the day's ${LOGIN_EMAILS_PER_DAY} links all ended unavailable, and logs no cap line`, async () => {
+    const outage = await h.signIn();
+    const next = await h.signIn("after-the-outage@example.com");
+    const dayStart = await awayFromUtcMidnight();
+    await addFailedSends(outage.ownerId, LOGIN_EMAILS_PER_DAY, dayStart);
+    h.server.clearLogs();
+    await requestLink(next.email);
+    expect(await tokenCount(next.ownerId)).toBe(1);
+    expect(await outbox(next.email)).toHaveLength(1);
+    expect(capLines()).toEqual([]);
+  });
+
+  it(`logs login_email_cap_reached only when the day's unmarked links reach ${LOGIN_EMAILS_PER_DAY}, not for marked ones`, async () => {
+    const outage = await h.signIn();
+    const capped = await h.signIn("capped-in-outage@example.com");
+    const late = await h.signIn("late-in-the-day@example.com");
+    const dayStart = await awayFromUtcMidnight();
+    // Marked links only: the day's 40 plus the owner's own 5 this hour. The owner's hourly cap refuses the request,
+    // and the day's count (the unmarked links) is 0, so no cap line.
+    await addFailedSends(outage.ownerId, LOGIN_EMAILS_PER_DAY, dayStart);
+    await addFailedSends(capped.ownerId, LIMITS.loginTokensPerOwnerPerHour, Date.now());
+    h.server.clearLogs();
+    await requestLink(capped.email);
+    expect(await tokenCount(capped.ownerId)).toBe(LIMITS.loginTokensPerOwnerPerHour);
+    expect(capLines()).toEqual([]);
+    // 40 unmarked links as well: the next request is refused by the day's cap, and logged once.
+    await addTokens(outage.ownerId, LOGIN_EMAILS_PER_DAY, dayStart);
+    await requestLink(late.email);
+    expect(await tokenCount(late.ownerId)).toBe(0);
+    expect(await outbox(late.email)).toEqual([]);
+    expect(capLines()).toEqual(['{"event":"login_email_cap_reached"}']);
+  });
+
+  it(`still counts them in the owner's ${LIMITS.loginTokensPerOwnerPerHour} links an hour`, async () => {
+    const owner = await h.signIn();
+    await addFailedSends(owner.ownerId, LIMITS.loginTokensPerOwnerPerHour, Date.now() - 60_000);
+    await requestLink(owner.email);
+    expect(await tokenCount(owner.ownerId)).toBe(LIMITS.loginTokensPerOwnerPerHour);
+    expect(await outbox(owner.email)).toEqual([]);
+  });
+
+  it(`still counts them in the owner's ${LIMITS.loginTokensPerOwnerPerDay} links in 24 hours`, async () => {
+    const owner = await h.signIn();
+    // More than an hour ago (the hourly cap does not count them) and less than a day ago.
+    await addFailedSends(owner.ownerId, LIMITS.loginTokensPerOwnerPerDay, Date.now() - 2 * HOUR_MS);
+    await requestLink(owner.email);
+    expect(await tokenCount(owner.ownerId)).toBe(LIMITS.loginTokensPerOwnerPerDay);
+    expect(await outbox(owner.email)).toEqual([]);
   });
 });
 

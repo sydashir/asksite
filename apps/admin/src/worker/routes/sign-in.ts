@@ -20,10 +20,11 @@ export function signInRoutes(deps: AdminDeps): Hono<AdminEnv> {
     const db = c.env.DB;
     const dayStart = utcDayStart(Date.now());
     const dailyCap = loginEmailsPerDay(c.env.LOGIN_EMAILS_PER_DAY);
+    // Both skip links the owner app kept after an "unavailable" send (send_failed_at set, B1-15), as its day cap does.
     const [count, reached] = await db.batch([
-      db.prepare("SELECT COUNT(*) AS n FROM login_tokens WHERE created_at >= ?").bind(dayStart),
+      db.prepare("SELECT COUNT(*) AS n FROM login_tokens WHERE created_at >= ? AND send_failed_at IS NULL").bind(dayStart),
       // The cap-th link of the day, by time: when the app started refusing.
-      db.prepare("SELECT created_at FROM login_tokens WHERE created_at >= ? ORDER BY created_at, token_hash LIMIT 1 OFFSET ?").bind(dayStart, dailyCap - 1),
+      db.prepare("SELECT created_at FROM login_tokens WHERE created_at >= ? AND send_failed_at IS NULL ORDER BY created_at, token_hash LIMIT 1 OFFSET ?").bind(dayStart, dailyCap - 1),
     ]);
     const view: SignInEmailsView = {
       sentToday: (count?.results[0] as { n: number } | undefined)?.n ?? 0,
