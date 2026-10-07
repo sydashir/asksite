@@ -185,6 +185,54 @@ describe("an unknown address signs up (open self sign-up)", () => {
   });
 });
 
+// RULED (web-maker-d5, 2026-10-07): accepting a sign-up link revokes the address's other unused sign-up links in the same
+// batch, so one address gets one site from sign-up. An admin's invite for the address is not revoked.
+describe("accepting a sign-up link", () => {
+  it("revokes the address's other unused sign-up links in the same batch, but not an admin's invite for it", async () => {
+    const email = "one-site@example.com";
+    const db = await h.db();
+    // An older sign-up link, more than an hour ago, so the route still sends a new one now.
+    const older = "O".repeat(43);
+    const olderAt = Date.now() - 2 * HOUR_MS;
+    await db
+      .prepare("INSERT INTO invites (id, token_hash, email, created_by, created_at, expires_at) VALUES (?, ?, ?, 'signup', ?, ?)")
+      .bind(crypto.randomUUID(), await sha256Hex(older), email, olderAt, olderAt + TTL.inviteMs)
+      .run();
+    const adminToken = await h.invite(email);
+    await requestLink(email);
+    const token = tokenIn((await outbox(email))[0]?.text ?? "", "invite");
+
+    const accepted = await h.call("POST", "/api/auth/invite/accept", { body: { token }, ip: nextIp() });
+    expect(accepted.status).toBe(200);
+    const { owner } = await json<{ owner: { id: string } }>(accepted);
+    const rows = async (hash: string) =>
+      db.prepare("SELECT used_at IS NOT NULL AS used, revoked_at IS NOT NULL AS revoked FROM invites WHERE token_hash = ?").bind(hash).first();
+    expect(await rows(await sha256Hex(older))).toEqual({ used: 0, revoked: 1 });
+    expect(await rows(await sha256Hex(adminToken))).toEqual({ used: 0, revoked: 0 });
+    expect(await rows(await sha256Hex(token))).toEqual({ used: 1, revoked: 0 });
+    // The revoked link is refused like any revoked invite and makes no second site.
+    const again = await h.call("POST", "/api/auth/invite/accept", { body: { token: older }, ip: nextIp() });
+    expect(again.status).toBe(410);
+    expect(await db.prepare("SELECT COUNT(*) AS n FROM sites WHERE owner_id = ?").bind(owner.id).first()).toEqual({ n: 1 });
+    // The admin's invite still works as before (a second site, by design).
+    expect((await h.call("POST", "/api/auth/invite/accept", { body: { token: adminToken }, ip: nextIp() })).status).toBe(200);
+    expect(await db.prepare("SELECT COUNT(*) AS n FROM sites WHERE owner_id = ?").bind(owner.id).first()).toEqual({ n: 2 });
+  });
+
+  it("revokes nothing when an admin's invite is accepted, and nothing of another address", async () => {
+    const email = "admin-first@example.com";
+    const db = await h.db();
+    await requestLink(email);
+    await requestLink("someone-else@example.com");
+    const accepted = await h.call("POST", "/api/auth/invite/accept", { body: { token: await h.invite(email) }, ip: nextIp() });
+    expect(accepted.status).toBe(200);
+    const open = async (address: string) =>
+      db.prepare("SELECT COUNT(*) AS n FROM invites WHERE email = ? AND created_by = 'signup' AND revoked_at IS NULL AND used_at IS NULL").bind(address).first();
+    expect(await open(email)).toEqual({ n: 1 });
+    expect(await open("someone-else@example.com")).toEqual({ n: 1 });
+  });
+});
+
 describe("the security check comes before any sign-up work", () => {
   it("a failed or missing Turnstile token for an unknown address sends nothing and writes no rows", async () => {
     const before = await rowCounts();

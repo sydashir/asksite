@@ -113,6 +113,15 @@ async function acceptInvite(db: D1Database, invite: { id: string; email: string 
       db
         .prepare(`INSERT INTO audit_log (at, actor, action, site_id, detail_json) SELECT ?, 'owner:' || id, 'invite.accepted', ?, ? ${activeOwner}`)
         .bind(now, siteId, JSON.stringify({ inviteId: invite.id }), invite.email, invite.id),
+      // Open sign-up (RULED 2026-10-07): accepting a sign-up link revokes the address's other unused sign-up links, so an
+      // address gets one site from sign-up. Only for a sign-up link, and only when this accept made its session (an
+      // active owner and an open invite); an admin's invite is never revoked here.
+      db
+        .prepare(
+          `UPDATE invites SET revoked_at = ? WHERE email = ? AND created_by = 'signup' AND id != ? AND used_at IS NULL AND revoked_at IS NULL
+             AND EXISTS (SELECT 1 FROM invites WHERE id = ? AND created_by = 'signup') AND EXISTS (SELECT 1 FROM sessions WHERE id_hash = ?)`,
+        )
+        .bind(now, invite.email, invite.id, invite.id, sessionHash),
       // What the batch did, read in the same transaction (A10: no RETURNING, and no reliance on each statement's meta.changes).
       // From the invite, so a revoked invite of a new address (no owner row) still has a row to read.
       db
@@ -122,7 +131,7 @@ async function acceptInvite(db: D1Database, invite: { id: string; email: string 
         )
         .bind(siteId, sessionHash, invite.id),
     ]);
-    const outcome = results[5]?.results[0] as { revoked: number; id: string | null; email: string | null; site: number; session: number } | undefined;
+    const outcome = results[6]?.results[0] as { revoked: number; id: string | null; email: string | null; site: number; session: number } | undefined;
     if (outcome === undefined) throw new Error("invite row missing after invite accept");
     if (outcome.revoked === 1) throw new ApiError("invite_invalid", INVITE_INVALID);
     if (outcome.id === null || outcome.email === null) throw new Error("owner row missing after invite accept");
