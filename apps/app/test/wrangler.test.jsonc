@@ -31,7 +31,8 @@
   ],
   "r2_buckets": [
     { "binding": "WORK", "bucket_name": "asksite-work" },
-    { "binding": "MEDIA", "bucket_name": "asksite-media" }
+    { "binding": "MEDIA", "bucket_name": "asksite-media" },
+    { "binding": "LIVE", "bucket_name": "asksite-live" }
   ],
   "queues": { "producers": [{ "binding": "GEN_QUEUE", "queue": "asksite-generation" }] },
   "images": { "binding": "IMAGES" },

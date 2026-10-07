@@ -250,6 +250,37 @@ describe("invite acceptance", () => {
     expect(results.map((r) => r.status).sort()).toEqual([200, 410, 410]);
   });
 
+  // Owner deletion (build brief 4.K): an OPEN invite for a deleted owner's email must not bring the account back. Accepting an invite inserts
+  // the owner with ON CONFLICT(email) DO NOTHING, so once the owner row is gone an old open invite WOULD create a new owner: deleteOwner deletes
+  // every invite for the owner's email too (its G4 "OR email = ?"). The real deleteOwner runs through the test-only seam /__test/delete-owner (LIVE bound in the test config only).
+  it("cannot re-create a deleted owner from an invite that was still open when the account was deleted", async () => {
+    const email = "closed-account@example.com";
+    const first = await h.signIn(email);
+    const open = await h.invite(email); // T2: an open invite for the same email, owner_id still NULL
+    const db = await h.db();
+    await db.prepare("UPDATE owners SET disabled_at = ?, disabled_reason = 'closure' WHERE id = ?").bind(Date.now(), first.ownerId).run();
+    const deleted = await h.call("POST", "/__test/delete-owner", { body: { ownerId: first.ownerId, confirmEmail: email } });
+    expect(deleted.status).toBe(200);
+    expect(await deleted.json()).toMatchObject({ outcome: "deleted", counts: { rows: { owners: 1 } } });
+    expect(await db.prepare("SELECT COUNT(*) AS n FROM owners WHERE email = ?").bind(email).first()).toEqual({ n: 0 });
+
+    const accepted = await h.call("POST", "/api/auth/invite/accept", { body: { token: open }, ip: nextIp() });
+    expect(accepted.status).toBe(410);
+    expect((await json<{ error: { code: string } }>(accepted)).error.code).toBe("invite_invalid");
+    expect(await db.prepare("SELECT COUNT(*) AS n FROM owners WHERE email = ?").bind(email).first()).toEqual({ n: 0 });
+
+    // A new invitation, sent on purpose, makes a NEW owner: not the deleted one, with only its own new site and nothing of the old account.
+    const again = await h.signIn(email);
+    expect(again.ownerId).not.toBe(first.ownerId);
+    const me = await json<{ owner: { id: string }; sites: Array<{ id: string }> }>(await h.call("GET", "/api/me", { cookie: again.cookie }));
+    expect(me.owner.id).toBe(again.ownerId);
+    expect(me.sites.map((site) => site.id)).toEqual([again.siteId]);
+    expect(again.siteId).not.toBe(first.siteId);
+    for (const [table, column, value] of [["leads", "site_id", again.siteId], ["site_versions", "site_id", again.siteId], ["generations", "owner_id", again.ownerId]] as const) {
+      expect([table, await db.prepare(`SELECT COUNT(*) AS n FROM ${table} WHERE ${column} = ?`).bind(value).first()]).toEqual([table, { n: 0 }]);
+    }
+  });
+
   it("rejects an expired or revoked invite with 410", async () => {
     const db = await h.db();
     const expired = await h.invite("expired@example.com");

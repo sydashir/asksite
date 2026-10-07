@@ -1,6 +1,6 @@
 import { ApiError } from "@asksite/app-common";
 import { newId, newToken, sha256Hex, TTL } from "@asksite/core";
-import { TAKEDOWN_REVIEW_NOTE } from "@asksite/publishing";
+import { deleteOwner, PublishError, TAKEDOWN_REVIEW_NOTE } from "@asksite/publishing";
 import { Hono } from "hono";
 import type { Siteverify } from "../../src/worker/deps.ts";
 import { requireTurnstile, SITEVERIFY_TIMEOUT_MS } from "../../src/worker/turnstile.ts";
@@ -654,6 +654,24 @@ helpers.post("/__test/sites/:siteId/take-down", async (c) => {
 helpers.post("/__test/sites/:siteId/restore", async (c) => {
   await restoreSite(c.env.DB, c.req.param("siteId"));
   return c.json({ ok: true });
+});
+
+/**
+ * What the admin's Delete the account does: the REAL deleteOwner (packages/publishing), so test K can prove an open invite for a deleted owner's email
+ * cannot re-create the account. The app has no LIVE binding in production (§0.2: only the admin publishes), so this needs the test-only LIVE binding of
+ * test/wrangler.test.jsonc; where there is none (the e2e config) it fails closed, before it reads the body or touches anything. Behind the guard above like every
+ * helper, and absent from the production entry (test/worker/config.test.ts scans src/ for "/__test").
+ */
+helpers.post("/__test/delete-owner", async (c) => {
+  const env = c.env as Env & { LIVE?: R2Bucket };
+  if (env.LIVE === undefined) return c.json({ error: "no_live_binding" }, 500);
+  const { ownerId, confirmEmail } = await c.req.json<{ ownerId: string; confirmEmail: string }>();
+  try {
+    return c.json(await deleteOwner({ DB: env.DB, WORK: env.WORK, LIVE: env.LIVE, MEDIA: env.MEDIA }, { ownerId, confirmEmail, reviewer: "test-admin", now: Date.now() }));
+  } catch (error) {
+    if (error instanceof PublishError) return c.json({ code: error.code, detail: error.detail }, 409);
+    throw error;
+  }
 });
 
 export default {
