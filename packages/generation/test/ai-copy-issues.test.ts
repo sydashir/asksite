@@ -136,8 +136,10 @@ describe("aiCopyIssues: owner-edited fields are skipped", () => {
 });
 
 describe("the public API", () => {
-  it("exports aiCopyIssues and keeps the claim rules' own functions private", () => {
+  it("exports aiCopyIssues and aiClaims, and keeps the claim rules' other functions private", () => {
     expect(typeof publicApi.aiCopyIssues).toBe("function");
-    expect("aiClaims" in publicApi).toBe(false);
+    // aiClaims is public by d5's 2026-10-07 ruling: the owner app shows owners the exact unbacked phrases it matched. Only it and aiCopyIssues are public.
+    expect(typeof publicApi.aiClaims).toBe("function");
+    expect(["aiClaimIssues", "sevenDaysBacking"].filter((name) => name in publicApi)).toEqual([]);
   });
 });
