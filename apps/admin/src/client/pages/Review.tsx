@@ -41,7 +41,7 @@ function PhotoStrip({ document }: { document: unknown }) {
     <ul className="mt-2 flex flex-wrap gap-2">
       {photos.map((photo) => (
         <li key={photo.url}>
-          <img src={photo.url} alt={photo.alt} className="h-16 w-20 rounded border border-slate-300 object-cover" />
+          <img src={photo.url} alt={photo.alt} className="h-16 w-20 rounded-lg border border-slate-200 object-cover" />
         </li>
       ))}
     </ul>
@@ -50,7 +50,13 @@ function PhotoStrip({ document }: { document: unknown }) {
 
 export function Review({ versionId }: { versionId: string }) {
   const { load, reload } = useResource<AdminVersionDetail>(`/api/admin/versions/${versionId}`);
-  if (load.state === "loading") return <p role="status">Loading…</p>;
+  if (load.state === "loading")
+    return (
+      <p role="status" className="flex items-center gap-2 text-slate-600">
+        <span className="spinner" aria-hidden="true" />
+        Loading…
+      </p>
+    );
   if (load.state === "error") return <Notice tone="error">{load.error.message}</Notice>;
   return <ReviewScreen detail={load.data} onDone={() => void reload()} />;
 }
@@ -132,14 +138,17 @@ function ReviewScreen({ detail, onDone }: { detail: AdminVersionDetail; onDone: 
   return (
     <section>
       <p>
-        <a href="/" onClick={onLinkClick} className="link">
+        <a href="/" onClick={onLinkClick} className="link inline-flex min-h-11 items-center gap-1.5">
+          <svg aria-hidden="true" viewBox="0 0 24 24" className="size-4" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M15 18l-6-6 6-6" />
+          </svg>
           Back to the review queue
         </a>
       </p>
-      <h1 ref={heading} tabIndex={-1} className="mt-2 text-2xl font-bold">
+      <h1 ref={heading} tabIndex={-1} className="page-title mt-1">
         {title}
       </h1>
-      <p className="mt-1 text-slate-700">
+      <p className="mt-2 text-slate-600">
         {site.slug} · {site.ownerEmail} · {checks.firstPublish ? "First publish" : "Update to a live site"} · sent {when(version.requestedAt)} · status {version.status}
       </p>
       {site.ownerDisabled ? <Notice tone="warning">The owner's account is disabled. Approving still publishes this page.</Notice> : null}
@@ -163,9 +172,9 @@ function ReviewScreen({ detail, onDone }: { detail: AdminVersionDetail; onDone: 
         ) : null}
       </div>
 
-      <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,24rem)]">
-        <div className="min-w-0">
-          <h2 className="text-lg font-semibold">The exact pages that will go live</h2>
+      <div className="mt-8 grid grid-cols-1 items-start gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,24rem)]">
+        <div className="card min-w-0">
+          <h2 className="section-title mb-4">The exact pages that will go live</h2>
           {detail.pages.length === 0 ? (
             <div id="no-pages-note">
               <Notice tone="warning">This version has no stored pages (it was sent before sites had several pages), so it cannot be approved.</Notice>
@@ -173,7 +182,8 @@ function ReviewScreen({ detail, onDone }: { detail: AdminVersionDetail; onDone: 
           ) : verified.state === "ready" ? (
             <PagePreview pages={verified.sources} frameTitle="Page under review" onShown={onShown} />
           ) : verified.state === "loading" ? (
-            <p role="status" className="mt-3">
+            <p role="status" className="mt-3 flex items-center gap-2 text-slate-600">
+              <span className="spinner" aria-hidden="true" />
               Loading the page…
             </p>
           ) : (
@@ -190,10 +200,10 @@ function ReviewScreen({ detail, onDone }: { detail: AdminVersionDetail; onDone: 
 
         <div className="min-w-0 space-y-6">
           <section className="card" aria-labelledby="checks-title">
-            <h2 id="checks-title" className="text-lg font-semibold">
+            <h2 id="checks-title" className="section-title">
               Checks
             </h2>
-            <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
+            <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-4 text-[0.9375rem] [&>dd]:border-t [&>dd]:border-slate-100 [&>dd]:py-2 [&>dt]:border-t [&>dt]:border-slate-100 [&>dt]:py-2 [&>dt]:text-slate-600">
               <dt className="font-medium">Reviews</dt>
               <dd>
                 {checks.testimonials}
@@ -220,14 +230,14 @@ function ReviewScreen({ detail, onDone }: { detail: AdminVersionDetail; onDone: 
               <dt className="font-medium">Web address flags</dt>
               <dd>{checks.slugFlags.length === 0 ? "None" : checks.slugFlags.join(", ")}</dd>
             </dl>
-            <h3 className="mt-4 font-semibold">Text to look at</h3>
+            <h3 className="mt-5 font-semibold text-ink">Text to look at</h3>
             {checks.textFlags.length === 0 ? (
-              <p>Nothing flagged.</p>
+              <p className="mt-1 text-slate-600">Nothing flagged.</p>
             ) : (
-              <ul className="mt-1 list-disc pl-5">
+              <ul className="mt-2 list-disc space-y-1.5 pl-5">
                 {checks.textFlags.map((flag, i) => (
                   <li key={`${flag.path}-${flag.reason}-${i}`}>
-                    <span className="font-mono text-sm">{flag.path}</span> {FLAG_REASON[flag.reason]}: “{editedText(detail.document, flag.path)}”
+                    <span className="code-tag">{flag.path}</span> {FLAG_REASON[flag.reason]}: “{editedText(detail.document, flag.path)}”
                   </li>
                 ))}
               </ul>
@@ -235,16 +245,16 @@ function ReviewScreen({ detail, onDone }: { detail: AdminVersionDetail; onDone: 
           </section>
 
           <section className="card" aria-labelledby="edited-title">
-            <h2 id="edited-title" className="text-lg font-semibold">
+            <h2 id="edited-title" className="section-title">
               Wording the owner changed
             </h2>
             {detail.ownerEditedPaths.length === 0 ? (
-              <p>None: all wording is from the AI draft.</p>
+              <p className="mt-1 text-slate-600">None: all wording is from the AI draft.</p>
             ) : (
-              <ul className="mt-1 list-disc pl-5">
+              <ul className="mt-2 list-disc space-y-1.5 pl-5">
                 {detail.ownerEditedPaths.map((path) => (
                   <li key={path}>
-                    <span className="font-mono text-sm">{path}</span>: “{editedText(detail.document, path)}”
+                    <span className="code-tag">{path}</span>: “{editedText(detail.document, path)}”
                   </li>
                 ))}
               </ul>
@@ -253,16 +263,16 @@ function ReviewScreen({ detail, onDone }: { detail: AdminVersionDetail; onDone: 
 
           {detail.liveDocument !== null ? (
             <section className="card" aria-labelledby="changes-title">
-              <h2 id="changes-title" className="text-lg font-semibold">
+              <h2 id="changes-title" className="section-title">
                 Changes since the live version
               </h2>
               {changes.length === 0 ? (
-                <p>No changes.</p>
+                <p className="mt-1 text-slate-600">No changes.</p>
               ) : (
-                <ul className="mt-1 space-y-2">
+                <ul className="mt-2 divide-y divide-slate-100">
                   {changes.map((change) => (
-                    <li key={change.path}>
-                      <span className="font-mono text-sm">{change.path}</span>
+                    <li key={change.path} className="py-2.5">
+                      <span className="code-tag">{change.path}</span>
                       <span className="block">Before: {change.before ?? "(none)"}</span>
                       <span className="block">After: {change.after ?? "(none)"}</span>
                     </li>
@@ -274,19 +284,19 @@ function ReviewScreen({ detail, onDone }: { detail: AdminVersionDetail; onDone: 
 
           {showApprove ? (
             <>
-              <form className="card" noValidate onSubmit={(e) => void approve(e)} aria-labelledby="approve-title">
-                <h2 id="approve-title" className="text-lg font-semibold">
+              <form className="card border-t-4 border-t-brand-500" noValidate onSubmit={(e) => void approve(e)} aria-labelledby="approve-title">
+                <h2 id="approve-title" className="section-title">
                   Approve
                 </h2>
                 <TextArea id="approve-note" label="Internal note (optional, not shown to the owner)" max={1000} value={approveNote} onChange={setApproveNote} />
                 <Checkbox id="approve-indexable" label="Allow search engines to list this site" checked={indexable} onChange={setIndexable} />
                 {canApprove || detail.pages.length === 0 ? null : (
-                  <p id="approve-gate" className="mt-4">
+                  <p id="approve-gate" className="mt-4 rounded-lg bg-slate-100 px-3 py-2.5 text-sm text-slate-800">
                     Look at every page before approving.{notSeen.length === 0 ? "" : ` Not looked at yet: ${notSeen.map((p) => p.label).join(", ")}.`}
                   </p>
                 )}
                 {/* aria-disabled, not disabled: Approve keeps keyboard focus, and its reason is read from the line above it. */}
-                <button type="submit" className="btn-primary mt-4" aria-disabled={!canApprove || approving} aria-describedby={canApprove ? undefined : gateId}>
+                <button type="submit" className="btn-primary mt-5 w-full" aria-disabled={!canApprove || approving} aria-describedby={canApprove ? undefined : gateId}>
                   Approve and publish
                 </button>
                 <p role="status" className="sr-only">
@@ -295,11 +305,11 @@ function ReviewScreen({ detail, onDone }: { detail: AdminVersionDetail; onDone: 
               </form>
               {pending ? (
                 <form className="card" noValidate onSubmit={(e) => void reject(e)} aria-labelledby="reject-title">
-                  <h2 id="reject-title" className="text-lg font-semibold">
+                  <h2 id="reject-title" className="section-title">
                     Reject
                   </h2>
                   <TextArea id="reject-note" label="Reason (the owner sees this)" hint="This is emailed to the owner." max={1000} value={rejectNote} onChange={setRejectNote} errors={rejectError} />
-                  <button type="submit" className="btn-secondary mt-4">
+                  <button type="submit" className="btn-danger mt-5 w-full">
                     Reject and email the owner
                   </button>
                 </form>

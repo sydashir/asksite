@@ -36,13 +36,13 @@ export function ConfirmDialog(props: {
       ref={ref}
       aria-labelledby={`${id}-title`}
       aria-describedby={`${id}-text`}
-      className="m-auto max-w-md rounded-lg p-6 text-slate-900 backdrop:bg-slate-900/60"
+      className="m-auto w-[calc(100%-2rem)] max-w-md rounded-2xl border border-slate-200 p-6 text-slate-900 shadow-[0_30px_90px_rgba(0,0,0,0.35)] backdrop:bg-black/70 sm:p-7"
       onCancel={(e) => {
         e.preventDefault();
         props.onCancel();
       }}
     >
-      <h2 id={`${id}-title`} className="text-xl font-semibold">
+      <h2 id={`${id}-title`} className="text-xl font-semibold tracking-[-0.015em] text-ink">
         {props.title}
       </h2>
       <div id={`${id}-text`} className="mt-3">

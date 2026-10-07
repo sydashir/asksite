@@ -53,17 +53,20 @@ export function App() {
   const route = useAdminRoute();
   return (
     <>
-      <a href="#main" className="sr-only focus:not-sr-only focus:absolute focus:left-2 focus:top-2 focus:z-10 focus:rounded focus:bg-white focus:p-3">
+      <a href="#main" className="sr-only focus:not-sr-only focus:absolute focus:left-3 focus:top-3 focus:z-20 focus:rounded-lg focus:bg-brand-500 focus:px-4 focus:py-3 focus:font-semibold focus:text-ink">
         Skip to main content
       </a>
-      <header className="border-b border-slate-300 bg-white">
-        <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-x-6 gap-y-2 px-4 py-3">
-          <span className="text-lg font-bold">Admin</span>
-          <nav aria-label="Admin">
-            <ul className="flex flex-wrap gap-x-4 gap-y-1">
+      <header className="surface-dark border-b border-white/10">
+        <div className="mx-auto flex min-h-16 max-w-6xl flex-wrap items-center gap-x-8 gap-y-1 px-4 py-2.5">
+          <span className="inline-flex items-center gap-3 text-[1.0625rem] font-semibold tracking-[-0.01em]">
+            <img src="/hybrid.png" alt="Hybrid Mediaworks" width={40} height={40} className="size-10 rounded-[10px]" />
+            <span className="border-l border-white/20 pl-3">Admin</span>
+          </span>
+          <nav aria-label="Admin" className="-mx-2.5 w-full sm:mx-0 sm:w-auto">
+            <ul className="flex flex-wrap gap-x-1">
               {NAV.map((item) => (
                 <li key={item.href}>
-                  <a href={item.href} onClick={onLinkClick} className="link" aria-current={item.match.includes(route.name) ? "page" : undefined}>
+                  <a href={item.href} onClick={onLinkClick} className="nav-link" aria-current={item.match.includes(route.name) ? "page" : undefined}>
                     {item.label}
                   </a>
                 </li>
@@ -72,7 +75,7 @@ export function App() {
           </nav>
         </div>
       </header>
-      <main id="main" tabIndex={-1} className="mx-auto max-w-6xl px-4 py-6 break-words">
+      <main id="main" tabIndex={-1} className="mx-auto max-w-6xl px-4 py-8 break-words sm:py-10">
         {page(route)}
       </main>
     </>

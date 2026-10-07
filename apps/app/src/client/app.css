@@ -1,33 +1,134 @@
 @import "tailwindcss";
 
+/*
+ * The Hybrid Mediaworks design system, shared by the owner app and the admin app (the admin imports this file).
+ * Brand green #7BDD4C is a dark-text colour: near-black text on a green fill, or green on near-black. It is never text,
+ * a border or a focus ring on white, and white text never sits on it. On light surfaces green text uses brand-800
+ * (7.2:1 on white) and the focus ring brand-800; on dark surfaces both use brand-500 (11.6:1 on #0A0A0A).
+ */
+@theme {
+  --color-brand-50: #ecfde6;
+  --color-brand-100: #d7fbca;
+  --color-brand-200: #bbf7a4;
+  --color-brand-300: #a1f080;
+  --color-brand-400: #93ea68;
+  --color-brand-500: #7bdd4c;
+  --color-brand-600: #4da419;
+  --color-brand-700: #3a820a;
+  --color-brand-800: #296400;
+  --color-brand-900: #1e4905;
+  --color-brand-950: #102c02;
+  /* Near-black text and dark chrome; graphite panels; secondary text on dark (8.5:1 on ink). */
+  --color-ink: #0a0a0a;
+  --color-graphite: #171717;
+  --color-mist: #a3abb5;
+  /* The page behind the cards: light enough that slate-500 text on it stays at 4.5:1. */
+  --color-canvas: #fafafa;
+  --radius-card: 14px;
+  --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
 @layer base {
   html {
-    background-color: var(--color-slate-50);
+    background-color: var(--color-canvas);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
   }
   body {
     color: var(--color-slate-900);
   }
+  h1,
+  h2,
+  h3 {
+    text-wrap: balance;
+  }
   :focus-visible {
-    outline: 3px solid var(--color-blue-700);
+    outline: 3px solid var(--focus-ring, var(--color-brand-800));
     outline-offset: 2px;
+  }
+  /* Page headings and <main> take focus only so a screen reader starts there (route changes, the skip link); they are not
+     controls (WCAG 2.4.7), so they show no ring. */
+  :where(h1, h2, main)[tabindex="-1"]:focus-visible {
+    outline: none;
+  }
+  ::selection {
+    background-color: var(--color-brand-500);
+    color: var(--color-ink);
   }
 }
 
 @layer components {
+  /* Dark chrome (top bar, sign-in panel): white text, brand-green focus ring. */
+  .surface-dark {
+    --focus-ring: var(--color-brand-500);
+    background-color: var(--color-ink);
+    color: var(--color-white);
+    color-scheme: dark;
+  }
   .btn-primary {
-    @apply inline-flex min-h-11 items-center justify-center rounded-md bg-blue-700 px-5 py-2 font-semibold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:bg-slate-500 aria-disabled:cursor-not-allowed aria-disabled:bg-slate-500;
+    @apply inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-brand-600 bg-brand-500 px-5 py-2 font-semibold text-ink transition-colors duration-150 hover:bg-brand-400 active:translate-y-px disabled:cursor-not-allowed disabled:border-slate-300 disabled:bg-slate-200 disabled:text-slate-700 aria-disabled:cursor-not-allowed aria-disabled:border-slate-300 aria-disabled:bg-slate-200 aria-disabled:text-slate-700;
   }
   .btn-secondary {
-    @apply inline-flex min-h-11 items-center justify-center rounded-md border border-slate-500 bg-white px-4 py-2 font-medium text-slate-900 hover:bg-slate-100 aria-disabled:cursor-not-allowed aria-disabled:opacity-60;
+    @apply inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-slate-500 bg-white px-4 py-2 font-medium text-ink transition-colors duration-150 hover:border-ink hover:bg-slate-50 active:translate-y-px aria-disabled:cursor-not-allowed aria-disabled:opacity-60;
   }
   .btn-small {
-    @apply inline-flex min-h-8 min-w-8 items-center justify-center rounded border border-slate-500 bg-white px-2 text-sm text-slate-900 hover:bg-slate-100 disabled:text-slate-500 aria-disabled:cursor-not-allowed aria-disabled:opacity-60 aria-pressed:border-blue-700 aria-pressed:bg-blue-700 aria-pressed:font-semibold aria-pressed:text-white;
+    @apply inline-flex min-h-11 min-w-11 items-center justify-center rounded-lg border border-slate-500 bg-white px-3 text-sm font-medium text-ink transition-colors duration-150 hover:bg-slate-100 disabled:text-slate-500 aria-disabled:cursor-not-allowed aria-disabled:opacity-60 aria-pressed:border-ink aria-pressed:bg-ink aria-pressed:font-semibold aria-pressed:text-white;
+  }
+  /* An outline button on dark chrome (Sign out). */
+  .btn-on-dark {
+    @apply inline-flex min-h-11 items-center justify-center rounded-lg border border-white/45 px-4 py-2 font-medium text-white transition-colors duration-150 hover:border-white/70 hover:bg-white/10 active:translate-y-px;
   }
   .link {
-    @apply text-blue-800 underline underline-offset-2;
+    @apply font-medium text-brand-800 underline decoration-brand-600 underline-offset-[3px] hover:text-brand-900 hover:decoration-2;
   }
   .card {
-    @apply rounded-lg border border-slate-300 bg-white p-4 sm:p-6;
+    @apply rounded-card border border-slate-200 bg-white p-5 sm:p-6;
+  }
+  .page-title {
+    @apply text-[1.75rem] leading-tight font-semibold tracking-[-0.025em] text-ink sm:text-[2rem];
+  }
+  .section-title {
+    @apply text-lg font-semibold tracking-[-0.01em] text-ink;
+  }
+  .meta {
+    @apply text-slate-600;
+  }
+  /* Small rounded labels: neutral, or brand (brand-800 on brand-50 is 6.8:1). */
+  .pill {
+    @apply inline-flex min-h-6 items-center rounded-full bg-slate-100 px-2.5 py-0.5 text-[0.8125rem] font-medium text-slate-700;
+  }
+  .pill-brand {
+    @apply inline-flex min-h-6 items-center rounded-full bg-brand-50 px-2.5 py-0.5 text-[0.8125rem] font-semibold text-brand-800 ring-1 ring-brand-600/40 ring-inset;
+  }
+  /* A destructive action that is not the main one (Reject): red outline, red-800 text (8.3:1 on white). */
+  .btn-danger {
+    @apply inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-red-700 bg-white px-4 py-2 font-medium text-red-800 transition-colors duration-150 hover:bg-red-50 active:translate-y-px aria-disabled:cursor-not-allowed aria-disabled:opacity-60;
+  }
+  /* A small spinner beside "Loading…" text (decorative: the text says it). Still under reduced motion. */
+  .spinner {
+    @apply inline-block size-4 shrink-0 animate-spin rounded-full border-2 border-slate-300 border-t-brand-700 align-[-2px];
+  }
+  /* A bordered, centred panel for "nothing here" states. */
+  .empty-state {
+    @apply rounded-card border border-dashed border-slate-300 bg-white px-6 py-12 text-center sm:py-16;
+  }
+  /* Inline code-like labels (field paths). */
+  .code-tag {
+    @apply rounded-md bg-slate-100 px-1.5 py-0.5 font-mono text-[0.8125rem] text-slate-800;
+  }
+  /* Links in the dark top bar: the current page is white with a 2px brand bar on its bottom edge. */
+  .nav-link {
+    @apply relative inline-flex min-h-11 items-center rounded-md px-2.5 font-medium text-mist transition-colors duration-150 hover:bg-white/10 hover:text-white aria-[current=page]:text-white sm:px-3;
+  }
+  .nav-link[aria-current="page"]::after {
+    content: "";
+    position: absolute;
+    inset-inline: 0.625rem;
+    bottom: 0;
+    height: 2px;
+    border-radius: 2px;
+    background-color: var(--color-brand-500);
   }
 }
 
