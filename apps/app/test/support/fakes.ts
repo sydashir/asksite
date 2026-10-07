@@ -16,9 +16,9 @@ import {
   type GenerationRow,
   type GenerationView,
   type VersionSummary,
-  LIMITS,
   siteUrl,
 } from "@asksite/core";
+import { generationAllowance, requestGeneration } from "@asksite/generation";
 import { render } from "@asksite/renderer";
 import { DESIGN_CSS } from "@asksite/site-css";
 import { factSections, SECTION_VARIANTS, type Copy, type Facts, type LayoutSection, type SectionId } from "@asksite/site-schema";
@@ -28,7 +28,8 @@ import { LIVE_TOKEN_NO_HOSTNAME, TURNSTILE_DUMMY_TOKEN, TURNSTILE_TEST_SECRET, t
 
 // Test stand-ins for Plan 2 (@asksite/publishing, @asksite/mailer) and Plan 3 (@asksite/generation).
 // Each follows the design's contract (§6.4, §7.2, §7.6) closely enough for this Worker's tests;
-// none of them is ever deployed. The integration task swaps in the real packages.
+// none of them is ever deployed. The integration task swaps in the real packages. Plan 3's request
+// and allowance are already the real ones (fakeGeneration, integration-4); its job is finishGeneration.
 
 const TRADE_WORD: Record<Facts["trade"], string> = {
   plumbing: "Plumbing",
@@ -61,8 +62,6 @@ export function fakeAiDraft(facts: Facts): AiDraft {
   };
 }
 
-const utcDayStart = (now: number): number => Date.UTC(new Date(now).getUTCFullYear(), new Date(now).getUTCMonth(), new Date(now).getUTCDate());
-
 export function toGenerationView(row: GenerationRow): GenerationView {
   return {
     id: row.id,
@@ -92,11 +91,12 @@ export function switchGenerationOff(off: boolean): void {
   generationSwitchedOff = off;
 }
 
-// Which rows count, as Plan 3 counts them (packages/generation/src/request.ts:11-13): an internal failure that never started
-// counts toward nothing; only queued, running and succeeded regenerations, and invalid_output failures, count toward the owner's 20.
-const COUNTS_TODAY = "NOT (error_code IS 'internal' AND started_at IS NULL)";
-const COUNTS_TOWARD_TOTAL = "kind = 'regenerate' AND (status IN ('queued', 'running', 'succeeded') OR (status = 'failed' AND error_code IS 'invalid_output'))";
-
+/**
+ * Plan 3's generator as the app calls it: the REAL requestGeneration and generationAllowance (packages/generation request.ts;
+ * integration-4), so the app's tests meet its own rules, not a copy that can drift: the site's daily cap, the owner's daily cap on
+ * regenerations, the lifetime 20, the kill switch, today's model limit, the intent guard and the allowance min(site, owner). Only
+ * two test switches stand in front of it: an armed refusal (refuseNextGeneration) and the kill switch as production ships it.
+ */
 export const fakeGeneration: GenerationDeps = {
   async requestGeneration(env, input) {
     if (nextGenerationRefusal !== undefined) {
@@ -104,48 +104,9 @@ export const fakeGeneration: GenerationDeps = {
       nextGenerationRefusal = undefined;
       return { ok: false, code };
     }
-    const db = env.DB;
-    const done = await db.prepare("SELECT 1 FROM generations WHERE site_id = ? AND status = 'succeeded' LIMIT 1").bind(input.siteId).first();
-    const kind = done === null ? "first" : "regenerate";
-    if (kind === "regenerate") {
-      // The used-up total is answered BEFORE the kill switch (request.ts:55-61), so production's "false" still tells an owner at the cap the cap.
-      const total = await db.prepare(`SELECT COUNT(*) AS n FROM generations WHERE owner_id = ? AND (${COUNTS_TOWARD_TOTAL})`).bind(input.ownerId).first<{ n: number }>();
-      if ((total?.n ?? 0) >= LIMITS.generationsPerOwnerTotal) return { ok: false, code: "generation_cap_reached" };
-      if (generationSwitchedOff || env.GENERATION_ENABLED !== "true") return { ok: false, code: "generation_disabled" };
-    }
-    const id = newId();
-    try {
-      // Only counted regenerations meet the owner's lifetime cap, a first build never does (decision 40; INSERT_JOB, request.ts:24-27).
-      const inserted = await db
-        .prepare(
-          `INSERT INTO generations (id, site_id, owner_id, kind, status, input_json, created_at)
-           SELECT ?1, ?2, ?3, ?4, 'queued', ?5, ?6
-           WHERE (SELECT COUNT(*) FROM generations WHERE site_id = ?2 AND created_at >= ?7 AND (${COUNTS_TODAY})) < ?8
-             AND (?4 = 'first' OR (SELECT COUNT(*) FROM generations WHERE owner_id = ?3 AND (${COUNTS_TOWARD_TOTAL})) < ?9)`,
-        )
-        .bind(id, input.siteId, input.ownerId, kind, JSON.stringify(input.snapshot), input.now, utcDayStart(input.now), LIMITS.generationsPerSitePerDay, LIMITS.generationsPerOwnerTotal)
-        .run();
-      if (inserted.meta.changes !== 1) return { ok: false, code: "generation_cap_reached" };
-    } catch (err) {
-      if (err instanceof Error && err.message.includes("UNIQUE constraint failed")) return { ok: false, code: "generation_in_progress" };
-      throw err;
-    }
-    await env.GEN_QUEUE.send({ v: 1, generationId: id });
-    const row = await db.prepare("SELECT * FROM generations WHERE id = ?").bind(id).first<GenerationRow>();
-    if (row === null) return { ok: false, code: "internal" };
-    return { ok: true, generation: toGenerationView(row) };
+    return requestGeneration(generationSwitchedOff ? { ...env, GENERATION_ENABLED: "false" } : env, input);
   },
-  async generationAllowance(env, input) {
-    const counts = await env.DB.prepare(
-      `SELECT COUNT(*) FILTER (WHERE site_id = ?1 AND created_at >= ?3 AND (${COUNTS_TODAY})) AS today, COUNT(*) FILTER (WHERE ${COUNTS_TOWARD_TOTAL}) AS total FROM generations WHERE owner_id = ?2`,
-    )
-      .bind(input.siteId, input.ownerId, utcDayStart(input.now))
-      .first<{ today: number; total: number }>();
-    return {
-      generationsLeftToday: Math.max(0, LIMITS.generationsPerSitePerDay - (counts?.today ?? 0)),
-      generationsLeftTotal: Math.max(0, LIMITS.generationsPerOwnerTotal - (counts?.total ?? 0)),
-    };
-  },
+  generationAllowance,
   toGenerationView,
 };
 

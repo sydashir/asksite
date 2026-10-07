@@ -280,6 +280,8 @@ test("write new wording asks first, then replaces the wording but keeps the look
     dialog.getByRole("button", { name: "Write new wording" }).click(),
   ]);
   expect(started.status()).toBe(202);
+  // Handoff 2b: the editor asks for a REWRITE (the Questionnaire's "first" never rewrites a drafted site).
+  expect(started.request().postDataJSON()).toEqual({ kind: "regenerate" });
   // The result is announced in the status line, so focus goes there once the dialog is closed.
   await expect(page.getByRole("status").filter({ hasText: /Writing new wording|New wording is ready/ })).toBeFocused();
   await finishGeneration(page.request, ((await started.json()) as { generation: { id: string } }).generation.id);

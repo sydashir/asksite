@@ -199,7 +199,8 @@ function EditorScreen(props: { siteId: string; site: SiteState; view: SiteView; 
       stopped(flushed);
       return;
     }
-    const res = await api<{ generation: GenerationView }>("POST", `/api/sites/${siteId}/generations`, {});
+    // A rewrite (handoff 2b): the server refuses it on a site with no draft, as it refuses the Questionnaire's "first" on one with a draft.
+    const res = await api<{ generation: GenerationView }>("POST", `/api/sites/${siteId}/generations`, { kind: "regenerate" });
     if (res.ok) setRewriteId(res.data.generation.id);
     else {
       setRewriteMessage(res.error.message);

@@ -10,6 +10,13 @@ import { currentAi, liveUploads, under } from "../site-view.ts";
 import type { AppEnv } from "../types.ts";
 import { storedJsonNote } from "./stored-json-note.ts";
 
+/**
+ * The build the owner asked for (handoff 2b): "first" from the Questionnaire's Build and the build page's Try again, "regenerate"
+ * from the editor's Write new wording. The generator refuses a kind the site no longer has (a stale tab) with generation_in_progress,
+ * so a stale Build never rewrites a drafted site. Optional (DECIDED): a tab loaded before this change sends {} and works as before.
+ */
+const GenerationBody = z.strictObject({ kind: z.enum(["first", "regenerate"]).optional() });
+
 /** The lifetime cap is not time-based: like the upload cap, the value only says "not at once" (decisions 15 and 40). */
 const LIFETIME_CAP_RETRY_SECONDS = 86_400;
 
@@ -62,7 +69,7 @@ export function generationRoutes(deps: AppDeps): Hono<AppEnv> {
   const generations = new Hono<AppEnv>();
 
   generations.post("/sites/:siteId/generations", requireOwner, async (c) => {
-    await readJson(c, z.strictObject({}));
+    const { kind } = await readJson(c, GenerationBody);
     const owner = c.get("owner");
     const db = c.env.DB;
     const site = await ownedSite(db, c.req.param("siteId"), owner.id);
@@ -87,6 +94,7 @@ export function generationRoutes(deps: AppDeps): Hono<AppEnv> {
       ownerId: owner.id,
       snapshot: { facts: facts.data, brief: brief.data },
       now,
+      ...(kind === undefined ? {} : { kind }),
     });
     if (!result.ok) {
       // Which cap was hit: a daily one ("tomorrow": the site's, or, for a regeneration, the owner's daily regeneration

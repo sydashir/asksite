@@ -1,5 +1,5 @@
 import { MAX_ISSUES, secondsUntilUtcMidnight } from "@asksite/app-common";
-import { Brief, composeDocument, EMPTY_EDITS, mediaUrl, photoRefIssues, toIssues, type GenerationView, type SiteView, type UploadView } from "@asksite/core";
+import { Brief, composeDocument, EMPTY_EDITS, LIMITS, mediaUrl, photoRefIssues, toIssues, type GenerationView, type SiteView, type UploadView } from "@asksite/core";
 import { Facts, SiteDocument } from "@asksite/site-schema";
 import { describe, expect, it } from "vitest";
 import { VALID_BRIEF, VALID_FACTS } from "../support/facts.ts";
@@ -200,7 +200,7 @@ describe("POST /api/sites/:siteId/generations", () => {
     expect(res.headers.get("Retry-After")).toBe(String(body.error.retryAfter));
   });
 
-  // The fake follows Plan 3's counting (packages/generation/src/request.ts:11-13): only queued, running, succeeded and invalid_output
+  // Plan 3's counting (packages/generation/src/request.ts, run for real by the test Worker: integration-4): only queued, running, succeeded and invalid_output
   // regenerations count toward the 20, and an internal failure that never started counts toward neither the 20 nor today's 5.
   it("failures that never started do not use the owner's rewrites or today's builds", async () => {
     const owner = await builtOwner(h, VALID_FACTS, VALID_BRIEF);
@@ -399,5 +399,122 @@ describe("POST /api/sites/:siteId/generations pins the current look (A12 §3)", 
     const page = (site: SiteView) => (site.ai === null ? null : SiteDocument.parse(composeDocument(site.facts, site.ai, site.edits)));
     expect(page(before)).not.toBeNull();
     expect(page(after)).toEqual(page(before));
+  });
+});
+
+// Handoff 2b (DECIDED web-maker-d5, 2026-10-07): the client says which build it means. The Questionnaire's "Build my website" and
+// the build page's "Try again" send "first", the editor's "Write new wording" sends "regenerate"; requestGeneration refuses a kind
+// the site no longer has with generation_in_progress, so a stale tab never rewrites a drafted site.
+describe("POST /api/sites/:siteId/generations with the intended kind (handoff 2b)", () => {
+  const post = (owner: { siteId: string; cookie: string }, body: object) => h.call("POST", `/api/sites/${owner.siteId}/generations`, { cookie: owner.cookie, body });
+  const view = async (owner: { siteId: string; cookie: string }) => json<SiteView>(await h.call("GET", `/api/sites/${owner.siteId}`, { cookie: owner.cookie }));
+
+  it("a stale “Build my website” (kind first) on a drafted site queues nothing: 409 generation_in_progress, and the wording stays", async () => {
+    const owner = await builtOwner(h, VALID_FACTS, VALID_BRIEF);
+    const res = await post(owner, { kind: "first" });
+    expect(res.status).toBe(409);
+    expect((await json<ErrorJson>(res)).error).toEqual({ code: "generation_in_progress", message: "Your website is already being written. It will be ready soon." });
+    expect(await buildCount(owner.siteId)).toBe(1);
+    const after = await view(owner);
+    expect(after.ai?.generationId).toBe(owner.generationId);
+    expect(after.activeGeneration).toBeNull();
+  });
+
+  it("“Write new wording” (kind regenerate) on a drafted site queues a regeneration", async () => {
+    const owner = await builtOwner(h, VALID_FACTS, VALID_BRIEF);
+    const res = await post(owner, { kind: "regenerate" });
+    expect(res.status).toBe(202);
+    expect((await json<{ generation: GenerationView }>(res)).generation).toMatchObject({ kind: "regenerate", status: "queued" });
+  });
+
+  it("kind first on a site with no draft queues the first build; kind regenerate there queues nothing (409)", async () => {
+    const owner = await readyOwner(h, VALID_FACTS, VALID_BRIEF);
+    const refused = await post(owner, { kind: "regenerate" });
+    expect(refused.status).toBe(409);
+    expect((await json<ErrorJson>(refused)).error.code).toBe("generation_in_progress");
+    expect(await buildCount(owner.siteId)).toBe(0);
+    const first = await post(owner, { kind: "first" });
+    expect(first.status).toBe(202);
+    expect((await json<{ generation: GenerationView }>(first)).generation.kind).toBe("first");
+  });
+
+  // DECIDED: an old tab (no kind) keeps working as today. A pin: it passes before and after the change.
+  it("a request with no kind (an old tab) still works as today: the first build, then a regeneration", async () => {
+    const owner = await readyOwner(h, VALID_FACTS, VALID_BRIEF);
+    const first = await post(owner, {});
+    expect(first.status).toBe(202);
+    const { generation } = await json<{ generation: GenerationView }>(first);
+    expect(generation.kind).toBe("first");
+    expect((await h.call("POST", `/__test/generations/${generation.id}/finish`, { body: { status: "succeeded" } })).status).toBe(200);
+    const again = await post(owner, {});
+    expect(again.status).toBe(202);
+    expect((await json<{ generation: GenerationView }>(again)).generation.kind).toBe("regenerate");
+  });
+
+  it("refuses any other kind, or any other field, with 422 validation_failed, queuing nothing", async () => {
+    const owner = await readyOwner(h, VALID_FACTS, VALID_BRIEF);
+    for (const body of [{ kind: "rewrite" }, { kind: null }, { kind: "first", force: true }]) {
+      const res = await post(owner, body);
+      expect(res.status).toBe(422);
+      expect((await json<ErrorJson>(res)).error.code).toBe("validation_failed");
+    }
+    expect(await buildCount(owner.siteId)).toBe(0);
+  });
+});
+
+// integration-4: the app's tests run the REAL requestGeneration and generationAllowance (packages/generation request.ts) behind
+// test/support/fakes.ts, so these rules are the generator's own, not a copy that can drift: the owner's daily cap on regenerations
+// (all their sites together), the allowance min(site, owner), and the intent guard (above).
+describe("the generator's own caps, through the app (integration-4)", () => {
+  /** `n` regenerations of `site` that count toward today (failed without an error code: not toward the owner's 20). */
+  async function regenerationsToday(site: { siteId: string; ownerId: string }, n: number) {
+    const db = await h.db();
+    for (let i = 0; i < n; i += 1) {
+      await db.prepare("INSERT INTO generations (id, site_id, owner_id, kind, status, input_json, created_at) VALUES (?, ?, ?, 'regenerate', 'failed', '{}', ?)")
+        .bind(crypto.randomUUID(), site.siteId, site.ownerId, Date.now()).run();
+    }
+  }
+  const view = async (owner: { siteId: string; cookie: string }) => json<SiteView>(await h.call("GET", `/api/sites/${owner.siteId}`, { cookie: owner.cookie }));
+
+  /** The same owner's second site (a second invite), with valid answers. */
+  async function secondSite(owner: { email: string; ownerId: string }) {
+    const second = await h.signIn(owner.email);
+    expect(second.ownerId).toBe(owner.ownerId);
+    expect((await h.call("PATCH", `/api/sites/${second.siteId}/draft`, { cookie: second.cookie, body: { rev: 1, facts: VALID_FACTS, brief: VALID_BRIEF } })).status).toBe(200);
+    return second;
+  }
+
+  it("the owner's daily cap: five regenerations today on one site leave none today on another; the allowance is min(site, owner)", async () => {
+    await awayFromUtcHourEnd();
+    const owner = await builtOwner(h, VALID_FACTS, VALID_BRIEF);
+    const second = await secondSite(owner);
+    await regenerationsToday(second, LIMITS.generationsPerOwnerPerDay);
+    // This site used one build today (4 left), the owner all five regenerations: min(4, 0).
+    expect((await view(owner)).limits).toEqual({ generationsLeftToday: 0, generationsLeftTotal: 20 });
+    const res = await h.call("POST", `/api/sites/${owner.siteId}/generations`, { cookie: owner.cookie, body: { kind: "regenerate" } });
+    expect(res.status).toBe(429);
+    const body = await json<ErrorJson>(res);
+    expect(body.error).toMatchObject({ code: "generation_cap_reached", message: "You have used all the rewrites for today. Try again tomorrow." });
+    expect(await buildCount(owner.siteId)).toBe(1);
+  });
+
+  it("the allowance is the site's when the site has fewer left than the owner: min(site, owner)", async () => {
+    await awayFromUtcHourEnd();
+    const owner = await builtOwner(h, VALID_FACTS, VALID_BRIEF);
+    await regenerationsToday(owner, 2);
+    // The site: one build and two regenerations today (2 left); the owner: two regenerations (3 left).
+    expect((await view(owner)).limits).toEqual({ generationsLeftToday: 2, generationsLeftTotal: 20 });
+  });
+
+  it("a first build is outside the owner's daily cap: a new site of an owner with none left today still builds", async () => {
+    await awayFromUtcHourEnd();
+    const owner = await builtOwner(h, VALID_FACTS, VALID_BRIEF);
+    await regenerationsToday(owner, LIMITS.generationsPerOwnerPerDay);
+    const second = await secondSite(owner);
+    // No draft yet: its next request is a first build, so only the site's own five count.
+    expect((await view(second)).limits).toEqual({ generationsLeftToday: 5, generationsLeftTotal: 20 });
+    const res = await h.call("POST", `/api/sites/${second.siteId}/generations`, { cookie: second.cookie, body: { kind: "first" } });
+    expect(res.status).toBe(202);
+    expect((await json<{ generation: GenerationView }>(res)).generation.kind).toBe("first");
   });
 });

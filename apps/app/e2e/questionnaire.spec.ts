@@ -94,7 +94,12 @@ test("invite, then the seven questionnaire steps, then Build starts writing the 
   await expect(page.getByText("This address is free. Save it to keep it.")).toBeVisible();
   await page.getByRole("button", { name: "Save this web address" }).click();
   await expect(page.getByText("This is your web address.")).toBeVisible();
-  await page.getByRole("button", { name: "Build my website" }).click();
+  const [build] = await Promise.all([
+    page.waitForRequest((r) => r.method() === "POST" && r.url().endsWith(`/api/sites/${siteId}/generations`)),
+    page.getByRole("button", { name: "Build my website" }).click(),
+  ]);
+  // Handoff 2b: the Questionnaire asks for the FIRST build, so a draft that landed meanwhile is never rewritten from here.
+  expect(build.postDataJSON()).toEqual({ kind: "first" });
 
   await page.waitForURL(`${APP}/sites/${siteId}/build`);
   await expect(page.getByRole("heading", { level: 1, name: "Building your website" })).toBeVisible();
@@ -372,6 +377,83 @@ test("with a draft already written, the last step says Go to the editor and star
   expect(generationPosts).toEqual([]);
   const view = await apiCall(page, "GET", `/api/sites/${siteId}`);
   expect(view.json?.["activeGeneration"]).toBeNull();
+});
+
+/** The next POST that asks this site for a build, and its answer, as `act` makes it. */
+async function buildRequest(page: Page, siteId: string, act: () => Promise<void>) {
+  const isBuild = (url: string, method: string) => method === "POST" && url.endsWith(`/api/sites/${siteId}/generations`);
+  const [request, response] = await Promise.all([
+    page.waitForRequest((r) => isBuild(r.url(), r.method())),
+    page.waitForResponse((r) => isBuild(r.url(), r.request().method())),
+    act(),
+  ]);
+  return { body: request.postDataJSON() as unknown, status: response.status() };
+}
+
+/** Starts a build the way another (older) tab would, with no kind, and ends it. Returns its id. */
+async function buildElsewhere(page: Page, siteId: string, status: "succeeded" | "failed" = "succeeded"): Promise<string> {
+  const started = await apiCall(page, "POST", `/api/sites/${siteId}/generations`, {});
+  expect(started.status).toBe(202);
+  const id = (started.json?.["generation"] as { id: string }).id;
+  await finishGeneration(page.request, id, status);
+  return id;
+}
+
+/** The build page following a first build, which then fails. The build ends only once the page polls it (a build that ended before the page loaded sends it back to the questionnaire). */
+async function openFailedBuild(page: Page, siteId: string) {
+  const started = await apiCall(page, "POST", `/api/sites/${siteId}/generations`, {});
+  const id = (started.json?.["generation"] as { id: string }).id;
+  const polled = page.waitForRequest((r) => r.url().endsWith(`/api/sites/${siteId}/generations/${id}`));
+  await page.goto(`/sites/${siteId}/build`);
+  await polled;
+  await finishGeneration(page.request, id, "failed");
+}
+
+// Handoff 2b (STRICT, customer data): a "Build my website" pressed in a tab loaded before the first draft landed must never
+// rewrite that draft (and the owner's edits) without the editor's confirm. It asks for the FIRST build, is told one exists
+// (generation_in_progress), and the existing Build -> editor path opens the editor.
+test("a stale Build my website tab on a site whose draft has landed opens the editor and starts no rewrite", async ({ page }) => {
+  const siteId = await acceptInvite(page);
+  await seedDraft(page, siteId, "stale");
+  await page.goto(`/sites/${siteId}/setup/address`);
+  await expect(page.getByRole("button", { name: "Build my website" })).toBeVisible();
+  const draftId = await buildElsewhere(page, siteId);
+
+  const sent = await buildRequest(page, siteId, () => page.getByRole("button", { name: "Build my website" }).click());
+  expect(sent).toEqual({ body: { kind: "first" }, status: 409 });
+  await page.waitForURL(`${APP}/sites/${siteId}/edit`);
+  await expect(page.getByRole("heading", { level: 1, name: "Edit your website" })).toBeVisible();
+  const view = await apiCall(page, "GET", `/api/sites/${siteId}`);
+  expect((view.json?.["ai"] as { generationId: string }).generationId).toBe(draftId);
+  expect(view.json?.["activeGeneration"]).toBeNull();
+});
+
+// DECIDED (web-maker-d5, 2026-10-07, Q2): the build page's Try again is a first build too; told one exists, it loads the page again,
+// which opens the editor.
+test("Try again after a failed first build asks for the first build; if another tab's draft has landed, it opens the editor", async ({ page }) => {
+  const siteId = await acceptInvite(page);
+  await seedDraft(page, siteId, "retry");
+  await openFailedBuild(page, siteId);
+  // The build page polls every 2 s; allow a busy machine a few polls.
+  await expect(page.getByRole("button", { name: "Try again" })).toBeVisible({ timeout: 15_000 });
+  const draftId = await buildElsewhere(page, siteId);
+
+  const sent = await buildRequest(page, siteId, () => page.getByRole("button", { name: "Try again" }).click());
+  expect(sent).toEqual({ body: { kind: "first" }, status: 409 });
+  await page.waitForURL(`${APP}/sites/${siteId}/edit`);
+  const view = await apiCall(page, "GET", `/api/sites/${siteId}`);
+  expect((view.json?.["ai"] as { generationId: string }).generationId).toBe(draftId);
+  expect(view.json?.["activeGeneration"]).toBeNull();
+});
+
+test("Try again after a failed first build, with no other draft, starts the first build", async ({ page }) => {
+  const siteId = await acceptInvite(page);
+  await seedDraft(page, siteId, "retry-ok");
+  await openFailedBuild(page, siteId);
+  await expect(page.getByRole("button", { name: "Try again" })).toBeVisible({ timeout: 15_000 });
+  const sent = await buildRequest(page, siteId, () => page.getByRole("button", { name: "Try again" }).click());
+  expect(sent).toEqual({ body: { kind: "first" }, status: 202 });
+  await expect(page.getByRole("status")).toHaveText("We are writing your website. This usually takes under a minute.");
 });
 
 // STRICT (customer data): typing while the web address is being saved must never be lost.
