@@ -1529,6 +1529,30 @@ test("a delete that did not finish (a 5xx, a lost lease, no connection) shows Fi
   expect(bodies).toEqual([{ confirmEmail: site.email }, { confirmEmail: site.email }, { confirmEmail: site.email }, { confirmEmail: site.email }]);
 });
 
+// Review I-1: a kept unfinished body belongs to the owner state it was sent for. Once the owner is enabled again, a later disable starts over, so a
+// delete that never started cannot come back as a one-press delete with no typed email and no dialog.
+test("a delete that never started is forgotten once the owner is enabled: disabling again asks for the email and the dialog", async ({ page }) => {
+  const site = await liveSite(page);
+  await page.goto(`/sites/${site.siteId}`);
+  await disableOwner(page);
+  const bodies: unknown[] = [];
+  await page.route(DELETE_URL, (route, request) => {
+    bodies.push(request.postDataJSON());
+    return route.fulfill({ status: 500, json: { error: { code: "internal", message: "Something went wrong. Please try again." } } });
+  });
+  await page.getByLabel("Type the owner's email to delete the account").fill(site.email);
+  await page.getByRole("button", { name: "Delete the account" }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "Delete everything" }).click();
+  await expect(page.getByRole("button", { name: "Finish deleting the account" })).toBeVisible();
+  await page.getByRole("button", { name: "Enable the owner" }).click();
+  await expect(page.getByText("Owner enabled.")).toBeVisible();
+  await disableOwner(page);
+  await expect(page.getByLabel("Type the owner's email to delete the account")).toHaveValue("");
+  await expect(page.getByRole("button", { name: "Delete the account" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Finish deleting the account" })).toHaveCount(0);
+  expect(bodies).toEqual([{ confirmEmail: site.email }]);
+});
+
 // The act() busy guard covers every caller: a double-click sends ONE request each (the answer is held back, so the second press lands while the first runs).
 test("a double-click on the search-engines toggle, Enable the owner and Disable the owner sends one request each", async ({ page }) => {
   const site = await liveSite(page);

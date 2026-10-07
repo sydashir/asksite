@@ -1,7 +1,7 @@
 import type { AdminSiteRow, GenerationView, VersionSummary } from "@asksite/core";
 import { siteUrl } from "@asksite/core";
 import { isSafeUrl } from "@asksite/site-schema";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Notice } from "../../../../app/src/client/components/feedback.tsx";
 import { usePageHeading } from "../../../../app/src/client/hooks/use-page-heading.ts";
 import { onLinkClick } from "../../../../app/src/client/hooks/use-route.ts";
@@ -56,6 +56,11 @@ function SiteScreen({ data, reload }: { data: SiteDetailData; reload: () => Prom
   const [deleting, setDeleting] = useState(false);
   /** The body of a delete that did not finish (5xx, lost lease, offline): kept so "Finish deleting the account" sends the same one. */
   const [pendingDelete, setPendingDelete] = useState<{ confirmEmail: string } | null>(null);
+  // The kept body belongs to the owner state it was sent for (§3.2: a form is opened for ONE state). Once the page shows the owner enabled, a later disable
+  // is a new decision and starts over with the typed email and the dialog: a delete that never started must not come back as one press (review I-1).
+  useEffect(() => {
+    if (!site.ownerDisabled) setPendingDelete(null);
+  }, [site.ownerDisabled]);
   /** The answer once the owner is gone: the page shows it instead of the site (which no longer exists, so nothing is reloaded). */
   const [deletion, setDeletion] = useState<OwnerDeletionView | null>(null);
   const messageRef = useRef<HTMLDivElement>(null);
