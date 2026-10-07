@@ -197,6 +197,47 @@
   .wizard-steps .step-link {
     @apply whitespace-nowrap lg:flex lg:whitespace-normal;
   }
+  /* Sign-in, invite and sign-up: a white form panel, and from 1024px a dark Hybrid panel beside it. Below 640px the chrome
+     around the form is 1px border + 16px padding (+ main's 16px), the same as the old card, so the security check keeps its width. */
+  .auth {
+    @apply mx-auto max-w-xl overflow-hidden rounded-card border border-slate-200 bg-white lg:grid lg:max-w-5xl lg:grid-cols-2;
+  }
+  .auth-panel {
+    @apply p-4 sm:p-8 lg:flex lg:flex-col lg:justify-center lg:p-12;
+  }
+  .auth-intro {
+    @apply hidden;
+  }
+  @media (width >= 64rem) {
+    .auth-intro {
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+      padding: 3rem;
+      color: var(--color-mist);
+      color-scheme: dark;
+      background:
+        radial-gradient(70% 80% at 100% 0%, rgb(123 221 76 / 0.22), transparent 65%),
+        radial-gradient(60% 80% at 0% 100%, #0f1c0e, transparent 70%),
+        var(--color-ink);
+    }
+  }
+  .auth-intro-mark {
+    @apply mb-auto size-14 rounded-xl;
+  }
+  .auth-intro-title {
+    @apply text-[clamp(2rem,1.4rem+2vw,3rem)] leading-[1.05] font-semibold tracking-[-0.035em] text-balance text-white;
+  }
+  .auth-intro-text {
+    @apply max-w-[38ch] text-[1.0625rem];
+  }
+  /* The sentence under an h1. */
+  .page-sub {
+    @apply mt-3 text-[1.0625rem] text-slate-700;
+  }
+  .btn-lg {
+    @apply min-h-12 px-6 text-[1.0625rem];
+  }
   /* A 48px brand tile holding a line icon (near-black on green, 11.6:1). */
   .icon-tile {
     @apply inline-flex size-12 items-center justify-center rounded-xl bg-brand-500 text-ink;
