@@ -66,14 +66,14 @@ export function App() {
   }, [route]);
   return (
     <>
-      <a href="#main" className="sr-only focus:not-sr-only focus:absolute focus:left-3 focus:top-3 focus:z-20 focus:rounded-lg focus:bg-brand-500 focus:px-4 focus:py-3 focus:font-semibold focus:text-ink">
+      <a href="#main" className="skip-link">
         Skip to main content
       </a>
       <header className="surface-dark border-b border-white/10">
         <div className="mx-auto flex min-h-16 max-w-6xl flex-wrap items-center justify-between gap-3 px-4 py-2.5">
           {/* The mark is decorative here: the link's name stays "Your website". */}
-          <a href="/" onClick={onLinkClick} className="-ml-1 inline-flex min-h-11 items-center gap-3 rounded-lg px-1 text-[1.0625rem] font-semibold tracking-[-0.01em] text-white">
-            <img src="/hybrid.png" alt="" width={40} height={40} className="size-10 rounded-[10px]" />
+          <a href="/" onClick={onLinkClick} className="brand-link">
+            <img src="/hybrid.png" alt="" width={40} height={40} className="brand-mark" />
             Your website
           </a>
           {me.state === "ready" ? (

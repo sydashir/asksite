@@ -1,6 +1,6 @@
 import type { AdminVersionDetail } from "@asksite/core";
 import { isSafeUrl, type PageId } from "@asksite/site-schema";
-import { useRef, useState, type FormEvent } from "react";
+import { Fragment, useRef, useState, type FormEvent } from "react";
 import { Checkbox, TextArea } from "../../../../app/src/client/components/fields.tsx";
 import { Notice } from "../../../../app/src/client/components/feedback.tsx";
 import { PagePreview } from "../../../../app/src/client/components/page-preview.tsx";
@@ -30,6 +30,16 @@ function editedText(document: unknown, path: string): string {
   }
   if (values.has(path)) return values.get(path) ?? "";
   return [...values].filter(([key]) => key.startsWith(`${path}.`)).map(([, value]) => value).join(" / ");
+}
+
+/** An email or web address with line-break chances after "@" and "." (the text is unchanged), so it wraps between its parts. */
+function Breakable({ text }: { text: string }) {
+  return text.split(/(?<=[@.])/).map((part, i) => (
+    <Fragment key={i}>
+      {i > 0 ? <wbr /> : null}
+      {part}
+    </Fragment>
+  ));
 }
 
 /** Thumbnails of the photos on the page, with the owner's alt text as their alt text. */
@@ -215,7 +225,9 @@ function ReviewScreen({ detail, onDone }: { detail: AdminVersionDetail; onDone: 
                   : null}
               </dd>
               <dt className="font-medium">Public email</dt>
-              <dd className="break-all">{publicEmail}</dd>
+              <dd className="[overflow-wrap:anywhere]">
+                <Breakable text={publicEmail} />
+              </dd>
               <dt className="font-medium">Photos</dt>
               <dd>
                 {checks.photoCount}

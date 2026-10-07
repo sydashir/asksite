@@ -98,10 +98,10 @@ export function SaveStatus({
 
 export function Notice({ tone, children }: { tone: "info" | "warning" | "success" | "error"; children: ReactNode }) {
   const style = {
-    info: "border-slate-200 border-l-slate-700 bg-white text-slate-900",
-    warning: "border-amber-200 border-l-amber-600 bg-amber-50 text-slate-900",
-    success: "border-brand-200 border-l-brand-700 bg-brand-50 text-slate-900",
-    error: "border-red-200 border-l-red-700 bg-red-50 text-slate-900",
+    info: "notice-info",
+    warning: "notice-warning",
+    success: "notice-success",
+    error: "notice-error",
   }[tone];
-  return <div className={`mt-4 rounded-xl border border-l-4 p-4 ${style}`}>{children}</div>;
+  return <div className={`notice ${style}`}>{children}</div>;
 }

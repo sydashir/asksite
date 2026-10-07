@@ -36,7 +36,7 @@ export function ConfirmDialog(props: {
       ref={ref}
       aria-labelledby={`${id}-title`}
       aria-describedby={`${id}-text`}
-      className="m-auto w-[calc(100%-2rem)] max-w-md rounded-2xl border border-slate-200 p-6 text-slate-900 shadow-[0_30px_90px_rgba(0,0,0,0.35)] backdrop:bg-black/70 sm:p-7"
+      className="dialog"
       onCancel={(e) => {
         e.preventDefault();
         props.onCancel();

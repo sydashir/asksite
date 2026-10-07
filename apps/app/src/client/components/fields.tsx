@@ -60,8 +60,7 @@ function Counter({ id, length, max }: { id: string; length: number; max: number 
   );
 }
 
-const INPUT =
-  "mt-1.5 block min-h-11 w-full rounded-lg border border-slate-500 bg-white px-3.5 py-2.5 text-base text-ink transition-colors duration-150 hover:border-slate-700 focus:border-brand-800 aria-[invalid=true]:border-2 aria-[invalid=true]:border-red-700";
+const INPUT = "field-input";
 
 export function TextInput(
   props: Common & {

@@ -70,7 +70,7 @@
     @apply inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-brand-600 bg-brand-500 px-5 py-2 font-semibold text-ink transition-colors duration-150 hover:bg-brand-400 active:translate-y-px disabled:cursor-not-allowed disabled:border-slate-300 disabled:bg-slate-200 disabled:text-slate-700 aria-disabled:cursor-not-allowed aria-disabled:border-slate-300 aria-disabled:bg-slate-200 aria-disabled:text-slate-700;
   }
   .btn-secondary {
-    @apply inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-slate-500 bg-white px-4 py-2 font-medium text-ink transition-colors duration-150 hover:border-ink hover:bg-slate-50 active:translate-y-px aria-disabled:cursor-not-allowed aria-disabled:opacity-60;
+    @apply inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-slate-500 bg-white px-4 py-2 font-medium text-ink transition-colors duration-150 hover:border-ink hover:bg-slate-50 active:translate-y-px aria-disabled:cursor-not-allowed aria-disabled:opacity-60 aria-pressed:border-ink aria-pressed:bg-ink aria-pressed:font-semibold aria-pressed:text-white;
   }
   .btn-small {
     @apply inline-flex min-h-11 min-w-11 items-center justify-center rounded-lg border border-slate-500 bg-white px-3 text-sm font-medium text-ink transition-colors duration-150 hover:bg-slate-100 disabled:text-slate-500 aria-disabled:cursor-not-allowed aria-disabled:opacity-60 aria-pressed:border-ink aria-pressed:bg-ink aria-pressed:font-semibold aria-pressed:text-white;
@@ -117,6 +117,68 @@
   .code-tag {
     @apply rounded-md bg-slate-100 px-1.5 py-0.5 font-mono text-[0.8125rem] text-slate-800;
   }
+  /* The skip link: hidden until focused, then a green tab at the top left. */
+  .skip-link {
+    @apply sr-only focus:not-sr-only focus:absolute focus:top-3 focus:left-3 focus:z-20 focus:rounded-lg focus:bg-brand-500 focus:px-4 focus:py-3 focus:font-semibold focus:text-ink;
+  }
+  /* The top bar's home link: the mark (decorative) and the product name. */
+  .brand-link {
+    @apply -ml-1 inline-flex min-h-11 items-center gap-3 rounded-lg px-1 text-[1.0625rem] font-semibold tracking-[-0.01em] text-white;
+  }
+  .brand-mark {
+    @apply size-10 rounded-[10px];
+  }
+  /* Text inputs, text areas and selects (46px tall); an invalid one gets a 2px red border. */
+  .field-input {
+    @apply mt-1.5 block min-h-11 w-full rounded-lg border border-slate-500 bg-white px-3.5 py-2.5 text-base text-ink transition-colors duration-150 hover:border-slate-700 focus:border-brand-800 aria-[invalid=true]:border-2 aria-[invalid=true]:border-red-700;
+  }
+  /* Notices: a tinted box with a 4px bar on the left. */
+  .notice {
+    @apply mt-4 rounded-xl border border-l-4 p-4 text-slate-900;
+  }
+  .notice-info {
+    @apply border-slate-200 border-l-slate-700 bg-white;
+  }
+  .notice-warning {
+    @apply border-amber-200 border-l-amber-600 bg-amber-50;
+  }
+  .notice-success {
+    @apply border-brand-200 border-l-brand-700 bg-brand-50;
+  }
+  .notice-error {
+    @apply border-red-200 border-l-red-700 bg-red-50;
+  }
+  .dialog {
+    @apply m-auto w-[calc(100%-2rem)] max-w-md rounded-2xl border border-slate-200 p-6 text-slate-900 shadow-[0_30px_90px_rgba(0,0,0,0.35)] backdrop:bg-black/70 sm:p-7;
+  }
+  /* Progress: a 6px track with a green fill. Decorative: the text beside it says the same thing. */
+  .progress-track {
+    @apply h-1.5 w-full overflow-hidden rounded-full bg-slate-200;
+  }
+  .progress-fill {
+    @apply h-full rounded-full bg-brand-600 transition-[width] duration-300 ease-out;
+  }
+  /* Work of unknown length (the first build): a green segment slides along the track. */
+  .progress-indeterminate {
+    @apply relative h-1.5 w-full overflow-hidden rounded-full bg-slate-200;
+  }
+  .progress-indeterminate::after {
+    content: "";
+    position: absolute;
+    inset-block: 0;
+    left: 0;
+    width: 35%;
+    border-radius: 9999px;
+    background-color: var(--color-brand-600);
+    animation: progress-slide 1.4s ease-in-out infinite;
+  }
+  /* The questionnaire's step links; the current step is near-black with white text. */
+  .step-link {
+    @apply inline-flex min-h-11 items-center rounded-lg px-3 py-1.5 text-[0.9375rem] font-medium text-slate-700 transition-colors duration-150 hover:bg-slate-200/70 hover:text-ink;
+  }
+  .step-link[aria-current="step"] {
+    @apply bg-ink font-semibold text-white;
+  }
   /* Links in the dark top bar: the current page is white with a 2px brand bar on its bottom edge. */
   .nav-link {
     @apply relative inline-flex min-h-11 items-center rounded-md px-2.5 font-medium text-mist transition-colors duration-150 hover:bg-white/10 hover:text-white aria-[current=page]:text-white sm:px-3;
@@ -132,6 +194,15 @@
   }
 }
 
+@keyframes progress-slide {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(290%);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -139,5 +210,10 @@
     animation: none !important;
     transition: none !important;
     scroll-behavior: auto !important;
+  }
+  /* With no motion the unknown-length bar rests as a faint full track. */
+  .progress-indeterminate::after {
+    width: 100%;
+    opacity: 0.35;
   }
 }
