@@ -75,6 +75,25 @@ describe("useSite.refreshAi", () => {
   });
 });
 
+// Handoff 1b: the issues of the view that brought new wording are the newest the editor has (AI-claim issues are computed on the
+// AI wording, so the old wording's would otherwise stay on screen until the next save).
+describe("useSite.refreshAi issues", () => {
+  it("takes the issues of the view it refreshed from", async () => {
+    const claim = { path: ["copy", "heroSubheadline"], code: "ai_claim", message: "“free” isn't backed by your answers. Edit this wording or update your answers." };
+    const first = { ...VIEW, ai: { generationId: "g1", draft: { copy: {} } }, edits: { theme: null }, limits: { generationsLeftToday: 1, generationsLeftTotal: 1 }, issues: { facts: [], brief: [], photos: [], document: [claim] } } as unknown as SiteView;
+    const fresh = { ...first, ai: { generationId: "g2", draft: { copy: {} } }, issues: { facts: [], brief: [], photos: [], document: [] } } as unknown as SiteView;
+    const { site, unmount } = await mount(() => json(fresh), first);
+    const loaded = site().load;
+    expect(loaded.state === "ready" ? loaded.view.issues.document : null).toEqual([claim]);
+    await act(async () => {
+      expect(await site().refreshAi()).toBe(true);
+    });
+    const load = site().load;
+    expect(load.state === "ready" ? load.view.issues : null).toEqual({ facts: [], brief: [], photos: [], document: [] });
+    await unmount();
+  });
+});
+
 // STRICT (customer data): the server refuses a wording or order change built on an older AI draft (wording_changed). The hook must
 // not loop on it, must keep the owner's hidden sections and look, and must say the wording change did not apply.
 const NO_ISSUES = { facts: [], brief: [], photos: [], document: [] };

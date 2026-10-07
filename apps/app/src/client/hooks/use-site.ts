@@ -82,7 +82,7 @@ export function useSite(siteId: string) {
   const [factsChanges, setFactsChanges] = useState(0);
 
   /**
-   * Takes only the AI's wording (and the counters beside it) from the server's newest view. The owner's local draft and the
+   * Takes only the AI's wording (and the counters and issues beside it) from the server's newest view. The owner's local draft and the
    * saver stay exactly as they are, so nothing typed or still unsaved is replaced and the saver's rev is never touched. The one
    * thing taken from the server's edits is the look it pinned before the rewrite (the owner never chose one): while the owner
    * has none, the page would otherwise jump to the new draft's look. That look is already the server's, so nothing is saved.
@@ -103,7 +103,8 @@ export function useSite(siteId: string) {
       draftRef.current = { ...current, edits: { ...current.edits, theme: fresh.edits.theme } };
       setDraft(draftRef.current);
     }
-    setLoad((last) => (last.state === "ready" ? { state: "ready", view: { ...last.view, ai, limits: fresh.limits, activeGeneration: fresh.activeGeneration } } : last));
+    // Its issues too: the AI-claim issues are about the AI's wording, so the old wording's must not stay on screen (handoff 1b).
+    setLoad((last) => (last.state === "ready" ? { state: "ready", view: { ...last.view, ai, limits: fresh.limits, activeGeneration: fresh.activeGeneration, issues: fresh.issues } } : last));
     return fresh;
   }, [siteId]);
 

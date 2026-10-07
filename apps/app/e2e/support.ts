@@ -47,18 +47,19 @@ export async function seedDraft(page: Page, siteId: string, slugLabel: string, f
   expect(slug.status).toBe(200);
 }
 
-/** A signed-in owner whose first draft has been written. Returns the site id. */
-export async function builtSite(page: Page, facts: object = FACTS): Promise<string> {
+/** A signed-in owner whose first draft has been written (with `copy` in place of the test draft's own wording, if given). Returns the site id. */
+export async function builtSite(page: Page, facts: object = FACTS, copy?: object): Promise<string> {
   const siteId = await acceptInvite(page);
   await seedDraft(page, siteId, "joes", facts);
   const started = await apiCall(page, "POST", `/api/sites/${siteId}/generations`, {});
   const generationId = (started.json?.["generation"] as { id: string }).id;
-  await finishGeneration(page.request, generationId);
+  await finishGeneration(page.request, generationId, "succeeded", copy);
   return siteId;
 }
 
-export async function finishGeneration(request: APIRequestContext, generationId: string, status: "succeeded" | "failed" = "succeeded") {
-  await request.post(`${APP}/__test/generations/${generationId}/finish`, { data: { status } });
+/** Ends a generation as the generator would; a success stores the test draft, with `copy` fields in place of its own if given. */
+export async function finishGeneration(request: APIRequestContext, generationId: string, status: "succeeded" | "failed" = "succeeded", copy?: object) {
+  await request.post(`${APP}/__test/generations/${generationId}/finish`, { data: { status, ...(copy === undefined ? {} : { copy }) } });
 }
 
 /** WCAG 2.2 AA with axe (the same tags as Plan 1). The preview iframe is Plan 1's page and is tested there. */

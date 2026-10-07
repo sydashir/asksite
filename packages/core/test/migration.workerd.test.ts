@@ -289,3 +289,32 @@ describe("0008_site_versions_generation.sql", () => {
     });
   });
 });
+
+// B1-15: a sign-in link whose send ended "unavailable" is kept and marked, and the day's cap for all owners skips marked
+// links (apps/app/src/worker/routes/auth.ts). Numbered 0009: 0008 is reserved by the pages lane. A row written before
+// 0009 ran is covered by apps/app/test/worker/migrations.workerd.test.ts.
+describe("0009_login_send_failed.sql", () => {
+  it("adds login_tokens.send_failed_at as a nullable INTEGER with no default (the go-live G5.1 check reads this PRAGMA)", async () => {
+    const { results } = await db.prepare("PRAGMA table_info(login_tokens)").all<{ name: string; type: string; notnull: number; dflt_value: unknown }>();
+    expect(results.filter((column) => column.name === "send_failed_at").map(({ name, type, notnull, dflt_value }) => ({ name, type, notnull, dflt_value }))).toEqual([
+      { name: "send_failed_at", type: "INTEGER", notnull: 0, dflt_value: null },
+    ]);
+  });
+
+  it("reads NULL on a link written without it, as every writer but the failed-send mark writes one", async () => {
+    const { owner } = await newSite();
+    const token = fresh();
+    await db.prepare("INSERT INTO login_tokens (token_hash, owner_id, created_at, expires_at) VALUES (?, ?, 1, 2)").bind(token, owner).run();
+    expect(await db.prepare("SELECT send_failed_at FROM login_tokens WHERE token_hash = ?").bind(token).first()).toEqual({ send_failed_at: null });
+  });
+
+  it("keeps login_tokens STRICT: a failure time that is not an integer is refused", async () => {
+    const { owner } = await newSite();
+    const token = fresh();
+    await db.prepare("INSERT INTO login_tokens (token_hash, owner_id, created_at, expires_at) VALUES (?, ?, 1, 2)").bind(token, owner).run();
+    await db.prepare("UPDATE login_tokens SET send_failed_at = ? WHERE token_hash = ?").bind(3, token).run();
+    await expect(db.prepare("UPDATE login_tokens SET send_failed_at = ? WHERE token_hash = ?").bind("soon", token).run()).rejects.toThrow(/SQLITE_CONSTRAINT_DATATYPE/);
+    await expect(db.prepare("UPDATE login_tokens SET send_failed_at = ? WHERE token_hash = ?").bind(1.5, token).run()).rejects.toThrow(/SQLITE_CONSTRAINT_DATATYPE/);
+    expect(await db.prepare("SELECT send_failed_at FROM login_tokens WHERE token_hash = ?").bind(token).first()).toEqual({ send_failed_at: 3 });
+  });
+});

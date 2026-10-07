@@ -19,7 +19,7 @@ import { useStylesheets } from "../hooks/use-stylesheets.ts";
 import { api } from "../lib/api.ts";
 import { stepOf } from "../lib/draft-issues.ts";
 import { STEP_TITLE } from "../lib/labels.ts";
-import { isThemeIssue, issuesAt, ownerMessage, type Fix } from "../lib/messages.ts";
+import { AI_CLAIM, editorIssueNotice, isThemeIssue, issuesAt, ownerMessage, type Fix } from "../lib/messages.ts";
 import { changedPage } from "../lib/changed-page.ts";
 import { checkDraft, renderPages } from "../lib/preview.ts";
 import { pageWasReloaded } from "../lib/page-reload.ts";
@@ -39,6 +39,7 @@ const TABS: ReadonlyArray<{ id: EditorTab; label: string }> = [
   { id: "details", label: "Details" },
 ];
 
+const NO_ISSUES: readonly Issue[] = [];
 const AI_NOT_LOADED = "The new wording is ready, but we couldn't load it. Reload the page to see it.";
 const REWRITING = "Writing new wording…";
 /** Why the whole editor is locked from the request for new wording until it is shown. */
@@ -111,12 +112,18 @@ function EditorScreen(props: { siteId: string; site: SiteState; view: SiteView; 
   const { generation } = useGeneration(siteId, rewriteId);
   const { props: stepProps } = useStepProps(siteId, site, view, draft, true, me.state === "ready" ? me.owner.email : null, frozen);
 
-  // The issues, "Fix N issues" and the Sections tab depend only on the draft (checkDraft), never on the stylesheets.
+  // The preview's issues and the Sections tab depend only on the draft (checkDraft), never on the stylesheets.
   const checked = useMemo(() => checkDraft(ai, draft), [ai, draft]);
   const [lastDoc, setLastDoc] = useState<SiteDocument | null>(null);
   if (checked.ok && checked.doc !== lastDoc) setLastDoc(checked.doc);
   const doc = checked.ok ? checked.doc : lastDoc;
-  const issues: Issue[] = checked.ok ? [] : checked.issues;
+  // What stops the preview (checkDraft), then the server's AI-claim issues (handoff 1b: checked in the Worker only, with the answers
+  // as they are now). Those do not stop the preview; they are shown at their fields and counted in the notice the same way.
+  const blocking = checked.ok ? NO_ISSUES : checked.issues;
+  const serverIssues = useNewestIssues(site.saver.issues, view.issues);
+  const aiClaims = useMemo(() => serverIssues.document.filter((issue) => issue.code === AI_CLAIM), [serverIssues]);
+  const issues = useMemo(() => [...blocking, ...aiClaims], [blocking, aiClaims]);
+  const notice = editorIssueNotice(blocking.length, aiClaims.length);
 
   // The preview keeps the last valid page while the draft is invalid; it renders at low priority, so typing stays quick.
   const [sheets, retrySheets] = useStylesheets();
@@ -192,7 +199,8 @@ function EditorScreen(props: { siteId: string; site: SiteState; view: SiteView; 
       stopped(flushed);
       return;
     }
-    const res = await api<{ generation: GenerationView }>("POST", `/api/sites/${siteId}/generations`, {});
+    // A rewrite (handoff 2b): the server refuses it on a site with no draft, as it refuses the Questionnaire's "first" on one with a draft.
+    const res = await api<{ generation: GenerationView }>("POST", `/api/sites/${siteId}/generations`, { kind: "regenerate" });
     if (res.ok) setRewriteId(res.data.generation.id);
     else {
       setRewriteMessage(res.error.message);
@@ -251,9 +259,9 @@ function EditorScreen(props: { siteId: string; site: SiteState; view: SiteView; 
 
       {/* A live region that is always there, so screen readers hear when the preview stops or starts updating. */}
       <div role="status">
-        {issues.length > 0 ? (
+        {notice !== null ? (
           <Notice tone="warning">
-            {issues.length === 1 ? "Fix 1 issue to update the preview." : `Fix ${issues.length} issues to update the preview.`}{" "}
+            {notice}{" "}
             <button type="button" className="link" onClick={() => goToIssue(issues[0]!)}>
               Show me
             </button>
@@ -334,6 +342,19 @@ function EditorScreen(props: { siteId: string; site: SiteState; view: SiteView; 
       </ConfirmDialog>
     </div>
   );
+}
+
+/**
+ * The server's newest answer about the draft: the last save's (SiteState.saver.issues), or the view's when that is newer (the load,
+ * or a view refreshed with new wording, whose AI-claim issues are about the new wording). A save on its way carries none, so the
+ * last answer stays meanwhile instead of an older one coming back.
+ */
+function useNewestIssues(saved: SiteView["issues"] | undefined, viewed: SiteView["issues"]): SiteView["issues"] {
+  const [seen, setSeen] = useState({ saved, viewed, newest: saved ?? viewed });
+  if (saved === seen.saved && viewed === seen.viewed) return seen.newest;
+  const newest = saved !== undefined && saved !== seen.saved ? saved : viewed !== seen.viewed ? viewed : seen.newest;
+  setSeen({ saved, viewed, newest });
+  return newest;
 }
 
 const typingKey = (event: KeyboardEvent<HTMLElement>): boolean => event.key === "Backspace" || event.key === "Delete" || (event.key.length === 1 && !event.ctrlKey && !event.metaKey);

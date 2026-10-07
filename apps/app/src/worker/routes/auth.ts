@@ -170,13 +170,14 @@ async function sendLoginLink(env: Env, deps: AppDeps, email: string, now: number
   const dayStart = utcDayStart(now);
   // A11: LOGIN_EMAILS_PER_DAY (40) for all owners keeps most of Resend Free's 100 emails a day for leads.
   const perDay = loginEmailsPerDay(env.LOGIN_EMAILS_PER_DAY);
-  // Every cap is an exact count in the same statement as the insert.
+  // Every cap is an exact count in the same statement as the insert. The owner's own caps count every link; the day's
+  // cap for all owners skips links kept after an "unavailable" send (B1-15, below).
   const inserted = await env.DB.prepare(
     `INSERT INTO login_tokens (token_hash, owner_id, created_at, expires_at)
      SELECT ?1, ?2, ?3, ?4
      WHERE (SELECT COUNT(*) FROM login_tokens WHERE owner_id = ?2 AND created_at > ?5) < ?6
        AND (SELECT COUNT(*) FROM login_tokens WHERE owner_id = ?2 AND created_at > ?7) < ?8
-       AND (SELECT COUNT(*) FROM login_tokens WHERE created_at >= ?9) < ?10`,
+       AND (SELECT COUNT(*) FROM login_tokens WHERE created_at >= ?9 AND send_failed_at IS NULL) < ?10`,
   )
     .bind(
       tokenHash,
@@ -192,14 +193,19 @@ async function sendLoginLink(env: Env, deps: AppDeps, email: string, now: number
     )
     .run();
   if (inserted.meta.changes !== 1) {
-    const today = await env.DB.prepare("SELECT COUNT(*) AS n FROM login_tokens WHERE created_at >= ?").bind(dayStart).first<{ n: number }>();
+    const today = await env.DB.prepare("SELECT COUNT(*) AS n FROM login_tokens WHERE created_at >= ? AND send_failed_at IS NULL").bind(dayStart).first<{ n: number }>();
     if ((today?.n ?? 0) >= perDay) logLine({ event: "login_email_cap_reached" });
     return;
   }
   const content = magicLinkEmail({ appOrigin: env.APP_ORIGIN, token });
   const failure = await sendReporting(mailer, { to: email, ...content, tag: "magic_link", idempotencyKey: `login:${tokenHash}` });
-  // A link that was never sent does not use up one of the owner's links, nor one of the day's. After "unavailable" (a
-  // 5xx) the provider may have delivered it, so that link stays valid and counted: deleting it would leave the owner
-  // a dead "expired or already used" link, and the email uncounted by the caps.
-  if (failure !== null && failure !== "unavailable") await env.DB.prepare("DELETE FROM login_tokens WHERE token_hash = ?").bind(tokenHash).run();
+  if (failure === null) return;
+  // After "unavailable" (a 5xx, a timeout, a network failure or an answer with no email id) the provider may have
+  // delivered the link (F26), so it stays valid and counts toward the owner's own caps: deleting it would leave the
+  // owner a dead "expired or already used" link. It is marked with the time the send failed, so the day's cap for all
+  // owners skips it and an outage cannot pause sign-in emails for every owner (B1-15). If the mark fails, the link stays
+  // counted (the safe side) and the job's one failure line (login_link_failed) reports it. Any other failure: the link
+  // was never sent, so it is deleted and uses up nothing.
+  if (failure === "unavailable") await env.DB.prepare("UPDATE login_tokens SET send_failed_at = ? WHERE token_hash = ?").bind(Date.now(), tokenHash).run();
+  else await env.DB.prepare("DELETE FROM login_tokens WHERE token_hash = ?").bind(tokenHash).run();
 }

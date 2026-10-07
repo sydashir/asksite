@@ -1,19 +1,23 @@
 import { ApiError } from "@asksite/app-common";
 import { newId, newToken, sha256Hex, TTL } from "@asksite/core";
+import { generationAllowance, requestGeneration } from "@asksite/generation";
 import { deleteOwner, PublishError, TAKEDOWN_REVIEW_NOTE } from "@asksite/publishing";
+import type { Copy } from "@asksite/site-schema";
 import { Hono } from "hono";
 import type { Siteverify } from "../../src/worker/deps.ts";
 import { requireTurnstile, SITEVERIFY_TIMEOUT_MS } from "../../src/worker/turnstile.ts";
 import type { AppEnv } from "../../src/worker/types.ts";
 import { createWorker } from "../../src/worker/worker.ts";
-import { calledLikeFetch, errorName, fakeApprove, fakeCreateMailer, fakeGeneration, fakePublishing, fakeReject, fakeSiteverify, fetchCalledOn, finishGeneration, refuseNextGeneration, siteverifyCallsSoFar, switchGenerationOff } from "./fakes.ts";
+import { calledLikeFetch, errorName, fakeApprove, fakeCreateMailer, fakePublishing, fakeReject, fakeSiteverify, fetchCalledOn, finishGeneration, refuseNextGeneration, siteverifyCallsSoFar, switchGenerationOff, testGeneration } from "./fakes.ts";
 import { PURGE_UPLOADS_SQL, restoreSite, TAKE_DOWN_SITE_SQL, TAKE_DOWN_VERSIONS_SQL, underLease } from "./plan2b-statements.ts";
 
 // The app Worker wired to the fakes, plus /__test/* helpers that stand in for the admin and the
 // generator in tests. Used by the Worker tests (test/wrangler.test.jsonc) and the browser tests
 // (test/e2e/wrangler.e2e.jsonc). Never deployed: both configs are test files, and every helper
 // answers 404 unless ENVIRONMENT is "development" on a *.localhost host name.
-const worker = createWorker({ generation: fakeGeneration, publishing: fakePublishing, createMailer: fakeCreateMailer, siteverify: calledLikeFetch(fakeSiteverify) });
+
+// The real generator's request and allowance (integration-4), behind the test switches of testGeneration.
+const worker = createWorker({ generation: testGeneration({ requestGeneration, generationAllowance }), publishing: fakePublishing, createMailer: fakeCreateMailer, siteverify: calledLikeFetch(fakeSiteverify) });
 
 /** Per path: how many promises its requests handed to ctx.waitUntil, and how many of those are still running. */
 const waitUntilSeen = new Map<string, { count: number; pending: number }>();
@@ -495,8 +499,11 @@ helpers.post("/__test/generation-switch", async (c) => {
 
 /** What the generator does when a job ends. */
 helpers.post("/__test/generations/:generationId/finish", async (c) => {
-  const body = await c.req.json<{ status: "succeeded" | "failed"; usedFallback?: boolean }>();
-  const outcome = body.status === "failed" ? { status: "failed" as const, errorCode: "provider_unavailable" as const } : { status: "succeeded" as const, usedFallback: body.usedFallback === true };
+  const body = await c.req.json<{ status: "succeeded" | "failed"; usedFallback?: boolean; copy?: Partial<Copy> }>();
+  const outcome =
+    body.status === "failed"
+      ? { status: "failed" as const, errorCode: "provider_unavailable" as const }
+      : { status: "succeeded" as const, usedFallback: body.usedFallback === true, ...(body.copy === undefined ? {} : { copy: body.copy }) };
   const finished = await finishGeneration(c.env.DB, c.req.param("generationId"), outcome, Date.now());
   return finished ? c.json({ ok: true }) : c.notFound();
 });

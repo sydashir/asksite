@@ -6,7 +6,7 @@ import { assertNotTakenDown, mailerEnv, ownedSite } from "../db.ts";
 import type { AppDeps } from "../deps.ts";
 import { publishRefusal } from "../publish-refusal.ts";
 import { requireOwner } from "../session.ts";
-import { currentAi, draftOf, liveUploads, toVersionSummary, type VersionSummaryRow } from "../site-view.ts";
+import { aiWordingIssues, currentAi, draftOf, liveUploads, toVersionSummary, type VersionSummaryRow } from "../site-view.ts";
 import type { AppEnv } from "../types.ts";
 import { storedJsonNote } from "./stored-json-note.ts";
 
@@ -62,8 +62,11 @@ export function publishRoutes(deps: AppDeps): Hono<AppEnv> {
       issues.push({ path: ["ai"], code: "not_generated", message: "Build your website before publishing it" });
     } else {
       const parsed = SiteDocument.safeParse(composeDocument(draft.facts, current.ai, draft.edits));
-      if (parsed.success) document = parsed.data;
-      else issues.push(...toIssues(parsed.error));
+      if (parsed.success) {
+        document = parsed.data;
+        // AI wording the answers as they are now no longer back (handoff 1b): refused like any other claim, naming the field.
+        issues.push(...aiWordingIssues(parsed.data, current.ai, draft.edits));
+      } else issues.push(...toIssues(parsed.error));
     }
     // The attestation is read from its own field, never from the whole Brief: another invalid field must not hide a
     // ticked box (the owner would be told to confirm what they already confirmed). The Brief is not published, and the

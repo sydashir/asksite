@@ -78,7 +78,9 @@ function StepPage({ siteId, step, site, view, draft }: { siteId: string; step: S
       stopped(saved);
       return;
     }
-    const res = await api<{ generation: GenerationView }>("POST", `/api/sites/${siteId}/generations`, {});
+    // The FIRST build (handoff 2b): from a tab loaded before the first draft landed, the server answers generation_in_progress instead
+    // of rewriting that draft, and the build page opens the editor.
+    const res = await api<{ generation: GenerationView }>("POST", `/api/sites/${siteId}/generations`, { kind: "first" });
     setBusy(false);
     if (res.ok || res.error.code === "generation_in_progress") {
       navigate(paths.build(siteId));

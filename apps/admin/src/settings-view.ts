@@ -16,8 +16,10 @@ export type SettingsView = Omit<AdminSettings, "worstCaseDailyMicrousd"> & {
 
 /**
  * What GET /api/admin/sign-in-emails answers (A11b item 1): the sign-in links made since 00:00 UTC (one login_tokens
- * row each, a link that failed to send is removed), the day's cap for them (LOGIN_EMAILS_PER_DAY), and when the cap
- * was reached (null while it is not). At the cap the owner app sends no more sign-in emails until 00:00 UTC.
+ * row each), the day's cap for them (LOGIN_EMAILS_PER_DAY), and when the cap was reached (null while it is not). At
+ * the cap the owner app sends no more sign-in emails until 00:00 UTC. A failed send: the owner app keeps a link whose
+ * send ended "unavailable" (it may have been delivered), marked and not counted in today's total, and deletes the link
+ * on any other failure; the admin's own "Send sign-in link" deletes its link on any failure.
  */
 export interface SignInEmailsView {
   sentToday: number;

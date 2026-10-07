@@ -21,6 +21,17 @@ async function seedTokens(ownerId: string, times: number[]): Promise<void> {
   }
 }
 
+/** Links the owner app kept after a send that ended "unavailable", marked failed at their creation time (B1-15). */
+async function seedFailedSends(ownerId: string, times: number[]): Promise<void> {
+  const db = await h.db();
+  for (const [i, createdAt] of times.entries()) {
+    await db
+      .prepare("INSERT INTO login_tokens (token_hash, owner_id, created_at, expires_at, send_failed_at) VALUES (?, ?, ?, ?, ?)")
+      .bind(`failed-${createdAt}-${i}`, ownerId, createdAt, createdAt + TTL.loginTokenMs, createdAt)
+      .run();
+  }
+}
+
 const tokenCount = async (ownerId: string): Promise<number> =>
   (await (await h.db()).prepare("SELECT COUNT(*) AS n FROM login_tokens WHERE owner_id = ?").bind(ownerId).first<{ n: number }>())?.n ?? 0;
 
@@ -46,6 +57,20 @@ describe("today's sign-in emails (A11b item 1)", () => {
     const full = await stats();
     expect(full.sentToday).toBe(42);
     expect(full.capReachedAt).toBe(DAY_START + 120_000 + 37 * 60_000);
+  });
+
+  // B1-15: the owner app's day cap skips links kept after an "unavailable" send, so the admin's numbers skip them too.
+  it("leaves out links kept after an unavailable send: the count and the moment the cap was reached are the owner app's", async () => {
+    const site = await h.pendingSite();
+    const stats = async () => json<SignInEmailsView>(await h.call("GET", "/api/admin/sign-in-emails", { headers: AT_NOW }));
+    // Ten marked links early in the day, then 35 sent ones: 45 rows, but only 35 count, so the cap is not reached.
+    await seedFailedSends(site.ownerId, Array.from({ length: 10 }, (_, i) => DAY_START + 1_000 + i));
+    const sent = Array.from({ length: CAP }, (_, i) => DAY_START + 120_000 + i * 60_000);
+    await seedTokens(site.ownerId, sent.slice(0, 35));
+    expect(await stats()).toEqual({ sentToday: 35, dailyCap: CAP, capReachedAt: null });
+    // The 40th sent link reaches the cap; the marked links before it do not move that moment earlier.
+    await seedTokens(site.ownerId, sent.slice(35));
+    expect(await stats()).toEqual({ sentToday: CAP, dailyCap: CAP, capReachedAt: sent[CAP - 1] });
   });
 
   it("needs no email to be sent (nothing is written to the outbox)", async () => {
@@ -137,6 +162,23 @@ describe("Send sign-in link (A11b item 2)", () => {
     expect(h.logLines()).toEqual([
       { event: "email_failed", tag: "magic_link", error: "rejected" },
       { route: "POST /api/admin/owners/:ownerId/sign-in-link", status: 502, ms: expect.any(Number), error: "rejected", code: "email_failed" },
+    ]);
+  });
+
+  // B1-15 leaves this route as it was: unlike the owner app, the admin's own send takes its link back on ANY failure,
+  // "unavailable" included, so it never keeps (or marks) a link.
+  it("takes its link back on an unavailable send too (502), keeping no link, marked or not", async () => {
+    const site = await h.pendingSite();
+    await (await h.db()).prepare("UPDATE owners SET email = ? WHERE id = ?").bind("owner@mail-unavailable.example", site.ownerId).run();
+    h.server.clearLogs();
+    const res = await h.call("POST", `/api/admin/owners/${site.ownerId}/sign-in-link`, { body: {} });
+    expect(res.status).toBe(502);
+    expect(await res.json()).toEqual({ error: { code: "email_failed", message: "Email could not be sent, try again" } });
+    expect(await tokenCount(site.ownerId)).toBe(0);
+    expect((await auditRows("admin.login_link_sent")).filter((a) => a.detail_json.includes(site.ownerId))).toEqual([]);
+    expect(h.logLines()).toEqual([
+      { event: "email_failed", tag: "magic_link", error: "unavailable" },
+      { route: "POST /api/admin/owners/:ownerId/sign-in-link", status: 502, ms: expect.any(Number), error: "unavailable", code: "email_failed" },
     ]);
   });
 
