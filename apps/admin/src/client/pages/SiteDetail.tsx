@@ -7,12 +7,13 @@ import { usePageHeading } from "../../../../app/src/client/hooks/use-page-headin
 import { onLinkClick } from "../../../../app/src/client/hooks/use-route.ts";
 import { api } from "../../../../app/src/client/lib/api.ts";
 import { useResource } from "../hooks.ts";
-import { COPIED_AGAIN, TAKEDOWN_LEASE_LOST } from "../../messages.ts";
-import type { TakedownView } from "../../settings-view.ts";
+import { COPIED_AGAIN, DELETE_LEASE_LOST, DELETE_UNFINISHED, TAKEDOWN_LEASE_LOST } from "../../messages.ts";
+import type { OwnerDeletionView, TakedownView } from "../../settings-view.ts";
 import { CapNote } from "../CapNote.tsx";
+import { OwnerDeleteForm } from "../OwnerDeleteForm.tsx";
 import { OwnerDisableForm } from "../OwnerDisableForm.tsx";
 import { FinishForm, TakedownForm, type TakedownBody } from "../TakedownForms.tsx";
-import { NOT_EMAILED, jobLineText, restoredText, takedownResult, when, type TakedownResult } from "../lib/format.ts";
+import { NOT_EMAILED, deletionResultText, jobLineText, restoredText, takedownResult, when, type TakedownResult } from "../lib/format.ts";
 
 /** Finish the takedown from the down-site form is a re-run with no earlier result: its answer is the clean-up text, and no owner line is owed. */
 const RE_RUN: TakedownResult = { tone: "success", text: "", cleanupFailed: false, ownerNotEmailed: false };
@@ -27,6 +28,8 @@ interface SiteDetailData {
   versions: VersionSummary[];
   generations: Array<GenerationView & { provider: string | null; model: string | null; costMicrousd: number; modelSlot: 0 | 1; attempts: number }>;
   leadCount: number;
+  /** How many sites the owner has (this one included): the delete dialog names it. */
+  ownerSites: number;
   audit: Array<{ at: number; actor: string; action: string; detail: unknown }>;
 }
 
@@ -45,6 +48,16 @@ function SiteScreen({ data, reload }: { data: SiteDetailData; reload: () => Prom
   const [takedownUnsure, setTakedownUnsure] = useState(false);
   /** One takedown call at a time: a second press while one runs is ignored. */
   const [takingDown, setTakingDown] = useState(false);
+  /** One act() call at a time (the search-engines toggle, Enable, Disable): a second press while one runs is ignored. A ref, so two presses in one tick cannot both pass. */
+  const acting = useRef(false);
+  const [busy, setBusy] = useState(false);
+  /** One Delete the account call at a time, the same way. */
+  const deletingNow = useRef(false);
+  const [deleting, setDeleting] = useState(false);
+  /** The body of a delete that did not finish (5xx, lost lease, offline): kept so "Finish deleting the account" sends the same one. */
+  const [pendingDelete, setPendingDelete] = useState<{ confirmEmail: string } | null>(null);
+  /** The answer once the owner is gone: the page shows it instead of the site (which no longer exists, so nothing is reloaded). */
+  const [deletion, setDeletion] = useState<OwnerDeletionView | null>(null);
   const messageRef = useRef<HTMLDivElement>(null);
   /** The result of an action: shown in the status region, and keyboard focus moves to it (an action can replace the control that ran it: take down becomes restore). */
   const show = (value: Message) => {
@@ -54,9 +67,48 @@ function SiteScreen({ data, reload }: { data: SiteDetailData; reload: () => Prom
   };
 
   async function act(method: "POST" | "PUT", path: string, body: unknown, done: string) {
-    const res = await api(method, path, body);
-    show(res.ok ? { tone: "success", text: done } : { tone: "error", text: res.error.message });
-    void reload();
+    if (acting.current) return;
+    acting.current = true;
+    setBusy(true);
+    try {
+      const res = await api(method, path, body);
+      show(res.ok ? { tone: "success", text: done } : { tone: "error", text: res.error.message });
+      void reload();
+    } finally {
+      acting.current = false;
+      setBusy(false);
+    }
+  }
+
+  /**
+   * Sends Delete the account. Returns the field error when the server says the email differs. A 5xx, a lost lease or no connection (status 0) may come after
+   * part of the deletion ran: nothing is reloaded, the body is kept, and the only control left is "Finish deleting the account".
+   */
+  async function deleteAccount(body: { confirmEmail: string }): Promise<string | null> {
+    if (deletingNow.current) return null;
+    deletingNow.current = true;
+    setDeleting(true);
+    try {
+      const res = await api<OwnerDeletionView>("POST", `/api/admin/owners/${site.ownerId}/delete`, body);
+      if (res.ok) {
+        setDeletion(res.data);
+        return null;
+      }
+      if (res.status === 0 || res.status >= 500 || res.error.message === DELETE_LEASE_LOST) {
+        setPendingDelete(body);
+        show({ tone: "error", text: DELETE_UNFINISHED });
+        return null;
+      }
+      setPendingDelete(null);
+      const mismatch = res.error.issues?.find((issue) => issue.path[0] === "confirmEmail");
+      if (mismatch !== undefined) return mismatch.message;
+      show({ tone: "error", text: res.error.message });
+      void reload();
+      return null;
+    } finally {
+      deletingNow.current = false;
+      setDeleting(false);
+    }
   }
 
   /** Sends the takedown moment this page showed: a restore refuses a site that was taken down again since (the answer says so). */
@@ -121,6 +173,8 @@ function SiteScreen({ data, reload }: { data: SiteDetailData; reload: () => Prom
     show(res.ok ? { tone: "success", text: `Sign-in link emailed to ${site.ownerEmail}.` } : { tone: "error", text: res.error.message });
   }
 
+  if (deletion !== null) return <DeletedAccount view={deletion} />;
+
   return (
     <section>
       <p>
@@ -183,6 +237,7 @@ function SiteScreen({ data, reload }: { data: SiteDetailData; reload: () => Prom
             <button
               type="button"
               className="btn-secondary"
+              aria-disabled={busy}
               onClick={() => void act("PUT", `/api/admin/sites/${site.id}/indexable`, { indexable: !site.indexable }, site.indexable ? "Search engines are now blocked." : "Search engines are now allowed.")}
             >
               {site.indexable ? "Block search engines" : "Allow search engines"}
@@ -195,12 +250,24 @@ function SiteScreen({ data, reload }: { data: SiteDetailData; reload: () => Prom
               </button>
             )}
             {site.ownerDisabled ? (
-              <button type="button" className="btn-secondary" onClick={() => void act("POST", `/api/admin/owners/${site.ownerId}/enable`, {}, "Owner enabled.")}>
-                Enable the owner
-              </button>
+              <>
+                <button type="button" className="btn-secondary" aria-disabled={busy} onClick={() => void act("POST", `/api/admin/owners/${site.ownerId}/enable`, {}, "Owner enabled.")}>
+                  Enable the owner
+                </button>
+                <OwnerDeleteForm
+                  key={`delete-${site.ownerId}`}
+                  ownerEmail={site.ownerEmail}
+                  siteCount={data.ownerSites}
+                  busy={deleting}
+                  unfinished={pendingDelete !== null}
+                  onDelete={(confirmEmail) => deleteAccount({ confirmEmail })}
+                  onFinish={async () => void (pendingDelete !== null && (await deleteAccount(pendingDelete)))}
+                />
+              </>
             ) : (
-              <OwnerDisableForm key={`owner-${site.ownerDisabled ? "disabled" : "enabled"}`} onDisable={(reason) => act("POST", `/api/admin/owners/${site.ownerId}/disable`, { reason }, "Owner disabled and signed out everywhere.")} />
+              <OwnerDisableForm key={`owner-${site.ownerDisabled ? "disabled" : "enabled"}`} busy={busy} onDisable={(reason) => act("POST", `/api/admin/owners/${site.ownerId}/disable`, { reason }, "Owner disabled and signed out everywhere.")} />
             )}
+            {site.ownerDisabled ? null : <p className="mt-3 text-sm text-slate-700">To delete this owner's account, disable the owner first.</p>}
           </div>
         </section>
 
@@ -253,6 +320,26 @@ function SiteScreen({ data, reload }: { data: SiteDetailData; reload: () => Prom
           <CapNote count={data.audit.length} cap={100} />
         </section>
       </div>
+    </section>
+  );
+}
+
+/** What the admin sees once the account is gone: the heading takes focus (the control that ran it is gone), and the way back is the list. */
+function DeletedAccount({ view }: { view: OwnerDeletionView }) {
+  const heading = usePageHeading<HTMLHeadingElement>("Account deleted", "Admin");
+  return (
+    <section>
+      <h1 ref={heading} tabIndex={-1} className="text-2xl font-bold">
+        Account deleted
+      </h1>
+      <p className="mt-2" role="status">
+        {deletionResultText(view)}
+      </p>
+      <p className="mt-4">
+        <a href="/sites" onClick={onLinkClick} className="link">
+          Back to sites
+        </a>
+      </p>
     </section>
   );
 }

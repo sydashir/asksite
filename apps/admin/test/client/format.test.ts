@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { dollars, jobCostText, jobLineText, restoredText, revokeNotice, spentTodayText, takedownResult, when, worstCaseText } from "../../src/client/lib/format.ts";
+import { confirmEmailProblem, deleteDialogText, deletionResultText, dollars, jobCostText, jobLineText, restoredText, revokeNotice, spentTodayText, takedownResult, when, worstCaseText } from "../../src/client/lib/format.ts";
 
 describe("admin messages", () => {
   it("shows micro-dollars as dollars and cents", () => {
@@ -183,5 +183,62 @@ describe("jobLineText (one AI writing job's line on the site page)", () => {
 
   it("shows no cost yet for a running job, and keeps its provider and attempts", () => {
     expect(jobLineText(row({ status: "running", costMicrousd: 0, attempts: 0, provider: null, model: null }))).toBe(`${head}, running · no model  · 0 attempts`);
+  });
+});
+
+// Delete the account (spec §7.7): the typed email is checked here before anything is sent; the result text says what THIS run deleted.
+describe("confirmEmailProblem", () => {
+  const OWNER = "Joe@Example.com";
+
+  it("asks for the email when nothing (or only spaces) was typed", () => {
+    expect(confirmEmailProblem("", OWNER)).toBe("Type the owner's email to confirm.");
+    expect(confirmEmailProblem("   ", OWNER)).toBe("Type the owner's email to confirm.");
+  });
+
+  it("says nothing was deleted when the email differs", () => {
+    expect(confirmEmailProblem("jane@example.com", OWNER)).toBe("This is not the owner's email. Nothing was deleted.");
+  });
+
+  it("accepts the email with spaces around it and in any letter case", () => {
+    expect(confirmEmailProblem("  joe@example.com ", OWNER)).toBeNull();
+    expect(confirmEmailProblem("JOE@EXAMPLE.COM", OWNER)).toBeNull();
+    expect(confirmEmailProblem("joe@example.com", "  JOE@example.com ")).toBeNull();
+  });
+});
+
+describe("deleteDialogText", () => {
+  it("names the owner and the site count, singular and plural", () => {
+    expect(deleteDialogText("a@b.example", 1)).toBe("This permanently deletes the account of a@b.example and its 1 site: every version, photo, message from visitors and AI writing job. It cannot be undone.");
+    expect(deleteDialogText("a@b.example", 3)).toContain("its 3 sites:");
+  });
+});
+
+describe("deletionResultText", () => {
+  const counts = (over: Record<string, number> = {}, attempts = 1) => ({
+    attempts,
+    siteIds: [],
+    rows: { sites: 2, site_versions: 5, generations: 4, uploads: 1, leads: 3, invites: 0, sessions: 0, login_tokens: 0, dev_outbox: 0, owners: 1 as const, ...over },
+    objects: { work: 0, live: 0, media: 0 },
+    auditRedacted: 0,
+  });
+
+  it("says an earlier press already finished it, with no counts", () => {
+    expect(deletionResultText({ deleted: true, alreadyDeleted: true, counts: null })).toBe("This account was already deleted. Nothing more was deleted.");
+  });
+
+  it("lists what the first run deleted, with plurals", () => {
+    expect(deletionResultText({ deleted: true, alreadyDeleted: false, counts: counts() })).toBe("Deleted 2 sites, 5 versions, 1 photo, 3 messages and 4 AI writing jobs, and the account.");
+    expect(deletionResultText({ deleted: true, alreadyDeleted: false, counts: counts({ sites: 1, site_versions: 1, generations: 1, uploads: 2, leads: 1 }) })).toBe(
+      "Deleted 1 site, 1 version, 2 photos, 1 message and 1 AI writing job, and the account.",
+    );
+    expect(deletionResultText({ deleted: true, alreadyDeleted: false, counts: counts({ sites: 0, site_versions: 0, generations: 0, uploads: 0, leads: 0 }) })).toBe(
+      "Deleted 0 sites, 0 versions, 0 photos, 0 messages and 0 AI writing jobs, and the account.",
+    );
+  });
+
+  it("says when earlier runs deleted part, so the counts are this run's only", () => {
+    expect(deletionResultText({ deleted: true, alreadyDeleted: false, counts: counts({}, 2) })).toBe(
+      "Deleted 2 sites, 5 versions, 1 photo, 3 messages and 4 AI writing jobs, and the account. This was attempt 2: earlier attempts deleted the rest, so these are only what this one deleted.",
+    );
   });
 });
