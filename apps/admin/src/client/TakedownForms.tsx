@@ -8,7 +8,7 @@ import { Checkbox, TextArea, TextInput } from "../../../app/src/client/component
  */
 export type TakedownBody = { reason: string; ownerMessage?: string; purgeMedia: boolean; expectedTakenDownAt?: number; expectedRestoredAt?: number | null };
 
-/** Sends the takedown call and runs `answered` the moment its answer arrives (success or error), before the page reloads: the form resets there, so text typed after the answer is never wiped. */
+/** Sends the takedown call and runs `answered` the moment its answer arrives (success or error), before the page reloads: the form resets there. The reload that follows can still wipe text typed after the answer: it remounts the form when the page's key changes (a new takedown moment), and a press in that window is ignored while busy. */
 export type SendTakedown = (body: TakedownBody, answered: () => void) => Promise<void>;
 
 /** The takedown reason's limit (core's TakedownBody): longer is refused here, in words, before anything is sent. It counts code points of the trimmed text, as zod's .max does. */

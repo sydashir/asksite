@@ -783,12 +783,16 @@ test("a Finish refused as stale does not carry its tick or reason onto the other
   });
   await page.getByLabel("Also delete this site's photos").check();
   const first = page.waitForResponse((r) => r.url().includes("/takedown") && r.request().method() === "POST");
+  const reloaded = page.waitForResponse((r) => r.request().method() === "GET" && r.url().endsWith(`/api/admin/sites/${site.siteId}`)); // registered before the press
   await finishFromForm(page, "Finish T1 and delete photos");
   expect((await first).status()).toBe(409);
   expect(bodies[0]).toEqual({ reason: "Finish T1 and delete photos", purgeMedia: true, expectedTakenDownAt: t1 });
   await expect(page.getByText("This site was restored since you opened this page. Reload to see where it stands now.")).toBeVisible();
   await expect(page.getByLabel("Also delete this site's photos")).not.toBeChecked(); // the reload shows T2: unticked and empty
   await expect(page.getByLabel("Reason for finishing the takedown")).toHaveValue("");
+  // Both checks above are already true on the OLD T1 form (it resets the moment the 409 arrives). Wait for the in-app reload that remounts the form onto T2
+  // BEFORE typing: text typed earlier is wiped by the remount, and a press in that window is ignored.
+  await reloaded;
   const second = page.waitForResponse((r) => r.url().includes("/takedown") && r.request().method() === "POST");
   await finishFromForm(page, "Finish T2");
   expect((await second).status()).toBe(200);
