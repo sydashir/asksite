@@ -122,6 +122,7 @@ describe("every admin route is behind the gate", () => {
       ["PUT", `/api/admin/sites/${site.siteId}/indexable`, { indexable: false }],
       ["POST", `/api/admin/owners/${site.ownerId}/disable`, { reason: "Abuse" }],
       ["POST", `/api/admin/owners/${site.ownerId}/enable`, {}],
+      ["POST", `/api/admin/owners/${site.ownerId}/delete`, { confirmEmail: site.email }],
       ["POST", `/api/admin/owners/${site.ownerId}/sign-in-link`, {}],
       ["GET", "/api/admin/sign-in-emails", undefined],
       ["GET", "/api/admin/settings", undefined],

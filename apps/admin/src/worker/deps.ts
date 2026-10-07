@@ -13,6 +13,7 @@ import type { GenerationRow, GenerationView } from "@asksite/core";
 // (`expectedTakenDownAt`) and says whether it healed a live site's pointer; `copyLivePagesAgain` is the
 // "Copy the live pages again" action; publishing adds the code `site_busy` (one admin action per site at a time).
 
+import type { OwnerDeletionCounts } from "../settings-view.ts";
 import type { PublishErrorCode } from "./publish-errors.ts";
 
 export type { PublishErrorCode };
@@ -43,7 +44,19 @@ export interface AdminPublishingDeps {
     input: { siteId: string; reviewer: string; now: number },
   ) => Promise<{ liveUrl: string }>;
   setIndexable: (env: { DB: D1Database }, input: { siteId: string; reviewer: string; indexable: boolean; now: number }) => Promise<void>;
+  /** Delete the account (spec §7.7): the result union restated from @asksite/publishing's owner-deletion.ts; it throws only site_busy (D-B: no new code). */
+  deleteOwner: (
+    env: { DB: D1Database; WORK: R2Bucket; LIVE: R2Bucket; MEDIA: R2Bucket },
+    input: { ownerId: string; confirmEmail: string; reviewer: string; now: number },
+  ) => Promise<DeleteOwnerResult>;
 }
+
+export type DeleteOwnerResult =
+  | { outcome: "deleted"; counts: OwnerDeletionCounts }
+  | { outcome: "already_deleted" }
+  | { outcome: "not_found" }
+  | { outcome: "not_disabled" }
+  | { outcome: "email_mismatch" };
 
 export interface AdminGenerationDeps {
   dailyModelLimit: (env: { DB: D1Database; DAILY_MODEL_LIMIT: string }) => Promise<number>;
