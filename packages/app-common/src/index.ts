@@ -9,6 +9,8 @@ export {
   magicLinkEmail,
   reviewApprovedEmail,
   reviewRejectedEmail,
+  signInCapAlertEmail,
+  signupInviteEmail,
   siteNoticeEmail,
   type EmailContent,
 } from "./emails.ts";

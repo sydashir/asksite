@@ -56,6 +56,38 @@ describe("live pages", () => {
     expect(response.headers.get("x-robots-tag")).toBe("noindex");
   });
 
+  // Open self sign-up (DECIDED 2026-10-07): approval stays mandatory. An owner who signed up alone (a self-serve invite,
+  // created_by 'signup') gets a site that is never served at its address before an admin approves a version.
+  it("never serves a self-signed-up owner's site before approval: with no version or a pending one it answers 404, even with LIVE objects", async () => {
+    for (const state of ["no version", "pending", "pending with LIVE objects"] as const) {
+      const site = await seedSite(tools, { live: false, withObject: false });
+      await tools.DB.prepare(
+        "INSERT INTO invites (id, token_hash, email, created_by, created_at, expires_at, used_at, owner_id, site_id) VALUES (?, ?, ?, 'signup', 1, 2, 1, ?, ?)",
+      )
+        .bind(newId(), `signup-${site.siteId}`, site.ownerEmail, site.ownerId, site.siteId)
+        .run();
+      if (state !== "no version") {
+        const versionId = newId();
+        await tools.DB.batch([
+          tools.DB.prepare(
+            `INSERT INTO site_versions (id, site_id, number, status, document_json, document_sha256, edits_json, html_key, html_sha256, stylesheet_sha256, requested_by, requested_at)
+             VALUES (?, ?, 1, 'pending', '{}', 'x', '{}', 'k', 'x', 'x', ?, 1)`,
+          ).bind(versionId, site.siteId, site.ownerId),
+          tools.DB.prepare("UPDATE sites SET pending_version_id = ? WHERE id = ?").bind(versionId, site.siteId),
+        ]);
+        if (state === "pending with LIVE objects") {
+          await putLive(tools, { ...site, versionId });
+          await putPointer(tools, { ...site, versionId });
+        }
+      }
+      for (const path of ["/", "/services", "/contact"]) {
+        const response = await get(at(site.slug, path));
+        expect([state, path, response.status]).toEqual([state, path, 404]);
+        expect(await response.text()).not.toContain(`<h1>${site.slug}</h1>`);
+      }
+    }
+  });
+
   it("returns 404 without caching while the pointer is still missing, and 503 while it names a page that is not there yet", async () => {
     const site = await seedSite(tools, { withObject: false });
     expect((await get(at(site.slug))).status).toBe(404);

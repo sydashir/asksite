@@ -40,7 +40,7 @@ export function AcceptInvite() {
         {TOKEN_PATTERN.test(token) ? (
           <>
             <p className="page-sub">
-              You were invited to build a website for your business. It takes about 15 minutes, and you can stop and come back at any time.
+              Build a website for your business. It takes about 15 minutes, and you can stop and come back at any time.
             </p>
             <button type="button" className="btn-primary btn-lg mt-6 w-full" onClick={() => void accept()} disabled={busy}>
               {busy ? "Setting up…" : "Set up my website"}

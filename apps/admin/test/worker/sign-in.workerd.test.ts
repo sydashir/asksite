@@ -38,8 +38,20 @@ const tokenCount = async (ownerId: string): Promise<number> =>
 const auditRows = async (action: string) =>
   (await (await h.db()).prepare("SELECT actor, site_id, detail_json FROM audit_log WHERE action = ? ORDER BY id").bind(action).all<{ actor: string; site_id: string | null; detail_json: string }>()).results;
 
+/** Invites created at the given times, by `createdBy` ('signup' for a self-serve sign-up, else an admin's email). */
+async function seedInvites(createdBy: string, times: number[]): Promise<void> {
+  const db = await h.db();
+  for (const [i, createdAt] of times.entries()) {
+    await db
+      .prepare("INSERT INTO invites (id, token_hash, email, created_by, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?)")
+      .bind(newId(), `invite-${createdBy}-${createdAt}-${i}`, `invitee-${i}@example.com`, createdBy, createdAt, createdAt + TTL.inviteMs)
+      .run();
+  }
+}
+
 beforeEach(async () => {
   await (await h.db()).prepare("DELETE FROM login_tokens").bind().run();
+  await (await h.db()).prepare("DELETE FROM invites WHERE token_hash LIKE 'invite-%'").bind().run();
 });
 
 describe("today's sign-in emails (A11b item 1)", () => {
@@ -71,6 +83,29 @@ describe("today's sign-in emails (A11b item 1)", () => {
     // The 40th sent link reaches the cap; the marked links before it do not move that moment earlier.
     await seedTokens(site.ownerId, sent.slice(35));
     expect(await stats()).toEqual({ sentToday: CAP, dailyCap: CAP, capReachedAt: sent[CAP - 1] });
+  });
+
+  // Open self sign-up (DECIDED 2026-10-07): the owner app's day cap counts self-serve sign-up invites with the sign-in links,
+  // so the admin's numbers count them too, by the same rule (B1-15: the admin matches the app exactly).
+  it("counts today's self-serve sign-up invites with the sign-in links; admin invites and yesterday's sign-ups do not count", async () => {
+    const site = await h.pendingSite();
+    const stats = async () => json<SignInEmailsView>(await h.call("GET", "/api/admin/sign-in-emails", { headers: AT_NOW }));
+    await seedTokens(site.ownerId, [DAY_START + 1_000, DAY_START + 2_000]);
+    await seedInvites("signup", [DAY_START - 1, DAY_START, DAY_START + 3_000, DAY_START + 4_000]);
+    await seedInvites("admin@example.com", [DAY_START + 5_000, DAY_START + 6_000]);
+    expect(await stats()).toEqual({ sentToday: 5, dailyCap: CAP, capReachedAt: null });
+  });
+
+  it("says the cap was reached at the 40th email by time, when that one is a sign-up invite", async () => {
+    const site = await h.pendingSite();
+    const stats = async () => json<SignInEmailsView>(await h.call("GET", "/api/admin/sign-in-emails", { headers: AT_NOW }));
+    // 38 links, then two sign-ups: the 40th email of the day is the second sign-up.
+    await seedTokens(site.ownerId, Array.from({ length: CAP - 2 }, (_, i) => DAY_START + 60_000 + i * 1_000));
+    await seedInvites("signup", [DAY_START + 120_000, DAY_START + 180_000]);
+    // An admin invite and a later link do not move it.
+    await seedInvites("admin@example.com", [DAY_START + 150_000]);
+    await seedTokens(site.ownerId, [DAY_START + 240_000]);
+    expect(await stats()).toEqual({ sentToday: CAP + 1, dailyCap: CAP, capReachedAt: DAY_START + 180_000 });
   });
 
   it("needs no email to be sent (nothing is written to the outbox)", async () => {

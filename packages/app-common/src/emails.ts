@@ -66,6 +66,22 @@ export function inviteEmail(input: { appOrigin: string; token: string }): EmailC
   ]);
 }
 
+/**
+ * Open self sign-up (DECIDED text, 2026-10-07): the link an unknown address gets from the sign-in form. The same /invite
+ * page, token and 7-day expiry as an admin's invite; inviteEmail stays the admin's.
+ */
+export function signupInviteEmail(input: { appOrigin: string; token: string }): EmailContent {
+  assertOrigin(input.appOrigin);
+  assertToken(input.token);
+  const link = `${input.appOrigin}/invite#${input.token}`;
+  return build("Set up your business website", [
+    "Hi, here is your link to build a website for your business. It takes about 15 minutes.",
+    { href: link, label: "Set up your website" },
+    `If the link does not open, copy this address into your browser: ${link}`,
+    "The link works once and expires in 7 days. If you did not ask for this, you can ignore this email.",
+  ]);
+}
+
 export function magicLinkEmail(input: { appOrigin: string; token: string }): EmailContent {
   assertOrigin(input.appOrigin);
   assertToken(input.token);
@@ -115,5 +131,13 @@ export function adminAlertEmail(input: { slug: string; versionNumber: number; bu
   return build(`Website waiting for review: ${input.slug} (version ${input.versionNumber})`, [
     `A website is waiting for review. Business: ${input.businessName ?? "(no name yet)"}. Address: ${input.slug}. Version ${input.versionNumber}.`,
     "Open the review queue in the admin app to check it.",
+  ]);
+}
+
+/** To ADMIN_NOTIFY_EMAILS, once a UTC day, when the day's sign-in and sign-up emails reach 80% of LOGIN_EMAILS_PER_DAY. */
+export function signInCapAlertEmail(input: { sent: number; cap: number }): EmailContent {
+  return build(`Sign-in emails today: ${input.sent} of ${input.cap}`, [
+    `Sign-in and sign-up emails sent today: ${input.sent} of ${input.cap}.`,
+    `When ${input.cap} is reached, nobody can get a sign-in or sign-up link until 00:00 UTC. The admin app's Send sign-in link still works.`,
   ]);
 }

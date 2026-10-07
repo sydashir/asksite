@@ -10,9 +10,10 @@ import { api } from "../lib/api.ts";
 import { paths } from "../lib/route.ts";
 
 function SignIn() {
-  const heading = usePageHeading<HTMLHeadingElement>("Sign in");
+  const heading = usePageHeading<HTMLHeadingElement>("Sign in or sign up");
   const [email, setEmail] = useState("");
-  const [sent, setSent] = useState(false);
+  // The address the link went to, as the server uses it (trimmed and lower-cased); null until a request is accepted.
+  const [sentTo, setSentTo] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [token, setToken] = useState<string | null>(null);
   const [resetSignal, setResetSignal] = useState(0);
@@ -25,19 +26,20 @@ function SignIn() {
     // A token works once, so ask for a new one after every try.
     setToken(null);
     setResetSignal((n) => n + 1);
-    if (res.ok) setSent(true);
+    if (res.ok) setSentTo(email.trim().toLowerCase());
     else setError(res.status === 422 ? "Enter an email address, like name@example.com." : res.error.message);
   }
 
   return (
     <section className="card mx-auto max-w-xl">
       <h1 ref={heading} tabIndex={-1} className="text-2xl font-bold">
-        Sign in
+        Sign in or sign up
       </h1>
-      {sent ? (
+      {sentTo !== null ? (
         <div role="status">
           <Notice tone="success">
-            If that email has an account, we've sent a link. It can take a few minutes. Didn't get it? Email{" "}
+            {/* True for every address (DECIDED 2026-10-07): known owners get a sign-in link, new ones a sign-up link, and a cap may stop either. */}
+            If we can send a link to <span className="break-all">{sentTo}</span> right now, it's on its way. It can take a few minutes. Didn't get it? Email{" "}
             <a className="link break-all" href={`mailto:${__SUPPORT_EMAIL__}`}>
               {__SUPPORT_EMAIL__}
             </a>
@@ -46,13 +48,13 @@ function SignIn() {
         </div>
       ) : (
         <form noValidate onSubmit={(e) => void submit(e)}>
-          <p className="mt-3">We will email you a link to sign in. No password needed.</p>
+          <p className="mt-3">Enter your email and we'll send you a link.</p>
           <TextInput id="signin-email" label="Your email address" type="email" autoComplete="email" value={email} onChange={setEmail} errors={error ? [error] : []} />
           <div className="mt-5">
             <SecurityCheck onToken={setToken} resetSignal={resetSignal} />
           </div>
           <button type="submit" className="btn-primary mt-6">
-            Email me a sign-in link
+            Email me a link
           </button>
         </form>
       )}

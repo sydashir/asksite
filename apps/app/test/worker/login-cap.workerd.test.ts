@@ -195,7 +195,8 @@ describe("sign-in answers say nothing about owners (§5.2)", () => {
 
     // Each case took its own path after the answer...
     expect(await outbox(known.email)).toHaveLength(1);
-    expect(await outbox("nobody-here@example.com")).toEqual([]);
+    // Open self sign-up (DECIDED 2026-10-07): the unknown address gets the sign-up email, not a sign-in link.
+    expect(await outbox("nobody-here@example.com")).toEqual([{ subject: "Set up your business website" }]);
     expect(await tokenCount(disabled.ownerId)).toBe(0);
     expect(await tokenCount(capped.ownerId)).toBe(LIMITS.loginTokensPerOwnerPerHour);
     expect(await tokenCount(pastDay.ownerId)).toBe(0);
