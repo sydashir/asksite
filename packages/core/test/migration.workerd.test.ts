@@ -18,7 +18,7 @@ const WORKER = {
 const server = createTestHarness({ root: resolve(import.meta.dirname, "../../.."), workers: [{ config: WORKER }] });
 
 // Typed loosely on purpose: this file is type-checked without the Workers runtime types.
-let db: { prepare(sql: string): { bind(...values: unknown[]): { run(): Promise<{ meta: { changes: number; rows_read: number } }>; first<T>(): Promise<T | null> }; all<T>(): Promise<{ results: T[] }> } };
+let db: { prepare(sql: string): { bind(...values: unknown[]): { run(): Promise<{ meta: { changes: number; rows_read: number } }>; first<T>(): Promise<T | null>; all<T>(): Promise<{ results: T[] }> }; all<T>(): Promise<{ results: T[] }> } };
 
 beforeAll(async () => {
   await server.listen();
