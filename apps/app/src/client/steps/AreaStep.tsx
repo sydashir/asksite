@@ -81,7 +81,7 @@ export function AreaStep({ facts, setFacts, errors }: StepProps) {
               <input
                 id={`hours-${row.day}`}
                 type="checkbox"
-                className="size-6 accent-blue-700"
+                className="size-6 accent-brand-800"
                 checked={row.open}
                 onChange={(e) => setRow(i, { open: e.target.checked })}
               />

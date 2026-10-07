@@ -27,7 +27,7 @@ export function VerifyLogin() {
 
   return (
     <section className="card mx-auto max-w-xl">
-      <h1 ref={heading} tabIndex={-1} className="text-2xl font-bold">
+      <h1 ref={heading} tabIndex={-1} className="page-title">
         Sign in
       </h1>
       {TOKEN_PATTERN.test(token) ? (

@@ -26,7 +26,7 @@ export function Sites() {
   const matches = (site: AdminSiteRow) => needle === "" || [site.businessName, site.slug, site.ownerEmail].some((v) => v?.toLowerCase().includes(needle));
   return (
     <section>
-      <h1 ref={heading} tabIndex={-1} className="text-2xl font-bold">
+      <h1 ref={heading} tabIndex={-1} className="page-title">
         Sites
       </h1>
       <div className="flex flex-wrap gap-x-6">

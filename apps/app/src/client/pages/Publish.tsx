@@ -30,7 +30,13 @@ function summaryItem(siteId: string, issue: Issue, facts: unknown): SummaryItem 
 export function Publish({ siteId }: { siteId: string }) {
   const site = useSite(siteId);
   if (site.load.state === "error") return <Notice tone="error">{site.load.message}</Notice>;
-  if (site.load.state === "loading" || site.draft === null) return <p role="status">Loading…</p>;
+  if (site.load.state === "loading" || site.draft === null)
+    return (
+      <p role="status" className="flex items-center gap-2 text-slate-600">
+        <span className="spinner" aria-hidden="true" />
+        Loading…
+      </p>
+    );
   return <PublishScreen siteId={siteId} site={site} view={site.load.view} facts={site.draft.facts} />;
 }
 
@@ -105,11 +111,14 @@ function PublishScreen({ siteId, site, view, facts }: { siteId: string; site: Si
   const rejected = !view.takenDown && !view.inReview && lastReviewed?.status === "rejected" && lastReviewed.reviewNote !== TAKEDOWN_REVIEW_NOTE ? lastReviewed : null;
   return (
     <section className="mx-auto max-w-2xl">
-      <h1 ref={heading} tabIndex={-1} className="text-2xl font-bold">
+      <h1 ref={heading} tabIndex={-1} className="page-title">
         Publish your website
       </h1>
-      <p className="mt-2">
-        <a href={paths.edit(siteId)} onClick={onLinkClick} className="link">
+      <p className="mt-1">
+        <a href={paths.edit(siteId)} onClick={onLinkClick} className="link back-link">
+          <svg aria-hidden="true" viewBox="0 0 24 24" className="size-4" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M15 18l-6-6 6-6" />
+          </svg>
           Back to editing
         </a>
       </p>
@@ -151,8 +160,8 @@ function PublishScreen({ siteId, site, view, facts }: { siteId: string; site: Si
 
       {view.pendingVersion !== null ? (
         <div className="card mt-6">
-          <h2 className="text-lg font-semibold">Waiting for approval</h2>
-          <p className="mt-2">
+          <h2 className="section-title">Waiting for approval</h2>
+          <p className="mt-2 text-slate-700">
             Version {view.pendingVersion.number}, sent {when(view.pendingVersion.requestedAt)}. We check every website before it goes live, usually within one working day.
           </p>
           <ReviewPreview siteId={siteId} version={view.pendingVersion} />
@@ -165,10 +174,10 @@ function PublishScreen({ siteId, site, view, facts }: { siteId: string; site: Si
 
       <ErrorSummary items={problems.map((issue) => summaryItem(siteId, issue, facts))} focusSignal={focusSignal} />
       {view.takenDown ? null : (
-        <div className="card mt-6">
-          <h2 className="text-lg font-semibold">{view.pendingVersion !== null ? "Send your latest changes instead" : view.live ? "Publish your changes" : "Send your website for review"}</h2>
-          <p className="mt-2">A person checks every website before it goes live. Your web address cannot change after this.</p>
-          <button type="button" className="btn-primary mt-4" disabled={busy} onClick={() => void publish()}>
+        <div className="card card-action mt-6">
+          <h2 className="section-title">{view.pendingVersion !== null ? "Send your latest changes instead" : view.live ? "Publish your changes" : "Send your website for review"}</h2>
+          <p className="mt-2 text-slate-700">A person checks every website before it goes live. Your web address cannot change after this.</p>
+          <button type="button" className="btn-primary mt-5" disabled={busy} onClick={() => void publish()}>
             {busy ? "Sending…" : "Send for review"}
           </button>
         </div>

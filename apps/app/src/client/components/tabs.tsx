@@ -25,7 +25,7 @@ export function Tabs<T extends string>(props: {
     refs.current.get(tab.id)?.focus();
   };
   return (
-    <div role="tablist" aria-label={props.label} className="flex flex-wrap gap-1 border-b border-slate-300" onKeyDown={onKeyDown}>
+    <div role="tablist" aria-label={props.label} className="tab-list" onKeyDown={onKeyDown}>
       {props.tabs.map((tab) => {
         const selected = tab.id === props.selected;
         return (
@@ -40,11 +40,7 @@ export function Tabs<T extends string>(props: {
             aria-selected={selected}
             aria-controls={`${props.idPrefix}-panel-${tab.id}`}
             tabIndex={selected ? 0 : -1}
-            className={
-              selected
-                ? "-mb-px min-h-11 rounded-t-md border border-b-white border-slate-300 bg-white px-4 font-semibold text-blue-800"
-                : "min-h-11 rounded-t-md px-4 text-slate-800 hover:bg-slate-100"
-            }
+            className="tab"
             onClick={() => props.onSelect(tab.id)}
           >
             {tab.label}

@@ -172,6 +172,61 @@
     background-color: var(--color-brand-600);
     animation: progress-slide 1.4s ease-in-out infinite;
   }
+  /* The questionnaire: on wide screens the step list is a rail on the left of the heading and the form; on phones it is
+     one swipeable row under the heading. DOM order (heading, steps, form) is the same at every width. */
+  .wizard {
+    @apply mx-auto max-w-2xl lg:grid lg:max-w-[57rem] lg:grid-cols-[13rem_minmax(0,1fr)] lg:gap-x-10;
+  }
+  .wizard-head,
+  .wizard-body {
+    @apply lg:col-start-2;
+  }
+  /* The step's first field sits at the card's top padding, not below an extra gap. */
+  .wizard-body .card > div > :first-child {
+    @apply mt-0;
+  }
+  .wizard-steps {
+    @apply mt-5 lg:sticky lg:top-6 lg:col-start-1 lg:row-span-2 lg:row-start-1 lg:mt-1 lg:self-start;
+  }
+  .wizard-steps > ol {
+    @apply -mx-4 flex gap-1.5 overflow-x-auto px-4 py-1.5 lg:mx-0 lg:flex-col lg:gap-1 lg:overflow-visible lg:px-0;
+  }
+  .wizard-steps li {
+    @apply shrink-0;
+  }
+  .wizard-steps .step-link {
+    @apply whitespace-nowrap lg:flex lg:whitespace-normal;
+  }
+  /* A 48px brand tile holding a line icon (near-black on green, 11.6:1). */
+  .icon-tile {
+    @apply inline-flex size-12 items-center justify-center rounded-xl bg-brand-500 text-ink;
+  }
+  /* A link back to the previous screen, with a chevron. */
+  .back-link {
+    @apply inline-flex min-h-11 items-center gap-1.5;
+  }
+  /* The card that holds a screen's main action: a green bar on its top edge. */
+  .card-action {
+    @apply border-t-4 border-t-brand-500;
+  }
+  /* Tabs: the selected tab is near-black and semibold, with a 3px green bar under it. */
+  .tab-list {
+    @apply flex flex-wrap gap-x-1 border-b border-slate-200;
+  }
+  .tab {
+    @apply -mb-px min-h-11 border-b-[3px] border-transparent px-3 font-medium text-slate-600 transition-colors duration-150 hover:border-slate-300 hover:text-ink aria-selected:border-brand-600 aria-selected:font-semibold aria-selected:text-ink;
+  }
+  /* The editor's left column: its tools in one white panel. */
+  .editor-panel {
+    @apply rounded-card border border-slate-200 bg-white p-4 sm:p-5;
+  }
+  /* A choice shown as a card (designs, colours): the checked one gets a green edge and tint. */
+  .choice-card {
+    @apply flex items-center gap-3 rounded-xl border border-slate-300 bg-white p-3 transition-colors duration-150 hover:border-slate-500 has-checked:border-brand-700 has-checked:bg-brand-50;
+  }
+  .eyebrow {
+    @apply text-sm font-medium text-slate-600;
+  }
   /* The questionnaire's step links; the current step is near-black with white text. */
   .step-link {
     @apply inline-flex min-h-11 items-center rounded-lg px-3 py-1.5 text-[0.9375rem] font-medium text-slate-700 transition-colors duration-150 hover:bg-slate-200/70 hover:text-ink;

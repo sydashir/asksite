@@ -32,7 +32,7 @@ export function AcceptInvite() {
 
   return (
     <section className="card mx-auto max-w-xl">
-      <h1 ref={heading} tabIndex={-1} className="text-2xl font-bold">
+      <h1 ref={heading} tabIndex={-1} className="page-title">
         Set up your website
       </h1>
       {TOKEN_PATTERN.test(token) ? (

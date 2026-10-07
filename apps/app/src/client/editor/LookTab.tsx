@@ -30,8 +30,8 @@ function Swatch({ colors }: { colors: Colors }) {
 /** One radio with its label box. `thumbnail` is a small picture of the design, for when thumbnails exist (decorative: the name says it all). */
 function Option(props: { id: string; group: string; checked: boolean; readOnly: boolean; onChange: () => void; children: ReactNode; aside?: ReactNode; thumbnail?: string }) {
   return (
-    <div className="flex items-center gap-3 rounded-lg border border-slate-300 bg-white p-3">
-      <input id={props.id} type="radio" name={props.group} className="size-6 shrink-0 accent-blue-700" checked={props.checked} aria-disabled={props.readOnly} onChange={props.onChange} />
+    <div className="choice-card">
+      <input id={props.id} type="radio" name={props.group} className="size-6 shrink-0 accent-brand-800" checked={props.checked} aria-disabled={props.readOnly} onChange={props.onChange} />
       {props.thumbnail === undefined ? null : <img src={props.thumbnail} alt="" className="h-14 w-20 shrink-0 rounded border border-slate-300 object-cover object-top" />}
       <label htmlFor={props.id} className="flex flex-1 flex-wrap items-center justify-between gap-2">
         <span>{props.children}</span>

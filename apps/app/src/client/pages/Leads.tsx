@@ -77,7 +77,7 @@ export function Leads({ siteId }: { siteId: string }) {
 
   return (
     <section className="mx-auto max-w-3xl">
-      <h1 ref={heading} tabIndex={-1} className="text-2xl font-bold">
+      <h1 ref={heading} tabIndex={-1} className="page-title">
         Messages from your website
       </h1>
       <p className="mt-2">
