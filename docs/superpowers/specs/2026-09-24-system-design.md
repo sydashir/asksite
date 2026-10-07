@@ -767,7 +767,7 @@ A site has up to 5 pages (user decision 2026-10-01). The page map `PAGES` (`@ask
    - **Search engines on or off.**
    - **Disable owner**, which also ends every session that owner has.
 
-   The action forms follow one rule (DECIDED 2026-10-07): "Every admin action form is opened for ONE site state. Its fields are born empty and unticked for that state, and reset after every answer. Nothing typed or ticked for one takedown can reach another." In the admin client (`SiteDetail`, `TakedownForms`) each form is its own component, keyed by the state it was opened for (the Finish form by `takenDownAt`, the takedown form by the moment the site last came back up), and each resets when its call answers, success or error.
+   The action forms follow one rule (DECIDED 2026-10-07): "Every admin action form is opened for ONE site state. Its fields are born empty and unticked for that state, and reset after every answer. Nothing typed or ticked for one takedown can reach another." In the admin client (`TakedownForms`, `OwnerDisableForm`, shown by `SiteDetail`) each form is its own component, keyed by the state it was opened for (the Finish form by `takenDownAt`, the takedown form by the moment the site last came back up, the Disable owner form by the owner's enabled or disabled state), and each resets when its call answers, success or error.
 5. **Settings.** An AI generation on/off switch (the kill switch), the daily model limit, today's model calls and spend, and the worst-case daily cost that the limit allows (§6.3).
 
 ---

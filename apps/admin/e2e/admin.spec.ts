@@ -1129,6 +1129,27 @@ test("send an owner a sign-in link from their site; a disabled owner has no such
   await expect(page.getByRole("button", { name: "Send sign-in link" })).toBeVisible();
 });
 
+// M-1: the owner-disable form is born empty for each owner state and resets after every answer (THE RULE).
+test("the owner-disable form is empty after a Disable and an Enable, and a second Disable without a reason sends nothing", async ({ page }) => {
+  const site = await pendingSite(page.request);
+  const bodies: unknown[] = [];
+  page.on("request", (r) => {
+    if (r.method() === "POST" && r.url().endsWith("/disable")) bodies.push(r.postDataJSON());
+  });
+  await page.goto(`/sites/${site.siteId}`);
+  await page.getByLabel("Reason for disabling the owner").fill("R1: spam report");
+  await page.getByRole("button", { name: "Disable the owner" }).click();
+  await expect(page.getByText("Owner disabled and signed out everywhere.")).toBeVisible();
+  await page.getByRole("button", { name: "Enable the owner" }).click();
+  await expect(page.getByText("Owner enabled.")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Disable the owner" })).toBeVisible();
+  await expect(page.getByLabel("Reason for disabling the owner")).toHaveValue("");
+  await page.getByRole("button", { name: "Disable the owner" }).click();
+  await expect(page.getByText("Write the reason. It is kept in the audit log.")).toBeVisible();
+  expect(bodies).toEqual([{ reason: "R1: spam report" }]); // only the first Disable was sent
+  await expect(page.getByRole("button", { name: "Enable the owner" })).toHaveCount(0); // the owner stays enabled
+});
+
 test("a list the server cuts off says so, and a short list does not", async ({ page }) => {
   const site = await pendingSite(page.request);
   await page.goto("/");

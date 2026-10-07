@@ -2,7 +2,6 @@ import type { AdminSiteRow, GenerationView, VersionSummary } from "@asksite/core
 import { siteUrl } from "@asksite/core";
 import { isSafeUrl } from "@asksite/site-schema";
 import { useRef, useState } from "react";
-import { TextInput } from "../../../../app/src/client/components/fields.tsx";
 import { Notice } from "../../../../app/src/client/components/feedback.tsx";
 import { usePageHeading } from "../../../../app/src/client/hooks/use-page-heading.ts";
 import { onLinkClick } from "../../../../app/src/client/hooks/use-route.ts";
@@ -11,6 +10,7 @@ import { useResource } from "../hooks.ts";
 import { COPIED_AGAIN, TAKEDOWN_LEASE_LOST } from "../../messages.ts";
 import type { TakedownView } from "../../settings-view.ts";
 import { CapNote } from "../CapNote.tsx";
+import { OwnerDisableForm } from "../OwnerDisableForm.tsx";
 import { FinishForm, TakedownForm, type TakedownBody } from "../TakedownForms.tsx";
 import { NOT_EMAILED, jobLineText, restoredText, takedownResult, when, type TakedownResult } from "../lib/format.ts";
 
@@ -41,8 +41,6 @@ function SiteScreen({ data, reload }: { data: SiteDetailData; reload: () => Prom
   const { site, takenDownAt, restoredAt } = data;
   const heading = usePageHeading<HTMLHeadingElement>(site.businessName ?? site.slug ?? "Site", "Admin");
   const [message, setMessage] = useState<Message | null>(null);
-  const [disableReason, setDisableReason] = useState("");
-  const [disableErrors, setDisableErrors] = useState<string[]>([]);
   /** A takedown answered 5xx, or lost its lease with a failed re-read: what to say depends on whether the reloaded site is down, so the text is chosen at render. */
   const [takedownUnsure, setTakedownUnsure] = useState(false);
   /** One takedown call at a time: a second press while one runs is ignored. */
@@ -201,24 +199,7 @@ function SiteScreen({ data, reload }: { data: SiteDetailData; reload: () => Prom
                 Enable the owner
               </button>
             ) : (
-              <form
-                noValidate
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  if (disableReason.trim() === "") {
-                    setDisableErrors(["Write the reason. It is kept in the audit log."]);
-                    document.getElementById("disable-reason")?.focus();
-                    return;
-                  }
-                  setDisableErrors([]);
-                  void act("POST", `/api/admin/owners/${site.ownerId}/disable`, { reason: disableReason.trim() }, "Owner disabled and signed out everywhere.");
-                }}
-              >
-                <TextInput id="disable-reason" label="Reason for disabling the owner" value={disableReason} onChange={setDisableReason} errors={disableErrors} />
-                <button type="submit" className="btn-secondary mt-3">
-                  Disable the owner
-                </button>
-              </form>
+              <OwnerDisableForm key={`owner-${site.ownerDisabled ? "disabled" : "enabled"}`} onDisable={(reason) => act("POST", `/api/admin/owners/${site.ownerId}/disable`, { reason }, "Owner disabled and signed out everywhere.")} />
             )}
           </div>
         </section>
