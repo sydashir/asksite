@@ -20,7 +20,7 @@ export const SITE_BUSY = "Another admin action on this site is still running. Tr
 export const TAKEN_DOWN_AGAIN = "This site was taken down again since you opened this page. Reload to see where it stands now.";
 /** The up-site take-down form was opened for an up site, and the site is down now (another admin took it down). */
 export const TAKEN_DOWN_SINCE_OPENED = "This site was taken down since you opened this page. Reload to see where it stands now.";
-/** Finish the takedown named a takedown that is no longer the site's (the site was restored since the page showed it down). */
+/** Finish the takedown named a takedown that is no longer the site's (the site was restored since the page showed it down), and the up-site take-down form named a restore moment that is no longer the newest (the site was restored since the page showed it up). */
 export const RESTORED_SINCE_OPENED = "This site was restored since you opened this page. Reload to see where it stands now.";
 /** Copy the live pages again succeeded. */
 export const COPIED_AGAIN = "The live pages were copied again.";

@@ -112,6 +112,9 @@ export function siteRoutes(deps: AdminDeps): Hono<AdminEnv> {
     if (body.expectedTakenDownAt !== undefined && site.taken_down_at !== body.expectedTakenDownAt) throw new ApiError("conflict", RESTORED_SINCE_OPENED);
     // The up-site form names the state its page showed (a site that was up, last restored at expectedRestoredAt). A site that is down now, or was restored since,
     // is another state: refuse before takeDown, which would otherwise treat a stale press on a down site as a re-run with THIS body's purge choice, or email a restored site's owner.
+    // Residual: the window runs from the site read above to takeDown's own lease (milliseconds), and Plan 2's takeDown has no expected-state check. If another admin's WHOLE
+    // takedown (lease, commit, release) fits inside it, this press runs as a re-run with THIS body's purge choice on that takedown, and this call's owner message is dropped.
+    // A press that overlaps the other admin's lease gets SITE_BUSY instead.
     if (body.expectedRestoredAt !== undefined) {
       if (site.taken_down_at !== null) throw new ApiError("conflict", TAKEN_DOWN_SINCE_OPENED);
       const restored = await c.env.DB.prepare(SITE_LAST_RESTORED).bind(site.id).first<{ at: number | null }>();
