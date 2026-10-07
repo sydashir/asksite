@@ -898,6 +898,26 @@ test("a takedown form filled for an up site is empty again once another admin ha
   await expect(page.getByLabel("Also delete this site's photos")).not.toBeChecked();
 });
 
+// M-3: the form follows the NEWEST restore, so a site that already has a restore history still gets an empty form after the next one.
+test("a takedown form filled for a site with a restore history is empty again after another admin takes the site down and restores it once more", async ({ page }) => {
+  const site = await liveSite(page);
+  expect((await apiTakeDown(page, site.siteId, { reason: "History", purgeMedia: false })).status()).toBe(200);
+  expect((await apiRestore(page, site.siteId, (await siteView(page, site.siteId)).takenDownAt!)).status()).toBe(200);
+  await page.goto(`/sites/${site.siteId}`);
+  await page.getByLabel("Reason for taking it down").fill("Typed before");
+  await page.getByLabel("Message to the owner").fill("Message before");
+  await page.getByLabel("Also delete this site's photos").check();
+  expect((await apiTakeDown(page, site.siteId, { reason: "Other admin", purgeMedia: false })).status()).toBe(200);
+  expect((await apiRestore(page, site.siteId, (await siteView(page, site.siteId)).takenDownAt!)).status()).toBe(200);
+  expect((await siteView(page, site.siteId)).audit.filter((a) => a.action === "site.restored")).toHaveLength(2);
+  await page.getByRole("button", { name: "Block search engines" }).click(); // an in-app reload: the page shows the site up again, restored a second time
+  await expect(page.getByText("Search engines are now blocked.")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Take the site down" })).toBeVisible();
+  await expect(page.getByLabel("Reason for taking it down")).toHaveValue("");
+  await expect(page.getByLabel("Message to the owner")).toHaveValue("");
+  await expect(page.getByLabel("Also delete this site's photos")).not.toBeChecked();
+});
+
 // I-1 (customer data): the up-site form names the state its page showed, so a press on a stale page is refused, whatever it carries.
 test("a take-down pressed on a page that showed the site up, after another admin took it down and kept the photos, is refused: photos kept, no owner message, no audit row", async ({ page }) => {
   const site = await liveSite(page);
