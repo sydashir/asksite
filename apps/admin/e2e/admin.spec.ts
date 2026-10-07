@@ -1304,6 +1304,37 @@ test.describe("settings that change the shared AI settings", () => {
     }
   });
 
+  // M-5: an unchanged save sends nothing, reloads what the server holds, and says so.
+  test("a stale Settings page saved without a change sends no PUT, shows the other admin's current values and says there is nothing to save", async ({ page }, testInfo) => {
+    test.skip(testInfo.project.name !== "chromium-1280", "Changes a setting shared by every test: one project is enough.");
+    const put = (data: object) => page.request.put(`${ADMIN}/api/admin/settings`, { data, headers: adminHeaders });
+    const start = (await (await page.request.get(`${ADMIN}/api/admin/settings`)).json()) as { generationEnabled: boolean; dailyModelLimit: number };
+    try {
+      expect((await put({ generationEnabled: true, dailyModelLimit: 7 })).status()).toBe(200);
+      await page.goto("/settings");
+      const enabled = page.getByLabel("AI writing is on");
+      const limit = page.getByLabel("Most AI writing jobs per day, for all owners");
+      await expect(enabled).toBeChecked();
+      await expect(limit).toHaveValue("7");
+      // Another admin changes both settings. This page is not reloaded.
+      expect((await put({ generationEnabled: false, dailyModelLimit: 9 })).status()).toBe(200);
+      const puts: unknown[] = [];
+      page.on("request", (r) => {
+        if (r.method() === "PUT" && r.url().endsWith("/api/admin/settings")) puts.push(r.postDataJSON());
+      });
+      const reloaded = page.waitForResponse((r) => r.url().endsWith("/api/admin/settings") && r.request().method() === "GET");
+      await page.getByRole("button", { name: "Save settings" }).click();
+      await reloaded;
+      await expect(page.getByText("Nothing to save.")).toBeVisible();
+      await expect(enabled).not.toBeChecked();
+      await expect(limit).toHaveValue("9");
+      expect(puts).toEqual([]); // no PUT /api/admin/settings
+      await expect(page.getByText("Settings saved.")).toHaveCount(0);
+    } finally {
+      await put({ generationEnabled: start.generationEnabled, dailyModelLimit: start.dailyModelLimit });
+    }
+  });
+
   test("settings, by keyboard only: switch AI writing off and lower the daily limit", async ({ page }, testInfo) => {
     test.skip(testInfo.project.name !== "chromium-1280", "Changes a setting shared by every test: one project is enough.");
     await page.goto("/settings");

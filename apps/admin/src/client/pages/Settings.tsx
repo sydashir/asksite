@@ -41,6 +41,12 @@ export function Settings() {
       ...(enabled === settings.generationEnabled ? {} : { generationEnabled: enabled }),
       ...(value === settings.dailyModelLimit ? {} : { dailyModelLimit: value }),
     };
+    if (Object.keys(changes).length === 0) {
+      // Nothing changed against what the page loaded: send nothing. The reload shows what the server holds now (another admin may have changed it).
+      await reload();
+      setMessage({ tone: "success", text: "Nothing to save." });
+      return;
+    }
     const res = await api<SettingsView>("PUT", "/api/admin/settings", changes);
     if (res.ok) {
       await reload(); // the form shows what the server holds now, including any change another admin made
