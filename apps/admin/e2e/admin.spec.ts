@@ -617,7 +617,7 @@ test("a down site shows Finish the takedown after a reload; it needs a reason, r
 
 const siteNotices = async (page: Page, email: string) =>
   ((await (await page.request.get(`${ADMIN}/__test/outbox?to=${encodeURIComponent(email)}`)).json()) as Array<{ tag: string }>).filter((m) => m.tag === "site_notice").length;
-type SiteView = { takenDownAt: number | null; audit: Array<{ action: string; detail: { repeat?: boolean } | null }> };
+type SiteView = { takenDownAt: number | null; restoredAt: number | null; audit: Array<{ at: number; action: string; detail: { repeat?: boolean } | null }> };
 const siteView = async (page: Page, siteId: string) => (await (await page.request.get(`${ADMIN}/api/admin/sites/${siteId}`)).json()) as SiteView;
 const takedownAudits = (view: SiteView) => view.audit.filter((a) => a.action === "site.taken_down");
 
@@ -920,6 +920,19 @@ test("a takedown form filled for a site with a restore history is empty again af
   await expect(page.getByLabel("Reason for taking it down")).toHaveValue("");
   await expect(page.getByLabel("Message to the owner")).toHaveValue("");
   await expect(page.getByLabel("Also delete this site's photos")).not.toBeChecked();
+  // M-2: the fresh form's press names the NEWEST restore, so the take-down succeeds on a site that has a restore history.
+  const newest = Math.max(...(await siteView(page, site.siteId)).audit.filter((a) => a.action === "site.restored").map((a) => a.at));
+  const bodies: Array<Record<string, unknown>> = [];
+  page.on("request", (r) => {
+    if (r.method() === "POST" && r.url().includes("/takedown")) bodies.push(r.postDataJSON() as Record<string, unknown>);
+  });
+  await page.getByLabel("Reason for taking it down").fill("A: after the second restore");
+  const answer = page.waitForResponse((r) => r.url().includes("/takedown") && r.request().method() === "POST");
+  await page.getByRole("button", { name: "Take the site down" }).click();
+  await page.getByRole("dialog", { name: "Take this site down?" }).getByRole("button", { name: "Take it down" }).click();
+  expect((await answer).status()).toBe(200);
+  expect(bodies).toEqual([{ reason: "A: after the second restore", ownerMessage: "", purgeMedia: false, expectedRestoredAt: newest }]);
+  expect((await siteView(page, site.siteId)).takenDownAt).not.toBeNull();
 });
 
 // I-1 (customer data): the up-site form names the state its page showed, so a press on a stale page is refused, whatever it carries.
