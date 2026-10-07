@@ -18,7 +18,6 @@ import {
   type VersionSummary,
   siteUrl,
 } from "@asksite/core";
-import { generationAllowance, requestGeneration } from "@asksite/generation";
 import { render } from "@asksite/renderer";
 import { DESIGN_CSS } from "@asksite/site-css";
 import { factSections, SECTION_VARIANTS, type Copy, type Facts, type LayoutSection, type SectionId } from "@asksite/site-schema";
@@ -29,7 +28,7 @@ import { LIVE_TOKEN_NO_HOSTNAME, TURNSTILE_DUMMY_TOKEN, TURNSTILE_TEST_SECRET, t
 // Test stand-ins for Plan 2 (@asksite/publishing, @asksite/mailer) and Plan 3 (@asksite/generation).
 // Each follows the design's contract (§6.4, §7.2, §7.6) closely enough for this Worker's tests;
 // none of them is ever deployed. The integration task swaps in the real packages. Plan 3's request
-// and allowance are already the real ones (fakeGeneration, integration-4); its job is finishGeneration.
+// and allowance are already the real ones (testGeneration, integration-4); its job is finishGeneration.
 
 const TRADE_WORD: Record<Facts["trade"], string> = {
   plumbing: "Plumbing",
@@ -92,23 +91,27 @@ export function switchGenerationOff(off: boolean): void {
 }
 
 /**
- * Plan 3's generator as the app calls it: the REAL requestGeneration and generationAllowance (packages/generation request.ts;
+ * Plan 3's generator as the app's tests call it: the REAL requestGeneration and generationAllowance (packages/generation request.ts;
  * integration-4), so the app's tests meet its own rules, not a copy that can drift: the site's daily cap, the owner's daily cap on
  * regenerations, the lifetime 20, the kill switch, today's model limit, the intent guard and the allowance min(site, owner). Only
  * two test switches stand in front of it: an armed refusal (refuseNextGeneration) and the kill switch as production ships it.
+ * The test Worker passes the real functions in: this file does not import @asksite/generation, because the admin's test Worker
+ * imports it too and has no use for the generation package (and its model SDK) in its bundle.
  */
-export const fakeGeneration: GenerationDeps = {
-  async requestGeneration(env, input) {
-    if (nextGenerationRefusal !== undefined) {
-      const code = nextGenerationRefusal;
-      nextGenerationRefusal = undefined;
-      return { ok: false, code };
-    }
-    return requestGeneration(generationSwitchedOff ? { ...env, GENERATION_ENABLED: "false" } : env, input);
-  },
-  generationAllowance,
-  toGenerationView,
-};
+export function testGeneration(real: Pick<GenerationDeps, "requestGeneration" | "generationAllowance">): GenerationDeps {
+  return {
+    async requestGeneration(env, input) {
+      if (nextGenerationRefusal !== undefined) {
+        const code = nextGenerationRefusal;
+        nextGenerationRefusal = undefined;
+        return { ok: false, code };
+      }
+      return real.requestGeneration(generationSwitchedOff ? { ...env, GENERATION_ENABLED: "false" } : env, input);
+    },
+    generationAllowance: real.generationAllowance,
+    toGenerationView,
+  };
+}
 
 /**
  * What the real generator does at the end of a job (§6.3 step 4), driven by tests. A success stores fakeAiDraft, with any `copy`
