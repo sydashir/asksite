@@ -1458,7 +1458,7 @@ test("delete a disabled owner's account: hint while enabled, typed email, dialog
   await expect(dialog).toBeHidden();
   expect(posts).toHaveLength(0);
   await expect(field).toHaveValue(site.email.toUpperCase()); // a type=email field drops the spaces itself (the unit test covers trim)
-  expect((await siteView(page, site.siteId)).site.id).toBe(site.siteId);
+  expect((await page.request.get(`${ADMIN}/api/admin/sites/${site.siteId}`)).status()).toBe(200); // Cancel deleted nothing
 
   // Confirm, with a double-click on "Delete everything": ONE POST, the result is shown and focused, and the site page is not reloaded.
   let held = 0;
