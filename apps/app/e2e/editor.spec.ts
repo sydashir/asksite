@@ -180,6 +180,86 @@ test("moving a question to the top of the list keeps keyboard focus on a live bu
   await expect(page.getByRole("button", { name: "Move question 1 down" })).toBeFocused();
 });
 
+// Handoff 1b (DECIDED web-maker-d5, 2026-10-07): AI wording that an answer no longer backs is listed in the editor's existing issue
+// presentation (the field's error line, the one notice and its Show me). It does not stop the preview, so the notice says what it
+// blocks: "Fix N issues before you publish." (Q1 option (c)).
+const AI_LINE = "“free” isn't backed by your answers. Edit this wording or update your answers.";
+const SUBHEADLINE = "Stress-free repairs from a local team.";
+
+/** An editor on a site whose AI wording says "Stress-free", written while free estimates were on; then the owner turns them off on the Details tab. */
+async function editorWithStaleClaim(page: Page) {
+  const siteId = await builtSite(page, { ...FACTS, freeEstimates: true }, { heroSubheadline: SUBHEADLINE });
+  await page.goto(`/sites/${siteId}/edit`);
+  await expect(page.getByRole("heading", { level: 1, name: "Edit your website" })).toBeFocused();
+  await expect(page.getByText(/^Fix \d+ issues? /)).toHaveCount(0);
+  await page.getByRole("tab", { name: "Details" }).click();
+  await page.getByLabel("Which answers?").selectOption({ label: "Your services" });
+  await page.getByLabel("We give free estimates or quotes").uncheck();
+  await expect(page.getByText("Fix 1 issue before you publish.")).toBeVisible();
+  return siteId;
+}
+
+test("AI wording an answer no longer backs is flagged at its field; the notice says it blocks publishing, Show me goes there, and the preview still updates", async ({ page }) => {
+  await editorWithStaleClaim(page);
+  await expect(page.getByText(/to update the preview/)).toHaveCount(0);
+  await page.getByRole("button", { name: "Show me" }).click();
+  const sub = page.getByLabel("Line under the headline");
+  await expect(sub).toBeFocused();
+  await expect(sub).toHaveAccessibleDescription(new RegExp(AI_LINE.replace(/[.?]/g, "\\$&")));
+  await expect(page.getByText(AI_LINE)).toHaveCount(1);
+  // No fix button: the owner edits the wording or changes an answer.
+  await expect(page.getByRole("button", { name: "Turn on free estimates" })).toHaveCount(0);
+  // The preview is not stopped: it shows the AI wording, and keeps updating.
+  await showPreview(page);
+  await expect.poll(() => previewHtml(page)).toContain(SUBHEADLINE);
+  await showEditor(page);
+  await page.getByLabel("Headline", { exact: true }).fill("Plumbers you can reach");
+  await expect.poll(() => previewHtml(page)).toContain("Plumbers you can reach");
+
+  // The owner rewrites the flagged wording: it is theirs now, and nothing is left to fix.
+  await page.getByLabel("Line under the headline").fill("Careful repairs from a local team.");
+  await expect(savedStatus(page)).toBeVisible();
+  await expect(page.getByText("Fix 1 issue before you publish.")).toBeHidden();
+  await expect(page.getByText(AI_LINE)).toHaveCount(0);
+});
+
+test("with an AI-claim issue and a change that stops the preview, the notice counts only what stops the preview", async ({ page }) => {
+  const siteId = await editorWithStaleClaim(page);
+  await page.getByRole("tab", { name: "Words" }).click();
+  // Hold the next save, so the server's last answer (the AI-claim issue) is still the newest while the headline stops the preview.
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => (release = resolve));
+  await page.route(`**/api/sites/${siteId}/draft`, async (route) => {
+    await held;
+    await route.fallback();
+  });
+  await page.getByLabel("Headline", { exact: true }).fill("Licensed plumbers you can trust");
+  await expect(page.getByText("Fix 1 issue to update the preview.")).toBeVisible();
+  await expect(page.getByText(/before you publish/)).toHaveCount(0);
+  await expect(page.getByText(/Fix 2 issues/)).toHaveCount(0);
+  // Both lines are at their fields.
+  await expect(page.getByText(AI_LINE)).toHaveCount(1);
+  await expect(page.getByText("To say “licensed”, add your license.")).toBeVisible();
+  // Show me goes to what stops the preview first.
+  await page.getByRole("button", { name: "Show me" }).click();
+  await expect(page.getByLabel("Headline", { exact: true })).toBeFocused();
+  release();
+  await expect(savedStatus(page)).toBeVisible();
+  await page.unroute(`**/api/sites/${siteId}/draft`);
+  await expect(page.getByText("Fix 1 issue to update the preview.")).toBeVisible();
+});
+
+test("new wording replaces the old wording's AI-claim issue at once", async ({ page }) => {
+  const siteId = await editorWithStaleClaim(page);
+  await expect(savedStatus(page)).toBeVisible();
+  const generationId = await askNewWording(page, siteId);
+  await finishGeneration(page.request, generationId);
+  await expect(page.getByText("New wording is ready.")).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByLabel("Line under the headline")).toHaveValue("Careful, tidy work from a local team you can reach.");
+  await expect(page.getByText("Fix 1 issue before you publish.")).toBeHidden();
+  await expect(page.getByText(AI_LINE)).toHaveCount(0);
+});
+
 test("write new wording asks first, then replaces the wording but keeps the look", async ({ page }) => {
   const siteId = await openEditor(page);
   await page.getByRole("tab", { name: "Look" }).click();

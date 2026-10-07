@@ -1,6 +1,7 @@
 import { ApiError } from "@asksite/app-common";
 import { newId, newToken, sha256Hex, TTL } from "@asksite/core";
 import { TAKEDOWN_REVIEW_NOTE } from "@asksite/publishing";
+import type { Copy } from "@asksite/site-schema";
 import { Hono } from "hono";
 import type { Siteverify } from "../../src/worker/deps.ts";
 import { requireTurnstile, SITEVERIFY_TIMEOUT_MS } from "../../src/worker/turnstile.ts";
@@ -495,8 +496,11 @@ helpers.post("/__test/generation-switch", async (c) => {
 
 /** What the generator does when a job ends. */
 helpers.post("/__test/generations/:generationId/finish", async (c) => {
-  const body = await c.req.json<{ status: "succeeded" | "failed"; usedFallback?: boolean }>();
-  const outcome = body.status === "failed" ? { status: "failed" as const, errorCode: "provider_unavailable" as const } : { status: "succeeded" as const, usedFallback: body.usedFallback === true };
+  const body = await c.req.json<{ status: "succeeded" | "failed"; usedFallback?: boolean; copy?: Partial<Copy> }>();
+  const outcome =
+    body.status === "failed"
+      ? { status: "failed" as const, errorCode: "provider_unavailable" as const }
+      : { status: "succeeded" as const, usedFallback: body.usedFallback === true, ...(body.copy === undefined ? {} : { copy: body.copy }) };
   const finished = await finishGeneration(c.env.DB, c.req.param("generationId"), outcome, Date.now());
   return finished ? c.json({ ok: true }) : c.notFound();
 });

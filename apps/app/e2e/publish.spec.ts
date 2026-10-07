@@ -142,6 +142,25 @@ test("an empty closing time is listed once, and its link opens that day's closin
   await expect(page.getByLabel("Monday closes at")).toBeFocused();
 });
 
+// Handoff 1b (DECIDED web-maker-d5, 2026-10-07): publishing is refused through the existing path while AI wording says something the
+// answers no longer back, naming it in the owner's words, with a link to the editor where the wording is.
+test("AI wording an answer no longer backs is listed as a thing to fix, and its link opens the editor", async ({ page }) => {
+  const siteId = await builtSite(page, { ...FACTS, freeEstimates: true }, { heroSubheadline: "Stress-free repairs from a local team." });
+  const before = await apiCall(page, "GET", `/api/sites/${siteId}`);
+  const saved = await apiCall(page, "PATCH", `/api/sites/${siteId}/draft`, { rev: before.json?.["rev"], facts: { ...FACTS, freeEstimates: false } });
+  expect(saved.status).toBe(200);
+  await page.goto(`/sites/${siteId}/publish`);
+  await page.getByRole("button", { name: "Send for review" }).click();
+  await expect(page.getByRole("heading", { name: "There is 1 thing to fix" })).toBeVisible();
+  const fix = page.getByRole("link", { name: "“free” isn't backed by your answers. Edit this wording or update your answers." });
+  await expect(fix).toBeVisible();
+  await expect(page.getByText("Sent for review.")).toHaveCount(0);
+  const versions = await apiCall(page, "GET", `/api/sites/${siteId}/versions`);
+  expect(versions.json?.["versions"]).toEqual([]);
+  await fix.click();
+  await page.waitForURL(`${APP}/sites/${siteId}/edit`);
+});
+
 test("a request approved in another tab is not reported as withdrawn", async ({ page }) => {
   const siteId = await builtSite(page);
   await page.goto(`/sites/${siteId}/publish`);

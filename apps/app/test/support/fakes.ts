@@ -21,7 +21,7 @@ import {
 } from "@asksite/core";
 import { render } from "@asksite/renderer";
 import { DESIGN_CSS } from "@asksite/site-css";
-import { factSections, SECTION_VARIANTS, type Facts, type LayoutSection, type SectionId } from "@asksite/site-schema";
+import { factSections, SECTION_VARIANTS, type Copy, type Facts, type LayoutSection, type SectionId } from "@asksite/site-schema";
 import type { AppDeps, GenerationDeps, MailerEnv, PublishErrorCode, PublishingDeps, RequestGenerationResult } from "../../src/worker/deps.ts";
 import { FAKE_PUBLISH_CAP } from "./limits.ts";
 import { LIVE_TOKEN_NO_HOSTNAME, TURNSTILE_DUMMY_TOKEN, TURNSTILE_TEST_SECRET, type SiteverifyCall } from "./turnstile.ts";
@@ -149,11 +149,14 @@ export const fakeGeneration: GenerationDeps = {
   toGenerationView,
 };
 
-/** What the real generator does at the end of a job (§6.3 step 4), driven by tests. */
+/**
+ * What the real generator does at the end of a job (§6.3 step 4), driven by tests. A success stores fakeAiDraft, with any `copy`
+ * fields given in place of its own (a test's AI wording, say one with a claim word in it).
+ */
 export async function finishGeneration(
   db: D1Database,
   generationId: string,
-  outcome: { status: "succeeded"; usedFallback?: boolean } | { status: "failed"; errorCode: GenerationErrorCode },
+  outcome: { status: "succeeded"; usedFallback?: boolean; copy?: Partial<Copy> } | { status: "failed"; errorCode: GenerationErrorCode },
   now: number,
 ): Promise<boolean> {
   const row = await db.prepare("SELECT * FROM generations WHERE id = ? AND status IN ('queued', 'running')").bind(generationId).first<GenerationRow>();
@@ -163,9 +166,10 @@ export async function finishGeneration(
     return true;
   }
   const { facts } = JSON.parse(row.input_json) as { facts: Facts };
+  const draft = fakeAiDraft(facts);
   await db
     .prepare("UPDATE generations SET status = 'succeeded', output_json = ?, used_fallback = ?, fallback_reason = ?, finished_at = ? WHERE id = ?")
-    .bind(JSON.stringify(fakeAiDraft(facts)), outcome.usedFallback ? 1 : 0, outcome.usedFallback ? "disabled" : null, now, generationId)
+    .bind(JSON.stringify({ ...draft, copy: { ...draft.copy, ...outcome.copy } }), outcome.usedFallback ? 1 : 0, outcome.usedFallback ? "disabled" : null, now, generationId)
     .run();
   return true;
 }
