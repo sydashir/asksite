@@ -70,7 +70,7 @@ describe("P4-21's migrations, applied onto tables that already hold rows", () =>
     expect(applied).toEqual([FIRST, ...LATER]);
   });
 
-  it("hold one change each (DECIDED web-maker-f4): 0003 adds uploads.reserved_at, 0004 the covering index", () => {
+  it("hold one change each (DECIDED web-maker-f4): 0003 adds uploads.reserved_at, 0004 the covering index, 0008 the foreign-key index of generations", () => {
     /** A migration's SQL without its comment lines, whitespace collapsed. */
     const statements = (name: string) =>
       readFileSync(new URL(name, MIGRATIONS), "utf8")
@@ -81,6 +81,7 @@ describe("P4-21's migrations, applied onto tables that already hold rows", () =>
         .trim();
     expect(statements("0003_upload_reservations.sql")).toBe("ALTER TABLE uploads ADD COLUMN reserved_at INTEGER;");
     expect(statements("0004_site_versions_requested.sql")).toBe("CREATE INDEX site_versions_requested ON site_versions(requested_at, site_id, number);");
+    expect(statements("0008_site_versions_generation.sql")).toBe("CREATE INDEX site_versions_generation ON site_versions(generation_id);");
   });
 
   it("keep uploads STRICT, add reserved_at as a nullable INTEGER with no default, and leave every existing row as it was, with reserved_at NULL", async () => {
