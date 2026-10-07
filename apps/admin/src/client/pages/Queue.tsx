@@ -34,7 +34,7 @@ export function Queue() {
       {load.state === "ready" && load.data.items.length > 0 ? (
         <ul className="mt-6 space-y-3">
           {load.data.items.map(({ version, site }) => (
-            <li key={version.id} className="card flex flex-wrap items-center justify-between gap-4 transition-colors duration-150 hover:border-slate-300">
+            <li key={version.id} className="card flex flex-wrap items-center justify-between gap-4">
               <div className="min-w-0">
                 <h2 className="section-title">{site.businessName ?? "(no name)"}</h2>
                 <p className="mt-1 text-slate-600">

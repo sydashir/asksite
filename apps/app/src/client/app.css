@@ -67,23 +67,23 @@
     color-scheme: dark;
   }
   .btn-primary {
-    @apply inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-brand-600 bg-brand-500 px-5 py-2 font-semibold text-ink transition-colors duration-150 hover:bg-brand-400 active:translate-y-px disabled:cursor-not-allowed disabled:border-slate-300 disabled:bg-slate-200 disabled:text-slate-700 aria-disabled:cursor-not-allowed aria-disabled:border-slate-300 aria-disabled:bg-slate-200 aria-disabled:text-slate-700;
+    @apply inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-brand-600 bg-brand-500 px-5 py-2 font-semibold text-ink hover:bg-brand-400 active:translate-y-px disabled:cursor-not-allowed disabled:border-slate-300 disabled:bg-slate-200 disabled:text-slate-700 aria-disabled:cursor-not-allowed aria-disabled:border-slate-300 aria-disabled:bg-slate-200 aria-disabled:text-slate-700;
   }
   .btn-secondary {
-    @apply inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-slate-500 bg-white px-4 py-2 font-medium text-ink transition-colors duration-150 hover:border-ink hover:bg-slate-50 active:translate-y-px aria-disabled:cursor-not-allowed aria-disabled:opacity-60 aria-pressed:border-ink aria-pressed:bg-ink aria-pressed:font-semibold aria-pressed:text-white;
+    @apply inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-slate-500 bg-white px-4 py-2 font-medium text-ink hover:border-ink hover:bg-slate-50 active:translate-y-px aria-disabled:cursor-not-allowed aria-disabled:opacity-60 aria-pressed:border-ink aria-pressed:bg-ink aria-pressed:font-semibold aria-pressed:text-white;
   }
   .btn-small {
-    @apply inline-flex min-h-11 min-w-11 items-center justify-center rounded-lg border border-slate-500 bg-white px-3 text-sm font-medium text-ink transition-colors duration-150 hover:bg-slate-100 disabled:text-slate-500 aria-disabled:cursor-not-allowed aria-disabled:opacity-60 aria-pressed:border-ink aria-pressed:bg-ink aria-pressed:font-semibold aria-pressed:text-white;
+    @apply inline-flex min-h-11 min-w-11 items-center justify-center rounded-lg border border-slate-500 bg-white px-3 text-sm font-medium text-ink hover:bg-slate-100 disabled:text-slate-500 aria-disabled:cursor-not-allowed aria-disabled:opacity-60 aria-pressed:border-ink aria-pressed:bg-ink aria-pressed:font-semibold aria-pressed:text-white;
   }
   /* An outline button on dark chrome (Sign out). */
   .btn-on-dark {
-    @apply inline-flex min-h-11 items-center justify-center rounded-lg border border-white/45 px-4 py-2 font-medium text-white transition-colors duration-150 hover:border-white/70 hover:bg-white/10 active:translate-y-px;
+    @apply inline-flex min-h-11 items-center justify-center rounded-lg border border-white/45 px-4 py-2 font-medium text-white hover:border-white/70 hover:bg-white/10 active:translate-y-px;
   }
   .link {
     @apply font-medium text-brand-800 underline decoration-brand-600 underline-offset-[3px] hover:text-brand-900 hover:decoration-2;
   }
   .card {
-    @apply rounded-card border border-slate-200 bg-white p-5 sm:p-6;
+    @apply rounded-card border border-slate-200 bg-white p-4 sm:p-6;
   }
   .page-title {
     @apply text-[1.75rem] leading-tight font-semibold tracking-[-0.025em] text-ink sm:text-[2rem];
@@ -103,7 +103,7 @@
   }
   /* A destructive action that is not the main one (Reject): red outline, red-800 text (8.3:1 on white). */
   .btn-danger {
-    @apply inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-red-700 bg-white px-4 py-2 font-medium text-red-800 transition-colors duration-150 hover:bg-red-50 active:translate-y-px aria-disabled:cursor-not-allowed aria-disabled:opacity-60;
+    @apply inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-red-700 bg-white px-4 py-2 font-medium text-red-800 hover:bg-red-50 active:translate-y-px aria-disabled:cursor-not-allowed aria-disabled:opacity-60;
   }
   /* A small spinner beside "Loading…" text (decorative: the text says it). Still under reduced motion. */
   .spinner {
@@ -130,7 +130,7 @@
   }
   /* Text inputs, text areas and selects (46px tall); an invalid one gets a 2px red border. */
   .field-input {
-    @apply mt-1.5 block min-h-11 w-full rounded-lg border border-slate-500 bg-white px-3.5 py-2.5 text-base text-ink transition-colors duration-150 hover:border-slate-700 focus:border-brand-800 aria-[invalid=true]:border-2 aria-[invalid=true]:border-red-700;
+    @apply mt-1.5 block min-h-11 w-full rounded-lg border border-slate-500 bg-white px-3.5 py-2.5 text-base text-ink hover:border-slate-700 focus:border-brand-800 aria-[invalid=true]:border-2 aria-[invalid=true]:border-red-700;
   }
   /* Notices: a tinted box with a 4px bar on the left. */
   .notice {
@@ -186,7 +186,7 @@
     @apply mt-0;
   }
   .wizard-steps {
-    @apply mt-5 lg:sticky lg:top-6 lg:col-start-1 lg:row-span-2 lg:row-start-1 lg:mt-1 lg:self-start;
+    @apply mt-5 lg:col-start-1 lg:row-span-2 lg:row-start-1 lg:mt-1 lg:self-start;
   }
   .wizard-steps > ol {
     @apply -mx-4 flex gap-1.5 overflow-x-auto px-4 py-1.5 lg:mx-0 lg:flex-col lg:gap-1 lg:overflow-visible lg:px-0;
@@ -214,7 +214,7 @@
     @apply flex flex-wrap gap-x-1 border-b border-slate-200;
   }
   .tab {
-    @apply -mb-px min-h-11 border-b-[3px] border-transparent px-3 font-medium text-slate-600 transition-colors duration-150 hover:border-slate-300 hover:text-ink aria-selected:border-brand-600 aria-selected:font-semibold aria-selected:text-ink;
+    @apply -mb-px min-h-11 border-b-[3px] border-transparent px-3 font-medium text-slate-600 hover:border-slate-300 hover:text-ink aria-selected:border-brand-600 aria-selected:font-semibold aria-selected:text-ink;
   }
   /* The editor's left column: its tools in one white panel. */
   .editor-panel {
@@ -222,21 +222,21 @@
   }
   /* A choice shown as a card (designs, colours): the checked one gets a green edge and tint. */
   .choice-card {
-    @apply flex items-center gap-3 rounded-xl border border-slate-300 bg-white p-3 transition-colors duration-150 hover:border-slate-500 has-checked:border-brand-700 has-checked:bg-brand-50;
+    @apply flex items-center gap-3 rounded-xl border border-slate-300 bg-white p-3 hover:border-slate-500 has-checked:border-brand-700 has-checked:bg-brand-50;
   }
   .eyebrow {
     @apply text-sm font-medium text-slate-600;
   }
   /* The questionnaire's step links; the current step is near-black with white text. */
   .step-link {
-    @apply inline-flex min-h-11 items-center rounded-lg px-3 py-1.5 text-[0.9375rem] font-medium text-slate-700 transition-colors duration-150 hover:bg-slate-200/70 hover:text-ink;
+    @apply inline-flex min-h-11 items-center rounded-lg px-3 py-1.5 text-[0.9375rem] font-medium text-slate-700 hover:bg-slate-200/70 hover:text-ink;
   }
   .step-link[aria-current="step"] {
     @apply bg-ink font-semibold text-white;
   }
   /* Links in the dark top bar: the current page is white with a 2px brand bar on its bottom edge. */
   .nav-link {
-    @apply relative inline-flex min-h-11 items-center rounded-md px-2.5 font-medium text-mist transition-colors duration-150 hover:bg-white/10 hover:text-white aria-[current=page]:text-white sm:px-3;
+    @apply relative inline-flex min-h-11 items-center rounded-md px-2.5 font-medium text-mist hover:bg-white/10 hover:text-white aria-[current=page]:text-white sm:px-3;
   }
   .nav-link[aria-current="page"]::after {
     content: "";
