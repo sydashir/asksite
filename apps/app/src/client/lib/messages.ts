@@ -19,6 +19,12 @@ export interface OwnerMessage {
 
 const CLAIM_PREFIX = "Copy states something the owner's facts do not back: ";
 
+/**
+ * An AI-claim issue (handoff 1b): AI wording the answers as they are now do not back. The Worker words it for the owner (the
+ * claim words, DECIDED text), so it is shown as it is, with no fix: the owner edits the wording or changes an answer.
+ */
+export const AI_CLAIM = "ai_claim";
+
 const CLAIM_HINTS: ReadonlyArray<{ test: RegExp; hint: (word: string) => string; fix?: Fix }> = [
   { test: /^licen/i, hint: () => "To say “licensed”, add your license.", fix: { step: "trust", field: ["facts", "licences"], label: "Add a license" } },
   { test: /^insur/i, hint: () => "To say “insured”, check “We are insured”.", fix: { step: "trust", field: ["facts", "insured"], label: "Say you are insured" } },
@@ -189,6 +195,7 @@ const THEME_MESSAGE: OwnerMessage = { text: "Choose your page design and colors 
 export const isThemeIssue = ({ path: [root, part] }: Issue): boolean => root === "theme" || (root === "edits" && part === "theme");
 
 export function ownerMessage(issue: Issue): OwnerMessage {
+  if (issue.code === AI_CLAIM) return { text: issue.message };
   if (isThemeIssue(issue)) return THEME_MESSAGE;
   const coded = BY_CODE[issue.code];
   if (coded !== undefined) return coded;
@@ -265,6 +272,16 @@ function tightestLimits(issues: readonly Issue[]): Issue[] {
  */
 export function issuesToShow(issues: readonly Issue[]): Issue[] {
   return tightestLimits(withoutFalseOrder(issues));
+}
+
+/**
+ * The editor's one issue notice (DECIDED web-maker-d5, 2026-10-07): while anything stops the preview, today's sentence, counting
+ * only those issues; when only AI-claim issues are left (the preview still updates), what they block. Null when there are none.
+ */
+export function editorIssueNotice(blocking: number, aiClaims: number): string | null {
+  const issues = (n: number) => (n === 1 ? "1 issue" : `${n} issues`);
+  if (blocking > 0) return `Fix ${issues(blocking)} to update the preview.`;
+  return aiClaims > 0 ? `Fix ${issues(aiClaims)} before you publish.` : null;
 }
 
 /** Issues at `path` exactly (one field). */

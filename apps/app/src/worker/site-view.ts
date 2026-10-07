@@ -7,6 +7,7 @@ import {
   EMPTY_EDITS,
   mediaUrl,
   OwnerEdits,
+  ownerEditedPaths,
   photoRefIssues,
   siteUrl,
   toIssues,
@@ -20,6 +21,7 @@ import {
   type UploadRow,
   type VersionSummary,
 } from "@asksite/core";
+import { aiClaims, aiCopyIssues } from "@asksite/generation";
 import { Facts, SiteDocument, Theme } from "@asksite/site-schema";
 import { z } from "zod";
 import { parseStored } from "./db.ts";
@@ -124,9 +126,33 @@ function pageIssues(error: z.ZodError): Issue[] {
   return toIssues(new z.ZodError(error.issues.filter((issue) => issue.path[0] !== "facts")));
 }
 
+/** The code of an AI-claim issue (handoff 1b): AI wording that the answers as they are now do not back. */
+const AI_CLAIM = "ai_claim";
+
+/** The value at `path` in `value`, or undefined. */
+const valueAt = (value: unknown, path: ReadonlyArray<string | number>): unknown =>
+  path.reduce<unknown>((at, key) => (typeof at === "object" && at !== null ? (at as Record<string | number, unknown>)[key] : undefined), value);
+
+/**
+ * The AI-only claim check (packages/generation's aiCopyIssues) of a valid page against its answers as they are now (handoff 1b):
+ * the owner may have turned off a fact the AI's wording relied on. Only the AI's own wording is checked: the owner's (core's
+ * ownerEditedPaths) stays under SiteDocument's claims check. It runs on a page SiteDocument passed, as the generator runs it
+ * (validate.ts). One issue per field, in the owner's words (DECIDED): the claim words aiClaims finds in that field's text (from
+ * the text as typed whenever that reading finds them, claims.ts readings); aiCopyIssues' own message is for the model and is
+ * never shown or read.
+ */
+export function aiWordingIssues(document: SiteDocument, ai: CurrentAi, edits: OwnerEdits): Issue[] {
+  return aiCopyIssues(document.facts, document.copy, ownerEditedPaths(ai, edits)).map(({ path }) => {
+    const text = valueAt(document, path);
+    const claims = [...new Set(typeof text === "string" ? aiClaims(text, document.facts) : [])];
+    return { path, code: AI_CLAIM, message: `${claims.map((claim) => `“${claim}”`).join(", ")} isn't backed by your answers. Edit this wording or update your answers.` };
+  });
+}
+
 /**
  * Everything wrong with the draft right now, at most the first MAX_ISSUES issues in each list.
- * Document issues leave out paths under "facts", because those are already listed under `facts`.
+ * Document issues leave out paths under "facts", because those are already listed under `facts`. A page SiteDocument
+ * passes is then held to the AI-only claim check (aiWordingIssues).
  */
 export function draftIssues(draft: Draft, ai: CurrentAi | null, siteId: string, root: string, uploads: readonly UploadRow[]): DraftIssues {
   const facts = Facts.safeParse(draft.facts);
@@ -134,7 +160,7 @@ export function draftIssues(draft: Draft, ai: CurrentAi | null, siteId: string, 
   let document: Issue[] = [];
   if (ai !== null) {
     const parsed = SiteDocument.safeParse(composeDocument(draft.facts, ai, draft.edits));
-    if (!parsed.success) document = pageIssues(parsed.error);
+    document = parsed.success ? aiWordingIssues(parsed.data, ai, draft.edits) : pageIssues(parsed.error);
   }
   return {
     facts: facts.success ? [] : firstIssues(under("facts", toIssues(facts.error))),

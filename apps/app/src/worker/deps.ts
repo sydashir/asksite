@@ -40,7 +40,8 @@ export type RequestGenerationResult =
 export interface GenerationDeps {
   requestGeneration: (
     env: { DB: D1Database; GEN_QUEUE: Queue<GenerationJob>; GENERATION_ENABLED: string; DAILY_MODEL_LIMIT: string },
-    input: { siteId: string; ownerId: string; snapshot: GenerationInputSnapshot; now: number },
+    // kind: the build the owner asked for (handoff 2b); one the site no longer has is refused as generation_in_progress.
+    input: { siteId: string; ownerId: string; snapshot: GenerationInputSnapshot; now: number; kind?: "first" | "regenerate" },
   ) => Promise<RequestGenerationResult>;
   generationAllowance: (
     env: { DB: D1Database },

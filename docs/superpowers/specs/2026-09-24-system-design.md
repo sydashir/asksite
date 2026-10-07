@@ -329,7 +329,8 @@ CREATE TABLE login_tokens (
   owner_id TEXT NOT NULL REFERENCES owners(id),
   created_at INTEGER NOT NULL,
   expires_at INTEGER NOT NULL,
-  used_at INTEGER
+  used_at INTEGER,
+  send_failed_at INTEGER  -- migration 0009 (B1-15): set when the send ended "unavailable" (link kept); the day's sign-in cap for all owners skips such links
 ) STRICT;
 CREATE INDEX login_tokens_owner ON login_tokens(owner_id, created_at);
 

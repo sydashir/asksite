@@ -4,7 +4,7 @@ import { SiteDocument, Facts } from "@asksite/site-schema";
 import { EMPTY_EDITS, OwnerEdits, PatchDraftBody, toIssues, type Issue } from "@asksite/core";
 import { describe, expect, it } from "vitest";
 import { loadFixture } from "../../../../fixtures/index.ts";
-import { issuesAt, issuesToShow, issuesUnder, ownerMessage, type OwnerMessage } from "../../src/client/lib/messages.ts";
+import { editorIssueNotice, issuesAt, issuesToShow, issuesUnder, ownerMessage, type OwnerMessage } from "../../src/client/lib/messages.ts";
 import { VALID_FACTS } from "../support/facts.ts";
 
 const issue = (path: Issue["path"], code: string, message: string): Issue => ({ path, code, message });
@@ -304,5 +304,46 @@ describe("issue filters", () => {
     expect(issuesAt(issues, ["facts", "services"])).toHaveLength(1);
     expect(issuesUnder(issues, ["facts", "services"])).toHaveLength(2);
     expect(issuesAt(issues, ["facts", "services", 0, "name"])).toHaveLength(1);
+  });
+});
+
+// Handoff 1b (DECIDED web-maker-d5, 2026-10-07): the Worker words an AI-claim issue for the owner (the claim words of that field,
+// from aiClaims); the app shows that line as it is. The model-repair message is never shown or parsed.
+describe("AI-claim issues (handoff 1b)", () => {
+  const LINE = "“free” isn't backed by your answers. Edit this wording or update your answers.";
+
+  it("shows the server's line as it is, with no fix button: the owner edits the wording or changes an answer", () => {
+    expect(ownerMessage(issue(["copy", "heroSubheadline"], "ai_claim", LINE))).toEqual({ text: LINE });
+    expect(ownerMessage(issue(["copy", "faq", 0, "answer"], "ai_claim", "“after-hours”, “free” isn't backed by your answers. Edit this wording or update your answers."))).toEqual({
+      text: "“after-hours”, “free” isn't backed by your answers. Edit this wording or update your answers.",
+    });
+  });
+
+  it("never reads an AI-claim issue as a SiteDocument claim, whatever its message says", () => {
+    const repairText = 'Copy states something the owner\'s facts do not back: "free"';
+    expect(ownerMessage(issue(["copy", "about"], "ai_claim", repairText))).toEqual({ text: repairText });
+  });
+});
+
+// DECIDED (web-maker-d5, 2026-10-07, Q1 option (c)): the editor's one issue notice. Issues that stop the preview keep today's
+// sentence, counting only them; AI-claim issues (the preview still updates) say what they block.
+describe("editorIssueNotice", () => {
+  it("blocking only: today's sentence with the blocking count", () => {
+    expect(editorIssueNotice(1, 0)).toBe("Fix 1 issue to update the preview.");
+    expect(editorIssueNotice(3, 0)).toBe("Fix 3 issues to update the preview.");
+  });
+
+  it("AI-claim issues only: they block publishing, not the preview", () => {
+    expect(editorIssueNotice(0, 1)).toBe("Fix 1 issue before you publish.");
+    expect(editorIssueNotice(0, 2)).toBe("Fix 2 issues before you publish.");
+  });
+
+  it("mixed: the blocking sentence with the blocking count only", () => {
+    expect(editorIssueNotice(1, 2)).toBe("Fix 1 issue to update the preview.");
+    expect(editorIssueNotice(2, 1)).toBe("Fix 2 issues to update the preview.");
+  });
+
+  it("none: no notice", () => {
+    expect(editorIssueNotice(0, 0)).toBeNull();
   });
 });

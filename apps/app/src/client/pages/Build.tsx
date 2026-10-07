@@ -59,8 +59,11 @@ export function Build({ siteId }: { siteId: string }) {
 
   async function retry() {
     setError(null);
-    const res = await api<{ generation: GenerationView }>("POST", `/api/sites/${siteId}/generations`, {});
+    // The FIRST build again (handoff 2b, DECIDED): if a draft landed meanwhile (another tab), the server answers generation_in_progress
+    // instead of rewriting it, and the page loads again, which opens the editor (or follows a build that is running).
+    const res = await api<{ generation: GenerationView }>("POST", `/api/sites/${siteId}/generations`, { kind: "first" });
     if (res.ok) setGenerationId(res.data.generation.id);
+    else if (res.error.code === "generation_in_progress") loadAgain();
     else setError(res.error.message);
   }
 
