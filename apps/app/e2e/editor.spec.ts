@@ -1170,8 +1170,11 @@ test("while new wording is written, Photos upload, delete and move send nothing 
     await expect(page.getByLabel("Upload a photo")).toHaveAttribute("aria-disabled", "false");
   }
   const count = await uploadsBefore();
+  // Focus moves to each new photo's description (it can land late on a busy machine, so wait for it before typing).
   await page.getByRole("button", { name: "Add uploaded photo 1 to your work photos" }).click();
+  await expect(page.getByLabel("Describe work photo 1")).toBeFocused();
   await page.getByRole("button", { name: "Add uploaded photo 2 to your work photos" }).click();
+  await expect(page.getByLabel("Describe work photo 2")).toBeFocused();
   await page.getByLabel("Describe work photo 1").fill("A new water heater in a garage");
   await page.getByLabel("Describe work photo 2").fill("A repaired kitchen drain");
   const storedPhotos = async () => ((await siteView(page, siteId))["facts"] as { photos?: Array<{ url: string; alt?: string }> }).photos ?? [];
