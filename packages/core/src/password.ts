@@ -35,7 +35,8 @@ function fromBase64(text: string): Uint8Array<ArrayBuffer> | null {
 }
 
 async function derive(password: string, salt: Uint8Array<ArrayBuffer>, iterations: number): Promise<Uint8Array<ArrayBuffer>> {
-  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(password), "PBKDF2", false, ["deriveBits"]);
+  // NFKC first (NIST SP 800-63B 5.1.1.2), so the same password typed on another device, composed differently, still matches.
+  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(password.normalize("NFKC")), "PBKDF2", false, ["deriveBits"]);
   return new Uint8Array(await crypto.subtle.deriveBits({ name: "PBKDF2", hash: "SHA-256", salt, iterations }, key, KEY_BYTES * 8));
 }
 

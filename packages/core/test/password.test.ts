@@ -30,6 +30,10 @@ describe("password hashing", () => {
     expect(same(right.derived, right.expected)).toBe(true);
     const wrong = await passwordKeys("correct horse battery!", stored);
     expect(same(wrong.derived, wrong.expected)).toBe(false);
+    // The same characters composed differently (é as one code point, or e plus an accent) are the same password.
+    const accented = await hashPassword("caf\u00e9 au lait 1");
+    const decomposed = await passwordKeys("cafe\u0301 au lait 1", accented);
+    expect(same(decomposed.derived, decomposed.expected)).toBe(true);
   });
 
   it("checks a value that is not a stored hash, and the dummy, as the dummy, and marks them not valid", async () => {

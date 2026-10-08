@@ -132,6 +132,8 @@ test("sign up with a password opens the questionnaire; after signing out, the sa
   await page.getByRole("button", { name: "Log in", exact: true }).click();
   await expect(page.getByRole("heading", { level: 1, name: "Your websites" })).toBeVisible();
   await expect(page.getByRole("heading", { level: 2, name: "Your password" })).toBeVisible();
+  await expect(page.getByLabel("Current password", { exact: true })).toHaveAttribute("autocomplete", "current-password");
+  await expectAccessible(page);
   expect(await violations()).toEqual([]);
 });
 
