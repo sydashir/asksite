@@ -17,7 +17,7 @@ export function DevStart() {
       <ul className="mt-6 grid gap-4 lg:grid-cols-3">
         <li className="card flex flex-col gap-3">
           <h2 className="section-title">New client</h2>
-          <p>Sign up with any email address, answer the questions and build a website, as a client would. If you are signed in, sign out first.</p>
+          <p>Sign up with any email address and a password, answer the questions and build a website, as a client would. If you are signed in, sign out first.</p>
           <a href={SIGN_UP_HREF} onClick={onLinkClick} className="btn-primary mt-auto">
             Sign up as a new client
           </a>
@@ -43,7 +43,7 @@ export function DevStart() {
       </ul>
       <h2 className="section-title mt-10">A full demo, step by step</h2>
       <ol className="mt-3 list-decimal space-y-2 pl-6">
-        <li>Sign up as a new client, then open the link from the local inbox.</li>
+        <li>Sign up as a new client with an email address and a password.</li>
         <li>Answer the questions and build the website.</li>
         <li>Edit anything you like, then send it for review.</li>
         <li>Open admin, look at every page of the review, then approve it.</li>

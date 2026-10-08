@@ -23,10 +23,10 @@ async function lockDetail(env: Env, email: string): Promise<string> {
   return JSON.stringify({ emailHash: await hashIp(env.IP_HASH_KEY, `email:${email}`) });
 }
 
-/** Throws the lock's answer while `email` is locked (password-sql.ts). */
-async function refuseIfLocked(db: D1Database, detail: string, now: number): Promise<void> {
+/** Throws the lock's answer (`message`) while the email whose lock detail is `detail` is locked (password-sql.ts). */
+async function refuseIfLocked(db: D1Database, detail: string, now: number, message: string): Promise<void> {
   const row = await db.prepare(PASSWORD_LOCKED_SQL).bind(now, detail).first<{ locked: number }>();
-  if (row?.locked === 1) throw new ApiError("login_locked", NO_MATCH);
+  if (row?.locked === 1) throw new ApiError("login_locked", message);
 }
 
 /**
@@ -36,7 +36,7 @@ async function refuseIfLocked(db: D1Database, detail: string, now: number): Prom
  */
 export async function passwordLogin(env: Env, email: string, password: string, now: number): Promise<{ owner: OwnerView; sessionToken: string }> {
   const detail = await lockDetail(env, email);
-  await refuseIfLocked(env.DB, detail, now);
+  await refuseIfLocked(env.DB, detail, now, NO_MATCH);
   const owner = await env.DB.prepare("SELECT id, email, password_hash FROM owners WHERE email = ?").bind(email).first<{ id: string; email: string; password_hash: string | null }>();
   if (!(await passwordMatches(password, owner?.password_hash ?? null)) || owner === null) {
     await env.DB.prepare(PASSWORD_FAILED_SQL).bind(now, detail).run();
@@ -57,6 +57,8 @@ export async function passwordLogin(env: Env, email: string, password: string, n
 const WRONG_CURRENT = "Your current password is not right.";
 /** DECIDED 2026-10-08 (moderator): the answer when the current password is left out but this session may not skip it. */
 const NEED_LINK = "To set a new password without your current one, log in again with an email link.";
+/** The same lock on the account page, where the log-in's words would not fit. */
+const CHANGE_LOCKED = "Too many wrong passwords. Try again in 15 minutes, or log in again with an email link to set a new one.";
 const PASSWORD_CHANGED_ELSEWHERE = "Your password was changed somewhere else. Reload the page and try again.";
 
 /** What the account page needs: whether the owner has a password, and whether this session may set a new one without it. */
@@ -91,7 +93,7 @@ export async function setPassword(
       if (row?.skip_current !== 1) throw new ApiError("forbidden", NEED_LINK);
     } else {
       const detail = await lockDetail(env, owner.email);
-      await refuseIfLocked(env.DB, detail, now);
+      await refuseIfLocked(env.DB, detail, now, CHANGE_LOCKED);
       if (!(await passwordMatches(input.currentPassword, current))) {
         await env.DB.prepare(PASSWORD_FAILED_SQL).bind(now, detail).run();
         throw new ApiError("forbidden", WRONG_CURRENT);
