@@ -23,15 +23,19 @@ import { leadEmail } from "./lead-email.ts";
 export const RETRY_PER_RUN = 10;
 /** Only leads younger than this are read: Resend keeps an idempotency key for 24 hours. */
 const RETRY_WINDOW_MS = 23 * 3_600_000;
-/** A 'pending' lead with no error is retried after this: the form's send times out after 10 s, so it is over. */
+/**
+ * A failed lead, or a pending one with no error, is retried only after this. The form's send times out after 10 s,
+ * but Resend may still be working on that request, and a second request with the key meanwhile gets
+ * 409 concurrent_idempotent_requests, which the mailer reports as 'rejected' (review I1, 2026-10-08).
+ */
 const STALE_PENDING_MS = 10 * 60_000;
 /** A claim older than this belongs to a run that is over (Cron Triggers stop at 15 minutes). */
 const STALE_CLAIM_MS = 20 * 60_000;
 
 /**
- * The leads to email again, oldest first: failed for an outage or a rate limit (`unavailable`, `rate_limited`; a
- * refusal, a broken setup, an unknown error or the daily cap would fail the same way again), pending with no error
- * (its first send died), or claimed by a run that is over. Never spam, never a lead older than 23 h.
+ * The leads to email again, oldest first, once they are more than 10 minutes old: failed for an outage or a rate
+ * limit (`unavailable`, `rate_limited`; a refusal, a broken setup, an unknown error or the daily cap would fail the
+ * same way again), or pending with no error (its first send died); and leads claimed by a run that is over. Never spam, never a lead older than 23 h.
  * `spam = 0 AND email_error IS NOT 'daily_cap'` are the partial index leads_emailed's own terms (migration 0007),
  * written out so SQLite can use it: the read covers the last 23 h of tried leads, not the table
  * (lead-index.workerd.test.ts). CROSS JOIN is SQLite's inner join kept in the written order, so leads, read through
@@ -43,7 +47,7 @@ const STALE_CLAIM_MS = 20 * 60_000;
 export const RETRY_SQL = `SELECT l.id, l.name, l.phone, l.email, l.service, l.message, l.email_status, l.email_error, s.slug, o.email AS owner_email
 FROM leads l CROSS JOIN sites s ON s.id = l.site_id CROSS JOIN owners o ON o.id = s.owner_id
 WHERE l.created_at >= ?1 AND l.spam = 0 AND l.email_error IS NOT 'daily_cap' AND s.slug IS NOT NULL
-  AND ((l.email_status = 'failed' AND l.email_error IN ('unavailable', 'rate_limited'))
+  AND ((l.email_status = 'failed' AND l.email_error IN ('unavailable', 'rate_limited') AND l.created_at < ?2)
     OR (l.email_status = 'pending' AND l.email_error IS NULL AND l.created_at < ?2)
     OR (l.email_status = 'pending' AND l.email_error LIKE 'retrying:%' AND CAST(substr(l.email_error, 10) AS INTEGER) < ?3))
 ORDER BY l.created_at, l.id

@@ -158,6 +158,20 @@ describe("which leads a run sends", () => {
     expect(await stateOf(fresh)).toEqual({ email_status: "pending", email_error: null });
   });
 
+  // Review I1 (2026-10-08): the form gives up on its send after 10 s, but Resend may still be working on that request;
+  // a second request with the key then gets 409 concurrent_idempotent_requests, which is stored as 'rejected' for good.
+  // So a failed lead waits 10 minutes too, like a pending one.
+  it("retries a failed lead only once it is more than 10 minutes old", async () => {
+    const site = await seedSite(tools);
+    const old = await seedLead(site.siteId, { createdAt: NOW - 10 * MINUTE - 1, status: "failed", error: "unavailable" });
+    const edge = await seedLead(site.siteId, { createdAt: NOW - 10 * MINUTE, status: "failed", error: "rate_limited" });
+    const fresh = await seedLead(site.siteId, { createdAt: NOW - 10_000, status: "failed", error: "unavailable" });
+    await runRetry(NOW);
+    expect(sentKeys()).toEqual([`lead:${old}`]);
+    expect(await stateOf(edge)).toEqual({ email_status: "failed", email_error: "rate_limited" });
+    expect(await stateOf(fresh)).toEqual({ email_status: "failed", email_error: "unavailable" });
+  });
+
   // A run claims a lead before it sends ('retrying:<its scheduled time>'). A claim more than 20 minutes old belongs
   // to a run that is over (a cron run is stopped after 15 minutes), so its lead is sent again; a younger one may
   // still be sending. RULING 2 (2026-10-08): the lead's age says nothing about when it was claimed.
@@ -352,9 +366,9 @@ describe("the daily lead-email cap (form.ts)", () => {
     const dayStart = utcDayStart(now);
     expect(await tried(dayStart)).toBe(2);
     hold(`lead:${lead}`);
-    const run = runRetry(now + MINUTE);
+    const run = runRetry(now + 15 * MINUTE);
     await until(() => sentKeys().includes(`lead:${lead}`), "the run sending the lead");
-    expect(await stateOf(lead)).toEqual({ email_status: "pending", email_error: `retrying:${now + MINUTE}` });
+    expect(await stateOf(lead)).toEqual({ email_status: "pending", email_error: `retrying:${now + 15 * MINUTE}` });
     expect(await tried(dayStart)).toBe(2);
     held?.release();
     await run;
