@@ -11,9 +11,11 @@ import { EmailLink } from "./pages/EmailLink.tsx";
 import { Editor } from "./pages/Editor.tsx";
 import { Home } from "./pages/Home.tsx";
 import { Leads } from "./pages/Leads.tsx";
+import { Login } from "./pages/Login.tsx";
 import { NotFound } from "./pages/NotFound.tsx";
 import { Publish } from "./pages/Publish.tsx";
 import { Questionnaire } from "./pages/Questionnaire.tsx";
+import { Signup } from "./pages/Signup.tsx";
 import { VerifyLogin } from "./pages/VerifyLogin.tsx";
 
 // Development builds only (vite build --mode development, which `pnpm dev` serves): the local inbox and the demo start page.
@@ -21,12 +23,12 @@ import { VerifyLogin } from "./pages/VerifyLogin.tsx";
 const DevPages = import.meta.env.MODE === "development" ? lazy(() => import("./dev/DevPages.tsx")) : null;
 
 /**
- * "/login" is two pages: an emailed link (/login#<token>) opens the link page, which then takes the token out of the address. So the
- * choice is made once, when the page opens; a later render (the session check answering) keeps the link page.
+ * "/login" is two pages: an emailed link (/login#<token>) opens the link page, which then takes the token out of the address; else
+ * the password form. So the choice is made once, when the page opens; a later render (the session check answering) keeps the link page.
  */
 function LoginPage() {
   const [link] = useState(() => location.hash.length > 1);
-  return link ? <VerifyLogin /> : <EmailLink mode="login" />;
+  return link ? <VerifyLogin /> : <Login />;
 }
 
 function page(route: Route) {
@@ -37,8 +39,10 @@ function page(route: Route) {
       return <AcceptInvite />;
     case "login":
       return <LoginPage />;
+    case "loginLink":
+      return <EmailLink />;
     case "signup":
-      return <EmailLink mode="signup" />;
+      return <Signup />;
     case "setup":
       return <Questionnaire key={`${route.siteId}-${route.step}`} siteId={route.siteId} step={route.step} />;
     case "build":
@@ -90,7 +94,7 @@ export function App() {
   const signedOut = me.state === "signedOut";
   const landing = route.name === "home" && signedOut;
   // Sign-up, log-in and the emailed-link pages sit on the same dark page as the landing.
-  const authPage = route.name === "signup" || route.name === "login" || route.name === "invite";
+  const authPage = route.name === "signup" || route.name === "login" || route.name === "loginLink" || route.name === "invite";
   // Why Sign out stopped (it stops once): said here, whatever page is on screen.
   const [stopMessage, setStopMessage] = useState<string | null>(null);
   useEffect(() => {

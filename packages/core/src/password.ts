@@ -26,7 +26,7 @@ export const DUMMY_PASSWORD_HASH = `${SCHEME}$${PBKDF2_ITERATIONS}$${"A".repeat(
 
 const toBase64 = (bytes: Uint8Array): string => btoa(String.fromCharCode(...bytes));
 
-function fromBase64(text: string): Uint8Array | null {
+function fromBase64(text: string): Uint8Array<ArrayBuffer> | null {
   try {
     return Uint8Array.from(atob(text), (c) => c.charCodeAt(0));
   } catch {
@@ -34,7 +34,7 @@ function fromBase64(text: string): Uint8Array | null {
   }
 }
 
-async function derive(password: string, salt: Uint8Array, iterations: number): Promise<Uint8Array> {
+async function derive(password: string, salt: Uint8Array<ArrayBuffer>, iterations: number): Promise<Uint8Array<ArrayBuffer>> {
   const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(password), "PBKDF2", false, ["deriveBits"]);
   return new Uint8Array(await crypto.subtle.deriveBits({ name: "PBKDF2", hash: "SHA-256", salt, iterations }, key, KEY_BYTES * 8));
 }
@@ -46,7 +46,7 @@ export async function hashPassword(password: string): Promise<string> {
 }
 
 /** The parts of a stored value, or null unless it is this scheme with 1 to PBKDF2_ITERATIONS iterations, a 16-byte salt and a 32-byte key. */
-function parse(stored: string): { iterations: number; salt: Uint8Array; key: Uint8Array } | null {
+function parse(stored: string): { iterations: number; salt: Uint8Array<ArrayBuffer>; key: Uint8Array<ArrayBuffer> } | null {
   const [scheme, count, salt, key, ...rest] = stored.split("$");
   if (scheme !== SCHEME || rest.length > 0 || count === undefined || !/^[1-9][0-9]{0,5}$/.test(count)) return null;
   const iterations = Number(count);
@@ -60,7 +60,7 @@ function parse(stored: string): { iterations: number; salt: Uint8Array; key: Uin
  * The key `password` derives under `stored`'s salt and count, and the key `stored` holds, for the caller to compare in
  * constant time. A stored value that does not parse is checked as DUMMY_PASSWORD_HASH (the same cost) and marked `valid: false`.
  */
-export async function passwordKeys(password: string, stored: string): Promise<{ derived: Uint8Array; expected: Uint8Array; valid: boolean }> {
+export async function passwordKeys(password: string, stored: string): Promise<{ derived: Uint8Array<ArrayBuffer>; expected: Uint8Array<ArrayBuffer>; valid: boolean }> {
   const parsed = parse(stored);
   const used = parsed ?? parse(DUMMY_PASSWORD_HASH)!;
   return { derived: await derive(password, used.salt, used.iterations), expected: used.key, valid: parsed !== null && stored !== DUMMY_PASSWORD_HASH };

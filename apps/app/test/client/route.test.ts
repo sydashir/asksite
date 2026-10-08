@@ -8,6 +8,7 @@ describe("matchRoute", () => {
     ["/", { name: "home" }],
     ["/invite", { name: "invite" }],
     ["/login", { name: "login" }],
+    ["/login/link", { name: "loginLink" }],
     ["/signup", { name: "signup" }],
     [`/sites/${ID}/setup/business`, { name: "setup", siteId: ID, step: "business" }],
     [`/sites/${ID}/setup/address`, { name: "setup", siteId: ID, step: "address" }],
@@ -19,13 +20,14 @@ describe("matchRoute", () => {
     expect(matchRoute(path)).toEqual(route);
   });
 
-  it.each(["/nope", `/sites/${ID}/setup/unknown`, "/sites/not-an-id/edit", `/sites/${ID}/edit/extra`, "/invite/", "/signup/", "/login/"])("%s is not found", (path) => {
+  it.each(["/nope", `/sites/${ID}/setup/unknown`, "/sites/not-an-id/edit", `/sites/${ID}/edit/extra`, "/invite/", "/signup/", "/login/", "/login/link/"])("%s is not found", (path) => {
     expect(matchRoute(path)).toEqual({ name: "notFound" });
   });
 
   it("round-trips every path helper", () => {
     expect(matchRoute(paths.signup())).toEqual({ name: "signup" });
     expect(matchRoute(paths.login())).toEqual({ name: "login" });
+    expect(matchRoute(paths.loginLink())).toEqual({ name: "loginLink" });
     expect(matchRoute(paths.edit(ID))).toEqual({ name: "edit", siteId: ID });
     expect(matchRoute(paths.setup(ID, "trust"))).toEqual({ name: "setup", siteId: ID, step: "trust" });
   });

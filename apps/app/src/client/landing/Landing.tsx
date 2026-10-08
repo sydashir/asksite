@@ -27,7 +27,7 @@ const QUESTIONS = [
     "Yes. Edit it whenever you like and send it for review again. Your live website stays as it is until we approve the new version.",
   ],
   ["What happens after approval?", "Your website goes live at its web address, usually within about a minute, and we email you."],
-  ["Do I need a password?", "No. We email you a link to log in."],
+  ["How do I log in?", "With your email and the password you chose when you signed up. Forgot it? We can email you a link to log in."],
 ] as const;
 
 function Icon({ children }: { children: ReactNode }) {
@@ -120,7 +120,7 @@ export default function Landing() {
               website before it goes live.
             </p>
             <Actions />
-            <p className="landing-note">No password. We email you a link.</p>
+            <p className="landing-note">Sign up with your email and a password.</p>
           </div>
           <figure className="landing-visual m-0">
             <div className="landing-board">
