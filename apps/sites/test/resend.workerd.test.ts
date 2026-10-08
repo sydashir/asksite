@@ -63,8 +63,7 @@ describe("lead email through Resend (inside workerd)", () => {
     const site = await seedSite(tools);
     expect((await post(site)).status).toBe(303);
     const [lead] = await settledLeads(tools, site.siteId);
-    // C1 RULING 3: Resend answered, so nothing was sent; the retry cron's next attempt takes key number 2.
-    expect(lead).toMatchObject({ email_status: "failed", email_error: "rate_limited:2" });
+    expect(lead).toMatchObject({ email_status: "failed", email_error: "rate_limited" });
   });
 });
 

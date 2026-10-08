@@ -16,7 +16,7 @@ const realFetch = globalThis.fetch;
 /** Every request the Worker sent to Resend, with its raw body text (byte equality is the point). */
 const outbound: Array<{ key: string | null; body: string }> = [];
 let resendStatus = 200;
-/** The body Resend answers with, when a test needs a particular one (no id, a 409's error name). */
+/** The body Resend answers with, when a test needs a particular one (an answer with no email id). */
 let resendBody: unknown;
 /** A Resend request the test holds unanswered, by idempotency key, until it calls release(). */
 let held: { key: string; release: () => void; released: Promise<void> } | null = null;
@@ -87,24 +87,48 @@ async function until(check: () => boolean, what: string): Promise<void> {
 }
 
 describe("a lead whose email failed in an outage", () => {
-  // Resend answered 500: it did not send. It may keep that answer under the key for 24 hours (its docs do not say),
-  // so the retry takes the next key (RULING 3); the body stays byte-identical.
-  it("is emailed by the next */15 run with a new key and the first send's byte-identical body, and becomes sent", async () => {
+  it("is emailed by the next */15 run with the first send's key and byte-identical body, and becomes sent", async () => {
     const site = await seedSite(tools);
     resendStatus = 500;
     expect((await post(site, { name: "Dana Price", phone: "512 555 0199", email: "dana@example.com", service: "", message: "Leak under the sink\nsince Monday", website: "" })).status).toBe(303);
     const [lead] = await settledLeads(tools, site.siteId);
-    expect(lead).toMatchObject({ email_status: "failed", email_error: "unavailable:2" });
+    expect(lead).toMatchObject({ email_status: "failed", email_error: "unavailable" });
     expect(outbound).toHaveLength(1);
-    expect(outbound[0]?.key).toBe(`lead:${String(lead?.["id"])}`);
 
     resendStatus = 200;
     const result = await runRetry(Date.now() + 15 * MINUTE);
     expect(result.outcome).toBe("ok");
     expect(outbound).toHaveLength(2);
-    expect(outbound[1]?.key).toBe(`lead:${String(lead?.["id"])}:2`);
-    expect(outbound[1]?.body).toBe(outbound[0]?.body);
+    expect(outbound[1]?.key).toBe(`lead:${String(lead?.["id"])}`);
+    expect(outbound[1]).toEqual(outbound[0]);
     expect(await stateOf(String(lead?.["id"]))).toEqual({ email_status: "sent", email_error: null });
+  });
+});
+
+// Decided 2026-10-08 (the key-rotation ruling reversed): one idempotency key per lead, for good. Whatever Resend
+// answered before, every attempt sends the first attempt's key with the same body, so Resend can never send the lead
+// twice. The cost, recorded in the spec: if Resend replayed a stored failed answer, that lead's retries could not send.
+describe("one key per lead", () => {
+  it("sends every attempt with the form's key and body, through 5xx, 429 and no-id answers, until it is sent", async () => {
+    const site = await seedSite(tools);
+    resendStatus = 503;
+    expect((await post(site, { name: "Ana Ruiz", phone: "512 555 0144", email: "ana@example.com", service: "", message: "Water heater", website: "" }, "198.51.100.64")).status).toBe(303);
+    const [lead] = await settledLeads(tools, site.siteId);
+    const id = String(lead?.["id"]);
+    expect(lead).toMatchObject({ email_status: "failed", email_error: "unavailable" });
+    const answers: Array<[number, unknown, string]> = [[429, undefined, "rate_limited"], [500, undefined, "unavailable"], [200, {}, "unavailable"]];
+    for (const [i, [status, body, code]] of answers.entries()) {
+      resendStatus = status;
+      resendBody = body;
+      await runRetry(Date.now() + (i + 1) * 15 * MINUTE);
+      expect(await stateOf(id)).toEqual({ email_status: "failed", email_error: code });
+    }
+    resendStatus = 200;
+    resendBody = undefined;
+    await runRetry(Date.now() + 60 * MINUTE);
+    expect(await stateOf(id)).toEqual({ email_status: "sent", email_error: null });
+    expect(sentKeys()).toEqual(Array.from({ length: 5 }, () => `lead:${id}`));
+    expect(new Set(outbound.map((call) => call.body)).size).toBe(1);
   });
 });
 
@@ -268,7 +292,7 @@ describe("one run", () => {
       harness.server.clearLogs();
       await runRetry(NOW);
       expect(sentKeys()).toEqual([`lead:${first}`]);
-      expect(await stateOf(first)).toEqual({ email_status: "failed", email_error: `${code}:2` });
+      expect(await stateOf(first)).toEqual({ email_status: "failed", email_error: code });
       expect(await stateOf(second)).toEqual({ email_status: "failed", email_error: others });
       expect(await stateOf(third)).toEqual({ email_status: "pending", email_error: null });
       const [line] = await linesWith(harness, "route", "cron_lead_email_retry", 1);
@@ -286,75 +310,6 @@ describe("one run", () => {
     expect(lines).toEqual([{ worker: "asksite-sites", route: "cron_lead_email_retry", ms: expect.any(Number), read: 2, claimed: 2, sent: 2, failed: 0, stopped: false }]);
     const text = harness.server.getLogs().map((entry) => entry.message).join("\n");
     for (const personal of ["Pat Lee", "512 555 0100", "pat@example.com", "Call after five", site.ownerEmail, site.slug]) expect(text).not.toContain(personal);
-  });
-});
-
-// C1 RULING 3 (2026-10-08): which idempotency key an attempt uses. A 429 or 5xx is an answer that nothing was sent,
-// so the next attempt takes the next key; with no answer, an answer without an email id, or a 409 for a request still
-// in progress, the email may have gone out, so the key stays and Resend's replay keeps it to one email.
-describe("which key a retry uses", () => {
-  it("takes the next key after every 429 or 5xx, and sends the same body each time", async () => {
-    const site = await seedSite(tools);
-    const lead = await seedLead(site.siteId, { createdAt: NOW - HOUR, status: "failed", error: "rate_limited:2" });
-    resendStatus = 500;
-    await runRetry(NOW);
-    expect(await stateOf(lead)).toEqual({ email_status: "failed", email_error: "unavailable:3" });
-    resendStatus = 429;
-    await runRetry(NOW + 15 * MINUTE);
-    expect(await stateOf(lead)).toEqual({ email_status: "failed", email_error: "rate_limited:4" });
-    resendStatus = 200;
-    await runRetry(NOW + 30 * MINUTE);
-    expect(sentKeys()).toEqual([`lead:${lead}:2`, `lead:${lead}:3`, `lead:${lead}:4`]);
-    expect(new Set(outbound.map((call) => call.body)).size).toBe(1);
-    expect(await stateOf(lead)).toEqual({ email_status: "sent", email_error: null });
-  });
-
-  it("keeps the key after an answer with no email id", async () => {
-    const site = await seedSite(tools);
-    const first = await seedLead(site.siteId, { createdAt: NOW - 2 * HOUR, status: "failed", error: "unavailable" });
-    resendBody = {};
-    await runRetry(NOW);
-    expect(await stateOf(first)).toEqual({ email_status: "failed", email_error: "unavailable" });
-    await tools.DB.prepare("UPDATE leads SET email_error = 'unavailable:3' WHERE id = ?").bind(first).run();
-    await runRetry(NOW + 15 * MINUTE);
-    expect(await stateOf(first)).toEqual({ email_status: "failed", email_error: "unavailable:3" });
-    resendBody = undefined;
-    await runRetry(NOW + 30 * MINUTE);
-    expect(sentKeys()).toEqual([`lead:${first}`, `lead:${first}:3`, `lead:${first}:3`]);
-    expect(await stateOf(first)).toEqual({ email_status: "sent", email_error: null });
-  });
-
-  // Resend's 409s (resend.com/docs/api-reference/errors): concurrent_idempotent_requests, "Try the request again later",
-  // and invalid_idempotent_request, the body changed under the key, which no retry with that key can fix.
-  it("keeps the key and retries after a 409 for a request still in progress, and stops for good after a 409 for a changed body", async () => {
-    const site = await seedSite(tools);
-    const lead = await seedLead(site.siteId, { createdAt: NOW - 2 * HOUR, status: "failed", error: "unavailable:2" });
-    resendStatus = 409;
-    resendBody = { statusCode: 409, name: "concurrent_idempotent_requests", message: "There is another request in progress with the same idempotency key." };
-    await runRetry(NOW);
-    expect(await stateOf(lead)).toEqual({ email_status: "failed", email_error: "unavailable:2" });
-    resendBody = { statusCode: 409, name: "invalid_idempotent_request", message: "the request body was modified" };
-    await runRetry(NOW + 15 * MINUTE);
-    expect(await stateOf(lead)).toEqual({ email_status: "failed", email_error: "rejected" });
-    resendStatus = 200;
-    resendBody = undefined;
-    await runRetry(NOW + 30 * MINUTE);
-    expect(sentKeys()).toEqual([`lead:${lead}:2`, `lead:${lead}:2`]);
-  });
-
-  it("claims with the attempt's key number, and a dead claim is sent again with that same key", async () => {
-    const site = await seedSite(tools);
-    const lead = await seedLead(site.siteId, { createdAt: NOW - 2 * HOUR, status: "failed", error: "rate_limited:3" });
-    hold(`lead:${lead}:3`);
-    const run = runRetry(NOW);
-    await until(() => sentKeys().includes(`lead:${lead}:3`), "the run sending the lead");
-    expect(await stateOf(lead)).toEqual({ email_status: "pending", email_error: `retrying:${NOW}:3` });
-    held?.release();
-    await run;
-    const dead = await seedLead(site.siteId, { createdAt: NOW - 2 * HOUR, status: "pending", error: `retrying:${NOW - 21 * MINUTE}:5` });
-    await runRetry(NOW + MINUTE);
-    expect(sentKeys()).toEqual([`lead:${lead}:3`, `lead:${dead}:5`]);
-    expect(await stateOf(dead)).toEqual({ email_status: "sent", email_error: null });
   });
 });
 
