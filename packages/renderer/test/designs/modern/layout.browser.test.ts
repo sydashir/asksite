@@ -614,21 +614,26 @@ describe.each(ENGINES)("Modern in %s", (_engine, engine) => {
       const sticky = (el: any) => el !== null && getComputedStyle(el).position === "sticky" && el.getClientRects().length > 0;
       const header = document.querySelector("header.hdr");
       const bar = document.querySelector("aside.callbar");
-      const name = header.querySelector(".brand");
-      const broken = [...(name.textContent ?? "").matchAll(/\S+/g)].filter((word: any) => {
-        const range = document.createRange();
-        const text = name.firstChild;
-        range.setStart(text, word.index);
-        range.setEnd(text, word.index + word[0].length);
-        return new Set([...range.getClientRects()].filter((r: any) => r.width > 0.5).map((r: any) => Math.round(r.top))).size > 1;
-      });
+      // every word of the name and of the slim service-area line ("Serving Boise, ID"), each text node on its own
+      const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+      const broken: string[] = [];
+      for (let text = walker.nextNode(); text; text = walker.nextNode()) {
+        if (text.parentElement?.closest(".brand, .few-line") == null) continue;
+        for (const word of (text.textContent ?? "").matchAll(/\S+/g)) {
+          const range = document.createRange();
+          const at = word.index ?? 0;
+          range.setStart(text, at);
+          range.setEnd(text, at + word[0].length);
+          if (new Set([...range.getClientRects()].filter((r: any) => r.width > 0.5).map((r: any) => Math.round(r.top))).size > 1) broken.push(word[0]);
+        }
+      }
       return {
         sideways: document.documentElement.scrollWidth - document.documentElement.clientWidth,
         header: sticky(header) ? header.getBoundingClientRect().height : 0,
         top: parseFloat(root.scrollPaddingTop) || 0,
         bar: sticky(bar) ? bar.getBoundingClientRect().height : 0,
         bottom: parseFloat(root.scrollPaddingBottom) || 0,
-        broken: broken.map((word: any) => word[0]),
+        broken,
       };
     };
     for (const name of FIXTURES) {
@@ -644,7 +649,17 @@ describe.each(ENGINES)("Modern in %s", (_engine, engine) => {
           if (got.header > got.top + 0.5) found.push(`${where}: scroll-padding-top ${got.top} px under the header's ${got.header.toFixed(1)}`);
           if (got.bar > height / 4 + 0.5) found.push(`${where}: call bar ${got.bar.toFixed(1)} px, over a quarter of ${height}`);
           if (got.bar > got.bottom + 0.5) found.push(`${where}: scroll-padding-bottom ${got.bottom} px under the call bar's ${got.bar.toFixed(1)}`);
-          if (got.header > 0 && got.broken.length > 0) found.push(`${where}: the name breaks ${JSON.stringify(got.broken)}`);
+          if (got.header > 0 && got.broken.length > 0) found.push(`${where}: a word breaks ${JSON.stringify(got.broken)}`);
+        }
+      }
+      // Contact's slim service area (a few places, no hours: cleaning-minimal) beside its heading from 768 px, at 100%
+      // and at 150% (0b5d9ac's .area container took its width to 0 there)
+      if (name === "cleaning-minimal") for (const size of [100, 150]) {
+        await open(page("cleaning-minimal", font, "contact"), 768, `html { font-size: ${size}%; }`);
+        for (const width of [768, 1024, 1280, 1920]) {
+          await tab.setViewportSize({ width, height: 768 });
+          const got = await tab.evaluate(bars);
+          if (got.broken.length > 0) found.push(`cleaning-minimal contact ${font} ${size}% ${width}: a word breaks ${JSON.stringify(got.broken)}`);
         }
       }
     }
