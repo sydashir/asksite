@@ -654,7 +654,7 @@ describe.each(ENGINES)("Modern in %s", (_engine, engine) => {
       }
       // Contact's slim service area (a few places, no hours: cleaning-minimal) beside its heading from 768 px, at 100%
       // and at 150% (0b5d9ac's .area container took its width to 0 there)
-      if (name === "cleaning-minimal") for (const size of [100, 150]) {
+      if (name === "cleaning-minimal") for (const font of FONT_IDS) for (const size of [100, 150]) {
         await open(page("cleaning-minimal", font, "contact"), 768, `html { font-size: ${size}%; }`);
         for (const width of [768, 1024, 1280, 1920]) {
           await tab.setViewportSize({ width, height: 768 });
