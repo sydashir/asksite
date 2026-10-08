@@ -10,17 +10,14 @@
 
 @layer components {
   /* ---------- tokens and base ---------- */
-  /* Short names for the page's most used --aw-modern-* properties; the rest are read as the page sets them (bytes). */
+  /* Short names for the page's most used --aw-modern-* properties; the rest are read as the page sets them, and the
+     livery and the lift shadow are written where they are used (bytes: gzip-9 under the Node of .nvmrc). */
   :root {
     --ink: var(--aw-modern-ink);
     --muted: var(--aw-modern-muted);
     --line: var(--aw-modern-line);
     --brand: var(--aw-modern-brand);
-    --act: var(--aw-modern-act);
-    --trk: var(--aw-modern-tracking);
     --body: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, Roboto, "Helvetica Neue", Arial, sans-serif;
-    --livery: linear-gradient(var(--act) 0 4px, var(--brand) 4px 8px);
-    --lift: 0 20px 40px -28px rgb(0 0 0 / 0.35);
     --gut: 16px;
     --r: 6px;
     --hdr: 66px;
@@ -53,14 +50,14 @@
 
   /* ---------- type: the display face for headings; the livery mark (action over brand) opens each section ---------- */
   .display { font-family: var(--aw-modern-display); font-weight: 700; color: var(--ink); text-wrap: balance; }
-  .h1 { font-size: clamp(2rem, 1.4rem + 2.6vw, 3.5rem); line-height: 1.05; letter-spacing: calc(var(--trk) * -0.025em); }
+  .h1 { font-size: clamp(2rem, 1.4rem + 2.6vw, 3.5rem); line-height: 1.05; letter-spacing: calc(var(--aw-modern-tracking) * -0.025em); }
   .h1--long { font-size: clamp(1.75rem, 1.3rem + 2vw, 2.875rem); }
-  .h2 { font-size: clamp(1.75rem, 1.35rem + 1.6vw, 2.625rem); line-height: 1.1; letter-spacing: calc(var(--trk) * -0.022em); }
-  .h3 { font: 700 1.1875rem/1.25 var(--aw-modern-display); letter-spacing: calc(var(--trk) * -0.01em); color: var(--ink); text-wrap: balance; }
+  .h2 { font-size: clamp(1.75rem, 1.35rem + 1.6vw, 2.625rem); line-height: 1.1; letter-spacing: calc(var(--aw-modern-tracking) * -0.022em); }
+  .h3 { font: 700 1.1875rem/1.25 var(--aw-modern-display); letter-spacing: calc(var(--aw-modern-tracking) * -0.01em); color: var(--ink); text-wrap: balance; }
   .lede { margin-top: 12px; max-width: 40rem; font-size: 1.0625rem; line-height: 1.55; color: var(--muted); text-wrap: pretty; }
   .head { margin-bottom: 28px; }
-  .head::before { content: ""; display: block; width: 44px; height: 8px; margin-bottom: 18px; background: var(--livery); }
-  .on-brand .head::before { background: linear-gradient(var(--act) 0 4px, #fff 4px 8px); }
+  .head::before { content: ""; display: block; width: 44px; height: 8px; margin-bottom: 18px; background: linear-gradient(var(--aw-modern-act) 0 4px, var(--brand) 4px 8px); }
+  .on-brand .head::before { background: linear-gradient(var(--aw-modern-act) 0 4px, #fff 4px 8px); }
   @media (min-width: 768px) {
     .lede { font-size: 1.1875rem; }
     .head { margin-bottom: 44px; }
@@ -79,26 +76,19 @@
      nothing changes. white-space works in every engine (text-wrap is Safari 17.4+); !important outranks the markup's
      whitespace-nowrap utility, which a component rule cannot otherwise beat (later cascade layer). */
   .button-lg { min-height: 56px; padding-inline: 24px; font-size: 1.125rem; white-space: normal !important; }
-  .button-act { background: var(--act); color: var(--aw-modern-on-act); }
+  .button-act { background: var(--aw-modern-act); color: var(--aw-modern-on-act); }
   .button-line { border-color: var(--ink); background: #fff; color: var(--ink); }
   .on-brand .button-act { background: var(--aw-modern-band-act); color: var(--aw-modern-on-band-act); }
   .on-brand .button-line { border-color: #fff; background: transparent; color: #fff; }
-  /* Hover only where the pointer can hover, so a tap never leaves a button in its hover colours (MDN: hover). */
-  @media (hover: hover) {
-    .button-act:hover { background: var(--aw-modern-act-hover); }
-    .button-line:hover { background: var(--ink); color: #fff; }
-    .on-brand .button-act:hover { background: var(--aw-modern-band-act-hover); }
-    .on-brand .button-line:hover { background: #fff; color: var(--brand); }
-  }
   @media (prefers-reduced-motion: no-preference) {
     .button { transition: background-color 0.15s, color 0.15s; }
   }
 
   /* ---------- header: sticky from 768 px, so a Call button is always on screen ---------- */
   .hdr { position: relative; z-index: 40; background: #fff; box-shadow: 0 1px 0 var(--line); }
-  .hdr::before { content: ""; display: block; height: 6px; background: linear-gradient(var(--act) 0 3px, var(--brand) 3px 6px); }
+  .hdr::before { content: ""; display: block; height: 6px; background: linear-gradient(var(--aw-modern-act) 0 3px, var(--brand) 3px 6px); }
   .bar { display: flex; align-items: center; gap: 12px; min-height: 56px; padding-block: 6px; }
-  .brand { margin-right: auto; min-width: 0; font: 700 1.125rem/1.15 var(--aw-modern-display); letter-spacing: calc(var(--trk) * -0.015em); color: var(--ink); text-wrap: balance; }
+  .brand { margin-right: auto; min-width: 0; font: 700 1.125rem/1.15 var(--aw-modern-display); letter-spacing: calc(var(--aw-modern-tracking) * -0.015em); color: var(--ink); text-wrap: balance; }
   .brand--long { max-width: 15rem; font-size: 1rem; }
   .nav { order: 3; }
   .nav-links { display: none; }
@@ -115,23 +105,19 @@
   .menu-list { position: absolute; left: 0; right: 0; top: 100%; padding: 4px var(--gut) 12px; border-top: 1px solid var(--line); background: #fff; box-shadow: 0 24px 40px -24px rgb(0 0 0 / 0.45); }
   .menu-list a { display: flex; align-items: center; min-height: 52px; padding: 0 14px; border-bottom: 1px solid var(--line); color: var(--ink); font-size: 1.0625rem; font-weight: 600; white-space: nowrap; }
   @media (max-width: 767px) {
+    .hdr-call, .hdr-quote { display: none; }
     .menu[open] > summary::before { content: ""; position: absolute; top: 100%; left: 0; right: 0; height: 100vh; background: rgb(0 0 0 / 0.45); cursor: default; }
-  }
-  @media (hover: hover) {
-    .nav-links a:hover { color: var(--ink); text-decoration: underline 2px; text-underline-offset: 0.35em; }
-    .menu-list a:hover { background: var(--aw-modern-tint); }
   }
   /* The page on screen: the livery bar (a shape, not colour alone: WCAG 1.4.1; the brand half is 3:1 on white,
      1.4.11) beside its name in the phone menu's list, under it in the row of links from 768 px. */
-  .nav [aria-current] { border-radius: 0; box-shadow: inset 3px 0 var(--act), inset 6px 0 var(--brand); }
+  .nav [aria-current] { border-radius: 0; box-shadow: inset 3px 0 var(--aw-modern-act), inset 6px 0 var(--brand); }
   @media (min-width: 768px) {
-    .nav [aria-current] { box-shadow: inset 0 -3px var(--brand), inset 0 -6px var(--act); }
+    .nav [aria-current] { box-shadow: inset 0 -3px var(--brand), inset 0 -6px var(--aw-modern-act); }
   }
   /* Forced colours (Windows high contrast) drop box shadows: an underline marks the page there (MDN forced-colors) */
   @media (forced-colors: active) {
     .nav [aria-current] { text-decoration: underline 3px; text-underline-offset: 0.3em; }
   }
-  .hdr-call, .hdr-quote { display: none; }
   @media (min-width: 768px) {
     /* A jump lands below the header: its height (--hdr) at the default text; with bigger text (a root over 16 px; the
        em is the root's own size here) 7.5em: the tallest header measured from 105% to 150% needs at most 7.02em on top
@@ -152,7 +138,7 @@
     .bar { min-height: 60px; gap: 12px; flex-wrap: wrap; justify-content: flex-end; }
     .brand { font-size: 1.25rem; flex: 1 1 clamp(12rem, (1rem - 16px) * 9999, 18rem); max-width: max-content; }
     .brand--long { max-width: 20rem; font-size: 1.0625rem; }
-    .hdr-call, .hdr-quote { display: inline-flex; min-height: 46px; padding: 0 18px; font-size: 1rem; }
+    .hdr-call, .hdr-quote { min-height: 46px; padding: 0 18px; font-size: 1rem; }
   }
   /* 768-1023 px: the open menu is one row of the pages across the sticky header. It stays open after a tap on a jump
      within the page (no JavaScript closes it), so scroll-padding grows by its height and a jump lands below the row. */
@@ -184,18 +170,16 @@
 
   /* ---------- hero ---------- */
   /* --edge: where the content column starts, measured on the hero (a size container), so a classic scrollbar never
-     shifts it; 100vw where container units are missing. */
+     shifts it; 100vw where container units are missing (the container-unit version is in the call card's @supports
+     block below: one block, bytes). */
   .hero { --edge: max(var(--gut), (100vw - 1200px) / 2); }
-  @supports (width: 1cqw) {
-    .hero { container-type: inline-size; --edge: max(var(--gut), (100cqw - 1200px) / 2); }
-  }
   .band { position: relative; overflow: hidden; background: var(--brand); }
   /* Phones: a photo strip that follows the screen height (svh: with the browser bars shown), so the headline and the
      credentials still share the first screen with the call bar. Crops lean to the top, where a face sits. */
   .band--photo { height: clamp(140px, 28vh, 240px); height: clamp(140px, 28svh, 240px); }
   .band--photo img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: 50% 22%; }
   .hero--tall .band--photo img { object-position: 50% 16%; }
-  .band--brand::after { content: ""; display: block; height: 8px; background: var(--livery); }
+  .band--brand::after { content: ""; display: block; height: 8px; background: linear-gradient(var(--aw-modern-act) 0 4px, var(--brand) 4px 8px); }
   .band-in { padding-block: 16px 18px; }
   .band-line, .hl { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 18px; font-size: 0.9375rem; font-weight: 700; line-height: 1.35; }
   .band-line { color: #fff; }
@@ -209,7 +193,7 @@
   .hl .line-tag { color: var(--muted); }
   .hero-body { padding-block: 16px 36px; }
   /* the livery seam where the text meets the photo */
-  .hero--photo .hero-body { border-top: 4px solid var(--act); box-shadow: inset 0 4px 0 var(--brand); }
+  .hero--photo .hero-body { border-top: 4px solid var(--aw-modern-act); box-shadow: inset 0 4px 0 var(--brand); }
   /* the no-photo hero: its headline 40 px under the brand band on phones as on tablets */
   .hero--plain .hero-body { padding-top: 40px; }
   .hero-sub { margin-top: 10px; max-width: 36rem; color: var(--muted); text-wrap: pretty; }
@@ -270,7 +254,7 @@
   /* no-photo hero: the card with the opening hours, or where the business works and its email */
   .door {
     margin-top: 28px; padding: 22px 18px 18px; border: 1px solid var(--line); border-top: 4px solid var(--brand);
-    border-radius: var(--r); background: #fff; box-shadow: var(--lift);
+    border-radius: var(--r); background: #fff; box-shadow: 0 20px 40px -28px rgb(0 0 0 / 0.35);
   }
   .door-label, .reach dt { margin-bottom: 8px; color: var(--ink); font-size: 0.9375rem; font-weight: 700; }
   .reach dd { display: flex; gap: 10px; color: var(--ink); font-weight: 600; overflow-wrap: anywhere; }
@@ -317,7 +301,7 @@
     .hero--photo .panel { grid-column: 1; grid-row: 1; padding: 40px 48px 48px var(--edge); }
     .hero--photo .hl {
       min-height: 48px; margin: -40px -48px 36px calc(-1 * var(--edge)); padding: 12px 48px 12px var(--edge);
-      background: var(--brand); color: #fff; border-bottom: 4px solid var(--act); box-shadow: 0 4px 0 var(--brand);
+      background: var(--brand); color: #fff; border-bottom: 4px solid var(--aw-modern-act); box-shadow: 0 4px 0 var(--brand);
     }
     .hero--photo .hl .i { color: var(--aw-modern-band-accent); }
     .hero--photo .hl .line-tag { color: var(--aw-modern-on-brand-muted); }
@@ -355,7 +339,7 @@
      hero): the livery rule over it, a heading and the credentials, one under another on phones. From 768 px the three
      groups (licenses, insured, the other facts) flow in rows at their own widths with one gap; a group that does
      not fit moves down whole, so a credential never wraps where it fits and "Insured" fills a row with room. */
-  .trust { padding-block: 48px; border-top: 4px solid var(--act); }
+  .trust { padding-block: 48px; border-top: 4px solid var(--aw-modern-act); }
   .trust .head { margin-bottom: 28px; }
   .trust .h2 { font-size: clamp(1.5rem, 1.3rem + 0.8vw, 2rem); }
   .creds, .creds > ul { display: grid; gap: 20px; }
@@ -389,7 +373,7 @@
   .cards > .ask { display: flex; flex-wrap: wrap; align-items: center; align-content: center; gap: 18px 32px; border-color: transparent; background: var(--brand); }
   .ask > div { flex: 999 1 10rem; }
   .ask .button { flex: 1 1 auto; }
-  .ask-q { font: 700 1.3125rem/1.25 var(--aw-modern-display); letter-spacing: calc(var(--trk) * -0.01em); color: #fff; text-wrap: balance; }
+  .ask-q { font: 700 1.3125rem/1.25 var(--aw-modern-display); letter-spacing: calc(var(--aw-modern-tracking) * -0.01em); color: #fff; text-wrap: balance; }
   .ask p + p { margin-top: 6px; color: var(--aw-modern-on-brand-muted); }
   @media (min-width: 768px) {
     .cards--c2, .cards--c3, .cards--c4 { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
@@ -440,7 +424,7 @@
   /* the closing band: a white card with the brand rule, "Get in touch" over the owner's question and reasons, then
      Call (the action colour) and, from 768 px, the call to action, beside them from 1024 px */
   .sec.close { padding-block: 40px; }
-  .close-card { padding: 30px 22px; border: 1px solid var(--line); border-top: 4px solid var(--brand); border-radius: var(--r); background: #fff; box-shadow: var(--lift); }
+  .close-card { padding: 30px 22px; border: 1px solid var(--line); border-top: 4px solid var(--brand); border-radius: var(--r); background: #fff; box-shadow: 0 20px 40px -28px rgb(0 0 0 / 0.35); }
   .close-card .head { margin-bottom: 24px; }
   .close-k { margin-bottom: 8px; color: var(--brand); font-weight: 700; }
   .close-cta { display: grid; gap: 12px; }
@@ -465,7 +449,7 @@
   .lead-q { display: grid; grid-template-columns: minmax(0, 1fr); gap: 18px; padding-bottom: 28px; }
   .lead-q blockquote::before, .q blockquote::before { content: "\201C"; display: block; color: var(--brand); font: 800 4.5rem/1 Georgia, "Times New Roman", serif; }
   .lead-q blockquote::before { height: 36px; }
-  .lead-q blockquote p { min-width: 0; max-width: 46rem; font: 700 clamp(1.375rem, 1.1rem + 1.1vw, 2rem)/1.3 var(--aw-modern-display); letter-spacing: calc(var(--trk) * -0.015em); color: var(--ink); text-wrap: pretty; }
+  .lead-q blockquote p { min-width: 0; max-width: 46rem; font: 700 clamp(1.375rem, 1.1rem + 1.1vw, 2rem)/1.3 var(--aw-modern-display); letter-spacing: calc(var(--aw-modern-tracking) * -0.015em); color: var(--ink); text-wrap: pretty; }
   .lead-q--long blockquote p { font-size: clamp(1.1875rem, 1.05rem + 0.6vw, 1.5rem); line-height: 1.4; }
   .who { display: flex; flex-wrap: wrap; column-gap: 10px; line-height: 1.3; }
   .who > * { min-width: 0; overflow-wrap: anywhere; }
@@ -493,7 +477,7 @@
   @media (min-width: 1024px) {
     .lead-q {
       grid-template-columns: minmax(0, 1fr) minmax(12rem, 15rem); column-gap: 28px; padding: 40px 40px 40px 32px;
-      border: 1px solid var(--line); border-top: 4px solid var(--brand); border-radius: var(--r); background: #fff; box-shadow: var(--lift);
+      border: 1px solid var(--line); border-top: 4px solid var(--brand); border-radius: var(--r); background: #fff; box-shadow: 0 20px 40px -28px rgb(0 0 0 / 0.35);
     }
     .tint .lead-q { border-color: transparent; border-top-color: var(--brand); }
     .lead-q blockquote { display: flex; gap: 24px; }
@@ -515,7 +499,7 @@
     .shots > li:first-child:nth-last-child(odd) { grid-column: 1 / -1; }
   }
   /* each photo stands on the livery seam (the action colour over the brand colour), its caption in ink under it */
-  .shots img { width: 100%; aspect-ratio: 4 / 3; object-fit: cover; border-radius: 4px 4px 0 0; border-bottom: 3px solid var(--act); box-shadow: 0 3px 0 var(--brand); background: var(--line); }
+  .shots img { width: 100%; aspect-ratio: 4 / 3; object-fit: cover; border-radius: 4px 4px 0 0; border-bottom: 3px solid var(--aw-modern-act); box-shadow: 0 3px 0 var(--brand); background: var(--line); }
   .shots figcaption { margin-top: 14px; color: var(--ink); font-size: 0.9375rem; font-weight: 600; line-height: 1.4; text-wrap: pretty; }
   .gal-cta { display: none; }
   @media (min-width: 768px) {
@@ -667,9 +651,6 @@
   .qa[open] .tog { border-color: var(--brand); background: var(--brand); }
   .qa[open] .tog::before, .qa[open] .tog::after { background: #fff; }
   .qa[open] .tog::after { rotate: none; }
-  @media (hover: hover) {
-    .qa summary:hover .tog { border-color: var(--ink); }
-  }
   /* Forced colours (Windows high contrast) replace author backgrounds: draw the plus and the minus in the text colour,
      open or closed (a system colour is kept; MDN forced-colors). !important beats the open state's white bars. */
   @media (forced-colors: active) {
@@ -696,7 +677,7 @@
     .faq--solo .head { grid-column: 1; margin: 0; }
     /* "Questions & answers" on one line in every lettering: its column is never narrower (judges, A16 round 3) */
     .faq--solo .h2 { white-space: nowrap; }
-    .faq-more-q { margin-bottom: 16px; font: 700 1.375rem/1.2 var(--aw-modern-display); letter-spacing: calc(var(--trk) * -0.01em); }
+    .faq-more-q { margin-bottom: 16px; font: 700 1.375rem/1.2 var(--aw-modern-display); letter-spacing: calc(var(--aw-modern-tracking) * -0.01em); }
     .faq-more .button { width: 100%; }
   }
 
@@ -711,7 +692,7 @@
   .cred-card { padding: 24px 22px; border: 1px solid var(--line); border-top: 4px solid var(--brand); border-radius: var(--r); background: #fff; }
   .white .cred-card { border-color: transparent; border-top-color: var(--brand); background: var(--aw-modern-tint); }
   .cred-card .lbl { margin-bottom: 16px; color: var(--ink); }
-  .form-card { position: relative; padding: 22px 20px; border: 1px solid var(--line); border-top: 4px solid var(--brand); border-radius: var(--r); background: #fff; box-shadow: var(--lift); color: var(--aw-modern-text); }
+  .form-card { position: relative; padding: 22px 20px; border: 1px solid var(--line); border-top: 4px solid var(--brand); border-radius: var(--r); background: #fff; box-shadow: 0 20px 40px -28px rgb(0 0 0 / 0.35); color: var(--aw-modern-text); }
   /* "/contact#quote" lands on the form with the card's top edge in view (under the sticky header from 768 px; from
      1024 px with the heading row above it, below) */
   .form { display: grid; grid-template-columns: minmax(0, 1fr); gap: 18px; scroll-margin-top: 48px; }
@@ -727,9 +708,6 @@
   .hp { position: absolute; left: -9999px; width: 1px; height: 1px; overflow: hidden; }
   .form-end { margin-top: 6px; }
   .form-end .button { width: 100%; }
-  @media (hover: hover) {
-    .input:hover { border-color: var(--ink); }
-  }
   @media (min-width: 640px) {
     .form { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
     .full, .form-end { grid-column: 1 / -1; }
@@ -746,8 +724,9 @@
      "(602)" ran into "555-0118"); one line sits centred in the 48 px link as before. */
   .call-card { container-type: inline-size; padding: 26px 22px; border-radius: var(--r); background: var(--brand); color: #fff; }
   .lbl { display: block; color: var(--aw-modern-on-brand-muted); font-size: 0.875rem; font-weight: 700; }
-  .big { display: inline-flex; align-items: center; gap: 12px; min-height: 48px; margin-top: 4px; color: #fff; font: 700 1.625rem var(--aw-modern-display); letter-spacing: calc(var(--trk) * -0.01em); font-variant-numeric: tabular-nums; }
+  .big { display: inline-flex; align-items: center; gap: 12px; min-height: 48px; margin-top: 4px; color: #fff; font: 700 1.625rem var(--aw-modern-display); letter-spacing: calc(var(--aw-modern-tracking) * -0.01em); font-variant-numeric: tabular-nums; }
   @supports (width: 1cqi) {
+    .hero { container-type: inline-size; --edge: max(var(--gut), (100cqw - 1200px) / 2); }
     .big { font-size: clamp(1.25rem, (100cqi - 38px) / var(--aw-modern-phone-em), 2rem); }
   }
   /* The link is nowrap (html-validate's tel-non-breaking); its number may still wrap between its two nowrap parts. */
@@ -761,9 +740,6 @@
   @media (max-width: 767px) {
     .call-card { padding: 16px 20px; }
     .call-card ul { display: none; }
-  }
-  @media (hover: hover) {
-    .big:hover { text-decoration: underline 2px; }
   }
   @media (min-width: 768px) {
     .head-cta .button { flex: none; }
@@ -789,10 +765,10 @@
   }
 
   /* ---------- footer ---------- */
-  .foot { padding-block: 56px; border-top: 4px solid var(--act); background: var(--brand); color: var(--aw-modern-on-brand-muted); }
+  .foot { padding-block: 56px; border-top: 4px solid var(--aw-modern-act); background: var(--brand); color: var(--aw-modern-on-brand-muted); }
   .foot-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 32px; }
   .foot-grid > * { min-width: 0; }
-  .foot-name { font: 700 1.25rem/1.25 var(--aw-modern-display); letter-spacing: calc(var(--trk) * -0.015em); color: #fff; text-wrap: balance; }
+  .foot-name { font: 700 1.25rem/1.25 var(--aw-modern-display); letter-spacing: calc(var(--aw-modern-tracking) * -0.015em); color: #fff; text-wrap: balance; }
   .foot-h { margin-bottom: 8px; color: #fff; font-size: 0.9375rem; font-weight: 700; line-height: 1.25; }
   .foot-list li, .foot-trade { padding-block: 4px; font-size: 0.9375rem; line-height: 24px; }
   .foot-social { display: flex; flex-wrap: wrap; gap: 4px 20px; margin-top: 12px; }
@@ -800,7 +776,19 @@
   .foot-social a, .foot-end a { display: inline-block; padding-block: 4px; font-size: 0.9375rem; font-weight: 600; line-height: 24px; }
   .foot-end { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 24px; margin-top: 40px; padding-top: 20px; border-top: 1px solid var(--aw-modern-brand-line); }
   .foot-end p { color: #fff; font-size: 0.9375rem; font-weight: 600; }
+  /* Hover only where the pointer can hover, so a tap never leaves a button in its hover colours (MDN: hover). Every
+     hover state of the page is in this one block (bytes), in page order; no rule after it sets these properties on
+     these elements. */
   @media (hover: hover) {
+    .button-act:hover { background: var(--aw-modern-act-hover); }
+    .button-line:hover { background: var(--ink); color: #fff; }
+    .on-brand .button-act:hover { background: var(--aw-modern-band-act-hover); }
+    .on-brand .button-line:hover { background: #fff; color: var(--brand); }
+    .nav-links a:hover { color: var(--ink); text-decoration: underline 2px; text-underline-offset: 0.35em; }
+    .menu-list a:hover { background: var(--aw-modern-tint); }
+    .qa summary:hover .tog { border-color: var(--ink); }
+    .input:hover { border-color: var(--ink); }
+    .big:hover { text-decoration: underline 2px; }
     .foot a:hover { text-decoration-color: currentColor; }
   }
   /* 768-1023 px: the business on its own row, Contact and Credentials side by side, so an email keeps its line */
