@@ -86,8 +86,9 @@
   .card {
     @apply rounded-card border border-slate-200 bg-white p-4 sm:p-6;
   }
+  /* The reference's app h1 (reference.md §1.3: clamp(28px, 3vw, 38px), 1.1, -.028em). */
   .page-title {
-    @apply text-[1.75rem] leading-tight font-semibold tracking-[-0.025em] text-ink sm:text-[2rem];
+    @apply text-[clamp(1.75rem,1.4rem+1.3vw,2.375rem)] leading-[1.1] font-semibold tracking-[-0.028em] text-ink;
   }
   .section-title {
     @apply text-lg font-semibold tracking-[-0.01em] text-ink;
@@ -378,6 +379,16 @@
 /* Field groups inside a card read as one quiet panel, not a second white box. */
 .app-dark fieldset.rounded-xl {
   background-color: rgb(255 255 255 / 0.02);
+}
+/* On phones the step strip scrolls sideways: its right edge fades, so the cut-off step reads as "more this way". */
+@media (width < 64rem) {
+  .app-dark .wizard-steps > ol {
+    mask-image: linear-gradient(to right, #000 calc(100% - 3rem), transparent);
+  }
+}
+/* List dividers (admin site lists, history) visible on graphite. */
+.app-dark .divide-slate-100 > :not(:last-child) {
+  border-color: rgb(255 255 255 / 0.1);
 }
 .app-dark .dialog {
   border-color: rgb(255 255 255 / 0.12);
