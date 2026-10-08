@@ -138,7 +138,7 @@ async function storedHeadline(browser: Browser, email: string, siteId: string): 
   try {
     const page = await ctx.newPage();
     await stubTurnstile(page);
-    await page.goto("/login");
+    await page.goto("/login/link");
     await waitForSecurityCheck(page);
     await page.getByLabel("Your email address").fill(email);
     await page.getByRole("button", { name: "Email me a link" }).click();
