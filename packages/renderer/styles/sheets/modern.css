@@ -10,20 +10,13 @@
 
 @layer components {
   /* ---------- tokens and base ---------- */
+  /* Short names for the page's most used --aw-modern-* properties; the rest are read as the page sets them (bytes). */
   :root {
     --ink: var(--aw-modern-ink);
-    --text: var(--aw-modern-text);
     --muted: var(--aw-modern-muted);
-    --tint: var(--aw-modern-tint);
     --line: var(--aw-modern-line);
-    --field: var(--aw-modern-field);
     --brand: var(--aw-modern-brand);
-    --brand-line: var(--aw-modern-brand-line);
-    --on-brand-muted: var(--aw-modern-on-brand-muted);
     --act: var(--aw-modern-act);
-    --on-act: var(--aw-modern-on-act);
-    --band-accent: var(--aw-modern-band-accent);
-    --display: var(--aw-modern-display);
     --trk: var(--aw-modern-tracking);
     --body: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, Roboto, "Helvetica Neue", Arial, sans-serif;
     --livery: linear-gradient(var(--act) 0 4px, var(--brand) 4px 8px);
@@ -44,7 +37,7 @@
   }
   .page {
     background: #fff;
-    color: var(--text);
+    color: var(--aw-modern-text);
     font: 400 1rem/1.6 var(--body);
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
@@ -59,11 +52,11 @@
   .i { width: 20px; height: 20px; flex: none; }
 
   /* ---------- type: the display face for headings; the livery mark (action over brand) opens each section ---------- */
-  .display { font-family: var(--display); font-weight: 700; color: var(--ink); text-wrap: balance; }
+  .display { font-family: var(--aw-modern-display); font-weight: 700; color: var(--ink); text-wrap: balance; }
   .h1 { font-size: clamp(2rem, 1.4rem + 2.6vw, 3.5rem); line-height: 1.05; letter-spacing: calc(var(--trk) * -0.025em); }
   .h1--long { font-size: clamp(1.75rem, 1.3rem + 2vw, 2.875rem); }
   .h2 { font-size: clamp(1.75rem, 1.35rem + 1.6vw, 2.625rem); line-height: 1.1; letter-spacing: calc(var(--trk) * -0.022em); }
-  .h3 { font: 700 1.1875rem/1.25 var(--display); letter-spacing: calc(var(--trk) * -0.01em); color: var(--ink); text-wrap: balance; }
+  .h3 { font: 700 1.1875rem/1.25 var(--aw-modern-display); letter-spacing: calc(var(--trk) * -0.01em); color: var(--ink); text-wrap: balance; }
   .lede { margin-top: 12px; max-width: 40rem; font-size: 1.0625rem; line-height: 1.55; color: var(--muted); text-wrap: pretty; }
   .head { margin-bottom: 28px; }
   .head::before { content: ""; display: block; width: 44px; height: 8px; margin-bottom: 18px; background: var(--livery); }
@@ -82,7 +75,7 @@
     overflow-wrap: anywhere;
   }
   .button-lg { min-height: 56px; padding-inline: 24px; font-size: 1.125rem; }
-  .button-act { background: var(--act); color: var(--on-act); }
+  .button-act { background: var(--act); color: var(--aw-modern-on-act); }
   .button-line { border-color: var(--ink); background: #fff; color: var(--ink); }
   .on-brand .button-act { background: var(--aw-modern-band-act); color: var(--aw-modern-on-band-act); }
   .on-brand .button-line { border-color: #fff; background: transparent; color: #fff; }
@@ -101,7 +94,7 @@
   .hdr { position: relative; z-index: 40; background: #fff; box-shadow: 0 1px 0 var(--line); }
   .hdr::before { content: ""; display: block; height: 6px; background: linear-gradient(var(--act) 0 3px, var(--brand) 3px 6px); }
   .bar { display: flex; align-items: center; gap: 12px; min-height: 56px; padding-block: 6px; }
-  .brand { margin-right: auto; min-width: 0; font: 700 1.125rem/1.15 var(--display); letter-spacing: calc(var(--trk) * -0.015em); color: var(--ink); text-wrap: balance; }
+  .brand { margin-right: auto; min-width: 0; font: 700 1.125rem/1.15 var(--aw-modern-display); letter-spacing: calc(var(--trk) * -0.015em); color: var(--ink); text-wrap: balance; }
   .brand--long { max-width: 15rem; font-size: 1rem; }
   .nav { order: 3; }
   .nav-links { display: none; }
@@ -122,7 +115,7 @@
   }
   @media (hover: hover) {
     .nav-links a:hover { color: var(--ink); text-decoration: underline 2px; text-underline-offset: 0.35em; }
-    .menu-list a:hover { background: var(--tint); }
+    .menu-list a:hover { background: var(--aw-modern-tint); }
   }
   /* The page on screen: the livery bar (a shape, not colour alone: WCAG 1.4.1; the brand half is 3:1 on white,
      1.4.11) beside its name in the phone menu's list, under it in the row of links from 768 px. */
@@ -152,8 +145,7 @@
   @media (min-width: 768px) and (max-width: 1023px) {
     html:has(.menu[open]) { --menu-row: 57px; }
     .menu-list {
-      display: flex; align-items: center; gap: 2px; left: 0; right: 0; top: 100%; width: auto; height: 57px;
-      padding: 0 max(var(--gut), (100% - 1200px) / 2); border: 0; border-top: 1px solid var(--line); border-radius: 0;
+      display: flex; align-items: center; gap: 2px; height: 57px; padding: 0 max(var(--gut), (100% - 1200px) / 2);
       box-shadow: 0 1px 0 var(--line); overflow-x: auto;
     }
     .menu-list a { min-height: 44px; padding: 0 12px; border: 0; font-size: 0.9375rem; }
@@ -196,10 +188,10 @@
   .hl { margin-bottom: 8px; color: var(--ink); }
   .line-247 { display: inline-flex; align-items: center; gap: 8px; }
   .band-line .i, .hl .i { width: 18px; height: 18px; }
-  .band-line .i { color: var(--band-accent); }
+  .band-line .i { color: var(--aw-modern-band-accent); }
   .hl .i { color: var(--brand); }
   .line-tag { font-weight: 600; }
-  .band-line .line-tag { color: var(--on-brand-muted); }
+  .band-line .line-tag { color: var(--aw-modern-on-brand-muted); }
   .hl .line-tag { color: var(--muted); }
   .hero-body { padding-block: 16px 36px; }
   /* the livery seam where the text meets the photo */
@@ -313,8 +305,8 @@
       min-height: 48px; margin: -40px -48px 36px calc(-1 * var(--edge)); padding: 12px 48px 12px var(--edge);
       background: var(--brand); color: #fff; border-bottom: 4px solid var(--act); box-shadow: 0 4px 0 var(--brand);
     }
-    .hero--photo .hl .i { color: var(--band-accent); }
-    .hero--photo .hl .line-tag { color: var(--on-brand-muted); }
+    .hero--photo .hl .i { color: var(--aw-modern-band-accent); }
+    .hero--photo .hl .line-tag { color: var(--aw-modern-on-brand-muted); }
     .hero--photo .proof { grid-column: 1; grid-row: 2; align-self: start; margin: -24px 48px 48px var(--edge); padding-top: 14px; }
   }
   /* Landscape phones: tighter, and the subheadline moves under the buttons, so the headline and the Call button are
@@ -334,8 +326,7 @@
 
   /* ---------- sections ---------- */
   .sec { padding-block: 64px; }
-  .tint { background: var(--tint); }
-  .white { background: #fff; }
+  .tint { background: var(--aw-modern-tint); }
   .on-brand { background: var(--brand); color: #fff; }
   .on-brand .display { color: #fff; }
   /* an inner page's first section opens with Home's brand strip and livery seam, then its h1 (the hero's size) */
@@ -357,8 +348,8 @@
   .trust .cred { font-size: 1.0625rem; }
   /* credentials, and their links, on the brand colour (the trust band, About, the closing band) */
   .on-brand .cred, .on-brand .proof-line, .on-brand .more a { color: #fff; }
-  .on-brand .cred .i, .on-brand .proof-line .i { color: var(--band-accent); }
-  .on-brand .cred small { color: var(--on-brand-muted); }
+  .on-brand .cred .i, .on-brand .proof-line .i { color: var(--aw-modern-band-accent); }
+  .on-brand .cred small { color: var(--aw-modern-on-brand-muted); }
   @media (min-width: 768px) {
     .trust { padding-block: 64px; }
     .creds, .creds > ul { display: flex; flex-wrap: wrap; column-gap: 32px; }
@@ -369,9 +360,9 @@
      bar's and one column of cards */
   .cards { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
   .card { padding: 22px 22px 24px; border: 1px solid var(--line); border-radius: var(--r); background: #fff; }
-  .white .card { border-color: transparent; background: var(--tint); }
+  .white .card { border-color: transparent; background: var(--aw-modern-tint); }
   .card .h3 { font-size: 1.25rem; }
-  .price { width: fit-content; margin-top: 10px; padding: 3px 12px; border-radius: 999px; background: var(--tint); color: var(--ink); font-size: 1.0625rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .price { width: fit-content; margin-top: 10px; padding: 3px 12px; border-radius: 999px; background: var(--aw-modern-tint); color: var(--ink); font-size: 1.0625rem; font-weight: 700; font-variant-numeric: tabular-nums; }
   .white .price { background: #fff; }
   .price small { font-size: 0.875rem; font-weight: 500; color: var(--muted); }
   /* the pill's line box (1.0625rem x 1.6), so priced and unpriced cards start their descriptions on one line */
@@ -384,8 +375,8 @@
   .cards > .ask { display: flex; flex-wrap: wrap; align-items: center; align-content: center; gap: 18px 32px; border-color: transparent; background: var(--brand); }
   .ask > div { flex: 999 1 10rem; }
   .ask .button { flex: 1 1 auto; }
-  .ask-q { font: 700 1.3125rem/1.25 var(--display); letter-spacing: calc(var(--trk) * -0.01em); color: #fff; text-wrap: balance; }
-  .ask p + p { margin-top: 6px; color: var(--on-brand-muted); }
+  .ask-q { font: 700 1.3125rem/1.25 var(--aw-modern-display); letter-spacing: calc(var(--trk) * -0.01em); color: #fff; text-wrap: balance; }
+  .ask p + p { margin-top: 6px; color: var(--aw-modern-on-brand-muted); }
   @media (min-width: 768px) {
     .cards--c2, .cards--c3, .cards--c4 { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
     .ask:nth-child(odd) { grid-column: 1 / -1; }
@@ -460,14 +451,14 @@
   .lead-q { display: grid; grid-template-columns: minmax(0, 1fr); gap: 18px; padding-bottom: 28px; }
   .lead-q blockquote::before, .q blockquote::before { content: "\201C"; display: block; color: var(--brand); font: 800 4.5rem/1 Georgia, "Times New Roman", serif; }
   .lead-q blockquote::before { height: 36px; }
-  .lead-q blockquote p { min-width: 0; max-width: 46rem; font: 700 clamp(1.375rem, 1.1rem + 1.1vw, 2rem)/1.3 var(--display); letter-spacing: calc(var(--trk) * -0.015em); color: var(--ink); text-wrap: pretty; }
+  .lead-q blockquote p { min-width: 0; max-width: 46rem; font: 700 clamp(1.375rem, 1.1rem + 1.1vw, 2rem)/1.3 var(--aw-modern-display); letter-spacing: calc(var(--trk) * -0.015em); color: var(--ink); text-wrap: pretty; }
   .lead-q--long blockquote p { font-size: clamp(1.1875rem, 1.05rem + 0.6vw, 1.5rem); line-height: 1.4; }
   .who { display: flex; flex-wrap: wrap; column-gap: 10px; line-height: 1.3; }
   .who > * { min-width: 0; overflow-wrap: anywhere; }
   .who strong { color: var(--ink); }
   .who span { color: var(--muted); }
   .quotes { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; margin-top: 8px; }
-  .q { display: flex; flex-direction: column; height: 100%; padding: 22px; border-radius: var(--r); background: var(--tint); box-shadow: inset 0 4px 0 var(--brand); }
+  .q { display: flex; flex-direction: column; height: 100%; padding: 22px; border-radius: var(--r); background: var(--aw-modern-tint); box-shadow: inset 0 4px 0 var(--brand); }
   .tint .q { background: #fff; }
   .q blockquote { flex: 1; }
   .q blockquote::before { height: 30px; margin-bottom: 4px; font-size: 3.25rem; }
@@ -548,10 +539,10 @@
   /* about: the owner's statement as type on the brand band, the owner's credentials under it, a photo beside them */
   .about-text { max-width: 44rem; font: 500 clamp(1.1875rem, 1.05rem + 0.7vw, 1.5rem)/1.5 var(--body); color: #fff; text-wrap: pretty; }
   .about-text--short { font-size: clamp(1.375rem, 1.1rem + 1.1vw, 1.75rem); line-height: 1.4; }
-  .about-img { width: 100%; margin-bottom: 28px; aspect-ratio: 4 / 3; object-fit: cover; border-radius: var(--r); background: var(--brand-line); }
+  .about-img { width: 100%; margin-bottom: 28px; aspect-ratio: 4 / 3; object-fit: cover; border-radius: var(--r); background: var(--aw-modern-brand-line); }
   .facts { display: grid; gap: 16px 32px; font-size: 1rem; }
   .facts .more { grid-column: 1 / -1; }
-  .about-text + .facts { margin-top: 32px; padding-top: 28px; border-top: 1px solid var(--brand-line); }
+  .about-text + .facts { margin-top: 32px; padding-top: 28px; border-top: 1px solid var(--aw-modern-brand-line); }
   @media (min-width: 600px) {
     .about-text + .facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   }
@@ -560,7 +551,7 @@
     /* the photo fills the rows the text sets (its own size counts for nothing: contain: size), never under 360 px */
     .about-img { grid-column: 2; grid-row: 1 / -1; height: 100%; min-height: 360px; margin: 0; aspect-ratio: auto; contain: size; }
     /* no photo: the credentials take its place, as a panel beside the statement */
-    .about--facts .facts { grid-column: 2; grid-row: 1 / -1; align-self: start; grid-template-columns: minmax(0, 1fr); gap: 22px; margin: 0; padding: 36px; border: 1px solid var(--brand-line); border-radius: var(--r); font-size: 1.125rem; }
+    .about--facts .facts { grid-column: 2; grid-row: 1 / -1; align-self: start; grid-template-columns: minmax(0, 1fr); gap: 22px; margin: 0; padding: 36px; border: 1px solid var(--aw-modern-brand-line); border-radius: var(--r); font-size: 1.125rem; }
     .about-text { font-size: clamp(1.375rem, 0.9rem + 0.9vw, 1.75rem); }
     .about-text--long { font-size: 1.25rem; line-height: 1.55; }
     .about-text.about-text--short { font-size: clamp(1.875rem, 1rem + 1.6vw, 2.375rem); line-height: 1.3; }
@@ -573,13 +564,13 @@
   .board { border: 1px solid var(--line); border-radius: var(--r); background: #fff; }
   .tint .board { border-color: transparent; }
   .board-h { display: flex; align-items: center; gap: 10px; padding: 14px 20px; border-radius: 5px 5px 0 0; background: var(--brand); color: #fff; font: 700 1.0625rem/1.3 var(--body); }
-  .board-h .i { color: var(--band-accent); }
+  .board-h .i { color: var(--aw-modern-band-accent); }
   .board-body { padding: 4px 20px 20px; }
   /* auto-fit: a single row of places spreads across the board instead of leaving empty columns after it */
   .places { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 8.5rem), 1fr)); column-gap: 20px; }
   .place { min-width: 0; padding-block: 9px; border-bottom: 1px solid var(--line); color: var(--ink); font-weight: 600; }
   .place.span { grid-column: 1 / -1; }
-  .addr { display: flex; gap: 12px; padding-top: 16px; color: var(--text); }
+  .addr { display: flex; gap: 12px; padding-top: 16px; color: var(--aw-modern-text); }
   .addr .i { color: var(--brand); }
   address { font-style: normal; }
   .few { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; align-content: start; }
@@ -590,10 +581,10 @@
   /* one or two places without hours: a slim band, the sentence beside the heading from 768 px */
   .sec.slim { padding-block: 44px; }
   /* the hours table, in the hero card and on the hours board */
-  .hours { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+  .hours { width: 100%; font-variant-numeric: tabular-nums; }
   .hours th, .hours td { padding: 9px 0; border-top: 1px solid var(--line); text-align: left; vertical-align: baseline; }
   .hours tr:first-child > * { border-top: 0; }
-  .hours th { padding-right: 12px; font-weight: 500; color: var(--text); white-space: nowrap; }
+  .hours th { padding-right: 12px; font-weight: 500; color: var(--aw-modern-text); white-space: nowrap; }
   /* A day range stays whole ("Monday – Friday", judges' round 3); a time may wrap after its dash (keepParts) instead,
      so spaced-out text (WCAG 1.4.12) and the bigger default text (125%: the board at 400-414 px, the no-photo hero
      card at 1024 px) stay inside. Where the table has room a time keeps its line: a table's columns start at their
@@ -601,7 +592,6 @@
   .hours .time { color: var(--ink); font-weight: 700; text-align: right; }
   .hours .closed { color: var(--muted); font-weight: 500; }
   .board .hours th, .board .hours td { padding: 14px 20px; }
-  .board .hours td { padding-left: 0; }
   .em { margin-top: 10px; padding: 12px 14px 6px; border-radius: 4px; background: var(--aw-modern-well); color: var(--ink); line-height: 1.4; }
   .board .em { margin: 0; padding: 16px 20px 14px; border-radius: 0 0 5px 5px; }
   .em-call { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; font-weight: 700; font-variant-numeric: tabular-nums; text-decoration: underline; text-underline-offset: 0.2em; }
@@ -611,13 +601,11 @@
   }
   @media (max-width: 359px) {
     .board .hours th, .board .hours td { padding-inline: 12px; }
-    .board .hours td { padding-left: 0; }
   }
   @media (min-width: 768px) {
     .board-h { padding: 16px 26px; }
     .board-body { padding: 6px 26px 24px; }
     .board .hours th, .board .hours td { padding: 15px 26px; }
-    .board .hours td { padding-left: 0; }
     .board .em { padding: 18px 26px 16px; }
   }
   @media (min-width: 768px) {
@@ -625,6 +613,8 @@
     .slim-in { display: flex; flex-wrap: wrap; align-items: baseline; gap: 16px 64px; }
     .slim .head { margin: 0; }
   }
+  /* the time cells start at the day's column, at every width (after the padding rules above) */
+  .board .hours td { padding-left: 0; }
   @media (min-width: 900px) {
     /* the hours board never narrower than its table, whose day ranges and times keep their lines: the places give way */
     .board .hours .time { white-space: nowrap; }
@@ -649,7 +639,7 @@
   .qa summary { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 64px; padding: 16px 0; list-style: none; cursor: pointer; }
   .qa summary::-webkit-details-marker { display: none; }
   .qa .h3, .qo .h3 { min-width: 0; font-size: 1.0625rem; }
-  .tog { position: relative; flex: none; width: 32px; height: 32px; border: 1.5px solid var(--field); border-radius: 4px; background: #fff; }
+  .tog { position: relative; flex: none; width: 32px; height: 32px; border: 1.5px solid var(--aw-modern-field); border-radius: 4px; background: #fff; }
   .tog::before, .tog::after { content: ""; position: absolute; left: 50%; top: 50%; width: 14px; height: 2px; margin: -1px 0 0 -7px; background: var(--ink); }
   .tog::after { rotate: 90deg; }
   .qa[open] .tog { border-color: var(--brand); background: var(--brand); }
@@ -678,13 +668,13 @@
       grid-column: 2; grid-row: 2; position: sticky; top: calc(var(--hdr) + 24px); display: block; margin: 0;
       padding: 26px 26px 28px; border-top: 4px solid var(--brand); border-radius: var(--r); background: #fff;
     }
-    .white .faq-more { background: var(--tint); }
+    .white .faq-more { background: var(--aw-modern-tint); }
     /* the FAQ that ends its page has no call card (the closing band follows): the heading beside the list */
     .faq.faq--solo { grid-template-columns: minmax(min-content, 4fr) minmax(0, 8fr); }
     .faq--solo .head { grid-column: 1; margin: 0; }
     /* "Questions & answers" on one line in every lettering: its column is never narrower (judges, A16 round 3) */
     .faq--solo .h2 { white-space: nowrap; }
-    .faq-more-q { margin-bottom: 16px; font: 700 1.375rem/1.2 var(--display); letter-spacing: calc(var(--trk) * -0.01em); }
+    .faq-more-q { margin-bottom: 16px; font: 700 1.375rem/1.2 var(--aw-modern-display); letter-spacing: calc(var(--trk) * -0.01em); }
     .faq-more .button { width: 100%; }
   }
 
@@ -697,17 +687,17 @@
   .head-cta .button { flex: 1 1 auto; }
   /* the owner's credentials beside the form: the shared credential rows on a card */
   .cred-card { padding: 24px 22px; border: 1px solid var(--line); border-top: 4px solid var(--brand); border-radius: var(--r); background: #fff; }
-  .white .cred-card { border-color: transparent; border-top-color: var(--brand); background: var(--tint); }
+  .white .cred-card { border-color: transparent; border-top-color: var(--brand); background: var(--aw-modern-tint); }
   .cred-card .lbl { margin-bottom: 16px; color: var(--ink); }
-  .form-card { position: relative; padding: 22px 20px; border: 1px solid var(--line); border-top: 4px solid var(--brand); border-radius: var(--r); background: #fff; box-shadow: var(--lift); color: var(--text); }
+  .form-card { position: relative; padding: 22px 20px; border: 1px solid var(--line); border-top: 4px solid var(--brand); border-radius: var(--r); background: #fff; box-shadow: var(--lift); color: var(--aw-modern-text); }
   /* "/contact#quote" lands on the form with the card's top edge in view (under the sticky header from 768 px; from
      1024 px with the heading row above it, below) */
   .form { display: grid; grid-template-columns: minmax(0, 1fr); gap: 18px; scroll-margin-top: 48px; }
   .field label { display: block; margin-bottom: 7px; color: var(--ink); font-size: 0.9375rem; font-weight: 700; }
-  .input { display: block; width: 100%; min-height: 52px; padding: 13px 14px; border: 1.5px solid var(--field); border-radius: var(--r); background: #fff; color: var(--text); font: 400 1rem/1.4 var(--body); }
+  .input { display: block; width: 100%; min-height: 52px; padding: 13px 14px; border: 1.5px solid var(--aw-modern-field); border-radius: var(--r); background: #fff; color: var(--aw-modern-text); font: 400 1rem/1.4 var(--body); }
   .input:focus-visible { border-color: var(--brand); outline-offset: 1px; }
   textarea.input { min-height: 120px; resize: vertical; }
-  .select { position: relative; color: var(--text); }
+  .select { position: relative; color: var(--aw-modern-text); }
   /* WebKit draws a native select at its own height and counts a long chosen option as page width, so the select
      drops the native look, clips its text and draws its own arrow. */
   select.input { appearance: none; padding-right: 44px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -733,15 +723,15 @@
      descent and gap), so those two lines never run into each other whatever the font (CI's Linux WebKit: at 1.15
      "(602)" ran into "555-0118"); one line sits centred in the 48 px link as before. */
   .call-card { container-type: inline-size; padding: 26px 22px; border-radius: var(--r); background: var(--brand); color: #fff; }
-  .lbl { display: block; color: var(--on-brand-muted); font-size: 0.875rem; font-weight: 700; }
-  .big { display: inline-flex; align-items: center; gap: 12px; min-height: 48px; margin-top: 4px; color: #fff; font: 700 1.625rem var(--display); letter-spacing: calc(var(--trk) * -0.01em); font-variant-numeric: tabular-nums; }
+  .lbl { display: block; color: var(--aw-modern-on-brand-muted); font-size: 0.875rem; font-weight: 700; }
+  .big { display: inline-flex; align-items: center; gap: 12px; min-height: 48px; margin-top: 4px; color: #fff; font: 700 1.625rem var(--aw-modern-display); letter-spacing: calc(var(--trk) * -0.01em); font-variant-numeric: tabular-nums; }
   @supports (width: 1cqi) {
     .big { font-size: clamp(1.25rem, (100cqi - 38px) / var(--aw-modern-phone-em), 2rem); }
   }
   /* The link is nowrap (html-validate's tel-non-breaking); its number may still wrap between its two nowrap parts. */
   .big > span { white-space: normal; }
-  .big .i { width: 26px; height: 26px; color: var(--band-accent); }
-  .call-card ul { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; margin-top: 18px; padding-top: 18px; border-top: 1px solid var(--brand-line); }
+  .big .i { width: 26px; height: 26px; color: var(--aw-modern-band-accent); }
+  .call-card ul { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; margin-top: 18px; padding-top: 18px; border-top: 1px solid var(--aw-modern-brand-line); }
   .call-card li { min-width: 0; font-size: 0.9375rem; line-height: 1.4; text-wrap: balance; }
   .call-card li a { font-weight: 600; text-decoration: underline; text-underline-offset: 0.2em; }
   /* Phones: a compact card, the label and the big number only, so the form's Name and Phone fields share the first
@@ -777,16 +767,16 @@
   }
 
   /* ---------- footer ---------- */
-  .foot { padding-block: 56px; border-top: 4px solid var(--act); background: var(--brand); color: var(--on-brand-muted); }
+  .foot { padding-block: 56px; border-top: 4px solid var(--act); background: var(--brand); color: var(--aw-modern-on-brand-muted); }
   .foot-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 32px; }
   .foot-grid > * { min-width: 0; }
-  .foot-name { font: 700 1.25rem/1.25 var(--display); letter-spacing: calc(var(--trk) * -0.015em); color: #fff; text-wrap: balance; }
+  .foot-name { font: 700 1.25rem/1.25 var(--aw-modern-display); letter-spacing: calc(var(--trk) * -0.015em); color: #fff; text-wrap: balance; }
   .foot-h { margin-bottom: 8px; color: #fff; font-size: 0.9375rem; font-weight: 700; line-height: 1.25; }
   .foot-list li, .foot-trade { padding-block: 4px; font-size: 0.9375rem; line-height: 24px; }
   .foot-social { display: flex; flex-wrap: wrap; gap: 4px 20px; margin-top: 12px; }
-  .foot a { color: #fff; text-decoration: underline 2px var(--brand-line); text-underline-offset: 0.2em; }
+  .foot a { color: #fff; text-decoration: underline 2px var(--aw-modern-brand-line); text-underline-offset: 0.2em; }
   .foot-social a, .foot-end a { display: inline-block; padding-block: 4px; font-size: 0.9375rem; font-weight: 600; line-height: 24px; }
-  .foot-end { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 24px; margin-top: 40px; padding-top: 20px; border-top: 1px solid var(--brand-line); }
+  .foot-end { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 24px; margin-top: 40px; padding-top: 20px; border-top: 1px solid var(--aw-modern-brand-line); }
   .foot-end p { color: #fff; font-size: 0.9375rem; font-weight: 600; }
   @media (hover: hover) {
     .foot a:hover { text-decoration-color: currentColor; }
@@ -811,7 +801,7 @@
      with the menu open (judges, A16 round 2). Only the Contact page has a Send button, and its bar never sticks. */
   .callbar.sticky { z-index: 41; }
   /* the Contact page's bar, at the end of the page: the footer's last row, on its brand colour */
-  .callbar.on-brand { border-top-color: var(--brand-line); background: var(--brand); }
+  .callbar.on-brand { border-top-color: var(--aw-modern-brand-line); background: var(--brand); }
   /* Call and "Get a quote" in equal halves */
   .callbar .button { flex: 1 1 0; min-width: 0; min-height: 54px; padding: 0 12px; gap: 8px; font-size: 1rem; }
   /* Phones: the bar is the page's quote action, so a first screen never shows its "Get a quote" beside the owner's
