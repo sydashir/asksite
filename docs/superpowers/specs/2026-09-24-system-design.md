@@ -1537,6 +1537,7 @@ One convention for every Worker, so `pnpm dev` (Plan 2) can start all four: prod
   - Owner journey: invite → questionnaire → fake generation → edit → publish → admin approve → live page → contact form → lead in `dev_outbox` and in the app.
   - Admin journey: invite, reject, takedown, restore, kill switch.
   - Plus axe on every screen.
+  - Sites (`apps/sites/e2e`): the lifecycle tests (a second approval, a takedown, a restore) change the running server's state through `operate.ts`, a second workerd process on the same local state, which fails at random with D1 "internal error" while the server serves other tests; the SQL has already run when it fails, so it is not retried. They run alone, after every other test, in two Playwright teardown projects (`lifecycle-chromium`, then `lifecycle-webkit`, one test at a time; decided 2026-10-08). A design gate (`-g <design>`) narrows the main projects but runs all 12 lifecycle tests, about a minute more (teardown projects are not narrowed by `-g`; Playwright 1.63.0 source).
 - **Adversarial checks:** a separate review pass per plan, plus one whole-system pass that attacks the routes listed in §9.1.
 
 ### 10.3 Variables (non-secret) per Worker

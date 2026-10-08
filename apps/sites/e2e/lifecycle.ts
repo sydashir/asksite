@@ -6,6 +6,12 @@ import type { DesignId } from "@asksite/site-schema";
 export const LIFECYCLE_ENGINES = ["chromium", "webkit"] as const;
 export type LifecycleEngine = (typeof LIFECYCLE_ENGINES)[number];
 
+/** The title the lifecycle tests share (sites.spec.ts); playwright.config.ts selects them by it. */
+export const LIFECYCLE_TITLE = "a live site's lifecycle";
+
+/** The Playwright project that runs an engine's lifecycle tests, after every other test (playwright.config.ts). */
+export const LIFECYCLE_PROJECTS = { chromium: "lifecycle-chromium", webkit: "lifecycle-webkit" } as const satisfies Record<LifecycleEngine, string>;
+
 /** The slug of the site the lifecycle tests of a design change in an engine (global-setup.ts seeds it from plumber-austin). */
 export const lifecycleSlug = (design: DesignId, engine: LifecycleEngine): string => `e2e-life-${design}-${engine}`;
 

@@ -9,7 +9,7 @@ import { loadFixture, renderFixture } from "../../../fixtures/index.ts";
 import { apexPlaceholder, formProblems, messageTooLong, notFound, siteBusy, thankYou, tooManyRequests, unavailable, unreadableForm, useHttps } from "../src/pages.ts";
 import { watchCsp } from "./csp.ts";
 import { E2E_FIXTURES, e2eSlug, type E2eFixture } from "./global-setup.ts";
-import { LIFECYCLE_ENGINES, lifecycleSlug, V2_COPY, type LifecycleEngine } from "./lifecycle.ts";
+import { LIFECYCLE_PROJECTS, LIFECYCLE_TITLE, lifecycleSlug, V2_COPY, type LifecycleEngine } from "./lifecycle.ts";
 
 const ROOT = "localhost:8789";
 /** The published site of a fixture in a design (global-setup.ts seeds every design x fixture). */
@@ -89,8 +89,6 @@ function designVisitor(testInfo: TestInfo, design: DesignId): string {
   return `${({ impact: "192.0.2", refined: "198.51.100", modern: "203.0.113" } as const)[design]}.${host}`;
 }
 
-const isLifecycleEngine = (name: string): boolean => (LIFECYCLE_ENGINES as readonly string[]).includes(name);
-
 const REPO = fileURLToPath(new URL("../../..", import.meta.url));
 /** Held while one operate.ts runs: a directory, because mkdir fails for all but one caller. */
 const OPERATE_LOCK = `${REPO}.wrangler/e2e-operate.lock`;
@@ -98,10 +96,12 @@ const OPERATE_LOCK_STALE_MS = 120_000;
 
 /**
  * Changes the running server's state (operate.ts): approve a second version, take down or restore the site.
- * One at a time across the workers: each run opens its own copy of the state wrangler dev is serving, and two
- * at once fail with D1 and R2 "internal error"s.
+ * operate.ts opens its own copy of the state wrangler dev is serving, and D1 or R2 fails with "internal error" when
+ * the server is busy meanwhile. So the lifecycle tests run alone (playwright.config.ts), the test's own page has no
+ * request in flight, and two runs never overlap (the lock).
  */
-async function operate(command: "approve-v2" | "take-down" | "restore", slug: string): Promise<void> {
+async function operate(page: Page, command: "approve-v2" | "take-down" | "restore", slug: string): Promise<void> {
+  await page.waitForLoadState("networkidle");
   await mkdir(`${REPO}.wrangler`, { recursive: true });
   for (;;) {
     try {
@@ -232,10 +232,11 @@ for (const design of DESIGN_IDS) {
 
     // The lifecycle of a live site, on the design's own site per engine (global-setup.ts), one test after the other:
     // the second approval (U2) first, then the takedown and the restore of what is live by then.
-    test.describe("a live site's lifecycle", () => {
+    test.describe(LIFECYCLE_TITLE, () => {
       test.describe.configure({ mode: "serial" });
       test.beforeEach(async ({ browserName }, testInfo) => {
-        test.skip(!isLifecycleEngine(browserName) || testInfo.project.name === "chromium-390", "run in chromium-1280 and webkit-390 only: one site per engine");
+        // Only in the lifecycle projects, which run after every other test (playwright.config.ts): one site per engine.
+        test.skip(testInfo.project.name !== LIFECYCLE_PROJECTS[browserName as LifecycleEngine], "run in the lifecycle projects only");
         // operate() takes its turn behind the other workers' runs (the lock), and each run takes seconds on a busy machine:
         // the wait must not eat the default 30 s of the test.
         test.setTimeout(150_000);
@@ -250,7 +251,7 @@ for (const design of DESIGN_IDS) {
         await page.locator('a[href="/services"]:visible').first().click();
         await expect(page.getByText(v1.intro)).toBeVisible();
 
-        await operate("approve-v2", lifecycleSlug(design, browserName as LifecycleEngine));
+        await operate(page, "approve-v2", lifecycleSlug(design, browserName as LifecycleEngine));
 
         // Each view after the switch must be the second version: a reload, then links to the pages the browser has seen.
         // Cache-Control: no-cache is what makes a browser ask again, so every document answer must carry it. (The
@@ -285,9 +286,9 @@ for (const design of DESIGN_IDS) {
           for (const id of ids) found.push({ id, status: (await page.goto(live(browserName, id)))?.status() });
           return found;
         };
-        await operate("take-down", slug);
+        await operate(page, "take-down", slug);
         expect(await statuses()).toEqual(ids.map((id) => ({ id, status: 404 })));
-        await operate("restore", slug);
+        await operate(page, "restore", slug);
         expect(await statuses()).toEqual(ids.map((id) => ({ id, status: 200 })));
         await page.goto(live(browserName, "home"));
         await expect(page.getByRole("heading", { level: 1 })).toHaveText(V2_COPY.heroHeadline);
