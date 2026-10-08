@@ -26,7 +26,7 @@ export function OwnerDisableForm({ busy, onDisable }: { busy: boolean; onDisable
   return (
     <form noValidate onSubmit={(e) => void submit(e)}>
       <TextInput id="disable-reason" label="Reason for disabling the owner" value={reason} onChange={setReason} errors={errors} />
-      <button type="submit" className="btn-secondary mt-3" aria-disabled={busy}>
+      <button type="submit" className="btn-danger mt-3" aria-disabled={busy}>
         Disable the owner
       </button>
     </form>

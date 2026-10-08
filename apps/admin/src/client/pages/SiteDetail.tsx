@@ -183,14 +183,17 @@ function SiteScreen({ data, reload }: { data: SiteDetailData; reload: () => Prom
   return (
     <section>
       <p>
-        <a href="/sites" onClick={onLinkClick} className="link">
+        <a href="/sites" onClick={onLinkClick} className="link back-link">
+          <svg aria-hidden="true" viewBox="0 0 24 24" className="size-4" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M15 18l-6-6 6-6" />
+          </svg>
           Back to sites
         </a>
       </p>
-      <h1 ref={heading} tabIndex={-1} className="mt-2 text-2xl font-bold">
+      <h1 ref={heading} tabIndex={-1} className="page-title mt-1">
         {site.businessName ?? site.slug ?? "Site"}
       </h1>
-      <p className="mt-1 text-slate-700">
+      <p className="meta mt-2">
         {site.slug ?? "(no web address)"} · owner {site.ownerEmail}
         {site.ownerDisabled ? " (disabled)" : ""} · {site.takenDown ? "taken down" : site.live ? "live" : site.inReview ? "waiting for review" : "draft"} · search engines{" "}
         {site.indexable ? "allowed" : "blocked"} · {data.leadCount} messages
@@ -215,7 +218,7 @@ function SiteScreen({ data, reload }: { data: SiteDetailData; reload: () => Prom
 
       <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
         <section className="card" aria-labelledby="actions-title">
-          <h2 id="actions-title" className="text-lg font-semibold">
+          <h2 id="actions-title" className="section-title">
             Actions
           </h2>
           {takenDownAt !== null ? (
@@ -233,7 +236,7 @@ function SiteScreen({ data, reload }: { data: SiteDetailData; reload: () => Prom
               <button type="button" className="btn-secondary" aria-describedby="copy-again-hint" onClick={() => void copyAgain()}>
                 Copy the live pages again
               </button>
-              <p id="copy-again-hint" className="mt-1 text-sm text-slate-700">
+              <p id="copy-again-hint" className="meta mt-1 text-sm">
                 Use this if the live site shows 'page not found' or older pages.
               </p>
             </div>
@@ -272,15 +275,15 @@ function SiteScreen({ data, reload }: { data: SiteDetailData; reload: () => Prom
             ) : (
               <OwnerDisableForm key={`owner-${site.ownerDisabled ? "disabled" : "enabled"}`} busy={busy} onDisable={(reason) => act("POST", `/api/admin/owners/${site.ownerId}/disable`, { reason }, "Owner disabled and signed out everywhere.")} />
             )}
-            {site.ownerDisabled ? null : <p className="mt-3 text-sm text-slate-700">To delete this owner's account, disable the owner first.</p>}
+            {site.ownerDisabled ? null : <p className="meta mt-3 text-sm">To delete this owner's account, disable the owner first.</p>}
           </div>
         </section>
 
         <section className="card" aria-labelledby="versions-title">
-          <h2 id="versions-title" className="text-lg font-semibold">
+          <h2 id="versions-title" className="section-title">
             Versions
           </h2>
-          <ul className="mt-2 space-y-1">
+          <ul className="mt-3 divide-y divide-slate-100 [&>li]:py-2">
             {data.versions.map((v) => (
               <li key={v.id}>
                 Version {v.number}: {v.status}, sent {when(v.requestedAt)}
@@ -300,10 +303,10 @@ function SiteScreen({ data, reload }: { data: SiteDetailData; reload: () => Prom
         </section>
 
         <section className="card" aria-labelledby="generations-title">
-          <h2 id="generations-title" className="text-lg font-semibold">
+          <h2 id="generations-title" className="section-title">
             AI writing jobs
           </h2>
-          <ul className="mt-2 space-y-1">
+          <ul className="mt-3 divide-y divide-slate-100 [&>li]:py-2">
             {data.generations.map((g) => (
               <li key={g.id}>{jobLineText(g)}</li>
             ))}
@@ -312,10 +315,10 @@ function SiteScreen({ data, reload }: { data: SiteDetailData; reload: () => Prom
         </section>
 
         <section className="card" aria-labelledby="audit-title">
-          <h2 id="audit-title" className="text-lg font-semibold">
+          <h2 id="audit-title" className="section-title">
             History
           </h2>
-          <ul className="mt-2 space-y-1">
+          <ul className="mt-3 divide-y divide-slate-100 [&>li]:py-2">
             {data.audit.map((a, i) => (
               <li key={`${a.at}-${i}`}>
                 {when(a.at)}: {a.action} by {a.actor}
@@ -334,14 +337,14 @@ function DeletedAccount({ view }: { view: OwnerDeletionView }) {
   const heading = usePageHeading<HTMLHeadingElement>("Account deleted", "Admin");
   return (
     <section>
-      <h1 ref={heading} tabIndex={-1} className="text-2xl font-bold">
+      <h1 ref={heading} tabIndex={-1} className="page-title">
         Account deleted
       </h1>
       <p className="mt-2" role="status">
         {deletionResultText(view)}
       </p>
       <p className="mt-4">
-        <a href="/sites" onClick={onLinkClick} className="link">
+        <a href="/sites" onClick={onLinkClick} className="link back-link">
           Back to sites
         </a>
       </p>

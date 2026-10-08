@@ -9,7 +9,7 @@ export function NotFound() {
         Page not found
       </h1>
       <p className="mt-3">
-        <a href="/" className="link" onClick={onLinkClick}>
+        <a href="/" className="link back-link" onClick={onLinkClick}>
           Go to your websites
         </a>
       </p>
