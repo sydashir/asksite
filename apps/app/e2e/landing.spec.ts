@@ -45,7 +45,7 @@ test("the landing page says how logging in works now: a password, or an emailed 
   await page.goto("/");
   await expect(page.getByText("Sign up with your email and a password.", { exact: true })).toBeVisible();
   await page.getByText("How do I log in?", { exact: true }).click();
-  await expect(page.getByText("With your email and the password you chose when you signed up. Forgot it? We can email you a link to log in.", { exact: true })).toBeVisible();
+  await expect(page.getByText("With your email and your password. Forgot it, or never set one? We can email you a link to log in.", { exact: true })).toBeVisible();
   await expect(page.getByText(/no password/i)).toHaveCount(0);
 });
 
