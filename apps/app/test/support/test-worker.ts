@@ -5,6 +5,7 @@ import { deleteOwner, PublishError, TAKEDOWN_REVIEW_NOTE } from "@asksite/publis
 import type { Copy } from "@asksite/site-schema";
 import { Hono } from "hono";
 import type { Siteverify } from "../../src/worker/deps.ts";
+import { setPassword } from "../../src/worker/password.ts";
 import { requireTurnstile, SITEVERIFY_TIMEOUT_MS } from "../../src/worker/turnstile.ts";
 import type { AppEnv } from "../../src/worker/types.ts";
 import { createWorker } from "../../src/worker/worker.ts";
@@ -196,11 +197,27 @@ async function saveOtherTabs(db: D1Database): Promise<void> {
  * a test can prove which requests derive a key (the dummy hash, RULED 2026-10-08) without timing them.
  */
 let derives: Array<{ hash: unknown; iterations: unknown }> | null = null;
+/**
+ * IMP-2 (2026-10-08): armed by POST /__test/before-next-derive, the next PBKDF2 derive first runs the I2 clear for this email
+ * (the owner's first link sign-in landing mid-check: password and mark NULL, password sessions deleted), on the database of
+ * the request that derives (deriveDb), then derives. One-shot.
+ */
+let clearBeforeNextDerive: string | null = null;
+let deriveDb: D1Database | null = null;
 const realDeriveBits = SubtleCrypto.prototype.deriveBits;
 SubtleCrypto.prototype.deriveBits = function (this: SubtleCrypto, ...args: Parameters<SubtleCrypto["deriveBits"]>) {
   const [algorithm] = args;
   if (derives !== null && typeof algorithm === "object" && algorithm.name === "PBKDF2") derives.push({ hash: algorithm.hash, iterations: algorithm.iterations });
-  return realDeriveBits.apply(this, args);
+  const email = clearBeforeNextDerive;
+  const db = deriveDb;
+  if (email === null || db === null || typeof algorithm !== "object" || algorithm.name !== "PBKDF2") return realDeriveBits.apply(this, args);
+  clearBeforeNextDerive = null;
+  return db
+    .batch([
+      db.prepare("DELETE FROM sessions WHERE owner_id = (SELECT id FROM owners WHERE email = ?1) AND signed_in_with = 'password'").bind(email),
+      db.prepare("UPDATE owners SET password_hash = NULL, password_unconfirmed = NULL WHERE email = ?1").bind(email),
+    ])
+    .then(() => realDeriveBits.apply(this, args));
 };
 
 /** Per recorded path: the SQL text of every statement its requests prepared, oldest first. */
@@ -597,6 +614,22 @@ helpers.post("/__test/record-sql", async (c) => {
   return c.json({ ok: true });
 });
 
+/** Arms the one-shot clear before the next PBKDF2 derive (see clearBeforeNextDerive). */
+helpers.post("/__test/before-next-derive", async (c) => {
+  clearBeforeNextDerive = (await c.req.json<{ email: string }>()).email;
+  return c.json({ ok: true });
+});
+
+/** IMP-1 (2026-10-08): setPassword called directly for a session id hash, as a request that passed requireOwner just before its session was deleted. */
+helpers.post("/__test/set-password", async (c) => {
+  const { ownerId, email, sessionHash, newPassword } = await c.req.json<{ ownerId: string; email: string; sessionHash: string; newPassword: string }>();
+  try {
+    return c.json(await setPassword(c.env, { id: ownerId, email }, sessionHash, { newPassword }, Date.now()));
+  } catch (error) {
+    return c.json({ code: error instanceof ApiError ? error.code : errorName(error) }, 409);
+  }
+});
+
 /** Starts recording PBKDF2 derives afresh (see derives). */
 helpers.post("/__test/record-derives", (c) => {
   derives = [];
@@ -706,6 +739,7 @@ helpers.post("/__test/delete-owner", async (c) => {
 export default {
   fetch(request, env, ctx) {
     const path = new URL(request.url).pathname;
+    if (!path.startsWith("/__test/")) deriveDb = env.DB;
     return path.startsWith("/__test/") ? helpers.fetch(request, env, ctx) : worker.fetch!(request, withMediaHook(withImagesHook(withD1Hooks(env, path), path), path), counting(ctx, path));
   },
   scheduled(controller, env, ctx) {

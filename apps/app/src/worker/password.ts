@@ -41,17 +41,22 @@ async function reserveTry(db: D1Database, emailHash: string, now: number, messag
 export async function passwordLogin(env: Env, email: string, password: string, now: number): Promise<{ owner: OwnerView; sessionToken: string }> {
   const tryId = await reserveTry(env.DB, await emailKey(env, email), now, NO_MATCH);
   const owner = await env.DB.prepare("SELECT id, email, password_hash FROM owners WHERE email = ?").bind(email).first<{ id: string; email: string; password_hash: string | null }>();
-  if (!(await passwordMatches(password, owner?.password_hash ?? null)) || owner === null) throw new ApiError("login_failed", NO_MATCH);
+  if (!(await passwordMatches(password, owner?.password_hash ?? null)) || owner === null || owner.password_hash === null) throw new ApiError("login_failed", NO_MATCH);
   const sessionToken = newToken();
   const idHash = await sha256Hex(sessionToken);
+  // The session needs the hash just verified to still be stored (IMP-2): a password cleared (I2) or replaced (Q3) during the check gives none.
   const [session] = await env.DB.batch([
-    insertSession(env.DB, idHash, owner.id, now, "password"),
+    insertSession(env.DB, idHash, owner.id, now, owner.password_hash),
     env.DB
       .prepare("INSERT INTO audit_log (at, actor, action, site_id, detail_json) SELECT ?, ?, 'auth.login', NULL, ? WHERE EXISTS (SELECT 1 FROM sessions WHERE id_hash = ?)")
       .bind(now, `owner:${owner.id}`, JSON.stringify({ method: "password" }), idHash),
     env.DB.prepare(RELEASE_TRY_SQL).bind(tryId),
   ]);
-  if (session?.meta.changes !== 1) throw new ApiError("owner_disabled", OWNER_DISABLED);
+  if (session?.meta.changes !== 1) {
+    const latest = await env.DB.prepare("SELECT disabled_at FROM owners WHERE id = ?").bind(owner.id).first<{ disabled_at: number | null }>();
+    if (latest !== null && latest.disabled_at !== null) throw new ApiError("owner_disabled", OWNER_DISABLED);
+    throw new ApiError("login_failed", NO_MATCH);
+  }
   return { owner: { id: owner.id, email: owner.email }, sessionToken };
 }
 
@@ -60,6 +65,8 @@ const WRONG_CURRENT = "Your current password is not right.";
 const NEED_LINK = "To set a new password without your current one, log in again with an email link.";
 /** The same lock on the account page, where the log-in's words would not fit. */
 const CHANGE_LOCKED = "Too many wrong passwords. Try again in 15 minutes, or log in again with an email link to set a new one.";
+/** This request's session (?3, its id hash) still exists. */
+const SESSION_LIVE = "EXISTS (SELECT 1 FROM sessions WHERE id_hash = ?3)";
 const PASSWORD_CHANGED_ELSEWHERE = "Your password was changed somewhere else. Reload the page and try again.";
 
 /** What the account page needs: whether the owner has a password, and whether this session may set a new one without it. */
@@ -92,23 +99,26 @@ export async function setPassword(
   )
     .bind(now, sessionHash)
     .first<{ password_hash: string | null; link_session: number; skip_current: number }>();
-  const current = row?.password_hash ?? null;
+  // The session requireOwner found may have been deleted since (IMP-1: the owner's first link sign-in ends a squatter's sessions).
+  if (row === null) throw new ApiError("unauthenticated", "Please sign in");
+  const current = row.password_hash;
   let tryId: number | null = null;
   if (current !== null) {
     if (input.currentPassword === undefined) {
-      if (row?.skip_current !== 1) throw new ApiError("forbidden", NEED_LINK);
+      if (row.skip_current !== 1) throw new ApiError("forbidden", NEED_LINK);
     } else {
       tryId = await reserveTry(env.DB, await emailKey(env, owner.email), now, CHANGE_LOCKED);
       if (!(await passwordMatches(input.currentPassword, current))) throw new ApiError("forbidden", WRONG_CURRENT);
     }
   }
   const next = await hashPassword(input.newPassword);
-  const confirmed = row?.link_session === 1 ? ", password_unconfirmed = NULL" : "";
+  const confirmed = row.link_session === 1 ? ", password_unconfirmed = NULL" : "";
   const stored = "EXISTS (SELECT 1 FROM owners WHERE id = ?1 AND password_hash = ?2)";
   const statements = [
+    // Only while this request's session still exists (IMP-1), so a deleted session can never write a password.
     current === null
-      ? env.DB.prepare(`UPDATE owners SET password_hash = ?1${confirmed} WHERE id = ?2 AND password_hash IS NULL`).bind(next, owner.id)
-      : env.DB.prepare(`UPDATE owners SET password_hash = ?1${confirmed} WHERE id = ?2 AND password_hash = ?3`).bind(next, owner.id, current),
+      ? env.DB.prepare(`UPDATE owners SET password_hash = ?1${confirmed} WHERE id = ?2 AND password_hash IS NULL AND ${SESSION_LIVE}`).bind(next, owner.id, sessionHash)
+      : env.DB.prepare(`UPDATE owners SET password_hash = ?1${confirmed} WHERE id = ?2 AND password_hash = ?4 AND ${SESSION_LIVE}`).bind(next, owner.id, sessionHash, current),
     env.DB
       .prepare(`INSERT INTO audit_log (at, actor, action, site_id, detail_json) SELECT ?3, ?4, 'auth.password_set', NULL, ?5 WHERE ${stored}`)
       .bind(owner.id, next, now, `owner:${owner.id}`, JSON.stringify({ replaced: current !== null })),

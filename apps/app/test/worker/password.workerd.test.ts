@@ -300,6 +300,33 @@ describe("setting and changing the password", () => {
     expect(await storedHash(victim)).toBeNull();
   });
 
+  // IMP-1 (opus check, 2026-10-08): a request that passed requireOwner just before the owner's first link sign-in deleted its
+  // session must not set a password with it.
+  it("never sets a password for a session that is gone: the squatter's request after the owner's link sign-in is refused", async () => {
+    const victim = uniqueEmail("pw-gone-session");
+    const squatter = cookieOf(await signUp(victim, PASSWORD));
+    await linkLogIn(victim);
+    expect(await storedHash(victim)).toBeNull();
+    const ownerId = (await (await h.db()).prepare("SELECT id FROM owners WHERE email = ?").bind(victim).first<{ id: string }>())!.id;
+    const res = await h.call("POST", "/__test/set-password", { body: { ownerId, email: victim, sessionHash: await sha256Hex(squatter.split("=")[1] ?? ""), newPassword: OTHER } });
+    expect(res.status).toBe(409);
+    expect(await json<{ code: string }>(res)).toEqual({ code: "unauthenticated" });
+    expect(await storedHash(victim)).toBeNull();
+  });
+
+  // IMP-2 (opus check, 2026-10-08): the owner's first link sign-in lands while the squatter's right password is being checked.
+  it("gives no session to a password log-in whose password was cleared while it was checked", async () => {
+    const victim = uniqueEmail("pw-cleared-mid-check");
+    expect((await signUp(victim, PASSWORD)).status).toBe(200);
+    expect((await h.call("POST", "/__test/before-next-derive", { body: { email: victim } })).status).toBe(200);
+    const res = await logIn(victim, PASSWORD);
+    expect(res.status).toBe(401);
+    expect((await json<ErrorJson>(res)).error.code).toBe("login_failed");
+    expect(res.headers.get("Set-Cookie")).toBeNull();
+    const db = await h.db();
+    expect(await db.prepare("SELECT COUNT(*) AS n FROM sessions s JOIN owners o ON o.id = s.owner_id WHERE o.email = ? AND s.signed_in_with = 'password'").bind(victim).first()).toEqual({ n: 0 });
+  });
+
   // RULED 2026-10-08 (a), test (2): a link or invite session may skip the current password for 15 minutes after its sign-in.
   it("lets a link session skip the current password up to 15 minutes after its sign-in, and refuses it after that with the decided text", async () => {
     // A confirmed password (RULED I2: set from the invite's session), so each link sign-in below replaces it rather than clearing it.

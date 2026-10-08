@@ -127,7 +127,7 @@ export async function signUpWithPassword(env: Env, email: string, password: stri
       .bind(ownerId, email, now, passwordHash, inviteId),
     db.prepare("INSERT INTO sites (id, owner_id, created_at, updated_at) SELECT ?1, id, ?2, ?2 FROM owners WHERE id = ?3").bind(siteId, now, ownerId),
     db.prepare("UPDATE invites SET owner_id = ?1, site_id = ?2 WHERE id = ?3 AND EXISTS (SELECT 1 FROM owners WHERE id = ?1)").bind(ownerId, siteId, inviteId),
-    insertSession(db, sessionHash, ownerId, now, "password"),
+    insertSession(db, sessionHash, ownerId, now, passwordHash),
     db
       .prepare("INSERT INTO audit_log (at, actor, action, site_id, detail_json) SELECT ?1, 'owner:' || id, 'owner.signed_up', ?2, ?3 FROM owners WHERE id = ?4")
       .bind(now, siteId, JSON.stringify({ inviteId, method: "password" }), ownerId),
