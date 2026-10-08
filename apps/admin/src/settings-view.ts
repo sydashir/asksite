@@ -42,3 +42,25 @@ export interface TakedownView {
    */
   cleanupFailed?: true;
 }
+
+/**
+ * What one run of Delete the account deleted, as @asksite/publishing's deleteOwner counts it (restated here, once: the client imports no
+ * publishing code, and the Worker's deps.ts imports this). `attempts` above 1 means earlier runs deleted part and these are THIS run's counts.
+ */
+export interface OwnerDeletionCounts {
+  attempts: number;
+  siteIds: string[];
+  rows: { sites: number; site_versions: number; generations: number; uploads: number; leads: number; invites: number; sessions: number; login_tokens: number; dev_outbox: number; owners: 1 };
+  objects: { work: number; live: number; media: number };
+  auditRedacted: number;
+}
+
+/**
+ * What POST /api/admin/owners/:ownerId/delete answers once the owner is gone. `alreadyDeleted` is true when an earlier call finished it
+ * (counts is then null: nothing was deleted by this one).
+ */
+export interface OwnerDeletionView {
+  deleted: true;
+  alreadyDeleted: boolean;
+  counts: OwnerDeletionCounts | null;
+}

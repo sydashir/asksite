@@ -1,9 +1,9 @@
 import { ApiError, auditStatement, cleanOwnerText, logLine, readJson, runToEnd, siteNoticeEmail, trySend } from "@asksite/app-common";
-import { DisableOwnerBody, IndexableBody, TakedownBody, type AuditRow, type GenerationRow, type SiteVersionRow } from "@asksite/core";
+import { DeleteOwnerBody, DisableOwnerBody, IndexableBody, isId, TakedownBody, type AuditRow, type GenerationRow, type SiteVersionRow } from "@asksite/core";
 import { Hono } from "hono";
 import { z } from "zod";
-import { RESTORED_SINCE_OPENED, TAKEN_DOWN_SINCE_OPENED } from "../../messages.ts";
-import type { TakedownView } from "../../settings-view.ts";
+import { CONFIRM_EMAIL_MISMATCH, OWNER_DELETION_STARTED, OWNER_NOT_DISABLED, RESTORED_SINCE_OPENED, TAKEN_DOWN_SINCE_OPENED } from "../../messages.ts";
+import type { OwnerDeletionView, TakedownView } from "../../settings-view.ts";
 import { mailerEnv, siteWithOwner, toAdminSiteRow, toVersionSummary, type AdminSiteColumns } from "../db.ts";
 import type { AdminDeps, PublishErrorLike } from "../deps.ts";
 import { publishApiError, type PublishAction } from "../publish-errors.ts";
@@ -76,12 +76,14 @@ export function siteRoutes(deps: AdminDeps): Hono<AdminEnv> {
   sites.get("/sites/:siteId", async (c) => {
     const db = c.env.DB;
     const site = await siteWithOwner(db, c.req.param("siteId"));
-    const [versions, generations, leads, audit, restored] = await Promise.all([
+    const [versions, generations, leads, audit, restored, ownerSites] = await Promise.all([
       db.prepare(VERSION_HISTORY).bind(site.id).all<Pick<SiteVersionRow, "id" | "number" | "status" | "requested_at" | "reviewed_at" | "review_note">>(),
       db.prepare(GENERATION_HISTORY).bind(site.id).all<GenerationRow>(),
       db.prepare("SELECT COUNT(*) AS n FROM leads WHERE site_id = ?").bind(site.id).first<{ n: number }>(),
       db.prepare(SITE_AUDIT).bind(site.id).all<Pick<AuditRow, "at" | "actor" | "action" | "detail_json">>(),
       db.prepare(SITE_LAST_RESTORED).bind(site.id).first<{ at: number | null }>(),
+      // How many sites Delete the account would delete with this one (sites_owner index): the confirmation dialog says so.
+      db.prepare("SELECT COUNT(*) AS n FROM sites WHERE owner_id = ?").bind(site.owner_id).first<{ n: number }>(),
     ]);
     return c.json({
       site: toAdminSiteRow(site),
@@ -99,6 +101,7 @@ export function siteRoutes(deps: AdminDeps): Hono<AdminEnv> {
         attempts: g.attempts,
       })),
       leadCount: leads?.n ?? 0,
+      ownerSites: ownerSites?.n ?? 0,
       audit: audit.results.map((a) => ({ at: a.at, actor: a.actor, action: a.action, detail: a.detail_json === null ? null : JSON.parse(a.detail_json) })),
     });
   });
@@ -225,10 +228,36 @@ export function siteRoutes(deps: AdminDeps): Hono<AdminEnv> {
     return c.json({});
   });
 
-  /** 404 for an unknown owner before anything is written, so a refused change leaves no audit row (owners are never deleted). */
+  /** 404 for an unknown owner before anything is written, so a refused change leaves no audit row. Only Delete the account removes an owner, and it removes the row. */
   async function knownOwner(db: D1Database, ownerId: string): Promise<void> {
     const owner = await db.prepare("SELECT 1 AS found FROM owners WHERE id = ?").bind(ownerId).first();
     if (owner === null) throw new ApiError("not_found", "Not found");
+  }
+
+  /** The owner's account deletion has started (an owner.deletion_started row names it): same shape as deleteOwner's own read of it. */
+  const DELETION_STARTED = "SELECT 1 AS found FROM audit_log WHERE action = 'owner.deletion_started' AND site_id IS NULL AND json_extract(detail_json, '$.ownerId') = ?";
+
+  /** A started deletion refuses enable and disable (409): the owner is half deleted, and only Delete the account finishes it. */
+  async function refuseIfDeletionStarted(db: D1Database, ownerId: string): Promise<void> {
+    if ((await db.prepare(`${DELETION_STARTED} LIMIT 1`).bind(ownerId).first()) !== null) throw new ApiError("conflict", OWNER_DELETION_STARTED);
+  }
+
+  /** The audit row of an owner change, written only when the statement right before it in the batch changed a row (the auditIfChanged pattern of @asksite/publishing). */
+  function auditIfChanged(db: D1Database, entry: { at: number; actor: string; action: "owner.disabled" | "owner.enabled"; detail: Record<string, unknown> }): D1PreparedStatement {
+    return db
+      .prepare("INSERT INTO audit_log (at, actor, action, site_id, detail_json) SELECT ?, ?, ?, NULL, ? WHERE changes() = 1")
+      .bind(entry.at, entry.actor, entry.action, JSON.stringify(entry.detail));
+  }
+
+  /** The fence both owner changes carry (ruling Q-1): a started deletion changes nothing, even when it starts after the route's own check. */
+  const NO_DELETION_STARTED = `NOT EXISTS (${DELETION_STARTED})`;
+
+  /**
+   * After the fenced UPDATE of enable or disable. It changed a row: done. It changed none: a 409 when a deletion started (the race with the pre-check,
+   * ruling Q-1), else the owner was already in the state asked for (idempotence: the first values stay, no second audit row), which is done too, a 200.
+   */
+  async function refuseWhenUnchanged(db: D1Database, ownerId: string, changed: number | undefined): Promise<void> {
+    if (changed !== 1) await refuseIfDeletionStarted(db, ownerId);
   }
 
   sites.post("/owners/:ownerId/disable", async (c) => {
@@ -237,11 +266,18 @@ export function siteRoutes(deps: AdminDeps): Hono<AdminEnv> {
     const db = c.env.DB;
     const now = Date.now();
     await knownOwner(db, ownerId);
-    await db.batch([
-      db.prepare("UPDATE owners SET disabled_at = ?, disabled_reason = ? WHERE id = ?").bind(now, reason, ownerId),
+    await refuseIfDeletionStarted(db, ownerId);
+    // Order matters. The audit INSERT sits IMMEDIATELY after the UPDATE: its `changes() = 1` reads the row count of "the most recently completed INSERT, DELETE,
+    // or UPDATE statement" (https://www.sqlite.org/lang_corefunc.html#changes), so the sessions DELETE comes AFTER it, never between the two.
+    // An owner who is already disabled changes no row, so the first reason and time stay and no second owner.disabled row appears.
+    const results = await db.batch([
+      db
+        .prepare(`UPDATE owners SET disabled_at = ?, disabled_reason = ? WHERE id = ? AND disabled_at IS NULL AND ${NO_DELETION_STARTED}`)
+        .bind(now, reason, ownerId, ownerId),
+      auditIfChanged(db, { at: now, actor: `admin:${c.get("admin")}`, action: "owner.disabled", detail: { ownerId, reason } }),
       db.prepare("DELETE FROM sessions WHERE owner_id = ?").bind(ownerId),
-      auditStatement(db, { at: now, actor: `admin:${c.get("admin")}`, action: "owner.disabled", siteId: null, detail: { ownerId, reason } }),
     ]);
+    await refuseWhenUnchanged(db, ownerId, results[0]?.meta.changes);
     return c.json({});
   });
 
@@ -251,11 +287,39 @@ export function siteRoutes(deps: AdminDeps): Hono<AdminEnv> {
     const db = c.env.DB;
     const now = Date.now();
     await knownOwner(db, ownerId);
-    await db.batch([
-      db.prepare("UPDATE owners SET disabled_at = NULL, disabled_reason = NULL WHERE id = ?").bind(ownerId),
-      auditStatement(db, { at: now, actor: `admin:${c.get("admin")}`, action: "owner.enabled", siteId: null, detail: { ownerId } }),
+    await refuseIfDeletionStarted(db, ownerId);
+    // As disable: the audit INSERT directly after the UPDATE (https://www.sqlite.org/lang_corefunc.html#changes: changes() is the count of "the most recently
+    // completed INSERT, DELETE, or UPDATE statement"). An owner who is already enabled changes no row and adds no owner.enabled row.
+    const results = await db.batch([
+      db.prepare(`UPDATE owners SET disabled_at = NULL, disabled_reason = NULL WHERE id = ? AND disabled_at IS NOT NULL AND ${NO_DELETION_STARTED}`).bind(ownerId, ownerId),
+      auditIfChanged(db, { at: now, actor: `admin:${c.get("admin")}`, action: "owner.enabled", detail: { ownerId } }),
     ]);
+    await refuseWhenUnchanged(db, ownerId, results[0]?.meta.changes);
     return c.json({});
+  });
+
+  // Delete the account (spec §7.7): the owner must be disabled, and the admin types the owner's email back. The deletion is Part 1's deleteOwner; it takes the lease
+  // of every site, so it runs to its end under waitUntil like the takedown. The email is in the body only, and no log line holds it (the request line is the route pattern and status).
+  sites.post("/owners/:ownerId/delete", async (c) => {
+    const { confirmEmail } = await readJson(c, DeleteOwnerBody);
+    const ownerId = c.req.param("ownerId");
+    if (!isId(ownerId)) throw new ApiError("not_found", "Not found");
+    const result = await publishing(
+      () => runToEnd(c.executionCtx, deps.publishing.deleteOwner(c.env, { ownerId, confirmEmail, reviewer: c.get("admin"), now: Date.now() })),
+      "delete_owner",
+    );
+    switch (result.outcome) {
+      case "deleted":
+        return c.json({ deleted: true, alreadyDeleted: false, counts: result.counts } satisfies OwnerDeletionView);
+      case "already_deleted":
+        return c.json({ deleted: true, alreadyDeleted: true, counts: null } satisfies OwnerDeletionView);
+      case "not_found":
+        throw new ApiError("not_found", "Not found");
+      case "not_disabled":
+        throw new ApiError("conflict", OWNER_NOT_DISABLED);
+      case "email_mismatch":
+        throw new ApiError("validation_failed", CONFIRM_EMAIL_MISMATCH, { issues: [{ path: ["confirmEmail"], code: "email_mismatch", message: CONFIRM_EMAIL_MISMATCH }] });
+    }
   });
 
   return sites;

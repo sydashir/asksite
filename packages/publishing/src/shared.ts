@@ -146,13 +146,16 @@ export async function verifiedPages(
 /**
  * Copies every verified page to its immutable LIVE key. Nothing is served from them until the pointer names the version.
  * RESIDUAL: pages of a version approve copied and that never became live (approve failed or was refused before its D1
- * batch made it live: lease_lost, site_taken_down, version_not_pending, an R2 error), and other versions' pages a stopped
- * cleanup left (live_cleanup_skipped), stay in LIVE unserved (the pointer never names them) until the next approval's or
- * restore's cleanup or a takedown removes them. Pages restore or copyLivePagesAgain copied before a refusal are the live
+ * batch made it live: lease_lost, site_taken_down, version_not_pending, an R2 error) are deleted again, best effort, by
+ * removeUnservedCopy; when that cannot (logged approve_copy_left), and other versions' pages a stopped cleanup left
+ * (live_cleanup_skipped), they stay in LIVE unserved (the pointer never names them) until the next approval's or
+ * restore's cleanup, a takedown or the owner's account deletion removes them. Pages restore or copyLivePagesAgain copied before a refusal are the live
  * version's own: no cleanup removes them, and the next successful call serves them.
  */
 export async function copyLivePages(live: R2Bucket, slug: string, ids: { siteId: string; versionId: string }, pages: readonly VerifiedPage[]): Promise<void> {
-  await Promise.all(
+  // Every put settles before this returns or throws (the first failure is thrown): a put still in flight could land
+  // after approve's cleanup of a failed copy (removeUnservedCopy) and leave an object behind.
+  const settled = await Promise.allSettled(
     pages.map((p) =>
       live.put(livePageKey(slug, ids.versionId, p.page), p.bytes, {
         httpMetadata: { contentType: HTML_TYPE },
@@ -160,6 +163,38 @@ export async function copyLivePages(live: R2Bucket, slug: string, ids: { siteId:
       }),
     ),
   );
+  for (const result of settled) if (result.status === "rejected") throw result.reason;
+}
+
+/**
+ * Approve's failure path: deletes the pages this approve copied to LIVE (the exact keys, at most 5, no listing) when it
+ * failed before its batch made the version live, so a later slug change cannot leave them stored under the old slug.
+ * Only while D1 still shows this action's lease and a live version other than this one: a batch that committed and then
+ * threw, or an accepted retry, leaves the version live in D1, and "Approve again" writes its pointer; another action
+ * may own those keys once the lease is lost. A site row that is gone does not stop the delete (the owner's account was
+ * deleted meanwhile: nothing else would remove them). When the copies are LEFT (D1 unreadable, the lease lost, the
+ * delete failed) it logs ids only (approve_copy_left). Never throws: approve rethrows its own error.
+ */
+export async function removeUnservedCopy(
+  live: R2Bucket,
+  db: D1Database,
+  slug: string,
+  ids: { siteId: string; versionId: string },
+  token: string,
+  pages: readonly PageId[],
+): Promise<void> {
+  try {
+    const row = await db.prepare("SELECT live_version_id, admin_lock FROM sites WHERE id = ?").bind(ids.siteId).first<{ live_version_id: string | null; admin_lock: string | null }>();
+    if (row !== null) {
+      if (row.admin_lock !== token) throw new Error("copies left");
+      if (row.live_version_id === ids.versionId) return; // live in D1: the copies are its pages
+    }
+    // A site row that is gone (an owner deletion finished while this approve outlived its lease) leaves nobody to clean
+    // up later: these exact keys name this version id, which no other site can own, so they are deleted (never a prefix).
+    await live.delete(pages.map((page) => livePageKey(slug, ids.versionId, page)));
+  } catch {
+    console.error(JSON.stringify({ code: "approve_copy_left", siteId: ids.siteId, versionId: ids.versionId }));
+  }
 }
 
 /**

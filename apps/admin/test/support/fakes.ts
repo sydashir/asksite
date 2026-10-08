@@ -1,7 +1,7 @@
 import type { Mailer } from "@asksite/app-common";
 import { livePageKey, livePointerKey, liveSitePrefix, newId, pagesDigest, sha256Hex, siteUrl, versionPageKey, VersionPages, type SiteVersionRow } from "@asksite/core";
 import { formatPhone } from "@asksite/renderer";
-import { acquireLease, assertLease, PublishError as RealPublishError, releaseLease, TAKEDOWN_REVIEW_NOTE } from "@asksite/publishing";
+import { acquireLease, assertLease, deleteOwner as realDeleteOwner, PublishError as RealPublishError, releaseLease, TAKEDOWN_REVIEW_NOTE } from "@asksite/publishing";
 import type { SiteDocument } from "@asksite/site-schema";
 import { fakeCreateMailer, toGenerationView } from "../../../app/test/support/fakes.ts";
 import { RESTORE_SITE_SQL } from "../../../app/test/support/plan2b-statements.ts";
@@ -440,6 +440,18 @@ export const fakeAdminPublishing: AdminPublishingDeps = {
       env.DB.prepare("UPDATE sites SET indexable = ? WHERE id = ?").bind(input.indexable ? 1 : 0, input.siteId),
       audit(env.DB, input.now, input.reviewer, "site.indexable_changed", input.siteId, { indexable: input.indexable }),
     ]);
+  },
+  /**
+   * The REAL deleteOwner (customer data: a hand-written fake would copy its logic and drift), with its PublishError turned into this file's
+   * fake exactly as underLease does. The route's `instanceof deps.publishing.PublishError` sees only FakePublishError here, so a real one would be a 500.
+   */
+  async deleteOwner(env, input) {
+    try {
+      return await realDeleteOwner(env, input);
+    } catch (err) {
+      if (err instanceof RealPublishError) throw new FakePublishError(err.code, err.detail);
+      throw err;
+    }
   },
 };
 

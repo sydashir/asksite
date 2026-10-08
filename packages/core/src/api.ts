@@ -32,6 +32,8 @@ export const TakedownBody = z.strictObject({
 });
 export const IndexableBody = z.strictObject({ indexable: z.boolean() });
 export const DisableOwnerBody = z.strictObject({ reason: z.string().trim().min(1).max(1000) });
+// Account deletion: the owner's email typed back. No format check: only an exact match counts (a typo gets the mismatch answer).
+export const DeleteOwnerBody = z.strictObject({ confirmEmail: z.string().trim().min(1).max(254) });
 export const SettingsBody = z.strictObject({
   generationEnabled: z.boolean().optional(),
   dailyModelLimit: z.int().min(0).max(1000).optional(),

@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { headersFile } from "../../build-config.ts";
 import { TURNSTILE_TEST_SECRET, TURNSTILE_TEST_SITE_KEY } from "../support/turnstile.ts";
@@ -6,6 +6,7 @@ import { TURNSTILE_TEST_SECRET, TURNSTILE_TEST_SITE_KEY } from "../support/turns
 // §9.1 "Unsafe production configuration": the committed wrangler.jsonc is the production config.
 // It is kept as plain JSON (no comments) so this test can read it without a JSONC parser.
 const config = JSON.parse(readFileSync(new URL("../../wrangler.jsonc", import.meta.url), "utf8")) as {
+  main: unknown;
   compatibility_date: unknown;
   compatibility_flags?: string[];
   routes: unknown;
@@ -104,6 +105,20 @@ describe("production wrangler.jsonc", () => {
     ]);
   });
 
+  // Owner deletion (ruling Q-2, copied from apps/admin/test/worker/config.test.ts): the test Worker's /__test/* helpers (among them /__test/delete-owner, which
+  // runs the real deleteOwner) live only in test/support/test-worker.ts. The production entry is src/worker/index.ts, and nothing under src/ may name a /__test route.
+  it("is built from ./src/worker/index.ts, never from the test Worker", () => {
+    expect(config.main).toBe("./src/worker/index.ts");
+  });
+
+  it("exposes no /__test route: no file under src/ names one", () => {
+    const files = (dir: URL): string[] =>
+      readdirSync(dir, { withFileTypes: true }).flatMap((entry) => (entry.isDirectory() ? files(new URL(`${entry.name}/`, dir)) : [new URL(entry.name, dir).pathname]));
+    const sources = files(new URL("../../src/", import.meta.url));
+    expect(sources.length).toBeGreaterThan(10);
+    expect(sources.filter((file) => readFileSync(file, "utf8").includes("/__test"))).toEqual([]);
+  });
+
   it("serves the single-page app for every path except /api/*, which goes to the Worker first", () => {
     expect(config.assets).toEqual({ directory: "./dist/client", not_found_handling: "single-page-application", run_worker_first: ["/api/*"] });
   });
@@ -114,10 +129,21 @@ describe("test wrangler.test.jsonc", () => {
     name: string;
     compatibility_flags?: string[];
     vars: Record<string, string>;
+    r2_buckets: Array<{ binding: string; bucket_name: string }>;
   };
 
   it("turns Node.js compatibility off like production, so the tests run the runtime production runs (A13)", () => {
     expectNodeCompatOff(testConfig.compatibility_flags);
+  });
+
+  // Test K (owner deletion) runs the real deleteOwner through /__test/delete-owner, which needs the LIVE bucket. Only this test config binds it;
+  // production's pin (WORK and MEDIA only) is above, and the e2e config binds none (the seam then fails closed).
+  it("binds the live bucket for the delete-owner seam, in addition to the production buckets", () => {
+    expect(testConfig.r2_buckets.map((b) => [b.binding, b.bucket_name])).toEqual([
+      ["WORK", "asksite-work"],
+      ["MEDIA", "asksite-media"],
+      ["LIVE", "asksite-live"],
+    ]);
   });
 
   it("uses Cloudflare's documented always-pass Turnstile test keys and the production daily cap", () => {
@@ -133,10 +159,15 @@ describe("e2e wrangler.e2e.jsonc", () => {
   const e2eConfig = JSON.parse(readFileSync(new URL("../e2e/wrangler.e2e.jsonc", import.meta.url), "utf8")) as {
     compatibility_flags?: string[];
     vars: Record<string, string>;
+    r2_buckets: Array<{ binding: string; bucket_name: string }>;
   };
 
   it("turns Node.js compatibility off like production (A13), for the Vite-built Worker too", () => {
     expectNodeCompatOff(e2eConfig.compatibility_flags);
+  });
+
+  it("binds no live bucket: /__test/delete-owner fails closed there", () => {
+    expect(e2eConfig.r2_buckets.map((b) => b.binding)).toEqual(["WORK", "MEDIA"]);
   });
 
   it("uses Cloudflare's documented always-pass Turnstile test keys and the production daily cap (M6: every e2e run starts from an empty database)", () => {

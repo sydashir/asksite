@@ -1,5 +1,5 @@
 import { ApiError } from "@asksite/app-common";
-import { APPROVE_LEASE_LOST, APPROVE_LIVE_COPY_FAILED, COPY_LIVE_COPY_FAILED, LEASE_LOST, RESTORE_LIVE_COPY_FAILED, SITE_BUSY, TAKEDOWN_LEASE_LOST, TAKEN_DOWN_AGAIN } from "../messages.ts";
+import { APPROVE_LEASE_LOST, APPROVE_LIVE_COPY_FAILED, COPY_LIVE_COPY_FAILED, DELETE_LEASE_LOST, LEASE_LOST, OWNER_SITE_BUSY, RESTORE_LIVE_COPY_FAILED, SITE_BUSY, TAKEDOWN_LEASE_LOST, TAKEN_DOWN_AGAIN } from "../messages.ts";
 
 /** Plan 2's codes: design §7.2 plus `publish_cap_reached` (its decision 25), `site_not_found` (decision 28), `live_copy_failed` (A16) and `site_busy` (A16-4c). */
 export type PublishErrorCode =
@@ -15,7 +15,7 @@ export type PublishErrorCode =
   | "site_busy";
 
 /** Which admin action failed: the wording of several failures depends on it ("review" is Reject; Approve and the takedown have their own). */
-export type PublishAction = "review" | "approve" | "restore" | "copy" | "change" | "takedown";
+export type PublishAction = "review" | "approve" | "restore" | "copy" | "change" | "takedown" | "delete_owner";
 
 const detailField = (detail: unknown, name: string): unknown => (typeof detail === "object" && detail !== null ? (detail as Record<string, unknown>)[name] : undefined);
 
@@ -48,9 +48,12 @@ export function publishApiError(code: PublishErrorCode, action: PublishAction, d
     case "site_busy": {
       // lease_lost has no retryAfter and answers no Retry-After header: waiting would not help, a reload shows where the site stands.
       // The wording depends on what may already have happened: an approval or a takedown may have committed before the lease ran out.
-      if (detailField(detail, "reason") === "lease_lost") return new ApiError("conflict", action === "approve" ? APPROVE_LEASE_LOST : action === "takedown" ? TAKEDOWN_LEASE_LOST : LEASE_LOST);
+      if (detailField(detail, "reason") === "lease_lost") {
+        return new ApiError("conflict", action === "approve" ? APPROVE_LEASE_LOST : action === "takedown" ? TAKEDOWN_LEASE_LOST : action === "delete_owner" ? DELETE_LEASE_LOST : LEASE_LOST);
+      }
       const retryAfter = detailField(detail, "retryAfter");
-      return new ApiError("conflict", SITE_BUSY, typeof retryAfter === "number" && Number.isInteger(retryAfter) && retryAfter > 0 ? { retryAfter } : {});
+      // Delete the account takes the lease of every site of the owner: a held one is named for the owner ("Nothing was deleted").
+      return new ApiError("conflict", action === "delete_owner" ? OWNER_SITE_BUSY : SITE_BUSY, typeof retryAfter === "number" && Number.isInteger(retryAfter) && retryAfter > 0 ? { retryAfter } : {});
     }
     default:
       return null;

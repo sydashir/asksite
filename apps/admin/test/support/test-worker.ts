@@ -345,6 +345,75 @@ function withFault(env: TestEnv, fault: TakedownFault, path: string): TestEnv {
   return { ...env, DB: db, LIVE: live };
 }
 
+/**
+ * The faults a request can be given for Delete the account (header X-Test-Delete-Fault). "work-delete-once": the first delete of a LIST of keys in WORK
+ * (deleteOwner's WORK sweep, after the takedown) rejects, as an R2 outage would; every other call, and every later delete, passes through.
+ */
+type DeleteFault = "work-delete-once";
+
+function withDeleteFault(env: TestEnv, fault: DeleteFault): TestEnv {
+  let failed = false;
+  const work = new Proxy(env.WORK, {
+    get(target, key) {
+      if (key === "delete" && fault === "work-delete-once") {
+        return (keys: string | string[]) => {
+          if (Array.isArray(keys) && !failed) {
+            failed = true;
+            return Promise.reject(new Error("WORK delete failed: made by the test Worker"));
+          }
+          return target.delete(keys as string);
+        };
+      }
+      const value: unknown = Reflect.get(target, key);
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
+  return { ...env, WORK: work };
+}
+
+/**
+ * A race seam for the owner enable and disable routes (header X-Test-Deletion-Started-Race: <owner id>): another admin's Delete the account
+ * writes owner.deletion_started AFTER the route's pre-check read and BEFORE its fenced write. The wrapped D1 notes every bound statement that
+ * starts "UPDATE owners SET disabled_at" (the fenced write) and, when a batch holds one, inserts the row first, in the place the race would;
+ * only the fence in that UPDATE can then refuse the change. Statements stay the real ones (a batch takes only real statements), and every
+ * other call passes through. Test-only, in this Worker: no production code is involved.
+ */
+function racingDeletionStarted(db: D1Database, ownerId: string): D1Database {
+  const fenced = new WeakSet<object>();
+  const wrapStatement = (statement: D1PreparedStatement, sql: string): D1PreparedStatement =>
+    new Proxy(statement, {
+      get(target, key) {
+        if (key === "bind") {
+          return (...values: unknown[]) => {
+            const bound = target.bind(...values);
+            if (sql.startsWith("UPDATE owners SET disabled_at")) fenced.add(bound);
+            return bound;
+          };
+        }
+        const value: unknown = Reflect.get(target, key);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+  return new Proxy(db, {
+    get(target, key) {
+      if (key === "prepare") return (sql: string) => wrapStatement(target.prepare(sql), sql);
+      if (key === "batch") {
+        return async (statements: D1PreparedStatement[]) => {
+          if (statements.some((statement) => fenced.has(statement))) {
+            await target
+              .prepare("INSERT INTO audit_log (at, actor, action, site_id, detail_json) VALUES (?, 'admin:racer@example.com', 'owner.deletion_started', NULL, ?)")
+              .bind(Date.now(), JSON.stringify({ ownerId, siteIds: [] }))
+              .run();
+          }
+          return target.batch(statements);
+        };
+      }
+      const value: unknown = Reflect.get(target, key);
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
+}
+
 export default {
   fetch(request, env, ctx) {
     const path = new URL(request.url).pathname;
@@ -356,7 +425,12 @@ export default {
     // X-Test-Delay-Lease-Ms: <ms> runs the lease timing seam above for this request only.
     const delay = local ? Number(request.headers.get("X-Test-Delay-Lease-Ms") ?? "0") : 0;
     const baseEnv = raced !== null ? { ...env, DB: disablingBeforeTokenInsert(env.DB, raced) } : fault !== null ? withFault(env, fault, path) : env;
-    const requestEnv = delay > 0 ? { ...baseEnv, DB: delayingLease(baseEnv.DB, delay) } : baseEnv;
+    const leased = delay > 0 ? { ...baseEnv, DB: delayingLease(baseEnv.DB, delay) } : baseEnv;
+    // X-Test-Delete-Fault: work-delete-once and X-Test-Deletion-Started-Race: <owner id> run the seams above for this request only.
+    const deleteFault = local ? (request.headers.get("X-Test-Delete-Fault") as DeleteFault | null) : null;
+    const startedRace = local ? request.headers.get("X-Test-Deletion-Started-Race") : null;
+    const faulted = deleteFault !== null ? withDeleteFault(leased, deleteFault) : leased;
+    const requestEnv = startedRace !== null ? { ...faulted, DB: racingDeletionStarted(faulted.DB, startedRace) } : faulted;
     // X-Test-Now pins Date.now() while the Worker handles this request (./clock.ts).
     const handler = local && request.headers.has("X-Test-Unsafe-Live-Url") ? unsafeUrlWorker : worker;
     return withClock(request, local, async () => handler.fetch!(request, requestEnv, counting(ctx, path)));

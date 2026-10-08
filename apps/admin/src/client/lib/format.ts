@@ -1,4 +1,5 @@
-import type { TakedownView } from "../../settings-view.ts";
+import { CONFIRM_EMAIL_MISMATCH } from "../../messages.ts";
+import type { OwnerDeletionView, TakedownView } from "../../settings-view.ts";
 
 export const when = (ms: number | null): string => (ms === null ? "" : new Date(ms).toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" }));
 export const dollars = (microusd: number): string => `$${(microusd / 1_000_000).toFixed(2)}`;
@@ -109,3 +110,25 @@ export function takedownResult(view: TakedownView, previous: TakedownResult | nu
 /** The Invites screen's notice after a revoke: "revoked" only when it worked; otherwise the server's own words (an already used invite says so). */
 export const revokeNotice = (res: { ok: true } | { ok: false; error: { message: string } }, email: string): { tone: "success" | "error"; text: string } =>
   res.ok ? { tone: "success", text: `Invite for ${email} revoked.` } : { tone: "error", text: res.error.message };
+
+/** What is wrong with the email typed to confirm Delete the account, or null. Spaces and letter case do not matter (the server compares the same way). */
+export function confirmEmailProblem(typed: string, ownerEmail: string): string | null {
+  const email = typed.trim().toLowerCase();
+  if (email === "") return "Type the owner's email to confirm.";
+  return email === ownerEmail.trim().toLowerCase() ? null : CONFIRM_EMAIL_MISMATCH;
+}
+
+const plural = (n: number, one: string, many: string): string => `${n} ${n === 1 ? one : many}`;
+
+/** The confirm dialog's text: names the owner and how many sites go. */
+export const deleteDialogText = (ownerEmail: string, sites: number): string =>
+  `This permanently deletes the account of ${ownerEmail} and its ${plural(sites, "site", "sites")}: every version, photo, message from visitors and AI writing job. It cannot be undone.`;
+
+/** What the result screen says: nothing (an earlier press finished it), or what THIS run deleted; above one attempt, earlier attempts deleted the rest. */
+export function deletionResultText(view: OwnerDeletionView): string {
+  if (view.alreadyDeleted || view.counts === null) return "This account was already deleted. Nothing more was deleted.";
+  const { rows, attempts } = view.counts;
+  const list = `${plural(rows.sites, "site", "sites")}, ${plural(rows.site_versions, "version", "versions")}, ${plural(rows.uploads, "photo", "photos")}, ${plural(rows.leads, "message", "messages")} and ${plural(rows.generations, "AI writing job", "AI writing jobs")}`;
+  const base = `Deleted ${list}, and the account.`;
+  return attempts > 1 ? `${base} This was attempt ${attempts}: earlier attempts deleted the rest, so these are only what this one deleted.` : base;
+}

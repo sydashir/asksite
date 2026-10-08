@@ -8,6 +8,7 @@ import {
   NEVER_IN_COPY,
   PAGE_IDS,
   PALETTE_IDS,
+  SECTION_PAGE,
   SECTION_VARIANTS,
   proseIn,
   SiteDocument,
@@ -16,6 +17,7 @@ import {
   type DesignId,
   type HideableSectionId,
   type PageId,
+  type SectionId,
   type SiteDocumentInput,
 } from "@asksite/site-schema";
 import { describe, expect, it } from "vitest";
@@ -87,6 +89,25 @@ const unbacked = (input: SiteDocumentInput): SiteDocumentInput =>
   switchedOff(input, ({ yearFounded: _year, ...facts }) => ({ ...facts, insured: false, licences: [], emergency247: false, freeEstimates: false }));
 
 const withHidden = (input: SiteDocumentInput, hidden: readonly HideableSectionId[]): SiteDocumentInput => ({ ...input, hidden: [...hidden] });
+
+/**
+ * Every order an owner can give the sections (U1: only within a page; the hero stays first): each page's sections in
+ * every order, combined across pages, so each section takes every position its page has (first, middle, last).
+ */
+function ownerOrders(input: SiteDocumentInput): SiteDocumentInput[] {
+  const orders = <T,>(items: readonly T[]): T[][] =>
+    items.length <= 1 ? [[...items]] : items.flatMap((item, i) => orders([...items.slice(0, i), ...items.slice(i + 1)]).map((rest) => [item, ...rest]));
+  const ids = input.layout.map((s) => s.id);
+  const perPage = PAGE_IDS.map((page) => {
+    const own = ids.filter((id) => SECTION_PAGE[id] === page);
+    return own[0] === "hero" ? orders(own.slice(1)).map((rest) => ["hero" as SectionId, ...rest]) : orders(own);
+  });
+  const layouts = perPage.reduce<SectionId[][]>((all, pageOrders) => all.flatMap((before) => pageOrders.map((order) => [...before, ...order])), [[]]);
+  return layouts.map((order) => ({ ...input, layout: order.map((id) => input.layout.find((s) => s.id === id)!) }) as SiteDocumentInput);
+}
+
+/** The owner's section order of `input`, as its section ids. */
+const orderOf = (input: SiteDocumentInput): string => input.layout.map((s) => s.id).join(",");
 
 /** What an owner can hide (amendment A6): each hideable section alone, then all of them. */
 const HIDE_SETS: readonly (readonly HideableSectionId[])[] = [...HIDEABLE_SECTIONS.map((id) => [id]), HIDEABLE_SECTIONS];
@@ -427,6 +448,9 @@ describe("the invariant checks can fail (RED proof, on edited pages)", () => {
     ["testimonials:[]", (facts) => ({ ...facts, testimonials: [] })],
   ];
   const credentialOff = (design: DesignId) => CREDENTIAL_OFF.map(([name, change]) => [name, switchedOff(inDesign(loadFixture("plumber-austin"), design), change)] as const);
+  /** Each credential switched off, in every order the owner can give the sections: a claim a design prints only for a later section is seen. */
+  const credentialOffInEveryOrder = (design: DesignId) =>
+    CREDENTIAL_OFF.flatMap(([name, change]) => ownerOrders(inDesign(loadFixture("plumber-austin"), design)).map((input) => [name, orderOf(input), switchedOff(input, change)] as const));
 
   it("starts from a plumber whose every credential is backed, and each variant really switches one off", () => {
     const facts = Facts.parse(loadFixture("plumber-austin").facts);
@@ -442,22 +466,40 @@ describe("the invariant checks can fail (RED proof, on edited pages)", () => {
     ]);
   });
 
+  it("switches each credential off in every order the owner can give the sections: each section at every place of its page", () => {
+    const layouts = ownerOrders(inDesign(loadFixture("plumber-austin"), "impact")).map((input) => input.layout.map((s) => s.id));
+    expect(layouts).toHaveLength(8); // Home's trust and reviews, Services' two and Contact's two, each either way; the hero stays first
+    expect(new Set(layouts.map((ids) => ids.join())).size).toBe(layouts.length);
+    for (const page of PAGE_IDS) {
+      const own = (ids: readonly SectionId[]) => ids.filter((id) => SECTION_PAGE[id] === page);
+      const places = new Set(layouts.flatMap((ids) => own(ids).map((id, place) => `${id}@${place}`)));
+      const sections = own(layouts[0]!);
+      const movable = sections.filter((id) => id !== "hero");
+      const expected = movable.flatMap((id) => sections.map((_, place) => place).filter((place) => sections[0] !== "hero" || place > 0).map((place) => `${id}@${place}`));
+      for (const place of expected) expect(places, `${page}: ${place}`).toContain(place);
+    }
+    expect(credentialOffInEveryOrder("impact")).toHaveLength(CREDENTIAL_OFF.length * 8);
+  });
+
+  // In every order the owner can give the sections (credentialOffInEveryOrder; the name stays, Plan 3's GATES line names it).
   it.each(DESIGN_IDS)("keeps no unbacked credential claim with each credential switched off (%s)", (design) => {
-    const problems = credentialOff(design).map(([name, input]) => {
+    const problems = credentialOffInEveryOrder(design).map(([name, order, input]) => {
       const { doc, site, baseline } = sites(input);
-      return [name, invariantProblems(site, baseline, doc, DESIGNS[design])] as const;
+      return [name, order, invariantProblems(site, baseline, doc, DESIGNS[design])] as const;
     });
-    expect(problems).toEqual(CREDENTIAL_OFF.map(([name]) => [name, []]));
+    expect(problems).toHaveLength(CREDENTIAL_OFF.length * 8);
+    expect(problems.filter(([, , found]) => found.length > 0)).toEqual([]);
   });
 
   // Today's own text is the baseline the check above compares with, so it is checked absolutely too: with each credential
   // switched off, today's pages, titles and descriptions state no claim (the plumber's own reviews hold none).
   it("keeps today's own text free of claims with each credential switched off", () => {
-    const claims = credentialOff("impact").map(([name, input]) => {
+    const claims = credentialOffInEveryOrder("impact").map(([name, order, input]) => {
       const { doc, baseline } = sites(input);
-      return [name, [...new Set(baseline.pages.flatMap((p) => pageClaims(p.html, doc.facts)))]] as const;
+      return [name, order, [...new Set(baseline.pages.flatMap((p) => pageClaims(p.html, doc.facts)))]] as const;
     });
-    expect(claims).toEqual(CREDENTIAL_OFF.map(([name]) => [name, []]));
+    expect(claims).toHaveLength(CREDENTIAL_OFF.length * 8);
+    expect(claims.filter(([, , found]) => found.length > 0)).toEqual([]);
   });
 
   // RED proof: a design that prints a credential for owners who have another one is caught for the owner who lacks it.
@@ -475,6 +517,18 @@ describe("the invariant checks can fail (RED proof, on edited pages)", () => {
     expect(caught.map(([name]) => name)).toEqual([variant]);
     expect(caught[0]?.[1]).toEqual(PAGES_OF_PLUMBER.map((path) => `${path}: unbacked claims ${JSON.stringify(claims)}`));
     expect(problemsOf(loadFixture("plumber-austin"), probe)).toEqual([]); // every credential backed: the same words are fine
+  });
+
+  // RED proof (Plan 3 backlog, 2026-10-06): a credential a design prints only when the owner puts the credentials later
+  // in Home's order (as Bold's hero line does, owner facts only) is seen too, in those orders only.
+  const credentialsAfterReviews = (layout: readonly { id: SectionId }[]) => layout.findIndex((s) => s.id === "trust") > layout.findIndex((s) => s.id === "testimonials");
+  const printsInsuredWhenCredentialsComeLate: Design = { ...BASELINE, footer: (ctx) => html`${BASELINE.footer(ctx)}${credentialsAfterReviews(ctx.doc.layout) && html`\n<p>Insured</p>`}` };
+  it("catch a footer that prints Insured only when the owner puts the credentials after the reviews, in those orders only", () => {
+    const caught = credentialOffInEveryOrder("impact").map(([name, order, input]) => [name, order, problemsOf(input, printsInsuredWhenCredentialsComeLate)] as const).filter(([, , found]) => found.length > 0);
+    const late = ownerOrders(inDesign(loadFixture("plumber-austin"), "impact")).filter((input) => credentialsAfterReviews(input.layout)).map(orderOf);
+    expect(late.length).toBeGreaterThan(0);
+    expect(caught.map(([name, order]) => [name, order])).toEqual(late.map((order) => ["insured:false", order]));
+    for (const [, , found] of caught) expect(found).toEqual(PAGES_OF_PLUMBER.map((path) => `${path}: unbacked claims ["insured"]`));
   });
 
   // The claims the yearFounded and testimonials facts back: time in business, and reviews.

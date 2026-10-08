@@ -538,16 +538,17 @@ describe("the sweeper's end-states and the allowance counts, end to end (task-10
   const jobEnv = (generationEnabled: string): JobEnv => ({
     DB: cannotReadBack(), GENERATION_ENABLED: generationEnabled, DAILY_MODEL_LIMIT: "30", ENVIRONMENT: "development", MODEL_PROVIDER: "fake", MODEL_ID: "fake-template",
   });
+  // A swept job that took a model slot keeps it, and the sweeper records no cost (0): Plan 4's admin cost labels rely on both.
   type Stuck = { kind: "first" | "regenerate"; claimed?: "with a model slot" | "without a model slot"; unreadable?: true; end: Partial<GenerationRow>; today: boolean };
 
   it.each<[string, Stuck]>([
     ["a queued regeneration ends failed and counts toward neither", { kind: "regenerate", end: { status: "failed", error_code: "internal", started_at: null, model_slot: 0, output_json: null }, today: false }],
     ["a queued first build whose input cannot be read ends failed and counts toward neither", { kind: "first", unreadable: true, end: { status: "failed", error_code: "internal", started_at: null, model_slot: 0, output_json: null }, today: false }],
     ["a queued first build gets the template and counts toward the day only", { kind: "first", end: { status: "succeeded", used_fallback: 1, fallback_reason: "provider_error", error_code: null, started_at: null, model_slot: 0 }, today: true }],
-    ["a running regeneration with a model slot ends failed and counts toward the day only", { kind: "regenerate", claimed: "with a model slot", end: { status: "failed", error_code: "internal", started_at: START, model_slot: 1, output_json: null }, today: true }],
+    ["a running regeneration with a model slot ends failed and counts toward the day only", { kind: "regenerate", claimed: "with a model slot", end: { status: "failed", error_code: "internal", started_at: START, model_slot: 1, cost_microusd: 0, output_json: null }, today: true }],
     ["a running regeneration without a model slot ends failed and counts toward the day only", { kind: "regenerate", claimed: "without a model slot", end: { status: "failed", error_code: "internal", started_at: START, model_slot: 0, output_json: null }, today: true }],
-    ["a running first build gets the template and counts toward the day only", { kind: "first", claimed: "with a model slot", end: { status: "succeeded", used_fallback: 1, fallback_reason: "provider_error", error_code: null, started_at: START, model_slot: 1 }, today: true }],
-    ["a running first build whose input cannot be read ends failed and counts toward the day only", { kind: "first", claimed: "with a model slot", unreadable: true, end: { status: "failed", error_code: "internal", started_at: START, model_slot: 1, output_json: null }, today: true }],
+    ["a running first build gets the template and counts toward the day only", { kind: "first", claimed: "with a model slot", end: { status: "succeeded", used_fallback: 1, fallback_reason: "provider_error", error_code: null, started_at: START, model_slot: 1, cost_microusd: 0 }, today: true }],
+    ["a running first build whose input cannot be read ends failed and counts toward the day only", { kind: "first", claimed: "with a model slot", unreadable: true, end: { status: "failed", error_code: "internal", started_at: START, model_slot: 1, cost_microusd: 0, output_json: null }, today: true }],
   ])("%s", async (_name, stuck) => {
     // A regeneration needs a site whose first build succeeded; that was long ago, so it counts toward nothing today.
     if (stuck.kind === "regenerate") await insertGeneration(db, { id: "built", site_id: "s1", owner_id: "o1", status: "succeeded", created_at: 1, started_at: 1, finished_at: 1 });

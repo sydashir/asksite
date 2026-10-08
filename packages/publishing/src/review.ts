@@ -1,6 +1,6 @@
 import { newId, siteUrl } from "@asksite/core";
 import { PublishError } from "./errors.ts";
-import { acquireLease, assertLease, auditIfChanged, copyLivePages, holdsDownSite, liveMetadata, releaseLease, removeOtherVersions, type TakeBackRow, takeBackPointer, verifiedPages, writeLivePointer } from "./shared.ts";
+import { acquireLease, assertLease, auditIfChanged, copyLivePages, holdsDownSite, liveMetadata, releaseLease, removeOtherVersions, removeUnservedCopy, type TakeBackRow, takeBackPointer, verifiedPages, writeLivePointer } from "./shared.ts";
 
 interface VersionForReview {
   site_id: string;
@@ -23,7 +23,9 @@ interface VersionForReview {
  * 2) a version that will be refused copies nothing: it must be the site's pending version (or the accepted
  *    retry: approved, live and not taken down);
  * 3) every stored page must still hash to the hash the row records;
- * 4) every page is copied to its own immutable LIVE key (nothing is served from those yet);
+ * 4) every page is copied to its own immutable LIVE key (nothing is served from those yet); if a later step before the
+ *    version is live fails, the copies are deleted again (removeUnservedCopy: only while this action holds the lease and
+ *    D1 does not show the version live; logged approve_copy_left when they are left);
  * 5) one conditional D1 batch makes the version the live one (a retry after a failed step 6 is accepted);
  * 6) one write of the site's LIVE pointer, with the ids and the business name and phone as metadata, switches
  *    every page to the new version at once. The sites Worker serves a version only while D1 says it is live.
@@ -77,24 +79,31 @@ async function approveUnderLease(
   if (!pendingOne && !acceptedRetry) throw new PublishError("version_not_pending");
   const pages = await verifiedPages(env.WORK, { site_id: siteId, id: versionId, pages_json: row.pages_json, html_key: row.html_key, html_sha256: row.html_sha256 });
   const business = liveMetadata(row.document_json); // read before the batch: if it throws, nothing has changed
-  await copyLivePages(env.LIVE, slug, { siteId, versionId }, pages);
+  // From the first copy to the end of the refusal block, a failure leaves the copies unserved: they are deleted again
+  // (removeUnservedCopy, best effort), so a later slug change cannot strand them under the old slug.
+  try {
+    await copyLivePages(env.LIVE, slug, { siteId, versionId }, pages);
 
-  const results = await db.batch([
-    db.prepare("UPDATE sites SET live_version_id = ?, pending_version_id = NULL, indexable = ?, updated_at = ? WHERE id = ? AND pending_version_id = ? AND taken_down_at IS NULL AND admin_lock = ?")
-      .bind(versionId, indexable ? 1 : 0, now, siteId, versionId, token),
-    db.prepare(`UPDATE site_versions SET status = 'approved', reviewed_by = ?, reviewed_at = ?, review_note = ? WHERE id = ? AND status = 'pending' AND EXISTS (SELECT 1 FROM sites WHERE id = ? AND live_version_id = ? AND admin_lock = ?)`)
-      .bind(reviewer, now, note, versionId, siteId, versionId, token),
-    auditIfChanged(db, { at: now, actor: `admin:${reviewer}`, action: "version.approved", siteId, detail: { versionId, indexable } }),
-  ]);
+    const results = await db.batch([
+      db.prepare("UPDATE sites SET live_version_id = ?, pending_version_id = NULL, indexable = ?, updated_at = ? WHERE id = ? AND pending_version_id = ? AND taken_down_at IS NULL AND admin_lock = ?")
+        .bind(versionId, indexable ? 1 : 0, now, siteId, versionId, token),
+      db.prepare(`UPDATE site_versions SET status = 'approved', reviewed_by = ?, reviewed_at = ?, review_note = ? WHERE id = ? AND status = 'pending' AND EXISTS (SELECT 1 FROM sites WHERE id = ? AND live_version_id = ? AND admin_lock = ?)`)
+        .bind(reviewer, now, note, versionId, siteId, versionId, token),
+      auditIfChanged(db, { at: now, actor: `admin:${reviewer}`, action: "version.approved", siteId, detail: { versionId, indexable } }),
+    ]);
 
-  if (results[1]?.meta.changes !== 1) {
-    await assertLease(db, siteId, token); // a fenced write that changed nothing under a lost lease is not "already live"
-    const state = await db
-      .prepare("SELECT v.status, s.live_version_id, s.taken_down_at FROM site_versions v JOIN sites s ON s.id = v.site_id WHERE v.id = ?")
-      .bind(versionId)
-      .first<{ status: string; live_version_id: string | null; taken_down_at: number | null }>();
-    const alreadyLive = state !== null && state.status === "approved" && state.live_version_id === versionId && state.taken_down_at === null;
-    if (!alreadyLive) throw new PublishError(state !== null && state.taken_down_at !== null ? "site_taken_down" : "version_not_pending");
+    if (results[1]?.meta.changes !== 1) {
+      await assertLease(db, siteId, token); // a fenced write that changed nothing under a lost lease is not "already live"
+      const state = await db
+        .prepare("SELECT v.status, s.live_version_id, s.taken_down_at FROM site_versions v JOIN sites s ON s.id = v.site_id WHERE v.id = ?")
+        .bind(versionId)
+        .first<{ status: string; live_version_id: string | null; taken_down_at: number | null }>();
+      const alreadyLive = state !== null && state.status === "approved" && state.live_version_id === versionId && state.taken_down_at === null;
+      if (!alreadyLive) throw new PublishError(state !== null && state.taken_down_at !== null ? "site_taken_down" : "version_not_pending");
+    }
+  } catch (error) {
+    await removeUnservedCopy(env.LIVE, db, slug, { siteId, versionId }, token, pages.map((p) => p.page));
+    throw error;
   }
 
   await assertLease(db, siteId, token); // R2 cannot be conditioned on D1 (residual: see assertLease)

@@ -13,20 +13,26 @@ const DAY_MS = 86_400_000;
 const SIGNUPS_PER_NETWORK_PER_DAY = 3;
 const SIGNUPS_PER_EMAIL_PER_HOUR = 1;
 const SIGNUPS_PER_EMAIL_PER_DAY = 3;
+/** I1 (DECIDED 2026-10-07): sign-ups may use at most half of the day's cap (20 of 40), so sign-in always keeps the rest. */
+const signupsPerDay = (perDay: number): number => Math.floor(perDay / 2);
+
+/** A request's network row detail: the same key as AUTH_RL's (the address, or its /64 for IPv6, Plan 2 decision 27), hashed with IP_HASH_KEY. */
+export async function networkDetail(env: Env, ip: string): Promise<string> {
+  return JSON.stringify({ ipHash: await hashIp(env.IP_HASH_KEY, ipRateKey(ip)) });
+}
 
 /**
  * Runs after the 202 for an address with no owner: a self-serve invite (created_by 'signup', no admin) and its email. The
  * existing invite-accept path then creates the owner and the site. In order: the network's limit (its row counts even if
- * nothing is sent), then the invite within the address's limits and the day's cap for all sign-in emails, all counted in
- * the INSERT itself, then the email. A failed email deletes the invite: no live link, and it counts toward nothing.
+ * nothing is sent), then the invite within the address's limits, the sign-ups' half of the day (I1) and the day's cap for
+ * all sign-in emails, all counted in the INSERT itself, then the email. A failed email deletes the invite: no live link,
+ * and it counts toward nothing. `network` is networkDetail's value.
  */
-export async function sendSignupLink(env: Env, deps: AppDeps, email: string, ip: string, now: number): Promise<void> {
+export async function sendSignupLink(env: Env, deps: AppDeps, email: string, network: string, now: number): Promise<void> {
   const dayStart = utcDayStart(now);
   const perDay = loginEmailsPerDay(env.LOGIN_EMAILS_PER_DAY);
-  // The same key as AUTH_RL's: the address, or its /64 for IPv6 (Plan 2 decision 27), hashed with IP_HASH_KEY.
-  const detail = JSON.stringify({ ipHash: await hashIp(env.IP_HASH_KEY, ipRateKey(ip)) });
-  const network = await env.DB.prepare(NETWORK_SIGNUP_SQL).bind(now, detail, dayStart, SIGNUPS_PER_NETWORK_PER_DAY).run();
-  if (network.meta.changes !== 1) {
+  const row = await env.DB.prepare(NETWORK_SIGNUP_SQL).bind(now, network, dayStart, SIGNUPS_PER_NETWORK_PER_DAY).run();
+  if (row.meta.changes !== 1) {
     logLine({ event: "signup_network_limit" });
     return;
   }
@@ -39,6 +45,7 @@ export async function sendSignupLink(env: Env, deps: AppDeps, email: string, ip:
      WHERE NOT EXISTS (SELECT 1 FROM owners WHERE email = ?3)
        AND (SELECT COUNT(*) FROM invites WHERE created_by = 'signup' AND email = ?3 AND created_at > ?6) < ?7
        AND (SELECT COUNT(*) FROM invites WHERE created_by = 'signup' AND email = ?3 AND created_at > ?8) < ?9
+       AND (SELECT COUNT(*) FROM invites WHERE created_by = 'signup' AND created_at >= ?10) < ?12
        AND ${sentToday("?10")} < ?11`,
   )
     .bind(
@@ -53,11 +60,14 @@ export async function sendSignupLink(env: Env, deps: AppDeps, email: string, ip:
       SIGNUPS_PER_EMAIL_PER_DAY,
       dayStart,
       perDay,
+      signupsPerDay(perDay),
     )
     .run();
   if (inserted.meta.changes !== 1) {
-    // Which limit refused it, for the log line only: the day's cap logs as sign-in does, anything else as the address's.
-    logLine({ event: (await countSentToday(env.DB, dayStart)) >= perDay ? "login_email_cap_reached" : "signup_email_limit" });
+    // Which limit refused it, for the log line only: the day's cap logs as sign-in does, then the sign-ups' half, else the address's.
+    const signups = await env.DB.prepare("SELECT COUNT(*) AS n FROM invites WHERE created_by = 'signup' AND created_at >= ?").bind(dayStart).first<{ n: number }>();
+    const event = (await countSentToday(env.DB, dayStart)) >= perDay ? "login_email_cap_reached" : (signups?.n ?? 0) >= signupsPerDay(perDay) ? "signup_cap_reached" : "signup_email_limit";
+    logLine({ event });
     return;
   }
   const content = signupInviteEmail({ appOrigin: env.APP_ORIGIN, token });

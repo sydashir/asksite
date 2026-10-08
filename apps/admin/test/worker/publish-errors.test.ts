@@ -49,6 +49,28 @@ describe("publishApiError", () => {
       expect(publishApiError("site_busy", "takedown", { retryAfter: 5 })).toMatchObject({ message: "Another admin action on this site is still running. Try again in a minute.", extra: { retryAfter: 5 } });
     });
 
+    // Delete the account (owner data deletion): the same two site_busy failures, in the words of an owner with several sites. The union is untouched (D-B).
+    it("Delete the account: a held site is a 409 that says nothing was deleted, with Retry-After", () => {
+      expect(publishApiError("site_busy", "delete_owner", { retryAfter: 5 })).toMatchObject({
+        code: "conflict",
+        message: "Another admin action on one of this owner's sites is still running. Nothing was deleted. Try again in a minute.",
+        extra: { retryAfter: 5 },
+      });
+    });
+
+    it("Delete the account: a lost lease is a 409 that says to press Finish deleting the account, with no Retry-After", () => {
+      const error = publishApiError("site_busy", "delete_owner", { reason: "lease_lost" });
+      expect(error).toMatchObject({ code: "conflict", message: "The deletion ran too long and stopped before it finished. Press Finish deleting the account." });
+      expect(error?.extra).toEqual({});
+    });
+
+    it("Delete the account changes no other action's words, and its other codes stay as they were", () => {
+      expect(publishApiError("site_busy", "restore", { retryAfter: 5 })?.message).toBe("Another admin action on this site is still running. Try again in a minute.");
+      expect(publishApiError("site_busy", "restore", { reason: "lease_lost" })?.message).toBe("This action ran too long and was stopped before it finished. Reload to see where the site stands now, then try again.");
+      expect(publishApiError("site_not_found", "delete_owner")).toMatchObject({ code: "not_found" });
+      expect(publishApiError("integrity", "delete_owner")).toMatchObject({ code: "internal" });
+    });
+
     it("a taken-down-again restore says so; a site_taken_down without that reason keeps the plain text", () => {
       expect(publishApiError("site_taken_down", "restore", { reason: "taken_down_again" })).toMatchObject({
         code: "site_taken_down",

@@ -37,6 +37,20 @@ function knownId(id: string, what: "site" | "version"): string {
 export const livePointerKey = (slug: string) => knownSlug(slug);
 /** Every LIVE page object of a site sits under this prefix; the pointer does not. */
 export const liveSitePrefix = (slug: string) => `${knownSlug(slug)}/`;
+/** Every WORK object of a site (its Home page and the others, every version) sits under this prefix. */
+export const workSitePrefix = (siteId: string) => `versions/${knownId(siteId, "site")}/`;
+/** Every MEDIA object of a site sits under this prefix (mediaKey). */
+export const mediaSitePrefix = (siteId: string) => `${knownId(siteId, "site")}/`;
+/**
+ * The version id a LIVE page key names: its 2nd "/"-segment, when the key has at least three segments and that
+ * segment is a real id (`<slug>/<versionId>/<page>.html`, under whatever slug the page was copied to). null for a
+ * pointer (the bare slug, no "/") and for any other key. Account deletion finds a site's pages under an old slug with it.
+ */
+export function liveKeyVersionId(key: string): string | null {
+  const parts = key.split("/");
+  const version = parts[1];
+  return parts.length >= 3 && version !== undefined && isId(version) ? version : null;
+}
 export const livePageKey = (slug: string, versionId: string, page: PageId) =>
   `${liveSitePrefix(slug)}${knownId(versionId, "version")}/${knownPage(page)}.html`;
 export function versionPageKey(siteId: string, versionId: string, page: PageId): string {

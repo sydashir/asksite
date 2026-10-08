@@ -1401,3 +1401,176 @@ test("every admin screen passes axe and reflows at 320 px", async ({ page }) => 
     await expectNoSidewaysScroll(page);
   }
 });
+
+// Delete the account (spec §7.7): the sites list as the admin sees it, filtered to one live site by its address.
+async function listedSites(page: Page, slug: string) {
+  await page.goto("/sites");
+  await page.getByLabel("Show").selectOption("live");
+  await page.getByLabel("Search").fill(slug);
+  await expect(page.getByRole("heading", { level: 1, name: "Sites" })).toBeVisible();
+  return page.getByRole("link", { name: `Open ${slug}` });
+}
+
+async function disableOwner(page: Page) {
+  await page.getByLabel("Reason for disabling the owner").fill("Closure on the owner's written request");
+  await page.getByRole("button", { name: "Disable the owner" }).click();
+  await expect(page.getByText("Owner disabled and signed out everywhere.")).toBeVisible();
+}
+
+const DELETE_URL = "**/api/admin/owners/*/delete";
+
+test("delete a disabled owner's account: hint while enabled, typed email, dialog with the site count, Cancel keeps all, confirm shows the result and the site is gone", async ({ page }) => {
+  const site = await liveSite(page);
+  await expect(await listedSites(page, site.slug)).toHaveCount(1);
+  const posts: string[] = [];
+  let siteReads = 0;
+  page.on("request", (r) => {
+    if (r.method() === "POST" && r.url().endsWith("/delete")) posts.push(r.url());
+    if (r.method() === "GET" && r.url().endsWith(`/api/admin/sites/${site.siteId}`)) siteReads += 1;
+  });
+  await page.goto(`/sites/${site.siteId}`);
+  await expect(page.getByText("To delete this owner's account, disable the owner first.")).toBeVisible();
+  await expect(page.getByLabel("Type the owner's email to delete the account")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Delete the account" })).toHaveCount(0);
+  await disableOwner(page);
+  await expect(page.getByText("To delete this owner's account, disable the owner first.")).toHaveCount(0);
+
+  // A wrong email: the field error, focus on the field, nothing sent, no dialog.
+  const field = page.getByLabel("Type the owner's email to delete the account");
+  await field.fill("someone-else@example.com");
+  await page.getByRole("button", { name: "Delete the account" }).click();
+  await expect(page.getByText("This is not the owner's email. Nothing was deleted.")).toBeVisible();
+  await expect(field).toBeFocused();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expectAccessible(page);
+  await expectNoSidewaysScroll(page);
+  expect(posts).toHaveLength(0);
+
+  // The right email (capitals do not matter; spaces: format.test.ts) opens the dialog naming the site count; Cancel keeps everything.
+  await field.fill(site.email.toUpperCase());
+  await page.getByRole("button", { name: "Delete the account" }).click();
+  const dialog = page.getByRole("dialog", { name: "Delete this account?" });
+  await expect(dialog).toBeVisible();
+  await expect(dialog).toContainText("its 1 site:");
+  await expect(dialog.getByRole("button", { name: "Cancel" })).toBeFocused();
+  await expectAccessible(page);
+  await dialog.getByRole("button", { name: "Cancel" }).click();
+  await expect(dialog).toBeHidden();
+  expect(posts).toHaveLength(0);
+  await expect(field).toHaveValue(site.email.toUpperCase()); // a type=email field drops the spaces itself (the unit test covers trim)
+  expect((await page.request.get(`${ADMIN}/api/admin/sites/${site.siteId}`)).status()).toBe(200); // Cancel deleted nothing
+
+  // Confirm, with two presses of "Delete everything" in one tick: ONE POST, the result is shown and focused, and the site page is not reloaded.
+  let held = 0;
+  await page.route(DELETE_URL, async (route) => {
+    held += 1;
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    await route.continue();
+  });
+  const readsBefore = siteReads;
+  await page.getByRole("button", { name: "Delete the account" }).click();
+  // Two presses in one tick: the dialog closes after the first, so a real double-click would miss the button; the second press must still be ignored.
+  await dialog.getByRole("button", { name: "Delete everything" }).evaluate((button) => {
+    (button as HTMLButtonElement).click();
+    (button as HTMLButtonElement).click();
+  });
+  await expect(page.getByRole("heading", { level: 1, name: "Account deleted" })).toBeFocused();
+  await expect(page.getByText("Deleted 1 site, ", { exact: false })).toBeVisible();
+  expect(posts).toHaveLength(1);
+  expect(held).toBe(1);
+  expect(siteReads).toBe(readsBefore);
+  await expectNoSidewaysScroll(page);
+  await page.getByRole("link", { name: "Back to sites" }).click();
+  await expect(await listedSites(page, site.slug)).toHaveCount(0);
+  expect((await page.request.get(`${ADMIN}/api/admin/sites/${site.siteId}`)).status()).toBe(404);
+});
+
+test("a delete that did not finish (a 5xx, a lost lease, no connection) shows Finish deleting the account with no reload, and resends the same body", async ({ page }) => {
+  const site = await liveSite(page);
+  await page.goto(`/sites/${site.siteId}`);
+  await disableOwner(page);
+  const bodies: unknown[] = [];
+  let siteReads = 0;
+  page.on("request", (r) => {
+    if (r.method() === "GET" && r.url().endsWith(`/api/admin/sites/${site.siteId}`)) siteReads += 1;
+  });
+  const answers = [
+    (route: import("@playwright/test").Route) => route.fulfill({ status: 500, json: { error: { code: "internal", message: "Something went wrong. Please try again." } } }),
+    (route: import("@playwright/test").Route) => route.abort("connectionfailed"),
+    (route: import("@playwright/test").Route) =>
+      route.fulfill({ status: 409, json: { error: { code: "conflict", message: "The deletion ran too long and stopped before it finished. Press Finish deleting the account." } } }),
+  ];
+  await page.route(DELETE_URL, (route, request) => {
+    bodies.push(request.postDataJSON());
+    const answer = answers.shift();
+    return answer === undefined ? route.continue() : answer(route);
+  });
+  await page.getByLabel("Type the owner's email to delete the account").fill(site.email);
+  await page.getByRole("button", { name: "Delete the account" }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "Delete everything" }).click();
+  const unfinished = "The deletion did not finish. It is safe to press Finish deleting the account.";
+  const finish = page.getByRole("button", { name: "Finish deleting the account" });
+  const readsBefore = siteReads;
+  await expect(page.getByText(unfinished)).toBeVisible(); // the 5xx
+  await expect(finish).toBeVisible();
+  await expect(page.getByRole("button", { name: "Delete the account" })).toHaveCount(0);
+  await finish.click(); // offline: the fetch fails
+  await expect.poll(() => bodies.length).toBe(2);
+  await expect(page.getByText(unfinished)).toBeVisible();
+  await expect(finish).toBeVisible();
+  await finish.click(); // a lost lease
+  await expect.poll(() => bodies.length).toBe(3);
+  await expect(page.getByText(unfinished)).toBeVisible();
+  await expect(finish).toBeVisible();
+  await expectAccessible(page);
+  expect(siteReads).toBe(readsBefore); // no reload after any of the three
+  await finish.click(); // the real route: done
+  await expect(page.getByRole("heading", { level: 1, name: "Account deleted" })).toBeFocused();
+  expect(bodies).toEqual([{ confirmEmail: site.email }, { confirmEmail: site.email }, { confirmEmail: site.email }, { confirmEmail: site.email }]);
+});
+
+// Review I-1: a kept unfinished body belongs to the owner state it was sent for. Once the owner is enabled again, a later disable starts over, so a
+// delete that never started cannot come back as a one-press delete with no typed email and no dialog.
+test("a delete that never started is forgotten once the owner is enabled: disabling again asks for the email and the dialog", async ({ page }) => {
+  const site = await liveSite(page);
+  await page.goto(`/sites/${site.siteId}`);
+  await disableOwner(page);
+  const bodies: unknown[] = [];
+  await page.route(DELETE_URL, (route, request) => {
+    bodies.push(request.postDataJSON());
+    return route.fulfill({ status: 500, json: { error: { code: "internal", message: "Something went wrong. Please try again." } } });
+  });
+  await page.getByLabel("Type the owner's email to delete the account").fill(site.email);
+  await page.getByRole("button", { name: "Delete the account" }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "Delete everything" }).click();
+  await expect(page.getByRole("button", { name: "Finish deleting the account" })).toBeVisible();
+  await page.getByRole("button", { name: "Enable the owner" }).click();
+  await expect(page.getByText("Owner enabled.")).toBeVisible();
+  await disableOwner(page);
+  await expect(page.getByLabel("Type the owner's email to delete the account")).toHaveValue("");
+  await expect(page.getByRole("button", { name: "Delete the account" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Finish deleting the account" })).toHaveCount(0);
+  expect(bodies).toEqual([{ confirmEmail: site.email }]);
+});
+
+// The act() busy guard covers every caller: a double-click sends ONE request each (the answer is held back, so the second press lands while the first runs).
+test("a double-click on the search-engines toggle, Enable the owner and Disable the owner sends one request each", async ({ page }) => {
+  const site = await liveSite(page);
+  await page.goto(`/sites/${site.siteId}`);
+  const seen: string[] = [];
+  await page.route(/\/api\/admin\/(sites\/[^/]+\/indexable|owners\/[^/]+\/(enable|disable))$/, async (route, request) => {
+    seen.push(`${request.method()} ${new URL(request.url()).pathname.split("/").pop()}`);
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    await route.continue();
+  });
+  await page.getByRole("button", { name: "Block search engines" }).dblclick();
+  await expect(page.getByText("Search engines are now blocked.")).toBeVisible();
+  expect(seen).toEqual(["PUT indexable"]);
+  await page.getByLabel("Reason for disabling the owner").fill("Double press");
+  await page.getByRole("button", { name: "Disable the owner" }).dblclick();
+  await expect(page.getByText("Owner disabled and signed out everywhere.")).toBeVisible();
+  expect(seen).toEqual(["PUT indexable", "POST disable"]);
+  await page.getByRole("button", { name: "Enable the owner" }).dblclick();
+  await expect(page.getByText("Owner enabled.")).toBeVisible();
+  expect(seen).toEqual(["PUT indexable", "POST disable", "POST enable"]);
+});

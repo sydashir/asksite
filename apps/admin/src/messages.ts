@@ -24,3 +24,18 @@ export const TAKEN_DOWN_SINCE_OPENED = "This site was taken down since you opene
 export const RESTORED_SINCE_OPENED = "This site was restored since you opened this page. Reload to see where it stands now.";
 /** Copy the live pages again succeeded. */
 export const COPIED_AGAIN = "The live pages were copied again.";
+
+// Delete the account (owner data deletion, spec §7.7). The route answers these; the screen recognises a 409 by its message, as it does for the lease texts above.
+
+/** Delete the account on an owner who is not disabled (409). */
+export const OWNER_NOT_DISABLED = "Disable the owner first. Only a disabled owner's account can be deleted.";
+/** The email typed back is not the owner's (422, on the field confirmEmail). */
+export const CONFIRM_EMAIL_MISMATCH = "This is not the owner's email. Nothing was deleted.";
+/** Another admin action holds one of the owner's sites (site_busy with retryAfter): nothing was deleted. */
+export const OWNER_SITE_BUSY = "Another admin action on one of this owner's sites is still running. Nothing was deleted. Try again in a minute.";
+/** The deletion ran past its lease (site_busy, reason lease_lost): part of it may have been done; pressing again finishes it. */
+export const DELETE_LEASE_LOST = "The deletion ran too long and stopped before it finished. Press Finish deleting the account.";
+/** Enable or disable on an owner whose account deletion has started (409): only Delete the account finishes it. */
+export const OWNER_DELETION_STARTED = "This owner's account is being deleted. Press Delete the account to finish it.";
+/** The screen's own text for a 5xx or an offline press on Delete the account: the deletion may have run in part. */
+export const DELETE_UNFINISHED = "The deletion did not finish. It is safe to press Finish deleting the account.";
