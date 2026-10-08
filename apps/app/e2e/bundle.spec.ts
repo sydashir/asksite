@@ -9,7 +9,8 @@ test.beforeEach(({ browserName }, info) => test.skip(info.project.name !== "chro
 const KIB = 1024;
 // Measured on 2026-10-06 at the candidate head (5b3d643), gzip level 9: 137,401 B for every script but the lazy chunk, plus 2 KiB of headroom; growth past this needs the moderator's OK.
 // Since the landing page (2026-10-08, moderator ruling B) this pin holds the entry script, the one every page load fetches; each lazy chunk has its own pin below.
-const MAIN_BUNDLE_MAX_GZIP = 137_401 + 2 * KIB;
+// Raised (moderator ruling A, 2026-10-08): password accounts, +1,183 B, 2026-10-08. Measured at b1d27ed, gzip level 9: 140,632 B, plus 2 KiB of headroom.
+const MAIN_BUNDLE_MAX_GZIP = 140_632 + 2 * KIB;
 // Measured on 2026-10-08 at 384592d, gzip level 9: 2,482 B for the landing page's lazy chunk (only signed-out "/" loads it), plus 512 B of headroom (moderator ruling B); growth past this needs the moderator's OK.
 const LANDING_CHUNK_MAX_GZIP = 2_482 + 512;
 // Measured on 2026-10-06 at the candidate head (5b3d643), gzip level 9: 65,813 B for the one lazy chunk (render, the three designs' code and the three sheets, Bold's inlined font among them), plus 2 KiB of headroom; growth past this needs the moderator's OK.
