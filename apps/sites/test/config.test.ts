@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
+import { RETENTION_CRON, RETRY_CRON } from "../src/cron.ts";
 import type { Env } from "../src/env.ts";
 
 // The production configuration must be safe as committed (design §9.1 "Unsafe production
@@ -46,7 +47,10 @@ describe("apps/sites/wrangler.jsonc (production)", () => {
       { binding: "DB", database_name: "asksite", database_id: expect.any(String), migrations_dir: "../../packages/core/migrations" },
     ]);
     expect(config.ratelimits).toEqual([{ name: "FORM_RL", namespace_id: "1004", simple: { limit: 5, period: 60 } }]);
-    expect(config.triggers).toEqual({ crons: ["0 7 * * *"] });
+    // C1: lead retention once a day, and the lead-email retry every 15 minutes. scheduled() tells them apart by
+    // these exact strings (controller.cron), so the config and the code must name the same two.
+    expect(config.triggers).toEqual({ crons: [RETENTION_CRON, RETRY_CRON] });
+    expect([RETENTION_CRON, RETRY_CRON]).toEqual(["0 7 * * *", "*/15 * * * *"]);
   });
 
   it("keeps secrets out of vars", () => {

@@ -30,7 +30,8 @@
 
 @layer base {
   html {
-    background-color: var(--color-canvas);
+    /* Every page is dark now (landing, sign-in, the owner app, the admin): no light flash around or below the content. */
+    background-color: var(--color-ink);
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     text-rendering: optimizeLegibility;
@@ -85,8 +86,9 @@
   .card {
     @apply rounded-card border border-slate-200 bg-white p-4 sm:p-6;
   }
+  /* The reference's app h1 (reference.md §1.3: clamp(28px, 3vw, 38px), 1.1, -.028em). */
   .page-title {
-    @apply text-[1.75rem] leading-tight font-semibold tracking-[-0.025em] text-ink sm:text-[2rem];
+    @apply text-[clamp(1.75rem,1.4rem+1.3vw,2.375rem)] leading-[1.1] font-semibold tracking-[-0.028em] text-ink;
   }
   .section-title {
     @apply text-lg font-semibold tracking-[-0.01em] text-ink;
@@ -119,6 +121,7 @@
   }
   /* The skip link: hidden until focused, then a green tab at the top left. */
   .skip-link {
+    --focus-ring: var(--color-brand-500);
     @apply sr-only focus:not-sr-only focus:absolute focus:top-3 focus:left-3 focus:z-20 focus:rounded-lg focus:bg-brand-500 focus:px-4 focus:py-3 focus:font-semibold focus:text-ink;
   }
   /* The top bar's home link: the mark (decorative) and the product name. */
@@ -131,6 +134,16 @@
   /* Text inputs, text areas and selects (46px tall); an invalid one gets a 2px red border. */
   .field-input {
     @apply mt-1.5 block min-h-11 w-full rounded-lg border border-slate-500 bg-white px-3.5 py-2.5 text-base text-ink hover:border-slate-700 focus:border-brand-800 aria-[invalid=true]:border-2 aria-[invalid=true]:border-red-700;
+  }
+  /* A password field: the input with room on the right for its Show/Hide button, which fills the input's height (44px or more). */
+  .password-field {
+    @apply relative mt-1.5;
+  }
+  .password-field .field-input {
+    @apply mt-0 pr-20;
+  }
+  .password-toggle {
+    @apply absolute inset-y-0 right-0 min-w-16 rounded-lg px-3 font-semibold text-brand-800 hover:underline;
   }
   /* Notices: a tinted box with a 4px bar on the left. */
   .notice {
@@ -180,10 +193,6 @@
   .wizard-head,
   .wizard-body {
     @apply lg:col-start-2;
-  }
-  /* The step's first field sits at the card's top padding, not below an extra gap. */
-  .wizard-body .card > div > :first-child {
-    @apply mt-0;
   }
   .wizard-steps {
     @apply mt-5 lg:col-start-1 lg:row-span-2 lg:row-start-1 lg:mt-1 lg:self-start;
@@ -265,6 +274,31 @@
   .choice-card {
     @apply flex items-center gap-3 rounded-xl border border-slate-300 bg-white p-3 hover:border-slate-500 has-checked:border-brand-700 has-checked:bg-brand-50;
   }
+  /* "Loading…" lines: a spinner beside the text (the text alone is the status). */
+  .loading {
+    @apply flex items-center gap-2 text-slate-600;
+  }
+  /* Stat tiles in a <dl>: each <div class="stat"> holds one <dt> and its <dd>. */
+  .stats {
+    @apply mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2;
+  }
+  .stat {
+    @apply rounded-card border border-slate-200 bg-white p-4;
+  }
+  .stat > dt {
+    @apply text-sm font-medium text-slate-600;
+  }
+  .stat > dd {
+    @apply mt-1 text-lg font-semibold text-ink tabular-nums;
+  }
+  /* Development-only pages: a dashed green "dev only" box (brand-700 edge on brand-50, 4.5:1). */
+  .dev-box {
+    @apply mt-4 rounded-xl border-2 border-dashed border-brand-700 bg-brand-50 px-4 py-3 text-slate-800;
+  }
+  /* An email's text part, shown as text: line breaks kept, long addresses wrap. */
+  .email-body {
+    @apply mt-4 whitespace-pre-wrap text-slate-800 [overflow-wrap:anywhere];
+  }
   .eyebrow {
     @apply text-sm font-medium text-slate-600;
   }
@@ -288,6 +322,216 @@
     border-radius: 2px;
     background-color: var(--color-brand-500);
   }
+}
+
+/*
+ * The signed-in owner app and the admin on the Hybrid dark surface (reference.md §1.2): `.app-dark` sits on <main> and remaps
+ * the colour tokens the screens and the shared components already use, so every screen and every state (errors, saved,
+ * pills, dialogs, the questionnaire, the editor, the admin review) moves together. Outside the layers on purpose, so these
+ * values win. Contrast (WCAG 2.x) on the graphite card #171717 / the page #0A0A0A: white 17.9/19.8, slate-800 #E8EBEE 15.0,
+ * slate-700 #D6DADE 12.8, slate-600 (mist) #A3ABB5 7.7/8.5, red #FF7B6E 7.1, red-800 #FF9A8F 8.8, amber #F6D27A 12.3,
+ * brand-800 → lime-400 #93EA68 12.1 (links, focus ring, checkbox accent); control edges white/46 ≈ 4.0 against the card.
+ * Near-black text stays on lime (primary buttons, icon tiles, the current step): 11.6.
+ */
+.app-dark {
+  --color-white: #171717;
+  --color-ink: #ffffff;
+  --color-slate-50: rgb(255 255 255 / 0.04);
+  --color-slate-100: rgb(255 255 255 / 0.07);
+  --color-slate-200: rgb(255 255 255 / 0.12);
+  --color-slate-300: rgb(255 255 255 / 0.18);
+  --color-slate-400: rgb(255 255 255 / 0.32);
+  --color-slate-500: rgb(255 255 255 / 0.46);
+  --color-slate-600: #a3abb5;
+  --color-slate-700: #d6dade;
+  --color-slate-800: #e8ebee;
+  --color-slate-900: #ffffff;
+  --color-red-50: rgb(255 123 110 / 0.1);
+  --color-red-100: rgb(255 123 110 / 0.16);
+  --color-red-200: rgb(255 123 110 / 0.35);
+  --color-red-700: #ff7b6e;
+  --color-red-800: #ff9a8f;
+  --color-amber-50: rgb(242 193 78 / 0.1);
+  --color-amber-100: rgb(242 193 78 / 0.16);
+  --color-amber-200: rgb(242 193 78 / 0.35);
+  --color-amber-600: #f2c14e;
+  --color-amber-900: #f6d27a;
+  --color-brand-50: rgb(123 221 76 / 0.1);
+  --color-brand-200: rgb(123 221 76 / 0.35);
+  --color-brand-600: #7bdd4c;
+  --color-brand-700: #7bdd4c;
+  --color-brand-800: #93ea68;
+  --color-brand-900: #a1f080;
+  color: #fff;
+  color-scheme: dark;
+}
+/* Near-black on lime, wherever lime is a fill. */
+.app-dark .btn-primary,
+.app-dark .icon-tile {
+  color: #0a0a0a;
+}
+.app-dark .btn-primary:disabled,
+.app-dark .btn-primary[aria-disabled="true"] {
+  color: #d6dade;
+}
+/* The current questionnaire step is the lime signal. */
+.app-dark .step-link[aria-current="step"] {
+  background-color: var(--color-brand-500);
+  color: #0a0a0a;
+}
+/* Fields: black wells with a white/46 edge (reference.md §1.7); the lime border on focus. */
+.app-dark .field-input {
+  background-color: #000;
+}
+.app-dark .field-input:focus {
+  border-color: var(--color-brand-500);
+}
+.app-dark .field-input[aria-invalid="true"] {
+  border-color: var(--color-red-700);
+}
+/* Selected text: near-black on lime, as on every other page. */
+.app-dark ::selection {
+  color: #0a0a0a;
+}
+/* Field groups inside a card read as one quiet panel, not a second white box. */
+.app-dark fieldset.rounded-xl {
+  background-color: rgb(255 255 255 / 0.02);
+}
+/* On phones the step strip scrolls sideways: its right edge fades, so the cut-off step reads as "more this way". */
+@media (width < 64rem) {
+  .app-dark .wizard-steps > ol {
+    mask-image: linear-gradient(to right, #000 calc(100% - 3rem), transparent);
+    /* Room past the last step and for a focused step, so neither sits under the fade. */
+    padding-inline-end: 3rem;
+    scroll-padding-inline-end: 3rem;
+  }
+}
+/* List dividers (admin site lists, history) visible on graphite. */
+.app-dark .divide-slate-100 > :not(:last-child) {
+  border-color: rgb(255 255 255 / 0.1);
+}
+/* The photo upload stays a real, visible native file input; only its built-in button takes the outline-button look. */
+.app-dark input[type="file"]::file-selector-button {
+  margin-inline-end: 0.75rem;
+  min-height: 2.75rem;
+  border: 1px solid rgb(255 255 255 / 0.46);
+  border-radius: 0.5rem;
+  padding: 0.5rem 1rem;
+  background-color: transparent;
+  color: #fff;
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+}
+.app-dark input[type="file"]::file-selector-button:hover {
+  border-color: rgb(255 255 255 / 0.7);
+  background-color: rgb(255 255 255 / 0.1);
+}
+.app-dark .dialog {
+  border-color: rgb(255 255 255 / 0.12);
+  background-color: #171717;
+  color: #fff;
+}
+
+/*
+ * Dark pages (the landing page, sign-up, log-in and the emailed-link pages): a black page with the brand glow, the form on a
+ * graphite panel. These rules are outside the layers on purpose, so they win over the utility classes the shared form
+ * components carry (text-ink labels, slate hints, red-700 errors). Contrast on graphite #171717: white 17.9, mist 7.7,
+ * brand-400 12.1, #ff7b6e 7.1; input edge rgb(255 255 255 / .46) ≈ 4.0 against the panel.
+ */
+.auth-page {
+  min-height: calc(100svh - 9rem);
+  padding: 2.5rem 1rem;
+  color: #fff;
+  color-scheme: dark;
+  --focus-ring: var(--color-brand-500);
+  background:
+    radial-gradient(70% 60% at 88% -4%, rgb(123 221 76 / 0.16), transparent 64%),
+    radial-gradient(60% 70% at -6% 104%, #0f1c0e, transparent 70%),
+    #000;
+}
+@media (width >= 40rem) {
+  .auth-page {
+    padding-block: 4rem;
+  }
+}
+.auth-page .auth {
+  border-color: rgb(255 255 255 / 0.12);
+  background-color: var(--color-graphite);
+}
+.auth-page .page-title,
+.auth-page label,
+.auth-page legend {
+  color: #fff;
+}
+.auth-page .page-sub,
+.auth-page .text-slate-600,
+.auth-page .text-slate-700 {
+  color: var(--color-mist);
+}
+.auth-page .text-red-700 {
+  color: #ff7b6e;
+}
+.auth-page .field-input {
+  border-color: rgb(255 255 255 / 0.46);
+  background-color: #000;
+  color: #fff;
+}
+.auth-page .field-input:hover {
+  border-color: rgb(255 255 255 / 0.62);
+}
+.auth-page .field-input:focus {
+  border-color: var(--color-brand-500);
+}
+.auth-page .field-input[aria-invalid="true"] {
+  border-color: #ff7b6e;
+}
+.auth-page .password-toggle {
+  color: var(--color-brand-400);
+}
+.auth-page .link,
+.footer-dark .link {
+  color: var(--color-brand-400);
+  text-decoration-color: var(--color-brand-500);
+}
+.auth-page .link:hover,
+.footer-dark .link:hover {
+  color: var(--color-brand-300);
+}
+.auth-page .notice {
+  border-color: rgb(255 255 255 / 0.14);
+  background-color: rgb(255 255 255 / 0.05);
+  color: #fff;
+}
+.auth-page .notice-success {
+  border-color: rgb(123 221 76 / 0.35);
+  border-left-color: var(--color-brand-500);
+  background-color: rgb(123 221 76 / 0.1);
+}
+.auth-page .notice-error {
+  border-color: rgb(255 123 110 / 0.42);
+  border-left-color: #ff7b6e;
+  background-color: rgb(255 123 110 / 0.1);
+}
+.auth-page .btn-secondary {
+  border-color: rgb(255 255 255 / 0.45);
+  background-color: transparent;
+  color: #fff;
+}
+.auth-page .btn-secondary:hover {
+  border-color: rgb(255 255 255 / 0.7);
+  background-color: rgb(255 255 255 / 0.1);
+}
+/* The footer on dark pages: full width, its text lined up with the page container (max-w-6xl, px-4). */
+.footer-dark {
+  border-top: 1px solid rgb(255 255 255 / 0.1);
+  padding: 1.5rem max(1rem, calc((100% - 72rem) / 2 + 1rem)) 2.5rem;
+  /* The page colour, so a short page shows no second band below the footer. */
+  background-color: var(--color-ink);
+  color: var(--color-mist);
+  font-size: 0.875rem;
+  color-scheme: dark;
+  --focus-ring: var(--color-brand-500);
 }
 
 @keyframes progress-slide {

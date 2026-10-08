@@ -138,7 +138,7 @@ async function storedHeadline(browser: Browser, email: string, siteId: string): 
   try {
     const page = await ctx.newPage();
     await stubTurnstile(page);
-    await page.goto("/");
+    await page.goto("/login/link");
     await waitForSecurityCheck(page);
     await page.getByLabel("Your email address").fill(email);
     await page.getByRole("button", { name: "Email me a link" }).click();
@@ -150,7 +150,7 @@ async function storedHeadline(browser: Browser, email: string, siteId: string): 
         return text;
       })
       .toContain(`${APP}/login#`);
-    await page.goto(/https:\/\/app\.localhost:8787\/login#[A-Za-z0-9_-]{43}/.exec(text)![0]);
+      await page.goto(/https:\/\/app\.localhost:8787\/login#[A-Za-z0-9_-]{43}/.exec(text)![0]);
     await page.getByRole("button", { name: "Sign in" }).click();
     await expect(page.getByRole("heading", { level: 1, name: "Your websites" })).toBeVisible();
     const view = (await apiCall(page, "GET", `/api/sites/${siteId}`)).json!;
@@ -184,7 +184,7 @@ test("Sign out waits for the save the editor started as it closed (Back, then Si
   await page.getByRole("button", { name: "Sign out" }).click();
   expect(events).toEqual(["patch-sent"]);
   release();
-  await expect(page.getByRole("heading", { level: 1, name: "Sign in" })).toBeVisible();
+  await expect(signedOutHeading(page)).toBeVisible();
   expect(events).toEqual(["patch-sent", "patch-answered-200", "logout-sent"]);
   expect(await storedHeadline(browser, email, siteId)).toBe("Typed just before Back");
 });
@@ -207,7 +207,7 @@ test("Sign out stays and says so when the save the editor started as it closed f
   expect(new URL(page.url()).pathname).toBe("/");
   // The owner was told once: the server keeps failing, and the second press signs out anyway.
   await pressAfterGrace(page);
-  await expect(page.getByRole("heading", { level: 1, name: "Sign in" })).toBeVisible();
+  await expect(signedOutHeading(page)).toBeVisible();
   expect(events.at(-1)).toBe("logout-sent");
   expect(await storedHeadline(browser, email, siteId)).toBeUndefined();
 });
@@ -228,7 +228,7 @@ test("Sign out retries a failed closing save, and the next press after the save 
   failing = false;
   // The first press tries the failed save again; it works, so nothing stops it.
   await page.getByRole("button", { name: "Sign out" }).click();
-  await expect(page.getByRole("heading", { level: 1, name: "Sign in" })).toBeVisible();
+  await expect(signedOutHeading(page)).toBeVisible();
   expect(events.at(-1)).toBe("logout-sent");
   expect(events).toContain("patch-answered-200");
   expect(await storedHeadline(browser, email, siteId)).toBe("Kept after a failed save");
@@ -278,7 +278,7 @@ test("Sign out after leaving a conflicted editor stops once with the conflict te
   expect((await alertsAdded(page)).filter((text) => text.includes(SAVING))).toEqual([]);
   expect(events).not.toContain("logout-sent");
   await pressAfterGrace(page);
-  await expect(page.getByRole("heading", { level: 1, name: "Sign in" })).toBeVisible();
+  await expect(signedOutHeading(page)).toBeVisible();
   expect(events.at(-1)).toBe("logout-sent");
 });
 
@@ -308,7 +308,7 @@ test("Sign out on the editor with a save that keeps failing stops once, says wha
   expect(events).not.toContain("logout-sent");
   expect(new URL(page.url()).pathname).toBe(`/sites/${siteId}/edit`);
   await pressAfterGrace(page);
-  await expect(page.getByRole("heading", { level: 1, name: "Sign in" })).toBeVisible();
+  await expect(signedOutHeading(page)).toBeVisible();
   expect(events.at(-1)).toBe("logout-sent");
 });
 
@@ -335,7 +335,7 @@ test("Sign out on a save that never answers says Saving…, and a press after th
     await page.waitForTimeout(GRACE_MS + 300);
     expect(events).not.toContain("logout-sent");
     await page.getByRole("button", { name: "Sign out" }).click();
-    await expect(page.getByRole("heading", { level: 1, name: "Sign in" })).toBeVisible();
+    await expect(signedOutHeading(page)).toBeVisible();
     expect(events).toContain("logout-sent");
   } finally {
     release();
@@ -366,7 +366,7 @@ test("A double click on Sign out during a slow save waits for the save, then sig
   await expect(page.getByRole("alert")).toHaveText(`${SAVING} ${PRESS_AGAIN}`);
   expect(events).toEqual(["patch-sent"]);
   release();
-  await expect(page.getByRole("heading", { level: 1, name: "Sign in" })).toBeVisible();
+  await expect(signedOutHeading(page)).toBeVisible();
   expect(events).toEqual(["patch-sent", "patch-answered-200", "logout-sent"]);
   expect(await storedHeadline(browser, email, siteId)).toBe("Double click");
 });
@@ -426,7 +426,7 @@ test("A Sign out stop expires once the changes are saved: no alert is left, and 
   await headline.fill("Final words");
   await confirmTypedEdit(page, headline, "Final words", events);
   await page.getByRole("button", { name: "Sign out" }).click();
-  await expect(page.getByRole("heading", { level: 1, name: "Sign in" })).toBeVisible();
+  await expect(signedOutHeading(page)).toBeVisible();
   expect(events.slice(-3)).toEqual(["patch-sent", "patch-answered-200", "logout-sent"]);
   expect(await storedHeadline(browser, email, siteId)).toBe("Final words");
 });
@@ -485,7 +485,7 @@ test("Sign out with nothing to save adds no alert and signs out at once", async 
   });
   const events = watchSaves(page);
   await page.getByRole("button", { name: "Sign out" }).click();
-  await expect(page.getByRole("heading", { level: 1, name: "Sign in" })).toBeVisible();
+  await expect(signedOutHeading(page)).toBeVisible();
   expect(events).toContain("logout-sent");
   expect(added).toEqual([]);
 });
@@ -540,7 +540,7 @@ test("Sign out stops once on a wording change dropped by the save the editor sta
   await expect(page.getByRole("alert").filter({ hasText: WORDING_DROPPED })).toContainText(PRESS_AGAIN);
   expect(events).not.toContain("logout-sent");
   await pressAfterGrace(page);
-  await expect(page.getByRole("heading", { level: 1, name: "Sign in" })).toBeVisible();
+  await expect(signedOutHeading(page)).toBeVisible();
   expect(events.at(-1)).toBe("logout-sent");
 });
 
@@ -551,7 +551,7 @@ test("Sign out stops once on a dropped wording change, says so, and the next pre
   await expect(notice).toBeFocused();
   expect(events).not.toContain("logout-sent");
   await pressAfterGrace(page);
-  await expect(page.getByRole("heading", { level: 1, name: "Sign in" })).toBeVisible();
+  await expect(signedOutHeading(page)).toBeVisible();
   expect(events).toContain("logout-sent");
 });
 
@@ -571,7 +571,7 @@ test("A Sign out stop on a dropped wording change expires once a later save land
   await headline.fill("Final words");
   await confirmTypedEdit(page, headline, "Final words", events);
   await page.getByRole("button", { name: "Sign out" }).click();
-  await expect(page.getByRole("heading", { level: 1, name: "Sign in" })).toBeVisible();
+  await expect(signedOutHeading(page)).toBeVisible();
   expect(events).toEqual(["patch-sent", "patch-answered-200", "patch-sent", "patch-answered-200", "logout-sent"]);
   expect(await storedHeadline(browser, email, siteId)).toBe("Final words");
 });
@@ -588,7 +588,7 @@ test("Questionnaire: Sign out stays and says so once while the answers are not s
   expect(events).not.toContain("logout-sent");
   expect(new URL(page.url()).pathname).toMatch(/\/setup\/business$/);
   await pressAfterGrace(page);
-  await expect(page.getByRole("heading", { level: 1, name: "Sign in" })).toBeVisible();
+  await expect(signedOutHeading(page)).toBeVisible();
   expect(events.at(-1)).toBe("logout-sent");
 });
 
@@ -598,7 +598,7 @@ test("Questionnaire: Sign out saves the answers first, and the save finishes bef
   await page.getByLabel("Business name").fill("Probe Plumbing");
   await confirmTypedEdit(page, page.getByLabel("Business name"), "Probe Plumbing", events);
   await page.getByRole("button", { name: "Sign out" }).click();
-  await expect(page.getByRole("heading", { level: 1, name: "Sign in" })).toBeVisible();
+  await expect(signedOutHeading(page)).toBeVisible();
   expect(events.at(-1)).toBe("logout-sent");
   expect(events.at(-2)).toBe("patch-answered-200");
 });
@@ -618,7 +618,7 @@ test("Publish: Sign out stops once on a dropped wording change carried from the 
   await expect(notice).toBeFocused();
   expect(events).not.toContain("logout-sent");
   await pressAfterGrace(page);
-  await expect(page.getByRole("heading", { level: 1, name: "Sign in" })).toBeVisible();
+  await expect(signedOutHeading(page)).toBeVisible();
 });
 
 /** Draft saves and the logout tagged with the site they belong to (an owner with several sites): "X:patch-sent", "Y:patch-answered-500", "logout-sent". */
@@ -672,7 +672,7 @@ test("PX: a stop caused by another site's failed closing save never lets a fresh
   await headline.fill("X, final words");
   await confirmTypedEdit(page, headline, "X, final words", events);
   await page.getByRole("button", { name: "Sign out" }).click();
-  await expect(page.getByRole("heading", { level: 1, name: "Sign in" })).toBeVisible();
+  await expect(signedOutHeading(page)).toBeVisible();
   // The press saved the fresh edit (a second save on X) before the logout.
   expect(events.filter((e) => e === "X:patch-answered-200")).toHaveLength(2);
   expect(events.at(-1)).toBe("logout-sent");
@@ -693,7 +693,7 @@ test("Two sites that each left a failed closing save stop Sign out once, and the
   await expect(page.getByRole("alert").filter({ hasText: NOT_SAVED })).toContainText(PRESS_AGAIN);
   expect(events).not.toContain("logout-sent");
   await pressAfterGrace(page);
-  await expect(page.getByRole("heading", { level: 1, name: "Sign in" })).toBeVisible();
+  await expect(signedOutHeading(page)).toBeVisible();
   expect(events.at(-1)).toBe("logout-sent");
 });
 
@@ -733,7 +733,8 @@ test("PA: a dropped wording change found by the press's own save keeps the stop 
 
 // ---------------- REFUSED SAVES, KEPT DROPS ----------------
 const signOutButton = (page: Page) => page.getByRole("button", { name: "Sign out" });
-const signInHeading = (page: Page) => page.getByRole("heading", { level: 1, name: "Sign in" });
+// Signed out, "/" is the landing page (2026-10-08): its h1 is what a signed-out visitor sees.
+const signedOutHeading = (page: Page) => page.getByRole("heading", { level: 1, name: "Your business website, built from a few answers." });
 
 
 /** Site S on old wording; its editor closes (Back) with a wording edit whose closing save FAILS (500); new wording landed meanwhile. */
@@ -784,7 +785,7 @@ test("K1: a drop found by Sign out's retry of a failed closing save stops once, 
   // G2: the owner was already stopped once for this drop (the Sign out stop): the next leave goes on.
   const before = k.events.length;
   await signOutButton(page).click();
-  await expect(signInHeading(page)).toBeVisible();
+  await expect(signedOutHeading(page)).toBeVisible();
   console.log(`K1-RESULT stopText=${JSON.stringify(k.stopText)} afterPress=${JSON.stringify(k.afterPress)} noticeShown=${k.noticeShown} dismissShown=${k.dismissShown} afterNextEditor=${JSON.stringify(k.events.slice(before))}`);
   expect(k.noticeShown).toBe(true);
 });
@@ -812,7 +813,7 @@ test("K0: a drop found by the closing save itself (R3) is told by a Sign out sto
   const noticeShown = await page.getByRole("status").filter({ hasText: WORDING_DROPPED }).isVisible();
   await signOutButton(page).click();
   const outcome = await Promise.race([
-    signInHeading(page).waitFor({ timeout: 8_000 }).then(() => "signed-out"),
+    signedOutHeading(page).waitFor({ timeout: 8_000 }).then(() => "signed-out"),
     page.getByRole("alert").filter({ hasText: WORDING_DROPPED }).waitFor({ timeout: 8_000 }).then(() => "stopped-again"),
   ]).catch(() => "neither");
   console.log(`K0-RESULT noticeShown=${noticeShown} secondLeave=${outcome} events=${JSON.stringify(events)}`);
@@ -864,7 +865,7 @@ test("W2: a second refused save (another tab's second rewrite), after the first 
     await page.waitForTimeout(GRACE_MS);
     await signOutButton(page).click();
     const outcome = await Promise.race([
-      signInHeading(page).waitFor({ timeout: 8_000 }).then(() => "signed-out"),
+      signedOutHeading(page).waitFor({ timeout: 8_000 }).then(() => "signed-out"),
       stop.filter({ hasText: PRESS_AGAIN }).waitFor({ timeout: 8_000 }).then(() => "stopped-again"),
     ]).catch(() => "neither");
     console.log(`W2-RESULT stopsAfterDismiss=${stopsAfterDismiss} secondDrop=${outcome} events=${JSON.stringify(events)}`);
@@ -914,7 +915,7 @@ test("F2: a failure told, resolved by a refused save, then a NEW failed edit: Si
     const sentBefore = events.filter((e) => e === "patch-sent").length;
     await signOutButton(page).click();
     const outcome = await Promise.race([
-      signInHeading(page).waitFor({ timeout: 8_000 }).then(() => "signed-out"),
+      signedOutHeading(page).waitFor({ timeout: 8_000 }).then(() => "signed-out"),
       page.waitForTimeout(3_000).then(() => (events.includes("logout-sent") ? "signed-out" : "stayed")),
     ]).catch(() => "neither");
     console.log(`F2-RESULT alertsAfterRefusal=${JSON.stringify(alertsAfterRefusal)} alertsAtF2=${JSON.stringify(alertsAtF2)} pressRetried=${events.filter((e) => e === "patch-sent").length > sentBefore} outcome=${outcome} events=${JSON.stringify(events)}`);

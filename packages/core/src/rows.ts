@@ -7,6 +7,8 @@ export interface OwnerRow {
   created_at: number;
   disabled_at: number | null;
   disabled_reason: string | null;
+  password_hash: string | null; // 0010_owner_password.sql: a PBKDF2 hash (password.ts), never the password; NULL = no password
+  password_unconfirmed: 1 | null; // 0010: 1 while the password is the one set at sign-up (cleared by the first emailed-link or invite sign-in)
 }
 
 export interface SiteRow {

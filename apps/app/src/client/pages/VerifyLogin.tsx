@@ -43,7 +43,7 @@ export function VerifyLogin() {
           <div role="alert">
             <Notice tone="error">
               {error}{" "}
-              <a href="/" className="link">
+              <a href="/login/link" className="link">
                 Ask for a new link
               </a>
             </Notice>

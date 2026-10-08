@@ -56,7 +56,7 @@ export function OwnerDeleteForm(props: {
     <>
       <form noValidate onSubmit={ask}>
         <TextInput id="delete-email" label="Type the owner's email to delete the account" type="email" autoComplete="off" value={typed} onChange={setTyped} errors={errors} />
-        <button type="submit" className="btn-secondary mt-3" aria-disabled={props.busy}>
+        <button type="submit" className="btn-danger mt-3" aria-disabled={props.busy}>
           Delete the account
         </button>
       </form>

@@ -1,0 +1,172 @@
+@reference "../app.css";
+
+/* The landing page draws its own dark and paper colours: if it ever renders inside the app's dark surface (a slow session
+   check), these restore the tokens that surface swaps. */
+.landing {
+  --color-white: #fff;
+  --color-ink: #0a0a0a;
+}
+
+/* The signed-out front page. Dark sections, one white "paper" band, lime used as a signal. Loaded only with the lazy landing chunk.
+   Nothing here transitions or animates anything that holds text. */
+@layer components {
+  .landing {
+    @apply bg-black text-white;
+  }
+  .landing-dark {
+    --focus-ring: var(--color-brand-500);
+    color-scheme: dark;
+    @apply border-t border-white/8 bg-ink py-16 text-white sm:py-24;
+  }
+  .landing-hero {
+    --focus-ring: var(--color-brand-500);
+    color-scheme: dark;
+    @apply overflow-hidden pt-14 pb-16 text-white sm:pt-20 sm:pb-24;
+    background:
+      radial-gradient(64% 80% at 92% -6%, rgb(123 221 76 / 0.2), transparent 64%),
+      radial-gradient(60% 80% at -6% 108%, #0f1c0e, transparent 72%), #000;
+  }
+  .landing-cta {
+    --focus-ring: var(--color-brand-500);
+    color-scheme: dark;
+    @apply border-t border-white/8 py-16 text-center text-white sm:py-24;
+    background:
+      radial-gradient(60% 90% at 50% 125%, rgb(123 221 76 / 0.24), transparent 70%),
+      radial-gradient(40% 60% at 50% 130%, #0f1c0e, transparent 80%), #000;
+  }
+  .landing-paper {
+    @apply bg-white py-16 text-[#2b3038] sm:py-24;
+  }
+  .landing-wrap {
+    @apply mx-auto w-full max-w-6xl px-4;
+  }
+  .landing-hero-grid {
+    @apply grid items-center gap-12 lg:grid-cols-[1fr_1.1fr];
+  }
+  .landing-eyebrow {
+    @apply mb-4 text-[0.9375rem] font-medium tracking-[0.01em] text-brand-400;
+  }
+  .landing-h1 {
+    @apply text-[clamp(2.25rem,1.6rem+3.2vw,4rem)] leading-[1.04] font-semibold tracking-[-0.04em] text-balance text-white;
+  }
+  .landing-lead {
+    @apply mt-6 max-w-[36rem] text-[clamp(1.0625rem,1rem+0.5vw,1.375rem)] leading-relaxed font-light text-mist;
+  }
+  .landing-actions {
+    @apply mt-8 flex flex-wrap gap-3;
+  }
+  .landing-note {
+    @apply mt-4 text-[0.9375rem] text-mist;
+  }
+  .landing-h2 {
+    @apply text-[clamp(1.75rem,1.4rem+1.6vw,2.75rem)] leading-[1.08] font-semibold tracking-[-0.03em] text-balance text-white;
+  }
+  .landing-paper .landing-h2 {
+    @apply text-black;
+  }
+  .landing-intro {
+    @apply mt-4 max-w-2xl text-[1.0625rem] leading-relaxed text-mist sm:text-lg;
+  }
+  .landing-h3 {
+    @apply text-lg font-semibold tracking-[-0.01em] text-white;
+  }
+  .landing-paper .landing-h3 {
+    @apply text-black;
+  }
+
+  /* The hero visual: a graphite "board" holding a real render, a phone overlapping its corner. */
+  .landing-visual {
+    @apply relative min-w-0 pb-0 sm:pb-12;
+  }
+  .landing-board {
+    @apply overflow-hidden rounded-[18px] border border-white/10 bg-graphite shadow-[0_50px_110px_rgba(0,0,0,0.65),0_0_120px_rgba(123,221,76,0.1)];
+  }
+  .landing-shot {
+    @apply block h-auto w-full;
+  }
+  .landing-phone {
+    @apply absolute right-3 bottom-8 w-[27%] overflow-hidden rounded-[18px] border-4 border-ink bg-graphite shadow-[0_24px_60px_rgba(0,0,0,0.7),0_0_0_1px_rgba(255,255,255,0.14)];
+  }
+  .landing-caption {
+    @apply mt-4 text-sm text-mist;
+  }
+
+  .landing-card {
+    @apply min-w-0 rounded-[14px] border border-white/14 bg-graphite p-6;
+  }
+  .landing-steps {
+    @apply mt-10 grid list-none gap-4 p-0 sm:grid-cols-2 lg:grid-cols-4;
+  }
+  .landing-disc {
+    @apply mb-4 inline-flex size-7 items-center justify-center rounded-full bg-brand-500/15 text-[13px] font-bold text-brand-400;
+  }
+  .landing-card p {
+    @apply mt-2 text-mist;
+  }
+
+  .landing-designs {
+    @apply mt-10 grid gap-6 lg:grid-cols-3;
+  }
+  .landing-design {
+    @apply min-w-0 overflow-hidden rounded-[14px] border border-white/14 bg-graphite;
+  }
+  .landing-design img {
+    @apply block h-auto w-full border-b border-white/10;
+  }
+  .landing-design > div {
+    @apply p-6;
+  }
+  .landing-design p {
+    @apply mt-2 text-mist;
+  }
+
+  .landing-features {
+    @apply mt-12 grid list-none gap-x-10 gap-y-10 p-0 sm:grid-cols-2 lg:grid-cols-3;
+  }
+  .landing-features li {
+    @apply min-w-0;
+  }
+  .landing-features .icon-tile {
+    @apply mb-5;
+  }
+  .landing-features p {
+    @apply mt-2 text-[#2b3038];
+  }
+
+  .landing-faq {
+    @apply mt-10 max-w-3xl border-t border-white/14;
+  }
+  .landing-faq details {
+    @apply border-b border-white/14;
+  }
+  .landing-faq summary {
+    @apply flex min-h-14 cursor-pointer list-none items-center justify-between gap-4 py-3 text-lg font-semibold tracking-[-0.01em] text-white;
+  }
+  .landing-faq summary::-webkit-details-marker {
+    display: none;
+  }
+  /* A chevron drawn with two borders; it turns when the answer is open. */
+  .landing-faq summary::after {
+    content: "";
+    flex: none;
+    width: 0.55rem;
+    height: 0.55rem;
+    margin-right: 0.25rem;
+    border-right: 2px solid var(--color-brand-400);
+    border-bottom: 2px solid var(--color-brand-400);
+    transform: rotate(45deg) translateY(-2px);
+  }
+  .landing-faq details[open] summary::after {
+    transform: rotate(-135deg) translateY(-2px);
+  }
+  .landing-faq details p {
+    @apply max-w-[65ch] pb-5 text-mist;
+  }
+
+  .landing-cta .landing-actions {
+    @apply justify-center;
+  }
+  .landing-cta p.landing-intro {
+    @apply mx-auto;
+  }
+}

@@ -75,7 +75,7 @@ export function App() {
           </nav>
         </div>
       </header>
-      <main id="main" tabIndex={-1} className="mx-auto max-w-6xl px-4 py-8 break-words sm:py-10">
+      <main id="main" tabIndex={-1} className="app-dark mx-auto max-w-6xl px-4 py-8 break-words sm:py-10">
         {page(route)}
       </main>
     </>

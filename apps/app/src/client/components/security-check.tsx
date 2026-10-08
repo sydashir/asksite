@@ -32,6 +32,9 @@ export function SecurityCheck({ onToken, resetSignal }: { onToken: (token: strin
           sitekey: __TURNSTILE_SITE_KEY__,
           action: ACTION,
           size: widgetSize(target.getBoundingClientRect().width),
+          // Our sign-in pages are always dark; the default "auto" follows the visitor's system setting instead
+          // (developers.cloudflare.com/turnstile/get-started/client-side-rendering/widget-configurations/, "Theme options").
+          theme: "dark",
           callback: (token) => report.current(token),
           "error-callback": () => report.current(null),
           "expired-callback": () => report.current(null),

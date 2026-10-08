@@ -10,7 +10,9 @@
 // also read with the bigger default text (root font size 125%, moderator 2026-10-05): every page of every fixture, in
 // every lettering at 320-430 px and in its own at the reflow widths 600-1920 px, with every <details> but the phone menu
 // open (the questions' answers; controller ruling, 2026-10-05), loses no text (no sideways scroll, nothing cut by its
-// box or past the page's edge) and breaks a phone number only between its parts.
+// box or past the page's edge) and breaks a phone number only between its parts. With much bigger text (root 150%,
+// moderator rulings for every design, 2026-10-06/07), each sticky bar covers at most a quarter of the screen, the root's
+// scroll padding clears it, nothing scrolls sideways and the business name keeps its words whole.
 // The pages run no JavaScript; the checks are script text, since the renderer's TypeScript program has no DOM types.
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "@playwright/test";
 import { FONT_IDS, PAGES } from "@asksite/site-schema";
@@ -115,6 +117,44 @@ const LOST_TEXT = `(() => {
   return [...new Set(out)];
 })()`;
 
+/** Much bigger text: a visitor's text size at 150%, the root font size 24 px (transitions off, as above). */
+const MUCH_BIGGER_TEXT = "html{font-size:150%!important}*,::before,::after{transition:none!important}";
+/** Phones (the call bar) and the widths where the header sticks, each with its screen height (568 px up to 430 px). */
+const AT_150 = [320, 360, 414, 768, 1024, 1280] as const;
+
+/**
+ * The sticky bars with much bigger text, as "problem" strings: the page scrolling sideways; a sticky header or call bar
+ * taller than a quarter of the screen (568 px tall up to 430 px wide, else 768 px); the root's scroll padding on that
+ * bar's side shorter than the bar, so a jump or a focused field could land under it; and, where the header shows the
+ * name in full (from 768 px), a word of the name split over two lines.
+ */
+const BARS_AT_150 = `(() => {
+  const out = [];
+  const width = document.documentElement.clientWidth, screen = width <= 430 ? 568 : 768;
+  const sideways = document.documentElement.scrollWidth - width;
+  if (sideways > 0) out.push("scrolls sideways by " + sideways + " px");
+  const root = getComputedStyle(document.documentElement);
+  for (const [selector, side] of [["header.hd", "top"], ["aside.cb", "bottom"]]) {
+    const bar = document.querySelector(selector);
+    if (bar === null || getComputedStyle(bar).position !== "sticky" || !bar.checkVisibility()) continue;
+    const height = bar.getBoundingClientRect().height;
+    if (height > screen / 4 + 0.5) out.push(selector + " is " + height.toFixed(1) + " px tall, over a quarter of the screen");
+    const padding = parseFloat(root.getPropertyValue("scroll-padding-" + side)) || 0;
+    if (padding + 0.5 < height) out.push("scroll-padding-" + side + " " + padding.toFixed(1) + " px is short of the " + height.toFixed(1) + " px " + selector);
+  }
+  const name = document.querySelector(".brand");
+  if (width >= 768) for (const node of name.childNodes) {
+    if (node.nodeType !== Node.TEXT_NODE) continue;
+    for (const word of node.data.matchAll(/\\S+/g)) {
+      const part = document.createRange();
+      part.setStart(node, word.index);
+      part.setEnd(node, word.index + word[0].length);
+      if (new Set([...part.getClientRects()].filter((r) => r.width > 0.5).map((r) => Math.round(r.bottom))).size > 1) out.push("the name's word " + JSON.stringify(word[0]) + " split over lines");
+    }
+  }
+  return out;
+})()`;
+
 /** A browser whose tab is served the current site on the fixtures' origin from memory (photos are a gray tile, anything else is aborted). */
 async function launch(engine: BrowserType): Promise<{ browser: Browser; page: Page }> {
   const browser = await engine.launch();
@@ -214,4 +254,37 @@ describe.each([
     }
     expect(problems).toEqual([]);
   }, 240_000);
+});
+
+describe.each([
+  ["Chromium", chromium],
+  ["WebKit", webkit],
+] as const)("Classic with much bigger text in %s", (_name, engine) => {
+  let browser: Browser;
+  let page: Page;
+  beforeAll(async () => {
+    ({ browser, page } = await launch(engine));
+  }, 60_000);
+  afterAll(async () => {
+    await browser?.close();
+  }, 60_000);
+
+  it("keeps each sticky bar to a quarter of the screen and clear of jumps, at root font size 150%, Home and Contact of every fixture", async () => {
+    const problems: string[] = [];
+    for (const [name, each] of SITES) {
+      site = each;
+      for (const { page: id } of each.pages.filter((p) => p.page === "home" || p.page === "contact")) {
+        await page.setViewportSize({ width: AT_150[0], height: 568 });
+        await page.goto(ORIGIN + PAGES[id].path, { waitUntil: "load" });
+        await page.addStyleTag({ content: MUCH_BIGGER_TEXT });
+        await page.evaluate("document.fonts.ready");
+        for (const width of AT_150) {
+          await page.setViewportSize({ width, height: width <= 430 ? 568 : 768 });
+          await page.evaluate("new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))");
+          for (const problem of (await page.evaluate(BARS_AT_150)) as string[]) problems.push(`${name} ${id} at ${width}: ${problem}`);
+        }
+      }
+    }
+    expect(problems).toEqual([]);
+  }, 120_000);
 });

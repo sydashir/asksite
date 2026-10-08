@@ -49,7 +49,7 @@ export function Invites() {
       <h1 ref={heading} tabIndex={-1} className="page-title">
         Invites
       </h1>
-      <form className="card mt-4 max-w-xl" noValidate onSubmit={(e) => void send(e)}>
+      <form className="card mt-6 max-w-xl" noValidate onSubmit={(e) => void send(e)}>
         <TextInput id="invite-email" label="Owner's email address" type="email" autoComplete="off" value={email} onChange={setEmail} errors={errors} hint="The invite link is emailed to this address. To re-send, revoke and invite again." />
         <button type="submit" className="btn-primary mt-4">
           Send invite
@@ -58,14 +58,14 @@ export function Invites() {
       <div role="status">{message !== null ? <Notice tone={message.tone}>{message.text}</Notice> : null}</div>
       {load.state === "error" ? <Notice tone="error">{load.error.message}</Notice> : null}
       {load.state === "ready" ? (
-        <ul className="mt-6 space-y-2">
+        <ul className="mt-6 space-y-3">
           {load.data.invites.map((invite) => {
             const status = statusOf(invite, now);
             return (
               <li key={invite.id} className="card flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <p className="font-semibold">{invite.email}</p>
-                  <p className="text-sm text-slate-700">
+                <div className="min-w-0">
+                  <p className="font-semibold text-ink break-all">{invite.email}</p>
+                  <p className="meta mt-0.5 text-sm">
                     {status} · sent {when(invite.createdAt)} by {invite.createdBy} · expires {when(invite.expiresAt)}
                   </p>
                 </div>

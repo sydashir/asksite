@@ -198,6 +198,9 @@ describe("invite acceptance", () => {
     expect(await json(me)).toEqual({
       owner: { id: body.owner.id, email: "new.owner@example.com" },
       sites: [{ id: body.siteId, slug: null, businessName: null, live: false, inReview: false, takenDown: false }],
+      // Password accounts (2026-10-08): an invited owner has no password until they set one.
+      hasPassword: false,
+      skipCurrent: false,
     });
     const audit = await (await h.db())
       .prepare("SELECT actor, site_id FROM audit_log WHERE action = 'invite.accepted' AND site_id = ?")

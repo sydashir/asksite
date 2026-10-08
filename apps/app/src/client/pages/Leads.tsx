@@ -81,33 +81,42 @@ export function Leads({ siteId }: { siteId: string }) {
         Messages from your website
       </h1>
       <p className="mt-2">
-        <a href={paths.edit(siteId)} onClick={onLinkClick} className="link">
+        <a href={paths.edit(siteId)} onClick={onLinkClick} className="link back-link">
           Back to editing
         </a>
       </p>
-      <p className="mt-2 text-sm text-slate-700">
+      <p className="meta mt-2 text-sm">
         To stop spam, one visitor can send up to {LIMITS.leadsPerNetworkPerSitePerDay} messages a day through your form; after that they see your phone number.
       </p>
-      {state === "loading" ? <p role="status">Loading…</p> : null}
+      {state === "loading" ? (
+        <p role="status" className="loading mt-4">
+          <span className="spinner" aria-hidden="true" />
+          Loading…
+        </p>
+      ) : null}
       {state === "error" ? (
         <div role="alert">
           <Notice tone="error">{error}</Notice>
         </div>
       ) : null}
-      {state === "ready" && leads.length === 0 ? <p className="mt-4">No messages yet. When someone uses your contact form, it shows up here and in your email.</p> : null}
-      <ul className="mt-4 space-y-3">
+      {state === "ready" && leads.length === 0 ? (
+        <div className="empty-state mt-4">
+          <p className="text-slate-700">No messages yet. When someone uses your contact form, it shows up here and in your email.</p>
+        </div>
+      ) : null}
+      <ul className="mt-6 space-y-3">
         {leads.map((lead) => (
           <li key={lead.id} className="card" ref={lead.id === focusId ? focusCard : undefined} tabIndex={lead.id === focusId ? -1 : undefined}>
-            <h2 className="text-lg font-semibold">{lead.name}</h2>
-            <p className="text-sm text-slate-600">{when(lead.createdAt)}</p>
-            <dl className="mt-2 grid grid-cols-1 gap-x-4 gap-y-1 sm:grid-cols-[8rem_1fr]">
-              <dt className="font-medium">Phone</dt>
+            <h2 className="section-title">{lead.name}</h2>
+            <p className="meta text-sm">{when(lead.createdAt)}</p>
+            <dl className="mt-3 grid grid-cols-1 gap-x-4 gap-y-1 sm:grid-cols-[8rem_1fr]">
+              <dt className="text-slate-600">Phone</dt>
               <dd>
                 <PhoneLink phone={lead.phone} />
               </dd>
               {lead.email !== null ? (
                 <>
-                  <dt className="font-medium">Email</dt>
+                  <dt className="text-slate-600">Email</dt>
                   <dd>
                     <SafeLink href={`mailto:${lead.email}`} text={lead.email} />
                   </dd>
@@ -115,13 +124,13 @@ export function Leads({ siteId }: { siteId: string }) {
               ) : null}
               {lead.service !== null ? (
                 <>
-                  <dt className="font-medium">Service</dt>
+                  <dt className="text-slate-600">Service</dt>
                   <dd>{lead.service}</dd>
                 </>
               ) : null}
               {lead.message !== null ? (
                 <>
-                  <dt className="font-medium">Message</dt>
+                  <dt className="text-slate-600">Message</dt>
                   <dd className="whitespace-pre-line">{lead.message}</dd>
                 </>
               ) : null}
