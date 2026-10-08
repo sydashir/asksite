@@ -757,6 +757,10 @@ test("a down-site form's Finish with the photos box ticked, pressed after anothe
   await expect(page.getByText("This site was restored since you opened this page. Reload to see where it stands now.")).toBeVisible();
   await expect(page.getByRole("button", { name: "Restore the site" })).toBeVisible();
   expect(await uploadsOf(page, site.siteId)).toEqual(KEPT);
+  // The in-app reload remounts the form onto the other admin's takedown, and Finish is free again only once it has (busy ends after the reload).
+  // Everything checked above is already true on the OLD form, which resets the moment the 409 arrives: checking or typing before this tests, or
+  // types into, a form the remount then wipes (the 2026-10-08 flake: the reason typed here was wiped, and the press found it empty).
+  await expect(page.getByRole("button", { name: "Finish the takedown" })).toHaveAttribute("aria-disabled", "false");
   // THE RULE: the form now shows the OTHER admin's takedown. Its fields are born empty and unticked, so the SECOND press cannot carry the refused tick.
   await expect(page.getByLabel("Also delete this site's photos")).not.toBeChecked();
   await expect(page.getByLabel("Reason for finishing the takedown")).toHaveValue("");
@@ -793,6 +797,8 @@ test("a Finish refused as stale does not carry its tick or reason onto the other
   // Both checks above are already true on the OLD T1 form (it resets the moment the 409 arrives). Wait for the in-app reload that remounts the form onto T2
   // BEFORE typing: text typed earlier is wiped by the remount, and a press in that window is ignored.
   await reloaded;
+  // The GET's answer arrives before the page has read it and remounted the form: Finish is free again only after that (busy ends after the reload).
+  await expect(page.getByRole("button", { name: "Finish the takedown" })).toHaveAttribute("aria-disabled", "false");
   const second = page.waitForResponse((r) => r.url().includes("/takedown") && r.request().method() === "POST");
   await finishFromForm(page, "Finish T2");
   expect((await second).status()).toBe(200);
