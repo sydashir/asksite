@@ -28,7 +28,7 @@ export function Questionnaire({ siteId, step }: { siteId: string; step: StepId }
   if (site.load.state === "error") return <Notice tone="error">{site.load.message}</Notice>;
   if (site.load.state === "loading" || site.draft === null)
     return (
-      <p role="status" className="flex items-center gap-2 text-slate-600">
+      <p role="status" className="loading">
         <span className="spinner" aria-hidden="true" />
         Loading your answers…
       </p>
