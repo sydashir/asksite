@@ -70,6 +70,24 @@ describe("GET /api/sites/:siteId/leads", () => {
     expect(page1.nextBefore).toBe(5000);
   });
 
+  // C1: while the sites Worker's */15 cron re-sends a lead's email it holds the lead as pending, with email_error
+  // 'retrying:<ms>'. The view carries email_status only, and the red "We could not email you" line shows only for
+  // failed, so the owner sees a lead on its way, never an error.
+  it("shows a lead the lead-email retry has claimed as pending", async () => {
+    const owner = await h.signIn();
+    await (await h.db())
+      .prepare(
+        `INSERT INTO leads (id, site_id, created_at, name, phone, email, service, message, spam, email_status, email_error, ip_hash)
+         VALUES (?, ?, 3000, 'Claimed', '(512) 555-0199', NULL, NULL, NULL, 0, 'pending', 'retrying:1759924800000', 'hash')`,
+      )
+      .bind(crypto.randomUUID(), owner.siteId)
+      .run();
+    const page = await json<{ leads: LeadView[] }>(await h.call("GET", `/api/sites/${owner.siteId}/leads`, { cookie: owner.cookie }));
+    expect(page.leads).toHaveLength(1);
+    expect(page.leads[0]).toMatchObject({ name: "Claimed", emailStatus: "pending" });
+    expect(Object.keys(page.leads[0] ?? {})).not.toContain("emailError");
+  });
+
   it("refuses a bad page size and another owner's leads", async () => {
     const a = await h.signIn();
     const b = await h.signIn();

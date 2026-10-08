@@ -120,7 +120,7 @@ export function Home() {
   const me = useMe();
   if (me.state === "loading") {
     return (
-      <p role="status" className="flex items-center gap-2 text-slate-600">
+      <p role="status" className="loading">
         <span className="spinner" aria-hidden="true" />
         Loading…
       </p>

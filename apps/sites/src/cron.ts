@@ -1,5 +1,13 @@
 import { LIMITS } from "@asksite/core";
 
+// The sites Worker's two Cron Triggers (wrangler.jsonc triggers.crons). Both call the same scheduled() handler, which
+// tells them apart by controller.cron, "the value of the Cron Trigger that started the ScheduledEvent"
+// (developers.cloudflare.com/workers/runtime-apis/handlers/scheduled/). Cron Triggers run on UTC.
+/** Daily lead retention (deleteOldLeads). */
+export const RETENTION_CRON = "0 7 * * *";
+/** The lead-email retry (retryLeadEmails, C1). */
+export const RETRY_CRON = "*/15 * * * *";
+
 export type RetentionResult = {
   /** Spam leads (spam = 1) aged between LIMITS.spamLeadRetentionDays and LIMITS.leadRetentionDays (older ones count as expired). */
   spam: number;

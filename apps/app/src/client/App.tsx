@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { flushSync } from "react-dom";
 import { Notice } from "./components/feedback.tsx";
 import { useMe } from "./hooks/use-me.ts";
@@ -14,6 +14,10 @@ import { NotFound } from "./pages/NotFound.tsx";
 import { Publish } from "./pages/Publish.tsx";
 import { Questionnaire } from "./pages/Questionnaire.tsx";
 import { VerifyLogin } from "./pages/VerifyLogin.tsx";
+
+// Development builds only (vite build --mode development, which `pnpm dev` serves): the local inbox and the demo start page.
+// Every other build replaces MODE with its own name, so this is null and the pages are left out of the bundle.
+const DevPages = import.meta.env.MODE === "development" ? lazy(() => import("./dev/DevPages.tsx")) : null;
 
 function page(route: Route) {
   switch (route.name) {
@@ -34,7 +38,20 @@ function page(route: Route) {
     case "leads":
       return <Leads key={route.siteId} siteId={route.siteId} />;
     case "notFound":
-      return <NotFound />;
+      return DevPages !== null && location.pathname.startsWith("/dev") ? (
+        <Suspense
+          fallback={
+            <p role="status" className="loading">
+              <span className="spinner" aria-hidden="true" />
+              Loading…
+            </p>
+          }
+        >
+          <DevPages />
+        </Suspense>
+      ) : (
+        <NotFound />
+      );
   }
 }
 

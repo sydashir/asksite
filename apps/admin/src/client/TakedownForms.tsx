@@ -61,7 +61,7 @@ export function TakedownForm({ restoredAt, busy, onTakeDown }: { restoredAt: num
         <TextInput id="takedown-reason" label="Reason for taking it down" max={REASON_MAX} value={reason} onChange={setReason} errors={errors} />
         <TextArea id="takedown-message" label="Message to the owner" optional max={1000} value={ownerMessage} onChange={setOwnerMessage} />
         <Checkbox id="takedown-purge" label="Also delete this site's photos" checked={purge} onChange={setPurge} />
-        <button type="submit" className="btn-secondary mt-3">
+        <button type="submit" className="btn-danger mt-3">
           Take the site down
         </button>
       </form>
@@ -98,7 +98,7 @@ export function FinishForm({ takenDownAt, busy, onFinish }: { takenDownAt: numbe
     <form noValidate onSubmit={submit} className="mt-4">
       <TextInput id="finish-reason" label="Reason for finishing the takedown" max={REASON_MAX} value={reason} onChange={setReason} errors={errors} />
       <Checkbox id="finish-purge" label="Also delete this site's photos" checked={purge} onChange={setPurge} />
-      <button type="submit" className="btn-secondary mt-3" aria-disabled={busy}>
+      <button type="submit" className="btn-danger mt-3" aria-disabled={busy}>
         Finish the takedown
       </button>
     </form>

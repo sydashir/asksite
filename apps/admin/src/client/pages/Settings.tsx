@@ -55,29 +55,40 @@ export function Settings() {
   }
 
   return (
-    <section className="max-w-2xl">
+    <section className="max-w-3xl">
       <h1 ref={heading} tabIndex={-1} className="page-title">
         Settings
       </h1>
       {load.state === "error" ? <Notice tone="error">{load.error.message}</Notice> : null}
       {settings !== null ? (
         <>
-          <dl className="card mt-4 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
-            <dt className="font-medium">AI writing calls today</dt>
-            <dd>
-              {settings.modelCallsToday} of {settings.dailyModelLimit}
-            </dd>
-            <dt className="font-medium">Spent today</dt>
-            <dd>{spentTodayText(settings.spentTodayMicrousd, settings.modelCallsToday, settings.unknownCostJobsToday)}</dd>
-            <dt className="font-medium">Most it can cost per day</dt>
-            <dd>{worstCaseText(settings.worstCaseDailyMicrousd)}</dd>
+          <dl className="stats">
+            <div className="stat">
+              <dt>AI writing calls today</dt>
+              <dd>
+                {settings.modelCallsToday} of {settings.dailyModelLimit}
+              </dd>
+            </div>
+            <div className="stat">
+              <dt>Spent today</dt>
+              <dd>{spentTodayText(settings.spentTodayMicrousd, settings.modelCallsToday, settings.unknownCostJobsToday)}</dd>
+            </div>
+            <div className="stat">
+              <dt>Most it can cost per day</dt>
+              <dd>{worstCaseText(settings.worstCaseDailyMicrousd)}</dd>
+            </div>
             {signIn.state === "ready" ? (
-              <>
-                <dt className="font-medium">Sign-in emails today</dt>
+              <div className="stat">
+                <dt>Sign-in emails today</dt>
                 <dd>
                   {signIn.data.sentToday} of {signIn.data.dailyCap}
+                  {signIn.data.dailyCap > 0 ? (
+                    <span className="progress-track mt-2 block" aria-hidden="true">
+                      <span className="progress-fill block" style={{ width: `${Math.min(100, (signIn.data.sentToday / signIn.data.dailyCap) * 100)}%` }} />
+                    </span>
+                  ) : null}
                 </dd>
-              </>
+              </div>
             ) : null}
           </dl>
           {signIn.state === "ready" && signIn.data.capReachedAt !== null ? (
@@ -85,7 +96,7 @@ export function Settings() {
           ) : null}
           {signIn.state === "error" ? <Notice tone="error">{signIn.error.message}</Notice> : null}
           {!settings.envGenerationEnabled ? <Notice tone="warning">AI writing is switched off in the server settings (GENERATION_ENABLED), whatever this page says.</Notice> : null}
-          <form className="card mt-4" noValidate onSubmit={(e) => void save(e)}>
+          <form className="card mt-6" noValidate onSubmit={(e) => void save(e)}>
             <Checkbox id="generation-enabled" label="AI writing is on" hint="When off, new sites get starter wording and “Write new wording” is refused." checked={enabled} onChange={setEnabled} />
             <TextInput id="daily-limit" label="Most AI writing jobs per day, for all owners" inputMode="numeric" value={limit} onChange={setLimit} errors={errors} />
             <button type="submit" className="btn-primary mt-4">

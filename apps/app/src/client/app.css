@@ -119,6 +119,7 @@
   }
   /* The skip link: hidden until focused, then a green tab at the top left. */
   .skip-link {
+    --focus-ring: var(--color-brand-500);
     @apply sr-only focus:not-sr-only focus:absolute focus:top-3 focus:left-3 focus:z-20 focus:rounded-lg focus:bg-brand-500 focus:px-4 focus:py-3 focus:font-semibold focus:text-ink;
   }
   /* The top bar's home link: the mark (decorative) and the product name. */
@@ -180,10 +181,6 @@
   .wizard-head,
   .wizard-body {
     @apply lg:col-start-2;
-  }
-  /* The step's first field sits at the card's top padding, not below an extra gap. */
-  .wizard-body .card > div > :first-child {
-    @apply mt-0;
   }
   .wizard-steps {
     @apply mt-5 lg:col-start-1 lg:row-span-2 lg:row-start-1 lg:mt-1 lg:self-start;
@@ -264,6 +261,31 @@
   /* A choice shown as a card (designs, colours): the checked one gets a green edge and tint. */
   .choice-card {
     @apply flex items-center gap-3 rounded-xl border border-slate-300 bg-white p-3 hover:border-slate-500 has-checked:border-brand-700 has-checked:bg-brand-50;
+  }
+  /* "Loading…" lines: a spinner beside the text (the text alone is the status). */
+  .loading {
+    @apply flex items-center gap-2 text-slate-600;
+  }
+  /* Stat tiles in a <dl>: each <div class="stat"> holds one <dt> and its <dd>. */
+  .stats {
+    @apply mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2;
+  }
+  .stat {
+    @apply rounded-card border border-slate-200 bg-white p-4;
+  }
+  .stat > dt {
+    @apply text-sm font-medium text-slate-600;
+  }
+  .stat > dd {
+    @apply mt-1 text-lg font-semibold text-ink tabular-nums;
+  }
+  /* Development-only pages: a dashed green "dev only" box (brand-700 edge on brand-50, 4.5:1). */
+  .dev-box {
+    @apply mt-4 rounded-xl border-2 border-dashed border-brand-700 bg-brand-50 px-4 py-3 text-slate-800;
+  }
+  /* An email's text part, shown as text: line breaks kept, long addresses wrap. */
+  .email-body {
+    @apply mt-4 whitespace-pre-wrap text-slate-800 [overflow-wrap:anywhere];
   }
   .eyebrow {
     @apply text-sm font-medium text-slate-600;

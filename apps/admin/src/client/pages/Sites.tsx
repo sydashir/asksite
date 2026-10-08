@@ -29,7 +29,7 @@ export function Sites() {
       <h1 ref={heading} tabIndex={-1} className="page-title">
         Sites
       </h1>
-      <div className="flex flex-wrap gap-x-6">
+      <div className="mt-2 flex flex-wrap items-end gap-x-6">
         <div className="w-full max-w-xs">
           <Select id="site-filter" label="Show" options={FILTERS} value={filter} onChange={(v) => setFilter(v === "" ? "all" : v)} />
         </div>
@@ -39,12 +39,12 @@ export function Sites() {
       </div>
       {load.state === "error" ? <Notice tone="error">{load.error.message}</Notice> : null}
       {load.state === "ready" ? (
-        <ul className="mt-4 space-y-2">
+        <ul className="mt-6 space-y-3">
           {load.data.sites.filter(matches).map((site) => (
             <li key={site.id} className="card flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <p className="font-semibold">{site.businessName ?? "(no name yet)"}</p>
-                <p className="text-sm text-slate-700">
+              <div className="min-w-0">
+                <p className="font-semibold text-ink">{site.businessName ?? "(no name yet)"}</p>
+                <p className="meta mt-0.5 text-sm">
                   {site.slug ?? "(no web address)"} · {status(site)} · {site.ownerEmail}
                   {site.ownerDisabled ? " · owner disabled" : ""}
                 </p>
