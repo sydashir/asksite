@@ -3,8 +3,10 @@ import {
   formActionUrl,
   livePageKey,
   livePointerKey,
+  liveKeyVersionId,
   liveSitePrefix,
   mediaKey,
+  mediaSitePrefix,
   mediaUrl,
   pageCacheUrl,
   parseHost,
@@ -16,6 +18,7 @@ import {
   slugIssue,
   versionKey,
   versionPageKey,
+  workSitePrefix,
 } from "../src/index.ts";
 import { PAGE_IDS, type PageId } from "@asksite/site-schema";
 
@@ -185,5 +188,44 @@ describe("slugIssue", () => {
     for (const slug of listed) expect(RESERVED_SLUGS.has(slug), slug).toBe(true);
     expect(slugIssue("admin")).toBe("reserved");
     expect(slugIssue("preview")).toBe("reserved");
+  });
+});
+
+// Account deletion (owner closure): one prefix per bucket that covers exactly one site's objects, and the version id
+// a LIVE key names, so pages left under an older slug are found by id. A damaged id can never shape a prefix.
+describe("account deletion keys", () => {
+  const OTHER = "9b2f4d1e-3c5a-4e7f-8a6b-1d2c3e4f5a6b";
+  const BAD_SITES = ["", "versions", `${SITE}/x`, SITE.toUpperCase(), "not-an-id", `${SITE}/`, "../x"];
+
+  it("workSitePrefix covers every WORK key of its site and no other site's", () => {
+    expect(workSitePrefix(SITE)).toBe(`versions/${SITE}/`);
+    for (const page of PAGE_IDS) {
+      expect(versionPageKey(SITE, VERSION, page).startsWith(workSitePrefix(SITE))).toBe(true);
+      expect(versionPageKey(OTHER, VERSION, page).startsWith(workSitePrefix(SITE))).toBe(false);
+    }
+    expect(versionKey(SITE, VERSION).startsWith(workSitePrefix(SITE))).toBe(true);
+    expect(versionKey(OTHER, VERSION).startsWith(workSitePrefix(SITE))).toBe(false);
+    for (const bad of BAD_SITES) expect(() => workSitePrefix(bad)).toThrow(/site/);
+  });
+
+  it("mediaSitePrefix covers every MEDIA key of its site and no other site's", () => {
+    expect(mediaSitePrefix(SITE)).toBe(`${SITE}/`);
+    expect(mediaKey(SITE, VERSION).startsWith(mediaSitePrefix(SITE))).toBe(true);
+    expect(mediaKey(OTHER, VERSION).startsWith(mediaSitePrefix(SITE))).toBe(false);
+    for (const bad of BAD_SITES) expect(() => mediaSitePrefix(bad)).toThrow(/site/);
+  });
+
+  it("liveKeyVersionId reads the 2nd segment of a LIVE page key, and only an exact id", () => {
+    expect(liveKeyVersionId(`joes/${VERSION}/home.html`)).toBe(VERSION);
+    expect(liveKeyVersionId(`any-old-slug/${VERSION}/a/b`)).toBe(VERSION);
+    expect(liveKeyVersionId(livePageKey("joes", VERSION, "contact"))).toBe(VERSION);
+    expect(liveKeyVersionId("joes")).toBeNull(); // the pointer
+    expect(liveKeyVersionId(`joes/${VERSION}`)).toBeNull(); // two segments only
+    expect(liveKeyVersionId("joes/not-a-uuid/home.html")).toBeNull();
+    expect(liveKeyVersionId(`joes/${VERSION.toUpperCase()}/home.html`)).toBeNull();
+    expect(liveKeyVersionId(`joes/${VERSION}x/home.html`)).toBeNull();
+    expect(liveKeyVersionId(`${VERSION}/joes/home.html`)).toBeNull(); // the id in the first segment is a slug position
+    expect(liveKeyVersionId("a/b")).toBeNull();
+    expect(liveKeyVersionId("")).toBeNull();
   });
 });

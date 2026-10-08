@@ -1,0 +1,49 @@
+{
+  "name": "@asksite/app",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "types": "wrangler types --strict-vars=false",
+    "typecheck": "pnpm types && tsc -p tsconfig.worker.json && tsc -p tsconfig.client.json && tsc -p tsconfig.test.json && tsc -p tsconfig.node.json",
+    "test": "vitest run",
+    "build": "vite build --mode development",
+    "build:production": "vite build --mode production",
+    "build:e2e": "vite build --mode e2e",
+    "test:e2e": "playwright test",
+    "release": "node release-guard.ts && vite build --mode production && wrangler deploy",
+    "test:journey": "playwright test -c playwright.journey.config.ts --workers=1",
+    "check:floor": "tsc -p tsconfig.floor.json && node ../../packages/app-common/scripts/check-browser-floor.ts tsconfig.floor.json"
+  },
+  "dependencies": {
+    "@asksite/app-common": "workspace:*",
+    "@asksite/core": "workspace:*",
+    "@asksite/generation": "workspace:*",
+    "@asksite/mailer": "workspace:*",
+    "@asksite/publishing": "workspace:*",
+    "@asksite/renderer": "workspace:*",
+    "@asksite/site-css": "workspace:*",
+    "@asksite/site-schema": "workspace:*",
+    "hono": "4.13.9",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "4.13.0",
+    "@cloudflare/vite-plugin": "1.59.0",
+    "@playwright/test": "1.63.0",
+    "@tailwindcss/vite": "4.3.3",
+    "@types/node": "24.13.6",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@vitejs/plugin-basic-ssl": "2.3.0",
+    "@vitejs/plugin-react": "6.1.1",
+    "sharp": "0.35.4",
+    "tailwindcss": "4.3.3",
+    "typescript": "7.0.2",
+    "vite": "8.3.1",
+    "vitest": "5.0.1",
+    "wrangler": "4.138.0"
+  }
+}

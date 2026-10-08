@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { deployProblems } from "./deploy-check.ts";
 
@@ -80,7 +82,7 @@ describe("deployProblems edges", () => {
   const expiring = (iso: string): string[] => deployProblems(ready().replace("2027-09-01T00:00:00.000Z", iso), NOW);
 
   it("passes a Worker without the sites-only variables (shaped like the generator, design §10.3)", () => {
-    expect(deployProblems(withVars({ ENVIRONMENT: "production", MODEL_PROVIDER: "anthropic", GENERATION_ENABLED: "false" }), NOW)).toEqual([]);
+    expect(deployProblems(withVars({ ENVIRONMENT: "production", MODEL_PROVIDER: "anthropic", MODEL_ID: "claude-opus-5-5", GENERATION_ENABLED: "false" }), NOW)).toEqual([]);
   });
 
   it("refuses preview_urls on its own, and a config that leaves both switches out", () => {
@@ -139,5 +141,81 @@ describe("public variables with a secret-like name", () => {
     const names = ["TURNSTILE_SECRET_KEY", "OTHER_SITE_KEY", "TURNSTILE_SITE_KEY_2", "turnstile_site_key"];
     const vars = { ...readyVars(), ...Object.fromEntries(names.map((name) => [name, "x"])) };
     expect(deployProblems(withVars(vars), NOW)).toEqual(names.map((name) => `vars.${name} looks like a secret: use wrangler secret put`));
+  });
+});
+
+// Item 3 (G1): the configured model must be priced.
+describe("deployProblems: the model is priced", () => {
+  const PRICED = "vars.MODEL_PROVIDER and vars.MODEL_ID must name a priced model (packages/generation/src/models.ts)";
+  const withModel = (vars: Record<string, string>): string => JSON.stringify({ ...JSON.parse(ready()), vars: { ENVIRONMENT: "production", ...vars } });
+
+  it.each([
+    ["an unpriced Anthropic model", { MODEL_PROVIDER: "anthropic", MODEL_ID: "claude-fable-5-1" }],
+    ["a dated alias of a priced one", { MODEL_PROVIDER: "anthropic", MODEL_ID: "claude-opus-5-5-20261001" }],
+    ["no model id", { MODEL_PROVIDER: "anthropic" }],
+  ])("refuses %s", (_name, vars) => {
+    expect(deployProblems(withModel(vars), NOW)).toEqual([PRICED]);
+  });
+
+  // Pin changed (item 4): was [PRICED]; an unknown provider is now also refused as not anthropic.
+  it("refuses an unknown provider as unpriced and as not anthropic", () => {
+    expect(deployProblems(withModel({ MODEL_PROVIDER: "other", MODEL_ID: "claude-opus-5-5" }), NOW)).toEqual(["vars.MODEL_PROVIDER must be anthropic", PRICED]);
+  });
+
+  it.each([
+    ["anthropic", "claude-opus-5-5"],
+    ["anthropic", "claude-sonnet-5"],
+  ])("passes the priced model %s:%s, and a Worker with no model variables", (provider, model) => {
+    expect(deployProblems(withModel({ MODEL_PROVIDER: provider, MODEL_ID: model }), NOW)).toEqual([]);
+    expect(deployProblems(withModel({}), NOW)).toEqual([]);
+  });
+
+  it("says only the fake-provider problem for the fake provider", () => {
+    expect(deployProblems(withModel({ MODEL_PROVIDER: "fake", MODEL_ID: "fake-template" }), NOW)).toEqual(["vars.MODEL_PROVIDER must not be fake"]);
+  });
+});
+
+// Item 4: production allows only the Anthropic provider (the runtime refuses the others too).
+describe("deployProblems: Anthropic only", () => {
+  const ONLY = "vars.MODEL_PROVIDER must be anthropic";
+  const withModel = (vars: Record<string, string>): string => JSON.stringify({ ...JSON.parse(ready()), vars: { ENVIRONMENT: "production", ...vars } });
+
+  it.each([
+    ["openai-compatible", "@cf/openai/gpt-oss-120b"],
+    ["openai-compatible", "openai/gpt-oss-120b:groq"],
+    ["Anthropic", "claude-opus-5-5"],
+    ["", "claude-opus-5-5"],
+  ])("refuses the provider %j with model %s", (provider, model) => {
+    expect(deployProblems(withModel({ MODEL_PROVIDER: provider, MODEL_ID: model }), NOW)).toContain(ONLY);
+  });
+
+  // Pin moved here (item 4): "passes the priced model openai-compatible:@cf/openai/gpt-oss-120b" is now refused, and only for the provider.
+  it("refuses a priced openai-compatible model for the provider alone", () => {
+    expect(deployProblems(withModel({ MODEL_PROVIDER: "openai-compatible", MODEL_ID: "@cf/openai/gpt-oss-120b" }), NOW)).toEqual([ONLY]);
+  });
+
+  it("accepts anthropic and says nothing about the provider", () => {
+    expect(deployProblems(withModel({ MODEL_PROVIDER: "anthropic", MODEL_ID: "claude-opus-5-5" }), NOW)).toEqual([]);
+  });
+
+  it("accepts the shipped generator config as far as the provider goes", () => {
+    const shipped = readFileSync(resolve(import.meta.dirname, "../apps/generator/wrangler.jsonc"), "utf8");
+    expect(deployProblems(shipped, NOW).filter((problem) => problem.includes("MODEL_PROVIDER"))).toEqual([]);
+    expect((JSON.parse(shipped) as { vars: Record<string, string> }).vars.MODEL_PROVIDER).toBe("anthropic");
+  });
+
+  // A Worker that consumes the generation queue (the generator) must say anthropic: a missing MODEL_PROVIDER is refused.
+  const consumer = (vars: Record<string, string>): string =>
+    JSON.stringify({ ...JSON.parse(ready()), queues: { consumers: [{ queue: "asksite-generation" }] }, vars: { ENVIRONMENT: "production", ...vars } });
+
+  it("refuses a generation-queue consumer with no MODEL_PROVIDER, and accepts one that says anthropic", () => {
+    expect(deployProblems(consumer({ MODEL_ID: "claude-opus-5-5" }), NOW)).toEqual([ONLY]);
+    expect(deployProblems(consumer({ MODEL_PROVIDER: "anthropic", MODEL_ID: "claude-opus-5-5" }), NOW)).toEqual([]);
+  });
+
+  it("keeps today's rule for a Worker that does not consume the generation queue", () => {
+    const other = JSON.stringify({ ...JSON.parse(ready()), queues: { consumers: [{ queue: "other-queue" }] }, vars: { ENVIRONMENT: "production" } });
+    expect(deployProblems(other, NOW)).toEqual([]);
+    expect(deployProblems(withModel({}), NOW)).toEqual([]);
   });
 });

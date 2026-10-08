@@ -49,12 +49,18 @@ export class ProviderError extends Error {
    * nothing. Otherwise the key is absent, as for afterHeaders. Internal to this package.
    */
   declare readonly noResponse?: true;
-  constructor(kind: ProviderErrorKind, message: string, options: { afterHeaders?: true; noResponse?: true } = {}) {
+  /**
+   * The provider's Retry-After on a 429 or 5xx, in whole seconds (a number of seconds only; a date is ignored), or absent.
+   * generateDraft waits that long, capped at MAX_RETRY_AFTER_MS, instead of its fixed pause. Internal to this package.
+   */
+  declare readonly retryAfterSeconds?: number;
+  constructor(kind: ProviderErrorKind, message: string, options: { afterHeaders?: true; noResponse?: true; retryAfterSeconds?: number } = {}) {
     super(message);
     this.kind = kind;
     this.name = "ProviderError";
     if (options.afterHeaders) this.afterHeaders = true;
     if (options.noResponse) this.noResponse = true;
+    if (options.retryAfterSeconds !== undefined) this.retryAfterSeconds = options.retryAfterSeconds;
   }
 }
 

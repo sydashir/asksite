@@ -2,7 +2,7 @@ import type { D1Database } from "@cloudflare/workers-types";
 import { parseSnapshot } from "./snapshot.ts";
 import { templateDraft } from "./template.ts";
 
-/** Longer than the longest normal job: 3 attempts x 90 s + 2 s + 6 s of pauses, about 4.6 minutes (§6.3). */
+/** Longer than the longest normal job: 3 attempts x 90 s + two pauses of at most 30 s, 330 s, and the job starts no attempt that could not end 30 s before this (§6.3). */
 export const JOB_STUCK_AFTER_MS = 6 * 60_000;
 /** Rows read per query. */
 export const SWEEP_BATCH = 25;

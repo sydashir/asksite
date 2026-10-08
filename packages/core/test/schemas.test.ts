@@ -8,6 +8,7 @@ import {
   Brief,
   canonicalJson,
   CreateInviteBody,
+  DeleteOwnerBody,
   EMPTY_EDITS,
   ERROR_STATUS,
   GOALS,
@@ -18,6 +19,7 @@ import {
   newToken,
   OwnerEdits,
   PatchDraftBody,
+  REDACTED_REASON,
   SECTION_IDS,
   SettingsBody,
   TakedownBody,
@@ -331,6 +333,21 @@ describe("request bodies", () => {
     expect(ApproveBody.safeParse({ htmlSha256: "A".repeat(64) }).success).toBe(false);
   });
 
+  it("DeleteOwnerBody trims the typed email and refuses a missing, empty, too long or extra field", () => {
+    expect(DeleteOwnerBody.parse({ confirmEmail: "  Joe@Example.com " })).toEqual({ confirmEmail: "Joe@Example.com" });
+    expect(DeleteOwnerBody.parse({ confirmEmail: "x".repeat(254) }).confirmEmail).toHaveLength(254);
+    expect(DeleteOwnerBody.safeParse({}).success).toBe(false);
+    expect(DeleteOwnerBody.safeParse({ confirmEmail: "" }).success).toBe(false);
+    expect(DeleteOwnerBody.safeParse({ confirmEmail: "   " }).success).toBe(false);
+    expect(DeleteOwnerBody.safeParse({ confirmEmail: "x".repeat(255) }).success).toBe(false);
+    expect(DeleteOwnerBody.safeParse({ confirmEmail: "a@b.co", extra: 1 }).success).toBe(false);
+    expect(DeleteOwnerBody.safeParse({ confirmEmail: 5 }).success).toBe(false);
+  });
+
+  it("REDACTED_REASON is the text account deletion writes over the admin reasons", () => {
+    expect(REDACTED_REASON).toBe("[deleted with the account]");
+  });
+
   it("TakedownBody and SettingsBody apply their caps", () => {
     expect(TakedownBody.parse({ reason: " phishing " })).toEqual({ reason: "phishing", purgeMedia: false });
     expect(TakedownBody.safeParse({ reason: "" }).success).toBe(false);
@@ -353,20 +370,26 @@ describe("constants", () => {
   });
 
   it("keeps the agreed limits and lifetimes", () => {
+    expect(LIMITS.generationsPerSitePerDay).toBe(5);
+    expect(LIMITS.generationsPerOwnerTotal).toBe(20);
+    expect(LIMITS.generationsPerOwnerPerDay).toBe(5); // regenerations only; first builds neither count nor are refused (Decision 30)
     expect(LIMITS.leadsPerSitePerDay).toBe(50);
     expect(LIMITS.leadRetentionDays).toBe(180);
     expect(LIMITS.spamLeadRetentionDays).toBe(30); // spam = 1 rows only; owners never see them
+    expect(LIMITS.generationInputRetentionDays).toBe(30); // finished generations only; output_json and costs stay
     expect(LIMITS.publishRequestsPerSitePerDay).toBe(20);
     expect(AUDIT_ACTIONS).toContain("site.taken_down");
   });
 
-  it("lists the audit actions append-only: A14 adds admin.login_link_sent (the admin 'Send sign-in link', A11b) last", () => {
+  it("lists the audit actions append-only: A14 adds admin.login_link_sent (A11b), account deletion adds owner.deletion_started and owner.deleted, then open sign-up adds owner.signup_requested and signin.cap_alert_sent, last", () => {
     // audit_log.action has no SQL CHECK (0001_init.sql), so stored rows keep their meaning when an action is added.
     expect(AUDIT_ACTIONS).toEqual([
       "invite.created", "invite.revoked", "invite.accepted", "auth.login",
       "generation.requested", "version.requested", "version.withdrawn", "version.approved", "version.rejected",
       "site.taken_down", "site.restored", "site.indexable_changed", "owner.disabled", "owner.enabled",
       "settings.updated", "admin.login_link_sent",
+      "owner.deletion_started", "owner.deleted", // account deletion (the 16 before are unchanged)
+      "owner.signup_requested", "signin.cap_alert_sent", // open sign-up, appended last
     ]);
   });
 });
@@ -381,6 +404,8 @@ describe("row and view types", () => {
     const lead: LeadView = { id: "l", createdAt: 1, name: "n", phone: "p", email: null, service: null, message: null, emailStatus: "sent" };
     const body: ErrorBody = { error: { code: "conflict", message: "Changed elsewhere", currentRev: 2 } };
     expect([site.indexable, version.status, lead.emailStatus, ERROR_STATUS[body.error.code]]).toEqual([1, "pending", "sent", 409]);
+    // The takedown route's lease_lost 409 says whether the owner notice went out: true, false, or null (this call sent none).
+    expectTypeOf<ErrorBody["error"]["noticeSent"]>().toEqualTypeOf<boolean | null | undefined>();
   });
 
   it("allow an unknown worst-case daily cost: null when the model has no recorded price (M3)", () => {

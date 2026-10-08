@@ -41,7 +41,7 @@ describe("fixtureName", () => {
 });
 
 const KEY = "sk-test-marker-0123456789abcdef";
-const TOKEN = "hdr-test-marker-token-987654";
+const TOKEN = "hdr-bearer-ticket-987654";
 /** What the recorder would see for a typical request: the key's headers plus the SDK's short values. */
 const HEADERS: RequestHeader[] = [
   ["authorization", `Bearer ${TOKEN}`],
@@ -131,5 +131,32 @@ describe("recordingFetch keeps the request headers in memory, apart from the fix
       expect(text.toLowerCase()).not.toMatch(/authorization|x-api-key|anthropic-version|x-stainless|bearer/);
       expect(JSON.stringify(sink)).not.toMatch(/authorization|x-api-key|x-stainless/i);
     }
+  });
+});
+
+// Item 9 (G1): a response that shares a run of 8 characters with a secret is refused, not only one that holds it whole.
+describe("findRequestSecret: a shared key fragment (item 9)", () => {
+  const FRAGMENT_KEY = "sk-live-AbCdEfGh1234567890zzzz";
+  const FRAGMENT_TOKEN = "tok_QwErTyUiOp0987654321";
+  const headers: RequestHeader[] = [["authorization", `Bearer ${FRAGMENT_TOKEN}`], ["x-api-key", FRAGMENT_KEY]];
+
+  it.each([
+    ["8 characters of the key", fixtureText({ echo: "invalid key ...AbCdEfGh1 ..." }), 1, "API key"],
+    ["the key's tail", fixtureText({ echo: "ends 7890zzzz" }), 1, "API key"],
+    ["a case-changed fragment of the key", fixtureText({ echo: "abcdefgh1234" }), 1, "API key"],
+  ])("refuses a response holding %s (the key given)", (_name, text, rule, name) => {
+    expect(findRequestSecret(text, headers, FRAGMENT_KEY)).toEqual({ rule, name });
+  });
+
+  it("refuses a fragment of an auth-bearing header value, with no key given, and names that header", () => {
+    expect(findRequestSecret(fixtureText({ echo: "token tok_QwE..." }), [["authorization", `Bearer ${FRAGMENT_TOKEN}`]])).toBeNull(); // 7 characters: below the run
+    expect(findRequestSecret(fixtureText({ echo: "got QwErTyUiOp09" }), [["authorization", `Bearer ${FRAGMENT_TOKEN}`]])).toEqual({ rule: 1, name: "authorization" });
+    expect(findRequestSecret(fixtureText({ echo: "got 0987654321" }), [["x-custom-token", FRAGMENT_TOKEN]])).toEqual({ rule: 1, name: "x-custom-token" });
+  });
+
+  it("accepts a run of 7 characters, and a header value that is not auth-bearing", () => {
+    expect(findRequestSecret(fixtureText({ echo: "AbCdEfG" }), [], FRAGMENT_KEY)).toBeNull();
+    expect(findRequestSecret(fixtureText({ echo: "Bearer tok_QwE" }), [["authorization", `Bearer ${FRAGMENT_TOKEN}`]])).toBeNull(); // the prefix alone is no secret
+    expect(findRequestSecret(fixtureText({ echo: "2023-06-01 and more" }), [["anthropic-version", "2023-06-01 and more text"]], FRAGMENT_KEY)).toBeNull();
   });
 });

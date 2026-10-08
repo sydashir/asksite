@@ -37,6 +37,8 @@ describe("@asksite/generation public API", () => {
   it("exports no other value", () => {
     expect(Object.keys(api).sort()).toEqual([
       "JOB_STUCK_AFTER_MS",
+      "aiClaims",
+      "aiCopyIssues",
       "dailyModelLimit",
       "generationAllowance",
       "isGenerationEnabled",
@@ -46,6 +48,7 @@ describe("@asksite/generation public API", () => {
       "templateDraft",
       "toGenerationView",
       "toModelFacts",
+      "trimGenerationInputs",
       "worstCaseJobMicrousd",
     ]);
   });

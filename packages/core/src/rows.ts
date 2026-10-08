@@ -47,6 +47,8 @@ export interface LoginTokenRow {
   created_at: number;
   expires_at: number;
   used_at: number | null;
+  /** When the email send ended "unavailable" (the link is kept, F26); null on every other row (B1-15, migration 0009). */
+  send_failed_at: number | null;
 }
 
 export interface SessionRow {
@@ -65,6 +67,8 @@ export interface UploadRow {
   bytes: number;
   created_at: number;
   deleted_at: number | null;
+  /** When the row was reserved, before its upload's billed transform; null on every other row (P4-21, migration 0003). */
+  reserved_at: number | null;
 }
 
 export interface GenerationRow {

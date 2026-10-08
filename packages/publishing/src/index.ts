@@ -1,5 +1,6 @@
 export { PublishError, type PublishErrorCode } from "./errors.ts";
 export { approveVersion, rejectVersion } from "./review.ts";
+export { deleteOwner, type DeleteOwnerResult, type OwnerDeletionCounts } from "./owner-deletion.ts";
 export { copyLivePagesAgain, restore, setIndexable, takeDown } from "./site-state.ts";
 // A16-4c: the lease every action that writes a site's live state takes; Plan 4's fakes and ops sweep mirror it.
 export { ADMIN_LEASE_MS } from "./shared.ts";

@@ -1,0 +1,7 @@
+{
+  // The regular expression features the floor check detects, checked at a floor below every one of them
+  // (test/browser-floor-check.test.ts passes that floor to checkFloor), so each detection has a line that
+  // must fail.
+  "extends": "../tsconfig.json",
+  "include": ["*.ts"]
+}

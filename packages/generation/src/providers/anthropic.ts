@@ -3,7 +3,7 @@ import { ATTEMPT_TIMEOUT_MS } from "../generate.ts";
 import { modelSettings } from "../models.ts";
 import { ProviderError, type ModelProvider, type ModelRequest, type ModelResponse, type ProviderErrorKind } from "../provider.ts";
 import { dropNulls, toWireSchema } from "../wire-schema.ts";
-import { checkApiKey, sharesKeyFragment, statusKind, tokenCount } from "./shared.ts";
+import { checkApiKey, retryAfterSeconds, sharesKeyFragment, statusKind, tokenCount } from "./shared.ts";
 
 export interface AnthropicOptions {
   apiKey: string;
@@ -159,7 +159,9 @@ export class AnthropicProvider implements ModelProvider {
   }
 
   async generate(req: ModelRequest): Promise<ModelResponse> {
-    const effort = modelSettings("anthropic", this.#model)?.anthropicEffort;
+    const settings = modelSettings("anthropic", this.#model);
+    const effort = settings?.anthropicEffort;
+    const geo = settings?.anthropicGeo;
     // Our own request is built and written as JSON before the try, so an error in it propagates instead of becoming a
     // ProviderError (P3-8, P3-16 fix 3): the wire schema, the message shape, and the JSON.stringify the SDK runs on this
     // same body inside the call (internal/request-options.mjs:16), where a throw would come back as an outage.
@@ -168,6 +170,7 @@ export class AnthropicProvider implements ModelProvider {
       max_tokens: req.maxOutputTokens,
       system: req.system,
       messages: [{ role: "user", content: req.user }],
+      ...(geo === undefined ? {} : { inference_geo: geo }),
       output_config: { format: { type: "json_schema", schema: toWireSchema(req.jsonSchema) }, ...(effort === undefined ? {} : { effort }) },
     };
     JSON.stringify(body);
@@ -202,7 +205,12 @@ export class AnthropicProvider implements ModelProvider {
     } catch (error) {
       // Our abort while the SDK read an error body is a timeout, whatever the status (P3-11 a).
       const kind = req.signal.aborted ? "timeout" : kindOf(error);
-      throw new ProviderError(kind, failureMessage(kind, error, this.#apiKey), noStatusLine(error) ? { noResponse: true } : {});
+      // The Retry-After of a 429 or 5xx, when the provider sent one (generateDraft caps it).
+      const retryAfter = error instanceof Anthropic.APIError ? retryAfterSeconds(error.headers?.get("retry-after")) : undefined;
+      throw new ProviderError(kind, failureMessage(kind, error, this.#apiKey), {
+        ...(noStatusLine(error) ? { noResponse: true as const } : {}),
+        ...(retryAfter === undefined ? {} : { retryAfterSeconds: retryAfter }),
+      });
     }
     // Every field is read only after a type check: the body is never trusted.
     const data = await readJson(response);

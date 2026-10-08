@@ -61,6 +61,7 @@ describe("isGenerationEnabled fails closed", () => {
 
 describe("dailyModelLimit", () => {
   const CONFIG_ERROR = JSON.stringify({ event: "generation.config_error", setting: "DAILY_MODEL_LIMIT" });
+  const ROW_ERROR = JSON.stringify({ event: "generation.config_error", setting: "generation.daily_model_limit" });
   let logged: string[] = [];
   beforeEach(() => {
     logged = [];
@@ -75,9 +76,18 @@ describe("dailyModelLimit", () => {
     expect(await dailyModelLimit({ DB: db, DAILY_MODEL_LIMIT: "8" })).toBe(8);
     await setSetting(db, "generation.daily_model_limit", "0");
     expect(await dailyModelLimit({ DB: db, DAILY_MODEL_LIMIT: "12" })).toBe(0);
+    expect(logged).toEqual([]);
+    // A row that exists but is no count is logged (item 8), unlike a missing row; the variable still applies.
     await setSetting(db, "generation.daily_model_limit", "-1");
     expect(await dailyModelLimit({ DB: db, DAILY_MODEL_LIMIT: "12" })).toBe(12);
-    expect(logged).toEqual([]);
+    expect(logged).toEqual([ROW_ERROR]);
+  });
+
+  it("an invalid setting row logs exactly one fixed line naming the setting, never its value, and a valid variable still applies", async () => {
+    await setSetting(db, "generation.daily_model_limit", "secret-row-marker");
+    expect(await dailyModelLimit({ DB: db, DAILY_MODEL_LIMIT: "12" })).toBe(12);
+    expect(logged).toEqual([ROW_ERROR]);
+    expect(logged.join("")).not.toMatch(/marker/);
   });
 
   it("the setting row wins over the variable, even over a malformed variable, with no log line", async () => {
@@ -101,10 +111,10 @@ describe("dailyModelLimit", () => {
     expect(logged).toEqual([CONFIG_ERROR]);
   });
 
-  it("a malformed setting row and a malformed variable also give 8 with one line, never echoing either value", async () => {
+  it("a malformed setting row and a malformed variable also give 8 with one line each, never echoing either value", async () => {
     await setSetting(db, "generation.daily_model_limit", "secret-setting-marker");
     expect(await dailyModelLimit({ DB: db, DAILY_MODEL_LIMIT: "secret-var-marker" })).toBe(8);
-    expect(logged).toEqual([CONFIG_ERROR]);
+    expect(logged).toEqual([ROW_ERROR, CONFIG_ERROR]);
     expect(logged.join("")).not.toMatch(/marker/);
   });
 });

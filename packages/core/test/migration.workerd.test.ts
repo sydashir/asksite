@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createTestHarness } from "wrangler";
@@ -17,7 +18,7 @@ const WORKER = {
 const server = createTestHarness({ root: resolve(import.meta.dirname, "../../.."), workers: [{ config: WORKER }] });
 
 // Typed loosely on purpose: this file is type-checked without the Workers runtime types.
-let db: { prepare(sql: string): { bind(...values: unknown[]): { run(): Promise<{ meta: { changes: number } }>; first<T>(): Promise<T | null> }; all<T>(): Promise<{ results: T[] }> } };
+let db: { prepare(sql: string): { bind(...values: unknown[]): { run(): Promise<{ meta: { changes: number; rows_read: number } }>; first<T>(): Promise<T | null>; all<T>(): Promise<{ results: T[] }> }; all<T>(): Promise<{ results: T[] }> } };
 
 beforeAll(async () => {
   await server.listen();
@@ -176,7 +177,7 @@ describe("0005_version_pages.sql", () => {
   });
 });
 
-// A16-4c: one admin action per site at a time. Numbered 0006 by the moderator; Plan 4's next migration is 0008 (0007 is S1's leads_emailed).
+// A16-4c: one admin action per site at a time. Numbered 0006 by the moderator; 0007 is S1's leads_emailed, 0008 is the owner deletion's site_versions_generation index; Plan 4's next migration is 0009.
 describe("0006_site_admin_lock.sql", () => {
   it("adds the lease columns, empty by default", async () => {
     const { site } = await newSite();
@@ -205,5 +206,115 @@ describe("0007_leads_emailed.sql", () => {
     const { results } = await db.prepare("PRAGMA table_list").all<{ name: string; strict: number }>();
     const ours = results.filter((t) => !/^(sqlite_|_cf_|d1_migrations$)/.test(t.name));
     expect(ours).toHaveLength(12);
+  });
+});
+
+// Owner deletion (ruling I-4): site_versions.generation_id references generations and had no index, so every deleted
+// generation made SQLite's foreign-key check scan all of site_versions (measured 20,020 rows read for 10 generations over
+// 2,000 versions, .superpowers/evidence/owner-deletion/part1/review). The index makes the check a lookup.
+describe("0008_site_versions_generation.sql", () => {
+  it("creates site_versions_generation on generation_id alone, and nothing else", async () => {
+    const row = await db.prepare("SELECT sql FROM sqlite_master WHERE type = 'index' AND name = 'site_versions_generation'").all<{ sql: string }>();
+    expect(row.results.map((r) => r.sql)).toEqual(["CREATE INDEX site_versions_generation ON site_versions(generation_id)"]);
+    const { results } = await db.prepare("PRAGMA index_info(site_versions_generation)").all<{ seqno: number; name: string }>();
+    expect(results.sort((a, b) => a.seqno - b.seqno).map((column) => column.name)).toEqual(["generation_id"]);
+  });
+
+  it("makes deleting generations read about what it deletes, not the whole site_versions table (R9)", async () => {
+    const G = 5;
+    const V = 200;
+    const mine = await newSite();
+    const other = await newSite();
+    for (let i = 0; i < G; i += 1) {
+      await db
+        .prepare("INSERT INTO generations (id, site_id, owner_id, kind, status, input_json, created_at) VALUES (?, ?, ?, 'regenerate', 'failed', '{}', ?)")
+        .bind(fresh(), mine.site, mine.owner, i)
+        .run();
+    }
+    for (let start = 0; start < V; start += 50) {
+      await Promise.all(
+        Array.from({ length: 50 }, (_, j) =>
+          db
+            .prepare(
+              "INSERT INTO site_versions (id, site_id, number, status, document_json, document_sha256, edits_json, html_key, html_sha256, stylesheet_sha256, requested_by, requested_at) VALUES (?, ?, ?, 'rejected', '{}', 'd', '{}', 'k', 'h', 's', ?, 1)",
+            )
+            .bind(fresh(), other.site, start + j + 1, other.owner)
+            .run(),
+        ),
+      );
+    }
+    const result = await db.prepare("DELETE FROM generations WHERE site_id = ?").bind(mine.site).run();
+    expect(result.meta.changes).toBe(G);
+    expect(result.meta.rows_read).toBeLessThan(V);
+  });
+
+  // The two generations DELETEs of deleteOwner, taken from its source (the SQL is not exported and Part 1 is closed): the plan of THESE
+  // statements, in workerd's D1, must name the index. docs/runbooks/go-live.md G5.2c asks production for the same plans.
+  describe("the generations DELETEs of deleteOwner, as D1 plans them", () => {
+    const source = (relative: string): string => readFileSync(resolve(import.meta.dirname, relative), "utf8");
+    const deletion = source("../../publishing/src/owner-deletion.ts");
+    const shared = source("../../publishing/src/shared.ts");
+    /** The text of a string constant of the publishing sources. */
+    const constant = (text: string, name: string): string => {
+      const found = [...text.matchAll(new RegExp(`const ${name} = "([^"]+)";`, "g"))];
+      expect(found).toHaveLength(1);
+      return found[0]![1]!;
+    };
+    /** The one `DELETE FROM generations ...` template literal of owner-deletion.ts that matches `shape`, with the file's constants filled in. */
+    const statement = (shape: RegExp): string => {
+      const found = [...deletion.matchAll(shape)];
+      expect(found).toHaveLength(1);
+      return found[0]![1]!
+        .replaceAll("${table}", "generations")
+        .replaceAll("${LEASE_HELD}", constant(shared, "LEASE_HELD"))
+        .replaceAll("${OWNER_CLOSING}", constant(deletion, "OWNER_CLOSING"));
+    };
+    const plan = async (sql: string): Promise<string[]> => {
+      const binds = Array.from({ length: sql.split("?").length - 1 }, () => fresh());
+      const { results } = await db.prepare(`EXPLAIN QUERY PLAN ${sql}`).bind(...binds).all<{ detail: string }>();
+      return results.map((row) => row.detail);
+    };
+
+    it("per site: the child delete names the index", async () => {
+      // The per-site statement is built for every table of SITE_CHILDREN; generations must be one of them.
+      expect(deletion).toMatch(/const SITE_CHILDREN = \[[^\]]*"generations"[^\]]*\] as const;/);
+      const sql = statement(/prepare\(`(DELETE FROM \$\{table\} WHERE site_id = \? AND \$\{LEASE_HELD\} AND \$\{OWNER_CLOSING\})`\)/g);
+      expect(sql).toMatch(/^DELETE FROM generations WHERE site_id = \? AND EXISTS/);
+      expect((await plan(sql)).join("\n")).toContain("site_versions_generation");
+    });
+
+    it("owner level (G1): the delete names the index", async () => {
+      const sql = statement(/prepare\(`(DELETE FROM generations WHERE owner_id = \? AND \$\{OWNER_CLOSING\})`\)/g);
+      expect((await plan(sql)).join("\n")).toContain("site_versions_generation");
+    });
+  });
+});
+
+// B1-15: a sign-in link whose send ended "unavailable" is kept and marked, and the day's cap for all owners skips marked
+// links (apps/app/src/worker/routes/auth.ts). Numbered 0009: 0008 is reserved by the pages lane. A row written before
+// 0009 ran is covered by apps/app/test/worker/migrations.workerd.test.ts.
+describe("0009_login_send_failed.sql", () => {
+  it("adds login_tokens.send_failed_at as a nullable INTEGER with no default (the go-live G5.1 check reads this PRAGMA)", async () => {
+    const { results } = await db.prepare("PRAGMA table_info(login_tokens)").all<{ name: string; type: string; notnull: number; dflt_value: unknown }>();
+    expect(results.filter((column) => column.name === "send_failed_at").map(({ name, type, notnull, dflt_value }) => ({ name, type, notnull, dflt_value }))).toEqual([
+      { name: "send_failed_at", type: "INTEGER", notnull: 0, dflt_value: null },
+    ]);
+  });
+
+  it("reads NULL on a link written without it, as every writer but the failed-send mark writes one", async () => {
+    const { owner } = await newSite();
+    const token = fresh();
+    await db.prepare("INSERT INTO login_tokens (token_hash, owner_id, created_at, expires_at) VALUES (?, ?, 1, 2)").bind(token, owner).run();
+    expect(await db.prepare("SELECT send_failed_at FROM login_tokens WHERE token_hash = ?").bind(token).first()).toEqual({ send_failed_at: null });
+  });
+
+  it("keeps login_tokens STRICT: a failure time that is not an integer is refused", async () => {
+    const { owner } = await newSite();
+    const token = fresh();
+    await db.prepare("INSERT INTO login_tokens (token_hash, owner_id, created_at, expires_at) VALUES (?, ?, 1, 2)").bind(token, owner).run();
+    await db.prepare("UPDATE login_tokens SET send_failed_at = ? WHERE token_hash = ?").bind(3, token).run();
+    await expect(db.prepare("UPDATE login_tokens SET send_failed_at = ? WHERE token_hash = ?").bind("soon", token).run()).rejects.toThrow(/SQLITE_CONSTRAINT_DATATYPE/);
+    await expect(db.prepare("UPDATE login_tokens SET send_failed_at = ? WHERE token_hash = ?").bind(1.5, token).run()).rejects.toThrow(/SQLITE_CONSTRAINT_DATATYPE/);
+    expect(await db.prepare("SELECT send_failed_at FROM login_tokens WHERE token_hash = ?").bind(token).first()).toEqual({ send_failed_at: 3 });
   });
 });

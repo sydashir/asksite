@@ -884,3 +884,89 @@ describe("FakeProvider", () => {
     expect((await new FakeProvider("invalid-once", FULL_SNAPSHOT).generate(request())).json).toEqual({ ...valid, copy: { ...valid.copy, heroHeadline: "Call 555-0100 today" } });
   });
 });
+
+// Items 6 and 7 (G1): the provider's Retry-After, and the job's time budget.
+describe("generateDraft: Retry-After and the time budget", () => {
+  const limited = (retryAfterSeconds?: number) => new ProviderError("rate_limited", "429", retryAfterSeconds === undefined ? {} : { retryAfterSeconds });
+
+  it.each([
+    ["a Retry-After of 10 s replaces the 2 s pause", [limited(10)], [10_000]],
+    ["a longer Retry-After is capped at 30 s", [limited(120)], [30_000]],
+    ["a Retry-After of 0 is honoured", [limited(0)], [0]],
+    ["no Retry-After keeps the fixed 2 s and 6 s", [limited(), limited()], [2_000, 6_000]],
+    ["each pause follows its own error", [limited(5), limited()], [5_000, 6_000]],
+  ])("%s", async (_case, errors, expected) => {
+    const { deps, sleeps } = testDeps();
+    await generateDraft(scriptedProvider([...errors, answer(good)]), FULL_SNAPSHOT, deps);
+    expect(sleeps).toEqual(expected);
+  });
+
+  it("with no budget given behaves as before (the eval's calls)", async () => {
+    const { deps } = testDeps();
+    const result = await generateDraft(scriptedProvider([limited(), answer(good)]), FULL_SNAPSHOT, deps, undefined);
+    expect(result).toMatchObject({ ok: true, attempts: 2 });
+  });
+
+  /** A clock the test moves: every call the provider answers takes `took` ms. */
+  function slowProvider(took: number, clockRef: { t: number }) {
+    return providerOf(...[0, 1, 2].map(() => async (): Promise<ModelResponse> => { clockRef.t += took; throw new ProviderError("unavailable", "down"); }));
+  }
+  const timedDeps = (clock: { t: number }) => ({ sleep: async (ms: number) => void (clock.t += ms), timeoutSignal: () => new AbortController().signal, now: () => clock.t });
+
+  it("does not wait for or start an attempt that could not finish inside the budget; nothing is sent for it", async () => {
+    const clock = { t: 0 };
+    const provider = slowProvider(120_000, clock);
+    const result = await generateDraft(provider, FULL_SNAPSHOT, timedDeps(clock), 330_000);
+    expect(provider.calls).toBe(2);
+    // The last error keeps its kind, and the attempt that was not started is no outcome (F5).
+    expect(result).toMatchObject({ ok: false, failure: "provider_error", providerErrorKind: "unavailable", attempts: 2 });
+    expect(result.log.map((a) => a.outcome)).toEqual(["unavailable", "unavailable"]);
+    expect(clock.t).toBe(242_000); // 2 x 120 s and the 2 s pause; the 6 s pause before the third attempt was never waited
+  });
+
+  it("starts an attempt that fits exactly: the budget's edge is inclusive", async () => {
+    const clock = { t: 0 };
+    const provider = slowProvider(120_000, clock);
+    // attempt 3 would start at 248 s and end by 338 s
+    await generateDraft(provider, FULL_SNAPSHOT, timedDeps(clock), 248_000 + ATTEMPT_TIMEOUT_MS);
+    expect(provider.calls).toBe(3);
+  });
+
+  it("a budget that is already spent sends no call at all", async () => {
+    const clock = { t: 0 };
+    const provider = slowProvider(1, clock);
+    const result = await generateDraft(provider, FULL_SNAPSHOT, timedDeps(clock), ATTEMPT_TIMEOUT_MS - 1);
+    expect([provider.calls, result.attempts, result.ok]).toEqual([0, 0, false]);
+    expect(result).toMatchObject({ failure: "provider_error", providerErrorKind: "timeout", log: [] }); // nothing was sent: the one case that is a timeout
+  });
+
+  it("the deadline is a point in time: time spent before the call counts (F1)", async () => {
+    const clock = { t: 250_000 }; // 250 s of slow work after started_at, before generateDraft
+    const provider = slowProvider(1, clock);
+    const result = await generateDraft(provider, FULL_SNAPSHOT, timedDeps(clock), 330_000); // started_at + 360 s - 30 s
+    expect([provider.calls, result.attempts]).toEqual([0, 0]);
+    clock.t = 240_000;
+    expect((await generateDraft(slowProvider(1, clock), FULL_SNAPSHOT, timedDeps(clock), 330_000)).attempts).toBeGreaterThan(0); // 240 s + 90 s fits exactly
+  });
+
+  it("a job ended by the deadline after an invalid answer stays invalid_output, with no timeout outcome (F5)", async () => {
+    const clock = { t: 0 };
+    const provider = providerOf(async () => { clock.t += 250_000; return answer({}); });
+    const result = await generateDraft(provider, FULL_SNAPSHOT, timedDeps(clock), 330_000);
+    expect(provider.calls).toBe(1);
+    expect(result).toMatchObject({ ok: false, failure: "invalid_output", providerErrorKind: null, attempts: 1 });
+    expect(result.log.map((a) => a.outcome)).toEqual(["invalid"]);
+  });
+
+  it("a Retry-After that does not fit the budget ends the job as well", async () => {
+    const clock = { t: 0 };
+    const provider = providerOf(async () => { clock.t += 1000; throw limited(30); });
+    const sleeps: number[] = [];
+    const result = await generateDraft(provider, FULL_SNAPSHOT, { ...timedDeps(clock), sleep: async (ms) => void sleeps.push(ms) }, 100_000);
+    expect(provider.calls).toBe(1);
+    expect(result).toMatchObject({ ok: false, providerErrorKind: "rate_limited" });
+    // The 30 s pause was not waited (F2): 1 s + 30 s + 90 s would end after 100 s.
+    expect(sleeps).toEqual([]);
+    expect(clock.t).toBe(1000);
+  });
+});

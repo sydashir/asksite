@@ -1,11 +1,11 @@
-# Every push and pull request, as three parallel jobs, each under its own 30-minute limit (A16's
+# Every push and pull request, as four parallel jobs, each under its own 30-minute limit (A16's
 # per-page browser matrix took one combined job past 30 minutes): `check` = typecheck plus unit and
 # integration tests (workerd through wrangler's test harness, no Cloudflare account); `e2e` = Plan 1's
 # browser tests without its macOS-only screenshots, in 2 shards; `sites` = the vitest "browser" project (tests that
 # launch Chromium or WebKit from vitest, *.browser.test.ts; check has no browsers) and the sites Worker's browser tests
-# over https. Third-party actions are pinned to commit SHAs.
+# over https. `apps` = the owner and admin apps' browser tests. Third-party actions are pinned to commit SHAs.
 # Fonts: in the Playwright image fontconfig resolves sans-serif, serif and system-ui to a CJK font (WenQuanYi Zen Hei),
-# which WebKit then draws every design's generic stack in; no visitor sees that. The e2e and sites jobs point
+# which WebKit then draws every design's generic stack in; no visitor sees that. The e2e, sites and apps jobs point
 # FONTCONFIG_FILE at .github/fontconfig/fonts.conf so the generic families resolve to Liberation Sans, Serif and Mono
 # (Arial, Times and Courier metrics) in both engines, and a guard step fails if the image ever changes that.
 name: ci
@@ -39,6 +39,18 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
+      # The root typecheck does not include apps/app or apps/admin. Their typecheck compiles the production Worker entries
+      # (src/worker/index.ts) and deps.ts's `satisfies` contract against the real Plan 2/3 packages. It starts with
+      # `wrangler types`: CLOUDFLARE_CF_FETCH_ENABLED=false stops Miniflare fetching cf.json from Cloudflare (it wrote a broken
+      # worker-configuration.d.ts once), WRANGLER_WRITE_LOGS=false stops wrangler writing a log file to disk.
+      - run: pnpm --filter @asksite/app typecheck
+        env:
+          CLOUDFLARE_CF_FETCH_ENABLED: "false"
+          WRANGLER_WRITE_LOGS: "false"
+      - run: pnpm --filter @asksite/admin typecheck
+        env:
+          CLOUDFLARE_CF_FETCH_ENABLED: "false"
+          WRANGLER_WRITE_LOGS: "false"
       - run: pnpm test
 
   # The browser jobs run in Playwright's own image, which already holds the browsers and their system
@@ -169,3 +181,51 @@ jobs:
       # vitest's "browser" project needs the browsers this container already holds (`pnpm test` leaves it out).
       - run: pnpm test:browser
       - run: pnpm test:e2e:sites
+
+  # The owner app's and the admin app's browser suites and the browser-floor check. Runs in parallel with
+  # `check`. Each Playwright config's own webServer builds the e2e Worker (build:css, build:e2e, local D1
+  # migrations) and serves it over https with vite preview on 8787 (app) and 8788 (admin); the two suites
+  # run one after the other. Needs no secret: the e2e builds use the committed test vars and fakes.
+  # The app and admin vitest files (test/**/*.test.ts) are the same files the root `unit` and `workerd`
+  # projects in `check` already run, so they are not run again here.
+  apps:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    # The same image as e2e and sites. The apps are served from app.localhost and admin.localhost; the e2e
+    # Worker configs also name media.localhost (the media origin is media.<ROOT_DOMAIN>) and mail.localhost
+    # (the sender address). --add-host maps all four, so every engine resolves them (no sudo as --user 1001).
+    container:
+      image: mcr.microsoft.com/playwright:v1.63.0-noble@sha256:eff16c30e6f3f4af0a03fa4b706120d5e9b0891c344a27d64559aff5900a4a27
+      options: >-
+        --user 1001
+        --ipc=host
+        --init
+        --add-host app.localhost:127.0.0.1
+        --add-host admin.localhost:127.0.0.1
+        --add-host media.localhost:127.0.0.1
+        --add-host mail.localhost:127.0.0.1
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # Generic fonts resolve to Liberation (Arial and Times metrics), not the image's CJK fallback (see the header).
+      - run: echo "FONTCONFIG_FILE=$GITHUB_WORKSPACE/.github/fontconfig/fonts.conf" >> "$GITHUB_ENV"
+      # Fails if the image ever stops resolving sans-serif and serif to Liberation.
+      - run: |
+          fc-match -f '%{family}\n' 'sans-serif:lang=en' | grep -qx 'Liberation Sans' && fc-match -f '%{family}\n' 'serif:lang=en' | grep -qx 'Liberation Serif'
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0 (reads packageManager from package.json)
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build:css
+      # One app name and one admin name resolve to loopback before any test runs (getent fails on an unknown name).
+      - run: |
+          getent hosts app.localhost
+          getent hosts admin.localhost
+      - run: pnpm --filter @asksite/app test:e2e
+      - run: pnpm --filter @asksite/admin test:e2e
+      - run: pnpm --filter @asksite/app check:floor

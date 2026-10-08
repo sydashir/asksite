@@ -207,3 +207,61 @@ describe("createProvider: keys never cross providers (P3-11 s)", () => {
     for (const text of [sent.url, sent.body, ...sent.headers.flat()]) expect(text).not.toContain(COMPAT_MARKER);
   });
 });
+
+// Anthropic only in production (user decision 4), failing closed: the Anthropic provider builds in any environment, but
+// every other provider builds only when ENVIRONMENT is exactly "development" or "test". The refusal comes before any
+// key check and any call.
+describe("createProvider: Anthropic only outside development and test", () => {
+  const PROVIDERS: Array<[string, Record<string, string>]> = [
+    ["anthropic", ANTHROPIC_ENV],
+    ["openai-compatible", COMPAT_ENV],
+    ["fake", { MODEL_PROVIDER: "fake" }],
+  ];
+  // Providers that never build, to prove a refusal does not depend on the key check.
+  const KEYLESS: Array<[string, Record<string, string>]> = [
+    ["openai-compatible without a key", { MODEL_PROVIDER: "openai-compatible" }],
+    ["an unknown provider", { MODEL_PROVIDER: "gpt" }],
+    ["an empty provider", { MODEL_PROVIDER: "" }],
+    ["Anthropic in capitals", { MODEL_PROVIDER: "Anthropic", ANTHROPIC_API_KEY: "k" }],
+  ];
+  const ENVIRONMENTS: Array<string | undefined> = ["production", undefined, "", "Production", "staging", "prod", "Development", "TEST", " test", "development", "test"];
+  const label = (environment: string | undefined): string => (environment === undefined ? "unset" : JSON.stringify(environment));
+  const envFor = (provider: Record<string, string>, environment: string | undefined) => {
+    const { ENVIRONMENT: _dropped, ...rest } = base;
+    return (environment === undefined ? { ...rest, ...provider } : { ...rest, ...provider, ENVIRONMENT: environment }) as Parameters<typeof createProvider>[0];
+  };
+  const local = (environment: string | undefined): boolean => environment === "development" || environment === "test";
+
+  for (const [name, provider] of PROVIDERS) {
+    for (const environment of ENVIRONMENTS) {
+      if (name === "anthropic" || local(environment)) {
+        it(`builds ${name} when ENVIRONMENT is ${label(environment)}`, () => {
+          expect(createProvider(envFor(provider, environment), FULL_SNAPSHOT).id).toBe(provider.MODEL_PROVIDER);
+        });
+      } else {
+        it(`refuses ${name} when ENVIRONMENT is ${label(environment)}: bad_request, no call`, () => {
+          const http = fakeFetch([]);
+          expect(() => createProvider(envFor(provider, environment), FULL_SNAPSHOT, http.fetch)).toThrow(expect.objectContaining({ name: "ProviderError", kind: "bad_request" }));
+          expect(http.calls).toHaveLength(0);
+        });
+      }
+    }
+  }
+
+  for (const [name, provider] of KEYLESS) {
+    for (const environment of ["production", undefined, "", "staging"]) {
+      it(`refuses ${name} when ENVIRONMENT is ${label(environment)} as bad_request, before any key check`, () => {
+        expect(() => createProvider(envFor(provider, environment), FULL_SNAPSHOT)).toThrow(expect.objectContaining({ name: "ProviderError", kind: "bad_request" }));
+      });
+    }
+  }
+
+  it("does not echo ENVIRONMENT or MODEL_PROVIDER in the refusal", () => {
+    expect(() => createProvider({ ...base, ...COMPAT_ENV, ENVIRONMENT: "env-marker-8" }, FULL_SNAPSHOT)).toThrow(
+      expect.objectContaining({ kind: "bad_request", message: expect.not.stringContaining("env-marker-8") }),
+    );
+    expect(() => createProvider({ ...base, ...COMPAT_ENV, ENVIRONMENT: "production", MODEL_PROVIDER: "provider-marker-9" }, FULL_SNAPSHOT)).toThrow(
+      expect.objectContaining({ kind: "bad_request", message: expect.not.stringContaining("provider-marker-9") }),
+    );
+  });
+});

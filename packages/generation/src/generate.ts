@@ -10,6 +10,8 @@ export const MAX_ATTEMPTS = 3;
 export const ATTEMPT_TIMEOUT_MS = 90_000;
 /** Pause before the attempt that follows the 1st and the 2nd transient provider error. */
 export const RETRY_DELAYS_MS = [2_000, 6_000] as const;
+/** The longest pause a provider's Retry-After can make before the next attempt; it replaces the fixed pause when the provider sent one. */
+export const MAX_RETRY_AFTER_MS = 30_000;
 /**
  * Output cap per attempt, reasoning tokens included. The largest valid AiDraft is about 7,000
  * characters of copy; the rest is room for reasoning. A cut-off answer counts as invalid.
@@ -183,14 +185,22 @@ async function answerWithinLimit(provider: ModelProvider, req: ModelRequest): Pr
  * timeout, and so is one whose deadline passed before its call (nothing is sent). A prompt over the
  * input bound (inputBound) is refused before its call as a bad request; when an earlier answer's repair
  * lines grew it, the failure is invalid_output (P3-18), with providerErrorKind null. Transient provider errors
- * pause 2 s then 6 s; auth and bad-request errors stop at once. Only these are recorded as provider
+ * pause by the provider's Retry-After (at most 30 s) or else 2 s then 6 s; auth and bad-request errors stop at once. Only these are recorded as provider
  * errors: the provider call's own errors, our timeouts and the input-bound refusal. An exception from
  * our own code (buildPrompt, timeoutSignal, the bound's measurement, usage accounting, checkDraft) is
  * a bug: it propagates instead of being hidden as a provider rejection. The job treats it as an
  * unexpected error (plan Decision 24): a regeneration fails with internal, and a first build gets the
  * template draft with fallback reason provider_error. Shared by the queue job and the eval.
+ *
+ * The pause before a retry is the provider's Retry-After (whole seconds, at most MAX_RETRY_AFTER_MS) when it sent one, else
+ * RETRY_DELAYS_MS. `deadline`, when given, is the time (deps.now()'s clock) by which the whole job must be over: the job passes
+ * its started_at plus JOB_STUCK_AFTER_MS less a margin, so time spent before this call counts. An attempt that could not finish
+ * by it (its pause plus ATTEMPT_TIMEOUT_MS) is not started, so the sweeper never ends a job that is still paying for a call.
+ * Nothing is sent for it: it is not an attempt and not an attempt outcome. The job ends with what the last attempt left: a
+ * provider error keeps its kind, an invalid answer stays invalid_output, and only a job that sent nothing is a timeout.
  */
-export async function generateDraft(provider: ModelProvider, snapshot: GenerationInputSnapshot, deps: GenerateDeps = REAL_DEPS): Promise<GenerateResult> {
+export async function generateDraft(provider: ModelProvider, snapshot: GenerationInputSnapshot, deps: GenerateDeps = REAL_DEPS, deadline?: number): Promise<GenerateResult> {
+  const fitsInBudget = (pauseMs: number): boolean => deadline === undefined || deps.now() + pauseMs + ATTEMPT_TIMEOUT_MS <= deadline;
   const usage = { inputTokens: 0, outputTokens: 0 };
   const log: AttemptRecord[] = [];
   let model: string | null = null;
@@ -202,8 +212,17 @@ export async function generateDraft(provider: ModelProvider, snapshot: Generatio
   let inputBoundRefused = false;
   /** An earlier attempt was sent and answered; not validly, since a valid answer returns at once. */
   let answered = false;
+  /** The deadline leaves no room for the next attempt: end with what the last one left (a job that sent nothing is a timeout). */
+  const endedByBudget = (): GenerateResult => {
+    if (log.length === 0) {
+      failure = "provider_error";
+      providerErrorKind = "timeout";
+    }
+    return { ok: false, failure, providerErrorKind, issues: capIssues(repair), attempts: calls, model, usage, log, inputBoundRefused };
+  };
 
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    if (!fitsInBudget(0)) return endedByBudget();
     const { system, user } = buildPrompt(snapshot, repair);
     const req: ModelRequest = { system, user, jsonSchema: AI_DRAFT_JSON_SCHEMA, maxOutputTokens: MAX_OUTPUT_TOKENS, signal: deps.timeoutSignal(ATTEMPT_TIMEOUT_MS) };
     const started = deps.now();
@@ -242,7 +261,12 @@ export async function generateDraft(provider: ModelProvider, snapshot: Generatio
       failure = refused && answered ? "invalid_output" : "provider_error";
       providerErrorKind = failure === "invalid_output" ? null : kind;
       if (!TRANSIENT_KINDS.has(kind)) return { ok: false, failure, providerErrorKind, issues: capIssues(repair), attempts: calls, model, usage, log, inputBoundRefused };
-      if (attempt < MAX_ATTEMPTS) await deps.sleep(RETRY_DELAYS_MS[Math.min(transientErrors, RETRY_DELAYS_MS.length - 1)]!);
+      if (attempt < MAX_ATTEMPTS) {
+        const pause = error.retryAfterSeconds === undefined ? RETRY_DELAYS_MS[Math.min(transientErrors, RETRY_DELAYS_MS.length - 1)]! : Math.min(error.retryAfterSeconds * 1000, MAX_RETRY_AFTER_MS);
+        // The next attempt cannot finish in the budget: end now instead of waiting for it to be refused.
+        if (!fitsInBudget(pause)) return endedByBudget();
+        await deps.sleep(pause);
+      }
       transientErrors += 1;
       continue;
     }

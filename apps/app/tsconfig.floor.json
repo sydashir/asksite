@@ -1,0 +1,13 @@
+{
+  // The owner client at the browser floor (P4-7; the floor itself is packages/app-common/src/browser-floor.ts).
+  // `pnpm check:floor` runs tsc on this config first (a type that does not resolve hides a use), then
+  // the floor check on its program: the client files and the workspace sources they import. The
+  // newest lib is on purpose, so the floor check decides what the client may use; no @types/node
+  // (it would add APIs no browser has).
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": { "target": "esnext", "lib": ["esnext", "dom", "dom.iterable"], "types": [], "jsx": "react-jsx" },
+  // site-schema's validators run in the owner's browser (A9, test/client/no-url-canparse.test.ts). Its
+  // entry also keeps this program non-empty until the client files arrive (Tasks 12-14).
+  "files": ["../../packages/site-schema/src/index.ts"],
+  "include": ["src/client"]
+}
