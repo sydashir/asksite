@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { acceptInvite, APP, expectAccessible, expectNoSidewaysScroll, stubTurnstile, uniqueEmail, waitForSecurityCheck } from "./support.ts";
+import { acceptInvite, APP, expectAccessible, expectNoSidewaysScroll, stubTurnstile, tabTo, uniqueEmail, waitForSecurityCheck } from "./support.ts";
 
 const H1 = "Your business website, built from a few answers.";
 const SECTIONS = ["How it works", "Three designs to choose from", "What you get", "Questions"];
@@ -93,4 +93,26 @@ test("/login#token still opens the sign-in link page, not the form", async ({ pa
   await expect(page.getByLabel("Your email address")).toHaveCount(0);
   await page.waitForLoadState("networkidle");
   expect(requested).toEqual([]);
+});
+
+test("on the log-in page the skip link moves to the content and keeps the form (only a real emailed token reloads it)", async ({ page }) => {
+  await stubTurnstile(page);
+  await page.goto("/login");
+  await expect(page.getByRole("heading", { level: 1, name: "Log in", exact: true })).toBeVisible();
+  const skip = page.getByRole("link", { name: "Skip to main content" });
+  await tabTo(page, skip);
+  await page.keyboard.press("Enter");
+  await expect(page).toHaveURL(/\/login#main$/);
+  await expect(page.locator("#main")).toBeFocused();
+  await expect(page.getByRole("heading", { level: 1, name: "Log in", exact: true })).toBeVisible();
+  await expect(page.getByLabel("Your email address")).toBeVisible();
+});
+
+test("an emailed link that is no longer valid offers a new link on the log-in page", async ({ page }) => {
+  await page.goto(`/login#${"a".repeat(43)}`);
+  await expect(page.getByRole("heading", { level: 1, name: "Sign in", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Sign in", exact: true }).click();
+  await page.getByRole("link", { name: "Ask for a new link" }).click();
+  await expect(page).toHaveURL(/\/login$/);
+  await expect(page.getByRole("heading", { level: 1, name: "Log in", exact: true })).toBeVisible();
 });

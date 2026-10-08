@@ -1,3 +1,4 @@
+import { TOKEN_PATTERN } from "@asksite/core";
 import { useEffect, useState, type FormEvent } from "react";
 import { AuthIntro } from "../components/auth-intro.tsx";
 import { TextInput } from "../components/fields.tsx";
@@ -20,11 +21,12 @@ export function EmailLink({ mode }: { mode: "signup" | "login" }) {
   const [token, setToken] = useState<string | null>(null);
   const [resetSignal, setResetSignal] = useState(0);
   // An emailed link opened in this same tab (/login → /login#token) changes only the hash, which no route change follows: load
-  // the page again so the link page (VerifyLogin) opens, as it does in a new tab.
+  // the page again so the link page (VerifyLogin) opens, as it does in a new tab. Only a real token does this (the skip link
+  // "#main" must not).
   useEffect(() => {
     if (signup) return;
     const onHash = () => {
-      if (location.hash.length > 1) location.reload();
+      if (TOKEN_PATTERN.test(location.hash.slice(1))) location.reload();
     };
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);

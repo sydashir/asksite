@@ -20,6 +20,15 @@ import { VerifyLogin } from "./pages/VerifyLogin.tsx";
 // Every other build replaces MODE with its own name, so this is null and the pages are left out of the bundle.
 const DevPages = import.meta.env.MODE === "development" ? lazy(() => import("./dev/DevPages.tsx")) : null;
 
+/**
+ * "/login" is two pages: an emailed link (/login#<token>) opens the link page, which then takes the token out of the address. So the
+ * choice is made once, when the page opens; a later render (the session check answering) keeps the link page.
+ */
+function LoginPage() {
+  const [link] = useState(() => location.hash.length > 1);
+  return link ? <VerifyLogin /> : <EmailLink mode="login" />;
+}
+
 function page(route: Route) {
   switch (route.name) {
     case "home":
@@ -27,7 +36,7 @@ function page(route: Route) {
     case "invite":
       return <AcceptInvite />;
     case "login":
-      return location.hash.length > 1 ? <VerifyLogin /> : <EmailLink mode="login" />;
+      return <LoginPage />;
     case "signup":
       return <EmailLink mode="signup" />;
     case "setup":
