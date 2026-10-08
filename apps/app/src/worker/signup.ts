@@ -1,8 +1,9 @@
-import { logLine, sendReporting, signupInviteEmail } from "@asksite/app-common";
-import { hashIp, ipRateKey, newId, newToken, sha256Hex, TTL, utcDayStart } from "@asksite/core";
+import { ApiError, logLine, secondsUntilUtcMidnight, sendReporting, signupInviteEmail } from "@asksite/app-common";
+import { hashIp, hashPassword, ipRateKey, newId, newToken, sha256Hex, TTL, utcDayStart, type OwnerView } from "@asksite/core";
 import { loginEmailsPerDay } from "./config.ts";
 import { mailerEnv } from "./db.ts";
 import type { AppDeps } from "./deps.ts";
+import { insertSession } from "./session.ts";
 import { alertNearCap, countSentToday, sentToday } from "./sign-in-emails.ts";
 import { NETWORK_SIGNUP_SQL } from "./signup-sql.ts";
 
@@ -75,4 +76,78 @@ export async function sendSignupLink(env: Env, deps: AppDeps, email: string, net
   // Any failure: no email, no invite (as the admin's invite route does). The network's row still counts.
   if (failure !== null) await env.DB.prepare("DELETE FROM invites WHERE id = ?").bind(id).run();
   await alertNearCap(env, deps, perDay, now);
+}
+
+/** USER ORDER 2026-10-08: the brief's words for an email that already has an account (it reveals that: an accepted trade-off). */
+export const ACCOUNT_EXISTS = "There's already an account for this email. Log in, or email yourself a log-in link.";
+/** The network's limit, the day's sign-up cap or the day's cap for all sign-in emails refused the sign-up; all reset at 00:00 UTC. */
+const SIGNUPS_FULL = "We can't open new accounts right now. Please try again tomorrow.";
+
+/**
+ * Password sign-up (USER ORDER 2026-10-08; RULED 2026-10-08 point 6): no email is sent; the owner, the site and a 30-day
+ * session are made at once. In order: the network's limit (a refusable row for every attempt, so /signup's "already an
+ * account" answer cannot be asked faster than sign-ups), then the existing-account answer, then one batch, a transaction, so an
+ * error leaves no partial account. The batch's first statement records the sign-up as a self-serve invite ('signup', spent at
+ * once, never emailed) only within the sign-ups' half of the day (I1) and the day's cap for all sign-in emails, which count it
+ * as written (DECIDED 2026-10-08: they now limit account creation; the per-address limits are left out, as no email is sent).
+ * Every later statement is keyed on the NEW owner's id, which only this batch can create, so an existing owner (a race) never
+ * gets a session, a site or a password from it.
+ */
+export async function signUpWithPassword(env: Env, email: string, password: string, network: string, now: number): Promise<{ owner: OwnerView; siteId: string; sessionToken: string }> {
+  const dayStart = utcDayStart(now);
+  const full = () => new ApiError("rate_limited", SIGNUPS_FULL, { retryAfter: secondsUntilUtcMidnight(now) });
+  const row = await env.DB.prepare(NETWORK_SIGNUP_SQL).bind(now, network, dayStart, SIGNUPS_PER_NETWORK_PER_DAY).run();
+  if (row.meta.changes !== 1) {
+    logLine({ event: "signup_network_limit" });
+    throw full();
+  }
+  if ((await env.DB.prepare("SELECT 1 AS found FROM owners WHERE email = ?").bind(email).first()) !== null) throw new ApiError("conflict", ACCOUNT_EXISTS);
+  const perDay = loginEmailsPerDay(env.LOGIN_EMAILS_PER_DAY);
+  const inviteId = newId();
+  const ownerId = newId();
+  const siteId = newId();
+  const sessionToken = newToken();
+  const sessionHash = await sha256Hex(sessionToken);
+  const passwordHash = await hashPassword(password);
+  const db = env.DB;
+  const [, , , , session, , , outcome] = await db.batch([
+    db
+      .prepare(
+        `INSERT INTO invites (id, token_hash, email, created_by, created_at, expires_at, used_at)
+         SELECT ?1, ?2, ?3, 'signup', ?4, ?4, ?4
+         WHERE NOT EXISTS (SELECT 1 FROM owners WHERE email = ?3)
+           AND (SELECT COUNT(*) FROM invites WHERE created_by = 'signup' AND created_at >= ?5) < ?6
+           AND ${sentToday("?5")} < ?7`,
+      )
+      .bind(inviteId, await sha256Hex(newToken()), email, now, dayStart, signupsPerDay(perDay), perDay),
+    // SQLite: an INSERT ... SELECT needs a WHERE clause before ON CONFLICT, or the parser reads ON as a join's.
+    db
+      .prepare("INSERT INTO owners (id, email, created_at, password_hash) SELECT ?1, ?2, ?3, ?4 WHERE EXISTS (SELECT 1 FROM invites WHERE id = ?5) ON CONFLICT(email) DO NOTHING")
+      .bind(ownerId, email, now, passwordHash, inviteId),
+    db.prepare("INSERT INTO sites (id, owner_id, created_at, updated_at) SELECT ?1, id, ?2, ?2 FROM owners WHERE id = ?3").bind(siteId, now, ownerId),
+    db.prepare("UPDATE invites SET owner_id = ?1, site_id = ?2 WHERE id = ?3 AND EXISTS (SELECT 1 FROM owners WHERE id = ?1)").bind(ownerId, siteId, inviteId),
+    insertSession(db, sessionHash, ownerId, now, "password"),
+    db
+      .prepare("INSERT INTO audit_log (at, actor, action, site_id, detail_json) SELECT ?1, 'owner:' || id, 'owner.signed_up', ?2, ?3 FROM owners WHERE id = ?4")
+      .bind(now, siteId, JSON.stringify({ inviteId, method: "password" }), ownerId),
+    // As accepting a sign-up link does (auth.ts acceptInvite): the address's other unused sign-up links are revoked, so it gets one site from sign-up.
+    db
+      .prepare(
+        "UPDATE invites SET revoked_at = ?1 WHERE email = ?2 AND created_by = 'signup' AND id != ?3 AND used_at IS NULL AND revoked_at IS NULL AND EXISTS (SELECT 1 FROM sessions WHERE id_hash = ?4)",
+      )
+      .bind(now, email, inviteId, sessionHash),
+    // What the batch did, read in the same transaction (A10: no RETURNING).
+    db
+      .prepare("SELECT EXISTS (SELECT 1 FROM invites WHERE id = ?1) AS recorded, EXISTS (SELECT 1 FROM owners WHERE email = ?2 AND id != ?3) AS taken")
+      .bind(inviteId, email, ownerId),
+  ]);
+  const done = outcome?.results[0] as { recorded: number; taken: number } | undefined;
+  if (done === undefined) throw new Error("no outcome after password sign-up");
+  if (done.taken === 1) throw new ApiError("conflict", ACCOUNT_EXISTS);
+  if (done.recorded !== 1) {
+    logLine({ event: (await countSentToday(env.DB, dayStart)) >= perDay ? "login_email_cap_reached" : "signup_cap_reached" });
+    throw full();
+  }
+  if (session?.meta.changes !== 1) throw new Error("no session after password sign-up");
+  return { owner: { id: ownerId, email }, siteId, sessionToken };
 }

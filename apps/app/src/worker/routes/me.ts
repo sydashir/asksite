@@ -1,5 +1,7 @@
-import type { SiteRow, SiteSummary } from "@asksite/core";
+import { readJson } from "@asksite/app-common";
+import { SetPasswordBody, type SiteRow, type SiteSummary } from "@asksite/core";
 import { Hono } from "hono";
+import { passwordState, setPassword } from "../password.ts";
 import { requireOwner } from "../session.ts";
 import type { AppEnv } from "../types.ts";
 
@@ -42,7 +44,7 @@ function summary(site: SummaryRow): SiteSummary {
   };
 }
 
-/** GET /api/me: the signed-in owner and their sites (§4.4). */
+/** GET /api/me: the signed-in owner, their sites (§4.4), whether they have a password and whether this session may set one without it. */
 export function meRoutes(): Hono<AppEnv> {
   const me = new Hono<AppEnv>();
   me.get("/me", requireOwner, async (c) => {
@@ -53,7 +55,15 @@ export function meRoutes(): Hono<AppEnv> {
     )
       .bind(owner.id)
       .all<SummaryRow>();
-    return c.json({ owner, sites: results.map(summary) });
+    const password = await passwordState(c.env.DB, c.get("sessionHash"), Date.now());
+    return c.json({ owner, sites: results.map(summary), ...password });
+  });
+
+  /** Sets the first password or replaces it (password.ts setPassword); 200 { hasPassword: true } when stored. */
+  me.post("/me/password", requireOwner, async (c) => {
+    const body = await readJson(c, SetPasswordBody);
+    await setPassword(c.env, c.get("owner"), c.get("sessionHash"), body, Date.now());
+    return c.json({ hasPassword: true });
   });
   return me;
 }

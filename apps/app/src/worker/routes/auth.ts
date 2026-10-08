@@ -1,13 +1,14 @@
 import { ApiError, inBackground, logLine, magicLinkEmail, noteLog, rateLimit, readJson, runToEnd, sendReporting } from "@asksite/app-common";
-import { AcceptInviteBody, hashIp, ipRateKey, LIMITS, LoginBody, newId, newToken, sha256Hex, TTL, utcDayStart, VerifyLoginBody, type OwnerView } from "@asksite/core";
+import { AcceptInviteBody, hashIp, ipRateKey, LIMITS, LoginBody, newId, newToken, PasswordLoginBody, PasswordSignupBody, sha256Hex, TTL, utcDayStart, VerifyLoginBody, type OwnerView } from "@asksite/core";
 import { Hono, type MiddlewareHandler } from "hono";
 import { loginEmailsPerDay } from "../config.ts";
 import { clientIp, mailerEnv } from "../db.ts";
 import type { AppDeps } from "../deps.ts";
 import { claimInvite } from "../invite-claim.ts";
+import { passwordLogin } from "../password.ts";
 import { endSession, EXPIRED_SESSION_COOKIE, insertSession, sessionCookie } from "../session.ts";
 import { alertNearCap, countSentToday, sentToday } from "../sign-in-emails.ts";
-import { networkDetail, sendSignupLink } from "../signup.ts";
+import { networkDetail, sendSignupLink, signUpWithPassword } from "../signup.ts";
 import { NETWORK_ROW_SQL } from "../signup-sql.ts";
 import { requireTurnstile } from "../turnstile.ts";
 import type { AppEnv } from "../types.ts";
@@ -25,7 +26,7 @@ const authLimit: MiddlewareHandler<AppEnv> = async (c, next) => {
   await next();
 };
 
-/** /api/auth/*: invite acceptance, magic-link sign-in or self-serve sign-up, and sign-out (§4.4, §5.2). */
+/** /api/auth/*: invite acceptance, magic-link sign-in or self-serve sign-up, password sign-up and log-in, and sign-out (§4.4, §5.2). */
 export function authRoutes(deps: AppDeps): Hono<AppEnv> {
   const auth = new Hono<AppEnv>();
 
@@ -54,6 +55,27 @@ export function authRoutes(deps: AppDeps): Hono<AppEnv> {
     // whether the address has an account, is new (a sign-up) or which cap applied.
     inBackground(c.executionCtx, "login_link_failed", sendLink(c.env, deps, email.trim().toLowerCase(), clientIp(c.req.raw), Date.now()));
     return c.json({ ok: true }, 202);
+  });
+
+  // Password sign-up (USER ORDER 2026-10-08): the same security check first, then signup.ts. It answers 409 for an email
+  // that has an account (the brief's accepted trade-off) and 429 when a sign-up limit is reached; otherwise it signs in.
+  auth.post("/signup", authLimit, async (c) => {
+    const { email, password } = await readJson(c, PasswordSignupBody);
+    await requireTurnstile(c, deps.siteverify);
+    const network = await networkDetail(c.env, clientIp(c.req.raw));
+    // The batch runs to its end even if the client goes away.
+    const signedUp = await runToEnd(c.executionCtx, signUpWithPassword(c.env, email.toLowerCase(), password, network, Date.now()));
+    c.header("Set-Cookie", sessionCookie(signedUp.sessionToken));
+    return c.json({ owner: signedUp.owner, siteId: signedUp.siteId });
+  });
+
+  // Password log-in: one answer for a wrong email or password, and the 5-try lock (password.ts). The emailed link stays.
+  auth.post("/login/password", authLimit, async (c) => {
+    const { email, password } = await readJson(c, PasswordLoginBody);
+    await requireTurnstile(c, deps.siteverify);
+    const signedIn = await runToEnd(c.executionCtx, passwordLogin(c.env, email.toLowerCase(), password, Date.now()));
+    c.header("Set-Cookie", sessionCookie(signedIn.sessionToken));
+    return c.json({ owner: signedIn.owner });
   });
 
   auth.post("/login/verify", authLimit, async (c) => {
