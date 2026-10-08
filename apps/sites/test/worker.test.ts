@@ -424,6 +424,13 @@ describe("the scheduled handler", () => {
     });
   });
 
+  // Review M1: the run's time is taken once the retry has finished (an object literal reads its fields in order).
+  it("logs the retry run's whole time", async () => {
+    const db = { prepare: () => ({ bind: () => ({ all: () => new Promise((done) => setTimeout(() => done({ results: [] }), 40)) }) }) } as unknown as D1Database;
+    await worker.scheduled({ scheduledTime: Date.parse("2026-09-24T07:15:00.000Z"), cron: "*/15 * * * *", noRetry: () => {} }, { DB: db } as Env);
+    expect(JSON.parse(String(log.mock.calls[0]?.[0])).ms).toBeGreaterThanOrEqual(30);
+  });
+
   it("runs nothing on any other cron, and logs a code", async () => {
     const { db, sql } = fakeDb([], 1);
     await worker.scheduled({ scheduledTime: Date.parse("2026-09-24T07:00:00.000Z"), cron: "* * * * *", noRetry: () => {} }, { DB: db } as Env);

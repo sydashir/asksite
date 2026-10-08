@@ -20,11 +20,17 @@ export type MailerErrorCode = "rate_limited" | "rejected" | "unavailable" | "mis
 // constructor parameter properties. The public shape is the design's `readonly code`.
 export class MailerError extends Error {
   readonly code: MailerErrorCode;
+  /** The HTTP status when the provider answered; undefined when it could not be reached or did not answer in time. */
+  readonly status: number | undefined;
+  /** The provider's error name from its answer (Resend: e.g. "concurrent_idempotent_requests"), never its message. */
+  readonly reason: string | undefined;
 
-  constructor(code: MailerErrorCode, message: string) {
+  constructor(code: MailerErrorCode, message: string, answer: { status?: number; reason?: string } = {}) {
     super(message);
     this.name = "MailerError";
     this.code = code;
+    this.status = answer.status;
+    this.reason = answer.reason;
   }
 }
 

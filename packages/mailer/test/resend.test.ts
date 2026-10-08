@@ -102,6 +102,28 @@ describe("ResendMailer", () => {
     expect(error.code).toBe("unavailable");
   });
 
+  // C1 RULING 3 (2026-10-08): the lead-email retry takes a new idempotency key only after Resend answered 429 or 5xx
+  // (not sent), and keeps the key when there was no answer (the email may have gone out). So an error says whether,
+  // and how, Resend answered.
+  it.each([429, 400, 403, 409, 422, 500, 503])("records Resend's HTTP status %i on the error", async (status) => {
+    const error = await failure(new ResendMailer(KEY, "a@b.example", fakeFetch(() => new Response("{}", { status })).fn));
+    expect(error.status).toBe(status);
+  });
+
+  it("records no status when Resend gave no answer, and the 2xx status of an answer with no id", async () => {
+    expect((await failure(new ResendMailer(KEY, "a@b.example", () => Promise.reject(new TypeError("network"))))).status).toBeUndefined();
+    expect((await failure(new ResendMailer(KEY, "a@b.example", fakeFetch(() => new Response("{}", { status: 202 })).fn))).status).toBe(202);
+  });
+
+  it("reads the error name from a refusal's body, and never its message", async () => {
+    const answer = (body: string) => fakeFetch(() => new Response(body, { status: 409 })).fn;
+    const concurrent = await failure(new ResendMailer(KEY, "a@b.example", answer(JSON.stringify({ statusCode: 409, name: "concurrent_idempotent_requests", message: "owner@example.com" }))));
+    expect(concurrent).toMatchObject({ code: "rejected", status: 409, reason: "concurrent_idempotent_requests" });
+    expect(concurrent.message).toBe("Resend returned 409");
+    expect((await failure(new ResendMailer(KEY, "a@b.example", answer("not json")))).reason).toBeUndefined();
+    expect((await failure(new ResendMailer(KEY, "a@b.example", answer(JSON.stringify({ name: 7 }))))).reason).toBeUndefined();
+  });
+
   it("is misconfigured without a key or sender, and never calls Resend", async () => {
     const fake = fakeFetch(() => Response.json({ id: "x" }));
     expect((await failure(new ResendMailer("", "a@b.example", fake.fn))).code).toBe("misconfigured");

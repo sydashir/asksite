@@ -38,7 +38,8 @@ export default {
       });
     } else if (controller.cron === RETRY_CRON) {
       try {
-        logLine({ route: "cron_lead_email_retry", ms: Date.now() - started, ...(await retryLeadEmails(env, controller.scheduledTime)) });
+        const result = await retryLeadEmails(env, controller.scheduledTime);
+        logLine({ route: "cron_lead_email_retry", ms: Date.now() - started, ...result });
       } catch (e) {
         // A D1 failure: the run's line still says so (invocation logs are off), and the run still fails.
         logLine({ route: "cron_lead_email_retry", ms: Date.now() - started, code: "internal" });

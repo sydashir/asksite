@@ -4,6 +4,7 @@ import { businessOf, formBusiness } from "./business.ts";
 import { leadEmailsPerDay } from "./config.ts";
 import type { Env } from "./env.ts";
 import { plainHeaders } from "./headers.ts";
+import { failedAttempt } from "./lead-attempt.ts";
 import { leadEmail } from "./lead-email.ts";
 import { looksLikeSpam, PROBLEM_TEXT, readLead, type Lead } from "./lead.ts";
 import { logLine } from "./log.ts";
@@ -189,12 +190,14 @@ export async function insertLead(
 async function emailOwner(env: Env, input: { leadId: string; siteId: string; to: string; lead: Lead; siteUrl: string }): Promise<void> {
   const started = Date.now();
   let error: string | null = null;
+  let code: string | undefined;
   try {
     await createMailer(env).send(leadEmail(input));
   } catch (e) {
-    error = e instanceof MailerError ? e.code : "internal";
+    // The stored error also names the key the retry cron's next attempt uses (lead-attempt.ts); the log keeps the code.
+    error = failedAttempt(e, 1);
+    code = `email_${e instanceof MailerError ? e.code : "internal"}`;
   }
-  let code = error === null ? undefined : `email_${error}`;
   try {
     await env.DB.prepare("UPDATE leads SET email_status = ?, email_error = ? WHERE id = ?").bind(error === null ? "sent" : "failed", error, input.leadId).run();
   } catch {

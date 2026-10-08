@@ -50,12 +50,21 @@ export class ResendMailer implements Mailer {
       throw new MailerError("unavailable", "Resend could not be reached");
     }
 
-    if (response.status === 429) throw new MailerError("rate_limited", "Resend returned 429");
-    if (response.status >= 400 && response.status < 500) throw new MailerError("rejected", `Resend returned ${response.status}`);
-    if (!response.ok) throw new MailerError("unavailable", `Resend returned ${response.status}`);
+    // Every error says whether, and how, Resend answered (`status`), so a caller can tell "not sent" from "may have
+    // been sent"; a refusal also carries Resend's error name (`reason`; resend.com/docs/api-reference/errors).
+    const status = response.status;
+    if (status === 429) throw new MailerError("rate_limited", "Resend returned 429", { status });
+    if (status >= 400 && status < 500) throw new MailerError("rejected", `Resend returned ${status}`, { status, ...(await errorName(response)) });
+    if (!response.ok) throw new MailerError("unavailable", `Resend returned ${status}`, { status });
     const result: unknown = await response.json().catch(() => null);
     const id = typeof result === "object" && result !== null && "id" in result ? result.id : undefined;
-    if (typeof id !== "string") throw new MailerError("unavailable", "Resend returned no email id");
+    if (typeof id !== "string") throw new MailerError("unavailable", "Resend returned no email id", { status });
     return { id };
   }
+}
+
+/** The `name` of Resend's error answer, e.g. "invalid_idempotent_request", when its body has one. */
+async function errorName(response: Response): Promise<{ reason?: string }> {
+  const body: unknown = await response.json().catch(() => null);
+  return typeof body === "object" && body !== null && "name" in body && typeof body.name === "string" ? { reason: body.name } : {};
 }
