@@ -30,7 +30,8 @@
 
 @layer base {
   html {
-    background-color: var(--color-canvas);
+    /* Every page is dark now (landing, sign-in, the owner app, the admin): no light flash around or below the content. */
+    background-color: var(--color-ink);
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     text-rendering: optimizeLegibility;
@@ -310,6 +311,78 @@
     border-radius: 2px;
     background-color: var(--color-brand-500);
   }
+}
+
+/*
+ * The signed-in owner app and the admin on the Hybrid dark surface (reference.md §1.2): `.app-dark` sits on <main> and remaps
+ * the colour tokens the screens and the shared components already use, so every screen and every state (errors, saved,
+ * pills, dialogs, the questionnaire, the editor, the admin review) moves together. Outside the layers on purpose, so these
+ * values win. Contrast (WCAG 2.x) on the graphite card #171717 / the page #0A0A0A: white 17.9/19.8, slate-800 #E8EBEE 15.4,
+ * slate-700 #D6DADE 12.8, slate-600 (mist) #A3ABB5 7.7/8.5, red #FF7B6E 7.1, red-800 #FF9A8F 8.9, amber #F6D27A 12.0,
+ * brand-800 → lime-400 #93EA68 12.1 (links, focus ring, checkbox accent); control edges white/46 ≈ 4.0 against the card.
+ * Near-black text stays on lime (primary buttons, icon tiles, the current step): 11.6.
+ */
+.app-dark {
+  --color-white: #171717;
+  --color-ink: #ffffff;
+  --color-slate-50: rgb(255 255 255 / 0.04);
+  --color-slate-100: rgb(255 255 255 / 0.07);
+  --color-slate-200: rgb(255 255 255 / 0.12);
+  --color-slate-300: rgb(255 255 255 / 0.18);
+  --color-slate-400: rgb(255 255 255 / 0.32);
+  --color-slate-500: rgb(255 255 255 / 0.46);
+  --color-slate-600: #a3abb5;
+  --color-slate-700: #d6dade;
+  --color-slate-800: #e8ebee;
+  --color-slate-900: #ffffff;
+  --color-red-50: rgb(255 123 110 / 0.1);
+  --color-red-100: rgb(255 123 110 / 0.16);
+  --color-red-200: rgb(255 123 110 / 0.35);
+  --color-red-700: #ff7b6e;
+  --color-red-800: #ff9a8f;
+  --color-amber-50: rgb(242 193 78 / 0.1);
+  --color-amber-100: rgb(242 193 78 / 0.16);
+  --color-amber-200: rgb(242 193 78 / 0.35);
+  --color-amber-600: #f2c14e;
+  --color-amber-900: #f6d27a;
+  --color-brand-50: rgb(123 221 76 / 0.1);
+  --color-brand-200: rgb(123 221 76 / 0.35);
+  --color-brand-600: #7bdd4c;
+  --color-brand-700: #7bdd4c;
+  --color-brand-800: #93ea68;
+  --color-brand-900: #a1f080;
+  color: #fff;
+  color-scheme: dark;
+}
+/* Near-black on lime, wherever lime is a fill. */
+.app-dark .btn-primary,
+.app-dark .icon-tile {
+  color: #0a0a0a;
+}
+.app-dark .btn-primary:disabled,
+.app-dark .btn-primary[aria-disabled="true"] {
+  color: #d6dade;
+}
+/* The current questionnaire step is the lime signal. */
+.app-dark .step-link[aria-current="step"] {
+  background-color: var(--color-brand-500);
+  color: #0a0a0a;
+}
+/* Fields: black wells with a white/46 edge (reference.md §1.7); the lime border on focus. */
+.app-dark .field-input {
+  background-color: #000;
+}
+.app-dark .field-input:focus {
+  border-color: var(--color-brand-500);
+}
+/* Field groups inside a card read as one quiet panel, not a second white box. */
+.app-dark fieldset.rounded-xl {
+  background-color: rgb(255 255 255 / 0.02);
+}
+.app-dark .dialog {
+  border-color: rgb(255 255 255 / 0.12);
+  background-color: #171717;
+  color: #fff;
 }
 
 /*

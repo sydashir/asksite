@@ -139,7 +139,7 @@ export function App() {
           ) : null}
         </div>
       </header>
-      <main id="main" tabIndex={-1} className={landing || authPage ? "break-words" : "mx-auto max-w-6xl px-4 py-8 break-words sm:py-10"}>
+      <main id="main" tabIndex={-1} className={landing || authPage ? "break-words" : "app-dark mx-auto max-w-6xl px-4 py-8 break-words sm:py-10"}>
         {stopMessage !== null ? (
           <div role="alert">
             <Notice tone="error">{stopMessage}</Notice>
@@ -148,7 +148,7 @@ export function App() {
         {authPage ? <div className="auth-page">{page(route)}</div> : page(route)}
       </main>
       {/* The same help in the same place on every page (WCAG 3.2.6); "Contact us" messages point here. */}
-      <footer className={landing || authPage ? "footer-dark" : "mx-auto max-w-6xl border-t border-slate-200 px-4 pt-6 pb-10 text-sm text-slate-700"}>
+      <footer className="footer-dark">
         Questions? Email{" "}
         <a className="link break-all" href={`mailto:${__SUPPORT_EMAIL__}`}>
           {__SUPPORT_EMAIL__}
