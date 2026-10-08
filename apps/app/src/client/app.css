@@ -318,8 +318,8 @@
  * The signed-in owner app and the admin on the Hybrid dark surface (reference.md §1.2): `.app-dark` sits on <main> and remaps
  * the colour tokens the screens and the shared components already use, so every screen and every state (errors, saved,
  * pills, dialogs, the questionnaire, the editor, the admin review) moves together. Outside the layers on purpose, so these
- * values win. Contrast (WCAG 2.x) on the graphite card #171717 / the page #0A0A0A: white 17.9/19.8, slate-800 #E8EBEE 15.4,
- * slate-700 #D6DADE 12.8, slate-600 (mist) #A3ABB5 7.7/8.5, red #FF7B6E 7.1, red-800 #FF9A8F 8.9, amber #F6D27A 12.0,
+ * values win. Contrast (WCAG 2.x) on the graphite card #171717 / the page #0A0A0A: white 17.9/19.8, slate-800 #E8EBEE 15.0,
+ * slate-700 #D6DADE 12.8, slate-600 (mist) #A3ABB5 7.7/8.5, red #FF7B6E 7.1, red-800 #FF9A8F 8.8, amber #F6D27A 12.3,
  * brand-800 → lime-400 #93EA68 12.1 (links, focus ring, checkbox accent); control edges white/46 ≈ 4.0 against the card.
  * Near-black text stays on lime (primary buttons, icon tiles, the current step): 11.6.
  */
@@ -376,6 +376,13 @@
 .app-dark .field-input:focus {
   border-color: var(--color-brand-500);
 }
+.app-dark .field-input[aria-invalid="true"] {
+  border-color: var(--color-red-700);
+}
+/* Selected text: near-black on lime, as on every other page. */
+.app-dark ::selection {
+  color: #0a0a0a;
+}
 /* Field groups inside a card read as one quiet panel, not a second white box. */
 .app-dark fieldset.rounded-xl {
   background-color: rgb(255 255 255 / 0.02);
@@ -384,6 +391,9 @@
 @media (width < 64rem) {
   .app-dark .wizard-steps > ol {
     mask-image: linear-gradient(to right, #000 calc(100% - 3rem), transparent);
+    /* Room past the last step and for a focused step, so neither sits under the fade. */
+    padding-inline-end: 3rem;
+    scroll-padding-inline-end: 3rem;
   }
 }
 /* List dividers (admin site lists, history) visible on graphite. */

@@ -1,5 +1,12 @@
 @reference "../app.css";
 
+/* The landing page draws its own dark and paper colours: if it ever renders inside the app's dark surface (a slow session
+   check), these restore the tokens that surface swaps. */
+.landing {
+  --color-white: #fff;
+  --color-ink: #0a0a0a;
+}
+
 /* The signed-out front page. Dark sections, one white "paper" band, lime used as a signal. Loaded only with the lazy landing chunk.
    Nothing here transitions or animates anything that holds text. */
 @layer components {
