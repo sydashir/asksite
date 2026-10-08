@@ -166,7 +166,7 @@ main>.sec:first-child{padding-top:2.5rem}
 .svc-more{justify-content:space-between;gap:1rem 1.5rem;color:var(--aw-refined-muted)}
 .svc-mt{font-size:1.3125rem;font-weight:700;line-height:1.25;color:var(--ik)}
 .svc-mt+p{margin-top:.25rem}
-.svc-more .bt,.fcard .bt{white-space:normal}
+.svc-more .bt,.fcard .bt,.pv-m .bt{white-space:normal}
 
 /* ---------- Reviews: one pull quote, then letter cards whose rules and names share a line (subgrid) ---------- */
 .lq{max-width:54rem}
@@ -295,8 +295,11 @@ summary::-webkit-details-marker{display:none}
    and stay on one line wherever they fit. white-space works in every engine (text-wrap:balance needs Safari 17.5, under
    the iOS 16.4 floor); it outranks .bt's nowrap and the markup's whitespace-nowrap utility (this sheet is unlayered).
    The rest after the area code is a no-wrap span (phoneParts), so the number breaks only at that space. 10vw keeps
-   the rest on one line at 320 px with the root at 125% (at 100% the cap, 1.75rem, applies from 280 px). */
-.c-ph,.pg-a .bt{white-space:normal}
+   the rest on one line at 320 px with the root at 125% (at 100% the cap, 1.75rem, applies from 280 px). The 24/7 box's
+   Call link also wraps where it does not fit (bigger text), balanced where the engine can (Safari 17.5+), so its lines
+   split between "Call (NNN)" and the rest. */
+.c-ph,.pg-a .bt,.h247 a{white-space:normal}
+.h247 a{text-wrap:balance}
 .c-ph{font-size:min(1.75rem,10vw);line-height:1.2}
 .c-note{display:block;margin-top:.25rem;font-size:.9375rem}
 /* The hours and a one-town area line beside the form, from 60rem (phones get them in the Service area section). */
@@ -397,6 +400,9 @@ summary::-webkit-details-marker{display:none}
    covers the first screen). */
 @media not all and (min-width:48rem) and (min-height:32rem){
   .bc-m .bc-e,.ha,.svc-more .bt,.bt.hd-q{display:none}
+  /* A jump or a focused field stays clear of the call bar: at least its height (4.4em at 100%, 5.5em at 150%), in em
+     of the root, which WebKit resolves with the visitor's text size (its root rem stays 16 px). */
+  html{scroll-padding-bottom:calc(6em + env(safe-area-inset-bottom))}
 }
 /* A town so long that it and the year cannot share one phone row (parts.ts GROUP_TIERS): the year steps aside below
    the width where they fit, so it is never alone on a line. */
@@ -499,8 +505,10 @@ summary::-webkit-details-marker{display:none}
    landscape window keeps a static header with Call, and the call bar carries the quote on every screen: the closing
    band's buttons show only here, with the call bar gone (moderator ruling, 2026-10-05). */
 @media (min-width:48rem) and (min-height:32rem){
-  html{scroll-padding-top:8rem}
-  html:has(.hd-long){scroll-padding-top:9.5rem}
+  /* em of the root, not rem: WebKit resolves the root's own rem against 16 px, so a bigger text size would leave the
+     padding short of the taller header (the same at 100%: 128 and 152 px). */
+  html{scroll-padding-top:8em}
+  html:has(.hd-long){scroll-padding-top:9.5em}
   .hd{position:sticky;top:0;box-shadow:0 12px 24px -24px #0000008c}
   .cb,.cl-l .cl-n{display:none}
   .cl-a{display:flex;flex-wrap:wrap;gap:.75rem;margin-top:1.75rem}
@@ -669,7 +677,9 @@ summary::-webkit-details-marker{display:none}
   .nav-l a{min-height:2.75rem}
 }
 @media (min-width:80rem) and (min-height:32rem){
-  html{scroll-padding-top:5.5rem}
+  /* 88 px at 100% as before; with bigger text it grows faster than the text (192 px at 150%), as the header does when
+     it takes two rows (below). */
+  html{scroll-padding-top:max(5.5em,13em - 120px)}
 }
 @media (80rem <= width < 90rem){
   .hd-long .hd-row{flex-wrap:wrap;min-height:0;padding-block:.5rem 0}
@@ -682,3 +692,31 @@ summary::-webkit-details-marker{display:none}
   .hd-long .brand{max-width:22rem}
 }
 
+/* ---------- Much bigger text (a visitor's text size well above 100%) ----------
+   Each part is a container query, whose rem follows the root's font size (media queries keep 16 px); none can hold at
+   100% on a screen from 320 px wide.
+   - Header: where its row no longer fits, the name and the menu button share the first row and Quote and Call the
+     second, on the right; the page links move into the menu, as on phones. Each clause pairs a pixel floor with a rem
+     ceiling that the floor exceeds at a 16 px root; at 150% they cover 740 to 1,704 px together.
+   - Call bar: Call's words wrap, its number after "Call (NNN)" (6em), and "Get a quote" takes its narrowest width
+     without breaking a word (overflow-wrap:normal), so the bar keeps both buttons side by side. At a 16 px root the
+     first clause needs a screen under 312 px and the second never holds; at 150% they hold up to a 573 px screen.
+   - Hours card: where the 24/7 box is too narrow for the number beside its icon, the icon sits above its words. */
+.hd,.cb,.hcard{container-type:inline-size}
+@container (740px<=width<=46rem) or (915px<=width<=57rem) or (1138px<=width<=71rem){
+  .hd .hd-row{flex-wrap:wrap;justify-content:flex-end;padding-block:.5rem}
+  .hd .brand{flex:1 1 calc(100% - 4rem);max-width:none}
+  .hd .nav{order:0;flex:none;margin:0;border:0}
+  .nav-l{display:none}
+  .menu{display:block}
+}
+@container (max-width:18rem) or (360px<=width<=22.4rem){
+  .cb .bt{padding:0 .5rem;line-height:1.1;overflow-wrap:normal}
+  .cb .bt-act{white-space:normal}
+  .cb .bt-t>:first-child{max-width:6em}
+  .cb .bt-out{width:min-content}
+}
+@container (max-width:9rem){
+  .h247{padding-left:1.125rem}
+  .h247 .i{position:static;margin-bottom:.25rem}
+}
