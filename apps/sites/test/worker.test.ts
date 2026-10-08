@@ -3,6 +3,7 @@ import { securityTxt } from "../src/apex.ts";
 import { businessOf, formBusiness, liveSiteName } from "../src/business.ts";
 import type { Env } from "../src/env.ts";
 import worker from "../src/index.ts";
+import { RETRY_SQL } from "../src/lead-retry.ts";
 import { livePageKey, livePointerKey, pageCacheUrl } from "@asksite/core";
 import { PAGE_IDS, PAGES } from "@asksite/site-schema";
 
@@ -378,6 +379,10 @@ describe("the scheduled handler", () => {
       prepare: (text: string) => ({
         bind: () => ({
           run: () => new Promise((done) => setTimeout(() => done({ meta: { changes: changes[sql.push(text) - 1], size_after: sizeAfter } }), 5)),
+          all: () => {
+            sql.push(text);
+            return new Promise((done) => setTimeout(() => done({ results: [] }), 5));
+          },
         }),
       }),
     } as unknown as D1Database;
@@ -405,5 +410,34 @@ describe("the scheduled handler", () => {
     expect(JSON.parse(String(log.mock.calls[0]?.[0]))).toEqual({
       worker: "asksite-sites", route: "cron_lead_retention", ms: expect.any(Number), deleted: 3, deletedSpam: 2, deletedExpired: 1,
     });
+  });
+
+  // C1: the */15 cron runs the lead-email retry and nothing else (the daily cron's deletions are pinned above);
+  // lead-retry.workerd.test.ts proves what the retry sends.
+  it("runs only the lead-email retry on the */15 cron, and logs its counts", async () => {
+    const { db, sql } = fakeDb([], 1);
+    await worker.scheduled({ scheduledTime: Date.parse("2026-09-24T07:15:00.000Z"), cron: "*/15 * * * *", noRetry: () => {} }, { DB: db } as Env);
+    expect(sql).toEqual([RETRY_SQL]);
+    expect(log).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(String(log.mock.calls[0]?.[0]))).toEqual({
+      worker: "asksite-sites", route: "cron_lead_email_retry", ms: expect.any(Number), read: 0, claimed: 0, sent: 0, failed: 0, stopped: false,
+    });
+  });
+
+  it("runs nothing on any other cron, and logs a code", async () => {
+    const { db, sql } = fakeDb([], 1);
+    await worker.scheduled({ scheduledTime: Date.parse("2026-09-24T07:00:00.000Z"), cron: "* * * * *", noRetry: () => {} }, { DB: db } as Env);
+    expect(sql).toEqual([]);
+    expect(log).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(String(log.mock.calls[0]?.[0]))).toEqual({ worker: "asksite-sites", route: "cron", ms: expect.any(Number), code: "unknown_cron" });
+  });
+
+  it("logs a retry run that throws, with code internal, and still fails the run", async () => {
+    const db = { prepare: () => ({ bind: () => ({ all: () => Promise.reject(new Error("D1 is down")) }) }) } as unknown as D1Database;
+    await expect(
+      worker.scheduled({ scheduledTime: Date.parse("2026-09-24T07:15:00.000Z"), cron: "*/15 * * * *", noRetry: () => {} }, { DB: db } as Env),
+    ).rejects.toThrow("D1 is down");
+    expect(log).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(String(log.mock.calls[0]?.[0]))).toEqual({ worker: "asksite-sites", route: "cron_lead_email_retry", ms: expect.any(Number), code: "internal" });
   });
 });
