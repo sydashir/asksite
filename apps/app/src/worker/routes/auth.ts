@@ -6,6 +6,7 @@ import { clientIp, mailerEnv } from "../db.ts";
 import type { AppDeps } from "../deps.ts";
 import { claimInvite } from "../invite-claim.ts";
 import { passwordLogin } from "../password.ts";
+import { clearUnconfirmedSql, endUnconfirmedSessionsSql } from "../password-sql.ts";
 import { endSession, EXPIRED_SESSION_COOKIE, insertSession, sessionCookie } from "../session.ts";
 import { alertNearCap, countSentToday, sentToday } from "../sign-in-emails.ts";
 import { networkDetail, sendSignupLink, signUpWithPassword } from "../signup.ts";
@@ -19,6 +20,8 @@ const DAY_MS = 86_400_000;
 const INVITE_INVALID = "This invite link has expired or was already used. Ask us for a new one.";
 const TOKEN_INVALID = "This sign-in link has expired or was already used. Request a new one.";
 const OWNER_DISABLED = "This account has been disabled. Contact us for help.";
+/** The owner's id looked up by the email bound as ?1 (an invite's statements know the email, not the id). */
+const BY_EMAIL = "(SELECT id FROM owners WHERE email = ?1)";
 
 /** AUTH_RL, keyed on the address, or its /64 for IPv6 (Plan 2 decision 27): one customer holds a whole /64. */
 const authLimit: MiddlewareHandler<AppEnv> = async (c, next) => {
@@ -145,6 +148,9 @@ async function acceptInvite(db: D1Database, invite: { id: string; email: string 
              AND EXISTS (SELECT 1 FROM invites WHERE id = ? AND created_by = 'signup') AND EXISTS (SELECT 1 FROM sessions WHERE id_hash = ?)`,
         )
         .bind(now, invite.email, invite.id, invite.id, sessionHash),
+      // An invite proves the inbox too: a password set at sign-up is cleared and its sessions end (RULED I2, password-sql.ts).
+      db.prepare(endUnconfirmedSessionsSql(BY_EMAIL)).bind(invite.email, sessionHash),
+      db.prepare(clearUnconfirmedSql(BY_EMAIL)).bind(invite.email, sessionHash),
       // What the batch did, read in the same transaction (A10: no RETURNING, and no reliance on each statement's meta.changes).
       // From the invite, so a revoked invite of a new address (no owner row) still has a row to read.
       db
@@ -154,7 +160,7 @@ async function acceptInvite(db: D1Database, invite: { id: string; email: string 
         )
         .bind(siteId, sessionHash, invite.id),
     ]);
-    const outcome = results[6]?.results[0] as { revoked: number; id: string | null; email: string | null; site: number; session: number } | undefined;
+    const outcome = results[8]?.results[0] as { revoked: number; id: string | null; email: string | null; site: number; session: number } | undefined;
     if (outcome === undefined) throw new Error("invite row missing after invite accept");
     if (outcome.revoked === 1) throw new ApiError("invite_invalid", INVITE_INVALID);
     if (outcome.id === null || outcome.email === null) throw new Error("owner row missing after invite accept");
@@ -183,12 +189,15 @@ async function verifyLogin(db: D1Database, tokenHash: string, now: number): Prom
   if (owner === null) throw new ApiError("token_invalid", TOKEN_INVALID);
   const sessionToken = newToken();
   const idHash = await sha256Hex(sessionToken);
-  // insertSession is the disabled check: it stores nothing for a disabled owner, and the audit row needs the session.
+  // insertSession is the disabled check: it stores nothing for a disabled owner, and the audit row needs the session. The link
+  // proves the inbox, so a password set at sign-up is cleared here and its sessions end (RULED I2, password-sql.ts).
   const [session] = await db.batch([
     insertSession(db, idHash, owner.id, now),
     db
       .prepare("INSERT INTO audit_log (at, actor, action, site_id, detail_json) SELECT ?, ?, 'auth.login', NULL, NULL WHERE EXISTS (SELECT 1 FROM sessions WHERE id_hash = ?)")
       .bind(now, `owner:${owner.id}`, idHash),
+    db.prepare(endUnconfirmedSessionsSql("?1")).bind(owner.id, idHash),
+    db.prepare(clearUnconfirmedSql("?1")).bind(owner.id, idHash),
   ]);
   if (session?.meta.changes !== 1) throw new ApiError("owner_disabled", OWNER_DISABLED);
   return { owner: { id: owner.id, email: owner.email }, sessionToken };

@@ -190,6 +190,19 @@ async function saveOtherTabs(db: D1Database): Promise<void> {
   }
 }
 
+/**
+ * Every PBKDF2 derive the Worker runs while recording (POST /__test/record-derives starts afresh): its hash and iterations,
+ * oldest first; null while not recording. SubtleCrypto.prototype.deriveBits is wrapped once, here in the test Worker only, so
+ * a test can prove which requests derive a key (the dummy hash, RULED 2026-10-08) without timing them.
+ */
+let derives: Array<{ hash: unknown; iterations: unknown }> | null = null;
+const realDeriveBits = SubtleCrypto.prototype.deriveBits;
+SubtleCrypto.prototype.deriveBits = function (this: SubtleCrypto, ...args: Parameters<SubtleCrypto["deriveBits"]>) {
+  const [algorithm] = args;
+  if (derives !== null && typeof algorithm === "object" && algorithm.name === "PBKDF2") derives.push({ hash: algorithm.hash, iterations: algorithm.iterations });
+  return realDeriveBits.apply(this, args);
+};
+
 /** Per recorded path: the SQL text of every statement its requests prepared, oldest first. */
 const sqlOf = new Map<string, string[]>();
 
@@ -583,6 +596,15 @@ helpers.post("/__test/record-sql", async (c) => {
   preChecksDoneOf.set(path, 0);
   return c.json({ ok: true });
 });
+
+/** Starts recording PBKDF2 derives afresh (see derives). */
+helpers.post("/__test/record-derives", (c) => {
+  derives = [];
+  return c.json({ ok: true });
+});
+
+/** The PBKDF2 derives recorded since /__test/record-derives, oldest first. */
+helpers.get("/__test/derives", (c) => c.json(derives ?? []));
 
 /** The SQL text recorded for a path, oldest first (see sqlOf). */
 helpers.get("/__test/sql", (c) => c.json(sqlOf.get(c.req.query("path") ?? "") ?? []));

@@ -1,6 +1,6 @@
-import { hashIp, TTL, utcDayStart } from "@asksite/core";
+import { hashIp, sha256Hex, TTL, utcDayStart } from "@asksite/core";
 import { afterEach, describe, expect, it } from "vitest";
-import { LINK_RESET_WINDOW_MS, LOCK_WINDOW_MS, PASSWORD_LOCKED_SQL } from "../../src/worker/password-sql.ts";
+import { LINK_RESET_WINDOW_MS, LOCK_WINDOW_MS, RESERVE_TRY_SQL } from "../../src/worker/password-sql.ts";
 import { APP_ORIGIN, json, nextIp, useAppHarness } from "../support/harness.ts";
 import { TURNSTILE_DUMMY_TOKEN } from "../support/turnstile.ts";
 
@@ -40,8 +40,14 @@ async function sessionCount(email: string): Promise<number> {
   return (await (await h.db()).prepare("SELECT COUNT(*) AS n FROM sessions s JOIN owners o ON o.id = s.owner_id WHERE o.email = ?").bind(email).first<{ n: number }>())?.n ?? -1;
 }
 
-/** The lock rows' detail for an email, as password.ts keys it. */
-const lockDetail = async (email: string): Promise<string> => JSON.stringify({ emailHash: await hashIp(IP_HASH_KEY, `email:${email}`) });
+/** The recorded password tries of an email (password_tries, keyed by the same HMAC as password.ts). */
+async function triesOf(email: string): Promise<number> {
+  const emailHash = await emailKey(email);
+  return (await (await h.db()).prepare("SELECT COUNT(*) AS n FROM password_tries WHERE email_hash = ?").bind(emailHash).first<{ n: number }>())?.n ?? -1;
+}
+
+/** An email's key in password_tries, as password.ts keys it. */
+const emailKey = (email: string): Promise<string> => hashIp(IP_HASH_KEY, `email:${email}`);
 
 /** Signs in with the emailed link (the existing flow): request, read the dev outbox, verify. Returns the session cookie. */
 async function linkLogIn(email: string): Promise<string> {
@@ -147,27 +153,21 @@ describe("password log-in", () => {
     }
   });
 
-  // MUST 3: an unknown email is checked against a dummy hash, so it costs one PBKDF2 derive like a wrong password. Without the
-  // dummy it would answer in a small fraction of the time; the threshold is loose so a busy machine does not flake it.
-  it("takes about as long for an unknown email as for a wrong password (the dummy hash)", async () => {
-    const owners = await Promise.all(["pw-time-1", "pw-time-2", "pw-time-3"].map(async (label) => {
-      const email = uniqueEmail(label);
-      expect((await signUp(email, PASSWORD)).status).toBe(200);
-      return email;
-    }));
-    const known: number[] = [];
-    const unknown: number[] = [];
-    const timed = async (email: string): Promise<number> => {
-      const started = performance.now();
+  // MUST 3: an unknown email, and an account with no password, are checked against a dummy hash, so their answer costs the
+  // same work as a wrong password. Proved by the derives themselves (the test Worker records each PBKDF2 derive), not by time.
+  it("derives one PBKDF2-SHA256 key with 100,000 iterations for an unknown email and for an account with no password, as for a wrong password", async () => {
+    const email = uniqueEmail("pw-dummy");
+    expect((await signUp(email, PASSWORD)).status).toBe(200);
+    const linkOnly = await h.signIn(uniqueEmail("pw-dummy-link-only"));
+    const derivesOf = async (email: string): Promise<unknown> => {
+      await h.call("POST", "/__test/record-derives");
       expect((await logIn(email, OTHER)).status).toBe(401);
-      return performance.now() - started;
+      return (await h.call("GET", "/__test/derives")).json();
     };
-    for (const email of owners) {
-      known.push(await timed(email));
-      unknown.push(await timed(uniqueEmail("pw-time-nobody")));
-    }
-    const median = (values: number[]) => [...values].sort((a, b) => a - b)[1]!;
-    expect(median(unknown)).toBeGreaterThan(median(known) * 0.5);
+    const wrongPassword = await derivesOf(email);
+    expect(wrongPassword).toEqual([{ hash: "SHA-256", iterations: 100_000 }]);
+    expect(await derivesOf(uniqueEmail("pw-dummy-nobody"))).toEqual(wrongPassword);
+    expect(await derivesOf(linkOnly.email)).toEqual(wrongPassword);
   });
 
   it("locks the email after 5 wrong passwords: even the right one gets the generic answer, and the emailed link still signs in", async () => {
@@ -181,22 +181,36 @@ describe("password log-in", () => {
 
     const cookie = await linkLogIn(email);
     expect((await h.call("GET", "/api/me", { cookie })).status).toBe(200);
-    // The lock rows hold a keyed hash of the email, never the address.
-    const rows = await (await h.db()).prepare("SELECT actor, detail_json FROM audit_log WHERE action = 'auth.password_failed' AND detail_json = ?").bind(await lockDetail(email)).all<{ actor: string; detail_json: string }>();
-    expect(rows.results).toHaveLength(5);
-    expect(rows.results.map((row) => row.detail_json).join()).not.toContain(email);
+    // The tries are stored under a keyed hash of the email, never the address; the refused one was not stored.
+    expect(await triesOf(email)).toBe(5);
+    expect(await (await h.db()).prepare("SELECT COUNT(*) AS n FROM password_tries WHERE email_hash LIKE ?").bind(`%${email}%`).first()).toEqual({ n: 0 });
+  });
+
+  // I1 (opus check, 2026-10-08): the lock must hold against a burst, not only against tries one after another.
+  it("holds against a burst: 8 wrong passwords at once get 5 generic answers and 3 locks, and then the right password is locked out", async () => {
+    const email = uniqueEmail("pw-burst");
+    expect((await signUp(email, PASSWORD)).status).toBe(200);
+    const codes = await Promise.all(
+      Array.from({ length: 8 }, async () => {
+        const res = await logIn(email, OTHER);
+        return `${res.status} ${(JSON.parse(await res.text()) as ErrorJson).error.code}`;
+      }),
+    );
+    expect(codes.sort()).toEqual([...Array<string>(5).fill("401 login_failed"), ...Array<string>(3).fill("429 login_locked")]);
+    expect(await triesOf(email)).toBe(5);
+    expect((await logIn(email, PASSWORD)).status).toBe(429);
   });
 
   it("keeps the lock for 15 minutes from the 5th wrong try, then lets the right password in", async () => {
     const email = uniqueEmail("pw-lock-ends");
     expect((await signUp(email, PASSWORD)).status).toBe(200);
     const db = await h.db();
-    const detail = await lockDetail(email);
+    const emailHash = await emailKey(email);
     const seed = async (fifthAgoMs: number) => {
-      await db.prepare("DELETE FROM audit_log WHERE action = 'auth.password_failed' AND detail_json = ?").bind(detail).run();
+      await db.prepare("DELETE FROM password_tries WHERE email_hash = ?").bind(emailHash).run();
       // The 5 tries a minute apart, the 5th `fifthAgoMs` ago.
       for (let i = 4; i >= 0; i -= 1) {
-        await db.prepare("INSERT INTO audit_log (at, actor, action, site_id, detail_json) VALUES (?, 'login', 'auth.password_failed', NULL, ?)").bind(Date.now() - fifthAgoMs - i * 60_000, detail).run();
+        await db.prepare("INSERT INTO password_tries (email_hash, at) VALUES (?, ?)").bind(emailHash, Date.now() - fifthAgoMs - i * 60_000).run();
       }
     };
     await seed(LOCK_WINDOW_MS - 30_000);
@@ -205,12 +219,12 @@ describe("password log-in", () => {
     expect((await logIn(email, PASSWORD)).status).toBe(200);
   });
 
-  it("reads the lock's rows through the audit_site index (EXPLAIN QUERY PLAN), never by scanning the audit log", async () => {
-    const { results } = await (await h.db()).prepare(`EXPLAIN QUERY PLAN ${PASSWORD_LOCKED_SQL}`).bind(Date.now(), await lockDetail("plan@example.com")).all<{ detail: string }>();
+  it("reserves a try with one statement that reads password_tries through its index (EXPLAIN QUERY PLAN), never by a scan", async () => {
+    const { results } = await (await h.db()).prepare(`EXPLAIN QUERY PLAN ${RESERVE_TRY_SQL}`).bind(await emailKey("plan@example.com"), Date.now()).all<{ detail: string }>();
     const plan = results.map((row) => row.detail);
     // Both reads (the tries of the last 15 minutes, and the count up to each) are range searches of the index.
-    expect(plan.filter((line) => /^SEARCH [fg] USING INDEX audit_site \(site_id=\? AND at>\?/.test(line))).toHaveLength(2);
-    // The only scan is the outer SELECT EXISTS's one constant row.
+    expect(plan.filter((line) => /^SEARCH [fg] USING (COVERING )?INDEX password_tries_email \(email_hash=\? AND at>\?/.test(line))).toHaveLength(2);
+    // The only scan is the INSERT ... SELECT's one constant row.
     expect(plan.filter((line) => line.startsWith("SCAN"))).toEqual(["SCAN CONSTANT ROW"]);
   });
 });
@@ -253,26 +267,53 @@ describe("setting and changing the password", () => {
     expect((await h.call("GET", "/api/me", { cookie: squatter })).status).toBe(200);
 
     const owner = await linkLogIn(victim);
-    expect(await me(owner)).toMatchObject({ hasPassword: true, skipCurrent: true });
-    expect((await setPassword(owner, { newPassword: OTHER })).status).toBe(200);
+    // RULED I2: the first link sign-in already cleared the sign-up password and ended the squatter's session.
+    expect(await me(owner)).toMatchObject({ hasPassword: false, skipCurrent: false });
     expect((await h.call("GET", "/api/me", { cookie: squatter })).status).toBe(401);
+    expect((await setPassword(owner, { newPassword: OTHER })).status).toBe(200);
     expect((await logIn(victim, PASSWORD)).status).toBe(401);
     expect((await logIn(victim, OTHER)).status).toBe(200);
   });
 
+  // I2 RULED (a), 2026-10-08: a password set at sign-up is unconfirmed; the account's first emailed-link sign-in clears it and ends
+  // its password sessions, so a squatter keeps nothing even if the real owner never sets a password.
+  it("clears a sign-up password at the first emailed-link sign-in: past the 15 minutes, the squatter's password fails and the squatter's session is gone", async () => {
+    const victim = uniqueEmail("pw-unconfirmed");
+    const squatter = cookieOf(await signUp(victim, PASSWORD));
+    const owner = await linkLogIn(victim);
+    // The real owner waits past the 15 minutes (controlled time: the session's sign-in time is moved back) and sets nothing.
+    await (await h.db()).prepare("UPDATE sessions SET created_at = ? WHERE id_hash = ?").bind(Date.now() - LINK_RESET_WINDOW_MS - 1_000, await sha256Hex(owner.split("=")[1] ?? "")).run();
+    const refused = await logIn(victim, PASSWORD);
+    expect(refused.status).toBe(401);
+    expect((await json<ErrorJson>(refused)).error.code).toBe("login_failed");
+    expect((await h.call("GET", "/api/me", { cookie: squatter })).status).toBe(401);
+    expect(await me(owner)).toMatchObject({ hasPassword: false, skipCurrent: false });
+  });
+
+  it("clears a sign-up password when the account accepts an invite, too", async () => {
+    const victim = uniqueEmail("pw-unconfirmed-invite");
+    const squatter = cookieOf(await signUp(victim, PASSWORD));
+    const accepted = await h.call("POST", "/api/auth/invite/accept", { body: { token: await h.invite(victim) }, ip: nextIp() });
+    expect(accepted.status).toBe(200);
+    expect((await h.call("GET", "/api/me", { cookie: squatter })).status).toBe(401);
+    expect((await logIn(victim, PASSWORD)).status).toBe(401);
+    expect(await storedHash(victim)).toBeNull();
+  });
+
   // RULED 2026-10-08 (a), test (2): a link or invite session may skip the current password for 15 minutes after its sign-in.
   it("lets a link session skip the current password up to 15 minutes after its sign-in, and refuses it after that with the decided text", async () => {
-    const email = uniqueEmail("pw-window");
-    expect((await signUp(email, PASSWORD)).status).toBe(200);
+    // A confirmed password (RULED I2: set from the invite's session), so each link sign-in below replaces it rather than clearing it.
+    const owner = await h.signIn(uniqueEmail("pw-window"));
+    const email = owner.email;
+    expect((await setPassword(owner.cookie, { newPassword: PASSWORD })).status).toBe(200);
     const db = await h.db();
     const signedInAgo = async (cookie: string, ms: number) => {
-      const owner = (await db.prepare("SELECT id FROM owners WHERE email = ?").bind(email).first<{ id: string }>())!;
-      // Only this test's newest session: the one `cookie` holds (the others are the sign-up's and an earlier link's).
-      await db.prepare("UPDATE sessions SET created_at = ? WHERE owner_id = ? AND signed_in_with IS NULL AND created_at = (SELECT MAX(created_at) FROM sessions WHERE owner_id = ?)").bind(Date.now() - ms, owner.id, owner.id).run();
+      await db.prepare("UPDATE sessions SET created_at = ? WHERE id_hash = ?").bind(Date.now() - ms, await sha256Hex(cookie.split("=")[1] ?? "")).run();
       return cookie;
     };
 
     const fresh = await signedInAgo(await linkLogIn(email), LINK_RESET_WINDOW_MS - 10_000);
+    expect(await me(fresh)).toMatchObject({ hasPassword: true, skipCurrent: true });
     expect((await setPassword(fresh, { newPassword: OTHER })).status).toBe(200);
 
     const stale = await signedInAgo(await linkLogIn(email), LINK_RESET_WINDOW_MS + 1_000);
