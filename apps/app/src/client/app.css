@@ -390,6 +390,23 @@
 .app-dark .divide-slate-100 > :not(:last-child) {
   border-color: rgb(255 255 255 / 0.1);
 }
+/* The photo upload stays a real, visible native file input; only its built-in button takes the outline-button look. */
+.app-dark input[type="file"]::file-selector-button {
+  margin-inline-end: 0.75rem;
+  min-height: 2.75rem;
+  border: 1px solid rgb(255 255 255 / 0.46);
+  border-radius: 0.5rem;
+  padding: 0.5rem 1rem;
+  background-color: transparent;
+  color: #fff;
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+}
+.app-dark input[type="file"]::file-selector-button:hover {
+  border-color: rgb(255 255 255 / 0.7);
+  background-color: rgb(255 255 255 / 0.1);
+}
 .app-dark .dialog {
   border-color: rgb(255 255 255 / 0.12);
   background-color: #171717;
@@ -486,7 +503,8 @@
 .footer-dark {
   border-top: 1px solid rgb(255 255 255 / 0.1);
   padding: 1.5rem max(1rem, calc((100% - 72rem) / 2 + 1rem)) 2.5rem;
-  background-color: #000;
+  /* The page colour, so a short page shows no second band below the footer. */
+  background-color: var(--color-ink);
   color: var(--color-mist);
   font-size: 0.875rem;
   color-scheme: dark;
