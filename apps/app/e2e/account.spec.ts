@@ -9,9 +9,9 @@ test("sign in with an emailed link; the button, not the page load, uses the toke
   await page.context().clearCookies();
   await stubTurnstile(page);
   const violations = await watchCsp(page);
-  await page.goto("/");
-  // Open self sign-up (DECIDED 2026-10-07): one form for both, with the decided heading, helper, button and answer.
-  await expect(page.getByRole("heading", { level: 1, name: "Sign in or sign up", exact: true })).toBeVisible();
+  await page.goto("/login");
+  // Open self sign-up (DECIDED 2026-10-07): the same form on /login and /signup, with the decided heading, helper, button and answer.
+  await expect(page.getByRole("heading", { level: 1, name: "Log in", exact: true })).toBeVisible();
   await expect(page.getByText("Enter your email and we'll send you a link.", { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Sign out" })).toHaveCount(0);
   await expect(page.getByRole("contentinfo").getByRole("link", { name: "help@example.com" })).toHaveAttribute("href", "mailto:help@example.com");
@@ -54,7 +54,8 @@ test("an unknown email signs up on the same form: the emailed link sets up the w
   const network = `198.18.${Math.floor(Math.random() * 256)}.${Math.floor(Math.random() * 254) + 1}`;
   await page.route("**/api/auth/login", (route) => route.continue({ headers: { ...route.request().headers(), "cf-connecting-ip": network } }));
   await stubTurnstile(page);
-  await page.goto("/");
+  await page.goto("/signup");
+  await expect(page.getByRole("heading", { level: 1, name: "Create your account", exact: true })).toBeVisible();
   await waitForSecurityCheck(page);
   await page.getByLabel("Your email address").fill(email);
   await page.getByRole("button", { name: "Email me a link" }).click();
@@ -113,7 +114,7 @@ test("an invite link without a token says so, and loads no security check @mobil
 
 test("the security check loads only on the sign-in form, once, for the login action @mobile", async ({ page }) => {
   const requested = await stubTurnstile(page);
-  await page.goto("/");
+  await page.goto("/login");
   await waitForSecurityCheck(page);
   expect(requested).toHaveLength(1);
   expect(await turnstileRenders(page)).toMatchObject([{ sitekey: "1x00000000000000000000AA", action: "login" }]);
@@ -121,7 +122,7 @@ test("the security check loads only on the sign-in form, once, for the login act
 
 test("the sign-in link page (/login#token) loads no security check, and Cloudflare's script is still requested only once @mobile", async ({ page }) => {
   const requested = await stubTurnstile(page);
-  await page.goto("/");
+  await page.goto("/login");
   await waitForSecurityCheck(page);
   expect(requested).toHaveLength(1);
 
@@ -135,7 +136,7 @@ test("the sign-in link page (/login#token) loads no security check, and Cloudfla
 test("the security check fits at 320 px (compact) and 390 px (normal) without sideways scrolling @mobile", async ({ page }) => {
   await stubTurnstile(page);
   await page.setViewportSize({ width: 320, height: 700 });
-  await page.goto("/");
+  await page.goto("/login");
   await waitForSecurityCheck(page);
   expect(await turnstileRenders(page)).toMatchObject([{ size: "compact" }]);
   await expectNoSidewaysScroll(page);
@@ -150,7 +151,7 @@ test("the security check fits at 320 px (compact) and 390 px (normal) without si
 // STRICT (honesty): when Cloudflare's script cannot load, the owner is told so and can try again; never "complete the check" with no check on screen.
 test("if the security check cannot load, the owner is told and Try again brings it back @mobile", async ({ page }) => {
   await page.route("https://challenges.cloudflare.com/turnstile/v0/api.js*", (route) => route.abort());
-  await page.goto("/");
+  await page.goto("/login");
   await expect(page.getByText("The security check didn't load. If you use an ad blocker, allow this page, then press Try again.")).toBeVisible();
   await expectAccessible(page);
   await expect(page.locator("[data-stub-turnstile]")).toHaveCount(0);

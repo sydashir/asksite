@@ -138,7 +138,7 @@ async function storedHeadline(browser: Browser, email: string, siteId: string): 
   try {
     const page = await ctx.newPage();
     await stubTurnstile(page);
-    await page.goto("/");
+    await page.goto("/login");
     await waitForSecurityCheck(page);
     await page.getByLabel("Your email address").fill(email);
     await page.getByRole("button", { name: "Email me a link" }).click();
@@ -150,7 +150,7 @@ async function storedHeadline(browser: Browser, email: string, siteId: string): 
         return text;
       })
       .toContain(`${APP}/login#`);
-    await page.goto(/https:\/\/app\.localhost:8787\/login#[A-Za-z0-9_-]{43}/.exec(text)![0]);
+      await page.goto(/https:\/\/app\.localhost:8787\/login#[A-Za-z0-9_-]{43}/.exec(text)![0]);
     await page.getByRole("button", { name: "Sign in" }).click();
     await expect(page.getByRole("heading", { level: 1, name: "Your websites" })).toBeVisible();
     const view = (await apiCall(page, "GET", `/api/sites/${siteId}`)).json!;

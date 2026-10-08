@@ -2,8 +2,8 @@ import { usePageHeading } from "../hooks/use-page-heading.ts";
 import { onLinkClick } from "../hooks/use-route.ts";
 import { adminOrigin } from "./admin-origin.ts";
 
-/** The sign-in or sign-up page (open sign-up shares the "/" form). */
-export const SIGN_UP_HREF = "/";
+/** The sign-up page. */
+export const SIGN_UP_HREF = "/signup";
 
 export function DevStart() {
   const heading = usePageHeading<HTMLHeadingElement>("Demo start");

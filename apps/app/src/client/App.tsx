@@ -7,6 +7,7 @@ import { api } from "./lib/api.ts";
 import type { Route } from "./lib/route.ts";
 import { AcceptInvite } from "./pages/AcceptInvite.tsx";
 import { Build } from "./pages/Build.tsx";
+import { EmailLink } from "./pages/EmailLink.tsx";
 import { Editor } from "./pages/Editor.tsx";
 import { Home } from "./pages/Home.tsx";
 import { Leads } from "./pages/Leads.tsx";
@@ -26,7 +27,9 @@ function page(route: Route) {
     case "invite":
       return <AcceptInvite />;
     case "login":
-      return <VerifyLogin />;
+      return location.hash.length > 1 ? <VerifyLogin /> : <EmailLink mode="login" />;
+    case "signup":
+      return <EmailLink mode="signup" />;
     case "setup":
       return <Questionnaire key={`${route.siteId}-${route.step}`} siteId={route.siteId} step={route.step} />;
     case "build":
@@ -75,6 +78,8 @@ export function App() {
   const route = useRoute();
   // Asked again for every kind of page, so "Sign out" shows once signed in and never on the sign-in page.
   const me = useMe(route.name);
+  const signedOut = me.state === "signedOut";
+  const landing = route.name === "home" && signedOut;
   // Why Sign out stopped (it stops once): said here, whatever page is on screen.
   const [stopMessage, setStopMessage] = useState<string | null>(null);
   useEffect(() => {
@@ -88,19 +93,42 @@ export function App() {
       </a>
       <header className="surface-dark border-b border-white/10">
         <div className="mx-auto flex min-h-16 max-w-6xl flex-wrap items-center justify-between gap-3 px-4 py-2.5">
-          {/* The mark is decorative here: the link's name stays "Your website". */}
+          {/* The mark is decorative here: the link's name stays "Your website" (signed out: the company name, which phones show as the tile only). */}
           <a href="/" onClick={onLinkClick} className="brand-link">
             <img src="/hybrid.png" alt="" width={40} height={40} className="brand-mark" />
-            Your website
+            {signedOut ? <span className="max-sm:sr-only">Hybrid Mediaworks</span> : "Your website"}
           </a>
+          {landing ? (
+            <nav aria-label="On this page" className="hidden lg:block">
+              <a className="nav-link" href="#how">
+                How it works
+              </a>{" "}
+              <a className="nav-link" href="#designs">
+                Designs
+              </a>{" "}
+              <a className="nav-link" href="#questions">
+                Questions
+              </a>
+            </nav>
+          ) : null}
           {me.state === "ready" ? (
             <button type="button" className="btn-on-dark" onClick={() => void signOut(setStopMessage)}>
               Sign out
             </button>
           ) : null}
+          {signedOut ? (
+            <div className="flex items-center gap-2">
+              <a className="btn-on-dark" href="/login" onClick={onLinkClick}>
+                Log in
+              </a>
+              <a className="btn-primary" href="/signup" onClick={onLinkClick}>
+                Get started
+              </a>
+            </div>
+          ) : null}
         </div>
       </header>
-      <main id="main" tabIndex={-1} className="mx-auto max-w-6xl px-4 py-8 break-words sm:py-10">
+      <main id="main" tabIndex={-1} className={landing ? "break-words" : "mx-auto max-w-6xl px-4 py-8 break-words sm:py-10"}>
         {stopMessage !== null ? (
           <div role="alert">
             <Notice tone="error">{stopMessage}</Notice>
