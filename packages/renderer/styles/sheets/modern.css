@@ -74,7 +74,11 @@
     /* owner words (the call to action) wrap inside the button, however long, instead of pushing the page sideways */
     overflow-wrap: anywhere;
   }
-  .button-lg { min-height: 56px; padding-inline: 24px; font-size: 1.125rem; }
+  /* The big buttons: Call, the call to action and Send. A Call button's words wrap at their spaces when they do not fit
+     ("Call (512)" / "555-0142"; much bigger text on a small phone) instead of pushing the page sideways; where they fit
+     nothing changes. white-space works in every engine (text-wrap is Safari 17.4+); !important outranks the markup's
+     whitespace-nowrap utility, which a component rule cannot otherwise beat (later cascade layer). */
+  .button-lg { min-height: 56px; padding-inline: 24px; font-size: 1.125rem; white-space: normal !important; }
   .button-act { background: var(--act); color: var(--aw-modern-on-act); }
   .button-line { border-color: var(--ink); background: #fff; color: var(--ink); }
   .on-brand .button-act { background: var(--aw-modern-band-act); color: var(--aw-modern-on-band-act); }
@@ -129,14 +133,23 @@
   }
   .hdr-call, .hdr-quote { display: none; }
   @media (min-width: 768px) {
-    html { scroll-padding-top: calc(var(--hdr) + var(--menu-row) + 12px); }
+    /* A jump lands below the header: its height (--hdr) at the default text; with bigger text (a root over 16 px; the
+       em is the root's own size here) 7.5em, the tallest two-row header measured from 101% to 150% (6.1-7.3em) plus a
+       margin. (1em - 16px) * 9999 is 0 at 16 px and huge above, so the step comes just above the default. */
+    html { scroll-padding-top: calc(clamp(var(--hdr), (1em - 16px) * 9999, 7.5em) + var(--menu-row) + 12px); }
     .hdr { position: sticky; top: 0; }
     /* WCAG 2.4.11: keyboard focus on a link or button below the header lets the header go, so it never hides the
        focus. A text field keeps it; scroll-padding-top keeps the field (and, while one has focus, its label) below it. */
     html:has(:focus-visible:not(.hdr *):not(input, select, textarea)) .hdr { position: relative; }
     html:has(.input:focus) { scroll-padding-top: calc(var(--hdr) + var(--menu-row) + 60px); }
-    .bar { min-height: 60px; gap: 12px; }
-    .brand { font-size: 1.25rem; }
+    /* Bigger text: what does not fit beside the name moves to a second row, at the right (the name's auto margin keeps
+       the first row as it was). The name's basis is the room it gets before anything moves down: 12rem at the default
+       text (less than the narrowest name measured at 100%, 223 px, so nothing wraps there), above it its whole width
+       up to 18rem ((1rem - 16px) * 9999, capped by max-content), so a name is never squeezed to lines of a few
+       letters, and the longest name (20rem) still leaves the page links beside it at 1024 px with Liberation Sans.
+       It grows into the room left, up to its own width, as before. */
+    .bar { min-height: 60px; gap: 12px; flex-wrap: wrap; justify-content: flex-end; }
+    .brand { font-size: 1.25rem; flex: 1 1 clamp(12rem, (1rem - 16px) * 9999, 18rem); max-width: max-content; }
     .brand--long { max-width: 20rem; font-size: 1.0625rem; }
     .hdr-call, .hdr-quote { display: inline-flex; min-height: 46px; padding: 0 18px; font-size: 1rem; }
   }
@@ -558,7 +571,7 @@
   }
 
   /* service area: boards with a brand header, each as tall as its own content (never stretched) */
-  .area { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
+  .area { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; container-type: inline-size; }
   .area > * { min-width: 0; }
   /* No overflow clipping (WCAG 1.4.12: spaced-out text must stay whole): the header and the 24/7 well round their own corners. */
   .board { border: 1px solid var(--line); border-radius: var(--r); background: #fff; }
@@ -591,6 +604,13 @@
      max-content width (CSS Tables 3, width distribution). From 900 px the board's times keep their lines (below). */
   .hours .time { color: var(--ink); font-weight: 700; text-align: right; }
   .hours .closed { color: var(--muted); font-weight: 500; }
+  /* Much bigger text on a small phone: a day range wraps at its dash too ("Monday –" / "Friday"), where the table
+     would not fit even with its times wrapped. The container is the hero (the no-photo card) or the service area (the
+     board); 14.3rem is 343 px at 150% (the widest failing view measured: 342 px, the hero card), and narrower than
+     either container at 125% (288 px at 320 px), so a day range stays whole at the default and at 125%. */
+  @container (max-width: 14.3rem) {
+    .hours th { white-space: normal; }
+  }
   .board .hours th, .board .hours td { padding: 14px 20px; }
   .em { margin-top: 10px; padding: 12px 14px 6px; border-radius: 4px; background: var(--aw-modern-well); color: var(--ink); line-height: 1.4; }
   .board .em { margin: 0; padding: 16px 20px 14px; border-radius: 0 0 5px 5px; }
@@ -809,6 +829,9 @@
      button give way to it, as the hero's and the gallery's do. */
   @media (max-width: 767px) {
     .cards > .ask, .close-cta .button-line { display: none; }
+    /* nothing a jump or the keyboard brings into view sits under the sticky call bar: 5em (the root's size) is 80 px at
+       the default text (the bar is 79 px), 120 px at 150% (87 px); plus the phone's home-indicator inset, as the bar's */
+    html { scroll-padding-bottom: calc(5em + env(safe-area-inset-bottom)); }
   }
   @media (min-width: 768px) {
     .callbar { display: none; }

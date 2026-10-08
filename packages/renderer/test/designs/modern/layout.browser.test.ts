@@ -601,6 +601,56 @@ describe.each(ENGINES)("Modern in %s", (_engine, engine) => {
     expect(found).toEqual([]);
   }, 300_000);
 
+  // Much bigger default text (root font-size 150%; moderator, 2026-10-08). The sticky header's single row did not fit
+  // from 768 px, and only the name could give way, so it was squeezed to one letter a line (1,572 px tall); the closing
+  // band's and the hero's "Call (NNN) NNN-NNNN" pushed a 320 px page sideways; the page had no bottom scroll padding
+  // under the call bar. Each sticky bar covers at most a quarter of the screen (568 px tall up to 430 px wide, else 768
+  // px), the root's scroll padding on its side is at least its height (so nothing lands under it), no word of the name
+  // breaks, and nothing scrolls sideways. Home of every fixture in every lettering; the call bar sticks there.
+  it("fits much bigger text (150%): each sticky bar at most a quarter of the screen with the scroll padding on its side at least its height, the name's words whole, no sideways scroll", async () => {
+    const found: string[] = [];
+    const bars = () => {
+      const root = getComputedStyle(document.documentElement);
+      const sticky = (el: any) => el !== null && getComputedStyle(el).position === "sticky" && el.getClientRects().length > 0;
+      const header = document.querySelector("header.hdr");
+      const bar = document.querySelector("aside.callbar");
+      const name = header.querySelector(".brand");
+      const broken = [...(name.textContent ?? "").matchAll(/\S+/g)].filter((word: any) => {
+        const range = document.createRange();
+        const text = name.firstChild;
+        range.setStart(text, word.index);
+        range.setEnd(text, word.index + word[0].length);
+        return new Set([...range.getClientRects()].filter((r: any) => r.width > 0.5).map((r: any) => Math.round(r.top))).size > 1;
+      });
+      return {
+        sideways: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+        header: sticky(header) ? header.getBoundingClientRect().height : 0,
+        top: parseFloat(root.scrollPaddingTop) || 0,
+        bar: sticky(bar) ? bar.getBoundingClientRect().height : 0,
+        bottom: parseFloat(root.scrollPaddingBottom) || 0,
+        broken: broken.map((word: any) => word[0]),
+      };
+    };
+    for (const name of FIXTURES) {
+      for (const font of FONT_IDS) {
+        await open(page(name, font), 320, "html { font-size: 150%; }");
+        for (const width of [320, 360, 430, 768, 1024, 1100, 1200, 1280, 1920]) {
+          const height = width <= 430 ? 568 : 768;
+          await tab.setViewportSize({ width, height });
+          const got = await tab.evaluate(bars);
+          const where = `${name} ${font} ${width}`;
+          if (got.sideways > 0) found.push(`${where}: sideways ${got.sideways}px`);
+          if (got.header > height / 4 + 0.5) found.push(`${where}: header ${got.header.toFixed(1)} px, over a quarter of ${height}`);
+          if (got.header > got.top + 0.5) found.push(`${where}: scroll-padding-top ${got.top} px under the header's ${got.header.toFixed(1)}`);
+          if (got.bar > height / 4 + 0.5) found.push(`${where}: call bar ${got.bar.toFixed(1)} px, over a quarter of ${height}`);
+          if (got.bar > got.bottom + 0.5) found.push(`${where}: scroll-padding-bottom ${got.bottom} px under the call bar's ${got.bar.toFixed(1)}`);
+          if (got.header > 0 && got.broken.length > 0) found.push(`${where}: the name breaks ${JSON.stringify(got.broken)}`);
+        }
+      }
+    }
+    expect(found).toEqual([]);
+  }, 120_000);
+
   // Round 3's judge 2: from 768 to 928 px the footer's narrow Contact column broke a 34-character email in two
   // ("office@reliablerooter" + ".example.com"), and at 1024-1056 px the Contact page's call card did too.
   it("keeps a 34-character email and every phone number on one line from 768 to 1440 px, in the footer and the call card (round 3 judges)", async () => {
