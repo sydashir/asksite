@@ -127,7 +127,7 @@ export default function Landing() {
               <img
                 className="landing-shot"
                 src="/landing/bold-desktop.webp"
-                alt="The home page of a sample plumbing website in the Bold design"
+                alt="The home page of a sample heating and cooling website in the Bold design"
                 width={960}
                 height={640}
                 loading="eager"

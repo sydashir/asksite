@@ -80,6 +80,8 @@ export function App() {
   const me = useMe(route.name);
   const signedOut = me.state === "signedOut";
   const landing = route.name === "home" && signedOut;
+  // Sign-up, log-in and the emailed-link pages sit on the same dark page as the landing.
+  const authPage = route.name === "signup" || route.name === "login" || route.name === "invite";
   // Why Sign out stopped (it stops once): said here, whatever page is on screen.
   const [stopMessage, setStopMessage] = useState<string | null>(null);
   useEffect(() => {
@@ -128,16 +130,16 @@ export function App() {
           ) : null}
         </div>
       </header>
-      <main id="main" tabIndex={-1} className={landing ? "break-words" : "mx-auto max-w-6xl px-4 py-8 break-words sm:py-10"}>
+      <main id="main" tabIndex={-1} className={landing || authPage ? "break-words" : "mx-auto max-w-6xl px-4 py-8 break-words sm:py-10"}>
         {stopMessage !== null ? (
           <div role="alert">
             <Notice tone="error">{stopMessage}</Notice>
           </div>
         ) : null}
-        {page(route)}
+        {authPage ? <div className="auth-page">{page(route)}</div> : page(route)}
       </main>
       {/* The same help in the same place on every page (WCAG 3.2.6); "Contact us" messages point here. */}
-      <footer className="mx-auto max-w-6xl border-t border-slate-200 px-4 pt-6 pb-10 text-sm text-slate-700">
+      <footer className={landing || authPage ? "footer-dark" : "mx-auto max-w-6xl border-t border-slate-200 px-4 pt-6 pb-10 text-sm text-slate-700"}>
         Questions? Email{" "}
         <a className="link break-all" href={`mailto:${__SUPPORT_EMAIL__}`}>
           {__SUPPORT_EMAIL__}

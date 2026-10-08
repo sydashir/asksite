@@ -312,6 +312,103 @@
   }
 }
 
+/*
+ * Dark pages (the landing page, sign-up, log-in and the emailed-link pages): a black page with the brand glow, the form on a
+ * graphite panel. These rules are outside the layers on purpose, so they win over the utility classes the shared form
+ * components carry (text-ink labels, slate hints, red-700 errors). Contrast on graphite #171717: white 17.9, mist 7.7,
+ * brand-400 12.1, #ff7b6e 7.1; input edge rgb(255 255 255 / .46) ≈ 4.0 against the panel.
+ */
+.auth-page {
+  min-height: calc(100svh - 9rem);
+  padding: 2.5rem 1rem;
+  color: #fff;
+  color-scheme: dark;
+  --focus-ring: var(--color-brand-500);
+  background:
+    radial-gradient(70% 60% at 88% -4%, rgb(123 221 76 / 0.16), transparent 64%),
+    radial-gradient(60% 70% at -6% 104%, #0f1c0e, transparent 70%),
+    #000;
+}
+@media (width >= 40rem) {
+  .auth-page {
+    padding-block: 4rem;
+  }
+}
+.auth-page .auth {
+  border-color: rgb(255 255 255 / 0.12);
+  background-color: var(--color-graphite);
+}
+.auth-page .page-title,
+.auth-page label,
+.auth-page legend {
+  color: #fff;
+}
+.auth-page .page-sub,
+.auth-page .text-slate-600,
+.auth-page .text-slate-700 {
+  color: var(--color-mist);
+}
+.auth-page .text-red-700 {
+  color: #ff7b6e;
+}
+.auth-page .field-input {
+  border-color: rgb(255 255 255 / 0.46);
+  background-color: #000;
+  color: #fff;
+}
+.auth-page .field-input:hover {
+  border-color: rgb(255 255 255 / 0.62);
+}
+.auth-page .field-input:focus {
+  border-color: var(--color-brand-500);
+}
+.auth-page .field-input[aria-invalid="true"] {
+  border-color: #ff7b6e;
+}
+.auth-page .link,
+.footer-dark .link {
+  color: var(--color-brand-400);
+  text-decoration-color: var(--color-brand-500);
+}
+.auth-page .link:hover,
+.footer-dark .link:hover {
+  color: var(--color-brand-300);
+}
+.auth-page .notice {
+  border-color: rgb(255 255 255 / 0.14);
+  background-color: rgb(255 255 255 / 0.05);
+  color: #fff;
+}
+.auth-page .notice-success {
+  border-color: rgb(123 221 76 / 0.35);
+  border-left-color: var(--color-brand-500);
+  background-color: rgb(123 221 76 / 0.1);
+}
+.auth-page .notice-error {
+  border-color: rgb(255 123 110 / 0.42);
+  border-left-color: #ff7b6e;
+  background-color: rgb(255 123 110 / 0.1);
+}
+.auth-page .btn-secondary {
+  border-color: rgb(255 255 255 / 0.45);
+  background-color: transparent;
+  color: #fff;
+}
+.auth-page .btn-secondary:hover {
+  border-color: rgb(255 255 255 / 0.7);
+  background-color: rgb(255 255 255 / 0.1);
+}
+/* The footer on dark pages: full width, its text lined up with the page container (max-w-6xl, px-4). */
+.footer-dark {
+  border-top: 1px solid rgb(255 255 255 / 0.1);
+  padding: 1.5rem max(1rem, calc((100% - 72rem) / 2 + 1rem)) 2.5rem;
+  background-color: #000;
+  color: var(--color-mist);
+  font-size: 0.875rem;
+  color-scheme: dark;
+  --focus-ring: var(--color-brand-500);
+}
+
 @keyframes progress-slide {
   from {
     transform: translateX(-100%);
