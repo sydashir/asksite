@@ -10,6 +10,8 @@ export interface RenderOptions {
   sitekey: string;
   action: string;
   size: WidgetSize;
+  /** "light", "dark" or "auto" (the default, which follows the visitor's system setting): Cloudflare's widget configuration docs, "Theme options". */
+  theme?: "light" | "dark" | "auto";
   callback: (token: string) => void;
   "error-callback": () => void;
   "expired-callback": () => void;
