@@ -114,7 +114,8 @@ export function DevInbox() {
       ) : null}
       <ol className="mt-6 space-y-4">
         {messages.map((message, i) => {
-          const actions = emailActions(message.text);
+          // A lead email's lines are written by a website visitor, so they never become buttons (their links still show in the text).
+          const actions = message.tag === "lead" ? [] : emailActions(message.text);
           return (
             <li key={`${message.at}-${i}`} className="card">
               <h2 className="section-title">{message.subject}</h2>
@@ -123,8 +124,8 @@ export function DevInbox() {
               </p>
               {actions.length > 0 ? (
                 <div className="mt-4 flex flex-wrap gap-2">
-                  {actions.map((action) => (
-                    <a key={action.href} href={action.href} className="btn-primary">
+                  {actions.map((action, j) => (
+                    <a key={j} href={action.href} className="btn-primary">
                       {action.label}
                     </a>
                   ))}
