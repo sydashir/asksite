@@ -382,7 +382,7 @@ describe("constants", () => {
     expect(AUDIT_ACTIONS).toContain("site.taken_down");
   });
 
-  it("lists the audit actions append-only: A14 adds admin.login_link_sent (A11b), account deletion adds owner.deletion_started and owner.deleted, open sign-up adds owner.signup_requested and signin.cap_alert_sent, then password accounts add owner.signed_up, auth.password_failed and auth.password_set, last", () => {
+  it("lists the audit actions append-only: A14 adds admin.login_link_sent (A11b), account deletion adds owner.deletion_started and owner.deleted, open sign-up adds owner.signup_requested and signin.cap_alert_sent, then password accounts add owner.signed_up and auth.password_set, last", () => {
     // audit_log.action has no SQL CHECK (0001_init.sql), so stored rows keep their meaning when an action is added.
     expect(AUDIT_ACTIONS).toEqual([
       "invite.created", "invite.revoked", "invite.accepted", "auth.login",
@@ -391,7 +391,7 @@ describe("constants", () => {
       "settings.updated", "admin.login_link_sent",
       "owner.deletion_started", "owner.deleted", // account deletion (the 16 before are unchanged)
       "owner.signup_requested", "signin.cap_alert_sent", // open sign-up
-      "owner.signed_up", "auth.password_failed", "auth.password_set", // password accounts (2026-10-08), appended last
+      "owner.signed_up", "auth.password_set", // password accounts (2026-10-08), appended last
     ]);
   });
 });

@@ -137,14 +137,18 @@ describe("0009_login_send_failed.sql, applied onto login_tokens that already hol
 // Password accounts (USER ORDER 2026-10-08): an owner and a session stored before 0010 read NULL, which means "no password"
 // and "signed in with a link or an invite" (apps/app/src/worker/password.ts).
 describe("0010_owner_password.sql, applied onto owners and sessions that already hold rows", () => {
-  it("holds two changes: owners.password_hash and sessions.signed_in_with, nullable TEXT with no default", async () => {
-    expect(statements("0010_owner_password.sql")).toBe("ALTER TABLE owners ADD COLUMN password_hash TEXT; ALTER TABLE sessions ADD COLUMN signed_in_with TEXT;");
+  it("holds its changes: owners.password_hash and password_unconfirmed and sessions.signed_in_with (nullable, no default), and the password_tries table and index", async () => {
+    expect(statements("0010_owner_password.sql")).toBe(
+      "ALTER TABLE owners ADD COLUMN password_hash TEXT; ALTER TABLE owners ADD COLUMN password_unconfirmed INTEGER; ALTER TABLE sessions ADD COLUMN signed_in_with TEXT; " +
+        "CREATE TABLE password_tries ( id INTEGER PRIMARY KEY, email_hash TEXT NOT NULL, at INTEGER NOT NULL ) STRICT; CREATE INDEX password_tries_email ON password_tries(email_hash, at);",
+    );
     expect((await columns("owners")).find((column) => column.name === "password_hash")).toEqual({ name: "password_hash", type: "TEXT", notnull: 0, dflt_value: null });
+    expect((await columns("owners")).find((column) => column.name === "password_unconfirmed")).toEqual({ name: "password_unconfirmed", type: "INTEGER", notnull: 0, dflt_value: null });
     expect((await columns("sessions")).find((column) => column.name === "signed_in_with")).toEqual({ name: "signed_in_with", type: "TEXT", notnull: 0, dflt_value: null });
   });
 
   it("leaves the earlier owner with no password and the earlier session as a link session", async () => {
-    expect(await db.prepare("SELECT id, email, password_hash FROM owners WHERE id = ?").bind(OWNER).first()).toEqual({ id: OWNER, email: "before@example.com", password_hash: null });
+    expect(await db.prepare("SELECT id, email, password_hash, password_unconfirmed FROM owners WHERE id = ?").bind(OWNER).first()).toEqual({ id: OWNER, email: "before@example.com", password_hash: null, password_unconfirmed: null });
     expect(await db.prepare("SELECT id_hash, created_at, signed_in_with FROM sessions WHERE id_hash = ?").bind(SESSION).first()).toEqual({ id_hash: SESSION, created_at: 50, signed_in_with: null });
   });
 });

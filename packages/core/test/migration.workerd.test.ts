@@ -63,14 +63,14 @@ describe("0001_init.sql", () => {
   it("creates every table", async () => {
     const { results } = await db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '\\_cf\\_%' ESCAPE '\\' AND name <> 'd1_migrations' ORDER BY name").all<{ name: string }>();
     expect(results.map((r) => r.name)).toEqual([
-      "audit_log", "dev_outbox", "generations", "invites", "leads", "login_tokens", "owners", "sessions", "settings", "site_versions", "sites", "uploads",
-    ]);
+      "audit_log", "dev_outbox", "generations", "invites", "leads", "login_tokens", "owners", "password_tries", "sessions", "settings", "site_versions", "sites", "uploads",
+    ]); // password_tries comes from 0010_owner_password.sql; the other twelve from 0001
   });
 
   it("makes every table STRICT (A9)", async () => {
     const { results } = await db.prepare("PRAGMA table_list").all<{ name: string; strict: number }>();
     const ours = results.filter((t) => !/^(sqlite_|_cf_|d1_migrations$)/.test(t.name));
-    expect(ours).toHaveLength(12);
+    expect(ours).toHaveLength(13); // 0001's twelve, and 0010's password_tries
     expect(ours.filter((t) => t.strict !== 1).map((t) => t.name)).toEqual([]);
   });
 
@@ -205,7 +205,7 @@ describe("0007_leads_emailed.sql", () => {
   it("changes no table: still the 12 STRICT tables of 0001", async () => {
     const { results } = await db.prepare("PRAGMA table_list").all<{ name: string; strict: number }>();
     const ours = results.filter((t) => !/^(sqlite_|_cf_|d1_migrations$)/.test(t.name));
-    expect(ours).toHaveLength(12);
+    expect(ours).toHaveLength(13); // 0001's twelve, and 0010's password_tries
   });
 });
 
@@ -323,14 +323,24 @@ describe("0009_login_send_failed.sql", () => {
 // sessions.signed_in_with says how a session signed in (RULED 2026-10-08). A row written before 0010 ran is covered by
 // apps/app/test/worker/migrations.workerd.test.ts.
 describe("0010_owner_password.sql", () => {
-  it("adds owners.password_hash and sessions.signed_in_with as nullable TEXT with no default; an owner written without it has none", async () => {
-    const column = async (table: string, name: string) =>
-      (await db.prepare(`PRAGMA table_info(${table})`).all<{ name: string; type: string; notnull: number; dflt_value: unknown }>()).results
-        .filter((c) => c.name === name)
-        .map(({ type, notnull, dflt_value }) => ({ name, type, notnull, dflt_value }));
+  const column = async (table: string, name: string) =>
+    (await db.prepare(`PRAGMA table_info(${table})`).all<{ name: string; type: string; notnull: number; dflt_value: unknown }>()).results
+      .filter((c) => c.name === name)
+      .map(({ type, notnull, dflt_value }) => ({ name, type, notnull, dflt_value }));
+
+  it("adds owners.password_hash, owners.password_unconfirmed and sessions.signed_in_with, nullable with no default; an owner written without them has none", async () => {
     expect(await column("owners", "password_hash")).toEqual([{ name: "password_hash", type: "TEXT", notnull: 0, dflt_value: null }]);
+    expect(await column("owners", "password_unconfirmed")).toEqual([{ name: "password_unconfirmed", type: "INTEGER", notnull: 0, dflt_value: null }]);
     expect(await column("sessions", "signed_in_with")).toEqual([{ name: "signed_in_with", type: "TEXT", notnull: 0, dflt_value: null }]);
     const { owner } = await newSite();
-    expect(await db.prepare("SELECT password_hash FROM owners WHERE id = ?").bind(owner).first()).toEqual({ password_hash: null });
+    expect(await db.prepare("SELECT password_hash, password_unconfirmed FROM owners WHERE id = ?").bind(owner).first()).toEqual({ password_hash: null, password_unconfirmed: null });
+  });
+
+  it("creates password_tries (STRICT, every column required) with its index on (email_hash, at)", async () => {
+    expect(await column("password_tries", "email_hash")).toEqual([{ name: "email_hash", type: "TEXT", notnull: 1, dflt_value: null }]);
+    expect(await column("password_tries", "at")).toEqual([{ name: "at", type: "INTEGER", notnull: 1, dflt_value: null }]);
+    const { results } = await db.prepare("PRAGMA index_info(password_tries_email)").all<{ seqno: number; name: string }>();
+    expect(results.sort((a, b) => a.seqno - b.seqno).map((c) => c.name)).toEqual(["email_hash", "at"]);
+    await expect(db.prepare("INSERT INTO password_tries (email_hash, at) VALUES (?, ?)").bind(fresh(), "soon").run()).rejects.toThrow(/SQLITE_CONSTRAINT_DATATYPE/);
   });
 });

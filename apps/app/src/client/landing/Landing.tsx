@@ -27,7 +27,7 @@ const QUESTIONS = [
     "Yes. Edit it whenever you like and send it for review again. Your live website stays as it is until we approve the new version.",
   ],
   ["What happens after approval?", "Your website goes live at its web address, usually within about a minute, and we email you."],
-  ["How do I log in?", "With your email and the password you chose when you signed up. Forgot it? We can email you a link to log in."],
+  ["How do I log in?", "With your email and your password. Forgot it, or never set one? We can email you a link to log in."],
 ] as const;
 
 function Icon({ children }: { children: ReactNode }) {

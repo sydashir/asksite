@@ -122,11 +122,12 @@ export async function signUpWithPassword(env: Env, email: string, password: stri
       .bind(inviteId, await sha256Hex(newToken()), email, now, dayStart, signupsPerDay(perDay), perDay),
     // SQLite: an INSERT ... SELECT needs a WHERE clause before ON CONFLICT, or the parser reads ON as a join's.
     db
-      .prepare("INSERT INTO owners (id, email, created_at, password_hash) SELECT ?1, ?2, ?3, ?4 WHERE EXISTS (SELECT 1 FROM invites WHERE id = ?5) ON CONFLICT(email) DO NOTHING")
+      // The password is unconfirmed (RULED I2): the account's first emailed-link or invite sign-in clears it (auth.ts).
+      .prepare("INSERT INTO owners (id, email, created_at, password_hash, password_unconfirmed) SELECT ?1, ?2, ?3, ?4, 1 WHERE EXISTS (SELECT 1 FROM invites WHERE id = ?5) ON CONFLICT(email) DO NOTHING")
       .bind(ownerId, email, now, passwordHash, inviteId),
     db.prepare("INSERT INTO sites (id, owner_id, created_at, updated_at) SELECT ?1, id, ?2, ?2 FROM owners WHERE id = ?3").bind(siteId, now, ownerId),
     db.prepare("UPDATE invites SET owner_id = ?1, site_id = ?2 WHERE id = ?3 AND EXISTS (SELECT 1 FROM owners WHERE id = ?1)").bind(ownerId, siteId, inviteId),
-    insertSession(db, sessionHash, ownerId, now, "password"),
+    insertSession(db, sessionHash, ownerId, now, passwordHash),
     db
       .prepare("INSERT INTO audit_log (at, actor, action, site_id, detail_json) SELECT ?1, 'owner:' || id, 'owner.signed_up', ?2, ?3 FROM owners WHERE id = ?4")
       .bind(now, siteId, JSON.stringify({ inviteId, method: "password" }), ownerId),
