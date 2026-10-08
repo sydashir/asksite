@@ -1,6 +1,7 @@
 import type { SiteSummary } from "@asksite/core";
 import { lazy, Suspense } from "react";
 import { Notice } from "../components/feedback.tsx";
+import { PasswordCard } from "../components/password-card.tsx";
 import { useMe } from "../hooks/use-me.ts";
 import { usePageHeading } from "../hooks/use-page-heading.ts";
 import { onLinkClick } from "../hooks/use-route.ts";
@@ -83,5 +84,10 @@ export function Home() {
     );
   }
   if (me.state === "error") return <Notice tone="error">{me.message}</Notice>;
-  return <Sites sites={me.sites} />;
+  return (
+    <>
+      <Sites sites={me.sites} />
+      <PasswordCard hasPassword={me.hasPassword} skipCurrent={me.skipCurrent} />
+    </>
+  );
 }

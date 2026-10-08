@@ -11,6 +11,8 @@ export const ERROR_STATUS = {
   site_taken_down: 423,
   rate_limited: 429, generation_cap_reached: 429, upload_limit_reached: 429,
   internal: 500, email_failed: 502, generation_disabled: 503, budget_exhausted: 503,
+  // Password log-in (2026-10-08): one answer for a wrong email or a wrong password, and the 5-try lock, both with the same words.
+  login_failed: 401, login_locked: 429,
 } as const;
 export type ErrorCode = keyof typeof ERROR_STATUS;
 export interface ErrorBody {

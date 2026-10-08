@@ -40,20 +40,32 @@ test("the signed-out home page is the landing page at 1280, 390 and 320 px, and 
   }
 });
 
-test("Get started opens the sign-up page, and the emailed link sets up the website", async ({ page }) => {
+// Honesty (claims rule, USER ORDER 2026-10-08): with password accounts, "No password" is no longer true anywhere on the page.
+test("the landing page says how logging in works now: a password, or an emailed link if it is forgotten", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.getByText("Sign up with your email and a password.", { exact: true })).toBeVisible();
+  await page.getByText("How do I log in?", { exact: true }).click();
+  await expect(page.getByText("With your email and the password you chose when you signed up. Forgot it? We can email you a link to log in.", { exact: true })).toBeVisible();
+  await expect(page.getByText(/no password/i)).toHaveCount(0);
+});
+
+// Password accounts (USER ORDER 2026-10-08): the sign-up page asks for a password and sets up the website at once. The emailed
+// sign-up link is still proved, on the emailed-link form (account.spec.ts).
+test("Get started opens the sign-up page, and signing up with a password sets up the website", async ({ page }) => {
   const email = uniqueEmail("landing-signup");
   // Each run uses its own visitor network, so the limit of sign-ups per network a day never mixes tests.
   const network = `198.18.${Math.floor(Math.random() * 256)}.${Math.floor(Math.random() * 254) + 1}`;
-  await page.route("**/api/auth/login", (route) => route.continue({ headers: { ...route.request().headers(), "cf-connecting-ip": network } }));
+  await page.route("**/api/auth/signup", (route) => route.continue({ headers: { ...route.request().headers(), "cf-connecting-ip": network } }));
   await stubTurnstile(page);
   await page.goto("/");
   await page.getByRole("main").getByRole("link", { name: "Get started" }).first().click();
   await expect(page).toHaveURL(`${APP}/signup`);
   await expect(page.getByRole("heading", { level: 1, name: "Create your account", exact: true })).toBeVisible();
   await expect(page.getByRole("link", { name: "Log in" }).last()).toHaveAttribute("href", "/login");
-  const link = await emailLink(page, email, "/invite");
-  await page.goto(link);
-  await page.getByRole("button", { name: "Set up my website" }).click();
+  await waitForSecurityCheck(page);
+  await page.getByLabel("Your email address", { exact: true }).fill(email);
+  await page.getByLabel("Password", { exact: true }).fill(`made-up ${Math.random().toString(36).slice(2, 10)}`);
+  await page.getByRole("button", { name: "Create account" }).click();
   await page.waitForURL(/\/sites\/[0-9a-f-]{36}\/setup\/business$/);
   await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible();
 });
@@ -68,6 +80,9 @@ test("Log in in the header opens the log-in page, and an existing owner signs in
   await expect(page).toHaveURL(`${APP}/login`);
   await expect(page.getByRole("heading", { level: 1, name: "Log in", exact: true })).toBeVisible();
   await expect(page.getByRole("link", { name: "Create your account" })).toHaveAttribute("href", "/signup");
+  // An owner with no password (or one who forgot it) takes the emailed link: "Forgot your password? Email me a log-in link".
+  await page.getByRole("link", { name: "Email me a log-in link" }).click();
+  await expect(page).toHaveURL(`${APP}/login/link`);
   const link = await emailLink(page, email, "/login");
   // The emailed link opens in a new page; from /login a bare goto would only be a hash change on the same page.
   await page.goto("about:blank");
@@ -108,11 +123,12 @@ test("on the log-in page the skip link moves to the content and keeps the form (
   await expect(page.getByLabel("Your email address")).toBeVisible();
 });
 
-test("an emailed link that is no longer valid offers a new link on the log-in page", async ({ page }) => {
+test("an emailed link that is no longer valid offers a new link on the emailed-link form", async ({ page }) => {
   await page.goto(`/login#${"a".repeat(43)}`);
   await expect(page.getByRole("heading", { level: 1, name: "Sign in", exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
   await page.getByRole("link", { name: "Ask for a new link" }).click();
-  await expect(page).toHaveURL(/\/login$/);
+  await expect(page).toHaveURL(/\/login\/link$/);
   await expect(page.getByRole("heading", { level: 1, name: "Log in", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Email me a link", exact: true })).toBeVisible();
 });

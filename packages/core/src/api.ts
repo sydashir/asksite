@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { OwnerEditsBody } from "./draft.ts";
+import { PASSWORD_MAX_LENGTH, PASSWORD_MIN_LENGTH } from "./password.ts";
 import { TOKEN_PATTERN } from "./tokens.ts";
 
 // Request bodies of the owner and admin APIs (design §4.3). Emails are trimmed before the email
@@ -13,6 +14,14 @@ const Email = z.string().trim().pipe(z.email().max(254));
 export const AcceptInviteBody = z.strictObject({ token: Token });
 export const LoginBody = z.strictObject({ email: Email });
 export const VerifyLoginBody = z.strictObject({ token: Token });
+// Passwords are never trimmed. A new one follows the rules (password.ts); one typed to log in, or as the current one, only
+// needs the upper limit: a shorter one cannot match and gets the same answer as any wrong password.
+const NewPassword = z.string().min(PASSWORD_MIN_LENGTH).max(PASSWORD_MAX_LENGTH);
+const TypedPassword = z.string().min(1).max(PASSWORD_MAX_LENGTH);
+export const PasswordSignupBody = z.strictObject({ email: Email, password: NewPassword });
+export const PasswordLoginBody = z.strictObject({ email: Email, password: TypedPassword });
+/** Setting the first password needs no current one; changing it does (the route checks which applies). */
+export const SetPasswordBody = z.strictObject({ currentPassword: TypedPassword.optional(), newPassword: NewPassword });
 export const PatchDraftBody = z
   .strictObject({ rev: Rev, facts: Json.optional(), brief: Json.optional(), edits: OwnerEditsBody.optional() })
   .refine((b) => b.facts !== undefined || b.brief !== undefined || b.edits !== undefined, { error: "Nothing to save" });

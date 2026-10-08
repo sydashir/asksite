@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 
 // Native form controls with a visible <label>, an optional hint, and errors tied to the control
 // with aria-describedby (§9.2). Nothing here truncates what the owner types: long text shows an
@@ -96,6 +96,41 @@ export function TextInput(
       {counted ? <Counter id={props.id} length={(props.countLength ?? codePoints)(props.value)} max={props.max!} /> : null}
       <Errors id={props.id} errors={errors} />
       {props.after}
+    </div>
+  );
+}
+
+/**
+ * A password field with a Show/Hide button (its name says "password", so it reads "Show password"). `autoComplete` is
+ * "new-password" or "current-password", so password managers fill and save it. Nothing is trimmed or counted.
+ */
+export function PasswordInput(
+  props: Pick<Common, "id" | "label" | "hint" | "errors"> & { value: string; onChange: (value: string) => void; autoComplete: "new-password" | "current-password" },
+) {
+  const errors = props.errors ?? [];
+  const [shown, setShown] = useState(false);
+  return (
+    <div className="mt-5">
+      <Label id={props.id} label={props.label} />
+      <Hint id={props.id} hint={props.hint} />
+      <div className="password-field">
+        <input
+          id={props.id}
+          className={INPUT}
+          type={shown ? "text" : "password"}
+          value={props.value}
+          onChange={(e) => props.onChange(e.target.value)}
+          autoComplete={props.autoComplete}
+          autoCapitalize="none"
+          spellCheck={false}
+          aria-invalid={errors.length > 0 ? true : undefined}
+          aria-describedby={describedBy(props.id, props.hint, errors, false)}
+        />
+        <button type="button" className="password-toggle" aria-controls={props.id} aria-label={shown ? `Hide ${props.label.toLowerCase()}` : `Show ${props.label.toLowerCase()}`} onClick={() => setShown(!shown)}>
+          {shown ? "Hide" : "Show"}
+        </button>
+      </div>
+      <Errors id={props.id} errors={errors} />
     </div>
   );
 }

@@ -8,6 +8,7 @@ export type Route =
   | { name: "home" }
   | { name: "invite" }
   | { name: "login" }
+  | { name: "loginLink" }
   | { name: "signup" }
   | { name: "setup"; siteId: string; step: StepId }
   | { name: "build"; siteId: string }
@@ -22,6 +23,7 @@ export function matchRoute(pathname: string): Route {
   if (pathname === "/") return { name: "home" };
   if (pathname === "/invite") return { name: "invite" };
   if (pathname === "/login") return { name: "login" };
+  if (pathname === "/login/link") return { name: "loginLink" };
   if (pathname === "/signup") return { name: "signup" };
   const setup = new RegExp(`^/sites/${SITE}/setup/([a-z]+)$`).exec(pathname);
   if (setup?.[1] !== undefined && setup[2] !== undefined && (STEPS as readonly string[]).includes(setup[2])) {
@@ -38,6 +40,7 @@ export const paths = {
   home: () => "/",
   signup: () => "/signup",
   login: () => "/login",
+  loginLink: () => "/login/link",
   setup: (siteId: string, step: StepId) => `/sites/${siteId}/setup/${step}`,
   build: (siteId: string) => `/sites/${siteId}/build`,
   edit: (siteId: string) => `/sites/${siteId}/edit`,

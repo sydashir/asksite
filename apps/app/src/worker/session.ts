@@ -17,15 +17,16 @@ export const EXPIRED_SESSION_COOKIE = `${SESSION_COOKIE}=; Path=/; Secure; HttpO
 /**
  * The statement that stores a new session. Only the token's hash is stored, and only for an owner who is
  * not disabled, checked in the same statement: its meta.changes is 0 otherwise, so a disable that lands
- * after an earlier check can never leave a live session.
+ * after an earlier check can never leave a live session. `signedInWith` is 'password' for a password sign-in or sign-up, and
+ * null for an emailed link or an invite (0010_owner_password.sql).
  */
-export function insertSession(db: D1Database, idHash: string, ownerId: string, now: number): D1PreparedStatement {
+export function insertSession(db: D1Database, idHash: string, ownerId: string, now: number, signedInWith: "password" | null = null): D1PreparedStatement {
   return db
     .prepare(
-      `INSERT INTO sessions (id_hash, owner_id, created_at, expires_at, last_seen_at)
-       SELECT ?1, id, ?3, ?4, ?3 FROM owners WHERE id = ?2 AND disabled_at IS NULL`,
+      `INSERT INTO sessions (id_hash, owner_id, created_at, expires_at, last_seen_at, signed_in_with)
+       SELECT ?1, id, ?3, ?4, ?3, ?5 FROM owners WHERE id = ?2 AND disabled_at IS NULL`,
     )
-    .bind(idHash, ownerId, now, now + TTL.sessionMs);
+    .bind(idHash, ownerId, now, now + TTL.sessionMs, signedInWith);
 }
 
 /** The hash of the session token in the request's cookie, or null when the cookie holds none that could be one. */

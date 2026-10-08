@@ -5,12 +5,14 @@ test("sign in with an emailed link; the button, not the page load, uses the toke
   const email = uniqueEmail("signin");
   await acceptInvite(page, email);
 
-  // The same page, now a stranger: no cookies, so the app shows the sign-in form.
+  // The same page, now a stranger: no cookies, so the app shows the log-in form; "Forgot your password?" opens the emailed-link form.
   await page.context().clearCookies();
   await stubTurnstile(page);
   const violations = await watchCsp(page);
   await page.goto("/login");
-  // Open self sign-up (DECIDED 2026-10-07): the same form on /login and /signup, with the decided heading, helper, button and answer.
+  await page.getByRole("link", { name: "Email me a log-in link" }).click();
+  await expect(page).toHaveURL(`${APP}/login/link`);
+  // The emailed-link form keeps its decided heading, helper, button and answer (DECIDED 2026-10-07).
   await expect(page.getByRole("heading", { level: 1, name: "Log in", exact: true })).toBeVisible();
   await expect(page.getByText("Enter your email and we'll send you a link.", { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Sign out" })).toHaveCount(0);
@@ -46,16 +48,17 @@ test("sign in with an emailed link; the button, not the page load, uses the toke
   await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible();
 });
 
-// Open self sign-up (DECIDED 2026-10-07): an unknown email on the same form gets a sign-up link; the existing invite page
-// sets up the owner and the site and opens the questionnaire. Each run uses its own visitor network (CF-Connecting-IP on
-// the sign-in request), so the limit of 3 sign-ups per network a day never mixes projects or tests.
-test("an unknown email signs up on the same form: the emailed link sets up the website and opens the questionnaire", async ({ page }) => {
+// Open self sign-up (DECIDED 2026-10-07): an unknown email on the emailed-link form gets a sign-up link (the flow is unchanged now
+// that /signup asks for a password, 2026-10-08); the existing invite page sets up the owner and the site and opens the
+// questionnaire. Each run uses its own visitor network (CF-Connecting-IP on the sign-in request), so the limit of 3 sign-ups per
+// network a day never mixes projects or tests.
+test("an unknown email on the emailed-link form signs up: the emailed link sets up the website and opens the questionnaire", async ({ page }) => {
   const email = uniqueEmail("signup");
   const network = `198.18.${Math.floor(Math.random() * 256)}.${Math.floor(Math.random() * 254) + 1}`;
   await page.route("**/api/auth/login", (route) => route.continue({ headers: { ...route.request().headers(), "cf-connecting-ip": network } }));
   await stubTurnstile(page);
-  await page.goto("/signup");
-  await expect(page.getByRole("heading", { level: 1, name: "Create your account", exact: true })).toBeVisible();
+  await page.goto("/login/link");
+  await expect(page.getByRole("heading", { level: 1, name: "Log in", exact: true })).toBeVisible();
   await waitForSecurityCheck(page);
   await page.getByLabel("Your email address").fill(email);
   await page.getByRole("button", { name: "Email me a link" }).click();
@@ -80,6 +83,58 @@ test("an unknown email signs up on the same form: the emailed link sets up the w
   await page.waitForURL(/\/sites\/[0-9a-f-]{36}\/setup\/business$/);
   await expect(page.getByRole("heading", { level: 1, name: "Your business" })).toBeVisible();
   expect((await page.request.get(`${APP}/api/me`)).status()).toBe(200);
+});
+
+// Password accounts (USER ORDER 2026-10-08): sign up with an email and a password, go straight to the questionnaire; sign out;
+// log in with the same password. Each run uses its own visitor network, as above.
+test("sign up with a password opens the questionnaire; after signing out, the same password logs in", async ({ page }) => {
+  const email = uniqueEmail("password");
+  const password = `made-up ${Math.random().toString(36).slice(2, 10)}`;
+  const network = `198.18.${Math.floor(Math.random() * 256)}.${Math.floor(Math.random() * 254) + 1}`;
+  await page.route("**/api/auth/signup", (route) => route.continue({ headers: { ...route.request().headers(), "cf-connecting-ip": network } }));
+  await stubTurnstile(page);
+  const violations = await watchCsp(page);
+  await page.goto("/signup");
+  await expect(page.getByRole("heading", { level: 1, name: "Create your account", exact: true })).toBeVisible();
+  await waitForSecurityCheck(page);
+  await expectNoSidewaysScroll(page);
+  await expectAccessible(page);
+  await page.getByLabel("Your email address").fill(email);
+  const field = page.getByLabel("Password", { exact: true });
+  await expect(field).toHaveAttribute("autocomplete", "new-password");
+  await field.fill(password);
+  // The show/hide button only changes how the field shows the password.
+  await page.getByRole("button", { name: "Show password" }).click();
+  await expect(field).toHaveAttribute("type", "text");
+  await page.getByRole("button", { name: "Hide password" }).click();
+  await expect(field).toHaveAttribute("type", "password");
+  await page.getByRole("button", { name: "Create account" }).click();
+  await page.waitForURL(/\/sites\/[0-9a-f-]{36}\/setup\/business$/);
+  await expect(page.getByRole("heading", { level: 1, name: "Your business" })).toBeVisible();
+  // No email was sent: the account is made and signed in at once.
+  const outbox = await page.request.get(`${APP}/api/dev/outbox?to=${encodeURIComponent(email)}`);
+  expect(((await outbox.json()) as { messages: unknown[] }).messages).toEqual([]);
+
+  await page.getByRole("button", { name: "Sign out" }).click();
+  await page.waitForURL(`${APP}/`);
+  await page.goto("/login");
+  await waitForSecurityCheck(page);
+  await page.getByLabel("Your email address").fill(email);
+  await expect(page.getByLabel("Password", { exact: true })).toHaveAttribute("autocomplete", "current-password");
+  await page.getByLabel("Password", { exact: true }).fill(`${password}-wrong`);
+  await page.getByRole("button", { name: "Log in", exact: true }).click();
+  await expect(page.getByRole("alert")).toHaveText("That email and password don't match.");
+  // A fresh page, so the next try waits for a fresh security check (a token works once).
+  await page.goto("/login");
+  await waitForSecurityCheck(page);
+  await page.getByLabel("Your email address").fill(email);
+  await page.getByLabel("Password", { exact: true }).fill(password);
+  await page.getByRole("button", { name: "Log in", exact: true }).click();
+  await expect(page.getByRole("heading", { level: 1, name: "Your websites" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 2, name: "Your password" })).toBeVisible();
+  await expect(page.getByLabel("Current password", { exact: true })).toHaveAttribute("autocomplete", "current-password");
+  await expectAccessible(page);
+  expect(await violations()).toEqual([]);
 });
 
 // Decision 31 on the invite page: the token leaves the address bar on open, and only the button spends it.
@@ -151,7 +206,7 @@ test("the security check fits at 320 px (compact) and 390 px (normal) without si
 // STRICT (honesty): when Cloudflare's script cannot load, the owner is told so and can try again; never "complete the check" with no check on screen.
 test("if the security check cannot load, the owner is told and Try again brings it back @mobile", async ({ page }) => {
   await page.route("https://challenges.cloudflare.com/turnstile/v0/api.js*", (route) => route.abort());
-  await page.goto("/login");
+  await page.goto("/login/link");
   await expect(page.getByText("The security check didn't load. If you use an ad blocker, allow this page, then press Try again.")).toBeVisible();
   await expectAccessible(page);
   await expect(page.locator("[data-stub-turnstile]")).toHaveCount(0);

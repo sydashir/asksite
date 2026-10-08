@@ -318,3 +318,19 @@ describe("0009_login_send_failed.sql", () => {
     expect(await db.prepare("SELECT send_failed_at FROM login_tokens WHERE token_hash = ?").bind(token).first()).toEqual({ send_failed_at: 3 });
   });
 });
+
+// Password accounts (USER ORDER 2026-10-08): owners.password_hash holds a PBKDF2 hash (packages/core/src/password.ts) and
+// sessions.signed_in_with says how a session signed in (RULED 2026-10-08). A row written before 0010 ran is covered by
+// apps/app/test/worker/migrations.workerd.test.ts.
+describe("0010_owner_password.sql", () => {
+  it("adds owners.password_hash and sessions.signed_in_with as nullable TEXT with no default; an owner written without it has none", async () => {
+    const column = async (table: string, name: string) =>
+      (await db.prepare(`PRAGMA table_info(${table})`).all<{ name: string; type: string; notnull: number; dflt_value: unknown }>()).results
+        .filter((c) => c.name === name)
+        .map(({ type, notnull, dflt_value }) => ({ name, type, notnull, dflt_value }));
+    expect(await column("owners", "password_hash")).toEqual([{ name: "password_hash", type: "TEXT", notnull: 0, dflt_value: null }]);
+    expect(await column("sessions", "signed_in_with")).toEqual([{ name: "signed_in_with", type: "TEXT", notnull: 0, dflt_value: null }]);
+    const { owner } = await newSite();
+    expect(await db.prepare("SELECT password_hash FROM owners WHERE id = ?").bind(owner).first()).toEqual({ password_hash: null });
+  });
+});

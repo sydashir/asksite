@@ -1,5 +1,4 @@
-import { TOKEN_PATTERN } from "@asksite/core";
-import { useEffect, useState, type FormEvent } from "react";
+import { useState, type FormEvent } from "react";
 import { AuthIntro } from "../components/auth-intro.tsx";
 import { TextInput } from "../components/fields.tsx";
 import { SecurityCheck } from "../components/security-check.tsx";
@@ -9,28 +8,18 @@ import { onLinkClick } from "../hooks/use-route.ts";
 import { api } from "../lib/api.ts";
 import { paths } from "../lib/route.ts";
 
-/** The email-link form, on its own page for each way in: "/signup" (new) and "/login" (existing). Both post to the same endpoint. */
-export function EmailLink({ mode }: { mode: "signup" | "login" }) {
-  const signup = mode === "signup";
-  const title = signup ? "Create your account" : "Log in";
-  const heading = usePageHeading<HTMLHeadingElement>(title);
+/**
+ * "/login/link": the emailed-link form, the way in without a password ("Forgot your password? Email me a log-in link" on /login).
+ * The existing flow, unchanged: known owners get a sign-in link, new addresses a sign-up link (DECIDED 2026-10-07).
+ */
+export function EmailLink() {
+  const heading = usePageHeading<HTMLHeadingElement>("Log in");
   const [email, setEmail] = useState("");
   // The address the link went to, as the server uses it (trimmed and lower-cased); null until a request is accepted.
   const [sentTo, setSentTo] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [token, setToken] = useState<string | null>(null);
   const [resetSignal, setResetSignal] = useState(0);
-  // An emailed link opened in this same tab (/login → /login#token) changes only the hash, which no route change follows: load
-  // the page again so the link page (VerifyLogin) opens, as it does in a new tab. Only a real token does this (the skip link
-  // "#main" must not).
-  useEffect(() => {
-    if (signup) return;
-    const onHash = () => {
-      if (TOKEN_PATTERN.test(location.hash.slice(1))) location.reload();
-    };
-    window.addEventListener("hashchange", onHash);
-    return () => window.removeEventListener("hashchange", onHash);
-  }, [signup]);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -48,7 +37,7 @@ export function EmailLink({ mode }: { mode: "signup" | "login" }) {
     <div className="auth">
       <section className="auth-panel">
         <h1 ref={heading} tabIndex={-1} className="page-title">
-          {title}
+          Log in
         </h1>
         {sentTo !== null ? (
           <div role="status">
@@ -64,7 +53,7 @@ export function EmailLink({ mode }: { mode: "signup" | "login" }) {
         ) : (
           <>
             <form noValidate onSubmit={(e) => void submit(e)}>
-              <p className="page-sub">{signup ? "Enter your email and we'll send you a link to start. No password needed." : "Enter your email and we'll send you a link."}</p>
+              <p className="page-sub">Enter your email and we'll send you a link.</p>
               <TextInput id="signin-email" label="Your email address" type="email" autoComplete="email" value={email} onChange={setEmail} errors={error ? [error] : []} />
               <div className="mt-5">
                 <SecurityCheck onToken={setToken} resetSignal={resetSignal} />
@@ -74,9 +63,14 @@ export function EmailLink({ mode }: { mode: "signup" | "login" }) {
               </button>
             </form>
             <p className="mt-6 text-slate-700">
-              {signup ? "Already have an account? " : "New here? "}
-              <a className="link" href={signup ? paths.login() : paths.signup()} onClick={onLinkClick}>
-                {signup ? "Log in" : "Create your account"}
+              <a className="link" href={paths.login()} onClick={onLinkClick}>
+                Log in with your password
+              </a>
+            </p>
+            <p className="mt-3 text-slate-700">
+              New here?{" "}
+              <a className="link" href={paths.signup()} onClick={onLinkClick}>
+                Create your account
               </a>
             </p>
           </>
