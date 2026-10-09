@@ -117,6 +117,13 @@ const SCREENSHOT_MATRIX: Readonly<Record<PageId, readonly string[]>> = {
 };
 
 /**
+ * The fixtures with screenshot baselines: the five that serve listed places. The three newer fixtures (an IT firm that
+ * serves the whole country, a law firm, a business that serves customers worldwide) run every other check below, in
+ * every design, but have no baselines (moderator ruling, 2026-10-09).
+ */
+const SCREENSHOT_FIXTURES: readonly FixtureName[] = ["plumber-austin", "hvac-phoenix", "roofing-extreme", "cleaning-minimal", "electrical-xss"];
+
+/**
  * Every WCAG 2.2 A/AA violation, whatever axe's impact rating (impact is severity, not the WCAG level:
  * meta-viewport is AA but rated moderate; A9), plus any structure-rule violation, as "rule: selectors" lines.
  */
@@ -513,10 +520,12 @@ for (const design of DESIGN_IDS) {
               });
             }
 
-            test("matches the screenshot baseline", async ({ page }, testInfo) => {
-              test.skip(!SCREENSHOT_MATRIX[id].includes(testInfo.project.name), "not in the SCREENSHOT_MATRIX");
-              await expect(page).toHaveScreenshot([design, name, `${id}.png`], { fullPage: true, stylePath: SCREENSHOT_CSS });
-            });
+            if (SCREENSHOT_FIXTURES.includes(name)) {
+              test("matches the screenshot baseline", async ({ page }, testInfo) => {
+                test.skip(!SCREENSHOT_MATRIX[id].includes(testInfo.project.name), "not in the SCREENSHOT_MATRIX");
+                await expect(page).toHaveScreenshot([design, name, `${id}.png`], { fullPage: true, stylePath: SCREENSHOT_CSS });
+              });
+            }
           });
         }
       });
@@ -717,7 +726,7 @@ test("holds exactly the screenshot baselines of the SCREENSHOT_MATRIX, and no ot
   const folder = fileURLToPath(new URL("./fixtures.spec.ts-snapshots/", import.meta.url));
   expect(readdirSync(folder).sort()).toEqual([...DESIGN_IDS].sort());
   for (const design of DESIGN_IDS) {
-    const expected = FIXTURES.flatMap((name) => pagesOf(name).flatMap((id) => SCREENSHOT_MATRIX[id].map((project) => `${name}/${id}-${project}-darwin.png`))).sort();
+    const expected = SCREENSHOT_FIXTURES.flatMap((name) => pagesOf(name).flatMap((id) => SCREENSHOT_MATRIX[id].map((project) => `${name}/${id}-${project}-darwin.png`))).sort();
     const found = readdirSync(`${folder}${design}`, { recursive: true, withFileTypes: true })
       .filter((entry) => entry.isFile())
       .map((entry) => `${entry.parentPath.slice(`${folder}${design}`.length + 1)}/${entry.name}`)

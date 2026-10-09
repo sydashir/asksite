@@ -36,9 +36,9 @@ describe("renderFixturesToDir", () => {
   });
 
   it("renders every fixture in every design when no names are given", () => {
-    const pages = (["plumber-austin", "hvac-phoenix", "roofing-extreme", "cleaning-minimal", "electrical-xss"] as const).map((name) => renderFixture(name).length);
-    expect(pages).toEqual([5, 4, 5, 3, 5]);
-    expect(renderFixturesToDir([], tempDir())).toHaveLength(22 * DESIGN_IDS.length);
+    const pages = (["plumber-austin", "hvac-phoenix", "roofing-extreme", "cleaning-minimal", "electrical-xss", "it-country", "law-denver", "other-worldwide"] as const).map((name) => renderFixture(name).length);
+    expect(pages).toEqual([5, 4, 5, 3, 5, 4, 4, 5]);
+    expect(renderFixturesToDir([], tempDir())).toHaveLength(35 * DESIGN_IDS.length);
   });
 
   it("rejects an unknown fixture name", () => {

@@ -7,8 +7,12 @@ import { DESIGN_IDS, type DesignId, type PageId, type SiteDocumentInput } from "
 /** Every design's real compiled stylesheet (@asksite/site-css), for tests that check the real sheets. */
 export { DESIGN_CSS };
 
-/** Sample trades businesses. Each is a SiteDocument JSON file in this folder. */
-export const FIXTURES = ["plumber-austin", "hvac-phoenix", "roofing-extreme", "cleaning-minimal", "electrical-xss"] as const;
+/**
+ * Sample businesses. Each is a SiteDocument JSON file in this folder. The first five serve listed places; the last
+ * three are an IT firm that serves the whole country, a law firm and a business of the owner's own type that serves
+ * customers worldwide.
+ */
+export const FIXTURES = ["plumber-austin", "hvac-phoenix", "roofing-extreme", "cleaning-minimal", "electrical-xss", "it-country", "law-denver", "other-worldwide"] as const;
 export type FixtureName = (typeof FIXTURES)[number];
 
 /** Placeholder form endpoint for fixtures; the real one arrives with plan 2. */

@@ -1,0 +1,63 @@
+{
+  "facts": {
+    "businessName": "Brightline IT Partners",
+    "trade": "it",
+    "phone": "+16145550188",
+    "email": "help@brightlineit.example.com",
+    "location": { "streetAddress": "250 W Spring St, Suite 400", "city": "Columbus", "state": "OH", "postalCode": "43215" },
+    "serviceArea": { "places": [] },
+    "serviceAreaScope": "country",
+    "hours": [{ "days": ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"], "opens": "08:00", "closes": "18:00" }],
+    "services": [
+      { "name": "Managed IT support" },
+      { "name": "Remote help desk" },
+      { "name": "Network setup", "startingPrice": 450 },
+      { "name": "Cloud backup and recovery" },
+      { "name": "Microsoft 365 setup", "startingPrice": 300 },
+      { "name": "Security checkups" }
+    ],
+    "insured": true,
+    "yearFounded": 2012,
+    "testimonials": [
+      { "quote": "They moved our office to Microsoft 365 over a weekend and nobody lost an email.", "name": "Karen W.", "location": "Dayton, OH" },
+      { "quote": "Our help desk tickets get answered quickly, and they explain things without jargon.", "name": "Marcus T.", "location": "Tampa, FL" }
+    ],
+    "socialLinks": [{ "network": "linkedin", "url": "https://www.linkedin.com/company/brightline-it-partners" }]
+  },
+  "copy": {
+    "heroHeadline": "IT support that keeps your team working",
+    "heroSubheadline": "Remote help desk, networks and cloud backup for small offices across the country, from a team in Columbus.",
+    "ctaText": "Book a call",
+    "about": "Brightline is a small team of IT technicians in Columbus. We look after the computers, networks and accounts of small offices, most of them remotely. You get one team that knows your setup, plain answers and a written plan before any change.",
+    "sectionIntros": {
+      "services": "Ongoing support or one-off projects, done remotely or on site in Columbus.",
+      "faq": "Answers to what new clients ask first.",
+      "contact": "Tell us about your office and we will set up a short call."
+    },
+    "serviceDescriptions": [
+      { "service": "Managed IT support", "description": "We look after your computers, accounts and updates for a monthly fee, so problems get fixed before they spread." },
+      { "service": "Remote help desk", "description": "Your team sends a ticket or calls, and a technician connects to the computer to sort it out." },
+      { "service": "Network setup", "description": "Office Wi-Fi, firewalls and switches planned, installed and labelled." },
+      { "service": "Cloud backup and recovery", "description": "Automatic backups of your files and email, with a tested way to restore them." },
+      { "service": "Microsoft 365 setup", "description": "Email, Teams and shared files moved over and set up for each person." },
+      { "service": "Security checkups", "description": "A check of passwords, sign-in settings and devices, with a short list of fixes." }
+    ],
+    "faq": [
+      { "question": "Can you support an office outside Ohio?", "answer": "Yes. Most of our support is remote, so we work with offices across the country. On-site visits are for the Columbus area." },
+      { "question": "Do we need to sign a long contract?", "answer": "No. Support is month to month, and you can stop with a month of notice." },
+      { "question": "What do you need from us to start?", "answer": "A short call about your team, your devices and the tools you use. We then send a written plan and price." }
+    ]
+  },
+  "layout": [
+    { "id": "hero", "variant": "centered" },
+    { "id": "trust", "variant": "light" },
+    { "id": "testimonials", "variant": "grid" },
+    { "id": "services", "variant": "cards" },
+    { "id": "faq", "variant": "accordion" },
+    { "id": "about", "variant": "plain" },
+    { "id": "gallery", "variant": "grid" },
+    { "id": "contact", "variant": "card" },
+    { "id": "serviceArea", "variant": "split" }
+  ],
+  "theme": { "palette": "blue-yellow", "font": "clean", "design": "modern" }
+}

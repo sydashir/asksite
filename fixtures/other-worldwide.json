@@ -1,0 +1,62 @@
+{
+  "facts": {
+    "businessName": "Lingo Bridge Translations",
+    "trade": "other",
+    "tradeOther": "Translation services",
+    "phone": "+12065550173",
+    "email": "projects@lingobridge.example.com",
+    "location": { "city": "Seattle", "state": "WA" },
+    "serviceArea": { "places": [] },
+    "serviceAreaScope": "worldwide",
+    "services": [
+      { "name": "Document translation", "startingPrice": 60 },
+      { "name": "Website localization" },
+      { "name": "Interpreting by video" },
+      { "name": "Proofreading", "startingPrice": 40 }
+    ],
+    "testimonials": [
+      { "quote": "They translated our product manuals into Spanish and German and kept every term consistent.", "name": "Sofia L.", "location": "Madrid, Spain" }
+    ],
+    "photos": [
+      { "url": "https://picsum.photos/seed/lingo-1/1200/900", "alt": "Translator comparing a printed manual with its Spanish draft", "width": 1200, "height": 900, "caption": "Product manual, English to Spanish" },
+      { "url": "https://picsum.photos/seed/lingo-2/1200/900", "alt": "Laptop showing a website menu in Japanese", "width": 1200, "height": 900, "caption": "Website localization, Japanese" },
+      { "url": "https://picsum.photos/seed/lingo-3/1200/900", "alt": "Interpreter wearing a headset during a video meeting", "width": 1200, "height": 900 }
+    ],
+    "socialLinks": [{ "network": "linkedin", "url": "https://www.linkedin.com/company/lingo-bridge-translations" }]
+  },
+  "copy": {
+    "heroHeadline": "Translation and localization for clients around the world",
+    "heroSubheadline": "Careful translation of documents, websites and video calls between English and many other languages, from a small team in Seattle.",
+    "ctaText": "Request a quote",
+    "about": "Lingo Bridge is a small team of translators and editors based in Seattle. Every project is translated by a native speaker and checked by a second linguist before it goes back to you.",
+    "sectionIntros": {
+      "services": "Send us your files and target languages and we reply with a quote.",
+      "gallery": "A few recent projects.",
+      "faq": "What clients ask before a first project.",
+      "contact": "Tell us the languages and the deadline and we will reply with a quote."
+    },
+    "serviceDescriptions": [
+      { "service": "Document translation", "description": "Contracts, manuals and reports translated by native speakers and checked by a second linguist." },
+      { "service": "Website localization", "description": "Your pages and menus adapted for each market, with dates, units and spelling to match." },
+      { "service": "Interpreting by video", "description": "An interpreter joins your video call for meetings, interviews and training." },
+      { "service": "Proofreading", "description": "A careful second read of text you already have translated, with every change tracked." }
+    ],
+    "faq": [
+      { "question": "Which languages do you work in?", "answer": "Our core languages are Spanish, French, German, Portuguese and Japanese. Ask us about others." },
+      { "question": "Do you work with clients abroad?", "answer": "Yes. We work by email and video with clients worldwide, across time zones." },
+      { "question": "How is a project priced?", "answer": "By the word for most documents, with a minimum per project. We send a written quote before we start." }
+    ]
+  },
+  "layout": [
+    { "id": "hero", "variant": "centered" },
+    { "id": "trust", "variant": "light" },
+    { "id": "testimonials", "variant": "grid" },
+    { "id": "services", "variant": "compact" },
+    { "id": "faq", "variant": "accordion" },
+    { "id": "about", "variant": "plain" },
+    { "id": "gallery", "variant": "grid" },
+    { "id": "contact", "variant": "card" },
+    { "id": "serviceArea", "variant": "split" }
+  ],
+  "theme": { "palette": "green-amber", "font": "friendly", "design": "impact" }
+}

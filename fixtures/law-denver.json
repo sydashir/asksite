@@ -1,0 +1,72 @@
+{
+  "facts": {
+    "businessName": "Harper & Lin Law",
+    "trade": "law",
+    "phone": "+13035550161",
+    "email": "office@harperlinlaw.example.com",
+    "location": { "streetAddress": "1600 Broadway, Suite 1200", "city": "Denver", "state": "CO", "postalCode": "80202" },
+    "serviceArea": {
+      "places": ["Denver", "Aurora", "Lakewood", "Englewood", "Littleton"],
+      "note": "Meetings at our Denver office or by video"
+    },
+    "serviceAreaScope": "places",
+    "hours": [
+      { "days": ["Monday", "Tuesday", "Wednesday", "Thursday"], "opens": "09:00", "closes": "17:00" },
+      { "days": ["Friday"], "opens": "09:00", "closes": "15:00" }
+    ],
+    "services": [
+      { "name": "Wills and trusts", "startingPrice": 650 },
+      { "name": "Estate planning" },
+      { "name": "Probate" },
+      { "name": "Business formation", "startingPrice": 900 },
+      { "name": "Real estate closings" }
+    ],
+    "licences": [{ "label": "Colorado attorney registration", "number": "41237" }],
+    "insured": true,
+    "yearFounded": 2009,
+    "testimonials": [
+      { "quote": "They walked us through our wills step by step and answered every question in plain English.", "name": "Ellen R.", "location": "Lakewood, CO" },
+      { "quote": "Clear fees up front and quick replies to email. Setting up our company was painless.", "name": "Dev P." }
+    ],
+    "heroPhoto": { "url": "https://picsum.photos/seed/harper-lin-office/1600/900", "alt": "Conference room with a long table and chairs at the Harper & Lin office", "width": 1600, "height": 900 },
+    "socialLinks": [
+      { "network": "linkedin", "url": "https://www.linkedin.com/company/harper-lin-law" },
+      { "network": "google", "url": "https://www.google.com/maps/search/?api=1&query=Harper+Lin+Law+Denver" }
+    ]
+  },
+  "copy": {
+    "heroHeadline": "Wills, estates and business law in plain English",
+    "heroSubheadline": "We help Denver families and small businesses plan ahead, settle estates and set up companies, with fees agreed before we start.",
+    "ctaText": "Request a consultation",
+    "about": "Harper & Lin is a small Denver law firm. We focus on estate planning, probate and business formation. You work directly with an attorney, we explain your options and the costs in writing, and we return calls and emails promptly.",
+    "sectionIntros": {
+      "services": "Fixed fees where we can quote them, and a written estimate where we cannot.",
+      "faq": "Common questions before a first meeting.",
+      "contact": "Tell us briefly what you need and we will call you to arrange a meeting."
+    },
+    "serviceDescriptions": [
+      { "service": "Wills and trusts", "description": "A will, and a trust where it suits your family, drafted and explained clause by clause." },
+      { "service": "Estate planning", "description": "Powers of attorney, health care directives and beneficiary forms, so your wishes are written down." },
+      { "service": "Probate", "description": "We guide personal representatives through each court step and the paperwork that comes with it." },
+      { "service": "Business formation", "description": "Choosing an entity, filing with the state and drafting an operating agreement for your company." },
+      { "service": "Real estate closings", "description": "Purchase contracts checked and closing documents prepared for home sales and purchases." }
+    ],
+    "faq": [
+      { "question": "Can we meet by video?", "answer": "Yes. Many clients meet us by video, and documents can be signed at our office." },
+      { "question": "How do your fees work?", "answer": "Many services have a fixed fee. For others we give you a written estimate before any work begins." },
+      { "question": "Do I need a lawyer for probate?", "answer": "Not always. In a first meeting we look at the estate and tell you plainly whether you need us." }
+    ]
+  },
+  "layout": [
+    { "id": "hero", "variant": "photo" },
+    { "id": "trust", "variant": "band" },
+    { "id": "testimonials", "variant": "grid" },
+    { "id": "services", "variant": "cards" },
+    { "id": "faq", "variant": "accordion" },
+    { "id": "about", "variant": "plain" },
+    { "id": "gallery", "variant": "grid" },
+    { "id": "contact", "variant": "card" },
+    { "id": "serviceArea", "variant": "split" }
+  ],
+  "theme": { "palette": "navy-orange", "font": "clean", "design": "refined" }
+}
