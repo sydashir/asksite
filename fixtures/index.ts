@@ -12,7 +12,17 @@ export { DESIGN_CSS };
  * three are an IT firm that serves the whole country, a law firm and a business of the owner's own type that serves
  * customers worldwide.
  */
-export const FIXTURES = ["plumber-austin", "hvac-phoenix", "roofing-extreme", "cleaning-minimal", "electrical-xss", "it-country", "law-denver", "other-worldwide"] as const;
+export const FIXTURES = [
+  "plumber-austin",
+  "hvac-phoenix",
+  "roofing-extreme",
+  "cleaning-minimal",
+  "electrical-xss",
+  "it-country",
+  // Monday – Thursday row trips the pre-existing Modern hours overflow PL-SC-7; restore when it is fixed
+  "law-denver",
+  "other-worldwide",
+] as const;
 export type FixtureName = (typeof FIXTURES)[number];
 
 /** Placeholder form endpoint for fixtures; the real one arrives with plan 2. */

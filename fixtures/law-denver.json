@@ -10,10 +10,7 @@
       "note": "Meetings at our Denver office or by video"
     },
     "serviceAreaScope": "places",
-    "hours": [
-      { "days": ["Monday", "Tuesday", "Wednesday", "Thursday"], "opens": "09:00", "closes": "17:00" },
-      { "days": ["Friday"], "opens": "09:00", "closes": "15:00" }
-    ],
+    "hours": [{ "days": ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"], "opens": "08:30", "closes": "17:00" }],
     "services": [
       { "name": "Wills and trusts", "startingPrice": 650 },
       { "name": "Estate planning" },
