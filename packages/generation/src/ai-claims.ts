@@ -124,10 +124,17 @@ const NEEDS_A_FACT_IN_AI_COPY: ReadonlyArray<{ readonly pattern: RegExp; readonl
     pattern: new RegExp(`\\b(zero${J}(costs?|fees?|charges?)|freebies?|gratis|on${J}the${J}house|never${J}charg(e[ds]?|ing)|without${J}charge|no${J}fees?|no${J}(charge|cost)s)\\b`, "i"),
     backedBy: (facts) => facts.freeEstimates,
   },
+];
+
+/**
+ * Where the business serves, backed only by its service-area scope. Matched, like NEVER_IN_LAW_COPY, on the text without the owner's
+ * own names (withoutOwnerNames).
+ */
+const SCOPE_IN_AI_COPY: ReadonlyArray<{ readonly pattern: RegExp; readonly backedBy: (facts: Facts) => boolean }> = [
   // Where the business serves (2026-10-09, STRICT): the nationwide words only with the scope "country", the worldwide words only with
-  // "worldwide"; neither scope backs the other's words. "US" counts only after a determiner ("across us" is the pronoun). Known false
-  // positives, rephrasable: a place or a name that holds one of the words ("International Falls", "Global Plumbing"), and "global"
-  // in its other senses ("global settings"). Residuals, accepted: "all fifty states" (refused anyway as a spelled number), "statewide",
+  // "worldwide"; neither scope backs the other's words. "US" counts only after a determiner ("across us" is the pronoun). The owner's
+  // own names are not read ("International Falls", "Global Plumbing": withoutOwnerNames). Known false positives, rephrasable: "global"
+  // in its other senses ("global settings"), and a name the model changes. Residuals, accepted: "all fifty states" (refused anyway as a spelled number), "statewide",
   // "across America", "far and wide", "abroad", and an AREA word with another determiner ("across a whole country").
   {
     pattern: new RegExp(
@@ -172,16 +179,34 @@ const LEGAL_BUSINESS = /\b(law|lawyers?|attorneys?|legal|solicitors?|barristers?
 /** Whether the law rules hold this business's AI copy. */
 const isLegalBusiness = (facts: Facts): boolean => facts.trade === "law" || (facts.trade === "other" && facts.tradeOther !== undefined && LEGAL_BUSINESS.test(facts.tradeOther));
 
+/** `text` as a literal pattern: every regular-expression syntax character escaped. */
+const literal = (text: string): string => text.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&");
+
+/**
+ * The text without the owner's own names: the business name, the own business type and each place, in any case, each replaced by
+ * a space so the words around it stay apart (moderator order 2026-10-09). The model must repeat them exactly, so a scope or law word
+ * inside one ("Global IT", "International Falls", "Victory Legal") is the owner's, not the model's; a word outside them still counts.
+ * Longest first, so a name inside a longer one goes with it. Only the scope and law rules read it: the older rules keep reading the
+ * whole text, as before, so the words they show the owner are unchanged.
+ */
+function withoutOwnerNames(text: string, facts: Facts): string {
+  const names = [facts.businessName, facts.tradeOther ?? "", ...facts.serviceArea.places].filter((name) => name !== "").sort((a, b) => b.length - a.length);
+  return names.reduce((rest, name) => rest.replace(new RegExp(literal(name), "giu"), " "), text);
+}
+
 /** The words in `text` that state something the AI may not, or something these facts do not back (empty when fine). */
 export function aiClaims(text: string, facts: Facts): string[] {
-  const read = readings(text);
-  const find = (pattern: RegExp): string | undefined => {
+  const whole = readings(text);
+  const stripped = withoutOwnerNames(text, facts);
+  const withoutNames = stripped === text ? whole : readings(stripped);
+  const findIn = (read: readonly string[], pattern: RegExp): string | undefined => {
     for (const reading of read) {
       const word = pattern.exec(reading)?.[0];
       if (word !== undefined) return word;
     }
     return undefined;
   };
+  const find = (pattern: RegExp): string | undefined => findIn(whole, pattern);
   const found: string[] = [];
   for (const pattern of NEVER_IN_AI_COPY) {
     const word = find(pattern);
@@ -191,9 +216,13 @@ export function aiClaims(text: string, facts: Facts): string[] {
     const word = find(pattern);
     if (word !== undefined && !backedBy(facts)) found.push(word);
   }
+  for (const { pattern, backedBy } of SCOPE_IN_AI_COPY) {
+    const word = findIn(withoutNames, pattern);
+    if (word !== undefined && !backedBy(facts)) found.push(word);
+  }
   if (isLegalBusiness(facts)) {
     for (const pattern of NEVER_IN_LAW_COPY) {
-      const word = find(pattern);
+      const word = findIn(withoutNames, pattern);
       if (word !== undefined) found.push(word);
     }
   }

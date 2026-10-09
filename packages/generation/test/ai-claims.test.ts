@@ -853,3 +853,18 @@ describe("AI claim check: an Other business of a legal kind is a law firm to the
     expect(aiCopyIssues(OTHER("Bakery"), copy, [])).toEqual([]);
   });
 });
+
+// Moderator order 2026-10-09: the model must repeat the owner's names exactly, so a claim word inside the business name, the own
+// business type or a place is the owner's, never the model's. A claim word outside them still counts.
+describe("AI claim check: the owner's own names are not the model's claims", () => {
+  const GLOBAL_IT = withFacts({ trade: "it", businessName: "Global IT" });
+  accepted(GLOBAL_IT, [["a business name holding global", "Global IT fixes your network"]]);
+  accepted(withFacts({ trade: "roofing", businessName: "National Roofing" }), [["a business name holding national", "National Roofing keeps you dry"]]);
+  accepted(withFacts({ serviceArea: { places: ["International Falls"] } }), [["a place holding international", "Serving International Falls"]]);
+  accepted(withFacts({ trade: "other", tradeOther: "Global logistics" }), [["an own business type holding global", "Global logistics made simple"]]);
+  const VICTORY_LEGAL = withFacts({ trade: "law", businessName: "Victory Legal" });
+  accepted(VICTORY_LEGAL, [["a law firm's name holding victory", "Victory Legal answers your call"]]);
+  refused(VICTORY_LEGAL, [["a claim word after a law firm's name", "Victory Legal wins cases", ["wins"]]]);
+  refused(MINIMAL_FACTS, [["nationwide outside any name", "We serve nationwide", ["nationwide"]]]);
+  refused(GLOBAL_IT, [["worldwide after a business name", "Global IT serves clients worldwide", ["worldwide"]]]);
+});
