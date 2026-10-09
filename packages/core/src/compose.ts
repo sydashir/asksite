@@ -1,4 +1,13 @@
-import { DEFAULT_SECTION_ORDER, SECTION_VARIANTS, type LayoutSection, type SiteDocument, type SiteDocumentInput } from "@asksite/site-schema";
+import {
+  DEFAULT_SECTION_ORDER,
+  SECTION_VARIANTS,
+  SERVICE_AREA_SCOPES,
+  serviceAreaScopeOf,
+  type LayoutSection,
+  type ServiceAreaScope,
+  type SiteDocument,
+  type SiteDocumentInput,
+} from "@asksite/site-schema";
 import { SECTION_IDS, type AiDraft, type CopyEdits, type OwnerEdits } from "./draft.ts";
 import type { Issue } from "./issues.ts";
 import { mediaUrl } from "./keys.ts";
@@ -24,6 +33,20 @@ function optional(edit: string | null | undefined, ai: string | undefined): stri
   return edit === undefined ? ai : tidy(edit);
 }
 
+const isScope = (value: unknown): value is ServiceAreaScope => (SERVICE_AREA_SCOPES as readonly unknown[]).includes(value);
+
+/**
+ * The facts the page is built from. A business that serves the whole country or worldwide keeps the places and the area
+ * note it gave in its draft (switching back to "In specific places" brings them back), but the page never shows or uses them.
+ */
+function publishedFacts(facts: unknown): unknown {
+  if (!isRecord(facts) || !isRecord(facts.serviceArea)) return facts;
+  const scope = facts.serviceAreaScope;
+  if (serviceAreaScopeOf({ serviceAreaScope: isScope(scope) ? scope : undefined }) === "places") return facts;
+  const { note: _note, ...area } = facts.serviceArea;
+  return { ...facts, serviceArea: { ...area, places: [] } };
+}
+
 /**
  * Every section id once (a missing one gets its first variant), in the owner's order when one applies, else in
  * the page map's order (U1, user 2026-10-01). The AI's layout picks the variants and which sections it wrote; its
@@ -39,7 +62,8 @@ function composeLayout(ai: AiDraft["layout"], order: OwnerEdits["order"]): Layou
 /**
  * Builds the page document. Never throws; validate the result with SiteDocument.safeParse.
  * Copy and order edits apply only while edits.baseGenerationId === ai.generationId; hidden and
- * theme always apply. Service descriptions are matched by the trimmed service name.
+ * theme always apply. Service descriptions are matched by the trimmed service name. The places
+ * and the area note are left out unless the service-area scope is "places" (publishedFacts).
  */
 export function composeDocument(facts: unknown, ai: CurrentAi, edits: OwnerEdits): ComposedDocument {
   const current = edits.baseGenerationId === ai.generationId;
@@ -63,7 +87,7 @@ export function composeDocument(facts: unknown, ai: CurrentAi, edits: OwnerEdits
   });
 
   return {
-    facts,
+    facts: publishedFacts(facts),
     copy: {
       heroHeadline: e.heroHeadline === undefined ? aiCopy.heroHeadline : tidy(e.heroHeadline),
       heroSubheadline: e.heroSubheadline === undefined ? aiCopy.heroSubheadline : tidy(e.heroSubheadline),

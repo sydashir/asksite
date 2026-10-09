@@ -1,5 +1,5 @@
 import { render } from "@asksite/renderer";
-import { DEFAULT_SECTION_ORDER, SiteDocument, type LayoutSection, type SiteDocumentInput } from "@asksite/site-schema";
+import { DEFAULT_SECTION_ORDER, serviceAreaScopeOf, SiteDocument, type LayoutSection, type SiteDocumentInput } from "@asksite/site-schema";
 import { describe, expect, expectTypeOf, it } from "vitest";
 import { FIXTURES, loadFixture, stubStylesheets } from "../../../fixtures/index.ts";
 import {
@@ -46,7 +46,9 @@ describe("composeDocument", () => {
     const { facts, ai } = split(fixture);
     const composed = SiteDocument.parse(composeDocument(facts, ai, EMPTY_EDITS));
     const options = { stylesheets: stubStylesheets(), formAction: "https://joes.asksite.example/_f/x", siteUrl: "https://joes.asksite.example/" };
-    expect(render(composed, options)).toEqual(render({ ...fixture, layout: inDefaultOrder(fixture.layout) }, options));
+    // A fixture serving the whole country or worldwide may keep places and a note in its facts; the page never shows them.
+    const published = serviceAreaScopeOf(fixture.facts) === "places" ? fixture.facts : { ...fixture.facts, serviceArea: { places: [] } };
+    expect(render(composed, options)).toEqual(render({ ...fixture, facts: published, layout: inDefaultOrder(fixture.layout) }, options));
   });
 
   it("stays valid when the owner adds a first photo, review and licence after generation", () => {
@@ -184,6 +186,18 @@ describe("composeDocument", () => {
     const { ai } = split(loadFixture("cleaning-minimal"));
     expect(composeDocument(null, ai, EMPTY_EDITS).copy.serviceDescriptions).toEqual([]);
     expect(composeDocument({ services: "oops" }, ai, EMPTY_EDITS).copy.serviceDescriptions).toEqual([]);
+  });
+
+  it("publishes the places and the area note only for scope places: country and worldwide keep them in the draft but off the page", () => {
+    const fixture = loadFixture("plumber-austin");
+    const { facts, ai } = split(fixture);
+    const area = SiteDocument.parse(fixture).facts.serviceArea;
+    expect([area.places.length > 0, area.note]).toEqual([true, "Within 30 miles of downtown Austin"]);
+    const drafts = [facts, ...["places", "country", "worldwide"].map((serviceAreaScope) => ({ ...(facts as object), serviceAreaScope }))];
+    const published = drafts.map((draft) => SiteDocument.parse(composeDocument(draft, ai, EMPTY_EDITS)).facts.serviceArea);
+    expect(published).toEqual([area, area, { places: [] }, { places: [] }]);
+    expect(drafts.map((draft) => (draft as { serviceArea: unknown }).serviceArea)).toEqual([area, area, area, area]);
+    expect(composeDocument(facts, ai, EMPTY_EDITS).facts).toBe(facts); // a document without a scope is composed exactly as before
   });
 
   it("replaces the FAQ list with the owner's list", () => {
