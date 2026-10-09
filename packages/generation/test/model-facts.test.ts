@@ -11,6 +11,7 @@ describe("toModelFacts", () => {
       city: "Austin",
       state: "TX",
       services: ["Drain cleaning", "Leak repair"],
+      serviceAreaScope: "places",
       serviceAreaPlaces: ["Austin", "Round Rock"],
       hasLicence: true,
       insured: true,
@@ -68,5 +69,15 @@ describe("toModelFacts", () => {
       [smile.repeat(40)],
     ]);
     expect(facts).toEqual(before);
+  });
+
+  it("sends the scope, no places unless it is places, and the owner's own business type only for trade other", () => {
+    const sent = (extra: object) => toModelFacts(Facts.parse({ ...FULL_FACTS, ...extra }));
+    expect([sent({ serviceAreaScope: "country" }), sent({ serviceAreaScope: "worldwide" })].map((f) => [f.serviceAreaScope, f.serviceAreaPlaces])).toEqual([
+      ["country", []],
+      ["worldwide", []],
+    ]);
+    expect(sent({ trade: "other", tradeOther: "Bakery" }).tradeOther).toBe("Bakery");
+    expect("tradeOther" in sent({ trade: "law" })).toBe(false);
   });
 });

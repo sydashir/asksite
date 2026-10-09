@@ -1,5 +1,5 @@
 import { AiAnswer, draftFromAnswer, type AiDraft, type Brief } from "@asksite/core";
-import type { Facts, Theme, Trade } from "@asksite/site-schema";
+import { serviceAreaScopeOf, type Facts, type Theme, type Trade } from "@asksite/site-schema";
 
 // The labelled fallback draft (design §6.3): deterministic, trade-aware wording that is valid for
 // ANY facts. It never quotes owner text (names can hold digits or claims), never states a claim
@@ -9,6 +9,8 @@ import type { Facts, Theme, Trade } from "@asksite/site-schema";
 interface TradeWords {
   headline: string;
   subheadline: string;
+  /** The about text's opening, which says the business is local: left out for a business serving the whole country or worldwide. */
+  local?: string;
   about: string;
   // Fit any service of the trade; they repeat in order when an owner lists more than three services (known limit).
   descriptions: readonly [string, string, string];
@@ -20,7 +22,8 @@ const WORDS: Record<Trade, TradeWords> = {
   plumbing: {
     headline: "Plumbing repairs and installs for your home",
     subheadline: "From leaky faucets to clogged drains, tell us what's going on and we'll help you figure out the next step.",
-    about: "We're a local plumbing business serving homes in the area. Get in touch about the job, big or small, and we'll walk you through your options.",
+    local: "We're a local plumbing business serving homes in the area.",
+    about: "Get in touch about the job, big or small, and we'll walk you through your options.",
     descriptions: [
       "Describe the problem or the project, and we'll explain what the work involves.",
       "Not sure this is the service you need? Just ask, and we'll go over it with you.",
@@ -31,7 +34,8 @@ const WORDS: Record<Trade, TradeWords> = {
   hvac: {
     headline: "Heating and cooling help for your home",
     subheadline: "Whether your system has stopped working or needs a tune-up, tell us what's happening and we'll help.",
-    about: "We're a local heating and cooling business serving homes in the area. Get in touch about your system, and we'll walk you through your options.",
+    local: "We're a local heating and cooling business serving homes in the area.",
+    about: "Get in touch about your system, and we'll walk you through your options.",
     descriptions: [
       "Tell us about your home's heating or cooling and what you'd like done.",
       "Wondering if this is what you need? Ask us and we'll talk it over.",
@@ -42,7 +46,8 @@ const WORDS: Record<Trade, TradeWords> = {
   electrical: {
     headline: "Electrical work for your home",
     subheadline: "From faulty outlets to new lighting, tell us what you need and we'll help you plan it.",
-    about: "We're a local electrical business serving homes in the area. Get in touch about your project or repair, and we'll walk you through your options.",
+    local: "We're a local electrical business serving homes in the area.",
+    about: "Get in touch about your project or repair, and we'll walk you through your options.",
     descriptions: [
       "Describe what you'd like done and where, and we'll go over it with you.",
       "Questions before you get started? Give us a call or drop us a line.",
@@ -53,7 +58,8 @@ const WORDS: Record<Trade, TradeWords> = {
   roofing: {
     headline: "Roof repairs and replacements",
     subheadline: "Leaks, damaged shingles or a whole new roof: tell us what you're seeing and we'll help you plan what comes next.",
-    about: "We're a local roofing business serving homes in the area. Get in touch about your roof, and we'll walk you through your options.",
+    local: "We're a local roofing business serving homes in the area.",
+    about: "Get in touch about your roof, and we'll walk you through your options.",
     descriptions: [
       "Share a little about your home and the work you have in mind, and we'll explain the process.",
       "Wondering what the job calls for? Ask us and we'll talk it over with you.",
@@ -64,7 +70,8 @@ const WORDS: Record<Trade, TradeWords> = {
   cleaning: {
     headline: "Cleaning services for your home",
     subheadline: "Let us know what needs cleaning and how often, and we'll work out a plan with you.",
-    about: "We're a local cleaning business serving homes in the area. Get in touch about what you need, and we'll walk you through your options.",
+    local: "We're a local cleaning business serving homes in the area.",
+    about: "Get in touch about what you need, and we'll walk you through your options.",
     descriptions: [
       "Describe the space and anything that needs extra attention, so we know what to expect.",
       "Questions about what's included? Ask us and we'll explain before you book.",
@@ -75,7 +82,8 @@ const WORDS: Record<Trade, TradeWords> = {
   landscaping: {
     headline: "Lawn, garden and yard care",
     subheadline: "From regular mowing to new planting beds, tell us about your yard and we'll help you plan the work.",
-    about: "We're a local landscaping business serving homes in the area. Whether it's ongoing care or something new, get in touch and we'll walk you through your options.",
+    local: "We're a local landscaping business serving homes in the area.",
+    about: "Whether it's ongoing care or something new, get in touch and we'll walk you through your options.",
     descriptions: [
       "Let us know how you use your outdoor space and what matters most to you.",
       "Questions about this service? Ask us and we'll talk it over.",
@@ -134,7 +142,7 @@ export function templateAnswer(facts: Facts, brief: Brief): AiAnswer {
       heroHeadline: words.headline,
       heroSubheadline: words.subheadline,
       ctaText: ctaText(brief.goal, facts.freeEstimates),
-      about: words.about,
+      about: words.local !== undefined && serviceAreaScopeOf(facts) === "places" ? `${words.local} ${words.about}` : words.about,
       sectionIntros: {
         services: "Here's what we can help with.",
         gallery: "A few examples of our work.",

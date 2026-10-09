@@ -1,5 +1,5 @@
 import { Brief, GOALS, TONES, type GenerationInputSnapshot, type Issue } from "@asksite/core";
-import { DAYS, Facts, SOCIAL_HOSTS, SOCIAL_NETWORKS, TRADES } from "@asksite/site-schema";
+import { DAYS, Facts, SERVICE_AREA_SCOPES, SOCIAL_HOSTS, SOCIAL_NETWORKS, TRADES } from "@asksite/site-schema";
 import { describe, expect, it } from "vitest";
 import { CAPS_FILLS, CAPS_REPAIR, CAPS_SNAPSHOT, capsRepair, capsSnapshot } from "../eval/caps.ts";
 import { MAX_ATTEMPTS, MAX_OUTPUT_TOKENS } from "../src/generate.ts";
@@ -31,7 +31,7 @@ const TOGGLES = ["yearFounded", "licences", "insured", "emergency247", "freeEsti
 type Toggle = (typeof TOGGLES)[number];
 const PHOTO = { url: "https://media.example.com/a/p.webp", alt: "a", width: 1, height: 1 };
 
-/** CAPS_SNAPSHOT's capped strings with one combination of builder choices. */
+/** CAPS_SNAPSHOT's capped strings with one combination of builder choices (only trade "other" sends its capped tradeOther). */
 function withChoices(trade: Facts["trade"], tone: Brief["tone"], goal: Brief["goal"], on: (toggle: Toggle) => boolean): GenerationInputSnapshot {
   const { yearFounded: _year, heroPhoto: _hero, ...facts } = CAPS_SNAPSHOT.facts;
   return {
@@ -93,6 +93,7 @@ const UNREAD: Array<[string, SetField]> = [
 type Take = (into: GenerationInputSnapshot, from: GenerationInputSnapshot) => GenerationInputSnapshot;
 const FIELD_GROUPS: ReadonlyArray<readonly [string, Take]> = [
   ["businessName", (into, from) => ({ ...into, facts: { ...into.facts, businessName: from.facts.businessName } })],
+  ["tradeOther", (into, from) => ({ ...into, facts: { ...into.facts, tradeOther: from.facts.tradeOther ?? "" } })],
   ["city", (into, from) => ({ ...into, facts: { ...into.facts, location: { ...into.facts.location, city: from.facts.location.city } } })],
   ["service-area places", (into, from) => ({ ...into, facts: { ...into.facts, serviceArea: { ...into.facts.serviceArea, places: from.facts.serviceArea.places } } })],
   ["service names", (into, from) => ({ ...into, facts: { ...into.facts, services: from.facts.services } })],
@@ -142,6 +143,11 @@ describe("MAX_INPUT_TOKENS", () => {
     },
     60_000,
   );
+
+  it("no service-area scope makes a larger prompt than CAPS_SNAPSHOT (country and worldwide send no places)", () => {
+    const sizes = SERVICE_AREA_SCOPES.map((serviceAreaScope) => promptBytes({ ...CAPS_SNAPSHOT, facts: { ...CAPS_SNAPSHOT.facts, serviceAreaScope } }, CAPS_REPAIR));
+    expect(Math.max(...sizes)).toBe(promptBytes(CAPS_SNAPSHOT, CAPS_REPAIR));
+  });
 
   it.each(UNREAD)("does not read %s, so TOGGLES can leave it out: setting it leaves the prompt byte for byte the same", (_field, set) => {
     const on = set(CAPS_SNAPSHOT);
@@ -241,6 +247,7 @@ describe("eval/caps.ts", () => {
   // [capped input, its size in CAPS_SNAPSHOT, snapshots with one input (or one item of it) one unit or one item over]
   const CAPPED: Array<[string, number, GenerationInputSnapshot[]]> = [
     ["businessName", size(facts.businessName), [withFacts({ businessName: grow(facts.businessName) })]],
+    ["tradeOther", size(facts.tradeOther ?? ""), [withFacts({ tradeOther: grow(facts.tradeOther ?? "") })]],
     ["city", size(facts.location.city), [withFacts({ location: { ...facts.location, city: grow(facts.location.city) } })]],
     ["each service-area place", shortest(places), places.map((_, i) => withFacts({ serviceArea: { ...facts.serviceArea, places: changeAt(places, i, grow) } }))],
     ["the number of places", places.length, [withFacts({ serviceArea: { ...facts.serviceArea, places: [...places, ...places.slice(0, 1)] } })]],
@@ -261,6 +268,7 @@ describe("eval/caps.ts", () => {
   it("holds MODEL_TEXT_CAPS, where the prompt cuts the model's view of owner text, at the sizes pinned above", () => {
     expect(MODEL_TEXT_CAPS).toEqual({
       businessName: size(facts.businessName),
+      tradeOther: size(facts.tradeOther ?? ""),
       city: size(facts.location.city),
       place: shortest(places),
       differentiator: size(brief.differentiator ?? ""),
@@ -323,9 +331,9 @@ describe("costMicrousd", () => {
 
 describe("worstCaseJobMicrousd", () => {
   it("is MAX_ATTEMPTS attempts at the input and output caps", () => {
-    expect(MAX_ATTEMPTS * (MAX_INPUT_TOKENS * 4 + MAX_OUTPUT_TOKENS * 20)).toBe(1_331_520);
-    expect(worstCaseJobMicrousd("anthropic", "claude-opus-5-5")).toBe(1_331_520);
-    expect(worstCaseJobMicrousd("anthropic", "claude-sonnet-5")).toBe(665_760);
+    expect(MAX_ATTEMPTS * (MAX_INPUT_TOKENS * 4 + MAX_OUTPUT_TOKENS * 20)).toBe(1_337_520);
+    expect(worstCaseJobMicrousd("anthropic", "claude-opus-5-5")).toBe(1_337_520);
+    expect(worstCaseJobMicrousd("anthropic", "claude-sonnet-5")).toBe(668_760);
     expect(worstCaseJobMicrousd("fake", "fake-template")).toBe(0);
   });
 
@@ -338,7 +346,7 @@ describe("worstCaseJobMicrousd", () => {
 // Items 3 and 5 (G1).
 describe("worstCaseAttemptMicrousd (item 5)", () => {
   it("is the largest prompt and the full output cap at the model's price, a third of the job's worst case, and null when unpriced", () => {
-    expect(worstCaseAttemptMicrousd("anthropic", "claude-opus-5-5")).toBe(70_000 * 4 + 8_192 * 20);
+    expect(worstCaseAttemptMicrousd("anthropic", "claude-opus-5-5")).toBe(70_500 * 4 + 8_192 * 20);
     expect(worstCaseAttemptMicrousd("anthropic", "claude-opus-5-5")! * 3).toBe(worstCaseJobMicrousd("anthropic", "claude-opus-5-5"));
     expect(worstCaseAttemptMicrousd("anthropic", "claude-fable-5-1")).toBeNull();
     expect(worstCaseAttemptMicrousd("anthropic", "toString")).toBeNull();

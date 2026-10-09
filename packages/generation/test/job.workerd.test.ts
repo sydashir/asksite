@@ -708,8 +708,8 @@ describe("the job's end-states and the owner's lifetime total, end to end (task-
 // Part D (G1): D1 write retries, an unpriced model, the cost of an attempt with no usage, the job's time budget.
 describe("runGenerationJob: G1 reliability and money", () => {
   const OPUS = { MODEL_PROVIDER: "anthropic", MODEL_ID: "claude-opus-5-5", ANTHROPIC_API_KEY: "k" } as const;
-  // Opus 5.5: 70,000 input tokens x $4 + 8,192 output tokens x $20 per million (models.ts).
-  const ATTEMPT_WORST = 70_000 * 4 + 8_192 * 20;
+  // Opus 5.5: 70,500 input tokens (MAX_INPUT_TOKENS since 2026-10-09) x $4 + 8,192 output tokens x $20 per million (models.ts).
+  const ATTEMPT_WORST = 70_500 * 4 + 8_192 * 20;
   const FINISH_SQL = /SET status = \?2, output_json/;
 
   it("retries the terminal write once on a D1 transient error: the row ends and the report says so", async () => {
@@ -795,7 +795,7 @@ describe("runGenerationJob: G1 reliability and money", () => {
 
   it("caps the sum at the job's worst case when the reported usage is already large and two attempts also flag it missing", async () => {
     await queued("g1");
-    const big = { inputTokens: 70_000, outputTokens: 8_192 };
+    const big = { inputTokens: 70_500, outputTokens: 8_192 };
     const provider = scriptedProvider([{ ...answer({}, big), usageMissing: true }, { ...answer({}, big), usageMissing: true }, answer(MODEL_ANSWER, big)]);
     await runGenerationJob(envWith(OPUS), "g1", deps(provider));
     expect((await getGeneration(db, "g1")).cost_microusd).toBe(3 * ATTEMPT_WORST);

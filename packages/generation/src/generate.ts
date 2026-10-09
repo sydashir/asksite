@@ -26,7 +26,9 @@ export const MAX_OUTPUT_TOKENS = 8_192;
  * --caps-probe measures a real caps prompt on each provider. These two constants live here, not in
  * models.ts, because models.ts imports this file; models.ts re-exports them.
  */
-export const MAX_INPUT_TOKENS = 70_000;
+// 70,000 until 2026-10-09; raised by 500 for the IT/law/other + scope prompt lines, 2026-10-09 (moderator ruling: the
+// test's 600-byte headroom under this bound stays).
+export const MAX_INPUT_TOKENS = 70_500;
 /** Room for chat-template and structured-output tokens the provider adds [inferred]. */
 export const PROMPT_OVERHEAD_TOKENS = 2_000;
 

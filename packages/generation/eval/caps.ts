@@ -4,12 +4,13 @@ import { MODEL_TEXT_CAPS } from "../src/model-facts.ts";
 import { MAX_REPAIR_ISSUES } from "../src/prompt.ts";
 
 // The largest prompt the builder can produce: every capped input at its cap, each field group in its
-// costliest character, with the builder choices that make the prompt longest (goal "call", no founding
-// year, every claim and section on). test/models.test.ts proves it: it tries every fill in every field
+// costliest character, with the builder choices that make the prompt longest (trade "other" with its own business
+// type at its cap, measured 47 bytes over "law" with its rule line; scope "places"; goal "call"; no founding year;
+// every claim and section on). test/models.test.ts proves it: it tries every fill in every field
 // group and in the repair lines, builds every trade, tone, goal and on/off choice, pins each cap to the
 // edge of its real schema, and checks every fill against MAX_INPUT_TOKENS.
 // Facts and Brief count their caps in code points. The prompt cuts the model's view of these owner strings
-// to their caps in UTF-16 units (MODEL_TEXT_CAPS): businessName, city, each service-area place,
+// to their caps in UTF-16 units (MODEL_TEXT_CAPS): businessName, tradeOther, city, each service-area place,
 // differentiator, notes and each comment value. It cuts repair lines too. So there a unit costs at most 3
 // UTF-8 bytes and "€" (3 bytes, one unit) is the costliest: U+2028 and U+2029 become the 2-byte JSON
 // escape \n in the data line (prompt.ts) and one space per run in a repair line; a lone surrogate becomes
@@ -36,7 +37,8 @@ export function capsSnapshot(fill: string, serviceFill: string = fill): Generati
   return {
     facts: Facts.parse({
       businessName: text(cap.businessName),
-      trade: "landscaping",
+      trade: "other",
+      tradeOther: text(cap.tradeOther),
       phone: "+15125550100",
       email: "caps@example.com",
       location: { city: text(cap.city), state: "TX" },
@@ -70,7 +72,8 @@ export function capsRepair(fill: string): Issue[] {
  * names at the model boundary, because bindServiceNames needs them exact (P3-7 Z1), so there a 4-byte
  * character costs its full 4 bytes, 1 more than the euro sign per counted character (12 x 40 = 480 bytes).
  * Measured at cc605a5 (2026-10-06): the first attempt's inputBound is 53,400, 16,600 bytes under MAX_INPUT_TOKENS. The repair attempt,
- * which adds CAPS_REPAIR, is the largest prompt: inputBound 69,368, so 632 bytes of room.
+ * which adds CAPS_REPAIR, is the largest prompt: inputBound 69,368, so 632 bytes of room. Measured again for the trades and the
+ * service-area scope (2026-10-09, trade "other" with tradeOther at its cap): 53,912 and 69,880, so 620 bytes under the new 70,500.
  */
 export const CAPS_SNAPSHOT: GenerationInputSnapshot = capsSnapshot("€", "\u{1F600}");
 export const CAPS_REPAIR: Issue[] = capsRepair("€");

@@ -176,6 +176,21 @@ describe("templateDraft", () => {
     }
   });
 
+  it("leaves the local opening out of the about text for the whole country or worldwide, keeps it for places, and stays valid for every trade and scope", () => {
+    const brief = Brief.parse({ tone: "friendly", goal: "quote" });
+    const draftOf = (trade: Facts["trade"], scope?: string) =>
+      templateDraft(Facts.parse({ ...MINIMAL_FACTS, ...tradeFields(trade), ...(scope === undefined ? {} : { serviceAreaScope: scope }) }), brief);
+    const local = "We're a local cleaning business serving homes in the area. Get in touch about what you need, and we'll walk you through your options.";
+    expect([draftOf("cleaning").copy.about, draftOf("cleaning", "places").copy.about]).toEqual([local, local]);
+    expect([draftOf("cleaning", "country").copy.about, draftOf("cleaning", "worldwide").copy.about]).toEqual(Array(2).fill("Get in touch about what you need, and we'll walk you through your options."));
+    for (const trade of TRADES)
+      for (const scope of ["country", "worldwide"]) {
+        expect({ trade, scope, about: draftOf(trade, scope).copy.about }).not.toMatchObject({ about: expect.stringMatching(/\blocal\b|in the area/i) });
+        const facts = Facts.parse({ ...MINIMAL_FACTS, ...tradeFields(trade), serviceAreaScope: scope });
+        expect({ trade, scope, issues: issuesOf(facts, brief) }).toEqual({ trade, scope, issues: [] });
+      }
+  });
+
   it("gives each trade three service descriptions of its own", () => {
     const own = new Map(TRADES.map((trade) => [trade, new Set(draftFor(trade).copy.serviceDescriptions.map((d) => d.description))]));
     for (const [trade, descriptions] of own) {

@@ -224,9 +224,24 @@ describe("buildPrompt", () => {
 
   it("allows only the claims the owner's facts back, and free only about estimates", () => {
     expect(buildPrompt(FULL_SNAPSHOT).user).toContain(
-      "Allowed claims: licensed = yes; insured = yes; emergency, around the clock, after hours or holidays = yes; every day = yes; free = yes (only about estimates or quotes; never free repairs, service calls, inspections or parts).",
+      "Allowed claims: licensed = yes; insured = yes; emergency, around the clock, after hours or holidays = yes; every day = yes; free = yes (only about estimates or quotes; never free repairs, service calls, inspections or parts); nationwide = no; worldwide = no.",
     );
-    expect(buildPrompt(MINIMAL_SNAPSHOT).user).toContain("Allowed claims: licensed = no; insured = no; emergency, around the clock, after hours or holidays = no; every day = no; free = no.");
+    expect(buildPrompt(MINIMAL_SNAPSHOT).user).toContain("Allowed claims: licensed = no; insured = no; emergency, around the clock, after hours or holidays = no; every day = no; free = no; nationwide = no; worldwide = no.");
+  });
+
+  it("allows nationwide only for the scope country and worldwide only for worldwide, and gives the law rule only to a law firm", () => {
+    const user = (extra: object) => buildPrompt({ ...MINIMAL_SNAPSHOT, facts: Facts.parse({ ...MINIMAL_FACTS, ...extra }) }).user;
+    expect(user({ serviceAreaScope: "country" })).toContain("; nationwide = yes; worldwide = no.");
+    expect(user({ serviceAreaScope: "worldwide" })).toContain("; nationwide = no; worldwide = yes.");
+    expect(user({ serviceAreaScope: "places" })).toContain("; nationwide = no; worldwide = no.");
+    const LAW_RULE = "Trade: a law firm. Never promise or predict an outcome";
+    expect(user({ trade: "law" })).toContain(LAW_RULE);
+    expect([user({}), user({ trade: "it" }), user({ trade: "other", tradeOther: "Bakery" })].filter((text) => text.includes(LAW_RULE))).toEqual([]);
+    expect(user({ trade: "other", tradeOther: "Bakery" })).toContain("Trade: the kind of business named in tradeOther.");
+    // Every outcome and superlative the law rule names is one the checker refuses for a law firm.
+    const law = Facts.parse({ ...MINIMAL_FACTS, trade: "law" });
+    const named = ["win", "results", "success", "you deserve", "best", "leading", "top lawyers", "number one", "unmatched", "most experienced"];
+    expect(named.filter((word) => aiClaims(`We offer ${word} help`, law).length === 0)).toEqual([]);
   });
 
   it("gives the availability entries the checker's own backing, and the checker accepts each family's words exactly then", () => {

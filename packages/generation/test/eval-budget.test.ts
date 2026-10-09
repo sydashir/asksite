@@ -65,10 +65,10 @@ describe("formatUsd", () => {
 
 describe("the worst cases of one request (P3-17 D1, D3)", () => {
   it("prices a site at worstCaseJobMicrousd, a caps-probe request at MAX_INPUT_TOKENS in and 256 out, a --record request at MAX_INPUT_TOKENS in and MAX_OUTPUT_TOKENS out", () => {
-    expect(OPUS_SITE).toBe(3 * (70_000 * 4 + 8_192 * 20));
+    expect(OPUS_SITE).toBe(3 * (70_500 * 4 + 8_192 * 20));
     expect(CAPS_PROBE_OUTPUT_TOKENS).toBe(256);
-    expect(requestWorstCaseMicrousd(OPUS.provider, OPUS.modelId, CAPS_PROBE_OUTPUT_TOKENS)).toBe(70_000 * 4 + 256 * 20);
-    expect(requestWorstCaseMicrousd(OPUS.provider, OPUS.modelId, MAX_OUTPUT_TOKENS)).toBe(70_000 * 4 + 8_192 * 20);
+    expect(requestWorstCaseMicrousd(OPUS.provider, OPUS.modelId, CAPS_PROBE_OUTPUT_TOKENS)).toBe(70_500 * 4 + 256 * 20);
+    expect(requestWorstCaseMicrousd(OPUS.provider, OPUS.modelId, MAX_OUTPUT_TOKENS)).toBe(70_500 * 4 + 8_192 * 20);
     expect(requestWorstCaseMicrousd(GEMMA.provider, GEMMA.modelId, CAPS_PROBE_OUTPUT_TOKENS)).toBe(costMicrousd(GEMMA.provider, GEMMA.modelId, { inputTokens: MAX_INPUT_TOKENS, outputTokens: 256 }));
   });
 

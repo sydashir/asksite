@@ -1,5 +1,5 @@
 import type { Brief, GenerationInputSnapshot, Issue } from "@asksite/core";
-import { COPY_LIMITS, factSections } from "@asksite/site-schema";
+import { COPY_LIMITS, factSections, type Trade } from "@asksite/site-schema";
 import { sevenDaysBacking } from "./ai-claims.ts";
 import { MODEL_TEXT_CAPS, modelText, toModelFacts, wellFormed } from "./model-facts.ts";
 
@@ -23,7 +23,7 @@ export const MAX_ISSUE_MESSAGE = 200;
 const L = COPY_LIMITS;
 
 /** Fixed rules. The limits come from COPY_LIMITS, so the prompt and the schema cannot drift apart. */
-export const SYSTEM_PROMPT = `You write the wording for a small website of a small US home-services business (plumbing, HVAC, electrical, roofing, cleaning or landscaping). Reply with JSON only, matching the given schema. A program checks every rule below; one broken rule rejects the whole answer.
+export const SYSTEM_PROMPT = `You write the wording for a small website of a small US business: a home-services trade (plumbing, HVAC, electrical, roofing, cleaning or landscaping), an IT firm, a law firm, or another kind of business named in tradeOther. Reply with JSON only, matching the given schema. A program checks every rule below; one broken rule rejects the whole answer.
 
 Facts rule. The site already shows the owner's phone number, prices, hours, service area, licences, reviews, photos and founding year. Your words must not state any fact, so:
 - Never write a digit, a price, a year, a time, a phone number, an email address, a web address, "@" or a currency sign. Do not spell numbers out either (twenty, hundreds).
@@ -31,7 +31,7 @@ Facts rule. The site already shows the owner's phone number, prices, hours, serv
 - Never use these words: bond, bonds, bonded, certified, accredited, award-winning, top-rated, five-star, rated, rating, ratings, BBB, review, reviews, say, says, said, guarantee, guarantees, guaranteed, warranty, warranties, warrantied, cheapest, lowest, dollar, dollars, bucks, cents, since, year, years, decade, decades, established, founded, generation, generations, same-day, next-day, weekend, weekends, within the hour, within an hour, state-approved, board-approved, city-approved, county-approved, background-checked, background checks, vetted, longtime, long-time, seasoned, rave, raves, raved, recommended, or any day of the week.
 - That ban covers every plural or other form of these words, such as Mondays. It covers these spelled-out numbers too: thirty, forty, fifty, sixty, seventy, eighty, ninety, hundred, hundreds, thousand, thousands, million and millions.
 - Never put anything in quotation marks, single quotes included. Apostrophes are fine.
-- Use "licensed" (or licence, license, lic.), "insured" (or insurance, ins., liability), "emergency", "around the clock", "day or night", "any time" (or anytime), "after-hours", "all hours", "holidays", "every day", "open daily", "available daily", "free" (also in stress-free, freebie), "no charge", "no cost", "no fee", "zero cost", "gratis", "on the house", "never charge", "without charge" or "complimentary" only where the request's allowed claims say yes. These words count in every form and sense, so never write "feel free" unless free = yes. Even then, "free", "no charge", "no cost" and "complimentary" may describe only estimates or quotes.
+- Use "licensed" (or licence, license, lic.), "insured" (or insurance, ins., liability), "emergency", "around the clock", "day or night", "any time" (or anytime), "after-hours", "all hours", "holidays", "every day", "open daily", "available daily", "free" (also in stress-free, freebie), "no charge", "no cost", "no fee", "zero cost", "gratis", "on the house", "never charge", "without charge", "complimentary", "nationwide" (or countrywide, nationally, across the country, coast to coast) or "worldwide" (or around the world, global, international, overseas) only where the request's allowed claims say yes. These words count in every form and sense, so never write "feel free" unless free = yes. Even then, "free", "no charge", "no cost" and "complimentary" may describe only estimates or quotes.
 - Invent nothing: no customers, quotes or testimonials, no team size, staff names, brands, response times, awards, promises or offers. Describe the services in general terms.
 - These rules apply to every word you write, also when you repeat the business name, a service name or a place. If a name holds a digit or a word these rules forbid, do not repeat it in your wording.
 
@@ -64,6 +64,13 @@ const GOAL: Record<Brief["goal"], string> = {
 
 const yesNo = (flag: boolean): string => (flag ? "yes" : "no");
 
+/** What a trade's id does not say. A law firm's rules are checked too (ai-claims.ts NEVER_IN_LAW_COPY). */
+const TRADE_GUIDANCE: Partial<Record<Trade, string>> = {
+  it: "Trade: an IT firm. Write for people and businesses that need help with computers, networks or software.",
+  law: "Trade: a law firm. Never promise or predict an outcome (win, results, success, you deserve) and never use a superlative (best, leading, top, number one, unmatched, most experienced).",
+  other: "Trade: the kind of business named in tradeOther. Write for that business and its customers.",
+};
+
 /** Plan 1's checker allows "free" anywhere once the owner gives free estimates, so the prompt scopes it. */
 const FREE_CLAIM = "yes (only about estimates or quotes; never free repairs, service calls, inspections or parts)";
 
@@ -95,6 +102,7 @@ const REPAIR_INTRO =
 export function buildPrompt(snapshot: GenerationInputSnapshot, repair: readonly Issue[] = []): Prompt {
   const { facts, brief } = snapshot;
   const business = toModelFacts(facts);
+  const guidance = TRADE_GUIDANCE[facts.trade];
   const ownerBrief = {
     differentiator: brief.differentiator === undefined ? undefined : modelText(brief.differentiator, MODEL_TEXT_CAPS.differentiator),
     notes: brief.notes === undefined ? undefined : modelText(brief.notes, MODEL_TEXT_CAPS.notes),
@@ -103,10 +111,11 @@ export function buildPrompt(snapshot: GenerationInputSnapshot, repair: readonly 
   const lines = [
     "Write the website wording for this business.",
     "",
-    `Allowed claims: licensed = ${yesNo(business.hasLicence)}; insured = ${yesNo(business.insured)}; emergency, around the clock, after hours or holidays = ${yesNo(business.emergency247)}; every day = ${yesNo(sevenDaysBacking(facts))}; free = ${business.freeEstimates ? FREE_CLAIM : "no"}.`,
+    `Allowed claims: licensed = ${yesNo(business.hasLicence)}; insured = ${yesNo(business.insured)}; emergency, around the clock, after hours or holidays = ${yesNo(business.emergency247)}; every day = ${yesNo(sevenDaysBacking(facts))}; free = ${business.freeEstimates ? FREE_CLAIM : "no"}; nationwide = ${yesNo(business.serviceAreaScope === "country")}; worldwide = ${yesNo(business.serviceAreaScope === "worldwide")}.`,
     `Sections the layout must include: ${["hero", ...factSections(facts)].join(", ")}.`,
     `Tone: ${TONE[brief.tone]}.`,
     `Main goal: ${GOAL[brief.goal]}.`,
+    ...(guidance === undefined ? [] : [guidance]),
     "",
     "Business data (JSON):",
     // JSON.stringify leaves U+2028/U+2029 raw and some readers break lines at them. The JSON escape \n keeps the data one line and costs 2 bytes (Decision 4 needs at most 3 per unit).
