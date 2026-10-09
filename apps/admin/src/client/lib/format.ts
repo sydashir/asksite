@@ -1,3 +1,4 @@
+import { SCOPE_OPTIONS, TRADE_OPTIONS } from "../../../../app/src/client/lib/labels.ts";
 import { CONFIRM_EMAIL_MISMATCH } from "../../messages.ts";
 import type { OwnerDeletionView, TakedownView } from "../../settings-view.ts";
 
@@ -131,4 +132,22 @@ export function deletionResultText(view: OwnerDeletionView): string {
   const list = `${plural(rows.sites, "site", "sites")}, ${plural(rows.site_versions, "version", "versions")}, ${plural(rows.uploads, "photo", "photos")}, ${plural(rows.leads, "message", "messages")} and ${plural(rows.generations, "AI writing job", "AI writing jobs")}`;
   const base = `Deleted ${list}, and the account.`;
   return attempts > 1 ? `${base} This was attempt ${attempts}: earlier attempts deleted the rest, so these are only what this one deleted.` : base;
+}
+
+const factsOf = (document: unknown): Record<string, unknown> => {
+  const facts = typeof document === "object" && document !== null ? (document as { facts?: unknown }).facts : undefined;
+  return typeof facts === "object" && facts !== null ? (facts as Record<string, unknown>) : {};
+};
+
+/** The kind of business, with the owner's own words for "Other" (free text, as typed), in the owner app's labels. */
+export function businessTypeText(document: unknown): string {
+  const { trade, tradeOther } = factsOf(document);
+  const label = TRADE_OPTIONS.find((option) => option.value === trade)?.label ?? "(none)";
+  return trade === "other" && typeof tradeOther === "string" ? `${label}: “${tradeOther}”` : label;
+}
+
+/** Where the business serves customers, in the owner app's labels; a document with no scope serves specific places. */
+export function serviceScopeText(document: unknown): string {
+  const scope = factsOf(document)["serviceAreaScope"] ?? "places";
+  return SCOPE_OPTIONS.find((option) => option.value === scope)?.label ?? "(unknown)";
 }

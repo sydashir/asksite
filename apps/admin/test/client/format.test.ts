@@ -1,5 +1,20 @@
 import { describe, expect, it } from "vitest";
-import { confirmEmailProblem, deleteDialogText, deletionResultText, dollars, jobCostText, jobLineText, restoredText, revokeNotice, spentTodayText, takedownResult, when, worstCaseText } from "../../src/client/lib/format.ts";
+import {
+  businessTypeText,
+  confirmEmailProblem,
+  deleteDialogText,
+  deletionResultText,
+  dollars,
+  jobCostText,
+  jobLineText,
+  restoredText,
+  revokeNotice,
+  serviceScopeText,
+  spentTodayText,
+  takedownResult,
+  when,
+  worstCaseText,
+} from "../../src/client/lib/format.ts";
 
 describe("admin messages", () => {
   it("shows micro-dollars as dollars and cents", () => {
@@ -8,8 +23,23 @@ describe("admin messages", () => {
   });
 
   it("says the worst case is unknown when the model has no recorded price", () => {
-    expect(worstCaseText(8 * 1_331_520)).toBe("$10.66");
+    // 8 jobs at Opus 5.5's worst case, 3 x (70,500 x $4 + 8,192 x $20) per million = 1,337,520 micro-dollars, rounded up to the cent.
+    expect(worstCaseText(8 * 3 * (70_500 * 4 + 8_192 * 20))).toBe("$10.71");
     expect(worstCaseText(null)).toBe("Unknown: no price is recorded for this model (check MODEL_PROVIDER and MODEL_ID)");
+  });
+
+  it("shows the reviewer the kind of business, with the owner's own words for Other, and where it serves", () => {
+    const doc = (facts: object) => ({ facts });
+    expect([businessTypeText(doc({ trade: "law" })), businessTypeText(doc({ trade: "other", tradeOther: "Bakery" })), businessTypeText(null)]).toEqual([
+      "Law firm",
+      "Other: “Bakery”",
+      "(none)",
+    ]);
+    expect([doc({}), doc({ serviceAreaScope: "country" }), doc({ serviceAreaScope: "worldwide" })].map(serviceScopeText)).toEqual([
+      "In specific places",
+      "Across the whole country",
+      "Worldwide",
+    ]);
   });
 
   it("says after a restore how many of the page's photos were deleted", () => {

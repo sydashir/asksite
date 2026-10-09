@@ -30,6 +30,11 @@ describe("textFlags", () => {
     ]);
   });
 
+  it("flags the owner's own business type (trade Other) like any other free text", () => {
+    const facts = Facts.parse({ ...VALID_FACTS, trade: "other", tradeOther: "Bakery joes.example" });
+    expect(textFlags(facts)).toEqual([{ path: "facts.tradeOther", reason: "web_address" }]);
+  });
+
   it("reads the text as a reader sees it: any ending, full-width text, spelled-out dots, any digits and dashes", () => {
     const facts = Facts.parse({
       ...VALID_FACTS,

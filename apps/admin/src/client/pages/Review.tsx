@@ -10,7 +10,7 @@ import { api } from "../../../../app/src/client/lib/api.ts";
 import { APPROVE_LEASE_LOST, APPROVE_LIVE_COPY_FAILED, COPIED_AGAIN, COPY_LIVE_COPY_FAILED } from "../../messages.ts";
 import { useResource, useVerifiedPages } from "../hooks.ts";
 import { flatten, textChanges } from "../lib/diff.ts";
-import { FLAG_REASON, when } from "../lib/format.ts";
+import { businessTypeText, FLAG_REASON, serviceScopeText, when } from "../lib/format.ts";
 
 /** What the result region shows. `copyAgain`: the notice says the pages are not (all) live although the version is approved, so it offers "Copy the live pages again" (A16-4c). */
 type Result = { tone: "success" | "error"; text: string; href?: string; copyAgain?: boolean };
@@ -228,6 +228,10 @@ function ReviewScreen({ detail, onDone }: { detail: AdminVersionDetail; onDone: 
               <dd className="[overflow-wrap:anywhere]">
                 <Breakable text={publicEmail} />
               </dd>
+              <dt className="font-medium">Business type</dt>
+              <dd className="[overflow-wrap:anywhere]">{businessTypeText(detail.document)}</dd>
+              <dt className="font-medium">Service area</dt>
+              <dd>{serviceScopeText(detail.document)}</dd>
               <dt className="font-medium">Photos</dt>
               <dd>
                 {checks.photoCount}

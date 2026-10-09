@@ -35,6 +35,7 @@ const digits = (text: string): string => [...text.matchAll(/\p{Nd}/gu)].map((m) 
 /** Every owner-typed text fact, with its path. */
 function factStrings(facts: Facts): Array<[string, string]> {
   const out: Array<[string, string]> = [["businessName", facts.businessName]];
+  if (facts.tradeOther !== undefined) out.push(["tradeOther", facts.tradeOther]);
   if (facts.location.streetAddress !== undefined) out.push(["location.streetAddress", facts.location.streetAddress]);
   out.push(["location.city", facts.location.city]);
   facts.services.forEach((s, i) => out.push([`services.${i}.name`, s.name]));
