@@ -18,6 +18,9 @@ export const DESIGN_FOR_TRADE = {
   roofing: "refined",
   landscaping: "refined",
   cleaning: "modern",
+  it: "modern",
+  law: "refined",
+  other: "modern",
 } as const satisfies Record<Trade, DesignId>;
 
 /** The design a new draft for this trade gets. */

@@ -28,6 +28,9 @@ const NEED: Record<Trade, string> = {
   roofing: "a roofer",
   cleaning: "a cleaner",
   landscaping: "a landscaper",
+  it: "IT help",
+  law: "legal help",
+  other: "help",
 };
 
 /** "Need a plumber in Austin?": the owner's trade and home town, and nothing else, as a question. */

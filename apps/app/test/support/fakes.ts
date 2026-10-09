@@ -37,6 +37,9 @@ const TRADE_WORD: Record<Facts["trade"], string> = {
   roofing: "Roofing",
   cleaning: "Cleaning",
   landscaping: "Landscaping",
+  it: "IT work",
+  law: "Legal work",
+  other: "Work",
 };
 
 /**

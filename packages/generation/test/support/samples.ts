@@ -1,5 +1,8 @@
 import { Brief, type GenerationInputSnapshot } from "@asksite/core";
-import { Facts } from "@asksite/site-schema";
+import { Facts, type Trade } from "@asksite/site-schema";
+
+/** The facts fields of `trade`: trade "other" also names the owner's own business type. */
+export const tradeFields = (trade: Trade): Pick<Facts, "trade" | "tradeOther"> => (trade === "other" ? { trade, tradeOther: "Bakery" } : { trade });
 
 /** A plumber with every optional fact set, including every private one the model must never see. */
 export const FULL_FACTS = Facts.parse({

@@ -10,6 +10,8 @@ export {
   Photo,
   Service,
   ServiceArea,
+  SERVICE_AREA_SCOPES,
+  serviceAreaScopeOf,
   SOCIAL_HOSTS,
   SOCIAL_NETWORKS,
   SocialLink,
@@ -17,6 +19,7 @@ export {
   TRADES,
   UsPhone,
   type Day,
+  type ServiceAreaScope,
   type Trade,
 } from "./facts.ts";
 export { foldings } from "./lookalikes.ts";

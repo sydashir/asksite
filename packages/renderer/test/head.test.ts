@@ -82,7 +82,7 @@ describe("the words the renderer adds claim nothing (A16)", () => {
     const fixed = ["Our services", "More about our services", "Get in touch", "Get a quote", "Call", "Our work", ...PAGE_IDS.map((id) => PAGES[id].label)];
     // The real pageTitle and pageDescription, for every trade and page, from a document whose facts back nothing.
     const filled = (Object.keys(TRADE_LABEL) as (keyof typeof TRADE_LABEL)[]).flatMap((trade) => {
-      const doc = SiteDocument.parse({ ...MINIMAL, facts: { ...MINIMAL.facts, trade }, copy: { ...MINIMAL.copy, about: "Careful work, done right." } });
+      const doc = SiteDocument.parse({ ...MINIMAL, facts: { ...MINIMAL.facts, trade, ...(trade === "other" ? { tradeOther: "Bakery" } : {}) }, copy: { ...MINIMAL.copy, about: "Careful work, done right." } });
       return PAGE_IDS.flatMap((id) => [pageTitle(doc, id), pageDescription(doc, id)]);
     });
     expect([...fixed, ...filled].flatMap((text) => unbackedClaims(text, facts).map((word) => `${text}: ${word}`))).toEqual([]);

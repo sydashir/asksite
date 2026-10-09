@@ -71,6 +71,9 @@ describe("the starting design follows the trade (user decision 2026-09-26)", () 
       roofing: "refined",
       landscaping: "refined",
       cleaning: "modern",
+      it: "modern",
+      law: "refined",
+      other: "modern",
     });
     expect(Object.keys(DESIGN_FOR_TRADE).sort()).toEqual([...TRADES].sort());
   });

@@ -139,6 +139,9 @@ export const TRADE_WORD: Readonly<Record<Trade, string>> = {
   roofing: "roofing",
   cleaning: "cleaning",
   landscaping: "landscaping",
+  it: "IT",
+  law: "legal",
+  other: "other",
 };
 
 /** Who a visitor is looking for, in a question: "Need a plumber in Austin?" (the closing band's lead). */
@@ -149,6 +152,9 @@ const TRADE_PERSON: Readonly<Record<Trade, string>> = {
   roofing: "a roofer",
   cleaning: "a cleaner",
   landscaping: "a landscaper",
+  it: "IT help",
+  law: "legal help",
+  other: "help",
 };
 
 export const needLine = (facts: Facts): string => `Need ${TRADE_PERSON[facts.trade]} in ${facts.location.city}?`;

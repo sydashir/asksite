@@ -67,7 +67,7 @@ describe("contracts Plan 4 consumes", () => {
       ["modern", "Modern"],
     ]);
     expect(core.LOOKS.map((look) => look.name)).toEqual(["Navy & orange", "Blue & yellow", "Green & amber", "Charcoal & red"]);
-    expect(core.DESIGN_FOR_TRADE).toEqual({ plumbing: "impact", hvac: "impact", electrical: "impact", roofing: "refined", landscaping: "refined", cleaning: "modern" });
+    expect(core.DESIGN_FOR_TRADE).toEqual({ plumbing: "impact", hvac: "impact", electrical: "impact", roofing: "refined", landscaping: "refined", cleaning: "modern", it: "modern", law: "refined", other: "modern" });
   });
 
   it("SiteDocument accepts owner-hidden sections (A6) and still refuses hiding the hero", () => {

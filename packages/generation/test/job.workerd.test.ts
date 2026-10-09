@@ -13,7 +13,7 @@ import { modelCallsToday } from "../src/settings.ts";
 import { templateAnswer, templateDraft } from "../src/template.ts";
 import { AI_DRAFT_JSON_SCHEMA } from "../src/wire-schema.ts";
 import { clearTables, failingRuns, getGeneration, insertGeneration, seedOwnerSite, setSetting, startLocalD1, type LocalD1 } from "./support/d1.ts";
-import { FULL_SNAPSHOT } from "./support/samples.ts";
+import { FULL_SNAPSHOT, tradeFields } from "./support/samples.ts";
 import { answer, ProviderError, scriptedProvider } from "./support/scripted.ts";
 
 const NOW = Date.UTC(2026, 8, 24, 15);
@@ -116,7 +116,7 @@ describe("runGenerationJob", () => {
   it("roofing model and template drafts store refined: every trade's model answer and template fallback store the trade's design", async () => {
     const stored: Record<string, { model: unknown; template: unknown }> = {};
     for (const trade of TRADES) {
-      const snapshot = { facts: Facts.parse({ ...FULL_SNAPSHOT.facts, trade }), brief: FULL_SNAPSHOT.brief };
+      const snapshot = { facts: Facts.parse({ ...FULL_SNAPSHOT.facts, ...tradeFields(trade) }), brief: FULL_SNAPSHOT.brief };
       const modelAnswer = { ...templateAnswer(snapshot.facts, snapshot.brief), theme: { palette: "green-amber", font: "clean" } };
       await queued(`m-${trade}`, "first", "s1", JSON.stringify(snapshot));
       await runGenerationJob(envWith(), `m-${trade}`, deps(scriptedProvider([answer(modelAnswer)])));
@@ -135,6 +135,9 @@ describe("runGenerationJob", () => {
       roofing: { model: { palette: "green-amber", font: "clean", design: "refined" }, template: { palette: "charcoal-red", font: "sturdy", design: "refined" } },
       cleaning: { model: { palette: "green-amber", font: "clean", design: "modern" }, template: { palette: "blue-yellow", font: "friendly", design: "modern" } },
       landscaping: { model: { palette: "green-amber", font: "clean", design: "refined" }, template: { palette: "green-amber", font: "friendly", design: "refined" } },
+      it: { model: { palette: "green-amber", font: "clean", design: "modern" }, template: { palette: "navy-orange", font: "clean", design: "modern" } },
+      law: { model: { palette: "green-amber", font: "clean", design: "refined" }, template: { palette: "navy-orange", font: "clean", design: "refined" } },
+      other: { model: { palette: "green-amber", font: "clean", design: "modern" }, template: { palette: "blue-yellow", font: "friendly", design: "modern" } },
     });
   });
 

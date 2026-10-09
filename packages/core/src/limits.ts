@@ -16,7 +16,7 @@ export const LIMITS = {
   generationInputRetentionDays: 30, // generations.input_json (the owner's facts and brief) of finished rows, by finished_at; output_json, costs and the rest stay
   spamLeadRetentionDays: 30, // spam = 1 rows only (owners never see them); every other lead, daily_cap ones included, keeps leadRetentionDays
   publishRequestsPerSitePerDay: 20, // publish clicks (versions) per site per UTC day: bounds D1 and R2 growth (Plan 2 Decision 25)
-  factsJsonMaxBytes: 307_200, // 300 KiB: the largest valid Facts is 306,352 bytes once JSON-encoded (A8b, A9; test/schemas.test.ts)
+  factsJsonMaxBytes: 307_200, // 300 KiB: the largest valid Facts is 306,633 bytes once JSON-encoded (A8b, A9, trades 2026-10-09; test/schemas.test.ts)
   briefJsonMaxBytes: 74_752, // 73 KiB: the largest valid Brief is 73,865 bytes once JSON-encoded (A8; test/schemas.test.ts)
   editsJsonMaxBytes: 436_224, // 426 KiB: the largest valid OwnerEdits is 435,829 bytes once JSON-encoded (A8c, A12; test/schemas.test.ts)
 } as const;

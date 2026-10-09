@@ -7,7 +7,7 @@ import { aiClaimIssues, aiClaims } from "../src/ai-claims.ts";
 import { SYSTEM_PROMPT } from "../src/prompt.ts";
 import { templateAnswer } from "../src/template.ts";
 import { checkDraft } from "../src/validate.ts";
-import { BRIEF, FULL_FACTS, MINIMAL_FACTS, MINIMAL_SNAPSHOT } from "./support/samples.ts";
+import { BRIEF, FULL_FACTS, MINIMAL_FACTS, MINIMAL_SNAPSHOT, tradeFields } from "./support/samples.ts";
 
 const brief = MINIMAL_SNAPSHOT.brief;
 
@@ -646,7 +646,7 @@ describe("AI claim check: no false positives on what exists", () => {
   const SAMPLES = { FULL_FACTS, MINIMAL_FACTS, CAPS_FACTS: CAPS_SNAPSHOT.facts };
   it.each(Object.entries(SAMPLES))("accepts every template answer for %s (every trade, tone and goal)", (_name, facts) => {
     for (const trade of TRADES) for (const tone of TONES) for (const goal of GOALS) {
-      const forTrade = { ...facts, trade };
+      const forTrade = { ...facts, ...tradeFields(trade) };
       const result = checkDraft(forTrade, templateAnswer(forTrade, { ...BRIEF, tone, goal }));
       expect(result.ok, `${trade} ${tone} ${goal}`).toBe(true);
     }

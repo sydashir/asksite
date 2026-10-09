@@ -8,6 +8,9 @@ export const TRADE_LABEL: Record<Trade, string> = {
   roofing: "Roofing",
   cleaning: "Cleaning",
   landscaping: "Landscaping",
+  it: "IT firm",
+  law: "Law firm",
+  other: "Other",
 };
 
 /** "+15125550142" -> "(512) 555-0142". Input is already validated as US E.164. */

@@ -4,7 +4,7 @@ import { FIXTURES, loadFixture } from "../../../fixtures/index.ts";
 import { templateAnswer, templateDraft } from "../src/template.ts";
 import { bindServiceNames, checkDraft, normalizeEnumCase } from "../src/validate.ts";
 import { AI_DRAFT_JSON_SCHEMA, dropNulls, toWireSchema } from "../src/wire-schema.ts";
-import { BRIEF, FULL_FACTS, MINIMAL_FACTS } from "./support/samples.ts";
+import { BRIEF, FULL_FACTS, MINIMAL_FACTS, tradeFields } from "./support/samples.ts";
 
 describe("checkDraft", () => {
   const good = templateAnswer(FULL_FACTS, BRIEF);
@@ -288,7 +288,7 @@ describe("the page design follows the trade (A12)", () => {
   it("stores an accepted answer on its trade's design, with the model's own palette and font", () => {
     const themes = Object.fromEntries(
       TRADES.map((trade) => {
-        const facts = Facts.parse({ ...FULL_FACTS, trade });
+        const facts = Facts.parse({ ...FULL_FACTS, ...tradeFields(trade) });
         const result = checkDraft(facts, { ...templateAnswer(facts, BRIEF), theme: { palette: "green-amber", font: "clean" } });
         return [trade, result.ok ? result.draft.theme : result.issues];
       }),
@@ -300,6 +300,9 @@ describe("the page design follows the trade (A12)", () => {
       roofing: { palette: "green-amber", font: "clean", design: "refined" },
       cleaning: { palette: "green-amber", font: "clean", design: "modern" },
       landscaping: { palette: "green-amber", font: "clean", design: "refined" },
+      it: { palette: "green-amber", font: "clean", design: "modern" },
+      law: { palette: "green-amber", font: "clean", design: "refined" },
+      other: { palette: "green-amber", font: "clean", design: "modern" },
     });
   });
 });

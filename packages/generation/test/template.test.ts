@@ -5,7 +5,7 @@ import { render } from "@asksite/renderer";
 import { HtmlValidate, StaticConfigLoader } from "html-validate";
 import { FIXTURE_FORM_ACTION, FIXTURE_SITE_URL, FIXTURES, inDesign, loadFixture, stubStylesheets } from "../../../fixtures/index.ts";
 import { templateAnswer, templateDraft } from "../src/template.ts";
-import { MINIMAL_FACTS } from "./support/samples.ts";
+import { MINIMAL_FACTS, tradeFields } from "./support/samples.ts";
 
 const issuesOf = (facts: Facts, brief: Brief) => {
   const result = SiteDocument.safeParse({ facts, ...templateDraft(facts, brief), hidden: [] });
@@ -26,7 +26,7 @@ function* matrix(): Generator<[string, Facts, Brief]> {
           const services = ODD_NAMES.slice(0, (n % 12) + 1).map((name) => ({ name }));
           const facts = Facts.parse({
             ...MINIMAL_FACTS,
-            trade,
+            ...tradeFields(trade),
             services,
             licences: flags & 1 ? [{ label: "State licence", number: "L-1" }] : [],
             insured: Boolean(flags & 2),
@@ -43,7 +43,7 @@ function* matrix(): Generator<[string, Facts, Brief]> {
 
 /** The fallback for `trade` with all twelve ODD_NAMES, so every service description shows. */
 const draftFor = (trade: Facts["trade"], goal: Brief["goal"] = "quote", freeEstimates = false): AiDraft =>
-  templateDraft(Facts.parse({ ...MINIMAL_FACTS, trade, freeEstimates, services: ODD_NAMES.map((name) => ({ name })) }), Brief.parse({ tone: "friendly", goal }));
+  templateDraft(Facts.parse({ ...MINIMAL_FACTS, ...tradeFields(trade), freeEstimates, services: ODD_NAMES.map((name) => ({ name })) }), Brief.parse({ tone: "friendly", goal }));
 
 /** A text's sentences (split on ". ", "! ", "? " and the end), lowercased, without their closing mark. */
 const sentencesOf = (text: string): string[] =>
@@ -92,18 +92,18 @@ describe("templateDraft", () => {
     }
   });
 
-  it("makes a valid document for every trade, claim flag, goal, tone and 1 to 12 services (864 cases)", () => {
+  it("makes a valid document for every trade, claim flag, goal, tone and 1 to 12 services (1,296 cases)", () => {
     const failures: string[] = [];
     let cases = 0;
     for (const [label, facts, brief] of matrix()) {
       cases++;
       if (issuesOf(facts, brief).length > 0) failures.push(label);
     }
-    expect(cases).toBe(864);
+    expect(cases).toBe(1296);
     expect(failures).toEqual([]);
   });
 
-  it("offers free only on the quote button and writes no FAQ, across the 864-case matrix (Decision 8)", () => {
+  it("offers free only on the quote button and writes no FAQ, across the 1,296-case matrix (Decision 8)", () => {
     const failures: string[] = [];
     let freeButNotQuote = 0;
     for (const [label, facts, brief] of matrix()) {
@@ -113,7 +113,7 @@ describe("templateDraft", () => {
       if (JSON.stringify(copy.faq) !== "[]") failures.push(`${label}: faq ${JSON.stringify(copy.faq)}`);
     }
     // The book and call cases where the owner does give free estimates, so "free" would pass the claim checker.
-    expect(freeButNotQuote).toBe(288);
+    expect(freeButNotQuote).toBe(432);
     expect(failures).toEqual([]);
   });
 
@@ -150,15 +150,15 @@ describe("templateDraft", () => {
   it("answers as the model does (templateAnswer): palette and font, no design, already in parsed form", () => {
     const brief = Brief.parse({ tone: "friendly", goal: "quote" });
     for (const trade of TRADES) {
-      const answer = templateAnswer({ ...MINIMAL_FACTS, trade }, brief);
+      const answer = templateAnswer({ ...MINIMAL_FACTS, ...tradeFields(trade) }, brief);
       expect({ trade, theme: Object.keys(answer.theme) }).toEqual({ trade, theme: ["palette", "font"] });
       expect(AiAnswer.parse(answer)).toEqual(answer);
     }
   });
 
-  it("stores the answer on the trade's design, with the trade's palette and font: roofing and landscaping refined, cleaning modern, the rest impact (A12)", () => {
+  it("stores the answer on the trade's design, with the trade's palette and font: roofing, landscaping and law refined, cleaning, IT and other modern, the rest impact (A12)", () => {
     const brief = Brief.parse({ tone: "friendly", goal: "quote" });
-    const themes = Object.fromEntries(TRADES.map((trade) => [trade, templateDraft({ ...MINIMAL_FACTS, trade }, brief).theme]));
+    const themes = Object.fromEntries(TRADES.map((trade) => [trade, templateDraft({ ...MINIMAL_FACTS, ...tradeFields(trade) }, brief).theme]));
     expect(themes).toEqual({
       plumbing: { palette: "navy-orange", font: "clean", design: "impact" },
       hvac: { palette: "blue-yellow", font: "clean", design: "impact" },
@@ -166,9 +166,12 @@ describe("templateDraft", () => {
       roofing: { palette: "charcoal-red", font: "sturdy", design: "refined" },
       cleaning: { palette: "blue-yellow", font: "friendly", design: "modern" },
       landscaping: { palette: "green-amber", font: "friendly", design: "refined" },
+      it: { palette: "navy-orange", font: "clean", design: "modern" },
+      law: { palette: "navy-orange", font: "clean", design: "refined" },
+      other: { palette: "blue-yellow", font: "friendly", design: "modern" },
     });
     for (const trade of TRADES) {
-      const facts = { ...MINIMAL_FACTS, trade };
+      const facts = { ...MINIMAL_FACTS, ...tradeFields(trade) };
       expect(templateDraft(facts, brief)).toEqual(draftFromAnswer(templateAnswer(facts, brief), trade));
     }
   });

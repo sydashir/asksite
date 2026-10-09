@@ -1,4 +1,4 @@
-import { DAYS, DESIGN_IDS, Facts, FONT_IDS, HIDEABLE_SECTIONS, PALETTE_IDS, SOCIAL_NETWORKS, Theme, TRADES } from "@asksite/site-schema";
+import { DAYS, DESIGN_IDS, Facts, FONT_IDS, HIDEABLE_SECTIONS, PALETTE_IDS, SERVICE_AREA_SCOPES, SOCIAL_NETWORKS, Theme } from "@asksite/site-schema";
 import { describe, expect, expectTypeOf, it } from "vitest";
 import { z } from "zod";
 import {
@@ -128,11 +128,14 @@ describe("LIMITS.factsJsonMaxBytes", () => {
   const link = { network: "google", url: url("ｇ．㎩ｇｅ") };
   const largest = {
     businessName: lone.repeat(60),
-    trade: longest(TRADES),
+    // "other" with its own business type at its cap outweighs the longest trade id alone ("landscaping").
+    trade: "other",
+    tradeOther: lone.repeat(40),
     phone: "+12125550142",
     email: `${"a".repeat(249)}@b.co`, // 254 characters; zod's email pattern allows only ASCII, and never " or \
     location: { streetAddress: lone.repeat(80), city: lone.repeat(40), state: "TX", postalCode: "78701" },
     serviceArea: { places: Array.from({ length: 30 }, () => lone.repeat(40)), note: lone.repeat(80) },
+    serviceAreaScope: longest(SERVICE_AREA_SCOPES),
     hours: DAYS.map((day) => ({ days: [day], opens: "00:00", closes: "23:59" })), // one day each: the most entries
     services: Array.from({ length: 12 }, () => ({ name: lone.repeat(40), startingPrice: 100_000 })),
     licences: Array.from({ length: 5 }, () => ({ label: lone.repeat(40), number: lone.repeat(30) })),
@@ -152,7 +155,7 @@ describe("LIMITS.factsJsonMaxBytes", () => {
 
   it("holds the largest valid Facts once JSON-encoded, rounded up to a whole KiB", () => {
     const bytes = jsonBytes(Facts.parse(largest));
-    expect(bytes).toBe(306_352);
+    expect(bytes).toBe(306_633);
     expect(bytes).toBeLessThanOrEqual(LIMITS.factsJsonMaxBytes);
     expect(LIMITS.factsJsonMaxBytes).toBe(Math.ceil(bytes / 1024) * 1024);
   });
@@ -172,6 +175,7 @@ describe("LIMITS.factsJsonMaxBytes", () => {
     ["the business name", { businessName: lone.repeat(61) }],
     ["the phone number", { phone: `${largest.phone}0` }],
     ["the email", { email: `a${largest.email}` }],
+    ["the own business type", { tradeOther: lone.repeat(41) }],
     ["the street address", { location: { ...largest.location, streetAddress: lone.repeat(81) } }],
     ["the city", { location: { ...largest.location, city: lone.repeat(41) } }],
     ["the state", { location: { ...largest.location, state: "TXX" } }],

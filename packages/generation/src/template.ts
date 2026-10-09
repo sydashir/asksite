@@ -83,6 +83,41 @@ const WORDS: Record<Trade, TradeWords> = {
     ],
     theme: { palette: "green-amber", font: "friendly" },
   },
+  it: {
+    headline: "IT help for your home or business",
+    subheadline: "From computer problems to new systems, tell us what's going on and we'll help you figure out the next step.",
+    about: "We're an IT business that helps people and companies with their technology. Get in touch about what you need, and we'll walk you through your options.",
+    descriptions: [
+      "Tell us about your computers, network or software, and what you'd like to change.",
+      "Unsure which option fits your setup? Ask us and we'll explain the choices.",
+      "Bring us your technology questions, big or small, before you commit to anything.",
+    ],
+    theme: { palette: "navy-orange", font: "clean" },
+  },
+  // No outcome, no promise and no comparison: a law firm's page says what it does and invites the visitor to ask.
+  law: {
+    headline: "Legal help for your situation",
+    subheadline: "Tell us what's happening, and we'll explain how we may be able to help and what the next steps could be.",
+    about: "We're a law firm that works with clients on their legal matters. Get in touch about your situation, and we'll walk you through your options.",
+    descriptions: [
+      "Share a little about your matter, so we can explain how this service works.",
+      "Wondering whether this service fits your matter? Ask, and we'll talk it over.",
+      "Questions about the process are welcome before you decide anything.",
+    ],
+    theme: { palette: "navy-orange", font: "clean" },
+  },
+  // The owner names their own business type (tradeOther); the template never quotes owner text, so these words fit any business.
+  other: {
+    headline: "Here to help with what you need",
+    subheadline: "Tell us what you're looking for, and we'll help you figure out the next step.",
+    about: "Every job starts with a conversation. Get in touch about what you need, and we'll walk you through your options.",
+    descriptions: [
+      "Describe what you have in mind, and we'll explain what this involves.",
+      "Not sure this fits what you need? Ask, and we'll go over it together.",
+      "Have a question first? Send it our way whenever you're ready.",
+    ],
+    theme: { palette: "blue-yellow", font: "friendly" },
+  },
 };
 
 function ctaText(goal: Brief["goal"], freeEstimates: boolean): string {

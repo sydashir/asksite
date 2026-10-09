@@ -1,14 +1,14 @@
-import { TRADES } from "@asksite/site-schema";
 import { describe, expect, it } from "vitest";
 import { EVAL_PROFILES } from "../eval/profiles.ts";
 
 describe("EVAL_PROFILES", () => {
-  it("has 20 made-up businesses: 6 trap, 4 edge, 10 ordinary, covering all six trades", () => {
+  // The model evaluation set is unchanged by the IT, law and other trades (2026-10-09): it covers the six launch trades.
+  it("has 20 made-up businesses: 6 trap, 4 edge, 10 ordinary, covering the six launch trades", () => {
     expect(EVAL_PROFILES).toHaveLength(20);
     expect(EVAL_PROFILES.filter((p) => p.kind === "trap")).toHaveLength(6);
     expect(EVAL_PROFILES.filter((p) => p.kind === "edge")).toHaveLength(4);
     expect(EVAL_PROFILES.filter((p) => p.kind === "ordinary")).toHaveLength(10);
-    expect(new Set(EVAL_PROFILES.map((p) => p.snapshot.facts.trade))).toEqual(new Set(TRADES));
+    expect(new Set(EVAL_PROFILES.map((p) => p.snapshot.facts.trade))).toEqual(new Set(["plumbing", "hvac", "electrical", "roofing", "cleaning", "landscaping"]));
     expect(new Set(EVAL_PROFILES.map((p) => p.id)).size).toBe(20);
   });
 

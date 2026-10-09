@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { Facts } from "../src/facts.ts";
+import { z } from "zod";
+import { Facts, serviceAreaScopeOf } from "../src/facts.ts";
 
 const minimal = {
   businessName: "Mop",
@@ -128,5 +129,53 @@ describe("Facts", () => {
     expect(issuePaths({ ...minimal, location: { city: "Austin", state: "TX", postalCode: "7870" } })).toEqual([
       "location.postalCode",
     ]);
+  });
+});
+
+describe("Facts: trades and the service-area scope", () => {
+  it("accepts the IT and law trades without an own business type", () => {
+    expect(issuePaths({ ...minimal, trade: "it" })).toEqual([]);
+    expect(issuePaths({ ...minimal, trade: "law" })).toEqual([]);
+  });
+
+  it("requires the owner's own business type for trade other, trimmed, 2..40 characters, with the text rules", () => {
+    expect(issuePaths({ ...minimal, trade: "other" })).toEqual(["tradeOther"]);
+    expect(Facts.parse({ ...minimal, trade: "other", tradeOther: "  Bakery  " }).tradeOther).toBe("Bakery");
+    expect(issuePaths({ ...minimal, trade: "other", tradeOther: " B " })).toEqual(["tradeOther"]);
+    expect(issuePaths({ ...minimal, trade: "other", tradeOther: "x".repeat(40) })).toEqual([]);
+    expect(issuePaths({ ...minimal, trade: "other", tradeOther: "x".repeat(41) })).toEqual(["tradeOther"]);
+    expect(issuePaths({ ...minimal, trade: "other", tradeOther: "Bak\u200Bery" })).toEqual(["tradeOther"]);
+  });
+
+  it("refuses an own business type for every trade but other", () => {
+    expect(issuePaths({ ...minimal, tradeOther: "Bakery" })).toEqual(["tradeOther"]);
+    expect(issuePaths({ ...minimal, trade: "law", tradeOther: "Bakery" })).toEqual(["tradeOther"]);
+  });
+
+  it("shows the trade rule while another field still has a problem", () => {
+    expect(issuePaths({ ...minimal, trade: "other", phone: "512" })).toEqual(["phone", "tradeOther"]);
+  });
+
+  it("keeps an absent scope absent and reads it as places", () => {
+    const facts = Facts.parse(minimal);
+    expect("serviceAreaScope" in facts).toBe(false);
+    expect(serviceAreaScopeOf(facts)).toBe("places");
+    expect(serviceAreaScopeOf(Facts.parse({ ...minimal, serviceAreaScope: "worldwide", serviceArea: { places: [] } }))).toBe("worldwide");
+    expect(issuePaths({ ...minimal, serviceAreaScope: "galaxy" })).toEqual(["serviceAreaScope"]);
+  });
+
+  it("requires a place for scope places (absent or set), with the issue the former min(1) gave", () => {
+    const empty = { ...minimal, serviceArea: { places: [] } };
+    expect(issuePaths(empty)).toEqual(["serviceArea.places"]);
+    expect(issuePaths({ ...empty, serviceAreaScope: "places" })).toEqual(["serviceArea.places"]);
+    expect(issuePaths({ ...empty, phone: "512" })).toEqual(["phone", "serviceArea.places"]);
+    const [issue] = Facts.safeParse(empty).error?.issues ?? [];
+    const [former] = z.array(z.string()).min(1).safeParse([]).error?.issues ?? [];
+    expect(issue).toEqual({ ...former, path: ["serviceArea", "places"] });
+  });
+
+  it.each(["country", "worldwide"])("lets scope %s list no places, and keeps places it has", (serviceAreaScope) => {
+    expect(issuePaths({ ...minimal, serviceAreaScope, serviceArea: { places: [] } })).toEqual([]);
+    expect(Facts.parse({ ...minimal, serviceAreaScope }).serviceArea.places).toEqual(["Austin"]);
   });
 });

@@ -20,7 +20,7 @@ export function jsonLdScript(data: unknown): SafeHtml {
   return new SafeHtml(`<script type="application/ld+json">${serializeJsonLd(data)}</script>`);
 }
 
-// Most specific schema.org type per trade. schema.org has no cleaning or landscaping type.
+// Most specific schema.org type per trade. schema.org has no cleaning, landscaping or IT type.
 export const SCHEMA_TYPE: Record<Trade, string> = {
   plumbing: "Plumber",
   hvac: "HVACBusiness",
@@ -28,6 +28,9 @@ export const SCHEMA_TYPE: Record<Trade, string> = {
   roofing: "RoofingContractor",
   cleaning: "HomeAndConstructionBusiness",
   landscaping: "HomeAndConstructionBusiness",
+  it: "ProfessionalService",
+  law: "LegalService",
+  other: "LocalBusiness",
 };
 
 /** `url` is the site's own address (the Home page's canonical). */
