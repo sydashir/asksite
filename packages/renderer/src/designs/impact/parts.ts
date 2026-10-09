@@ -3,7 +3,7 @@
 import type { Facts, PageId, SectionId } from "@asksite/site-schema";
 import { contactHeading } from "../../contact-heading.ts";
 import { headingLevel, onSite, quoteLink, type RenderContext } from "../../context.ts";
-import { formatPhone, telUrl, TRADE_LABEL } from "../../format.ts";
+import { formatPhone, telUrl, tradeLabel } from "../../format.ts";
 import { html, type SafeHtml } from "../../html.ts";
 import { DOM_ID } from "../../sections/ids.ts";
 import { icon } from "./icons.ts";
@@ -116,8 +116,8 @@ const PAGE_NAME: Readonly<Record<PageId, string>> = { home: "", services: "Our s
 
 /** The trade and the town over an inner page's <h1>, as in Home's hero line ("Plumbing · Austin, TX"). */
 function pageKicker(ctx: RenderContext): SafeHtml {
-  const { trade, location } = ctx.doc.facts;
-  return html`<p class="kicker eyebrow">${TRADE_LABEL[trade]} · ${location.city}, ${location.state}</p>`;
+  const { facts } = ctx.doc;
+  return html`<p class="kicker eyebrow">${tradeLabel(facts)} · ${facts.location.city}, ${facts.location.state}</p>`;
 }
 
 /**

@@ -5,7 +5,7 @@
 // set:html, dark:, intersect-* and fade classes removed; text-balance added to the h1.
 import type { VariantOf } from "@asksite/site-schema";
 import { quoteLink, type RenderContext } from "../context.ts";
-import { formatPhone, telUrl, TRADE_LABEL } from "../format.ts";
+import { formatPhone, telUrl, tradeLabel } from "../format.ts";
 import { html, safeUrl, type SafeHtml } from "../html.ts";
 import { icon } from "../icons.ts";
 import { DOM_ID } from "./ids.ts";
@@ -32,7 +32,7 @@ export function renderHero(ctx: RenderContext, variant: VariantOf<"hero">): Safe
   const photo = variant === "photo" ? facts.heroPhoto : undefined;
   const tagline = taglineParts(
     [
-      TRADE_LABEL[facts.trade],
+      tradeLabel(facts),
       `${facts.location.city}, ${facts.location.state}`,
       facts.yearFounded === undefined ? undefined : `Since ${facts.yearFounded}`,
     ].filter((part) => part !== undefined),

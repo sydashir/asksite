@@ -6,7 +6,7 @@
 // fade classes dropped.
 import type { SocialLink } from "@asksite/site-schema";
 import { quoteLink, type RenderContext } from "../context.ts";
-import { formatPhone, mailtoUrl, telUrl, TRADE_LABEL } from "../format.ts";
+import { formatPhone, mailtoUrl, telUrl, tradeLabel } from "../format.ts";
 import { html, safeUrl, type SafeHtml } from "../html.ts";
 import { icon } from "../icons.ts";
 
@@ -30,7 +30,7 @@ export function renderFooter(ctx: RenderContext): SafeHtml {
 <div class="grid grid-cols-12 gap-4 gap-y-8 py-8 sm:gap-8 md:py-12">
 <div class="col-span-12 lg:col-span-4">
 <p class="mb-2 font-heading text-xl font-bold text-heading">${facts.businessName}</p>
-<p class="text-sm text-muted">${TRADE_LABEL[facts.trade]} · ${location.city}, ${location.state}</p>
+<p class="text-sm text-muted">${tradeLabel(facts)} · ${location.city}, ${location.state}</p>
 </div>
 <div class="col-span-12 sm:col-span-6 lg:col-span-4">
 <h2 class="mb-2 font-medium text-heading">Contact</h2>

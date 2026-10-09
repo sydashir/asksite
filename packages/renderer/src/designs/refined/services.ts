@@ -12,7 +12,7 @@ import { headingLevel, quoteLink, type RenderContext } from "../../context.ts";
 import { formatPrice } from "../../format.ts";
 import { html, type SafeHtml } from "../../html.ts";
 import { DOM_ID } from "../../sections/ids.ts";
-import { booksVisits, credentialLine, itemHeading, sectionHead, sectionTitle, TRADE_WORD } from "./parts.ts";
+import { askLine, booksVisits, credentialLine, itemHeading, sectionHead, sectionTitle } from "./parts.ts";
 import { bandClass, plan } from "./plan.ts";
 
 export function renderServices(ctx: RenderContext): SafeHtml {
@@ -30,7 +30,7 @@ export function renderServices(ctx: RenderContext): SafeHtml {
   // The box is left out when the closing band, with the same call to action, comes right after the list.
   const more =
     plan(ctx).last !== "services" &&
-    html`<li class="svc-more"><div><p class="svc-mt">${title}</p><p>Ask us about any ${TRADE_WORD[facts.trade]} job.</p></div><a class="bt bt-act" href="${quoteLink()}">${copy.ctaText}</a></li>`;
+    html`<li class="svc-more"><div><p class="svc-mt">${title}</p><p>${askLine(facts)}</p></div><a class="bt bt-act" href="${quoteLink()}">${copy.ctaText}</a></li>`;
 
   return html`<section id="${DOM_ID.services}" class="sec ${bandClass(ctx, "services")}" aria-labelledby="${DOM_ID.services}-title">
 <div class="wr">

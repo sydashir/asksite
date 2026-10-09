@@ -8,7 +8,7 @@ import { formatPhone, formatPrice, telUrl } from "../../format.ts";
 import { fragment, html, type SafeHtml } from "../../html.ts";
 import { icon } from "../../icons.ts";
 import { ARROW_DOWN, CALENDAR } from "./icons.ts";
-import { areaSummary, groupedHours, tradeAndCity } from "./text.ts";
+import { groupedHours, servingText, tradeAndCity } from "./text.ts";
 
 /** Where the full list of licenses is: the footer's credentials (every license, exactly as entered). */
 export const LICENSES_ID = "licenses";
@@ -142,8 +142,8 @@ export const emergencyItem = (): Credential => ({ mark: icon("clock", "i"), text
 /** Free estimates as a credential. */
 export const freeEstimatesItem = (): Credential => ({ mark: icon("circle-check", "i"), text: "Free estimates" });
 
-/** The towns the business serves, summed up as in the no-photo hero: "Serving Austin, Round Rock and 5 more". */
-export const areaItem = (facts: Facts): Credential => ({ mark: icon("map-pin", "i"), text: `Serving ${areaSummary(facts)}` });
+/** The towns the business serves, summed up as in the no-photo hero: "Serving Austin, Round Rock and 5 more" (or the owner's scope). */
+export const areaItem = (facts: Facts): Credential => ({ mark: icon("map-pin", "i"), text: servingText(facts) });
 
 /** The founding year and free estimates, each exactly as given. */
 export function businessCredentials(facts: Facts): Credential[] {

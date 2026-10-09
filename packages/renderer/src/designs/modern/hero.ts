@@ -10,7 +10,7 @@
 //   and the hero keeps one short line with the licenses and insurance.
 import type { Facts, VariantOf } from "@asksite/site-schema";
 import { onPage, onSite, type RenderContext } from "../../context.ts";
-import { mailtoUrl } from "../../format.ts";
+import { mailtoUrl, scopeLine } from "../../format.ts";
 import { html, safeUrl, type SafeHtml } from "../../html.ts";
 import { icon } from "../../icons.ts";
 import { DOM_ID } from "../../sections/ids.ts";
@@ -126,7 +126,7 @@ ${hoursTable(facts)}
 ${emergencyNote(facts)}
 </div>`;
   }
-  return html`<div class="door door--reach"><dl class="reach">${onSite(ctx, "serviceArea") && html`<dt>Service area</dt><dd>${icon("map-pin", "i")}${areaSummary(facts)}</dd>`}<dt>Email</dt><dd><a href="${mailtoUrl(facts.email)}">${emailText(facts.email)}</a></dd></dl></div>`;
+  return html`<div class="door door--reach"><dl class="reach">${onSite(ctx, "serviceArea") && html`<dt>Service area</dt><dd>${icon("map-pin", "i")}${scopeLine(facts) ?? areaSummary(facts)}</dd>`}<dt>Email</dt><dd><a href="${mailtoUrl(facts.email)}">${emailText(facts.email)}</a></dd></dl></div>`;
 }
 
 /**

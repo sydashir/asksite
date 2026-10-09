@@ -1,7 +1,7 @@
 // Words the Modern design derives from the owner's facts and the AI's copy. Nothing here adds a fact: each
 // helper only shortens, groups or repeats text the page already shows.
 import type { Facts, OpeningHours, Trade } from "@asksite/site-schema";
-import { TRADE_LABEL, weeklyHours } from "../../format.ts";
+import { scopeLine, shownArea, tradeLabel, weeklyHours } from "../../format.ts";
 
 /** The weekly hours with consecutive days of the same time in one row: "Monday – Friday". */
 export function groupedHours(hours: readonly OpeningHours[]): Array<{ days: string; time: string }> {
@@ -17,11 +17,11 @@ export function groupedHours(hours: readonly OpeningHours[]): Array<{ days: stri
 /** "Plumbing · Austin, TX", or undefined when the headline already names the city. */
 export function tradeAndCity(facts: Facts, headline: string): string | undefined {
   const { city, state } = facts.location;
-  return headline.toLowerCase().includes(city.toLowerCase()) ? undefined : `${TRADE_LABEL[facts.trade]} · ${city}, ${state}`;
+  return headline.toLowerCase().includes(city.toLowerCase()) ? undefined : `${tradeLabel(facts)} · ${city}, ${state}`;
 }
 
 // Who or what a visitor needs from each trade, as the closing band asks it.
-const NEED: Record<Trade, string> = {
+const NEED: Record<Exclude<Trade, "other">, string> = {
   plumbing: "a plumber",
   hvac: "heating or cooling help",
   electrical: "an electrician",
@@ -30,18 +30,20 @@ const NEED: Record<Trade, string> = {
   landscaping: "a landscaper",
   it: "IT help",
   law: "legal help",
-  other: "help",
 };
 
-/** "Need a plumber in Austin?": the owner's trade and home town, and nothing else, as a question. */
-export const needQuestion = (facts: Facts): string => `Need ${NEED[facts.trade]} in ${facts.location.city}?`;
+/**
+ * "Need a plumber in Austin?": the owner's trade and home town, and nothing else, as a question. The owner's own
+ * business type comes first, which needs no article: "Bakery in Boston?".
+ */
+export const needQuestion = (facts: Facts): string =>
+  facts.trade === "other" ? `${tradeLabel(facts)} in ${facts.location.city}?` : `Need ${NEED[facts.trade]} in ${facts.location.city}?`;
 
 /** "Boise, ID" or "Boise, ID and Meridian": one or two places as words, the home town with its state. */
 export function fewPlaces(facts: Facts): string {
   const { city, state } = facts.location;
-  return facts.serviceArea.places
-    .map((place) => (place.trim().toLowerCase() === city.trim().toLowerCase() ? `${place}, ${state}` : place))
-    .join(" and ");
+  const { places } = shownArea(facts);
+  return places.map((place) => (place.trim().toLowerCase() === city.trim().toLowerCase() ? `${place}, ${state}` : place)).join(" and ");
 }
 
 /**
@@ -50,11 +52,14 @@ export function fewPlaces(facts: Facts): string {
  * and 5 more"; the section lists them all).
  */
 export function areaSummary(facts: Facts): string {
-  const { places } = facts.serviceArea;
+  const { places } = shownArea(facts);
   if (places.length <= 2) return fewPlaces(facts);
   if (places.length === 3) return `${places[0]}, ${places[1]} and ${places[2]}`;
   return `${places[0]}, ${places[1]} and ${places.length - 2} more`;
 }
+
+/** "Serving Austin, Round Rock and 5 more", or the owner's scope in its place: "Serving customers nationwide". */
+export const servingText = (facts: Facts): string => scopeLine(facts) ?? `Serving ${areaSummary(facts)}`;
 
 /** The home town line: "Austin, TX 78745". */
 export function cityLine(facts: Facts): string {

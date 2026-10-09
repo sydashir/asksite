@@ -2,7 +2,7 @@
 // require in all advertising, and the owner's social links) and the phone call bar.
 import type { SocialLink } from "@asksite/site-schema";
 import { navItems, quoteLink, type RenderContext } from "../../context.ts";
-import { formatPhone, mailtoUrl, telUrl, TRADE_LABEL } from "../../format.ts";
+import { formatPhone, mailtoUrl, telUrl, tradeLabel } from "../../format.ts";
 import { html, safeUrl, trusted, type SafeHtml } from "../../html.ts";
 import { callButton, email, icon, lic } from "./parts.ts";
 import { plan } from "./plan.ts";
@@ -28,7 +28,7 @@ export function renderFooter(ctx: RenderContext): SafeHtml {
 <div class="wr ft-grid">
 <div>
 <p class="ft-name">${facts.businessName}</p>
-<p class="ft-trade">${TRADE_LABEL[facts.trade]} · ${location.city}, ${location.state}</p>
+<p class="ft-trade">${tradeLabel(facts)} · ${location.city}, ${location.state}</p>
 <nav class="ft-nav" aria-label="Pages">
 <ul>
 ${navItems(ctx).map((l) => html`<li><a href="${l.href}"${l.current && trusted(' aria-current="page"')}>${l.label}</a></li>`)}

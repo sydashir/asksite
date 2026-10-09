@@ -7,7 +7,7 @@
 // form, and a sticky bar there met the form's Send button at some phone heights.
 import type { SocialLink } from "@asksite/site-schema";
 import { navItems, onPage, onSite, type RenderContext } from "../../context.ts";
-import { formatPhone, mailtoUrl, telUrl, TRADE_LABEL } from "../../format.ts";
+import { formatPhone, mailtoUrl, telUrl, tradeLabel } from "../../format.ts";
 import { html, safeUrl, trusted, type SafeHtml } from "../../html.ts";
 import { addressMarkup, callBarPair, licenceMarkup } from "./parts.ts";
 import { groupedHours } from "./rules.ts";
@@ -43,7 +43,7 @@ export function renderFooter(ctx: RenderContext): SafeHtml {
   return html`<footer class="site-footer">
 <div class="wrap">
 <div class="foot-grid">
-<div><p class="foot-brand">${addressMarkup(facts.businessName)}</p><p class="foot-sub">${TRADE_LABEL[facts.trade]} · ${location.city}, ${location.state}</p></div>
+<div><p class="foot-brand">${addressMarkup(facts.businessName)}</p><p class="foot-sub">${tradeLabel(facts)} · ${location.city}, ${location.state}</p></div>
 <nav aria-label="Pages"><h2 class="kicker">Pages</h2><ul>${navItems(ctx).map((l) => html`<li><a href="${l.href}"${current(l.current)}>${l.label}</a></li>`)}</ul></nav>
 <div><h2 class="kicker">Contact</h2><ul>
 <li><a class="whitespace-nowrap" href="${telUrl(facts.phone)}">${formatPhone(facts.phone)}</a></li>

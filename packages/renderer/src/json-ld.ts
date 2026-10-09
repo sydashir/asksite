@@ -1,4 +1,4 @@
-import type { FaqItem, Facts, Trade } from "@asksite/site-schema";
+import { serviceAreaScopeOf, type FaqItem, type Facts, type Trade } from "@asksite/site-schema";
 import { SafeHtml } from "./html.ts";
 
 // JSON has no "\x3C" escape, so "<", ">" and "&" become \u003c, \u003e and \u0026: the output
@@ -20,7 +20,9 @@ export function jsonLdScript(data: unknown): SafeHtml {
   return new SafeHtml(`<script type="application/ld+json">${serializeJsonLd(data)}</script>`);
 }
 
-// Most specific schema.org type per trade. schema.org has no cleaning, landscaping or IT type.
+// Most specific schema.org type per trade. schema.org has no cleaning, landscaping or IT type, and its
+// ProfessionalService "was deprecated due to confusion with Service" (https://schema.org/ProfessionalService),
+// so an IT firm is a plain LocalBusiness; a law firm is a LegalService (https://schema.org/LegalService).
 export const SCHEMA_TYPE: Record<Trade, string> = {
   plumbing: "Plumber",
   hvac: "HVACBusiness",
@@ -28,10 +30,27 @@ export const SCHEMA_TYPE: Record<Trade, string> = {
   roofing: "RoofingContractor",
   cleaning: "HomeAndConstructionBusiness",
   landscaping: "HomeAndConstructionBusiness",
-  it: "ProfessionalService",
+  it: "LocalBusiness",
   law: "LegalService",
   other: "LocalBusiness",
 };
+
+/**
+ * Where the business works, per schema.org areaServed (https://schema.org/areaServed: AdministrativeArea, GeoShape,
+ * Place or Text), from the owner's facts only: the listed places; the country, a schema.org Country
+ * (https://schema.org/Country, an AdministrativeArea), which is the United States for every site (a US phone and
+ * address, addressCountry "US" below); and nothing for worldwide, which no schema.org place names.
+ */
+function areaServed(facts: Facts): { areaServed?: unknown } {
+  switch (serviceAreaScopeOf(facts)) {
+    case "places":
+      return { areaServed: facts.serviceArea.places };
+    case "country":
+      return { areaServed: { "@type": "Country", name: "United States" } };
+    case "worldwide":
+      return {};
+  }
+}
 
 /** `url` is the site's own address (the Home page's canonical). */
 export function localBusinessJsonLd(facts: Facts, url: string): Record<string, unknown> {
@@ -51,7 +70,7 @@ export function localBusinessJsonLd(facts: Facts, url: string): Record<string, u
       ...(location.postalCode ? { postalCode: location.postalCode } : {}),
       addressCountry: "US",
     },
-    areaServed: facts.serviceArea.places,
+    ...areaServed(facts),
     ...(facts.hours.length > 0
       ? {
           openingHoursSpecification: facts.hours.map((h) => ({

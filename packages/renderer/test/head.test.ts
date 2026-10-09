@@ -1,9 +1,8 @@
-import { DESIGN_IDS, PAGE_IDS, PAGES, SiteDocument, unbackedClaims, type PageId, type SiteDocumentInput } from "@asksite/site-schema";
+import { DESIGN_IDS, PAGE_IDS, PAGES, SiteDocument, TRADES, unbackedClaims, type PageId, type SiteDocumentInput } from "@asksite/site-schema";
 import { HtmlValidate, StaticConfigLoader } from "html-validate";
 import { describe, expect, it, vi } from "vitest";
 import { FIXTURE_SITE_URL, FIXTURES, inDesign, loadFixture, stubStylesheets } from "../../../fixtures/index.ts";
 import { escapeText } from "../src/escape.ts";
-import { TRADE_LABEL } from "../src/format.ts";
 import { clipText, pageDescription, pageTitle, render } from "../src/render.ts";
 import { FULL, MINIMAL } from "./support/doc.ts";
 import { startTags } from "./support/page-safety.ts";
@@ -81,7 +80,7 @@ describe("the words the renderer adds claim nothing (A16)", () => {
   it("passes unbackedClaims with facts that back nothing", () => {
     const fixed = ["Our services", "More about our services", "Get in touch", "Get a quote", "Call", "Our work", ...PAGE_IDS.map((id) => PAGES[id].label)];
     // The real pageTitle and pageDescription, for every trade and page, from a document whose facts back nothing.
-    const filled = (Object.keys(TRADE_LABEL) as (keyof typeof TRADE_LABEL)[]).flatMap((trade) => {
+    const filled = TRADES.flatMap((trade) => {
       const doc = SiteDocument.parse({ ...MINIMAL, facts: { ...MINIMAL.facts, trade, ...(trade === "other" ? { tradeOther: "Bakery" } : {}) }, copy: { ...MINIMAL.copy, about: "Careful work, done right." } });
       return PAGE_IDS.flatMap((id) => [pageTitle(doc, id), pageDescription(doc, id)]);
     });

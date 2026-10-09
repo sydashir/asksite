@@ -2,7 +2,7 @@
 import { QUOTE_ID, type Facts, type VariantOf } from "@asksite/site-schema";
 import { contactHeading } from "../../contact-heading.ts";
 import { headingLevel, type RenderContext } from "../../context.ts";
-import { formatPhone, mailtoUrl, telUrl } from "../../format.ts";
+import { formatPhone, mailtoUrl, scopeLine, shownArea, telUrl } from "../../format.ts";
 import { html, trusted, type SafeHtml } from "../../html.ts";
 import { icon } from "../../icons.ts";
 import { DOM_ID } from "../../sections/ids.ts";
@@ -17,10 +17,10 @@ import { cityLine, fewPlaces } from "./text.ts";
  * when they do not already name the home town.
  */
 function address(facts: Facts, always: boolean): SafeHtml | false {
-  const { location, serviceArea } = facts;
+  const { location } = facts;
   if (location.streetAddress !== undefined) return html`<div class="addr">${BUILDING}<address>${location.streetAddress}<br>${cityLine(facts)}</address></div>`;
   const home = location.city.trim().toLowerCase();
-  return (always || !serviceArea.places.some((place) => place.trim().toLowerCase() === home)) && html`<p class="addr">${BUILDING}<span>Based in ${cityLine(facts)}</span></p>`;
+  return (always || !shownArea(facts).places.some((place) => place.trim().toLowerCase() === home)) && html`<p class="addr">${BUILDING}<span>Based in ${cityLine(facts)}</span></p>`;
 }
 
 /** More places than this make a long list (see renderServiceArea). */
@@ -40,7 +40,9 @@ export function renderServiceArea(ctx: RenderContext, _variant: VariantOf<"servi
   const { facts } = ctx.doc;
   const level = headingLevel(ctx, "serviceArea");
   const actions = level === 1 && html`<div class="head-cta">${callButton(facts, "button-lg")}${quoteButton(ctx, "button-lg")}</div>`;
-  const { places, note } = facts.serviceArea;
+  const { places, note } = shownArea(facts);
+  // An owner who serves the whole country or the world gets that line, in the one-line band of one or two places.
+  const scope = scopeLine(facts);
   const hours = facts.hours.length > 0;
   const few = places.length <= 2;
   const long = hours && places.length > LONG_LIST;
@@ -48,7 +50,7 @@ export function renderServiceArea(ctx: RenderContext, _variant: VariantOf<"servi
     hours &&
     html`<div class="board">${itemHeading(level, "board-h", html`${icon("clock", "i")}${facts.emergency247 ? "Office hours" : "Hours"}`)}${hoursTable(facts)}${emergencyNote(facts)}</div>`;
   const areas = few
-    ? html`<div class="few"><p class="few-line">${icon("map-pin", "i")}<span>Serving <strong>${fewPlaces(facts)}</strong></span></p>${address(facts, false)}</div>`
+    ? html`<div class="few"><p class="few-line">${icon("map-pin", "i")}<span>${scope ?? html`Serving <strong>${fewPlaces(facts)}</strong>`}</span></p>${address(facts, false)}</div>`
     : // A place with one word of 16 or more letters takes a whole row, so it wraps only when wider than the list.
       html`<div class="board">${itemHeading(level, "board-h", html`${icon("map-pin", "i")}Areas we serve`)}<div class="board-body">
 <ul class="places">${places.map((place) => html`<li class="place${place.split(/\s+/).some((word) => word.length >= 16) ? " span" : ""}">${place}</li>`)}</ul>

@@ -6,7 +6,7 @@
 // its line, as on the approved page, and the fixed bar carries Call and "Get a quote" (impact.css).
 import type { VariantOf } from "@asksite/site-schema";
 import { onPage, onSite, sectionLink, type RenderContext } from "../../context.ts";
-import { TRADE_LABEL } from "../../format.ts";
+import { scopeLine, shownArea, tradeLabel } from "../../format.ts";
 import { html, safeUrl, type SafeHtml } from "../../html.ts";
 import { DOM_ID } from "../../sections/ids.ts";
 import { icon } from "./icons.ts";
@@ -71,7 +71,7 @@ function credentialsLine(ctx: RenderContext): SafeHtml | false {
 
 /** The towns served: the first three, then "and N more", a link to the service area on the Contact page. */
 function placesSummary(ctx: RenderContext): SafeHtml {
-  const { places } = ctx.doc.facts.serviceArea;
+  const { places } = shownArea(ctx.doc.facts);
   const first = places.slice(0, 3).join(", ");
   const rest = places.length - 3;
   if (rest <= 0) return html`${first}`;
@@ -92,8 +92,11 @@ function cardBlocks(ctx: RenderContext): SafeHtml[] {
     const rows = facts.hours.length > 0 ? groupedHours(facts.hours, true) : [];
     blocks.push(html`<div class="biz-block"><p class="kicker biz-k">${icon("clock")}Hours</p><dl class="biz-hours">${facts.emergency247 && html`<div class="biz-247"><dt>Emergencies</dt><dd>24/7</dd></div>`}${rows.map((r) => html`<div><dt>${r.label}</dt><dd>${r.value}</dd></div>`)}</dl></div>`);
   }
-  const places = facts.serviceArea.places.map((p) => p.trim().toLowerCase());
-  if (places.length !== 1 || places[0] !== facts.location.city.trim().toLowerCase()) {
+  const scope = scopeLine(facts);
+  const places = shownArea(facts).places.map((p) => p.trim().toLowerCase());
+  if (scope !== undefined) {
+    blocks.push(html`<div class="biz-block"><p class="kicker biz-k">${icon("map-pin")}Service area</p><p class="biz-v">${scope}</p></div>`);
+  } else if (places.length !== 1 || places[0] !== facts.location.city.trim().toLowerCase()) {
     blocks.push(html`<div class="biz-block"><p class="kicker biz-k">${icon("map-pin")}Serving</p><p class="biz-v">${placesSummary(ctx)}</p></div>`);
   }
   return blocks;
@@ -107,7 +110,7 @@ export function renderHero(ctx: RenderContext, variant: VariantOf<"hero">): Safe
   // With no other credential, the card straight under the headline carries 24/7 instead of the chip.
   const chipInProof = trustInHero && facts.emergency247 && facts.licences.length === 0 && !facts.insured && facts.yearFounded === undefined;
   const copyBlock = html`<div class="hero-copy">
-<p class="hero-kicker">${facts.emergency247 && !chipInProof && html`<span class="chip">${icon("clock")}24/7 emergency service</span>`}<span class="hero-where">${TRADE_LABEL[facts.trade]} · ${facts.location.city}, ${facts.location.state}</span></p>
+<p class="hero-kicker">${facts.emergency247 && !chipInProof && html`<span class="chip">${icon("clock")}24/7 emergency service</span>`}<span class="hero-where">${tradeLabel(facts)} · ${facts.location.city}, ${facts.location.state}</span></p>
 <h1 id="${DOM_ID.hero}-title" class="${headlineClass(copy.heroHeadline)}">${copy.heroHeadline}</h1>
 ${proof(groups)}${credentialsLine(ctx)}
 <p class="hero-sub">${copy.heroSubheadline}</p>
