@@ -56,6 +56,13 @@ const NEVER_IN_AI_COPY: readonly RegExp[] = [
 
 /** "and" between joiners, or "&" with an optional joiner each side ("lic&ins"). */
 const AND = `(?:${J}and${J}|${J}?&${J}?)`;
+/** The words before a country or the world in a service-area phrase: "around the country", "everywhere in the world". */
+const AREA = `(around|across|all${J}over|throughout|anywhere${J}in|everywhere${J}in)`;
+/** A country, as the service-area rules name it: "US" only after a determiner ("across us" is the pronoun). */
+const COUNTRY = `(country|nation|united${J}states|usa?)`;
+/** The world, as the service-area rules name it. */
+const WORLD = `(world|globe|planet)`;
+
 /** What follows "lic" in "lic and ins" / "lic & ins": AND, then "ins" (a dot after "ins" is the caller's). */
 const LIC_AND_INS = `${AND}ins\\b`;
 
@@ -118,40 +125,52 @@ const NEEDS_A_FACT_IN_AI_COPY: ReadonlyArray<{ readonly pattern: RegExp; readonl
     backedBy: (facts) => facts.freeEstimates,
   },
   // Where the business serves (2026-10-09, STRICT): the nationwide words only with the scope "country", the worldwide words only with
-  // "worldwide"; neither scope backs the other's words. "US" counts only after "the" ("across us" is the pronoun). Known false
+  // "worldwide"; neither scope backs the other's words. "US" counts only after a determiner ("across us" is the pronoun). Known false
   // positives, rephrasable: a place or a name that holds one of the words ("International Falls", "Global Plumbing"), and "global"
   // in its other senses ("global settings"). Residuals, accepted: "all fifty states" (refused anyway as a spelled number), "statewide",
-  // "across America", "far and wide", "abroad".
+  // "across America", "far and wide", "abroad", and an AREA word with another determiner ("across a whole country").
   {
     pattern: new RegExp(
-      `\\b(nation${J}?wide|country${J}?wide|nationally|coast${J}to${J}coast|(across|throughout|all${J}over|anywhere${J}in)${J}the${J}((whole|entire)${J})?(country|nation|united${J}states|usa?)|the${J}(whole|entire)${J}(country|nation))\\b`,
+      `\\b(nation${J}?wide|country${J}?wide|nationally|coast${J}to${J}coast|${AREA}${J}(the|this|our)${J}((whole|entire)${J})?${COUNTRY}|the${J}(whole|entire)${J}${COUNTRY})\\b`,
       "i",
     ),
     backedBy: (facts) => serviceAreaScopeOf(facts) === "country",
   },
   {
-    pattern: new RegExp(`\\b(world${J}?wide|(around|across|all${J}over|throughout|anywhere${J}in|everywhere${J}in)${J}the${J}(world|globe)|global(ly)?|international(ly)?|overseas)\\b`, "i"),
+    pattern: new RegExp(
+      `\\b(world${J}?wide|${AREA}${J}(the|our)${J}((whole|entire)${J})?${WORLD}|the${J}(whole|entire)${J}${WORLD}|global(ly)?|(multi|inter)national(ly)?|overseas)\\b`,
+      "i",
+    ),
     backedBy: (facts) => serviceAreaScopeOf(facts) === "worldwide",
   },
 ];
 
 /**
  * Wording a law firm's copy never uses, whatever the facts (2026-10-09, STRICT): a promise or prediction of an outcome, and a
- * superlative or unchecked comparison. Only trade "law" is held to these. Known false positives, rephrasable: "win" or "result" in
- * another sense ("a win-win", "the result of a claim"). Allowed on purpose: "won't", "as a result", "best interest(s)", "leading
- * (up) to" and "top" before any other word ("on top of"). Residuals, accepted: other paraphrases ("we get you paid", "the right
- * outcome") and comparisons without these words ("better than other firms").
+ * superlative or unchecked comparison. Trade "law" is held to these, and so is trade "other" whose own business type names a legal
+ * business (LEGAL_BUSINESS; ruled 2026-10-09). Known false positives, rephrasable: "win" or "result" in another sense ("a win-win",
+ * "the result of a claim"). Allowed on purpose: "won't", "as a result" (singular only: "as a results-driven firm" counts), "best
+ * interest(s)", "leading (up) to", "prevailing" ("prevailing wage"), "no one" and "top" before any other word ("on top of").
+ * Residuals, accepted: other paraphrases ("we get you paid", "the right outcome"), comparisons without these words ("better than
+ * other firms"), and "strongest", "toughest" and "highest" (ruled out 2026-10-09: too many false positives).
  */
 const NEVER_IN_LAW_COPY: readonly RegExp[] = [
   new RegExp(
-    `\\b(win(s|ning)?|won(?![\u0027\u2019]t)|(?<!\\bas${J}a${J})results?|success(ful(ly)?)?|favou?rable|maximi[sz](e[ds]?|ing)|maximum|you${J}deserve|proven|track${J}record|undefeated)\\b`,
+    `\\b(win(s|ning)?|won(?![\u0027\u2019]t)|results|(?<!\\bas${J}a${J})result|success(ful(ly)?)?|favou?rable|maximi[sz](e[ds]?|ing)|maximum|you${J}deserve|proven|track${J}record|undefeated|winners?|successes|succeed(s|ed|ing)?|victor(y|ies|ious)|prevail(s|ed)?)\\b`,
     "i",
   ),
+  // "#one" starts with a symbol, where \b does not hold, so the group may also start at a "#".
   new RegExp(
-    `\\b(best(?!${J}interests?\\b)|finest|greatest|leading(?!${J}(up${J})?to\\b)|premier|foremost|top${J}(lawyers?|attorneys?|firms?|notch|tier|choice)|number${J}one|unmatched|unrivall?ed|unbeatable|unparall?ell?ed|second${J}to${J}none|world${J}class|elite|most${J}(experienced|trusted|respected|skilled|successful|qualified|knowledgeable|reliable|aggressive|dedicated))\\b`,
+    `(?:\\b|(?=#))(best(?!${J}interests?\\b)|finest|greatest|leading(?!${J}(up${J})?to\\b)|premier|foremost|top${J}(lawyers?|attorneys?|firms?|notch|tier|choice)|number${J}one|unmatched|unrivall?ed|unbeatable|unparall?ell?ed|second${J}to${J}none|world${J}class|elite|most${J}(experienced|trusted|respected|skilled|successful|qualified|knowledgeable|reliable|aggressive|dedicated)|no\\.${J}?one|#${J}?one|top${J}(law|legal|ranked)|first${J}rate|unsurpassed|unequall?ed|peerless)\\b`,
     "i",
   ),
 ];
+
+/** An "Other" business type that names a legal business ("Attorney", "Family law practice"): its copy follows the law rules. */
+const LEGAL_BUSINESS = /\b(law|lawyers?|attorneys?|legal|solicitors?|barristers?|counsel|paralegals?)\b/i;
+
+/** Whether the law rules hold this business's AI copy. */
+const isLegalBusiness = (facts: Facts): boolean => facts.trade === "law" || (facts.trade === "other" && facts.tradeOther !== undefined && LEGAL_BUSINESS.test(facts.tradeOther));
 
 /** The words in `text` that state something the AI may not, or something these facts do not back (empty when fine). */
 export function aiClaims(text: string, facts: Facts): string[] {
@@ -172,7 +191,7 @@ export function aiClaims(text: string, facts: Facts): string[] {
     const word = find(pattern);
     if (word !== undefined && !backedBy(facts)) found.push(word);
   }
-  if (facts.trade === "law") {
+  if (isLegalBusiness(facts)) {
     for (const pattern of NEVER_IN_LAW_COPY) {
       const word = find(pattern);
       if (word !== undefined) found.push(word);

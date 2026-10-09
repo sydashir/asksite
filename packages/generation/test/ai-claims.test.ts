@@ -3,7 +3,7 @@ import { DAYS, Facts, SiteDocument, TRADES, unbackedClaims } from "@asksite/site
 import { describe, expect, it } from "vitest";
 import { FIXTURES, loadFixture } from "../../../fixtures/index.ts";
 import { CAPS_SNAPSHOT } from "../eval/caps.ts";
-import { aiClaimIssues, aiClaims } from "../src/ai-claims.ts";
+import { aiClaimIssues, aiClaims, aiCopyIssues } from "../src/ai-claims.ts";
 import { SYSTEM_PROMPT } from "../src/prompt.ts";
 import { templateAnswer } from "../src/template.ts";
 import { checkDraft } from "../src/validate.ts";
@@ -688,6 +688,12 @@ const NATIONWIDE: Case[] = [
   ["across the USA", "Serving clients across the USA", ["across the USA"]],
   ["the whole country", "Serving the whole country", ["the whole country"]],
   ["the entire nation", "Serving the entire nation", ["the entire nation"]],
+  ["around the country", "Serving homes around the country", ["around the country"]],
+  ["around the nation", "Help around the nation", ["around the nation"]],
+  ["everywhere in the country", "Help everywhere in the country", ["everywhere in the country"]],
+  ["across this country", "Help across this country", ["across this country"]],
+  ["across our nation", "Help across our nation", ["across our nation"]],
+  ["the whole US", "Serving the whole US", ["the whole US"]],
 ];
 
 const WORLDWIDE_WORDS: Case[] = [
@@ -705,6 +711,13 @@ const WORLDWIDE_WORDS: Case[] = [
   ["international", "International clients welcome", ["International"]],
   ["internationally", "Serving clients internationally", ["internationally"]],
   ["overseas", "Overseas clients welcome", ["Overseas"]],
+  ["across the whole world", "Clients across the whole world", ["across the whole world"]],
+  ["around the entire world", "Clients around the entire world", ["around the entire world"]],
+  ["throughout the entire globe", "Help throughout the entire globe", ["throughout the entire globe"]],
+  ["the whole world", "Serving the whole world", ["the whole world"]],
+  ["the entire world", "Help for the entire world", ["the entire world"]],
+  ["across the planet", "Clients across the planet", ["across the planet"]],
+  ["multinational", "Multinational clients welcome", ["Multinational"]],
 ];
 
 const LAW_OUTCOMES: Case[] = [
@@ -726,6 +739,20 @@ const LAW_OUTCOMES: Case[] = [
   ["proven", "A proven approach", ["proven"]],
   ["track record", "A strong track record", ["track record"]],
   ["undefeated", "An undefeated team", ["undefeated"]],
+  ["winner", "A winner for clients", ["winner"]],
+  ["winners", "We are winners for clients", ["winners"]],
+  ["successes", "Many successes for clients", ["successes"]],
+  ["succeed", "We help you succeed", ["succeed"]],
+  ["succeeds", "Our team succeeds for you", ["succeeds"]],
+  ["succeeded", "We have succeeded for clients", ["succeeded"]],
+  ["succeeding", "Succeeding for clients", ["Succeeding"]],
+  ["victory", "Victory for clients", ["Victory"]],
+  ["victories", "Real victories for clients", ["victories"]],
+  ["victorious", "A victorious team", ["victorious"]],
+  ["prevail", "We help you prevail", ["prevail"]],
+  ["prevails", "Justice prevails with us", ["prevails"]],
+  ["prevailed", "Clients have prevailed with us", ["prevailed"]],
+  ["results-driven", "As a results-driven firm", ["results"]],
 ];
 
 const LAW_SUPERLATIVES: Case[] = [
@@ -750,6 +777,18 @@ const LAW_SUPERLATIVES: Case[] = [
   ["elite", "Elite legal help", ["Elite"]],
   ["most experienced", "The most experienced team", ["most experienced"]],
   ["most trusted", "The most trusted firm in town", ["most trusted"]],
+  ["no. one", "The No. one firm in town", ["No. one"]],
+  ["#one", "The #one firm in town", ["#one"]],
+  ["# one", "The # one firm in town", ["# one"]],
+  ["top law", "A top law firm", ["top law"]],
+  ["top legal", "Top legal help", ["Top legal"]],
+  ["top-ranked", "A top-ranked firm", ["top-ranked"]],
+  ["first-rate", "First-rate legal help", ["First-rate"]],
+  ["first rate", "First rate legal help", ["First rate"]],
+  ["unsurpassed", "Unsurpassed legal help", ["Unsurpassed"]],
+  ["unequaled", "Unequaled legal help", ["Unequaled"]],
+  ["unequalled", "Unequalled legal help", ["Unequalled"]],
+  ["peerless", "Peerless legal help", ["Peerless"]],
 ];
 
 const allowedAs = (cases: readonly Case[], why: string): Array<readonly [string, string]> => cases.map(([id, text]) => [`${id} ${why}`, text] as const);
@@ -785,6 +824,7 @@ describe("AI claim check: a law firm never promises an outcome", () => {
     ["won't", "We won't keep you waiting"],
     ["as a result", "As a result, you know each step"],
     ["window", "Window of time to file"],
+    ["prevailing", "We handle prevailing wage claims"],
   ]);
 });
 
@@ -796,5 +836,20 @@ describe("AI claim check: a law firm uses no superlative", () => {
     ["leading to", "The events leading to your claim"],
     ["leading up to", "The events leading up to your claim"],
     ["on top of", "On top of every deadline"],
+    ["no one", "No one should face this alone"],
   ]);
+});
+
+// RULED 2026-10-09 (I3): an "Other" business whose own type names a legal business is held to the law rules too.
+describe("AI claim check: an Other business of a legal kind is a law firm to the checker", () => {
+  const OTHER = (tradeOther: string) => withFacts({ trade: "other", tradeOther });
+  refused(OTHER("Attorney"), [["other: Attorney", "We win for our clients", ["win"]]]);
+  refused(OTHER("Family law practice"), [["other: Family law practice", "The best legal help", ["best"]]]);
+  accepted(OTHER("Bakery"), [["other: Bakery", "We win for our clients"]]);
+  it("holds stored AI copy to the same rule in the 1b re-check (aiCopyIssues)", () => {
+    const facts = OTHER("Paralegal services");
+    const copy = { ...templateAnswer(facts, brief).copy, heroHeadline: "We win for our clients" };
+    expect(aiCopyIssues(facts, copy, []).map((issue) => issue.path.join("."))).toEqual(["copy.heroHeadline"]);
+    expect(aiCopyIssues(OTHER("Bakery"), copy, [])).toEqual([]);
+  });
 });
