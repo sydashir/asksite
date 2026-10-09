@@ -7,7 +7,7 @@ import { quoteLink, type RenderContext } from "../../context.ts";
 import { formatPhone, mailtoUrl, telUrl } from "../../format.ts";
 import { html, safeUrl, type SafeHtml } from "../../html.ts";
 import { DOM_ID } from "../../sections/ids.ts";
-import { callButton, dots, email, eyebrow, groupedHours, hoursTitle, icon, lic, reviewer, seal, townSummary, type ClassicIcon } from "./parts.ts";
+import { callButton, dots, email, eyebrow, groupedHours, hoursTitle, icon, lic, reviewer, seal, servingLine, type ClassicIcon } from "./parts.ts";
 import { plan } from "./plan.ts";
 
 /** A headline longer than this gets the smaller hero size. */
@@ -63,7 +63,7 @@ ${groupedHours(facts.hours).map((row) => html`<div><dt>${row.label}</dt><dd>${ro
 </dl>
 </div>`}
 <ul class="bc-m">
-${areaShown && html`<li>${icon("map-pin")}<span>Serving ${townSummary(ctx)}</span></li>`}
+${areaShown && html`<li>${icon("map-pin")}<span>${servingLine(ctx)}</span></li>`}
 <li class="bc-e">${icon("mail")}<a href="${mailtoUrl(facts.email)}">${email(facts.email)}</a></li>
 </ul>
 </div>`;

@@ -4,6 +4,7 @@
 // reads it.
 import type { Facts, SectionId } from "@asksite/site-schema";
 import { onPage, onSite, type RenderContext } from "../../context.ts";
+import { scopeLine, shownArea } from "../../format.ts";
 
 export type Band = "paper" | "white";
 
@@ -21,8 +22,9 @@ export interface Plan {
   readonly areaShown: boolean;
   readonly trustShown: boolean;
   /**
-   * One town, no area note and no hours: the approved mockup folds the Service area section away. The shared
-   * contract keeps the section, so it is one short line at the foot of the contact band; never when it opens the page.
+   * One town (or the whole country or the world), no area note and no hours: the approved mockup folds the Service
+   * area section away. The shared contract keeps the section, so it is one short line at the foot of the contact band;
+   * never when it opens the page.
    */
   readonly areaFold: boolean;
   /** Home's business card lists the hours (no hero photo). */
@@ -83,8 +85,9 @@ function makePlan(ctx: RenderContext): Plan {
   }
 
   const areaShown = onSite(ctx, "serviceArea");
-  const { places, note } = facts.serviceArea;
-  const areaFold = onPage(ctx, "serviceArea") && ids[0] !== "serviceArea" && places.length === 1 && note === undefined && facts.hours.length === 0;
+  const { places, note } = shownArea(facts);
+  const oneLine = places.length === 1 || scopeLine(facts) !== undefined;
+  const areaFold = onPage(ctx, "serviceArea") && ids[0] !== "serviceArea" && oneLine && note === undefined && facts.hours.length === 0;
   return {
     photo,
     areaShown,

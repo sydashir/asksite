@@ -1,7 +1,7 @@
 // Modern's header, footer and phone call bar.
 import type { SocialLink } from "@asksite/site-schema";
 import { navItems, pageLink, quoteLink, type RenderContext } from "../../context.ts";
-import { formatPhone, mailtoUrl, telUrl, TRADE_LABEL } from "../../format.ts";
+import { formatPhone, mailtoUrl, telUrl, tradeLabel } from "../../format.ts";
 import { html, safeUrl, trusted, type SafeHtml } from "../../html.ts";
 import { icon } from "../../icons.ts";
 import { emailText, LICENSES_ID, licenseText, quoteButton } from "./parts.ts";
@@ -56,7 +56,7 @@ export function renderFooter(ctx: RenderContext): SafeHtml {
 <div class="wrap foot-grid">
 <div>
 <p class="foot-name">${facts.businessName}</p>
-<p class="foot-trade">${TRADE_LABEL[facts.trade]} · ${location.city}, ${location.state}</p>
+<p class="foot-trade">${tradeLabel(facts)} · ${location.city}, ${location.state}</p>
 ${facts.socialLinks.length > 0 && html`<ul class="foot-social">${facts.socialLinks.map((s) => html`<li><a href="${safeUrl(s.url, ["https:"])}">${SOCIAL_LABEL[s.network]}</a></li>`)}</ul>`}
 </div>
 <div>

@@ -4,7 +4,7 @@
 // LocalBusiness JSON-LD (areaServed, openingHoursSpecification) is emitted once by render.ts.
 import type { VariantOf } from "@asksite/site-schema";
 import { headingLevel, type RenderContext } from "../context.ts";
-import { weeklyHours } from "../format.ts";
+import { scopeLine, shownArea, weeklyHours } from "../format.ts";
 import { html, type SafeHtml } from "../html.ts";
 import { icon } from "../icons.ts";
 import { headline, itemHeading, sectionShell } from "../ui.ts";
@@ -19,18 +19,21 @@ const TITLE = { withHours: "Service area & hours", placesOnly: "Service area" } 
 
 export function renderServiceArea(ctx: RenderContext, _variant: VariantOf<"serviceArea">): SafeHtml {
   const { facts } = ctx.doc;
-  const { location, serviceArea } = facts;
+  const { location } = facts;
+  const area = shownArea(facts);
   const level = headingLevel(ctx, "serviceArea");
   const hasHours = facts.hours.length > 0;
   const cityLine = `${location.city}, ${location.state}${location.postalCode ? ` ${location.postalCode}` : ""}`;
+  // An owner who serves the whole country or the world gets that line as the heading, and no list.
+  const scope = scopeLine(facts);
 
-  return sectionShell(DOM_ID.serviceArea, "7xl", html`${headline(DOM_ID.serviceArea, hasHours ? TITLE.withHours : TITLE.placesOnly, serviceArea.note, level)}
+  return sectionShell(DOM_ID.serviceArea, "7xl", html`${headline(DOM_ID.serviceArea, hasHours ? TITLE.withHours : TITLE.placesOnly, area.note, level)}
 <div class="${hasHours ? COLUMNS.withHours : COLUMNS.placesOnly}">
 <div>
-${itemHeading(level, "flex items-center gap-2 text-xl font-bold text-heading", html`${icon("map-pin", "h-6 w-6 shrink-0 text-primary")}Areas we serve`)}
-<ul class="mt-4 flex flex-wrap gap-2">
-${serviceArea.places.map((place) => html`<li class="max-w-full rounded-full border border-gray-300 px-3 py-1 text-sm text-default wrap-anywhere">${place}</li>`)}
-</ul>
+${itemHeading(level, "flex items-center gap-2 text-xl font-bold text-heading", html`${icon("map-pin", "h-6 w-6 shrink-0 text-primary")}${scope ?? "Areas we serve"}`)}
+${scope === undefined && html`<ul class="mt-4 flex flex-wrap gap-2">
+${area.places.map((place) => html`<li class="max-w-full rounded-full border border-gray-300 px-3 py-1 text-sm text-default wrap-anywhere">${place}</li>`)}
+</ul>`}
 ${location.streetAddress
   ? html`<address class="mt-6 text-default not-italic">${location.streetAddress}<br>${cityLine}</address>`
   : html`<p class="mt-6 text-default">Based in ${cityLine}</p>`}

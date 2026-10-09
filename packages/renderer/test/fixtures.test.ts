@@ -45,6 +45,9 @@ const EXPECTED_PAGES: Record<FixtureName, readonly PageId[]> = {
   "roofing-extreme": ["home", "services", "about", "gallery", "contact"],
   "cleaning-minimal": ["home", "services", "contact"], // no photos, no about text
   "electrical-xss": ["home", "services", "about", "gallery", "contact"],
+  "it-country": ["home", "services", "about", "contact"], // no photos
+  "law-denver": ["home", "services", "about", "contact"], // no photos
+  "other-worldwide": ["home", "services", "about", "gallery", "contact"],
 };
 
 // Every page of every fixture in every design (A12, A16).

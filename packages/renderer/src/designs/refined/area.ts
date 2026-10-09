@@ -5,7 +5,7 @@
 // form below) come right under the heading, on the first screen. One town with nothing else to show is one line at
 // the foot of the contact band, in its colours (Plan.areaFold), and from 60rem a row of the band's facts.
 import { quoteLink, type RenderContext } from "../../context.ts";
-import { formatPhone, telUrl } from "../../format.ts";
+import { formatPhone, scopeLine, shownArea, telUrl } from "../../format.ts";
 import { html, type SafeHtml } from "../../html.ts";
 import { DOM_ID } from "../../sections/ids.ts";
 import { callButton, dots, hoursList, hoursTitle, icon, itemHeading, phoneParts, sectionTitle } from "./parts.ts";
@@ -33,11 +33,19 @@ function placesClass(n: number): string {
 
 /**
  * A one-town owner's area in one line: the town, and the owner's base when it is another town or a street address
- * (the town is said once: a street address in the town served gives only the street).
+ * (the town is said once: a street address in the town served gives only the street). An owner who serves the whole
+ * country or the world gets that line and the base.
  */
 export function foldLine(ctx: RenderContext): SafeHtml {
-  const { location, serviceArea } = ctx.doc.facts;
-  const place = serviceArea.places[0] ?? location.city;
+  const { facts } = ctx.doc;
+  const { location } = facts;
+  const scope = scopeLine(facts);
+  if (scope !== undefined) {
+    const street = location.streetAddress;
+    const base = street ? `${street}, ${location.city}, ${location.state}${location.postalCode ? ` ${location.postalCode}` : ""}` : `Based in ${location.city}, ${location.state}`;
+    return dots([{ text: scope }, { text: base }]);
+  }
+  const place = shownArea(facts).places[0] ?? location.city;
   const home = place.trim().toLowerCase() === location.city.trim().toLowerCase();
   const cityLine = `${location.city}, ${location.state}`;
   const street = location.streetAddress;
@@ -62,7 +70,9 @@ function areaLine(ctx: RenderContext): SafeHtml {
 export function renderServiceArea(ctx: RenderContext): SafeHtml {
   if (plan(ctx).areaFold) return areaLine(ctx);
   const { facts } = ctx.doc;
-  const { location, serviceArea } = facts;
+  const { location } = facts;
+  const area = shownArea(facts);
+  const scope = scopeLine(facts);
   const hasHours = facts.hours.length > 0;
   const cityLine = `${location.city}, ${location.state}${location.postalCode ? ` ${location.postalCode}` : ""}`;
   const base = location.streetAddress
@@ -93,13 +103,15 @@ ${callButton(facts, "bt bt-act bt-lg", html`Call ${phoneParts(facts.phone)}`)}
 
   return html`<section id="${DOM_ID.serviceArea}" class="sec ${bandClass(ctx, "serviceArea")}" aria-labelledby="${DOM_ID.serviceArea}-title">
 <div class="wr">
-${sectionTitle(ctx, "serviceArea", hasHours ? "Service area & hours" : "Service area", serviceArea.note, actions)}
+${sectionTitle(ctx, "serviceArea", hasHours ? "Service area & hours" : "Service area", area.note, actions)}
 <div class="area">
 <div>
-${itemHeading(ctx, "serviceArea", "h3r", html`${icon("map-pin")}Areas we serve`)}
-<ul class="${placesClass(serviceArea.places.length)}">
-${serviceArea.places.map((place) => html`<li>${place}</li>`)}
-</ul>
+${scope === undefined
+  ? html`${itemHeading(ctx, "serviceArea", "h3r", html`${icon("map-pin")}Areas we serve`)}
+<ul class="${placesClass(area.places.length)}">
+${area.places.map((place) => html`<li>${place}</li>`)}
+</ul>`
+  : itemHeading(ctx, "serviceArea", "h3r", html`${icon("map-pin")}${scope}`)}
 ${hasHours && base}
 </div>
 ${card}

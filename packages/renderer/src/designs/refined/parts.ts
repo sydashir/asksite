@@ -2,7 +2,7 @@
 // literal markup from this file is marked as trusted.
 import type { Facts, OpeningHours, SectionId, SiteDocument, Trade } from "@asksite/site-schema";
 import { headingLevel, sectionLink, type RenderContext } from "../../context.ts";
-import { TRADE_LABEL, formatPhone, telUrl, weeklyHours } from "../../format.ts";
+import { formatPhone, scopeLine, servicesOf, shownArea, telUrl, tradeLabel, weeklyHours } from "../../format.ts";
 import { html, trusted, type SafeHtml, type Value } from "../../html.ts";
 import { icon as sharedIcon, type IconName } from "../../icons.ts";
 import { DOM_ID } from "../../sections/ids.ts";
@@ -47,8 +47,8 @@ export const reviewer = (review: Facts["testimonials"][number]): SafeHtml =>
 const TOWNS_SHOWN = 3;
 
 /** The towns in a sentence: at most three, then a link to the Service area section (on its page) for the rest. */
-export function townSummary(ctx: RenderContext): SafeHtml {
-  const places = ctx.doc.facts.serviceArea.places;
+function townSummary(ctx: RenderContext): SafeHtml {
+  const { places } = shownArea(ctx.doc.facts);
   const shown = places.slice(0, TOWNS_SHOWN);
   const more = places.length - shown.length;
   if (more > 0) {
@@ -56,6 +56,9 @@ export function townSummary(ctx: RenderContext): SafeHtml {
   }
   return html`${shown.length === 1 ? shown[0] : `${shown.slice(0, -1).join(", ")} and ${shown.at(-1)}`}`;
 }
+
+/** "Serving Austin, Kyle and Buda", or the owner's scope ("Serving customers nationwide") in place of the towns. */
+export const servingLine = (ctx: RenderContext): Value => scopeLine(ctx.doc.facts) ?? html`Serving ${townSummary(ctx)}`;
 
 /** A licence number that never splits while it fits on a line. */
 export const lic = (number: string): SafeHtml => html`<span class="lic">${number}</span>`;
@@ -131,21 +134,24 @@ export function shortHours(facts: Facts): SafeHtml | false {
 export const hoursList = (hours: readonly OpeningHours[]): SafeHtml[] =>
   groupedHours(hours).map((row) => html`<div><dt>${row.label}</dt><dd>${row.time}</dd></div>`);
 
-/** The trade in a sentence: "Ask us about any heating or cooling job." */
-export const TRADE_WORD: Readonly<Record<Trade, string>> = {
-  plumbing: "plumbing",
-  hvac: "heating or cooling",
-  electrical: "electrical",
-  roofing: "roofing",
-  cleaning: "cleaning",
-  landscaping: "landscaping",
-  it: "IT",
-  law: "legal",
-  other: "other",
+/** What a visitor may ask about beyond the list, in a sentence: "Ask us about any heating or cooling job." */
+const TRADE_JOB: Readonly<Record<Exclude<Trade, "other">, string>> = {
+  plumbing: "plumbing job",
+  hvac: "heating or cooling job",
+  electrical: "electrical job",
+  roofing: "roofing job",
+  cleaning: "cleaning job",
+  landscaping: "landscaping job",
+  it: "IT project",
+  law: "legal matter",
 };
 
+/** "Ask us about any plumbing job.", or with the owner's own business type, which needs no article: "Ask us about our Bakery services." */
+export const askLine = (facts: Facts): string =>
+  facts.trade === "other" ? `Ask us about our ${servicesOf(tradeLabel(facts))}.` : `Ask us about any ${TRADE_JOB[facts.trade]}.`;
+
 /** Who a visitor is looking for, in a question: "Need a plumber in Austin?" (the closing band's lead). */
-const TRADE_PERSON: Readonly<Record<Trade, string>> = {
+const TRADE_PERSON: Readonly<Record<Exclude<Trade, "other">, string>> = {
   plumbing: "a plumber",
   hvac: "heating or cooling help",
   electrical: "an electrician",
@@ -154,10 +160,11 @@ const TRADE_PERSON: Readonly<Record<Trade, string>> = {
   landscaping: "a landscaper",
   it: "IT help",
   law: "legal help",
-  other: "help",
 };
 
-export const needLine = (facts: Facts): string => `Need ${TRADE_PERSON[facts.trade]} in ${facts.location.city}?`;
+/** "Need a plumber in Austin?", or with the owner's own business type first, which needs no article: "Bakery in Boston?". */
+export const needLine = (facts: Facts): string =>
+  facts.trade === "other" ? `${tradeLabel(facts)} in ${facts.location.city}?` : `Need ${TRADE_PERSON[facts.trade]} in ${facts.location.city}?`;
 
 /**
  * How many characters of the town and the year, "Austin, TX · Since 1998", fit one phone row in the widest lettering
@@ -181,11 +188,11 @@ export function eyebrow(facts: Facts, year: "always" | "phones" | "none"): SafeH
   const tier = GROUP_TIERS.findIndex((most) => `${place} · ${text}`.length <= most);
   const fits = tier === -1 ? "eb-g4" : tier > 0 ? `eb-g${tier}` : undefined;
   const cls = [year === "phones" ? "eb-y" : undefined, fits].filter(Boolean).join(" ");
-  return dots([{ text: TRADE_LABEL[facts.trade] }, { text: dots([{ text: place }, cls ? { text, cls } : { text }]) }]);
+  return dots([{ text: tradeLabel(facts) }, { text: dots([{ text: place }, cls ? { text, cls } : { text }]) }]);
 }
 
 /** The trade and the town joined by a dot, "Plumbing · Austin, TX": the eyebrow without a year, and the letter's sign-off. */
-export const tradeAndTown = (facts: Facts): SafeHtml => dots([{ text: TRADE_LABEL[facts.trade] }, { text: `${facts.location.city}, ${facts.location.state}` }]);
+export const tradeAndTown = (facts: Facts): SafeHtml => dots([{ text: tradeLabel(facts) }, { text: `${facts.location.city}, ${facts.location.state}` }]);
 
 /** A block's heading: the accent rule, the h2 (id `${domId}-title`) and an optional intro. */
 export function sectionHead(domId: string, title: Value, intro?: string): SafeHtml {

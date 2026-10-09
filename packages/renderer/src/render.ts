@@ -3,7 +3,7 @@ import { onPage, type RenderContext } from "./context.ts";
 import type { Design } from "./design.ts";
 import { DESIGNS } from "./designs/index.ts";
 import { escapeText } from "./escape.ts";
-import { formatPhone, TRADE_LABEL } from "./format.ts";
+import { formatPhone, servicesOf, tradeLabel } from "./format.ts";
 import { fragment, html, safeUrl, SafeHtml, trusted } from "./html.ts";
 import { faqPageJsonLd, jsonLdScript, localBusinessJsonLd } from "./json-ld.ts";
 import { themeStyle } from "./theme.ts";
@@ -74,9 +74,9 @@ export function clipText(raw: string, fits: (text: string) => boolean): string {
 
 /** The page's <title>. Home: "Name | Plumbing in Austin, TX", or just the name when that would be too long (clipped if even that is). Another page: "Services | Name", the name clipped to fit, so the label keeps every title unique. */
 export function pageTitle(doc: SiteDocument, page: PageId = "home"): string {
-  const { businessName, trade, location } = doc.facts;
+  const { businessName, location } = doc.facts;
   if (page === "home") {
-    const full = `${businessName} | ${TRADE_LABEL[trade]} in ${location.city}, ${location.state}`;
+    const full = `${businessName} | ${tradeLabel(doc.facts)} in ${location.city}, ${location.state}`;
     return escapeText(full).length <= MAX_TITLE_LENGTH ? full : clipText(businessName, fitsTitle);
   }
   const prefix = `${PAGES[page].label} | `;
@@ -90,14 +90,14 @@ export function pageTitle(doc: SiteDocument, page: PageId = "home"): string {
 export function pageDescription(doc: SiteDocument, page: PageId): string {
   const { facts, copy } = doc;
   const { businessName: name, location } = facts;
-  const trade = TRADE_LABEL[facts.trade];
+  const trade = tradeLabel(facts);
   const place = `${location.city}, ${location.state}`;
   const fits = (text: string) => text.length <= MAX_DESCRIPTION_LENGTH;
   switch (page) {
     case "home":
       return copy.heroSubheadline;
     case "services":
-      return clipText(`${trade} services from ${name} in ${place}. Call ${formatPhone(facts.phone)}.`, fits);
+      return clipText(`${servicesOf(trade)} from ${name} in ${place}. Call ${formatPhone(facts.phone)}.`, fits);
     case "about":
       if (copy.about === undefined) throw new Error("The About page has no about text");
       return clipText(copy.about, fits);
