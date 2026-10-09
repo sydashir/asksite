@@ -1,5 +1,5 @@
 import type { Issue } from "@asksite/core";
-import { NEEDS_A_FACT, proseIn, readings, type Copy, type Facts } from "@asksite/site-schema";
+import { NEEDS_A_FACT, proseIn, readings, serviceAreaScopeOf, type Copy, type Facts } from "@asksite/site-schema";
 
 // Claims the model must not make in its copy. These rules are AI-only: aiClaims runs in checkDraft (at generation) and in
 // aiCopyIssues (exported for Plan 4, which re-checks stored AI copy against today's facts when it composes a page, so a stored
@@ -117,6 +117,40 @@ const NEEDS_A_FACT_IN_AI_COPY: ReadonlyArray<{ readonly pattern: RegExp; readonl
     pattern: new RegExp(`\\b(zero${J}(costs?|fees?|charges?)|freebies?|gratis|on${J}the${J}house|never${J}charg(e[ds]?|ing)|without${J}charge|no${J}fees?|no${J}(charge|cost)s)\\b`, "i"),
     backedBy: (facts) => facts.freeEstimates,
   },
+  // Where the business serves (2026-10-09, STRICT): the nationwide words only with the scope "country", the worldwide words only with
+  // "worldwide"; neither scope backs the other's words. "US" counts only after "the" ("across us" is the pronoun). Known false
+  // positives, rephrasable: a place or a name that holds one of the words ("International Falls", "Global Plumbing"), and "global"
+  // in its other senses ("global settings"). Residuals, accepted: "all fifty states" (refused anyway as a spelled number), "statewide",
+  // "across America", "far and wide", "abroad".
+  {
+    pattern: new RegExp(
+      `\\b(nation${J}?wide|country${J}?wide|nationally|coast${J}to${J}coast|(across|throughout|all${J}over|anywhere${J}in)${J}the${J}((whole|entire)${J})?(country|nation|united${J}states|usa?)|the${J}(whole|entire)${J}(country|nation))\\b`,
+      "i",
+    ),
+    backedBy: (facts) => serviceAreaScopeOf(facts) === "country",
+  },
+  {
+    pattern: new RegExp(`\\b(world${J}?wide|(around|across|all${J}over|throughout|anywhere${J}in|everywhere${J}in)${J}the${J}(world|globe)|global(ly)?|international(ly)?|overseas)\\b`, "i"),
+    backedBy: (facts) => serviceAreaScopeOf(facts) === "worldwide",
+  },
+];
+
+/**
+ * Wording a law firm's copy never uses, whatever the facts (2026-10-09, STRICT): a promise or prediction of an outcome, and a
+ * superlative or unchecked comparison. Only trade "law" is held to these. Known false positives, rephrasable: "win" or "result" in
+ * another sense ("a win-win", "the result of a claim"). Allowed on purpose: "won't", "as a result", "best interest(s)", "leading
+ * (up) to" and "top" before any other word ("on top of"). Residuals, accepted: other paraphrases ("we get you paid", "the right
+ * outcome") and comparisons without these words ("better than other firms").
+ */
+const NEVER_IN_LAW_COPY: readonly RegExp[] = [
+  new RegExp(
+    `\\b(win(s|ning)?|won(?![\u0027\u2019]t)|(?<!\\bas${J}a${J})results?|success(ful(ly)?)?|favou?rable|maximi[sz](e[ds]?|ing)|maximum|you${J}deserve|proven|track${J}record|undefeated)\\b`,
+    "i",
+  ),
+  new RegExp(
+    `\\b(best(?!${J}interests?\\b)|finest|greatest|leading(?!${J}(up${J})?to\\b)|premier|foremost|top${J}(lawyers?|attorneys?|firms?|notch|tier|choice)|number${J}one|unmatched|unrivall?ed|unbeatable|unparall?ell?ed|second${J}to${J}none|world${J}class|elite|most${J}(experienced|trusted|respected|skilled|successful|qualified|knowledgeable|reliable|aggressive|dedicated))\\b`,
+    "i",
+  ),
 ];
 
 /** The words in `text` that state something the AI may not, or something these facts do not back (empty when fine). */
@@ -137,6 +171,12 @@ export function aiClaims(text: string, facts: Facts): string[] {
   for (const { pattern, backedBy } of NEEDS_A_FACT_IN_AI_COPY) {
     const word = find(pattern);
     if (word !== undefined && !backedBy(facts)) found.push(word);
+  }
+  if (facts.trade === "law") {
+    for (const pattern of NEVER_IN_LAW_COPY) {
+      const word = find(pattern);
+      if (word !== undefined) found.push(word);
+    }
   }
   return found;
 }

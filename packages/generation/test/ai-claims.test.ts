@@ -646,7 +646,8 @@ describe("AI claim check: no false positives on what exists", () => {
   const SAMPLES = { FULL_FACTS, MINIMAL_FACTS, CAPS_FACTS: CAPS_SNAPSHOT.facts };
   it.each(Object.entries(SAMPLES))("accepts every template answer for %s (every trade, tone and goal)", (_name, facts) => {
     for (const trade of TRADES) for (const tone of TONES) for (const goal of GOALS) {
-      const forTrade = { ...facts, ...tradeFields(trade) };
+      const { tradeOther: _own, ...rest } = facts; // CAPS_FACTS is an "other" business: only "other" keeps an own type
+      const forTrade = { ...rest, ...tradeFields(trade) };
       const result = checkDraft(forTrade, templateAnswer(forTrade, { ...BRIEF, tone, goal }));
       expect(result.ok, `${trade} ${tone} ${goal}`).toBe(true);
     }
@@ -658,4 +659,142 @@ describe("AI claim check: no false positives on what exists", () => {
     expect(SYSTEM_PROMPT).toContain("Request a quote");
     expect(SYSTEM_PROMPT).toContain("our Contact page");
   });
+});
+
+// STRICT (honesty, 2026-10-09): "nationwide" and its variants are backed only by the service-area scope "country", "worldwide" and
+// its variants only by "worldwide" (neither backs the other), and a law firm's copy never promises an outcome or uses a superlative.
+const PLACES = withFacts({ serviceAreaScope: "places" });
+const COUNTRY = withFacts({ serviceAreaScope: "country" });
+const WORLDWIDE = withFacts({ serviceAreaScope: "worldwide" });
+const LAW = withFacts({ trade: "law" });
+
+const NATIONWIDE: Case[] = [
+  ["nationwide", "Serving customers nationwide", ["nationwide"]],
+  ["nation-wide", "Nation-wide service", ["Nation-wide"]],
+  ["nation wide", "Nation wide service", ["Nation wide"]],
+  ["countrywide", "Countrywide service", ["Countrywide"]],
+  ["country-wide", "Country-wide service", ["Country-wide"]],
+  ["nationally", "Serving clients nationally", ["nationally"]],
+  ["coast to coast", "Help from coast to coast", ["coast to coast"]],
+  ["coast-to-coast", "Coast-to-coast service", ["Coast-to-coast"]],
+  ["across the country", "Serving homes across the country", ["across the country"]],
+  ["across the whole country", "Across the whole country", ["Across the whole country"]],
+  ["throughout the nation", "Serving homes throughout the nation", ["throughout the nation"]],
+  ["all over the country", "Clients all over the country", ["all over the country"]],
+  ["anywhere in the country", "Help anywhere in the country", ["anywhere in the country"]],
+  ["across the entire nation", "Help across the entire nation", ["across the entire nation"]],
+  ["across the United States", "Serving homes across the United States", ["across the United States"]],
+  ["across the US", "Serving clients across the US", ["across the US"]],
+  ["across the USA", "Serving clients across the USA", ["across the USA"]],
+  ["the whole country", "Serving the whole country", ["the whole country"]],
+  ["the entire nation", "Serving the entire nation", ["the entire nation"]],
+];
+
+const WORLDWIDE_WORDS: Case[] = [
+  ["worldwide", "Serving clients worldwide", ["worldwide"]],
+  ["world-wide", "World-wide support", ["World-wide"]],
+  ["world wide", "World wide support", ["World wide"]],
+  ["around the world", "Clients around the world", ["around the world"]],
+  ["across the globe", "Clients across the globe", ["across the globe"]],
+  ["all over the world", "Clients all over the world", ["all over the world"]],
+  ["throughout the world", "Help throughout the world", ["throughout the world"]],
+  ["anywhere in the world", "Help anywhere in the world", ["anywhere in the world"]],
+  ["everywhere in the world", "Help everywhere in the world", ["everywhere in the world"]],
+  ["globally", "Serving clients globally", ["globally"]],
+  ["global", "A global team for your project", ["global"]],
+  ["international", "International clients welcome", ["International"]],
+  ["internationally", "Serving clients internationally", ["internationally"]],
+  ["overseas", "Overseas clients welcome", ["Overseas"]],
+];
+
+const LAW_OUTCOMES: Case[] = [
+  ["win", "We win for our clients", ["win"]],
+  ["wins", "Real wins for real people", ["wins"]],
+  ["winning", "A winning approach", ["winning"]],
+  ["won", "Matters we have won", ["won"]],
+  ["results", "Results that matter", ["Results"]],
+  ["result", "Get a result you can count on", ["result"]],
+  ["success", "Success for every client", ["Success"]],
+  ["successful", "Successful outcomes for clients", ["Successful"]],
+  ["successfully", "We successfully handle matters", ["successfully"]],
+  ["favorable", "A favorable ruling for you", ["favorable"]],
+  ["favourable", "Favourable terms for you", ["Favourable"]],
+  ["maximize", "Maximize your recovery", ["Maximize"]],
+  ["maximise", "Maximise your claim", ["Maximise"]],
+  ["maximum", "The maximum compensation", ["maximum"]],
+  ["you deserve", "Get what you deserve", ["you deserve"]],
+  ["proven", "A proven approach", ["proven"]],
+  ["track record", "A strong track record", ["track record"]],
+  ["undefeated", "An undefeated team", ["undefeated"]],
+];
+
+const LAW_SUPERLATIVES: Case[] = [
+  ["best", "The best lawyers in town", ["best"]],
+  ["finest", "The finest legal help", ["finest"]],
+  ["greatest", "With the greatest care", ["greatest"]],
+  ["leading", "A leading law firm", ["leading"]],
+  ["premier", "A premier law firm", ["premier"]],
+  ["foremost", "The foremost firm in town", ["foremost"]],
+  ["top lawyers", "Top lawyers on your side", ["Top lawyers"]],
+  ["top attorney", "A top attorney on your side", ["top attorney"]],
+  ["top firm", "A top firm on your side", ["top firm"]],
+  ["top-notch", "Top-notch legal help", ["Top-notch"]],
+  ["number one", "The number one firm in town", ["number one"]],
+  ["unmatched", "Unmatched legal help", ["Unmatched"]],
+  ["unrivaled", "Unrivaled legal help", ["Unrivaled"]],
+  ["unrivalled", "Unrivalled legal help", ["Unrivalled"]],
+  ["unbeatable", "Unbeatable legal help", ["Unbeatable"]],
+  ["unparalleled", "Unparalleled legal help", ["Unparalleled"]],
+  ["second to none", "Legal help second to none", ["second to none"]],
+  ["world-class", "World-class legal help", ["World-class"]],
+  ["elite", "Elite legal help", ["Elite"]],
+  ["most experienced", "The most experienced team", ["most experienced"]],
+  ["most trusted", "The most trusted firm in town", ["most trusted"]],
+];
+
+const allowedAs = (cases: readonly Case[], why: string): Array<readonly [string, string]> => cases.map(([id, text]) => [`${id} ${why}`, text] as const);
+
+describe("AI claim check: nationwide is backed only by the scope country", () => {
+  refused(MINIMAL_FACTS, NATIONWIDE);
+  refused(PLACES, NATIONWIDE.slice(0, 1));
+  refused(WORLDWIDE, NATIONWIDE.slice(0, 1));
+  accepted(COUNTRY, allowedAs(NATIONWIDE, "with scope country"));
+  accepted(MINIMAL_FACTS, [
+    ["a nation of homeowners", "Help for a nation of homeowners"],
+    ["across the street", "Help across the street and beyond"],
+    ["country kitchens", "Country kitchens cleaned"],
+    ["a wide range", "A wide range of cleaning"],
+  ]);
+});
+
+describe("AI claim check: worldwide is backed only by the scope worldwide", () => {
+  refused(MINIMAL_FACTS, WORLDWIDE_WORDS);
+  refused(PLACES, WORLDWIDE_WORDS.slice(0, 1));
+  refused(COUNTRY, WORLDWIDE_WORDS.slice(0, 1));
+  accepted(WORLDWIDE, allowedAs(WORLDWIDE_WORDS, "with scope worldwide"));
+  accepted(MINIMAL_FACTS, [
+    ["a world of difference", "A world of difference in your home"],
+    ["globe lights", "We dust globe lights"],
+  ]);
+});
+
+describe("AI claim check: a law firm never promises an outcome", () => {
+  refused(LAW, LAW_OUTCOMES);
+  accepted(MINIMAL_FACTS, allowedAs(LAW_OUTCOMES, "for a trade other than law"));
+  accepted(LAW, [
+    ["won't", "We won't keep you waiting"],
+    ["as a result", "As a result, you know each step"],
+    ["window", "Window of time to file"],
+  ]);
+});
+
+describe("AI claim check: a law firm uses no superlative", () => {
+  refused(LAW, LAW_SUPERLATIVES);
+  accepted(MINIMAL_FACTS, allowedAs(LAW_SUPERLATIVES, "for a trade other than law"));
+  accepted(LAW, [
+    ["best interests", "We act in your best interests"],
+    ["leading to", "The events leading to your claim"],
+    ["leading up to", "The events leading up to your claim"],
+    ["on top of", "On top of every deadline"],
+  ]);
 });
