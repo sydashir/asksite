@@ -94,3 +94,14 @@ describe("answerIssues on a very long price", () => {
     ]);
   });
 });
+
+describe("answerIssues for the Other trade", () => {
+  it("asks on the business step what kind of business it is, until it is given", () => {
+    const other = (extra: object) => answerIssues({ facts: { ...VALID_FACTS, trade: "other", ...extra }, brief: VALID_BRIEF }, { slug: "joes" }, []);
+    const shown = (extra: object) => other(extra).map((i) => [i.path.join("."), stepOf(i), ownerMessage(i).text]);
+    const ask = [["facts.tradeOther", "business", "Enter what kind of business it is (at least 2 characters)."]];
+    expect(shown({})).toEqual(ask);
+    expect(shown({ tradeOther: "B" })).toEqual(ask);
+    expect(other({ tradeOther: "Bakery" })).toEqual([]);
+  });
+});

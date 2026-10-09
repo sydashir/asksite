@@ -1,5 +1,6 @@
-import { Group, TextInput } from "../components/fields.tsx";
-import { daysOfEntry, hoursToRows, rowsToHours, type DayRow } from "../lib/facts-form.ts";
+import { Group, RadioGroup, TextInput } from "../components/fields.tsx";
+import { daysOfEntry, hoursToRows, keptServiceArea, rowsToHours, type DayRow } from "../lib/facts-form.ts";
+import { SCOPE_OPTIONS } from "../lib/labels.ts";
 import { asArray, asRecord, asString, fieldId } from "../lib/values.ts";
 import { focusSoon, type StepProps } from "./types.ts";
 
@@ -7,6 +8,12 @@ const MAX_PLACES = 30;
 
 export function AreaStep({ facts, setFacts, errors }: StepProps) {
   const area = asRecord(facts["serviceArea"]);
+  const scope = SCOPE_OPTIONS.some((o) => o.value === facts["serviceAreaScope"]) ? asString(facts["serviceAreaScope"]) : "places";
+  // Whole country or worldwide: the place list and the note are hidden but kept, so switching back restores them.
+  const setScope = (next: string) => {
+    if (next !== "places") setFacts(["serviceArea"], keptServiceArea(facts["serviceArea"]));
+    setFacts(["serviceAreaScope"], next === "places" ? undefined : next);
+  };
   const stored = asArray(area["places"]).map(asString);
   const places = stored.length > 0 ? stored : [""];
   const rows = hoursToRows(facts["hours"]);
@@ -25,55 +32,68 @@ export function AreaStep({ facts, setFacts, errors }: StepProps) {
 
   return (
     <>
-      <Group id={fieldId(["facts", "serviceArea", "places"])} legend="Where do you work?" hint="Cities, towns or ZIP codes. Up to 30." errors={errors(["facts", "serviceArea", "places"])}>
-        {places.map((place, i) => (
-          <div key={i} className="flex flex-wrap items-end gap-2">
-            <div className="min-w-0 flex-1">
-              <TextInput
-                id={fieldId(["facts", "serviceArea", "places", i])}
-                label={`Place ${i + 1}`}
-                max={40}
-                value={place}
-                errors={errors(["facts", "serviceArea", "places", i])}
-                onChange={(v) => setFacts(["serviceArea", "places", i], v)}
-              />
-            </div>
-            <button
-              type="button"
-              className="btn-small mb-1"
-              disabled={stored.length <= 1}
-              onClick={() => {
-                setFacts(["serviceArea", "places"], stored.filter((_, n) => n !== i));
-                focusSoon(fieldId(["facts", "serviceArea", "places"]));
-              }}
-            >
-              Remove place {i + 1}
-            </button>
-          </div>
-        ))}
-        {places.length < MAX_PLACES ? (
-          <button
-            type="button"
-            className="btn-secondary mt-4"
-            onClick={() => {
-              setFacts(["serviceArea", "places"], [...places, ""]);
-              focusSoon(fieldId(["facts", "serviceArea", "places", places.length]));
-            }}
-          >
-            Add a place
-          </button>
-        ) : null}
-      </Group>
-      <TextInput
-        id={fieldId(["facts", "serviceArea", "note"])}
-        label="Anything else about where you work?"
-        optional
-        hint="For example “Within 25 miles of downtown Austin”."
-        max={80}
-        value={asString(area["note"])}
-        errors={errors(["facts", "serviceArea", "note"])}
-        onChange={(v) => setFacts(["serviceArea", "note"], v === "" ? undefined : v)}
+      <RadioGroup
+        id={fieldId(["facts", "serviceAreaScope"])}
+        name="serviceAreaScope"
+        label="Where do you serve customers?"
+        options={SCOPE_OPTIONS}
+        value={scope}
+        errors={errors(["facts", "serviceAreaScope"])}
+        onChange={setScope}
       />
+      {scope === "places" ? (
+        <>
+          <Group id={fieldId(["facts", "serviceArea", "places"])} legend="Where do you work?" hint="Cities, towns or ZIP codes. Up to 30." errors={errors(["facts", "serviceArea", "places"])}>
+            {places.map((place, i) => (
+              <div key={i} className="flex flex-wrap items-end gap-2">
+                <div className="min-w-0 flex-1">
+                  <TextInput
+                    id={fieldId(["facts", "serviceArea", "places", i])}
+                    label={`Place ${i + 1}`}
+                    max={40}
+                    value={place}
+                    errors={errors(["facts", "serviceArea", "places", i])}
+                    onChange={(v) => setFacts(["serviceArea", "places", i], v)}
+                  />
+                </div>
+                <button
+                  type="button"
+                  className="btn-small mb-1"
+                  disabled={stored.length <= 1}
+                  onClick={() => {
+                    setFacts(["serviceArea", "places"], stored.filter((_, n) => n !== i));
+                    focusSoon(fieldId(["facts", "serviceArea", "places"]));
+                  }}
+                >
+                  Remove place {i + 1}
+                </button>
+              </div>
+            ))}
+            {places.length < MAX_PLACES ? (
+              <button
+                type="button"
+                className="btn-secondary mt-4"
+                onClick={() => {
+                  setFacts(["serviceArea", "places"], [...places, ""]);
+                  focusSoon(fieldId(["facts", "serviceArea", "places", places.length]));
+                }}
+              >
+                Add a place
+              </button>
+            ) : null}
+          </Group>
+          <TextInput
+            id={fieldId(["facts", "serviceArea", "note"])}
+            label="Anything else about where you work?"
+            optional
+            hint="For example “Within 25 miles of downtown Austin”."
+            max={80}
+            value={asString(area["note"])}
+            errors={errors(["facts", "serviceArea", "note"])}
+            onChange={(v) => setFacts(["serviceArea", "note"], v === "" ? undefined : v)}
+          />
+        </>
+      ) : null}
       <Group id={fieldId(["facts", "hours"])} legend="Opening hours" hint="Check the days you are open. Leave every day unchecked to show no hours." errors={errors(["facts", "hours"])}>
         {rows.map((row, i) => (
           <div key={row.day} className="mt-3 border-t border-slate-200 pt-3 first:border-t-0">

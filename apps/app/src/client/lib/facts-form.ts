@@ -1,5 +1,5 @@
-import { DAYS, type Day } from "@asksite/site-schema";
-import { asArray, asRecord, asString } from "./values.ts";
+import { DAYS, ServiceArea, type Day } from "@asksite/site-schema";
+import { asArray, asRecord, asString, type Json } from "./values.ts";
 
 // Converters between what the owner types and the facts the schema expects. Input that cannot
 // be converted is stored as typed, so the Facts schema reports it and the field keeps its text.
@@ -110,4 +110,16 @@ export function altTextWarning(alt: string): string | null {
   }
   if (/^(a |an |the )?(photo|picture|image|pic)\b/.test(text)) return "No need to start with “photo”: say what the photo shows.";
   return null;
+}
+
+/**
+ * The service area to keep when the owner picks the whole country or worldwide (DECIDED 2026-10-09). The place list and the
+ * note are hidden then but stay in the draft, so switching back to "In specific places" restores them. An entry that could
+ * never be saved (empty, too long or with a hidden character) is dropped: hidden, it would block Build with no field to fix.
+ * Checked with site-schema's own rules.
+ */
+export function keptServiceArea(area: unknown): Json {
+  const { note, ...rest } = asRecord(area);
+  const places = asArray(rest["places"]).filter((place) => ServiceArea.shape.places.element.safeParse(place).success);
+  return { ...rest, places, ...(note !== undefined && ServiceArea.shape.note.safeParse(note).success ? { note } : {}) };
 }

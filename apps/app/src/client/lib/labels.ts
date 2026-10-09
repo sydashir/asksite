@@ -11,12 +11,22 @@ export const STEP_TITLE: Record<StepId, string> = {
 };
 
 export const TRADE_OPTIONS = [
+  { value: "it", label: "IT firm" },
+  { value: "law", label: "Law firm" },
   { value: "plumbing", label: "Plumbing" },
   { value: "hvac", label: "Heating and cooling (HVAC)" },
   { value: "electrical", label: "Electrical" },
   { value: "roofing", label: "Roofing" },
   { value: "cleaning", label: "Cleaning" },
   { value: "landscaping", label: "Landscaping and lawn care" },
+  { value: "other", label: "Other" },
+] as const;
+
+/** facts.serviceAreaScope; "places" is stored as no scope at all, so a draft that never chose stays as it was. */
+export const SCOPE_OPTIONS = [
+  { value: "places", label: "In specific places" },
+  { value: "country", label: "Across the whole country" },
+  { value: "worldwide", label: "Worldwide" },
 ] as const;
 
 export const TONE_OPTIONS = [

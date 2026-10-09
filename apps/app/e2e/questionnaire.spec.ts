@@ -109,6 +109,71 @@ test("invite, then the seven questionnaire steps, then Build starts writing the 
   expect((view.json?.["activeGeneration"] as { status: string }).status).toBe("queued");
 });
 
+test("an Other business serving worldwide: its type is asked for, the place list hides and comes back, and Build starts", async ({ page }) => {
+  const siteId = await acceptInvite(page);
+  await page.getByLabel("Business name").fill("Crumb Corner");
+  const trade = page.getByLabel("What kind of work do you do?");
+  await expect(trade.locator("option")).toHaveText([
+    "Choose…", "IT firm", "Law firm", "Plumbing", "Heating and cooling (HVAC)", "Electrical", "Roofing", "Cleaning", "Landscaping and lawn care", "Other",
+  ]);
+  const kind = page.getByLabel("What kind of business is it?");
+  await expect(kind).toHaveCount(0);
+  await trade.selectOption("other");
+  await expect(kind).toBeVisible();
+  await expect(page.getByText("For example Bakery or Photography.")).toBeVisible();
+  await page.getByLabel("Business phone number").fill("(512) 555-0142");
+  await page.getByLabel("City").fill("Austin");
+  await page.getByLabel("State", { exact: true }).selectOption("TX");
+  await page.getByRole("button", { name: "Save and continue" }).click();
+  // Required for Other: the step stays and asks for it at the field.
+  await expect(kind).toHaveAttribute("aria-invalid", "true");
+  await expect(page.getByText("Enter what kind of business it is (at least 2 characters).").first()).toBeVisible();
+  await kind.fill("Bakery");
+  await page.getByRole("button", { name: "Save and continue" }).click();
+
+  await expect(page.getByRole("heading", { level: 1, name: "Your services" })).toBeFocused();
+  await page.getByLabel("Service 1", { exact: true }).fill("Wedding cakes");
+  await page.getByRole("button", { name: "Save and continue" }).click();
+
+  await expect(page.getByRole("heading", { level: 1, name: "Where you work and when" })).toBeFocused();
+  const scope = page.getByRole("group", { name: "Where do you serve customers?" });
+  await expect(scope.getByLabel("In specific places")).toBeChecked();
+  await page.getByLabel("Place 1").fill("Austin");
+  await page.getByRole("button", { name: "Add a place" }).click(); // Place 2 stays empty: it must not block Build once hidden
+  await scope.getByLabel("Worldwide").check();
+  for (const hidden of [page.getByLabel("Place 1"), page.getByRole("button", { name: "Add a place" }), page.getByLabel("Anything else about where you work?")]) await expect(hidden).toHaveCount(0);
+  await expectAccessible(page);
+  // Kept in the draft: switching back shows the place again.
+  await scope.getByLabel("In specific places").check();
+  await expect(page.getByLabel("Place 1")).toHaveValue("Austin");
+  await scope.getByLabel("Worldwide").check();
+  await page.getByRole("button", { name: "Save and continue" }).click();
+
+  await expect(page.getByRole("heading", { level: 1, name: "Why customers can trust you" })).toBeFocused();
+  await page.getByRole("button", { name: "Save and continue" }).click();
+  await expect(page.getByRole("heading", { level: 1, name: "Photos and links" })).toBeFocused();
+  await page.getByRole("button", { name: "Save and continue" }).click();
+  await expect(page.getByRole("heading", { level: 1, name: "In your own words" })).toBeFocused();
+  await page.getByLabel("Friendly").check();
+  await page.getByLabel("Call us").check();
+  await page.getByRole("button", { name: "Save and continue" }).click();
+
+  await expect(page.getByRole("heading", { level: 1, name: "Your web address" })).toBeFocused();
+  await page.getByLabel("Web address").fill(`crumb-corner-${Date.now().toString(36)}`);
+  await expect(page.getByText("This address is free. Save it to keep it.")).toBeVisible();
+  await page.getByRole("button", { name: "Save this web address" }).click();
+  await expect(page.getByText("This is your web address.")).toBeVisible();
+  const [build] = await Promise.all([
+    page.waitForResponse((r) => r.request().method() === "POST" && r.url().endsWith(`/api/sites/${siteId}/generations`)),
+    page.getByRole("button", { name: "Build my website" }).click(),
+  ]);
+  expect(build.ok()).toBe(true);
+  await page.waitForURL(`${APP}/sites/${siteId}/build`);
+  const view = await apiCall(page, "GET", `/api/sites/${siteId}`);
+  expect(view.json?.["facts"]).toMatchObject({ trade: "other", tradeOther: "Bakery", serviceAreaScope: "worldwide", serviceArea: { places: ["Austin"] } });
+  expect((view.json?.["activeGeneration"] as { status: string }).status).toBe("queued");
+});
+
 test("the build page tries again through a server hiccup, and offers Try again if it lasts @mobile", async ({ page }) => {
   const siteId = await acceptInvite(page);
   await seedDraft(page, siteId, "hiccup");

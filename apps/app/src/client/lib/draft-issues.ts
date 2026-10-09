@@ -29,9 +29,9 @@ export function answerIssues(draft: { facts: unknown; brief: unknown }, view: Pi
 }
 
 const STEP_PATHS: Record<StepId, Path[]> = {
-  business: [["facts", "businessName"], ["facts", "trade"], ["facts", "phone"], ["facts", "email"], ["facts", "location"]],
+  business: [["facts", "businessName"], ["facts", "trade"], ["facts", "tradeOther"], ["facts", "phone"], ["facts", "email"], ["facts", "location"]],
   services: [["facts", "services"], ["facts", "freeEstimates"], ["facts", "emergency247"]],
-  area: [["facts", "serviceArea"], ["facts", "hours"]],
+  area: [["facts", "serviceAreaScope"], ["facts", "serviceArea"], ["facts", "hours"]],
   trust: [["facts", "licences"], ["facts", "insured"], ["facts", "yearFounded"], ["facts", "testimonials"], ["brief", "reviewsAreReal"]],
   photos: [["facts", "heroPhoto"], ["facts", "photos"], ["facts", "socialLinks"]],
   words: [["brief", "differentiator"], ["brief", "tone"], ["brief", "goal"], ["brief", "notes"], ["brief", "comments"]],

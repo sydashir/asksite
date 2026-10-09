@@ -85,6 +85,7 @@ const key = (path: Path): string => path.map((p) => (typeof p === "number" ? "#"
 const BY_PATH: Record<string, string> = {
   "facts.businessName": "Enter your business name (at least 2 characters).",
   "facts.trade": "Choose the kind of work you do.",
+  "facts.tradeOther": "Enter what kind of business it is (at least 2 characters).",
   "facts.phone": "Enter a 10-digit US phone number, like (512) 555-0142.",
   "facts.email": "Enter an email address, like name@example.com.",
   "facts.location.city": "Enter your city.",

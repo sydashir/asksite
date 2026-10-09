@@ -18,7 +18,27 @@ export function BusinessStep({ facts, setFacts, errors, ownerEmail }: StepProps)
   return (
     <>
       <TextInput {...field("businessName")} label="Business name" autoComplete="organization" max={60} value={asString(facts["businessName"])} onChange={(v) => setFacts(["businessName"], v)} />
-      <Select {...field("trade")} label="What kind of work do you do?" options={TRADE_OPTIONS} value={asString(facts["trade"])} onChange={(v) => setFacts(["trade"], optional(v))} />
+      <Select
+        {...field("trade")}
+        label="What kind of work do you do?"
+        options={TRADE_OPTIONS}
+        value={asString(facts["trade"])}
+        onChange={(v) => {
+          setFacts(["trade"], optional(v));
+          // Only "Other" names its own kind of business; the schema refuses it for any other trade.
+          if (v !== "other") setFacts(["tradeOther"], undefined);
+        }}
+      />
+      {facts["trade"] === "other" ? (
+        <TextInput
+          {...field("tradeOther")}
+          label="What kind of business is it?"
+          hint="For example Bakery or Photography."
+          max={40}
+          value={asString(facts["tradeOther"])}
+          onChange={(v) => setFacts(["tradeOther"], optional(v))}
+        />
+      ) : null}
       <TextInput
         {...field("phone")}
         label="Business phone number"

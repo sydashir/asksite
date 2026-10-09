@@ -1,7 +1,9 @@
+import { Facts } from "@asksite/site-schema";
 import { describe, expect, it } from "vitest";
 import {
   altTextWarning,
   daysOfEntry,
+  keptServiceArea,
   suggestSlug,
   hoursToRows,
   phoneInput,
@@ -13,6 +15,7 @@ import {
   yearsToFacts,
 } from "../../src/client/lib/facts-form.ts";
 import { fieldId, getIn, moveItem, setIn } from "../../src/client/lib/values.ts";
+import { VALID_FACTS } from "../support/facts.ts";
 
 describe("phone", () => {
   it.each([
@@ -132,5 +135,18 @@ describe("altTextWarning", () => {
     ["", null],
   ])("%j", (alt, warning) => {
     expect(altTextWarning(alt)).toBe(warning);
+  });
+});
+
+describe("keptServiceArea (picking the whole country or worldwide)", () => {
+  it("keeps the valid places and note, drops an empty place, so Build is not blocked", () => {
+    const area = { places: ["Austin", "", "Round Rock"], note: "Within 25 miles of Austin" };
+    const facts = { ...VALID_FACTS, serviceArea: keptServiceArea(area), serviceAreaScope: "worldwide" };
+    expect(facts.serviceArea).toEqual({ places: ["Austin", "Round Rock"], note: "Within 25 miles of Austin" });
+    // The server builds only when Facts accepts the whole draft (routes/generations.ts); the empty place alone would block it.
+    expect(Facts.safeParse(facts).success).toBe(true);
+    expect(Facts.safeParse({ ...facts, serviceArea: area }).success).toBe(false);
+    expect(keptServiceArea({ places: ["Austin"], note: "x".repeat(81) })).toEqual({ places: ["Austin"] });
+    expect(keptServiceArea(undefined)).toEqual({ places: [] });
   });
 });
