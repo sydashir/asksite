@@ -8,6 +8,7 @@ import { html, safeUrl, type SafeHtml } from "../../html.ts";
 import { DOM_ID } from "../../sections/ids.ts";
 import { itemHeading } from "../../ui.ts";
 import { credentialLine, credentialList, head, pageBand, pageCredentials, priceLine, quoteButton } from "./parts.ts";
+import { askAbout } from "./text.ts";
 
 /**
  * The column count for `count` service cards, at most `most`: the most columns, up to one more than the services.
@@ -34,7 +35,7 @@ export function renderServices(ctx: RenderContext, variant: VariantOf<"services"
   const items = facts.services.map((service, i) => ({ ...service, description: copy.serviceDescriptions[i]?.description }));
   const columns = cardColumns(items.length, variant === "compact" ? 4 : 3) as keyof typeof CARD_COLUMNS;
   const anyPrice = facts.services.some((s) => s.startingPrice !== undefined);
-  const askCard = html`<li class="card ask on-brand"><div><p class="ask-q">${anyPrice ? "Not sure which service you need?" : "Ask us for a price"}</p>${anyPrice && html`<p>Tell us about the job.</p>`}</div><a class="button button-act" href="${quoteLink()}">${copy.ctaText}</a></li>`;
+  const askCard = html`<li class="card ask on-brand"><div><p class="ask-q">${anyPrice ? "Not sure which service you need?" : "Ask us for a price"}</p>${anyPrice && html`<p>${askAbout(facts)}</p>`}</div><a class="button button-act" href="${quoteLink()}">${copy.ctaText}</a></li>`;
 
   return html`<section id="${DOM_ID.services}" class="sec ${tone}" aria-labelledby="${DOM_ID.services}-title">
 ${pageBand(ctx, "services")}

@@ -7,28 +7,44 @@
 // the page). It is ink, or light after Home's ink reviews
 // (rules.ts surfaces), so two ink bands never meet; there its content sits on an ink panel, so Home still ends on ink
 // as the approved page did. The words are fixed house copy that claims nothing the owner's facts do not back.
-import type { PageId } from "@asksite/site-schema";
+import type { PageId, Trade } from "@asksite/site-schema";
 import type { RenderContext } from "../../context.ts";
 import { html, type SafeHtml } from "../../html.ts";
 import { CLOSING_BAND_ID } from "../../sections/ids.ts";
 import { bandClass, bigCall, boldPage, ctaButton } from "./parts.ts";
 
-/** Each page's own question. */
-const QUESTION: Readonly<Record<Exclude<PageId, "contact">, string>> = {
+type Questions = Readonly<Record<Exclude<PageId, "contact">, string>>;
+
+/** Each page's own question, in a trade's words: a job, at the customer's place. */
+const TRADE_QUESTIONS: Questions = {
   home: "Questions, or a job in mind?",
   services: "Found what you need?",
   about: "Like the way we work?",
   gallery: "Want work like this at your place?",
 };
 
+/** The questions per trade: an IT firm, a law firm and any other business ask Home's and Gallery's in their own words. */
+const QUESTIONS: Readonly<Record<Trade, Questions>> = {
+  plumbing: TRADE_QUESTIONS,
+  hvac: TRADE_QUESTIONS,
+  electrical: TRADE_QUESTIONS,
+  roofing: TRADE_QUESTIONS,
+  cleaning: TRADE_QUESTIONS,
+  landscaping: TRADE_QUESTIONS,
+  it: { ...TRADE_QUESTIONS, home: "Questions, or a project in mind?", gallery: "Like what you see?" },
+  law: { ...TRADE_QUESTIONS, home: "Questions about a legal matter?", gallery: "Like what you see?" },
+  other: { ...TRADE_QUESTIONS, home: "Have a question for us?", gallery: "Like what you see?" },
+};
+
 const ASK = "Call us, or send a quick request.";
 
 export function renderClosingBand(ctx: RenderContext): SafeHtml {
   const { id } = ctx.page;
-  if (id === "contact") return html``; // render.ts draws none there; this narrows the page for QUESTION.
+  if (id === "contact") return html``; // render.ts draws none there; this narrows the page for QUESTIONS.
   const panel = boldPage(ctx).surface.get("closing") !== "ink";
-  const { emergency247 } = ctx.doc.facts;
-  const [lead, line] = emergency247 ? ["Emergency? Call us 24/7.", `${QUESTION[id]} ${ASK}`] : [QUESTION[id], ASK];
+  const { emergency247, trade } = ctx.doc.facts;
+  const question = QUESTIONS[trade][id];
+  const [lead, line] = emergency247 ? ["Emergency? Call us 24/7.", `${question} ${ASK}`] : [question, ASK];
   return html`<section id="${CLOSING_BAND_ID}" class="${bandClass(ctx, "closing")}" aria-labelledby="${CLOSING_BAND_ID}-title">
 <div class="wrap"><div class="${panel ? "close close--panel ink" : "close"}">
 <div class="close-copy"><h2 id="${CLOSING_BAND_ID}-title" class="kicker eyebrow">Get in touch</h2><p class="close-lead h2 display">${lead}</p><p class="sec-intro">${line}</p></div>

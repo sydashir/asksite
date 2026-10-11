@@ -1,7 +1,7 @@
 import { DAYS, serviceAreaScopeOf, type Day, type Facts, type OpeningHours, type Trade } from "@asksite/site-schema";
 import { safeUrl, type SafeUrl } from "./html.ts";
 
-/** The name of each trade the site shows; "other" shows the owner's own words instead (tradeLabel). */
+/** The name of each trade the site shows; "other" shows the owner's own words instead (tradeWords). */
 export const TRADE_LABEL: Readonly<Record<Exclude<Trade, "other">, string>> = {
   plumbing: "Plumbing",
   hvac: "Heating & Cooling",
@@ -13,8 +13,8 @@ export const TRADE_LABEL: Readonly<Record<Exclude<Trade, "other">, string>> = {
   law: "Law firm",
 };
 
-/** The trade as the site names it: "Plumbing", "Law firm", or for "other" the owner's own business type ("Bakery"). */
-export function tradeLabel(facts: Pick<Facts, "trade" | "tradeOther">): string {
+/** The trade as the site names it inside a sentence: "Plumbing", "Law firm", or for "other" the owner's own business type as typed ("bakery"). */
+export function tradeWords(facts: Pick<Facts, "trade" | "tradeOther">): string {
   if (facts.trade !== "other") return TRADE_LABEL[facts.trade];
   // Facts requires tradeOther exactly when the trade is "other", and render() parses every document first.
   if (facts.tradeOther === undefined) throw new Error("A business whose trade is other names its own business type");
@@ -22,10 +22,15 @@ export function tradeLabel(facts: Pick<Facts, "trade" | "tradeOther">): string {
 }
 
 /**
- * "Plumbing services", "Bakery services": a trade's name before "services", which needs no article whatever the owner
- * wrote. A name that already ends in "service" or "services" ("Pool service") is not given a second one.
+ * The trade where it starts a line, heading or sentence ("Bakery · Seattle, WA", "Bakery in Seattle?"): tradeWords
+ * with its first letter capitalised, so an owner's "bakery" reads "Bakery". A first word with a capital of its own is
+ * a name and stays as typed ("iPhone repair", "eBay consignment"). The other trades' names already start with a capital.
  */
-export const servicesOf = (label: string): string => (/\bservices?$/i.test(label) ? label : `${label} services`);
+export const tradeLabel = (facts: Pick<Facts, "trade" | "tradeOther">): string =>
+  tradeWords(facts).replace(/^\p{Ll}(?=[^\s\p{Lu}]*(?:\s|$))/u, (letter) => letter.toUpperCase());
+
+/** "Plumbing services", "IT services", "Legal services": what a trade offers, for the Services page's description. */
+export const servicesOf = (trade: Exclude<Trade, "other">): string => (trade === "it" ? "IT services" : trade === "law" ? "Legal services" : `${TRADE_LABEL[trade]} services`);
 
 /** The line that stands in for the place list when the owner serves the whole country or the world. */
 const SCOPE_LINE = { country: "Serving customers nationwide", worldwide: "Serving customers worldwide" } as const;

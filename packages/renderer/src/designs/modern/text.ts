@@ -34,10 +34,27 @@ const NEED: Record<Exclude<Trade, "other">, string> = {
 
 /**
  * "Need a plumber in Austin?": the owner's trade and home town, and nothing else, as a question. The owner's own
- * business type comes first, which needs no article: "Bakery in Boston?".
+ * business type comes first, which needs no article, capitalised as it starts the question: "Bakery in Boston?".
  */
 export const needQuestion = (facts: Facts): string =>
   facts.trade === "other" ? `${tradeLabel(facts)} in ${facts.location.city}?` : `Need ${NEED[facts.trade]} in ${facts.location.city}?`;
+
+// What to tell the business, on the services' call-to-action card under "Not sure which service you need?": the trades
+// speak of a job; an IT firm of a project, a law firm of the visitor's matter, any other business in words that fit any.
+const ASK_ABOUT: Readonly<Record<Trade, string>> = {
+  plumbing: "Tell us about the job.",
+  hvac: "Tell us about the job.",
+  electrical: "Tell us about the job.",
+  roofing: "Tell us about the job.",
+  cleaning: "Tell us about the job.",
+  landscaping: "Tell us about the job.",
+  it: "Tell us about the project.",
+  law: "Tell us about your legal matter.",
+  other: "Tell us what you have in mind.",
+};
+
+/** "Tell us about the job.", in the words of the owner's trade. */
+export const askAbout = (facts: Pick<Facts, "trade">): string => ASK_ABOUT[facts.trade];
 
 /** "Boise, ID" or "Boise, ID and Meridian": one or two places as words, the home town with its state. */
 export function fewPlaces(facts: Facts): string {

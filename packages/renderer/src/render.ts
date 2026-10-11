@@ -3,7 +3,7 @@ import { onPage, type RenderContext } from "./context.ts";
 import type { Design } from "./design.ts";
 import { DESIGNS } from "./designs/index.ts";
 import { escapeText } from "./escape.ts";
-import { formatPhone, servicesOf, tradeLabel } from "./format.ts";
+import { formatPhone, servicesOf, tradeLabel, tradeWords } from "./format.ts";
 import { fragment, html, safeUrl, SafeHtml, trusted } from "./html.ts";
 import { faqPageJsonLd, jsonLdScript, localBusinessJsonLd } from "./json-ld.ts";
 import { themeStyle } from "./theme.ts";
@@ -90,14 +90,17 @@ export function pageTitle(doc: SiteDocument, page: PageId = "home"): string {
 export function pageDescription(doc: SiteDocument, page: PageId): string {
   const { facts, copy } = doc;
   const { businessName: name, location } = facts;
-  const trade = tradeLabel(facts);
+  const trade = tradeWords(facts);
   const place = `${location.city}, ${location.state}`;
   const fits = (text: string) => text.length <= MAX_DESCRIPTION_LENGTH;
   switch (page) {
     case "home":
       return copy.heroSubheadline;
-    case "services":
-      return clipText(`${servicesOf(trade)} from ${name} in ${place}. Call ${formatPhone(facts.phone)}.`, fits);
+    case "services": {
+      // The owner's own type may be of any form ("Movers", "Pet sitting co."), so it follows the name, as in Gallery's.
+      const offer = facts.trade === "other" ? `Services from ${name}, ${trade} in ${place}` : `${servicesOf(facts.trade)} from ${name} in ${place}`;
+      return clipText(`${offer}. Call ${formatPhone(facts.phone)}.`, fits);
+    }
     case "about":
       if (copy.about === undefined) throw new Error("The About page has no about text");
       return clipText(copy.about, fits);

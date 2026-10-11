@@ -1168,7 +1168,9 @@
     max-width: 46rem;
     margin-bottom: 2.25rem;
   }
-  /* The house heading device: a slanted bar (the hero seam's angle), then the section's menu label. */
+  /* The house heading device: a slanted bar (the hero seam's angle), then the section's menu label. An inner page's
+     "trade · town" with one unbroken word wider than a phone (a 40-letter business type or town) breaks inside it
+     instead of pushing the page sideways (PL-SC-1); "anywhere" also lets the label's flex item shrink to fit. */
   .eyebrow {
     display: flex;
     align-items: center;
@@ -1176,6 +1178,7 @@
     margin-bottom: 1rem;
     color: var(--fg-m);
     letter-spacing: 0.12em;
+    overflow-wrap: anywhere;
   }
   .eyebrow::before {
     content: "";

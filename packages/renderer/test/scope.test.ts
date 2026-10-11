@@ -4,7 +4,7 @@ import { DESIGN_IDS, Facts, SiteDocument, type DesignId, type ServiceAreaScope, 
 import { describe, expect, it } from "vitest";
 import { FIXTURE_FORM_ACTION, FIXTURE_SITE_URL, FIXTURES, inDesign, loadFixture, stubStylesheets } from "../../../fixtures/index.ts";
 import { askLine, needLine } from "../src/designs/refined/parts.ts";
-import { needQuestion } from "../src/designs/modern/text.ts";
+import { askAbout, needQuestion } from "../src/designs/modern/text.ts";
 import { tradeLabel } from "../src/format.ts";
 import { localBusinessJsonLd } from "../src/json-ld.ts";
 import { pageDescription, pageTitle, render } from "../src/render.ts";
@@ -34,7 +34,7 @@ describe("the trade name", () => {
     const doc = SiteDocument.parse(loadFixture("other-worldwide"));
     expect(tradeLabel(doc.facts)).toBe("Translation services");
     expect(pageTitle(doc)).toBe("Lingo Bridge Translations | Translation services in Seattle, WA");
-    expect(pageDescription(doc, "services")).toBe("Translation services from Lingo Bridge Translations in Seattle, WA. Call (206) 555-0173.");
+    expect(pageDescription(doc, "services")).toBe("Services from Lingo Bridge Translations, Translation services in Seattle, WA. Call (206) 555-0173.");
     for (const design of DESIGN_IDS) {
       for (const page of sitePages(loadFixture("other-worldwide"), design)) {
         expect({ design, page: page.page, named: texts(page.html).some((text) => text.startsWith("Translation services")) }).toEqual({ design, page: page.page, named: true });
@@ -53,11 +53,76 @@ describe("the trade name", () => {
       Facts.parse({ ...FULL.facts, trade, ...(tradeOther === undefined ? {} : { tradeOther }) });
     expect([needQuestion(facts("it")), needQuestion(facts("law")), needQuestion(facts("other", "Bakery"))]).toEqual(["Need IT help in Austin?", "Need legal help in Austin?", "Bakery in Austin?"]);
     expect([needLine(facts("it")), needLine(facts("law")), needLine(facts("other", "Bakery"))]).toEqual(["Need IT help in Austin?", "Need legal help in Austin?", "Bakery in Austin?"]);
-    expect([askLine(facts("it")), askLine(facts("law")), askLine(facts("other", "Bakery")), askLine(facts("other", "Pool service"))]).toEqual([
+    expect([askLine(facts("it")), askLine(facts("law")), askLine(facts("other", "Bakery"))]).toEqual([
       "Ask us about any IT project.",
-      "Ask us about any legal matter.",
-      "Ask us about our Bakery services.",
-      "Ask us about our Pool service.",
+      "Ask us about your legal matter.",
+      "Ask us about anything not listed.",
+    ]);
+  });
+});
+
+// Scope review M1-M5 (2026-10-11): words that fit an IT firm, a law firm and any other business, whatever form the
+// owner's own business type takes. One test per behaviour.
+describe("the trade wording", () => {
+  const input = (trade: Facts["trade"], tradeOther?: string): SiteDocumentInput => ({ ...FULL, facts: { ...FULL.facts, trade, ...(tradeOther === undefined ? {} : { tradeOther }) } });
+  const parsed = (trade: Facts["trade"], tradeOther?: string) => SiteDocument.parse(input(trade, tradeOther));
+  /** Every string the document itself holds (the owner's facts, the AI's copy): the words a design adds are the rest. */
+  const ownWords = (doc: SiteDocumentInput): Set<string> => {
+    const out = new Set<string>();
+    const walk = (value: unknown): void => {
+      if (typeof value === "string") out.add(value.replace(/\s+/g, " ").trim());
+      else if (value !== null && typeof value === "object") Object.values(value).forEach(walk);
+    };
+    walk(doc);
+    return out;
+  };
+  const OTHERS = [["it"], ["law"], ["other", "Bakery"]] as const;
+
+  it("speaks to an IT firm, a law firm and any other business in their own words, never of a job or the customer's place", () => {
+    const TRADE_WORDS = /\b(jobs?|at your place|on[- ]?site|call[- ]?outs?)\b/i;
+    const found = OTHERS.flatMap(([trade, other]) =>
+      DESIGN_IDS.flatMap((design) => {
+        const own = ownWords(input(trade, other));
+        return sitePages(input(trade, other), design).flatMap((p) => texts(p.html).filter((text) => !own.has(text) && TRADE_WORDS.test(text)).map((text) => `${trade} ${design} ${p.page}: ${text}`));
+      }),
+    );
+    expect(found).toEqual([]);
+    // Bold's closing band (the owner offers 24/7 service, so the page's question opens its line), Modern's last services card.
+    const boldLine = (trade: Facts["trade"], other: string | undefined, page: "home" | "gallery") =>
+      texts(sitePages(input(trade, other), "impact").find((p) => p.page === page)?.html ?? "").find((text) => text.endsWith(" Call us, or send a quick request."));
+    expect(OTHERS.map(([trade, other]) => [boldLine(trade, other, "home"), boldLine(trade, other, "gallery"), askAbout(parsed(trade, other).facts)])).toEqual([
+      ["Questions, or a project in mind? Call us, or send a quick request.", "Like what you see? Call us, or send a quick request.", "Tell us about the project."],
+      ["Questions about a legal matter? Call us, or send a quick request.", "Like what you see? Call us, or send a quick request.", "Tell us about your legal matter."],
+      ["Have a question for us? Call us, or send a quick request.", "Like what you see? Call us, or send a quick request.", "Tell us what you have in mind."],
+    ]);
+  });
+
+  it("asks about anything not listed, so a plural or punctuated business type needs no grammar from the owner", () => {
+    for (const type of ["Movers", "Pet sitting co.", "Event planners"]) {
+      const classic = sitePages(input("other", type), "refined").find((p) => p.page === "services")?.html ?? "";
+      expect({ type, ask: askLine(parsed("other", type).facts), shown: texts(classic).includes("Ask us about anything not listed."), services: classic.includes(`${type} services`) }).toEqual({ type, ask: "Ask us about anything not listed.", shown: true, services: false });
+    }
+  });
+
+  it("capitalises a lowercase business type where it starts a line, heading or sentence, and keeps it as typed inside one", () => {
+    const doc = parsed("other", "bakery");
+    expect([tradeLabel(doc.facts), needQuestion(doc.facts), needLine(doc.facts), pageTitle(doc)]).toEqual(["Bakery", "Bakery in Austin?", "Bakery in Austin?", "Reliable Rooter | Bakery in Austin, TX"]);
+    // A first word with a capital of its own is a name: it stays as typed at a line start too.
+    const brand = parsed("other", "iPhone repair");
+    expect([tradeLabel(brand.facts), needQuestion(brand.facts), needLine(brand.facts)]).toEqual(["iPhone repair", "iPhone repair in Austin?", "iPhone repair in Austin?"]);
+    expect(pageDescription(doc, "gallery")).toBe("Photos of recent work by Reliable Rooter, bakery in Austin, TX.");
+    for (const design of DESIGN_IDS) {
+      const starts = sitePages(input("other", "bakery"), design).flatMap((p) => texts(p.html).filter((text) => /^bakery\b/i.test(text)));
+      expect({ design, some: starts.length > 0, lowercase: starts.filter((text) => text.startsWith("bakery")) }).toEqual({ design, some: true, lowercase: [] });
+    }
+  });
+
+  it("describes the Services page as IT services, Legal services, or services from the business with the owner's type after its name", () => {
+    expect([parsed("plumbing"), parsed("it"), parsed("law"), parsed("other", "Movers")].map((doc) => pageDescription(doc, "services"))).toEqual([
+      "Plumbing services from Reliable Rooter in Austin, TX. Call (512) 555-0142.",
+      "IT services from Reliable Rooter in Austin, TX. Call (512) 555-0142.",
+      "Legal services from Reliable Rooter in Austin, TX. Call (512) 555-0142.",
+      "Services from Reliable Rooter, Movers in Austin, TX. Call (512) 555-0142.",
     ]);
   });
 });
