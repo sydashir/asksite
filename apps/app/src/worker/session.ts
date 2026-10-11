@@ -17,19 +17,22 @@ export const EXPIRED_SESSION_COOKIE = `${SESSION_COOKIE}=; Path=/; Secure; HttpO
 /**
  * The statement that stores a new session. Only the token's hash is stored, and only for an owner who is
  * not disabled, checked in the same statement: its meta.changes is 0 otherwise, so a disable that lands
- * after an earlier check can never leave a live session. A password sign-in passes the hash it just verified
- * (`passwordHash`): the session is then a 'password' one (0010_owner_password.sql) and is stored only while the
- * owner's hash is still that one, so a password cleared or replaced during the check gives no session (IMP-2).
- * Without it, the session is an emailed-link or invite one (signed_in_with NULL).
+ * after an earlier check can never leave a live session. The session stores the owner's auth_version
+ * (0011_auth_version.sql), which requireOwner and every password write then require it to keep.
+ * A password sign-in passes the hash it just verified and the auth_version read with it (`verified`): the
+ * session is then a 'password' one (0010_owner_password.sql) and is stored only while the owner's hash and
+ * auth_version are still those, so a password cleared or replaced during the check gives no session (IMP-2;
+ * the version too, moderator 2026-10-11). Without it, the session is an emailed-link or invite one
+ * (signed_in_with NULL) and takes the owner's auth_version as it is.
  */
-export function insertSession(db: D1Database, idHash: string, ownerId: string, now: number, passwordHash: string | null = null): D1PreparedStatement {
-  const columns = "INSERT INTO sessions (id_hash, owner_id, created_at, expires_at, last_seen_at, signed_in_with)";
-  if (passwordHash === null) {
-    return db.prepare(`${columns} SELECT ?1, id, ?3, ?4, ?3, NULL FROM owners WHERE id = ?2 AND disabled_at IS NULL`).bind(idHash, ownerId, now, now + TTL.sessionMs);
+export function insertSession(db: D1Database, idHash: string, ownerId: string, now: number, verified: { hash: string; authVersion: number } | null = null): D1PreparedStatement {
+  const columns = "INSERT INTO sessions (id_hash, owner_id, created_at, expires_at, last_seen_at, signed_in_with, auth_version)";
+  if (verified === null) {
+    return db.prepare(`${columns} SELECT ?1, id, ?3, ?4, ?3, NULL, auth_version FROM owners WHERE id = ?2 AND disabled_at IS NULL`).bind(idHash, ownerId, now, now + TTL.sessionMs);
   }
   return db
-    .prepare(`${columns} SELECT ?1, id, ?3, ?4, ?3, 'password' FROM owners WHERE id = ?2 AND disabled_at IS NULL AND password_hash = ?5`)
-    .bind(idHash, ownerId, now, now + TTL.sessionMs, passwordHash);
+    .prepare(`${columns} SELECT ?1, id, ?3, ?4, ?3, 'password', auth_version FROM owners WHERE id = ?2 AND disabled_at IS NULL AND password_hash = ?5 AND auth_version = ?6`)
+    .bind(idHash, ownerId, now, now + TTL.sessionMs, verified.hash, verified.authVersion);
 }
 
 /** The hash of the session token in the request's cookie, or null when the cookie holds none that could be one. */
@@ -48,7 +51,12 @@ export async function endSession(c: Context<AppEnv>): Promise<void> {
   if (idHash !== null) await c.env.DB.prepare("DELETE FROM sessions WHERE id_hash = ?").bind(idHash).run();
 }
 
-/** Session middleware for every signed-in route: 401 without a live session, 403 for a disabled owner. */
+/**
+ * Session middleware for every signed-in route: 401 without a live session, 403 for a disabled owner. A session whose auth_version
+ * is not its owner's (a password was set, replaced or cleared since it signed in: 0011_auth_version.sql) is refused like a missing
+ * one, with the same 401. The middleware only reads: the batch that moved the version deletes such sessions, and the daily cron
+ * deletes any left when they expire.
+ */
 export const requireOwner: MiddlewareHandler<AppEnv> = async (c, next) => {
   const idHash = await cookieSessionHash(c);
   if (idHash === null) throw new ApiError("unauthenticated", "Please sign in");
@@ -56,7 +64,7 @@ export const requireOwner: MiddlewareHandler<AppEnv> = async (c, next) => {
   const row = await c.env.DB.prepare(
     `SELECT o.id, o.email, o.disabled_at, s.last_seen_at
      FROM sessions s JOIN owners o ON o.id = s.owner_id
-     WHERE s.id_hash = ? AND s.expires_at > ?`,
+     WHERE s.id_hash = ? AND s.expires_at > ? AND s.auth_version = o.auth_version`,
   )
     .bind(idHash, now)
     .first<{ id: string; email: string; disabled_at: number | null; last_seen_at: number }>();

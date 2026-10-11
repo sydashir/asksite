@@ -9,6 +9,7 @@ export interface OwnerRow {
   disabled_reason: string | null;
   password_hash: string | null; // 0010_owner_password.sql: a PBKDF2 hash (password.ts), never the password; NULL = no password
   password_unconfirmed: 1 | null; // 0010: 1 while the password is the one set at sign-up (cleared by the first emailed-link or invite sign-in)
+  auth_version: number; // 0011_auth_version.sql: one more on every password write; a session holding another is refused
 }
 
 export interface SiteRow {
@@ -59,6 +60,7 @@ export interface SessionRow {
   created_at: number;
   expires_at: number;
   last_seen_at: number;
+  auth_version: number; // 0011_auth_version.sql: the owner's auth_version when this session signed in
 }
 
 export interface UploadRow {

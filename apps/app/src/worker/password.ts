@@ -40,13 +40,16 @@ async function reserveTry(db: D1Database, emailHash: string, now: number, messag
  */
 export async function passwordLogin(env: Env, email: string, password: string, now: number): Promise<{ owner: OwnerView; sessionToken: string }> {
   const tryId = await reserveTry(env.DB, await emailKey(env, email), now, NO_MATCH);
-  const owner = await env.DB.prepare("SELECT id, email, password_hash FROM owners WHERE email = ?").bind(email).first<{ id: string; email: string; password_hash: string | null }>();
+  const owner = await env.DB.prepare("SELECT id, email, password_hash, auth_version FROM owners WHERE email = ?")
+    .bind(email)
+    .first<{ id: string; email: string; password_hash: string | null; auth_version: number }>();
   if (!(await passwordMatches(password, owner?.password_hash ?? null)) || owner === null || owner.password_hash === null) throw new ApiError("login_failed", NO_MATCH);
   const sessionToken = newToken();
   const idHash = await sha256Hex(sessionToken);
-  // The session needs the hash just verified to still be stored (IMP-2): a password cleared (I2) or replaced (Q3) during the check gives none.
+  // The session needs the hash just verified, and the auth_version read with it, to still be stored (IMP-2; moderator 2026-10-11):
+  // a password cleared (I2) or replaced (Q3) during the check gives none.
   const [session] = await env.DB.batch([
-    insertSession(env.DB, idHash, owner.id, now, owner.password_hash),
+    insertSession(env.DB, idHash, owner.id, now, { hash: owner.password_hash, authVersion: owner.auth_version }),
     env.DB
       .prepare("INSERT INTO audit_log (at, actor, action, site_id, detail_json) SELECT ?, ?, 'auth.login', NULL, ? WHERE EXISTS (SELECT 1 FROM sessions WHERE id_hash = ?)")
       .bind(now, `owner:${owner.id}`, JSON.stringify({ method: "password" }), idHash),
@@ -65,8 +68,12 @@ const WRONG_CURRENT = "Your current password is not right.";
 const NEED_LINK = "To set a new password without your current one, log in again with an email link.";
 /** The same lock on the account page, where the log-in's words would not fit. */
 const CHANGE_LOCKED = "Too many wrong passwords. Try again in 15 minutes, or log in again with an email link to set a new one.";
-/** This request's session (?3, its id hash) still exists. */
-const SESSION_LIVE = "EXISTS (SELECT 1 FROM sessions WHERE id_hash = ?3)";
+/**
+ * This request's session (?3, its id hash) is still the owner's and still holds the owner's auth_version (0011_auth_version.sql), read
+ * in the password write's own statement, against the owners row it writes (SQLite evaluates the WHERE on the row as it was before the
+ * write). It replaces IMP-1's bare EXISTS: a session deleted, or ended by a password write elsewhere, writes nothing.
+ */
+const SESSION_CURRENT = "EXISTS (SELECT 1 FROM sessions WHERE id_hash = ?3 AND owner_id = owners.id AND auth_version = owners.auth_version)";
 const PASSWORD_CHANGED_ELSEWHERE = "Your password was changed somewhere else. Reload the page and try again.";
 
 /** What the account page needs: whether the owner has a password, and whether this session may set a new one without it. */
@@ -82,10 +89,12 @@ export async function passwordState(db: D1Database, sessionHash: string, now: nu
  * Sets the signed-in owner's first password, or replaces it. Replacing needs the current one (checked under the same 5-try
  * lock as log-in: a try is reserved first, a wrong one keeps it), unless this session signed in with an emailed link or an
  * invite at most 15 minutes ago (RULED 2026-10-08: the link proved the inbox, so a forgotten password can be replaced).
- * Replacing ends the owner's other sessions (RULED Q3) in the same batch; this session stays. A password set from a link or
- * invite session is confirmed (RULED I2: password_unconfirmed cleared); one set from a password session leaves the mark as it
- * was, so a sign-up password cannot confirm itself. Each write applies only while the stored hash is still the one this
- * request read, so a change made elsewhere meanwhile is never overwritten.
+ * Every write adds one to owners.auth_version (PWD-REDESIGN, 2026-10-11), so it ends the owner's other sessions (RULED Q3; since
+ * 2026-10-11 the first password too): in the same batch this session takes the new version and stays, and the sessions left with
+ * another version are deleted. A password set from a link or invite session is confirmed (RULED I2: password_unconfirmed
+ * cleared); one set from a password session leaves the mark as it was, so a sign-up password cannot confirm itself. Each write
+ * applies only while the stored hash is still the one this request read and this session still holds the owner's auth_version
+ * (SESSION_CURRENT), so a change made elsewhere meanwhile is never overwritten, and a stale session never writes.
  */
 export async function setPassword(
   env: Env,
@@ -95,11 +104,13 @@ export async function setPassword(
   now: number,
 ): Promise<{ replaced: boolean }> {
   const row = await env.DB.prepare(
-    `SELECT o.password_hash, s.signed_in_with IS NULL AS link_session, ${SKIP_CURRENT_SQL} AS skip_current FROM sessions s JOIN owners o ON o.id = s.owner_id WHERE s.id_hash = ?2`,
+    `SELECT o.password_hash, s.signed_in_with IS NULL AS link_session, ${SKIP_CURRENT_SQL} AS skip_current
+     FROM sessions s JOIN owners o ON o.id = s.owner_id WHERE s.id_hash = ?2 AND s.auth_version = o.auth_version`,
   )
     .bind(now, sessionHash)
     .first<{ password_hash: string | null; link_session: number; skip_current: number }>();
-  // The session requireOwner found may have been deleted since (IMP-1: the owner's first link sign-in ends a squatter's sessions).
+  // The session requireOwner found may have been deleted or ended since (IMP-1: the owner's first link sign-in ends a squatter's
+  // sessions); then no try is reserved and no hash is derived.
   if (row === null) throw new ApiError("unauthenticated", "Please sign in");
   const current = row.password_hash;
   let tryId: number | null = null;
@@ -114,16 +125,20 @@ export async function setPassword(
   const next = await hashPassword(input.newPassword);
   const confirmed = row.link_session === 1 ? ", password_unconfirmed = NULL" : "";
   const stored = "EXISTS (SELECT 1 FROM owners WHERE id = ?1 AND password_hash = ?2)";
+  const write = `UPDATE owners SET password_hash = ?1, auth_version = auth_version + 1${confirmed} WHERE id = ?2`;
   const statements = [
-    // Only while this request's session still exists (IMP-1), so a deleted session can never write a password.
     current === null
-      ? env.DB.prepare(`UPDATE owners SET password_hash = ?1${confirmed} WHERE id = ?2 AND password_hash IS NULL AND ${SESSION_LIVE}`).bind(next, owner.id, sessionHash)
-      : env.DB.prepare(`UPDATE owners SET password_hash = ?1${confirmed} WHERE id = ?2 AND password_hash = ?4 AND ${SESSION_LIVE}`).bind(next, owner.id, sessionHash, current),
+      ? env.DB.prepare(`${write} AND password_hash IS NULL AND ${SESSION_CURRENT}`).bind(next, owner.id, sessionHash)
+      : env.DB.prepare(`${write} AND password_hash = ?4 AND ${SESSION_CURRENT}`).bind(next, owner.id, sessionHash, current),
+    // This session stays: it takes the new version, only when the write above applied (`stored`: `next` is a fresh salted hash that
+    // only this batch can have stored), so a session the write refused never takes a version it did not earn.
+    env.DB.prepare(`UPDATE sessions SET auth_version = (SELECT auth_version FROM owners WHERE id = ?1) WHERE id_hash = ?3 AND owner_id = ?1 AND ${stored}`).bind(owner.id, next, sessionHash),
     env.DB
       .prepare(`INSERT INTO audit_log (at, actor, action, site_id, detail_json) SELECT ?3, ?4, 'auth.password_set', NULL, ?5 WHERE ${stored}`)
       .bind(owner.id, next, now, `owner:${owner.id}`, JSON.stringify({ replaced: current !== null })),
+    // Every other session of the owner now holds an older version: ended (RULED Q3), and its row deleted.
+    env.DB.prepare(`DELETE FROM sessions WHERE owner_id = ?1 AND auth_version != (SELECT auth_version FROM owners WHERE id = ?1) AND ${stored}`).bind(owner.id, next),
   ];
-  if (current !== null) statements.push(env.DB.prepare(`DELETE FROM sessions WHERE owner_id = ?1 AND id_hash != ?3 AND ${stored}`).bind(owner.id, next, sessionHash));
   if (tryId !== null) statements.push(env.DB.prepare(RELEASE_TRY_SQL).bind(tryId));
   const [updated] = await env.DB.batch(statements);
   if (updated?.meta.changes !== 1) throw new ApiError("conflict", PASSWORD_CHANGED_ELSEWHERE);

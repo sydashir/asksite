@@ -344,3 +344,29 @@ describe("0010_owner_password.sql", () => {
     await expect(db.prepare("INSERT INTO password_tries (email_hash, at) VALUES (?, ?)").bind(fresh(), "soon").run()).rejects.toThrow(/SQLITE_CONSTRAINT_DATATYPE/);
   });
 });
+
+// PWD-REDESIGN (moderator web-maker-d5, 2026-10-11): owners.auth_version goes up on every password write and each session stores its
+// owner's at sign-in (apps/app/src/worker/session.ts). Rows written before 0011 ran are covered by
+// apps/app/test/worker/migrations.workerd.test.ts.
+describe("0011_auth_version.sql", () => {
+  const column = async (table: string, name: string) =>
+    (await db.prepare(`PRAGMA table_info(${table})`).all<{ name: string; type: string; notnull: number; dflt_value: unknown }>()).results
+      .filter((c) => c.name === name)
+      .map(({ type, notnull, dflt_value }) => ({ name, type, notnull, dflt_value }));
+
+  it("adds owners.auth_version and sessions.auth_version as NOT NULL INTEGERs with the constant DEFAULT 0", async () => {
+    expect(await column("owners", "auth_version")).toEqual([{ name: "auth_version", type: "INTEGER", notnull: 1, dflt_value: "0" }]);
+    expect(await column("sessions", "auth_version")).toEqual([{ name: "auth_version", type: "INTEGER", notnull: 1, dflt_value: "0" }]);
+  });
+
+  it("gives an owner and a session written without it 0, and refuses NULL or a value that is not an integer (STRICT)", async () => {
+    const { owner } = await newSite();
+    const session = fresh();
+    await db.prepare("INSERT INTO sessions (id_hash, owner_id, created_at, expires_at, last_seen_at) VALUES (?, ?, 1, 2, 1)").bind(session, owner).run();
+    expect(await db.prepare("SELECT auth_version FROM owners WHERE id = ?").bind(owner).first()).toEqual({ auth_version: 0 });
+    expect(await db.prepare("SELECT auth_version FROM sessions WHERE id_hash = ?").bind(session).first()).toEqual({ auth_version: 0 });
+    await expect(db.prepare("UPDATE owners SET auth_version = NULL WHERE id = ?").bind(owner).run()).rejects.toThrow(/SQLITE_CONSTRAINT_NOTNULL/);
+    await expect(db.prepare("UPDATE sessions SET auth_version = ? WHERE id_hash = ?").bind("soon", session).run()).rejects.toThrow(/SQLITE_CONSTRAINT_DATATYPE/);
+    await expect(db.prepare("UPDATE owners SET auth_version = ? WHERE id = ?").bind(1.5, owner).run()).rejects.toThrow(/SQLITE_CONSTRAINT_DATATYPE/);
+  });
+});

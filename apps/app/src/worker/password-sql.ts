@@ -36,10 +36,16 @@ export const RELEASE_TRY_SQL = "DELETE FROM password_tries WHERE id = ?1";
  * RULED I2 (2026-10-08): a password set at sign-up is unconfirmed (owners.password_unconfirmed = 1), since sign-up sends no
  * email. The account's first emailed-link or invite sign-in clears it and ends its password sessions, in the same batch as
  * that sign-in, and only once that sign-in's own session (?2, its id hash) is stored. `ownerId` is an SQL expression for the
- * owner's id over ?1 (the id itself, or a lookup by email). In this order: the sessions first, while the mark still says the
- * password is unconfirmed.
+ * owner's id over ?1 (the id itself, or a lookup by email). PWD-REDESIGN (2026-10-11): the clear is a password write, so it
+ * adds one to owners.auth_version (0011_auth_version.sql); then, in this order, the sign-in's own session takes the owner's
+ * auth_version as it now is (keepNewSessionSql: it was stored a moment earlier in this batch, with a fresh token, so it can
+ * never be one the clear ended), and every session of the owner left with another version is deleted (endStaleSessionsSql).
+ * While the mark is set every other session is a password one (a link or invite sign-in clears it), so these are the
+ * password sessions RULED I2 ends.
  */
-export const endUnconfirmedSessionsSql = (ownerId: string): string => `DELETE FROM sessions WHERE owner_id = ${ownerId} AND signed_in_with = 'password'
-  AND EXISTS (SELECT 1 FROM owners WHERE id = ${ownerId} AND password_unconfirmed = 1) AND EXISTS (SELECT 1 FROM sessions WHERE id_hash = ?2)`;
-export const clearUnconfirmedSql = (ownerId: string): string => `UPDATE owners SET password_hash = NULL, password_unconfirmed = NULL
+export const clearUnconfirmedSql = (ownerId: string): string => `UPDATE owners SET password_hash = NULL, password_unconfirmed = NULL, auth_version = auth_version + 1
   WHERE id = ${ownerId} AND password_unconfirmed = 1 AND EXISTS (SELECT 1 FROM sessions WHERE id_hash = ?2)`;
+export const keepNewSessionSql = (ownerId: string): string => `UPDATE sessions SET auth_version = (SELECT auth_version FROM owners WHERE id = ${ownerId})
+  WHERE id_hash = ?2 AND owner_id = ${ownerId}`;
+export const endStaleSessionsSql = (ownerId: string): string => `DELETE FROM sessions WHERE owner_id = ${ownerId}
+  AND auth_version != (SELECT auth_version FROM owners WHERE id = ${ownerId}) AND EXISTS (SELECT 1 FROM sessions WHERE id_hash = ?2)`;

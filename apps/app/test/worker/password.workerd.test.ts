@@ -327,6 +327,79 @@ describe("setting and changing the password", () => {
     expect(await db.prepare("SELECT COUNT(*) AS n FROM sessions s JOIN owners o ON o.id = s.owner_id WHERE o.email = ? AND s.signed_in_with = 'password'").bind(victim).first()).toEqual({ n: 0 });
   });
 
+  // PWD-REDESIGN (moderator web-maker-d5, 2026-10-11): owners.auth_version goes up on every password write, each session stores its
+  // owner's at sign-in, and a session whose version is not the owner's is refused everywhere, as if it had none.
+  it("refuses a session whose auth_version is stale on every signed-in request and on a password write; a session made after works", async () => {
+    const owner = await h.signIn(uniqueEmail("pw-stale"));
+    expect((await h.call("GET", "/api/me", { cookie: owner.cookie })).status).toBe(200);
+    await (await h.db()).prepare("UPDATE owners SET auth_version = auth_version + 1 WHERE id = ?").bind(owner.ownerId).run();
+
+    for (const res of [await h.call("GET", "/api/me", { cookie: owner.cookie }), await h.call("GET", `/api/sites/${owner.siteId}`, { cookie: owner.cookie }), await setPassword(owner.cookie, { newPassword: PASSWORD })]) {
+      expect(res.status).toBe(401);
+      expect(await json<ErrorJson>(res)).toEqual({ error: { code: "unauthenticated", message: "Please sign in" } });
+    }
+    // setPassword itself, as a request that passed requireOwner just before the bump: refused, nothing written.
+    const direct = await h.call("POST", "/__test/set-password", { body: { ownerId: owner.ownerId, email: owner.email, sessionHash: await sha256Hex(owner.cookie.split("=")[1] ?? ""), newPassword: PASSWORD } });
+    expect(direct.status).toBe(409);
+    expect(await json<{ code: string }>(direct)).toEqual({ code: "unauthenticated" });
+    expect(await storedHash(owner.email)).toBeNull();
+
+    const fresh = await linkLogIn(owner.email);
+    expect((await h.call("GET", "/api/me", { cookie: fresh })).status).toBe(200);
+    expect((await setPassword(fresh, { newPassword: PASSWORD })).status).toBe(200);
+  });
+
+  it("writes no password when the session goes stale while the write runs (the check is in the write's own statement)", async () => {
+    const owner = await h.signIn(uniqueEmail("pw-stale-mid-write"));
+    expect((await h.call("POST", "/__test/bump-before-next-derive", { body: { email: owner.email } })).status).toBe(200);
+    const res = await setPassword(owner.cookie, { newPassword: PASSWORD });
+    expect(res.status).toBe(409);
+    expect((await json<ErrorJson>(res)).error.code).toBe("conflict");
+    expect(await storedHash(owner.email)).toBeNull();
+    expect((await h.call("GET", "/api/me", { cookie: owner.cookie })).status).toBe(401);
+    // Only the hook's bump: the refused write bumped nothing.
+    expect(await (await h.db()).prepare("SELECT auth_version FROM owners WHERE id = ?").bind(owner.ownerId).first()).toEqual({ auth_version: 1 });
+  });
+
+  // Q1 (moderator 2026-10-11): the log-in's session needs the version read with the hash too, so a version that moved while the password
+  // was checked gives no session even though the hash is unchanged (IMP-2's hash condition alone would let it through).
+  it("gives no session to a password log-in whose owner's auth_version moved while it was checked; the next log-in works", async () => {
+    const email = uniqueEmail("pw-version-mid-check");
+    expect((await signUp(email, PASSWORD)).status).toBe(200);
+    const before = await storedHash(email);
+    expect((await h.call("POST", "/__test/bump-before-next-derive", { body: { email } })).status).toBe(200);
+    const res = await logIn(email, PASSWORD);
+    expect(res.status).toBe(401);
+    expect((await json<ErrorJson>(res)).error.code).toBe("login_failed");
+    expect(res.headers.get("Set-Cookie")).toBeNull();
+    expect(await storedHash(email)).toBe(before);
+    const again = await logIn(email, PASSWORD);
+    expect(again.status).toBe(200);
+    expect((await h.call("GET", "/api/me", { cookie: cookieOf(again) })).status).toBe(200);
+  });
+
+  // C3 (moderator 2026-10-11): setting the FIRST password ends the owner's other sessions too, as a replace does (Q3); the session that
+  // set or replaced it takes the owner's new auth_version and stays, and the ended sessions' rows are deleted in the same batch.
+  it("keeps the session that sets the first password or replaces it and ends every other session of the owner, each time", async () => {
+    const owner = await h.signIn(uniqueEmail("pw-first-ends-others"));
+    const other = await linkLogIn(owner.email);
+    expect((await setPassword(owner.cookie, { newPassword: PASSWORD })).status).toBe(200);
+    expect((await h.call("GET", "/api/me", { cookie: owner.cookie })).status).toBe(200);
+    expect((await h.call("GET", "/api/me", { cookie: other })).status).toBe(401);
+
+    const third = cookieOf(await logIn(owner.email, PASSWORD));
+    expect((await h.call("GET", "/api/me", { cookie: third })).status).toBe(200);
+    expect((await setPassword(owner.cookie, { currentPassword: PASSWORD, newPassword: OTHER })).status).toBe(200);
+    expect((await h.call("GET", "/api/me", { cookie: owner.cookie })).status).toBe(200);
+    expect((await h.call("GET", "/api/me", { cookie: third })).status).toBe(401);
+
+    const { results } = await (await h.db())
+      .prepare("SELECT s.id_hash, s.auth_version AS session_version, o.auth_version AS owner_version FROM sessions s JOIN owners o ON o.id = s.owner_id WHERE o.id = ?")
+      .bind(owner.ownerId)
+      .all<{ id_hash: string; session_version: number; owner_version: number }>();
+    expect(results).toEqual([{ id_hash: await sha256Hex(owner.cookie.split("=")[1] ?? ""), session_version: 2, owner_version: 2 }]);
+  });
+
   // RULED 2026-10-08 (a), test (2): a link or invite session may skip the current password for 15 minutes after its sign-in.
   it("lets a link session skip the current password up to 15 minutes after its sign-in, and refuses it after that with the decided text", async () => {
     // A confirmed password (RULED I2: set from the invite's session), so each link sign-in below replaces it rather than clearing it.

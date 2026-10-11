@@ -203,14 +203,28 @@ let derives: Array<{ hash: unknown; iterations: unknown }> | null = null;
  * the request that derives (deriveDb), then derives. One-shot.
  */
 let clearBeforeNextDerive: string | null = null;
+/**
+ * PWD-REDESIGN (2026-10-11): armed by POST /__test/bump-before-next-derive, the next PBKDF2 derive first adds one to this email's
+ * owners.auth_version and nothing else (the hash stays), on the database of the request that derives, then derives. One-shot.
+ */
+let bumpBeforeNextDerive: string | null = null;
 let deriveDb: D1Database | null = null;
 const realDeriveBits = SubtleCrypto.prototype.deriveBits;
 SubtleCrypto.prototype.deriveBits = function (this: SubtleCrypto, ...args: Parameters<SubtleCrypto["deriveBits"]>) {
   const [algorithm] = args;
   if (derives !== null && typeof algorithm === "object" && algorithm.name === "PBKDF2") derives.push({ hash: algorithm.hash, iterations: algorithm.iterations });
   const email = clearBeforeNextDerive;
+  const bumped = bumpBeforeNextDerive;
   const db = deriveDb;
-  if (email === null || db === null || typeof algorithm !== "object" || algorithm.name !== "PBKDF2") return realDeriveBits.apply(this, args);
+  if ((email === null && bumped === null) || db === null || typeof algorithm !== "object" || algorithm.name !== "PBKDF2") return realDeriveBits.apply(this, args);
+  if (bumped !== null) {
+    bumpBeforeNextDerive = null;
+    return db
+      .prepare("UPDATE owners SET auth_version = auth_version + 1 WHERE email = ?1")
+      .bind(bumped)
+      .run()
+      .then(() => realDeriveBits.apply(this, args));
+  }
   clearBeforeNextDerive = null;
   return db
     .batch([
@@ -617,6 +631,12 @@ helpers.post("/__test/record-sql", async (c) => {
 /** Arms the one-shot clear before the next PBKDF2 derive (see clearBeforeNextDerive). */
 helpers.post("/__test/before-next-derive", async (c) => {
   clearBeforeNextDerive = (await c.req.json<{ email: string }>()).email;
+  return c.json({ ok: true });
+});
+
+/** Arms the one-shot auth_version bump before the next PBKDF2 derive (see bumpBeforeNextDerive). */
+helpers.post("/__test/bump-before-next-derive", async (c) => {
+  bumpBeforeNextDerive = (await c.req.json<{ email: string }>()).email;
   return c.json({ ok: true });
 });
 

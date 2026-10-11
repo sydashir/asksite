@@ -152,3 +152,22 @@ describe("0010_owner_password.sql, applied onto owners and sessions that already
     expect(await db.prepare("SELECT id_hash, created_at, signed_in_with FROM sessions WHERE id_hash = ?").bind(SESSION).first()).toEqual({ id_hash: SESSION, created_at: 50, signed_in_with: null });
   });
 });
+
+// PWD-REDESIGN (moderator web-maker-d5, 2026-10-11): an owner and a session stored before 0011 read auth_version 0, so the session
+// still holds its owner's version and stays signed in (requireOwner, apps/app/src/worker/session.ts).
+describe("0011_auth_version.sql, applied onto owners and sessions that already hold rows", () => {
+  it("holds its changes: owners.auth_version and sessions.auth_version, NOT NULL INTEGERs with the constant DEFAULT 0", async () => {
+    expect(statements("0011_auth_version.sql")).toBe(
+      "ALTER TABLE owners ADD COLUMN auth_version INTEGER NOT NULL DEFAULT 0; ALTER TABLE sessions ADD COLUMN auth_version INTEGER NOT NULL DEFAULT 0;",
+    );
+    expect((await columns("owners")).find((column) => column.name === "auth_version")).toEqual({ name: "auth_version", type: "INTEGER", notnull: 1, dflt_value: "0" });
+    expect((await columns("sessions")).find((column) => column.name === "auth_version")).toEqual({ name: "auth_version", type: "INTEGER", notnull: 1, dflt_value: "0" });
+  });
+
+  it("gives the earlier owner and session 0, so the earlier session still holds its owner's version", async () => {
+    expect(await db.prepare("SELECT auth_version FROM owners WHERE id = ?").bind(OWNER).first()).toEqual({ auth_version: 0 });
+    expect(
+      await db.prepare("SELECT s.auth_version AS session_version, s.auth_version = o.auth_version AS current FROM sessions s JOIN owners o ON o.id = s.owner_id WHERE s.id_hash = ?").bind(SESSION).first(),
+    ).toEqual({ session_version: 0, current: 1 });
+  });
+});
