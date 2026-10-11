@@ -9,7 +9,7 @@ import { NEEDS_A_FACT, proseIn, readings, serviceAreaScopeOf, type Copy, type Fa
 // the model as a repair issue (generate.ts); if every attempt is refused, the generation ends without that answer. The
 // owner never sees these refusals. site-schema's checker (claims.ts) is unchanged and runs first.
 //
-// Each text is matched as claims.ts reads it: as typed, then folded (look-alike letters), every dash read by
+// Each text is matched, with the owner's own names marked (markOwnerNames), as claims.ts reads it: as typed, then folded (look-alike letters), every dash read by
 // asReadOnPage, with each of those again reading "_" and the glued symbol separators as a space (claims.ts's readings(),
 // shared by both checkers, which also joins runs of single letters: "F R E E" reads "FREE"), and the words of a multi-word claim joined by a hyphen, a space or a dash character. A claim any reading finds counts.
 // Word lists, not every paraphrase: the owner still approves every page.
@@ -127,13 +127,13 @@ const NEEDS_A_FACT_IN_AI_COPY: ReadonlyArray<{ readonly pattern: RegExp; readonl
 ];
 
 /**
- * Where the business serves, backed only by its service-area scope. Matched, like NEVER_IN_LAW_COPY, on the text without the owner's
- * own names (withoutOwnerNames).
+ * Where the business serves, backed only by its service-area scope. Matched, like every rule here, on the text with the owner's own
+ * names marked (markOwnerNames).
  */
 const SCOPE_IN_AI_COPY: ReadonlyArray<{ readonly pattern: RegExp; readonly backedBy: (facts: Facts) => boolean }> = [
   // Where the business serves (2026-10-09, STRICT): the nationwide words only with the scope "country", the worldwide words only with
   // "worldwide"; neither scope backs the other's words. "US" counts only after a determiner ("across us" is the pronoun). The owner's
-  // own names are not read ("International Falls", "Global Plumbing": withoutOwnerNames). Known false positives, rephrasable: "global"
+  // own names are not read ("International Falls", "Global Plumbing": markOwnerNames). Known false positives, rephrasable: "global"
   // in its other senses ("global settings"), and a name the model changes. Residuals, accepted: "all fifty states" (refused anyway as a spelled number), "statewide",
   // "across America", "far and wide", "abroad", and an AREA word with another determiner ("across a whole country").
   {
@@ -183,30 +183,60 @@ const isLegalBusiness = (facts: Facts): boolean => facts.trade === "law" || (fac
 const literal = (text: string): string => text.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&");
 
 /**
- * The text without the owner's own names: the business name, the own business type and each place, in any case, each replaced by
- * a space so the words around it stay apart (moderator order 2026-10-09). The model must repeat them exactly, so a scope or law word
- * inside one ("Global IT", "International Falls", "Victory Legal") is the owner's, not the model's; a word outside them still counts.
- * Longest first, so a name inside a longer one goes with it. Only the scope and law rules read it: the older rules keep reading the
- * whole text, as before, so the words they show the owner are unchanged.
+ * The marks that stand in for the owner's names: CJK Unified Ideographs, one per occurrence (U+4E00 for the first, and so on).
+ * Each is a letter (\p{L}), as a name's own letters are, so a rule that looks for a letter next to the name still finds one: the
+ * quote rule opens on "'Seasoned Painting did a great job'", which a space in the name's place would hide. AI copy never holds one
+ * (prose() refuses every script but Latin, Common and Inherited), and readings() keeps each as typed in every reading: it is
+ * NFC-stable and no combining mark, no look-alike in lookalikes.ts, no space, dash, separator or "_", and never a spelled-run gap
+ * (checked for all 20,992 on 2026-10-11). So a mark in a found word, in any reading, names exactly one occurrence.
  */
-function withoutOwnerNames(text: string, facts: Facts): string {
-  const names = [facts.businessName, facts.tradeOther ?? "", ...facts.serviceArea.places].filter((name) => name !== "").sort((a, b) => b.length - a.length);
-  return names.reduce((rest, name) => rest.replace(new RegExp(literal(name), "giu"), " "), text);
+const MARK_FIRST = 0x4e00;
+const MARK_LAST = 0x9fff;
+const MARKS = /[一-鿿]/gu;
+const HOLDS_A_MARK = /[一-鿿]/u;
+
+/**
+ * The text with the owner's own names marked (TRD-12, moderator order 2026-10-11): the business name, the own business type and each
+ * place, in any case, longest first so a name inside a longer one goes with it, each occurrence replaced by its own mark, and the
+ * occurrences as typed (`typed[i]` is what mark i stands for). The model must repeat the names exactly, so a claim word inside one
+ * ("Seasoned Painting", "Global IT", "Gratis", "Victory Legal") is the owner's, not the model's; a word outside them still counts.
+ * A name that holds a mark character is left out: the text holds none (below), so that name cannot be in it. Null, so nothing is
+ * marked and every rule reads the whole text (the safe side), when the text already holds a mark character or has more names in it
+ * than there are marks.
+ */
+function markOwnerNames(text: string, facts: Facts): { marked: string; typed: string[] } | null {
+  if (HOLDS_A_MARK.test(text)) return null;
+  const names = [facts.businessName, facts.tradeOther ?? "", ...facts.serviceArea.places]
+    .filter((name) => name !== "" && !HOLDS_A_MARK.test(name))
+    .sort((a, b) => b.length - a.length);
+  const typed: string[] = [];
+  const marked = names.reduce(
+    (rest, name) =>
+      rest.replace(new RegExp(literal(name), "giu"), (occurrence) => {
+        typed.push(occurrence);
+        return String.fromCodePoint(MARK_FIRST + typed.length - 1);
+      }),
+    text,
+  );
+  return MARK_FIRST + typed.length - 1 > MARK_LAST ? null : { marked, typed };
 }
 
-/** The words in `text` that state something the AI may not, or something these facts do not back (empty when fine). */
+/**
+ * The words in `text` that state something the AI may not, or something these facts do not back (empty when fine). Every rule reads
+ * the text with the owner's names marked (markOwnerNames); a found word shows each mark as the occurrence it stands for, as typed,
+ * and the rest of the word as the reading that found it has it (as every found word is shown).
+ */
 export function aiClaims(text: string, facts: Facts): string[] {
-  const whole = readings(text);
-  const stripped = withoutOwnerNames(text, facts);
-  const withoutNames = stripped === text ? whole : readings(stripped);
-  const findIn = (read: readonly string[], pattern: RegExp): string | undefined => {
+  const names = markOwnerNames(text, facts);
+  const read = readings(names?.marked ?? text);
+  const asTyped = (word: string): string => (names === null ? word : word.replace(MARKS, (mark) => names.typed[(mark.codePointAt(0) ?? 0) - MARK_FIRST] ?? mark));
+  const find = (pattern: RegExp): string | undefined => {
     for (const reading of read) {
       const word = pattern.exec(reading)?.[0];
-      if (word !== undefined) return word;
+      if (word !== undefined) return asTyped(word);
     }
     return undefined;
   };
-  const find = (pattern: RegExp): string | undefined => findIn(whole, pattern);
   const found: string[] = [];
   for (const pattern of NEVER_IN_AI_COPY) {
     const word = find(pattern);
@@ -217,12 +247,12 @@ export function aiClaims(text: string, facts: Facts): string[] {
     if (word !== undefined && !backedBy(facts)) found.push(word);
   }
   for (const { pattern, backedBy } of SCOPE_IN_AI_COPY) {
-    const word = findIn(withoutNames, pattern);
+    const word = find(pattern);
     if (word !== undefined && !backedBy(facts)) found.push(word);
   }
   if (isLegalBusiness(facts)) {
     for (const pattern of NEVER_IN_LAW_COPY) {
-      const word = findIn(withoutNames, pattern);
+      const word = find(pattern);
       if (word !== undefined) found.push(word);
     }
   }

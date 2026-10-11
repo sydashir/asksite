@@ -868,3 +868,45 @@ describe("AI claim check: the owner's own names are not the model's claims", () 
   refused(MINIMAL_FACTS, [["nationwide outside any name", "We serve nationwide", ["nationwide"]]]);
   refused(GLOBAL_IT, [["worldwide after a business name", "Global IT serves clients worldwide", ["worldwide"]]]);
 });
+
+// TRD-12 (moderator order 2026-10-11): EVERY rule skips the owner's names, the older AI-only rules too, so a business, an own business
+// type or a place named with an old-rule word can be named. A claim word outside the names still counts, and a refused word quotes the
+// copy as typed, names included, never the text the check read (the four "'best cleaners in Austin'" cases above, whose place is
+// Austin, keep their words).
+describe("AI claim check: every rule skips the owner's own names, and a refused word quotes the copy as typed", () => {
+  const SEASONED = withFacts({ businessName: "Seasoned Painting" });
+  const RECOMMENDED = withFacts({ trade: "roofing", businessName: "Recommended Roofing" });
+  const SEASONED_LEGAL = withFacts({ trade: "law", businessName: "Seasoned Legal" });
+  accepted(SEASONED, [["a business name holding seasoned", "Seasoned Painting brightens every room"]]);
+  accepted(RECOMMENDED, [["a business name holding recommended", "Recommended Roofing keeps you dry"]]);
+  accepted(withFacts({ businessName: "Raves Cleaning" }), [["a business name holding raves", "Raves Cleaning makes homes shine"]]);
+  accepted(withFacts({ trade: "other", tradeOther: "Moving", businessName: "Vetted Movers" }), [["a business name holding vetted", "Vetted Movers carry it with care"]]);
+  accepted(withFacts({ trade: "other", tradeOther: "Seasoned firewood" }), [["an own business type holding seasoned", "Seasoned firewood brought to your door"]]);
+  // Gratis, Ohio: a real place named with an AI-only word (no charge, backed only by freeEstimates).
+  accepted(withFacts({ serviceArea: { places: ["Gratis"] } }), [["a place holding gratis", "Cleaning homes in Gratis"]]);
+  accepted(SEASONED_LEGAL, [["a law firm's name holding seasoned", "Seasoned Legal answers your call"]]);
+  refused(SEASONED, [
+    ["seasoned outside the name", "Seasoned Painting sends seasoned pros", ["seasoned"]],
+    ["a quoted phrase that starts with the name", "'Seasoned Painting did a great job' Dana", ["'Seasoned Painting did a great job'"]],
+    ["a quoted phrase naming it in another case", "Dana: 'the pick is SEASONED PAINTING'", ["'the pick is SEASONED PAINTING'"]],
+    // Found only in a later reading ("_" read as a space opens the quote), and still quoted as typed.
+    ["a quoted phrase found only with _ read as a space", "Our_'Seasoned Painting crew rocks' Dana", ["'Seasoned Painting crew rocks'"]],
+  ]);
+  refused(RECOMMENDED, [["recommended outside the name", "Recommended Roofing is recommended by neighbours", ["recommended"]]]);
+  refused(SEASONED_LEGAL, [["best after a law firm's name", "Seasoned Legal has the best lawyers", ["best"]]]);
+
+  // AI copy never holds an ideograph (prose() refuses every script but Latin), so these call aiClaims itself, as the 1b re-check may.
+  it("strips nothing from a text that holds an ideograph: the rules read it whole, as before, and a refused word is the text as typed", () => {
+    const facts = withFacts({ businessName: "山田 Cleaning" });
+    expect(aiClaims("山田 Cleaning: seasoned pros, highly recommended", facts)).toEqual(["seasoned", "recommended"]);
+    expect(aiClaims("'山田 Cleaning did a great job' Dana", facts)).toEqual(["'山田 Cleaning did a great job'"]);
+    expect(aiClaims("山田 Seasoned Painting brightens every room", withFacts({ businessName: "山田 Seasoned Painting" }))).toEqual(["Seasoned"]);
+  });
+
+  it("drops only a name that holds an ideograph, which a text without one cannot contain: the other names are still skipped", () => {
+    const facts = withFacts({ trade: "it", businessName: "Seasoned IT", serviceArea: { places: ["東京"] } });
+    expect(aiClaims("Seasoned IT fixes your network", facts)).toEqual([]);
+    expect(aiClaims("'Seasoned IT did a great job' Dana", facts)).toEqual(["'Seasoned IT did a great job'"]);
+    expect(aiClaims("Global IT fixes your network", withFacts({ trade: "it", businessName: "Global IT", serviceArea: { places: ["東京"] } }))).toEqual([]);
+  });
+});
