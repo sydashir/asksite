@@ -107,6 +107,9 @@ describe("the trade wording", () => {
   it("capitalises a lowercase business type where it starts a line, heading or sentence, and keeps it as typed inside one", () => {
     const doc = parsed("other", "bakery");
     expect([tradeLabel(doc.facts), needQuestion(doc.facts), needLine(doc.facts), pageTitle(doc)]).toEqual(["Bakery", "Bakery in Austin?", "Bakery in Austin?", "Reliable Rooter | Bakery in Austin, TX"]);
+    // A first word with a capital of its own is a name: it stays as typed at a line start too.
+    const brand = parsed("other", "iPhone repair");
+    expect([tradeLabel(brand.facts), needQuestion(brand.facts), needLine(brand.facts)]).toEqual(["iPhone repair", "iPhone repair in Austin?", "iPhone repair in Austin?"]);
     expect(pageDescription(doc, "gallery")).toBe("Photos of recent work by Reliable Rooter, bakery in Austin, TX.");
     for (const design of DESIGN_IDS) {
       const starts = sitePages(input("other", "bakery"), design).flatMap((p) => texts(p.html).filter((text) => /^bakery\b/i.test(text)));

@@ -23,10 +23,11 @@ export function tradeWords(facts: Pick<Facts, "trade" | "tradeOther">): string {
 
 /**
  * The trade where it starts a line, heading or sentence ("Bakery · Seattle, WA", "Bakery in Seattle?"): tradeWords
- * with its first letter capitalised, so an owner's "bakery" reads "Bakery". The other trades' names already start
- * with a capital.
+ * with its first letter capitalised, so an owner's "bakery" reads "Bakery". A first word with a capital of its own is
+ * a name and stays as typed ("iPhone repair", "eBay consignment"). The other trades' names already start with a capital.
  */
-export const tradeLabel = (facts: Pick<Facts, "trade" | "tradeOther">): string => tradeWords(facts).replace(/^\p{Ll}/u, (letter) => letter.toUpperCase());
+export const tradeLabel = (facts: Pick<Facts, "trade" | "tradeOther">): string =>
+  tradeWords(facts).replace(/^\p{Ll}(?=[^\s\p{Lu}]*(?:\s|$))/u, (letter) => letter.toUpperCase());
 
 /** "Plumbing services", "IT services", "Legal services": what a trade offers, for the Services page's description. */
 export const servicesOf = (trade: Exclude<Trade, "other">): string => (trade === "it" ? "IT services" : trade === "law" ? "Legal services" : `${TRADE_LABEL[trade]} services`);
