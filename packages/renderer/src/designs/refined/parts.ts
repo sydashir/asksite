@@ -2,7 +2,7 @@
 // literal markup from this file is marked as trusted.
 import type { Facts, OpeningHours, SectionId, SiteDocument, Trade } from "@asksite/site-schema";
 import { headingLevel, sectionLink, type RenderContext } from "../../context.ts";
-import { formatPhone, scopeLine, servicesOf, shownArea, telUrl, tradeLabel, weeklyHours } from "../../format.ts";
+import { formatPhone, scopeLine, shownArea, telUrl, tradeLabel, weeklyHours } from "../../format.ts";
 import { html, trusted, type SafeHtml, type Value } from "../../html.ts";
 import { icon as sharedIcon, type IconName } from "../../icons.ts";
 import { DOM_ID } from "../../sections/ids.ts";
@@ -134,21 +134,25 @@ export function shortHours(facts: Facts): SafeHtml | false {
 export const hoursList = (hours: readonly OpeningHours[]): SafeHtml[] =>
   groupedHours(hours).map((row) => html`<div><dt>${row.label}</dt><dd>${row.time}</dd></div>`);
 
-/** What a visitor may ask about beyond the list, in a sentence: "Ask us about any heating or cooling job." */
-const TRADE_JOB: Readonly<Record<Exclude<Trade, "other">, string>> = {
-  plumbing: "plumbing job",
-  hvac: "heating or cooling job",
-  electrical: "electrical job",
-  roofing: "roofing job",
-  cleaning: "cleaning job",
-  landscaping: "landscaping job",
-  it: "IT project",
-  law: "legal matter",
+/**
+ * What a visitor may ask about beyond the list, in a sentence. A law firm lists a few practice areas, so it invites
+ * the visitor's own matter, not any; the owner's own business type is left out, so no grammar depends on how the
+ * owner wrote it ("Movers", "Pet sitting co.").
+ */
+const ASK_LINE: Readonly<Record<Trade, string>> = {
+  plumbing: "Ask us about any plumbing job.",
+  hvac: "Ask us about any heating or cooling job.",
+  electrical: "Ask us about any electrical job.",
+  roofing: "Ask us about any roofing job.",
+  cleaning: "Ask us about any cleaning job.",
+  landscaping: "Ask us about any landscaping job.",
+  it: "Ask us about any IT project.",
+  law: "Ask us about your legal matter.",
+  other: "Ask us about anything not listed.",
 };
 
-/** "Ask us about any plumbing job.", or with the owner's own business type, which needs no article: "Ask us about our Bakery services." */
-export const askLine = (facts: Facts): string =>
-  facts.trade === "other" ? `Ask us about our ${servicesOf(tradeLabel(facts))}.` : `Ask us about any ${TRADE_JOB[facts.trade]}.`;
+/** "Ask us about any plumbing job.": the line under the price list's call to action. */
+export const askLine = (facts: Pick<Facts, "trade">): string => ASK_LINE[facts.trade];
 
 /** Who a visitor is looking for, in a question: "Need a plumber in Austin?" (the closing band's lead). */
 const TRADE_PERSON: Readonly<Record<Exclude<Trade, "other">, string>> = {
@@ -162,7 +166,7 @@ const TRADE_PERSON: Readonly<Record<Exclude<Trade, "other">, string>> = {
   law: "legal help",
 };
 
-/** "Need a plumber in Austin?", or with the owner's own business type first, which needs no article: "Bakery in Boston?". */
+/** "Need a plumber in Austin?", or with the owner's own business type first, which needs no article, capitalised as it starts the question: "Bakery in Boston?". */
 export const needLine = (facts: Facts): string =>
   facts.trade === "other" ? `${tradeLabel(facts)} in ${facts.location.city}?` : `Need ${TRADE_PERSON[facts.trade]} in ${facts.location.city}?`;
 
