@@ -895,6 +895,17 @@ describe("AI claim check: every rule skips the owner's own names, and a refused 
   refused(RECOMMENDED, [["recommended outside the name", "Recommended Roofing is recommended by neighbours", ["recommended"]]]);
   refused(SEASONED_LEGAL, [["best after a law firm's name", "Seasoned Legal has the best lawyers", ["best"]]]);
 
+  // Only a whole word is a name (opus check, 2026-10-11): a short name inside a longer word ("la" in "Available", "Vet" in "vetted")
+  // is not the owner's, so the claim word around it still counts.
+  const LA = withFacts({ serviceArea: { places: ["LA"] } });
+  accepted(LA, [["a short place named whole", "Cleaning homes in LA"]]);
+  refused(LA, [
+    ["a short place inside a claim word", "Available daily across LA", ["Available daily"]],
+    ["a short place inside a scope claim", "Serving the whole planet from LA", ["the whole planet"]],
+  ]);
+  refused(withFacts({ trade: "other", tradeOther: "Vet" }), [["an own business type inside a claim word", "Our vetted team", ["vetted"]]]);
+  refused(withFacts({ serviceArea: { places: ["Holiday"] } }), [["a place inside a longer claim word", "We work holidays", ["holidays"]]]);
+
   // AI copy never holds an ideograph (prose() refuses every script but Latin), so these call aiClaims itself, as the 1b re-check may.
   it("strips nothing from a text that holds an ideograph: the rules read it whole, as before, and a refused word is the text as typed", () => {
     const facts = withFacts({ businessName: "山田 Cleaning" });

@@ -192,14 +192,17 @@ const literal = (text: string): string => text.replace(/[.*+?^${}()|[\]\\/]/g, "
  */
 const MARK_FIRST = 0x4e00;
 const MARK_LAST = 0x9fff;
-const MARKS = /[一-鿿]/gu;
-const HOLDS_A_MARK = /[一-鿿]/u;
+const MARKS = /[\u4E00-\u9FFF]/gu;
+const HOLDS_A_MARK = /[\u4E00-\u9FFF]/u;
 
 /**
  * The text with the owner's own names marked (TRD-12, moderator order 2026-10-11): the business name, the own business type and each
  * place, in any case, longest first so a name inside a longer one goes with it, each occurrence replaced by its own mark, and the
  * occurrences as typed (`typed[i]` is what mark i stands for). The model must repeat the names exactly, so a claim word inside one
  * ("Seasoned Painting", "Global IT", "Gratis", "Victory Legal") is the owner's, not the model's; a word outside them still counts.
+ * Only a whole occurrence is marked, with no letter or digit right before or after it (opus check, 2026-10-11): a short name inside a
+ * longer word ("la" in "Available", "Vet" in "vetted", "Holiday" in "holidays") is not the name, and the claim word stays whole. A
+ * mark is a letter, so a name glued to a mark made for a longer name stays unmarked (the safe side: its words are read).
  * A name that holds a mark character is left out: the text holds none (below), so that name cannot be in it. Null, so nothing is
  * marked and every rule reads the whole text (the safe side), when the text already holds a mark character or has more names in it
  * than there are marks.
@@ -212,7 +215,7 @@ function markOwnerNames(text: string, facts: Facts): { marked: string; typed: st
   const typed: string[] = [];
   const marked = names.reduce(
     (rest, name) =>
-      rest.replace(new RegExp(literal(name), "giu"), (occurrence) => {
+      rest.replace(new RegExp(`(?<![\\p{L}\\p{N}])${literal(name)}(?![\\p{L}\\p{N}])`, "giu"), (occurrence) => {
         typed.push(occurrence);
         return String.fromCodePoint(MARK_FIRST + typed.length - 1);
       }),
