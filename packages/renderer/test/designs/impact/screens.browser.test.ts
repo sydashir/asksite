@@ -2,7 +2,7 @@
 // offers one quote label only (the moderator's quote rule, 2026-10-05); on iPad landscape widths the /contact form
 // keeps Send request in the first screen with "Choose a service" whole, and its head keeps the owner's standing on one
 // line; on iPad portrait widths the footer's credentials sit right under the business name; at 320 px every page, in
-// each of the three letterings, reflows with no text lost, and so does every page at 320-430 px with bigger text (root
+// each of the three letterings, reflows with no text lost (a 40-letter unbroken business type too), and so does every page at 320-430 px with bigger text (root
 // font-size 125%), and every page at 320-1280 px with much bigger text (150%), the business name whole on the desktop and
 // each sticky bar at most a quarter of the screen; no licence number on any page is split where it fits on one line; and
 // in a browser without :has()
@@ -27,7 +27,13 @@ const LETTERINGS = FIXTURES.flatMap((name) =>
     return { name, font, site: `${name}-${font}`, pages };
   }),
 );
-const SERVED = new Map<string, readonly RenderedSitePage[]>([...SITES, ...LETTERINGS.map(({ site, pages }) => [site, pages] as const)]);
+/** other-worldwide with one unbroken 40-letter business type (the schema's longest tradeOther), in each lettering, served as "long-type-<font>". */
+const LONG_TYPE = FONT_IDS.map((font) => {
+  const doc = inDesign(loadFixture("other-worldwide"), "impact");
+  const input = { ...doc, theme: { ...doc.theme, font }, facts: { ...doc.facts, tradeOther: "Internationalcertifiedtranslationservice" } };
+  return { font, site: `long-type-${font}`, pages: render(input, { stylesheets: DESIGN_CSS, formAction: FIXTURE_FORM_ACTION, siteUrl: FIXTURE_SITE_URL }).pages };
+});
+const SERVED = new Map<string, readonly RenderedSitePage[]>([...SITES, ...[...LETTERINGS, ...LONG_TYPE].map(({ site, pages }) => [site, pages] as const)]);
 const origin = (site: string) => `https://${site}.bold.invalid`;
 
 type Size = readonly [width: number, height: number];
@@ -325,6 +331,18 @@ describe.each(Object.keys(ENGINES) as Array<keyof typeof ENGINES>)("Bold's pages
     });
     expect(wrong).toEqual([]);
   }, 180_000);
+
+  // Scope review PL-SC-1: an inner page's "trade · town" kicker could not wrap one unbroken word, so a 40-letter
+  // business type pushed every inner page 141-175 px sideways at 320 px.
+  it("wrap a 40-letter unbroken business type in each lettering, so no page scrolls sideways or loses text", async () => {
+    const wrong: string[] = [];
+    await inWindow(engine, [320, 568], async (visit) => {
+      for (const { font, site, pages } of LONG_TYPE) {
+        for (const { path } of pages) for (const problem of await visit<string[]>(site, path, LOST_TEXT)) wrong.push(`${font} ${path}: ${problem}`);
+      }
+    });
+    expect(wrong).toEqual([]);
+  }, 60_000);
 });
 
 // The bigger-default-text setting (root font-size 125%) pushed the call bar's "Get a quote" past the right edge and
