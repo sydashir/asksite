@@ -1,8 +1,8 @@
 // Classic's footer (name, every page of the site, contact, credentials with license numbers, which several states
-// require in all advertising, and the owner's social links) and the phone call bar.
+// require in all advertising, the owner's social links, and a law firm's "Attorney Advertising") and the phone call bar.
 import type { SocialLink } from "@asksite/site-schema";
 import { navItems, quoteLink, type RenderContext } from "../../context.ts";
-import { formatPhone, mailtoUrl, telUrl, tradeLabel } from "../../format.ts";
+import { attorneyLine, formatPhone, mailtoUrl, telUrl, tradeLabel } from "../../format.ts";
 import { html, safeUrl, trusted, type SafeHtml } from "../../html.ts";
 import { callButton, email, icon, lic } from "./parts.ts";
 import { plan } from "./plan.ts";
@@ -21,6 +21,8 @@ export function renderFooter(ctx: RenderContext): SafeHtml {
   const { facts } = ctx.doc;
   const { location } = facts;
   const hasCredentials = facts.licences.length > 0 || facts.insured;
+  // A law firm's "Attorney Advertising" (format.ts), on every page: small print like the trade line, so in its class.
+  const attorney = attorneyLine(facts);
 
   // Every page again at the foot of the page: on phones the header scrolls away, so the end of a long page still
   // leads to every other page (WCAG 2.4.5), with no JavaScript. A page that ends on a dark band gets an accent rule.
@@ -28,7 +30,7 @@ export function renderFooter(ctx: RenderContext): SafeHtml {
 <div class="wr ft-grid">
 <div>
 <p class="ft-name">${facts.businessName}</p>
-<p class="ft-trade">${tradeLabel(facts)} · ${location.city}, ${location.state}</p>
+<p class="ft-trade">${tradeLabel(facts)} · ${location.city}, ${location.state}</p>${attorney && html`<p class="ft-trade">${attorney}</p>`}
 <nav class="ft-nav" aria-label="Pages">
 <ul>
 ${navItems(ctx).map((l) => html`<li><a href="${l.href}"${l.current && trusted(' aria-current="page"')}>${l.label}</a></li>`)}

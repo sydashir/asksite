@@ -468,3 +468,27 @@ describe("Classic's pages (A16)", () => {
     expect(gallery(4, false)).toBe("gal");
   });
 });
+
+// User decision and moderator brief (2026-10-12): a law firm's site says "Attorney Advertising" in the footer's small
+// print on every page; no other trade does, an "other" business that names law included (post-launch ATT-1).
+describe("Classic's Attorney Advertising line", () => {
+  const law = loadFixture("law-denver");
+  const footerOf = (html: string) => html.slice(html.indexOf("<footer"), html.indexOf("</footer>"));
+
+  it("shows a law firm's line once on every page, in the footer right under the trade line and in its class", () => {
+    const { pages } = classicSite(law, OPTIONS.stylesheets);
+    expect(pages.map((p) => p.page)).toEqual(["home", "services", "about", "contact"]);
+    for (const { page, html } of pages) {
+      expect(html.split("Attorney Advertising").length - 1, page).toBe(1);
+      expect(footerOf(html), page).toMatch(/<p class="ft-trade">Law firm · Denver, CO<\/p><p class="ft-trade">Attorney Advertising<\/p>\n<nav class="ft-nav"/);
+    }
+  });
+
+  it("leaves it off every page for another trade and for an other business whose own words name law", () => {
+    for (const input of [plumber, { ...law, facts: { ...law.facts, trade: "other", tradeOther: "Law office" } }] as const) {
+      const { pages } = classicSite(input, OPTIONS.stylesheets);
+      expect(pages.length).toBeGreaterThan(2);
+      for (const { page, html } of pages) expect(html, `${input.facts.trade} ${page}`).not.toContain("Attorney Advertising");
+    }
+  });
+});

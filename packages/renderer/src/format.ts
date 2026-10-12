@@ -29,6 +29,16 @@ export function tradeWords(facts: Pick<Facts, "trade" | "tradeOther">): string {
 export const tradeLabel = (facts: Pick<Facts, "trade" | "tradeOther">): string =>
   tradeWords(facts).replace(/^\p{Ll}(?=[^\s\p{Lu}]*(?:\s|$))/u, (letter) => letter.toUpperCase());
 
+/**
+ * The label a law firm's site carries in its footer's small print, on every page. New York's Rule 7.1(f) asks for it on
+ * a law firm's website (on the home page, NYSBA Ethics Opinion 848); rules differ by state, so this is the conservative
+ * default, and the site claims no compliance with any rule. Fixed words, with no link, and no owner setting hides them.
+ */
+export const ATTORNEY_LINE = "Attorney Advertising";
+
+/** ATTORNEY_LINE for a law firm; undefined for every other trade, "other" too, whatever the owner's own words. */
+export const attorneyLine = (facts: Pick<Facts, "trade">): string | undefined => (facts.trade === "law" ? ATTORNEY_LINE : undefined);
+
 /** "Plumbing services", "IT services", "Legal services": what a trade offers, for the Services page's description. */
 export const servicesOf = (trade: Exclude<Trade, "other">): string => (trade === "it" ? "IT services" : trade === "law" ? "Legal services" : `${TRADE_LABEL[trade]} services`);
 

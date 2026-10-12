@@ -714,3 +714,27 @@ describe("Modern: non-text contrast (WCAG 1.4.11, 3:1)", () => {
     for (const [label, fg, bg] of pairs) expect(contrastRatio(hexToRgb(fg), hexToRgb(bg)), label).toBeGreaterThanOrEqual(AA_LARGE_TEXT);
   });
 });
+
+// User decision and moderator brief (2026-10-12): a law firm's site says "Attorney Advertising" in the footer's small
+// print on every page; no other trade does, an "other" business that names law included (post-launch ATT-1).
+describe("Modern's Attorney Advertising line", () => {
+  const law = loadFixture("law-denver");
+
+  it("shows a law firm's line once on every page, in the footer's closing row right under the copyright", () => {
+    const { pages } = site(law);
+    expect(pages.map((p) => p.page)).toEqual(["home", "services", "about", "contact"]);
+    for (const { page, html } of pages) {
+      expect(html.split("Attorney Advertising").length - 1, page).toBe(1);
+      expect(element(html, "<footer"), page).toContain('<div class="foot-end"><div><p>© Harper &amp; Lin Law</p><p>Attorney Advertising</p></div><a href="#">Back to top</a></div>');
+    }
+  });
+
+  it("leaves it off every page for another trade and for an other business whose own words name law", () => {
+    const plumber = loadFixture("plumber-austin");
+    for (const input of [plumber, { ...law, facts: { ...law.facts, trade: "other", tradeOther: "Law office" } }] as const) {
+      const { pages } = site(input);
+      expect(pages.length).toBeGreaterThan(2);
+      for (const { page, html } of pages) expect(html, `${input.facts.trade} ${page}`).not.toContain("Attorney Advertising");
+    }
+  });
+});

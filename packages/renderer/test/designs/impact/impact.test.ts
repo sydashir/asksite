@@ -852,3 +852,27 @@ describe("the Bold sheet carries the round-5 polish", () => {
   // Round 6 replaced round 5's one field per row from 64 to 80rem (it pushed Send request out of the first screen): the
   // form at those widths is checked in real browsers (screens.browser.test.ts).
 });
+
+// User decision and moderator brief (2026-10-12): a law firm's site says "Attorney Advertising" in the footer's small
+// print on every page; no other trade does, an "other" business that names law included (post-launch ATT-1).
+describe("Bold's Attorney Advertising line", () => {
+  const law = fixture("law-denver");
+  const footerOf = (html: string) => html.slice(html.indexOf("<footer"), html.indexOf("</footer>"));
+
+  it("shows a law firm's line once on every page, in the footer right under the trade line and in its class", () => {
+    const pages = pagesOf(law);
+    expect(pages.map((p) => p.page)).toEqual(["home", "services", "about", "contact"]);
+    for (const { page, html } of pages) {
+      expect(html.split("Attorney Advertising").length - 1, page).toBe(1);
+      expect(footerOf(html), page).toMatch(/<p class="foot-sub">Law firm · Denver, CO<\/p><p class="foot-sub">Attorney Advertising<\/p><\/div>/);
+    }
+  });
+
+  it("leaves it off every page for another trade and for an other business whose own words name law", () => {
+    for (const input of [plumber, { ...law, facts: { ...law.facts, trade: "other", tradeOther: "Law office" } }] as const) {
+      const pages = pagesOf(input);
+      expect(pages.length).toBeGreaterThan(2);
+      for (const { page, html } of pages) expect(html, `${input.facts.trade} ${page}`).not.toContain("Attorney Advertising");
+    }
+  });
+});

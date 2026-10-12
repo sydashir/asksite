@@ -1,7 +1,7 @@
 // Modern's header, footer and phone call bar.
 import type { SocialLink } from "@asksite/site-schema";
 import { navItems, pageLink, quoteLink, type RenderContext } from "../../context.ts";
-import { formatPhone, mailtoUrl, telUrl, tradeLabel } from "../../format.ts";
+import { attorneyLine, formatPhone, mailtoUrl, telUrl, tradeLabel } from "../../format.ts";
 import { html, safeUrl, trusted, type SafeHtml } from "../../html.ts";
 import { icon } from "../../icons.ts";
 import { emailText, LICENSES_ID, licenseText, quoteButton } from "./parts.ts";
@@ -46,12 +46,15 @@ const SOCIAL_LABEL: Record<SocialLink["network"], string> = {
 /**
  * The footer on the brand band: the business, how to reach it and every license (several states require them in all
  * advertising), then a closing row under a rule: a copyright line in the business's name (no year: the renderer
- * has no clock) and a way back to the top ("#", the top of any page).
+ * has no clock), for a law firm with "Attorney Advertising" (format.ts) right under it, the two one block at the
+ * row's start at every width, and a way back to the top ("#", the top of any page).
  */
 export function renderFooter(ctx: RenderContext): SafeHtml {
   const { facts } = ctx.doc;
   const { location } = facts;
   const credentials = facts.licences.length > 0 || facts.insured;
+  const attorney = attorneyLine(facts);
+  const copyright = html`<p>© ${facts.businessName}</p>`;
   return html`<footer class="foot">
 <div class="wrap foot-grid">
 <div>
@@ -75,7 +78,7 @@ ${facts.insured && html`<li>Insured</li>`}
 </ul>
 </div>`}
 </div>
-<div class="wrap"><div class="foot-end"><p>© ${facts.businessName}</p><a href="#">Back to top</a></div></div>
+<div class="wrap"><div class="foot-end">${attorney ? html`<div>${copyright}<p>${attorney}</p></div>` : copyright}<a href="#">Back to top</a></div></div>
 </footer>`;
 }
 
