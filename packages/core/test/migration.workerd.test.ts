@@ -63,14 +63,14 @@ describe("0001_init.sql", () => {
   it("creates every table", async () => {
     const { results } = await db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '\\_cf\\_%' ESCAPE '\\' AND name <> 'd1_migrations' ORDER BY name").all<{ name: string }>();
     expect(results.map((r) => r.name)).toEqual([
-      "audit_log", "dev_outbox", "generations", "invites", "leads", "login_tokens", "owners", "password_tries", "sessions", "settings", "site_versions", "sites", "uploads",
-    ]); // password_tries comes from 0010_owner_password.sql; the other twelve from 0001
+      "audit_log", "dev_outbox", "generations", "invites", "leads", "login_tokens", "orders", "owners", "password_tries", "sessions", "settings", "site_versions", "sites", "uploads",
+    ]); // password_tries comes from 0010_owner_password.sql, orders from 0012_orders.sql; the other twelve from 0001
   });
 
   it("makes every table STRICT (A9)", async () => {
     const { results } = await db.prepare("PRAGMA table_list").all<{ name: string; strict: number }>();
     const ours = results.filter((t) => !/^(sqlite_|_cf_|d1_migrations$)/.test(t.name));
-    expect(ours).toHaveLength(13); // 0001's twelve, and 0010's password_tries
+    expect(ours).toHaveLength(14); // 0001's twelve, 0010's password_tries and 0012's orders
     expect(ours.filter((t) => t.strict !== 1).map((t) => t.name)).toEqual([]);
   });
 
@@ -202,10 +202,10 @@ describe("0007_leads_emailed.sql", () => {
     expect(results.find((index) => index.name === "leads_emailed")?.partial).toBe(1);
   });
 
-  it("changes no table: still the 12 STRICT tables of 0001", async () => {
+  it("changes no table: still the 12 STRICT tables of 0001 (later migrations add their own)", async () => {
     const { results } = await db.prepare("PRAGMA table_list").all<{ name: string; strict: number }>();
     const ours = results.filter((t) => !/^(sqlite_|_cf_|d1_migrations$)/.test(t.name));
-    expect(ours).toHaveLength(13); // 0001's twelve, and 0010's password_tries
+    expect(ours).toHaveLength(14); // 0001's twelve, 0010's password_tries and 0012's orders
   });
 });
 
@@ -368,5 +368,96 @@ describe("0011_auth_version.sql", () => {
     await expect(db.prepare("UPDATE owners SET auth_version = NULL WHERE id = ?").bind(owner).run()).rejects.toThrow(/SQLITE_CONSTRAINT_NOTNULL/);
     await expect(db.prepare("UPDATE sessions SET auth_version = ? WHERE id_hash = ?").bind("soon", session).run()).rejects.toThrow(/SQLITE_CONSTRAINT_DATATYPE/);
     await expect(db.prepare("UPDATE owners SET auth_version = ? WHERE id = ?").bind(1.5, owner).run()).rejects.toThrow(/SQLITE_CONSTRAINT_DATATYPE/);
+  });
+});
+
+// Phase 2 shop, step 1 (pages lane proposal 1.7): orders placed on a site's shop (apps/sites/src/order.ts), and the
+// client's order address on sites, confirmed by a code the client reads back to staff (proposal 1.8).
+describe("0012_orders.sql", () => {
+  const column = async (table: string, name: string) =>
+    (await db.prepare(`PRAGMA table_info(${table})`).all<{ name: string; type: string; notnull: number; dflt_value: unknown }>()).results
+      .filter((c) => c.name === name)
+      .map(({ type, notnull, dflt_value }) => ({ name, type, notnull, dflt_value }));
+
+  /** A valid order row for `site`; `over` replaces columns. */
+  const order = (site: string, over: Record<string, unknown> = {}) => {
+    const row: Record<string, unknown> = {
+      id: fresh(), site_id: site, number: 1001, version_id: fresh(), created_at: 1, name: "Dana", phone: "5125550199",
+      email: "dana@example.com", fulfilment: "pickup", items_json: "[]", subtotal_cents: 1999, cart_id: fresh(),
+      cart_hash: "h", email_status: "pending", ip_hash: "i", net_hash: "n", ...over,
+    };
+    const names = Object.keys(row);
+    return db.prepare(`INSERT INTO orders (${names.join(", ")}) VALUES (${names.map(() => "?").join(", ")})`).bind(...Object.values(row));
+  };
+
+  it("stores a valid order with the defaults: usd, status new, not spam", async () => {
+    const { site } = await newSite();
+    const id = fresh();
+    await order(site, { id }).run();
+    expect(await db.prepare("SELECT currency, status, spam, status_at, status_by, address_json, note, email_error FROM orders WHERE id = ?").bind(id).first())
+      .toEqual({ currency: "usd", status: "new", spam: 0, status_at: null, status_by: null, address_json: null, note: null, email_error: null });
+  });
+
+  it("refuses values outside the CHECK constraints", async () => {
+    const { site } = await newSite();
+    const refused = /CHECK constraint failed/;
+    await expect(order(site, { fulfilment: "drone" }).run()).rejects.toThrow(refused);
+    await expect(order(site, { currency: "eur" }).run()).rejects.toThrow(refused);
+    await expect(order(site, { status: "shipped" }).run()).rejects.toThrow(refused);
+    await expect(order(site, { email_status: "lost" }).run()).rejects.toThrow(refused);
+    await expect(order(site, { spam: 2 }).run()).rejects.toThrow(refused);
+    await expect(order(site, { subtotal_cents: 0 }).run()).rejects.toThrow(refused);
+    await expect(order(site, { subtotal_cents: -1 }).run()).rejects.toThrow(refused);
+  });
+
+  it("allows email_status 'held' (a card order waiting for payment, step 2)", async () => {
+    const { site } = await newSite();
+    await order(site, { email_status: "held" }).run();
+  });
+
+  it("refuses a value of the wrong type (STRICT) and a missing required column", async () => {
+    const { site } = await newSite();
+    await expect(order(site, { subtotal_cents: "19.99" }).run()).rejects.toThrow(/SQLITE_CONSTRAINT_DATATYPE/);
+    await expect(order(site, { subtotal_cents: 19.99 }).run()).rejects.toThrow(/SQLITE_CONSTRAINT_DATATYPE/);
+    await expect(order(site, { net_hash: null }).run()).rejects.toThrow(/SQLITE_CONSTRAINT_NOTNULL/);
+    await expect(order(site, { cart_id: null }).run()).rejects.toThrow(/SQLITE_CONSTRAINT_NOTNULL/);
+  });
+
+  it("numbers orders uniquely per site, and needs a real site", async () => {
+    const one = await newSite();
+    const two = await newSite();
+    await order(one.site, { number: 1001 }).run();
+    await order(two.site, { number: 1001 }).run();
+    await expect(order(one.site, { number: 1001 }).run()).rejects.toThrow(/UNIQUE constraint failed/);
+    await expect(order(fresh()).run()).rejects.toThrow(/FOREIGN KEY constraint failed/);
+  });
+
+  it("creates the orders indexes, orders_emailed partial on the email count's own terms", async () => {
+    const columns = async (index: string) =>
+      (await db.prepare(`PRAGMA index_info(${index})`).all<{ seqno: number; name: string }>()).results.sort((a, b) => a.seqno - b.seqno).map((c) => c.name);
+    expect(await columns("orders_site")).toEqual(["site_id", "created_at"]);
+    expect(await columns("orders_network")).toEqual(["net_hash", "site_id", "created_at"]);
+    expect(await columns("orders_cart")).toEqual(["site_id", "cart_id", "created_at"]);
+    const row = await db.prepare("SELECT sql FROM sqlite_master WHERE type = 'index' AND name = 'orders_emailed'").all<{ sql: string }>();
+    expect(row.results.map((r) => r.sql)).toEqual([
+      "CREATE INDEX orders_emailed ON orders(created_at) WHERE spam = 0 AND email_status IN ('pending', 'sent', 'failed') AND email_error IS NOT 'daily_cap'",
+    ]);
+  });
+
+  it("adds the orders pause and the client order address to sites; a site written without them reads none, rev 0 and 0 tries", async () => {
+    expect(await column("sites", "orders_paused_at")).toEqual([{ name: "orders_paused_at", type: "INTEGER", notnull: 0, dflt_value: null }]);
+    expect(await column("sites", "orders_paused_by")).toEqual([{ name: "orders_paused_by", type: "TEXT", notnull: 0, dflt_value: null }]);
+    expect(await column("sites", "order_email")).toEqual([{ name: "order_email", type: "TEXT", notnull: 0, dflt_value: null }]);
+    expect(await column("sites", "order_email_rev")).toEqual([{ name: "order_email_rev", type: "INTEGER", notnull: 1, dflt_value: "0" }]);
+    expect(await column("sites", "order_email_confirmed_at")).toEqual([{ name: "order_email_confirmed_at", type: "INTEGER", notnull: 0, dflt_value: null }]);
+    expect(await column("sites", "order_email_confirmed_by")).toEqual([{ name: "order_email_confirmed_by", type: "TEXT", notnull: 0, dflt_value: null }]);
+    expect(await column("sites", "order_email_code_hash")).toEqual([{ name: "order_email_code_hash", type: "TEXT", notnull: 0, dflt_value: null }]);
+    expect(await column("sites", "order_email_code_expires_at")).toEqual([{ name: "order_email_code_expires_at", type: "INTEGER", notnull: 0, dflt_value: null }]);
+    expect(await column("sites", "order_email_code_tries")).toEqual([{ name: "order_email_code_tries", type: "INTEGER", notnull: 1, dflt_value: "0" }]);
+    const { site } = await newSite();
+    expect(
+      await db.prepare("SELECT orders_paused_at, order_email, order_email_rev, order_email_confirmed_at, order_email_code_tries FROM sites WHERE id = ?").bind(site).first(),
+    ).toEqual({ orders_paused_at: null, order_email: null, order_email_rev: 0, order_email_confirmed_at: null, order_email_code_tries: 0 });
+    await expect(db.prepare("UPDATE sites SET order_email_rev = NULL WHERE id = ?").bind(site).run()).rejects.toThrow(/SQLITE_CONSTRAINT_NOTNULL/);
   });
 });
