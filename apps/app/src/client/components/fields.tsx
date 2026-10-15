@@ -27,7 +27,7 @@ function describedBy(id: string, hint: string | undefined, errors: readonly stri
   return ids.length > 0 ? ids.join(" ") : undefined;
 }
 
-function Label({ id, label, optional }: { id: string; label: string; optional?: boolean | undefined }) {
+export function Label({ id, label, optional }: { id: string; label: string; optional?: boolean | undefined }) {
   return (
     <label htmlFor={id} className="block font-medium text-ink">
       {label}
@@ -36,7 +36,7 @@ function Label({ id, label, optional }: { id: string; label: string; optional?: 
   );
 }
 
-function Hint({ id, hint }: { id: string; hint?: string | undefined }) {
+export function Hint({ id, hint }: { id: string; hint?: string | undefined }) {
   return hint ? (
     <p id={`${id}-hint`} className="mt-1 text-sm text-slate-600">
       {hint}
@@ -44,7 +44,7 @@ function Hint({ id, hint }: { id: string; hint?: string | undefined }) {
   ) : null;
 }
 
-function Errors({ id, errors }: { id: string; errors: readonly string[] }) {
+export function Errors({ id, errors }: { id: string; errors: readonly string[] }) {
   return errors.length > 0 ? (
     <p id={`${id}-error`} className="mt-1 text-sm font-medium text-red-700">
       {errors.join(" ")}

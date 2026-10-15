@@ -1,6 +1,6 @@
 import { LIMITS, type LeadView } from "@asksite/core";
-import { isSafeUrl } from "@asksite/site-schema";
 import { useEffect, useRef, useState } from "react";
+import { PhoneLink, SafeLink } from "../components/contact-links.tsx";
 import { Notice } from "../components/feedback.tsx";
 import { usePageHeading } from "../hooks/use-page-heading.ts";
 import { onLinkClick } from "../hooks/use-route.ts";
@@ -8,23 +8,6 @@ import { api } from "../lib/api.ts";
 import { paths } from "../lib/route.ts";
 
 const when = (ms: number) => new Date(ms).toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" });
-
-/** A tel: or mailto: link only when it passes Plan 1's URL guard; otherwise plain text (§9.1). */
-function SafeLink({ href, text }: { href: string; text: string }) {
-  return isSafeUrl(href, ["tel:", "mailto:"]) ? (
-    <a href={href} className="link break-all">
-      {text}
-    </a>
-  ) : (
-    <span className="break-all">{text}</span>
-  );
-}
-
-/** A tap-to-call link for a real phone number (7 or more digits), plain text for anything else. */
-function PhoneLink({ phone }: { phone: string }) {
-  const dial = phone.replace(/[^0-9+]/g, "");
-  return dial.replace(/\D/g, "").length >= 7 ? <SafeLink href={`tel:${dial}`} text={phone} /> : <span className="break-all">{phone}</span>;
-}
 
 /** Messages sent through the website's contact form (§3.1 step 9). */
 export function Leads({ siteId }: { siteId: string }) {
