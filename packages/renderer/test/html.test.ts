@@ -658,8 +658,8 @@ describe("safeUrl", () => {
   });
   it("cannot be minted at runtime through safeUrl(x).constructor", () => {
     const SafeUrlClass = safeUrl("https://example.com/").constructor as new (...args: unknown[]) => unknown;
-    expect(() => new SafeUrlClass(JS)).toThrow("Only safeUrl(), fragment() and pagePath() can make a SafeUrl");
-    expect(() => new SafeUrlClass(Symbol("SafeUrl"), JS)).toThrow("Only safeUrl(), fragment() and pagePath() can make a SafeUrl");
+    expect(() => new SafeUrlClass(JS)).toThrow("Only safeUrl(), fragment(), pagePath() and shopUrl() can make a SafeUrl");
+    expect(() => new SafeUrlClass(Symbol("SafeUrl"), JS)).toThrow("Only safeUrl(), fragment(), pagePath() and shopUrl() can make a SafeUrl");
   });
   it("cannot be switched off by patching the class that safeUrl(x).constructor exposes", () => {
     const SafeUrlClass = safeUrl("https://example.com/").constructor as unknown as Record<string, unknown>;

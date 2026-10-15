@@ -1,5 +1,6 @@
 import { isPageId, isSafeUrl, PAGES, type PageId, type UrlScheme } from "@asksite/site-schema";
 import { escapeAttr, escapeText } from "./escape.ts";
+import { CART_ACTION_PATH, CART_PATH, isProductSlug, orderActionPath, SHOP_PATH } from "./shop/paths.ts";
 
 /**
  * Markup that is already safe. `html` templates and `trusted()` make it; our own code may also wrap
@@ -21,7 +22,7 @@ export class SafeHtml {
 // escaped as text, not checked as attributes) can never pass for it.
 class TrustedHtml extends SafeHtml {}
 
-// Only safeUrl(), fragment() and pagePath() hold this key, so no code outside this module can make a SafeUrl,
+// Only safeUrl(), fragment(), pagePath() and shopUrl() hold this key, so no code outside this module can make a SafeUrl,
 // not even through safeUrl(x).constructor.
 const MINT = Symbol("SafeUrl");
 
@@ -32,12 +33,12 @@ let hrefOf: (value: unknown) => string | undefined;
 
 /**
  * A URL whose scheme has been checked. The only value `html` accepts in a URL attribute (href, src,
- * action, …). Exported as a type only, so safeUrl(), fragment() and pagePath() are the only ways to make one.
+ * action, …). Exported as a type only, so safeUrl(), fragment(), pagePath() and shopUrl() are the only ways to make one.
  */
 class SafeUrl {
   readonly #href: string;
   constructor(key: symbol, href: string) {
-    if (key !== MINT) throw new Error("Only safeUrl(), fragment() and pagePath() can make a SafeUrl");
+    if (key !== MINT) throw new Error("Only safeUrl(), fragment(), pagePath() and shopUrl() can make a SafeUrl");
     this.#href = href;
   }
   toString(): string {
@@ -75,6 +76,25 @@ export function fragment(id: string): SafeUrl {
 export function pagePath(page: PageId, fragmentId?: string): SafeUrl {
   if (!isPageId(page)) throw new Error(`Invalid page: ${JSON.stringify(page)}`);
   return new SafeUrl(MINT, fragmentId === undefined ? PAGES[page].path : `${PAGES[page].path}#${checkedId(fragmentId)}`);
+}
+
+/** The shop's root-relative links (shop/paths.ts): the Shop page, a product's page, the cart, and the endpoints its forms post to. */
+export type ShopTarget = "shop" | "cart" | "cartAction" | { readonly product: string } | { readonly order: string };
+
+/**
+ * Root-relative link to a shop page or endpoint (shop/paths.ts), the shop's only minter of a relative URL: "/shop",
+ * "/shop/<slug>" (the slug checked), "/cart", "/_cart" or "/_o/<siteId>" (the id checked). No string path is accepted.
+ */
+export function shopUrl(target: ShopTarget): SafeUrl {
+  if (target === "shop") return new SafeUrl(MINT, SHOP_PATH);
+  if (target === "cart") return new SafeUrl(MINT, CART_PATH);
+  if (target === "cartAction") return new SafeUrl(MINT, CART_ACTION_PATH);
+  if (typeof target === "object" && target !== null && "product" in target) {
+    if (!isProductSlug(target.product)) throw new Error(`Invalid product slug: ${JSON.stringify(target.product)}`);
+    return new SafeUrl(MINT, `${SHOP_PATH}/${target.product}`);
+  }
+  if (typeof target === "object" && target !== null && "order" in target) return new SafeUrl(MINT, orderActionPath(target.order));
+  throw new Error(`Invalid shop link: ${JSON.stringify(target)}`);
 }
 
 function checkedId(id: string): string {
