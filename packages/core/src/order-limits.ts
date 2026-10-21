@@ -7,6 +7,8 @@ export const ORDER_LIMITS = {
   perSitePerDay: 50,
   /** Order emails one site may send a day (its slice of ORDER_EMAILS_PER_DAY), so one attacked shop cannot use up the others'. */
   emailsPerSitePerDay: 5,
+  /** $5,000.00: the most one order may total with no payment taken (step 1); above it the shop asks the buyer to call. */
+  maxOrderCents: 500_000,
   /** A second tap on Place order with the same cart arrives within this time: it lands on the first order. */
   repeatWindowMs: 120_000,
 } as const;

@@ -16,7 +16,7 @@ import { formProblems, messageTooLong, notFound, siteBusy, tooManyRequests, unav
 const MAX_BODY_BYTES = 24 * 1024;
 
 /** Reads at most `max` bytes, counting as it reads, so a missing or false Content-Length cannot get past it. */
-async function readLimited(request: Request, max: number): Promise<string | null> {
+export async function readLimited(request: Request, max: number): Promise<string | null> {
   const declared = Number(request.headers.get("content-length") ?? "0");
   if (declared > max) return null;
   if (request.body === null) return "";
