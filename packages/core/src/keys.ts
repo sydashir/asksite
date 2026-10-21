@@ -64,6 +64,24 @@ export const publicPageUrl = (root: string, slug: string, page: PageId) => `http
  *  cache-key settings can strip a query string), so a cached page can never be served for another version. */
 export const pageCacheUrl = (root: string, slug: string, versionId: string, page: PageId) =>
   `https://${knownSlug(slug)}.${root}/__v/${knownId(versionId, "version")}${PAGES[knownPage(page)].path}`;
+// The shop's LIVE objects (pages lane proposal 1.5; shop contract §2.7, §3): under the version's own prefix, so approval's
+// prefix cleanup (removeOtherVersions) and account deletion's sweep by version id (liveKeyVersionId) cover them.
+/** A product's path part under /shop/: the shop contract's ProductSlug (lower-case letters, digits, single inner dashes, 1-50). */
+const PRODUCT_SLUG = /^(?:[a-z0-9]|[a-z0-9](?:[a-z0-9]|-(?!-)){0,48}[a-z0-9])$/;
+function knownProductSlug(slug: string): string {
+  if (typeof slug !== "string" || !PRODUCT_SLUG.test(slug)) throw new Error("Invalid product slug");
+  return slug;
+}
+/** A version's catalog.json: the products and prices the sites Worker prices carts and orders from. */
+export const liveCatalogKey = (slug: string, versionId: string) => `${liveSitePrefix(slug)}${knownId(versionId, "version")}/catalog.json`;
+/** A version's shop page shell: the site's design around the slot the Worker fills (cart, order received). */
+export const liveShellKey = (slug: string, versionId: string) => `${liveSitePrefix(slug)}${knownId(versionId, "version")}/shop-shell.html`;
+/** A version's page for one product, served at /shop/<productSlug>. */
+export const liveProductKey = (slug: string, versionId: string, productSlug: string) =>
+  `${liveSitePrefix(slug)}${knownId(versionId, "version")}/shop/${knownProductSlug(productSlug)}.html`;
+/** The sites Worker's edge-cache key for a version's catalog (immutable per version, as pageCacheUrl). */
+export const catalogCacheUrl = (root: string, slug: string, versionId: string) =>
+  `https://${knownSlug(slug)}.${root}/__v/${knownId(versionId, "version")}/catalog.json`;
 /** The site URL the owner app's preview renders with before a slug is chosen (as previewFormActionUrl). */
 export const previewSiteUrl = (root: string, slug: string | null) => siteUrl(root, slug ?? "preview");
 
