@@ -103,7 +103,7 @@ export function ProductForm(props: Props) {
         <p className="mt-3 text-sm text-slate-600">“Was” prices are off. They can be turned on in Shop settings once the client confirms they really charged those prices.</p>
       )}
 
-      <fieldset id={id(["photos"])} tabIndex={-1} className="mt-6">
+      <fieldset id={id(["photos"])} tabIndex={-1} className="mt-6 min-w-0">
         <legend className="font-medium text-ink">Photos</legend>
         <p className="mt-1 text-sm text-slate-600">Up to {PRODUCT_LIMITS.photos}. The first one is the main photo in the shop.</p>
         {product.photos.length === 0 ? <p className="mt-2 text-slate-700">No photos yet. The shop shows a simple picture-free card until one is added.</p> : null}
@@ -185,7 +185,7 @@ export function ProductForm(props: Props) {
         onChange={(description) => set({ description })}
       />
 
-      <fieldset className="mt-6">
+      <fieldset className="mt-6 min-w-0">
         <legend className="font-medium text-ink">Sizes and colours</legend>
         <p className="mt-1 text-sm text-slate-600">
           Up to {PRODUCT_LIMITS.options} lists, like Size and Colour, with up to {PRODUCT_LIMITS.optionValues} choices each.
@@ -236,7 +236,7 @@ export function ProductForm(props: Props) {
             </p>
             {rowsProblem !== null ? <p className="mt-1 text-sm font-medium text-red-700">{rowsProblem}</p> : null}
             <div className="table-scroll mt-3" role="region" aria-labelledby="choices-title" tabIndex={0}>
-              <table className="data-table">
+              <table className={props.formerPricesConfirmed ? "data-table min-w-[36rem]" : "data-table min-w-[29rem]"}>
                 <thead>
                   <tr>
                     <th scope="col">Choice</th>
@@ -334,17 +334,19 @@ export function ProductForm(props: Props) {
         errors={props.errors(["soldOut"])}
         onChange={(soldOut) => (readOnly ? undefined : set({ soldOut }))}
       />
-      <TextInput
-        id={id(["maxQty"])}
-        label="Most one buyer can order at once"
-        optional
-        hint={`A number from 1 to ${PRODUCT_LIMITS.maxQty}. Leave empty for ${props.defaultMaxQty}.`}
-        inputMode="numeric"
-        value={product.maxQtyText}
-        readOnly={readOnly}
-        errors={props.errors(["maxQty"])}
-        onChange={(maxQtyText) => set({ maxQtyText })}
-      />
+      <div className="narrow-field">
+        <TextInput
+          id={id(["maxQty"])}
+          label="Most one buyer can order at once"
+          optional
+          hint={`A number from 1 to ${PRODUCT_LIMITS.maxQty}. Leave empty for ${props.defaultMaxQty}.`}
+          inputMode="numeric"
+          value={product.maxQtyText}
+          readOnly={readOnly}
+          errors={props.errors(["maxQty"])}
+          onChange={(maxQtyText) => set({ maxQtyText })}
+        />
+      </div>
 
       <div className="mt-8 border-t border-slate-200 pt-6">
         <button type="button" className="btn-danger" aria-disabled={readOnly} onClick={() => (readOnly ? undefined : props.onDelete())}>

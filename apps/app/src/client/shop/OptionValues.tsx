@@ -94,7 +94,7 @@ export function OptionValues(props: Props) {
           aria-describedby={describedBy}
         />
         <button type="button" className="btn-secondary shrink-0" aria-disabled={readOnly || full || typed.trim() === ""} onClick={() => (typed.trim() === "" || full ? undefined : add())}>
-          Add
+          Add<span className="sr-only"> to {name}</span>
         </button>
       </div>
       {errors.length > 0 ? (

@@ -323,6 +323,10 @@
   .price-symbol {
     @apply pointer-events-none absolute inset-y-0 left-3.5 flex items-center text-slate-600;
   }
+  /* A field for a short number (the most one buyer can order): as wide as its content needs. */
+  .narrow-field .field-input {
+    @apply max-w-32;
+  }
   /* A typed choice (a size, a colour) with its remove button: both 44px tall. */
   .chip {
     @apply inline-flex min-h-11 max-w-full items-center gap-1 rounded-full border border-slate-300 bg-slate-50 pl-4 font-medium text-ink;
@@ -344,9 +348,10 @@
   .option-box {
     @apply mt-4;
   }
-  /* Tables that may be wider than a phone scroll on their own, never the page (WCAG 1.4.10 allows it for data tables). */
+  /* Tables that may be wider than a phone scroll on their own, never the page (WCAG 1.4.10 allows it for data tables).
+     Relative, so the screen-reader-only labels inside (absolutely positioned) are clipped with the table, not the page. */
   .table-scroll {
-    @apply -mx-1 overflow-x-auto px-1;
+    @apply relative -mx-1 overflow-x-auto px-1;
   }
   .data-table {
     @apply w-full border-collapse text-left;
