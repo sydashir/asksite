@@ -67,16 +67,8 @@ export function shownArea(facts: Pick<Facts, "serviceArea" | "serviceAreaScope">
   return serviceAreaScopeOf(facts) === "places" ? { places: facts.serviceArea.places, note: facts.serviceArea.note } : NO_AREA;
 }
 
-/** "+15125550142" -> "(512) 555-0142". Input is already validated as US E.164. */
-export function formatPhone(e164: string): string {
-  const d = e164.slice(2);
-  return `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}`;
-}
-
-/** RFC 3966 global number: tel:+15125550142. */
-export function telUrl(e164: string): SafeUrl {
-  return safeUrl(`tel:${e164}`, ["tel:"]);
-}
+// formatPhone and telUrl live in phone.ts (the cart markup's path); re-exported here for every other caller.
+export { formatPhone, telUrl } from "./phone.ts";
 
 export function mailtoUrl(email: string): SafeUrl {
   return safeUrl(`mailto:${email}`, ["mailto:"]);

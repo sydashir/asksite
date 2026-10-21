@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { formatPrice } from "../../src/format.ts";
-import { formatUsd, jsonLdPrice, lineCents, subtotalCents } from "../../src/shop/money.ts";
+import { CURRENCY, formatUsd, jsonLdPrice, lineCents, MAX_PRICE_CENTS, subtotalCents } from "../../src/shop/money.ts";
 
 describe("formatUsd (mirrors site-schema money.ts, shop contract §2.1)", () => {
   it.each([
@@ -77,5 +77,13 @@ describe("cart arithmetic: integer cents only", () => {
     expect(() => lineCents(50.5, 1)).toThrow("whole cents");
     expect(() => lineCents(2 ** 52, 4)).toThrow("too large");
     expect(() => subtotalCents([{ unitCents: 2 ** 52, qty: 1 }, { unitCents: 2 ** 52, qty: 1 }])).toThrow("too large");
+  });
+});
+
+describe("the mirrored money constants (shop contract §2.1)", () => {
+  it("are USD and $100,000.00", () => {
+    expect(CURRENCY).toBe("USD");
+    expect(MAX_PRICE_CENTS).toBe(10_000_000);
+    expect(formatUsd(MAX_PRICE_CENTS, "exact")).toBe("$100,000.00");
   });
 });

@@ -1,10 +1,16 @@
 import { describe, expect, it } from "vitest";
 import { formatPhone, formatPrice, formatTime, mailtoUrl, telUrl, weeklyHours } from "../src/format.ts";
+import * as phone from "../src/phone.ts";
 
 describe("format", () => {
   it("formats a US phone number for display and for tel: links", () => {
     expect(formatPhone("+15125550142")).toBe("(512) 555-0142");
     expect(String(telUrl("+15125550142"))).toBe("tel:+15125550142");
+  });
+
+  it("re-exports phone.ts's helpers unchanged (moved there for the cart markup's path)", () => {
+    expect(formatPhone).toBe(phone.formatPhone);
+    expect(telUrl).toBe(phone.telUrl);
   });
 
   it("builds a mailto link", () => {

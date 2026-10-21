@@ -11,6 +11,12 @@ const checkedCents = (cents: number): number => {
 const grouped = (whole: number): string => String(whole).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 
 // mirrors site-schema money.ts §2.1; replaced by the import in phase 2
+export const CURRENCY = "USD";
+
+// mirrors site-schema money.ts §2.1 ($100,000.00, today's service cap); replaced by the import in phase 2
+export const MAX_PRICE_CENTS = 10_000_000;
+
+// mirrors site-schema money.ts §2.1; replaced by the import in phase 2
 export type PriceStyle = "short" | "exact";
 
 // mirrors site-schema money.ts §2.1; replaced by the import in phase 2
