@@ -410,6 +410,13 @@ describe("0012_orders.sql", () => {
     await expect(order(site, { subtotal_cents: -1 }).run()).rejects.toThrow(refused);
   });
 
+  it("allows an order without a phone (the order form's phone is optional)", async () => {
+    const { site } = await newSite();
+    const id = fresh();
+    await order(site, { id, phone: null }).run();
+    expect(await db.prepare("SELECT phone FROM orders WHERE id = ?").bind(id).first()).toEqual({ phone: null });
+  });
+
   it("allows email_status 'held' (a card order waiting for payment, step 2)", async () => {
     const { site } = await newSite();
     await order(site, { email_status: "held" }).run();

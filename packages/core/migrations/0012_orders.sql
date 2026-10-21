@@ -8,7 +8,7 @@ CREATE TABLE orders (
   version_id TEXT NOT NULL,                    -- the live version whose catalog priced it (provenance)
   created_at INTEGER NOT NULL,
   name TEXT NOT NULL,
-  phone TEXT NOT NULL,
+  phone TEXT,                                  -- optional on the order form; NULL when not given
   email TEXT NOT NULL,
   fulfilment TEXT NOT NULL CHECK (fulfilment IN ('pickup', 'delivery', 'shipping')),
   address_json TEXT,                           -- NULL for pickup; {line1, line2?, city, state, zip}
