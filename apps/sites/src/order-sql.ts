@@ -18,7 +18,7 @@ export interface Address {
 
 export interface Buyer {
   name: string;
-  phone: string;
+  phone: string | null;
   email: string;
   fulfilment: Fulfilment;
   address: Address | null;
