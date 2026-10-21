@@ -52,8 +52,8 @@ describe("apps/sites/wrangler.jsonc (production)", () => {
     // its own namespace, so the three never share counts.
     expect(config.ratelimits).toEqual([
       { name: "FORM_RL", namespace_id: "1004", simple: { limit: 5, period: 60 } },
-      { name: "ORDER_RL", namespace_id: "1005", simple: { limit: 3, period: 60 } },
-      { name: "SHOP_GET_RL", namespace_id: "1006", simple: { limit: 30, period: 60 } },
+      { name: "ORDER_RL", namespace_id: "1007", simple: { limit: 3, period: 60 } },
+      { name: "SHOP_GET_RL", namespace_id: "1008", simple: { limit: 30, period: 60 } },
     ]);
     // C1: lead retention once a day, and the lead-email retry every 15 minutes. scheduled() tells them apart by
     // these exact strings (controller.cron), so the config and the code must name the same two.

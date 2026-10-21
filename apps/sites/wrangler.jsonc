@@ -34,8 +34,8 @@
   ],
   "ratelimits": [
     { "name": "FORM_RL", "namespace_id": "1004", "simple": { "limit": 5, "period": 60 } },
-    { "name": "ORDER_RL", "namespace_id": "1005", "simple": { "limit": 3, "period": 60 } },
-    { "name": "SHOP_GET_RL", "namespace_id": "1006", "simple": { "limit": 30, "period": 60 } }
+    { "name": "ORDER_RL", "namespace_id": "1007", "simple": { "limit": 3, "period": 60 } },
+    { "name": "SHOP_GET_RL", "namespace_id": "1008", "simple": { "limit": 30, "period": 60 } }
   ],
   "triggers": { "crons": ["0 7 * * *", "*/15 * * * *"] }
 }
