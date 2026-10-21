@@ -20,13 +20,13 @@ const OUT = "78787878-7878-4787-8787-787878787878";
 // `variants`, when present, means a variant must be chosen and carries each variant's resolved price.
 const CATALOG: PricingCatalog = {
   products: [
-    { id: PLAIN, name: "Mom Flipflop", priceCents: 5000, soldOut: false, maxQty: 3 },
-    { id: SIZED, name: "Sandal", priceCents: 1500, soldOut: false, maxQty: 99, variants: [
+    { id: PLAIN, slug: "mom-flipflop", name: "Mom Flipflop", priceCents: 5000, compareAtCents: 6000, soldOut: false, maxQty: 3 },
+    { id: SIZED, slug: "sandal", name: "Sandal", priceCents: 1500, soldOut: false, maxQty: 99, variants: [
       { id: SMALL, label: "Small", priceCents: 1999, soldOut: false },
-      { id: LARGE, label: "Large", priceCents: 2499, soldOut: false },
+      { id: LARGE, label: "Large", priceCents: 2499, compareAtCents: 2999, soldOut: false },
       { id: OUT, label: "Huge", priceCents: 2999, soldOut: true },
     ] },
-    { id: SOLD, name: "Sold", priceCents: 100, soldOut: true, maxQty: 99 },
+    { id: SOLD, slug: "sold", name: "Sold", priceCents: 100, soldOut: true, maxQty: 99 },
   ],
 };
 const cart = (lines: Cart["lines"]): Cart => ({ siteId: SITE, cartId: CART, lines });
@@ -35,11 +35,16 @@ describe("priceCart", () => {
   it("prices every line from the catalog: the product's price, or the chosen variant's", () => {
     const priced = priceCart(CATALOG, cart([{ productId: PLAIN, variantId: null, qty: 2 }, { productId: SIZED, variantId: LARGE, qty: 3 }]));
     expect(priced.lines).toEqual([
-      { productId: PLAIN, variantId: null, name: "Mom Flipflop", variantLabel: null, unitCents: 5000, qty: 2, lineCents: 10000 },
-      { productId: SIZED, variantId: LARGE, name: "Sandal", variantLabel: "Large", unitCents: 2499, qty: 3, lineCents: 7497 },
+      { productId: PLAIN, variantId: null, slug: "mom-flipflop", name: "Mom Flipflop", variantLabel: null, unitCents: 5000, compareAtCents: 6000, qty: 2, maxQty: 3, lineCents: 10000 },
+      { productId: SIZED, variantId: LARGE, slug: "sandal", name: "Sandal", variantLabel: "Large", unitCents: 2499, compareAtCents: 2999, qty: 3, maxQty: 99, lineCents: 7497 },
     ]);
     expect(priced.subtotalCents).toBe(17497);
     expect(priced.changed).toBe(false);
+  });
+
+  it("takes the compare-at price of the chosen variant only (never the product's for a variant)", () => {
+    const priced = priceCart(CATALOG, cart([{ productId: SIZED, variantId: SMALL, qty: 1 }]));
+    expect(priced.lines[0]?.compareAtCents).toBeNull();
   });
 
   it("never falls back to the base price: a product with variants needs a real, available variant, and a plain product takes none", () => {

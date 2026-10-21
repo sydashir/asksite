@@ -36,7 +36,7 @@ async function shopSite(options: { confirmed?: boolean } = {}): Promise<SeededSi
   return { ...site, versionId: site.versionId ?? "" };
 }
 
-const LINE = { productId: newId(), variantId: null, name: "Mom Flipflop", variantLabel: null, unitCents: 5000, qty: 1, lineCents: 5000 };
+const LINE = { productId: newId(), variantId: null, slug: "mom-flipflop", name: "Mom Flipflop", variantLabel: null, unitCents: 5000, compareAtCents: null, qty: 1, maxQty: 10, lineCents: 5000 };
 
 function order(site: { siteId: string; versionId: string }, over: Partial<NewOrder> = {}): NewOrder {
   return {

@@ -12,21 +12,27 @@ import type { Cart, CartLine } from "./cart.ts";
 export interface PricingCatalog {
   products: ReadonlyArray<{
     id: string;
+    slug: string;
     name: string;
     priceCents: number;
+    compareAtCents?: number;
     soldOut: boolean;
     maxQty: number;
-    variants?: ReadonlyArray<{ id: string; label: string; priceCents: number; soldOut: boolean }>;
+    variants?: ReadonlyArray<{ id: string; label: string; priceCents: number; compareAtCents?: number; soldOut: boolean }>;
   }>;
 }
 
 export interface PricedLine {
   productId: string;
   variantId: string | null;
+  slug: string;
   name: string;
   variantLabel: string | null;
   unitCents: number;
+  /** The catalog's resolved former price for what was chosen (the variant's, or the product's when it has no variants). */
+  compareAtCents: number | null;
   qty: number;
+  maxQty: number;
   lineCents: number;
 }
 
@@ -61,7 +67,11 @@ export function priceCart(catalog: PricingCatalog, cart: Cart): PricedCart {
     const unitCents = variant === null ? product.priceCents : variant.priceCents;
     const qty = Math.min(line.qty, product.maxQty);
     if (qty !== line.qty) changed = true;
-    lines.push({ productId: product.id, variantId: variant?.id ?? null, name: product.name, variantLabel: variant?.label ?? null, unitCents, qty, lineCents: unitCents * qty });
+    const compareAtCents = (variant === null ? product.compareAtCents : variant.compareAtCents) ?? null;
+    lines.push({
+      productId: product.id, variantId: variant?.id ?? null, slug: product.slug, name: product.name, variantLabel: variant?.label ?? null,
+      unitCents, compareAtCents, qty, maxQty: product.maxQty, lineCents: unitCents * qty,
+    });
     kept.push({ productId: line.productId, variantId: line.variantId, qty });
   }
   const subtotalCents = lines.reduce((sum, l) => sum + l.lineCents, 0);
