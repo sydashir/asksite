@@ -17,7 +17,8 @@
     "MAILER": "resend",
     "MAIL_FROM": "asksite <leads@mail.asksite.example>",
     "SECURITY_TXT_EXPIRES": "2027-09-24T00:00:00.000Z",
-    "LEAD_EMAILS_PER_DAY": "40"
+    "LEAD_EMAILS_PER_DAY": "40",
+    "ORDER_EMAILS_PER_DAY": "20"
   },
   "d1_databases": [
     {
@@ -31,6 +32,10 @@
     { "binding": "LIVE", "bucket_name": "asksite-live" },
     { "binding": "MEDIA", "bucket_name": "asksite-media" }
   ],
-  "ratelimits": [{ "name": "FORM_RL", "namespace_id": "1004", "simple": { "limit": 5, "period": 60 } }],
+  "ratelimits": [
+    { "name": "FORM_RL", "namespace_id": "1004", "simple": { "limit": 5, "period": 60 } },
+    { "name": "ORDER_RL", "namespace_id": "1005", "simple": { "limit": 3, "period": 60 } },
+    { "name": "SHOP_GET_RL", "namespace_id": "1006", "simple": { "limit": 30, "period": 60 } }
+  ],
   "triggers": { "crons": ["0 7 * * *", "*/15 * * * *"] }
 }
