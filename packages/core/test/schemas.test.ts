@@ -395,7 +395,10 @@ describe("constants", () => {
       "settings.updated", "admin.login_link_sent",
       "owner.deletion_started", "owner.deleted", // account deletion (the 16 before are unchanged)
       "owner.signup_requested", "signin.cap_alert_sent", // open sign-up
-      "owner.signed_up", "auth.password_set", // password accounts (2026-10-08), appended last
+      "owner.signed_up", "auth.password_set", // password accounts (2026-10-08)
+      // the shop's staff actions (phase 2, pages lane), appended last
+      "order.cancelled", "order.marked_spam", "order.email_resent", "site.orders_paused", "site.orders_resumed",
+      "orders.paused_all", "orders.resumed_all", "site.order_email_set", "site.order_email_code_sent", "site.order_email_confirmed",
     ]);
   });
 });
