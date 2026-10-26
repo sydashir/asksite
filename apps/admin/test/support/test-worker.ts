@@ -118,6 +118,56 @@ helpers.post("/__test/generations", async (c) => {
   return c.json({ seeded: rows.length });
 });
 
+const SeededOrderLine = z.strictObject({ name: z.string().min(1), variantLabel: z.string().min(1).nullable().default(null), unitCents: z.int().min(1), qty: z.int().min(1).max(99) });
+const SeededOrder = z.strictObject({
+  number: z.int().min(1001),
+  createdAt: z.int().min(1).optional(),
+  name: z.string().min(1),
+  email: z.string().min(3),
+  phone: z.string().min(1).nullable().default(null),
+  fulfilment: z.enum(["pickup", "delivery", "shipping"]),
+  address: z.strictObject({ line1: z.string().min(1), line2: z.string().min(1).optional(), city: z.string().min(1), state: z.string().length(2), zip: z.string().min(5) }).nullable().default(null),
+  note: z.string().min(1).nullable().default(null),
+  items: z.array(SeededOrderLine).min(1).max(20),
+  status: z.enum(["new", "cancelled"]).default("new"),
+  spam: z.boolean().default(false),
+  emailStatus: z.enum(["pending", "sent", "failed", "skipped"]).default("sent"),
+  emailError: z.string().min(1).nullable().default(null),
+});
+const SeededOrders = z.strictObject({ siteId: z.string().min(1), orders: z.array(SeededOrder).min(1).max(60) });
+
+/**
+ * Orders for an existing site, so the admin orders e2e has something to list. The rows carry the columns and the items_json
+ * shape the sites Worker stores (apps/sites/src/order-sql.ts, pricing.ts PricedLine); line totals and the subtotal are worked out
+ * here from the given unit prices and quantities, as the Worker's pricing does. The buyer-limit hashes are fixed test values.
+ */
+helpers.post("/__test/orders", async (c) => {
+  const parsed = SeededOrders.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return c.json({ error: "bad_request" }, 400);
+  const { siteId, orders } = parsed.data;
+  if ((await c.env.DB.prepare("SELECT 1 AS found FROM sites WHERE id = ?").bind(siteId).first()) === null) return c.json({ error: "not_found" }, 404);
+  const now = Date.now();
+  const ids = orders.map(() => newId());
+  await c.env.DB.batch(
+    orders.map((order, i) => {
+      const items = order.items.map((line) => ({
+        productId: newId(), variantId: line.variantLabel === null ? null : newId(), slug: "seeded-product", name: line.name, variantLabel: line.variantLabel,
+        unitCents: line.unitCents, compareAtCents: null, qty: line.qty, maxQty: 99, lineCents: line.unitCents * line.qty,
+      }));
+      return c.env.DB.prepare(
+        `INSERT INTO orders (id, site_id, number, version_id, created_at, name, phone, email, fulfilment, address_json, note, items_json, subtotal_cents, cart_id, cart_hash, status, status_at, status_by, spam, email_status, email_error, ip_hash, net_hash)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'seeded', ?, ?, ?, ?, ?, ?, 'seeded', 'seeded')`,
+      ).bind(
+        ids[i], siteId, order.number, newId(), order.createdAt ?? now - i, order.name, order.phone, order.email, order.fulfilment,
+        order.address === null ? null : JSON.stringify(order.address), order.note, JSON.stringify(items), items.reduce((sum, line) => sum + line.lineCents, 0),
+        newId(), order.status, order.status === "new" && !order.spam ? null : now, order.status === "new" && !order.spam ? null : "admin:seed@example.com",
+        order.spam ? 1 : 0, order.emailStatus, order.emailError,
+      );
+    }),
+  );
+  return c.json({ ids });
+});
+
 /** Gives a site one stored photo: an uploads row and the MEDIA object under `<siteId>/`, so an e2e can see whether a takedown purged it. */
 helpers.post("/__test/uploads", async (c) => {
   const { siteId } = z.strictObject({ siteId: z.string().min(1) }).parse(await c.req.json());

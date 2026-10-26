@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { addedText, addOptionValues, choiceName, combinations, PRODUCT_SLUG, productStatus, slugFromName, syncVariants, variantsProblem, type ProductOptionDraft, type VariantDraft } from "../../src/client/shop/catalog.ts";
 import { productErrors } from "../../src/client/shop/product-errors.ts";
-import { buyerMailto, emptyOrdersText, filterLabel, lineText, linesSummary, type OrderLine } from "../../src/client/shop/orders.ts";
 
 describe("addOptionValues: the sizes or colors an owner types", () => {
   it("adds one value, or several separated by commas, trimmed, in order", () => {
@@ -108,43 +107,6 @@ describe("productStatus: always in words", () => {
     [{ soldOut: false, soldOutChoices: ["Size 8", "Size 9"] }, [{ text: "On sale", tone: "brand" }, { text: "2 choices sold out", tone: "neutral" }]],
   ])("%j", (product, words) => {
     expect(productStatus(product)).toEqual(words);
-  });
-});
-
-describe("order words", () => {
-  const line = (name: string, choice: string | null, quantity: number): OrderLine => ({ name, choice, quantity, unitCents: 990, lineCents: 990 * quantity });
-
-  it("writes a line with its choice and quantity", () => {
-    expect(lineText(line("Mom Flipflop", "Size 8", 2))).toBe("Mom Flipflop (Size 8) × 2");
-    expect(lineText(line("Beach Tote", null, 1))).toBe("Beach Tote × 1");
-  });
-
-  it("sums up the lines as the first one and how many more", () => {
-    expect(linesSummary([])).toBe("No items");
-    expect(linesSummary([line("Beach Tote", null, 1)])).toBe("Beach Tote × 1");
-    expect(linesSummary([line("Mom Flipflop", "Size 8", 2), line("Kid Flipflop", "Size 6", 1)])).toBe("Mom Flipflop (Size 8) × 2 and 1 more");
-  });
-
-  it("labels the filters, with a count only when there is one", () => {
-    expect(filterLabel("new", 2)).toBe("New (2)");
-    expect(filterLabel("all", undefined)).toBe("All");
-  });
-
-  it("says what an empty filter means", () => {
-    expect(emptyOrdersText("all", "Hip Hop Flip Flopp")).toBe("No orders yet. When someone orders from the website, it shows up here and Hip Hop Flip Flopp gets an email.");
-    expect(emptyOrdersText("new", "x")).toBe("No new orders. Orders you have opened are under Open.");
-  });
-});
-
-describe("buyerMailto: a link only for a plain address", () => {
-  const order = (email: string | null) => ({ number: 1042, buyer: { name: "Maria", email, phone: null, address: null } });
-
-  it("puts the order in the subject", () => {
-    expect(buyerMailto(order("maria@example.com"), "Hip Hop & Co")).toBe("mailto:maria@example.com?subject=Your%20order%20%231042%20from%20Hip%20Hop%20%26%20Co");
-  });
-
-  it.each([null, "maria@example.com?cc=x@evil.example", "a@b.com&body=hi", "a@b.com#x", "a%40b.com", "a b@c.com"])("gives no link for %j", (email) => {
-    expect(buyerMailto(order(email), "Shop")).toBeNull();
   });
 });
 

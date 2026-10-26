@@ -3,6 +3,8 @@ import { onLinkClick } from "../../../app/src/client/hooks/use-route.ts";
 import { matchAdminRoute, type AdminRoute } from "./lib/route.ts";
 import { Invites } from "./pages/Invites.tsx";
 import { NotFound } from "./pages/NotFound.tsx";
+import { Order } from "./pages/Order.tsx";
+import { Orders } from "./pages/Orders.tsx";
 import { Queue } from "./pages/Queue.tsx";
 import { Review } from "./pages/Review.tsx";
 import { Settings } from "./pages/Settings.tsx";
@@ -35,6 +37,11 @@ function page(route: AdminRoute) {
       return <Sites />;
     case "site":
       return <SiteDetail key={route.siteId} siteId={route.siteId} />;
+    case "orders":
+      // The filters live in the address: a filter change is a navigation, and the page re-reads them.
+      return <Orders search={location.search} />;
+    case "order":
+      return <Order key={route.orderId} orderId={route.orderId} />;
     case "settings":
       return <Settings />;
     case "notFound":
@@ -46,6 +53,7 @@ const NAV: ReadonlyArray<{ href: string; label: string; match: AdminRoute["name"
   { href: "/", label: "Review queue", match: ["queue", "review"] },
   { href: "/invites", label: "Invites", match: ["invites"] },
   { href: "/sites", label: "Sites", match: ["sites", "site"] },
+  { href: "/orders", label: "Orders", match: ["orders", "order"] },
   { href: "/settings", label: "Settings", match: ["settings"] },
 ];
 

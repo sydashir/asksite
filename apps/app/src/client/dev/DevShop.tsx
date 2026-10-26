@@ -1,15 +1,12 @@
-import { useState, type MouseEvent } from "react";
+import { useState } from "react";
 import { usePageHeading } from "../hooks/use-page-heading.ts";
 import { combinations, type ProductDraft, type ProductSummary } from "../shop/catalog.ts";
-import { OrderDetail } from "../shop/OrderDetail.tsx";
-import { OrderList } from "../shop/OrderList.tsx";
 import { productErrors } from "../shop/product-errors.ts";
 import { ProductForm } from "../shop/ProductForm.tsx";
 import { ProductList } from "../shop/ProductList.tsx";
 import { ShopSettings, type ShopSettingsDraft } from "../shop/ShopSettings.tsx";
-import type { OrderFilter, OrderStatus, OrderSummary, OrderView } from "../shop/orders.ts";
 
-// Development only: the shop screens with made-up data, one state per address (/dev/shop?view=…), so they can be looked at,
+// Development only: the product screens with made-up data, one state per address (/dev/shop?view=…), so they can be looked at,
 // screenshotted and checked before lane A wires them to the API. Nothing here is saved.
 
 const VIEWS = [
@@ -20,14 +17,10 @@ const VIEWS = [
   ["product", "A product with sizes and colors"],
   ["product-new", "A new product, with every check showing"],
   ["settings", "Shop settings"],
-  ["orders", "Orders"],
-  ["orders-empty", "Orders: none yet"],
-  ["order", "One order"],
 ] as const;
 type View = (typeof VIEWS)[number][0];
 
 const photo = (name: string) => `${location.origin}/landing/${name}`;
-const T = Date.parse("2026-10-15T14:14:00");
 
 const PRODUCTS: ProductSummary[] = [
   { id: "p1", name: "Mom Flipflop", photoUrl: photo("modern-desktop.webp"), prices: [990, 990, 1190], choicesText: "Sizes 6–11 · Black, Coral", soldOut: false, soldOutChoices: ["Size 8, Color Coral"] },
@@ -58,19 +51,6 @@ const NEW_PRODUCT: ProductDraft = { name: "", slug: "Mom Flipflop", priceText: "
 
 const SETTINGS: ShopSettingsDraft = { fulfilment: ["pickup", "shipping"], orderNote: "Pickup Tuesday to Saturday at our Austin store.", returns: "", sizing: "Runs true to size. Between sizes? Take the bigger one.", formerPricesConfirmed: true };
 
-const ORDERS: OrderSummary[] = [
-  { id: "o1", number: 1042, createdAt: T, buyerName: "Maria Lopez", status: "new", totalCents: 2730, lines: [{ name: "Mom Flipflop", choice: "Size 8, Black", quantity: 2, unitCents: 990, lineCents: 1980 }, { name: "Kid Flipflop", choice: "Size 6", quantity: 1, unitCents: 750, lineCents: 750 }] },
-  { id: "o2", number: 1041, createdAt: T - 86_400_000, buyerName: "Sam Reed", status: "open", totalCents: 2400, lines: [{ name: "Beach Tote", choice: null, quantity: 1, unitCents: 2400, lineCents: 2400 }] },
-  { id: "o3", number: 1040, createdAt: T - 3 * 86_400_000, buyerName: "Christopher Montgomery-Washington the Third", status: "done", totalCents: 129_950, lines: [{ name: "Hip Hop Flip Flopp 🩴 extra soft summer edition", choice: "Size 11", quantity: 99, unitCents: 1190, lineCents: 117_810 }, { name: "Beach Tote", choice: null, quantity: 1, unitCents: 12_140, lineCents: 12_140 }] },
-];
-const ORDER: OrderView = {
-  ...ORDERS[0]!,
-  payment: "not-online",
-  buyer: { name: "Maria Lopez", email: "maria@example.com", phone: "(512) 555-0142", address: "1200 Barton Springs Rd\nApt 4\nAustin, TX 78704" },
-  note: "Can you deliver Saturday morning?\nThanks!",
-};
-
-const stay = (event: MouseEvent<HTMLAnchorElement>) => event.preventDefault();
 
 export function DevShop() {
   const heading = usePageHeading<HTMLHeadingElement>("Shop screens");
@@ -78,9 +58,6 @@ export function DevShop() {
   const [products, setProducts] = useState(PRODUCTS);
   const [product, setProduct] = useState(view === "product-new" ? NEW_PRODUCT : FULL_PRODUCT);
   const [settings, setSettings] = useState(SETTINGS);
-  const [filter, setFilter] = useState<OrderFilter>("all");
-  const [status, setStatus] = useState<OrderStatus>(ORDER.status);
-  const [message, setMessage] = useState("");
   const [photoStatus, setPhotoStatus] = useState("");
 
   const move = (id: string, direction: "up" | "down") => {
@@ -91,7 +68,6 @@ export function DevShop() {
     setProducts(next);
   };
   const listState = view === "products-loading" ? "loading" : view === "products-error" ? "error" : "ready";
-  const shownOrders = view === "orders-empty" ? [] : ORDERS.filter((o) => filter === "all" || o.status === filter);
 
   return (
     <section className="mx-auto max-w-3xl">
@@ -141,33 +117,6 @@ export function DevShop() {
           <div className="card">
             <ShopSettings settings={settings} onChange={setSettings} errors={(path) => (path[0] === "fulfilment" && settings.fulfilment.length === 0 ? ["Check at least one way buyers get their orders."] : [])} />
           </div>
-        ) : null}
-        {view === "orders" || view === "orders-empty" ? (
-          <OrderList
-            orders={shownOrders}
-            filter={filter}
-            counts={view === "orders-empty" ? {} : { new: 1, open: 1, done: 1, all: 3 }}
-            onFilter={setFilter}
-            hrefFor={(id) => `/dev/shop?view=order&id=${id}`}
-            onOpen={() => undefined}
-            businessName="Hip Hop Flip Flopp"
-            state="ready"
-            onRetry={() => undefined}
-          />
-        ) : null}
-        {view === "order" ? (
-          <OrderDetail
-            order={{ ...ORDER, status }}
-            businessName="Hip Hop Flip Flopp"
-            backHref="/dev/shop?view=orders"
-            onBack={stay}
-            busy={false}
-            message={message}
-            onSetStatus={(next) => {
-              setStatus(next);
-              setMessage(next === "done" ? "Marked as done." : "Marked as new.");
-            }}
-          />
         ) : null}
       </div>
     </section>

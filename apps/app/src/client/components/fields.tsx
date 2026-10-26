@@ -161,7 +161,14 @@ export function TextArea(props: Common & { value: string; onChange: (value: stri
 }
 
 export function Select(
-  props: Common & { value: string; onChange: (value: string) => void; options: ReadonlyArray<{ value: string; label: string }>; autoComplete?: string },
+  props: Common & {
+    value: string;
+    onChange: (value: string) => void;
+    options: ReadonlyArray<{ value: string; label: string }>;
+    autoComplete?: string;
+    /** The words of the empty first option ("Choose…" unless an empty choice means something, like "All sites"). */
+    emptyLabel?: string;
+  },
 ) {
   const errors = props.errors ?? [];
   return (
@@ -177,7 +184,7 @@ export function Select(
         aria-invalid={errors.length > 0 ? true : undefined}
         aria-describedby={describedBy(props.id, props.hint, errors, false)}
       >
-        <option value="">Choose…</option>
+        <option value="">{props.emptyLabel ?? "Choose…"}</option>
         {props.options.map((o) => (
           <option key={o.value} value={o.value}>
             {o.label}

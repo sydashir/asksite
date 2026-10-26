@@ -10,6 +10,7 @@ import { useResource } from "../hooks.ts";
 import { COPIED_AGAIN, DELETE_LEASE_LOST, DELETE_UNFINISHED, TAKEDOWN_LEASE_LOST } from "../../messages.ts";
 import type { OwnerDeletionView, TakedownView } from "../../settings-view.ts";
 import { CapNote } from "../CapNote.tsx";
+import { SiteShopSection } from "../orders/SiteShopSection.tsx";
 import { OwnerDeleteForm } from "../OwnerDeleteForm.tsx";
 import { OwnerDisableForm } from "../OwnerDisableForm.tsx";
 import { FinishForm, TakedownForm, type TakedownBody } from "../TakedownForms.tsx";
@@ -278,6 +279,8 @@ function SiteScreen({ data, reload }: { data: SiteDetailData; reload: () => Prom
             {site.ownerDisabled ? null : <p className="meta mt-3 text-sm">To delete this owner's account, disable the owner first.</p>}
           </div>
         </section>
+
+        <SiteShopSection siteId={site.id} siteName={site.slug ?? site.businessName ?? "this site"} showOrdersLink />
 
         <section className="card" aria-labelledby="versions-title">
           <h2 id="versions-title" className="section-title">

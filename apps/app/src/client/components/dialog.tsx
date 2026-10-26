@@ -10,6 +10,10 @@ export function ConfirmDialog(props: {
   title: string;
   children: ReactNode;
   confirmLabel: string;
+  /** The safe choice's words; "Cancel" unless that would clash with the action (cancelling an order says "Keep it"). */
+  cancelLabel?: string;
+  /** A destructive action: the confirm button is the red outline button. */
+  danger?: boolean;
   onConfirm: () => void;
   onCancel: () => void;
 }) {
@@ -49,11 +53,11 @@ export function ConfirmDialog(props: {
         {props.children}
       </div>
       <div className="mt-6 flex flex-wrap gap-3">
-        <button type="button" className="btn-primary" onClick={props.onConfirm}>
+        <button type="button" className={props.danger === true ? "btn-danger" : "btn-primary"} onClick={props.onConfirm}>
           {props.confirmLabel}
         </button>
         <button ref={cancel} type="button" className="btn-secondary" onClick={props.onCancel}>
-          Cancel
+          {props.cancelLabel ?? "Cancel"}
         </button>
       </div>
     </dialog>
