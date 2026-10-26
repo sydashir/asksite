@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  catalogCacheUrl,
   formActionUrl,
+  liveCatalogKey,
+  liveProductKey,
+  liveShellKey,
   livePageKey,
   livePointerKey,
   liveKeyVersionId,
@@ -227,5 +231,39 @@ describe("account deletion keys", () => {
     expect(liveKeyVersionId(`${VERSION}/joes/home.html`)).toBeNull(); // the id in the first segment is a slug position
     expect(liveKeyVersionId("a/b")).toBeNull();
     expect(liveKeyVersionId("")).toBeNull();
+  });
+});
+
+// The shop's LIVE objects (pages lane proposal 1.5, shop contract §2.7/§3): a version's catalog.json, its shop page shell
+// and its product pages sit under the version's own prefix, so approval's prefix cleanup and account deletion's sweep by
+// version id cover them, and the catalog has an edge-cache URL keyed by the version (immutable).
+describe("shop keys", () => {
+  const V = "0f8fad5b-d9cb-469f-a165-70867728950e";
+
+  it("puts the catalog, the shell and each product page under the version's prefix", () => {
+    expect(liveCatalogKey("joes", V)).toBe(`joes/${V}/catalog.json`);
+    expect(liveShellKey("joes", V)).toBe(`joes/${V}/shop-shell.html`);
+    expect(liveProductKey("joes", V, "mom-flipflop")).toBe(`joes/${V}/shop/mom-flipflop.html`);
+    for (const key of [liveCatalogKey("joes", V), liveShellKey("joes", V), liveProductKey("joes", V, "a")]) {
+      expect(key.startsWith(liveSitePrefix("joes"))).toBe(true);
+      expect(liveKeyVersionId(key)).toBe(V);
+    }
+  });
+
+  it("gives the catalog an edge-cache URL with the version in the path", () => {
+    expect(catalogCacheUrl("asksite.example", "joes", V)).toBe(`https://joes.asksite.example/__v/${V}/catalog.json`);
+  });
+
+  it("refuses a product slug outside the contract's rule (lower-case letters, digits, single inner dashes, 1-50 chars)", () => {
+    for (const slug of ["", "-a", "a-", "a--b", "A", "a_b", "a/b", "..", "a.html", "x".repeat(51)]) {
+      expect(() => liveProductKey("joes", V, slug), slug).toThrow(/product/);
+    }
+    expect(liveProductKey("joes", V, "x".repeat(50))).toBe(`joes/${V}/shop/${"x".repeat(50)}.html`);
+  });
+
+  it("refuses a bad version id or slug, as every other key does", () => {
+    expect(() => liveCatalogKey("joes", "v1")).toThrow(/version/);
+    expect(() => liveShellKey("Joes!", V)).toThrow(/slug/);
+    expect(() => catalogCacheUrl("asksite.example", "joes", "v1")).toThrow(/version/);
   });
 });

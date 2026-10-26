@@ -16,6 +16,7 @@ export const TEST_VARS = {
   MAIL_FROM: "asksite test <test@localhost>",
   SECURITY_TXT_EXPIRES: "2027-09-24T00:00:00.000Z",
   LEAD_EMAILS_PER_DAY: "40", // the production value (lead-cap.workerd.test.ts checks they match)
+  ORDER_EMAILS_PER_DAY: "20", // the production value (config.test.ts pins it)
 };
 export const TEST_SECRETS = { IP_HASH_KEY: "test-only-ip-hash-key", RESEND_API_KEY: "" };
 

@@ -15,6 +15,7 @@ const SECRETS = ["RESEND_API_KEY", "IP_HASH_KEY"];
 const ENV_KEYS: Record<keyof Env, true> = {
   DB: true, LIVE: true, MEDIA: true, FORM_RL: true, ENVIRONMENT: true, ROOT_DOMAIN: true, MAILER: true,
   MAIL_FROM: true, SECURITY_TXT_EXPIRES: true, LEAD_EMAILS_PER_DAY: true, RESEND_API_KEY: true, IP_HASH_KEY: true,
+  ORDER_RL: true, SHOP_GET_RL: true, ORDER_EMAILS_PER_DAY: true,
 };
 
 describe("apps/sites/wrangler.jsonc (production)", () => {
@@ -46,7 +47,14 @@ describe("apps/sites/wrangler.jsonc (production)", () => {
     expect(config.d1_databases).toEqual([
       { binding: "DB", database_name: "asksite", database_id: expect.any(String), migrations_dir: "../../packages/core/migrations" },
     ]);
-    expect(config.ratelimits).toEqual([{ name: "FORM_RL", namespace_id: "1004", simple: { limit: 5, period: 60 } }]);
+    // The shop (pages lane proposal 1.6): ORDER_RL is the order post's burst brake (3 a minute per site and network; the
+    // exact daily caps are D1 counts), SHOP_GET_RL bounds the order pages that read D1 (30 a minute per network). Each has
+    // its own namespace, so the three never share counts.
+    expect(config.ratelimits).toEqual([
+      { name: "FORM_RL", namespace_id: "1004", simple: { limit: 5, period: 60 } },
+      { name: "ORDER_RL", namespace_id: "1007", simple: { limit: 3, period: 60 } },
+      { name: "SHOP_GET_RL", namespace_id: "1008", simple: { limit: 30, period: 60 } },
+    ]);
     // C1: lead retention once a day, and the lead-email retry every 15 minutes. scheduled() tells them apart by
     // these exact strings (controller.cron), so the config and the code must name the same two.
     expect(config.triggers).toEqual({ crons: [RETENTION_CRON, RETRY_CRON] });
@@ -72,6 +80,11 @@ describe("apps/sites/wrangler.jsonc (production)", () => {
   it("sends at most 40 lead emails a UTC day across all sites (A11c)", () => {
     // Resend Free's 100 a day: sign-in links 40, leads 40, the rest for review alerts and admin emails.
     expect(vars["LEAD_EMAILS_PER_DAY"]).toBe("40");
+  });
+
+  it("sends at most 20 order emails a UTC day across all sites (shop, step 1)", () => {
+    // Resend Free: 100 a day for sign-in 40, leads 40 and orders 20 (runbook G1.8 requires Pro at go-live; raise then).
+    expect(vars["ORDER_EMAILS_PER_DAY"]).toBe("20");
   });
 
   it("has a valid security.txt expiry date", () => {

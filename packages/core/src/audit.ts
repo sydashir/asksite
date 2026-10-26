@@ -6,7 +6,10 @@ export const AUDIT_ACTIONS = ["invite.created", "invite.revoked", "invite.accept
   "generation.requested", "version.requested", "version.withdrawn", "version.approved", "version.rejected",
   "site.taken_down", "site.restored", "site.indexable_changed", "owner.disabled", "owner.enabled",
   "settings.updated", "admin.login_link_sent", "owner.deletion_started", "owner.deleted",
-  "owner.signup_requested", "signin.cap_alert_sent", "owner.signed_up", "auth.password_set"] as const;
+  "owner.signup_requested", "signin.cap_alert_sent", "owner.signed_up", "auth.password_set",
+  // The shop's staff actions (phase 2, pages lane proposal 1.8, 1.9).
+  "order.cancelled", "order.marked_spam", "order.email_resent", "site.orders_paused", "site.orders_resumed",
+  "orders.paused_all", "orders.resumed_all", "site.order_email_set", "site.order_email_code_sent", "site.order_email_confirmed"] as const;
 
 /** What account deletion writes over the admin free-text reasons (takedown, disable) the audit log keeps. */
 export const REDACTED_REASON = "[deleted with the account]";

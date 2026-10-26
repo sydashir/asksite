@@ -11,6 +11,10 @@ export interface Env {
   /** Re-encoded photos. Read-only by type (asksite-app writes MEDIA). */
   MEDIA: Pick<R2Bucket, "get" | "head">;
   FORM_RL: RateLimit;
+  /** The order post's burst brake (shop, pages lane proposal 1.6): 3 a minute per site and network. */
+  ORDER_RL: RateLimit;
+  /** The order pages that read D1 (order received, paid): 30 a minute per network. */
+  SHOP_GET_RL: RateLimit;
   ENVIRONMENT: string;
   /** host[:port] of the product domain, e.g. "asksite.example" or "localhost:8789". */
   ROOT_DOMAIN: string;
@@ -20,6 +24,8 @@ export interface Env {
   SECURITY_TXT_EXPIRES: string;
   /** Lead emails a UTC day across all sites (A11c), in digits; anything else is logged and 40 applies. */
   LEAD_EMAILS_PER_DAY: string;
+  /** Order emails a UTC day across all sites, in digits; anything else is logged and 20 applies. */
+  ORDER_EMAILS_PER_DAY: string;
   /** Secrets (wrangler secret put, or .dev.vars locally). Missing ones fail closed. */
   RESEND_API_KEY?: string;
   IP_HASH_KEY?: string;

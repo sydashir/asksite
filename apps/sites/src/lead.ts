@@ -48,7 +48,7 @@ const Email = z.email().max(254);
  * space, and a line break a newline in the message or a space in a one-line field, so no line break
  * ever reaches a one-line field (the name goes into the lead email's subject).
  */
-function clean(value: string | null, keepNewlines: boolean): string {
+export function clean(value: string | null, keepNewlines: boolean): string {
   const text = (value ?? "").replace(LINE_BREAK, "\n").replaceAll("\t", " ");
   return (keepNewlines ? text : text.replaceAll("\n", " ")).replace(HIDDEN, "").trim();
 }
@@ -58,7 +58,16 @@ function clean(value: string | null, keepNewlines: boolean): string {
 // U+2212 (minus), U+FE58, U+FE63 and U+FF0D. They become an ASCII space or "-" before the phone rule.
 const TYPOGRAPHIC_SPACE = /\p{Zs}/gu;
 const TYPOGRAPHIC_DASH = /[\u2010-\u2015\u2212\uFE58\uFE63\uFF0D]/g;
-const plainPhone = (phone: string): string => phone.replace(TYPOGRAPHIC_SPACE, " ").replace(TYPOGRAPHIC_DASH, "-");
+export const plainPhone = (phone: string): string => phone.replace(TYPOGRAPHIC_SPACE, " ").replace(TYPOGRAPHIC_DASH, "-");
+
+/** The name rule (QA-2): no link or email marker, even hidden, and at least one letter or digit once look-blank characters are set aside. Length is checked apart. */
+export const isReadableName = (name: string): boolean => !looksLikeLink(name) && LETTER_OR_DIGIT.test(name.replace(LOOKS_BLANK, ""));
+
+/** The phone rule: digits, spaces, dashes, dots, parentheses and a plus sign, 7-30 characters, at least 7 digits (after plainPhone). */
+export const isPhone = (phone: string): boolean => PHONE.test(phone) && (phone.match(/\d/g) ?? []).length >= 7;
+
+/** The address rule (zod's email check, at most 254 characters). */
+export const isEmail = (email: string): boolean => Email.safeParse(email).success;
 
 export function readLead(fields: URLSearchParams): { ok: true; lead: Lead } | { ok: false; problems: LeadProblem[] } {
   const name = clean(fields.get("name"), false);
@@ -68,9 +77,9 @@ export function readLead(fields: URLSearchParams): { ok: true; lead: Lead } | { 
   const message = clean(fields.get("message"), true);
 
   const problems: LeadProblem[] = [];
-  if (name.length < 1 || name.length > 80 || looksLikeLink(name) || !LETTER_OR_DIGIT.test(name.replace(LOOKS_BLANK, ""))) problems.push("name");
-  if (!PHONE.test(phone) || (phone.match(/\d/g) ?? []).length < 7) problems.push("phone");
-  if (email !== "" && !Email.safeParse(email).success) problems.push("email");
+  if (name.length < 1 || name.length > 80 || !isReadableName(name)) problems.push("name");
+  if (!isPhone(phone)) problems.push("phone");
+  if (email !== "" && !isEmail(email)) problems.push("email");
   if (service.length > 60) problems.push("service");
   if (message.length > 2000) problems.push("message");
   if (problems.length > 0) return { ok: false, problems };
@@ -87,5 +96,8 @@ export function readLead(fields: URLSearchParams): { ok: true; lead: Lead } | { 
 // link such as "https://a.com/?u=https%3A%2F%2Fwww.b.com" counts 3): the count stays high on purpose.
 const LINK_START = /http(?:s?:\/\/)?(?:www\.)?|:\/\/(?:www\.)?|www\./gi;
 
-/** More than 3 links in the message ("http", "://" or "www." each start one): stored as spam, not emailed. */
-export const looksLikeSpam = (lead: Lead): boolean => ((lead.message ?? "").match(LINK_START) ?? []).length > 3;
+/** More than 3 links in a text ("http", "://" or "www." each start one): the spam rule for messages and order notes. */
+export const hasTooManyLinks = (text: string | null): boolean => ((text ?? "").match(LINK_START) ?? []).length > 3;
+
+/** More than 3 links in the message: stored as spam, not emailed. */
+export const looksLikeSpam = (lead: Lead): boolean => hasTooManyLinks(lead.message);

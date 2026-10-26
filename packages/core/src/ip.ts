@@ -35,3 +35,14 @@ function groupsOf(side: string | undefined): string[] {
 }
 
 const bytesOf = (group: number): number[] => [group >> 8, group & 0xff];
+
+/**
+ * The key of the shop's daily per-network caps (pages lane proposal 1.6): ipRateKey's, with an IPv6 /64 widened to
+ * its /48, so one holder of a /48 (65,536 /64s) counts once a day. IPv4 (and IPv4-mapped) addresses stay whole, and
+ * an address ipRateKey keeps whole stays whole.
+ */
+export function ipDailyKey(ip: string): string {
+  const key = ipRateKey(ip);
+  if (!key.endsWith("::/64")) return key;
+  return `${key.split(":").slice(0, 3).join(":")}::/48`;
+}
