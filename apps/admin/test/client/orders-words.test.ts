@@ -8,12 +8,15 @@ import {
   ordersPath,
   ordersRequest,
   readOrdersFilters,
+  resumedText,
   shopLines,
+  STATUS_WORD,
   staffName,
   statusChangeText,
 } from "../../src/client/orders/words.ts";
 
 const SITE = "0b0c4f5e-6a8d-4c1e-9a3b-2f4d5e6a7b8c";
+const NOT_V4 = "0b0c4f5e-6a8d-1c1e-0a3b-2f4d5e6a7b8c";
 const time = (ms: number) => `t${ms}`;
 
 describe("emailLine: the order email in words", () => {
@@ -38,7 +41,7 @@ describe("who changed an order", () => {
 
   it("names the change, and only the last one when both happened (one statusAt/statusBy)", () => {
     const by = { statusAt: 5, statusBy: "admin:a@b.co" };
-    expect(statusChangeText({ status: "cancelled", spam: false, ...by }, time)).toBe("Cancelled by a@b.co on t5.");
+    expect(statusChangeText({ status: "cancelled", spam: false, ...by }, time)).toBe("Canceled by a@b.co on t5.");
     expect(statusChangeText({ status: "new", spam: true, ...by }, time)).toBe("Marked as spam by a@b.co on t5.");
     expect(statusChangeText({ status: "cancelled", spam: true, ...by }, time)).toBe("Last changed by a@b.co on t5.");
     expect(statusChangeText({ status: "new", spam: false, statusAt: null, statusBy: null }, time)).toBeNull();
@@ -68,6 +71,8 @@ describe("filters in the page address and in the API request", () => {
     expect(readOrdersFilters(`?site=${SITE}&spam=1`)).toEqual({ siteId: SITE, spam: true });
     expect(readOrdersFilters("")).toEqual({ siteId: null, spam: false });
     expect(readOrdersFilters("?site=nope&spam=yes")).toEqual({ siteId: null, spam: false });
+    // A 36-character id the API would refuse (not a v4 UUID): treated as no site, so the page shows all orders instead of an error.
+    expect(readOrdersFilters(`?site=${NOT_V4}`)).toEqual({ siteId: null, spam: false });
   });
 
   it("writes them back, and the two round-trip", () => {
@@ -107,5 +112,27 @@ describe("shopLines: a site's shop state in words", () => {
       counts: "12 in all · 3 today (UTC)",
     });
     expect(shopLines({ ...paused, orderEmailConfirmedAt: 9, orderEmailConfirmedBy: "admin:c@d.co" }, time).address).toBe("orders@shop.example: confirmed t9 by c@d.co");
+  });
+});
+
+describe("US English on screen", () => {
+  it("says Canceled, while the API value stays cancelled", () => {
+    expect(STATUS_WORD.cancelled).toBe("Canceled");
+  });
+});
+
+describe("resumedText: Resume never promises orders the site cannot take", () => {
+  const open: SiteShopStatus = {
+    ordersPausedAt: null, ordersPausedBy: null, allOrdersPaused: false, orderEmail: "orders@shop.example", orderEmailRev: 1, orderEmailConfirmedAt: 5,
+    orderEmailConfirmedBy: "admin:a@b.co", orderCount: 0, ordersToday: 0,
+  };
+  it.each([
+    [open, "This site takes orders again."],
+    [{ ...open, allOrdersPaused: true }, "This site's own pause is off, but orders are paused on every shop."],
+    [{ ...open, orderEmailConfirmedAt: null }, "This site's own pause is off, but it can't take orders until its order address is confirmed."],
+    [{ ...open, orderEmail: null, orderEmailConfirmedAt: null }, "This site's own pause is off, but it can't take orders until its order address is confirmed."],
+    [{ ...open, ordersPausedAt: 9 }, "Orders are still paused for this site."],
+  ])("%#", (status, text) => {
+    expect(resumedText(status)).toBe(text);
   });
 });

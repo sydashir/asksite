@@ -162,7 +162,8 @@ export function onLinkClick(event: MouseEvent<HTMLAnchorElement>): void {
   if (!plainClick(event)) return;
   event.preventDefault();
   const url = new URL(event.currentTarget.href);
-  const go = () => navigate(`${url.pathname}${url.hash}`);
+  // The whole address after the host: the path, the query (the admin's orders filters live there) and the hash.
+  const go = () => navigate(`${url.pathname}${url.search}${url.hash}`);
   const guard = leaveGuard;
   if (guard === null) go();
   else
@@ -182,6 +183,6 @@ export function linkAfter(save: () => Promise<FlushResult>, onUnsaved: (result: 
     if (!plainClick(event)) return;
     event.preventDefault();
     const url = new URL(event.currentTarget.href);
-    void save().then((saved) => (saved === true ? navigate(`${url.pathname}${url.hash}`) : onUnsaved(saved)));
+    void save().then((saved) => (saved === true ? navigate(`${url.pathname}${url.search}${url.hash}`) : onUnsaved(saved)));
   };
 }

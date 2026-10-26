@@ -1,9 +1,10 @@
-import type { OrderDetail, OrderEmailStatus, OrderFulfilment, OrderListItem, OrderStatus, SiteShopStatus } from "@asksite/core";
+import { isId, type OrderDetail, type OrderEmailStatus, type OrderFulfilment, type OrderListItem, type OrderStatus, type SiteShopStatus } from "@asksite/core";
 
 // The staff orders screens' words and small rules (admin-orders-plan.md), kept out of the components so they are tested on
 // their own. Every amount comes from the order the server stored; nothing here adds up money.
 
-export const STATUS_WORD: Record<OrderStatus, string> = { new: "New", cancelled: "Cancelled" };
+/** US English on screen ("Canceled"); the API's stored value stays "cancelled". */
+export const STATUS_WORD: Record<OrderStatus, string> = { new: "New", cancelled: "Canceled" };
 
 export const FULFILMENT_WORD: Record<OrderFulfilment, string> = { pickup: "Pickup", delivery: "Local delivery", shipping: "Shipping" };
 
@@ -35,7 +36,7 @@ export function statusChangeText(order: Pick<OrderDetail, "status" | "spam" | "s
   if (order.statusAt === null || order.statusBy === null) return null;
   const by = `${staffName(order.statusBy)} on ${time(order.statusAt)}`;
   if (order.status === "cancelled" && order.spam) return `Last changed by ${by}.`;
-  if (order.status === "cancelled") return `Cancelled by ${by}.`;
+  if (order.status === "cancelled") return `Canceled by ${by}.`;
   if (order.spam) return `Marked as spam by ${by}.`;
   return null;
 }
@@ -59,13 +60,11 @@ export interface OrdersFilters {
   spam: boolean;
 }
 
-const ID = /^[0-9a-f-]{36}$/;
-
-/** The filters in the page address (/orders?site=<id>&spam=1). Anything else is ignored, so a bad link shows all orders. */
+/** The filters in the page address (/orders?site=<id>&spam=1). Anything else is ignored (the site id by the API's own rule), so a bad link shows all orders. */
 export function readOrdersFilters(search: string): OrdersFilters {
   const params = new URLSearchParams(search);
   const site = params.get("site");
-  return { siteId: site !== null && ID.test(site) ? site : null, spam: params.get("spam") === "1" };
+  return { siteId: site !== null && isId(site) ? site : null, spam: params.get("spam") === "1" };
 }
 
 /** The page address for some filters. */
@@ -106,6 +105,17 @@ export function shopLines(status: SiteShopStatus, time: (ms: number) => string):
           : `${status.orderEmail}: confirmed ${time(status.orderEmailConfirmedAt)}${status.orderEmailConfirmedBy === null ? "" : ` by ${staffName(status.orderEmailConfirmedBy)}`}`,
     counts: `${status.orderCount} in all · ${status.ordersToday} today (UTC)`,
   };
+}
+
+/**
+ * What Resume says, from the status read back after it: the site's own pause is off, but it takes orders only when every shop is
+ * open and its order address is confirmed (the sites Worker's insert guard), so the line never promises orders it cannot take.
+ */
+export function resumedText(status: SiteShopStatus): string {
+  if (status.ordersPausedAt !== null) return "Orders are still paused for this site.";
+  if (status.allOrdersPaused) return "This site's own pause is off, but orders are paused on every shop.";
+  if (status.orderEmailConfirmedAt === null) return "This site's own pause is off, but it can't take orders until its order address is confirmed.";
+  return "This site takes orders again.";
 }
 
 /** The 409 line shown after the page reloaded the state it changed. */

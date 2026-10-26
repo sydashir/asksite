@@ -72,7 +72,7 @@ function OrderScreen({ order, reload }: { order: OrderDetailView; reload: () => 
     try {
       const res = await api("POST", `/api/admin/orders/${order.id}/${action}`, {});
       await reload();
-      if (res.ok) setMessage({ tone: "success", text: action === "cancel" ? "Order cancelled." : "Marked as spam." });
+      if (res.ok) setMessage({ tone: "success", text: action === "cancel" ? "Order canceled." : "Marked as spam." });
       else if (res.status === 409) setMessage({ tone: "error", text: CHANGED_ELSEWHERE });
       else if (res.status === 0 || res.status >= 500) setMessage({ tone: "error", text: UNSURE });
       else setMessage({ tone: "error", text: res.error.message });
