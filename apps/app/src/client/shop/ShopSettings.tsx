@@ -37,7 +37,7 @@ export function ShopSettings(props: Props) {
       <fieldset id={id(["fulfilment"])} tabIndex={-1} className="mt-5" aria-describedby={`${id(["fulfilment"])}-hint${fulfilmentErrors.length > 0 ? ` ${id(["fulfilment"])}-error` : ""}`}>
         <legend className="font-medium text-ink">How do buyers get their orders?</legend>
         <p id={`${id(["fulfilment"])}-hint`} className="mt-1 text-sm text-slate-600">
-          Tick every way the client offers. The website mentions only these.
+          Check every way the client offers. The website mentions only these.
         </p>
         <div className="mt-2 space-y-2">
           {FULFILMENT.map((way) => (
@@ -96,7 +96,7 @@ export function ShopSettings(props: Props) {
       <Checkbox
         id={id(["formerPricesConfirmed"])}
         label="The client confirmed their “was” prices"
-        hint="Tick only when the client has said: “Each ‘was’ price is a price I actually charged for this item for a reasonable time recently.” Without it, no “was” price can be shown."
+        hint="Check this only when the client has said: “Each ‘was’ price is a price I actually charged for this item for a reasonable time recently.” Without it, no “was” price can be shown."
         checked={settings.formerPricesConfirmed}
         errors={props.errors(["formerPricesConfirmed"])}
         onChange={(formerPricesConfirmed) => (readOnly ? undefined : set({ formerPricesConfirmed }))}

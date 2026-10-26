@@ -3,7 +3,7 @@ import { addedText, addOptionValues, choiceName, combinations, PRODUCT_SLUG, pro
 import { productErrors } from "../../src/client/shop/product-errors.ts";
 import { buyerMailto, emptyOrdersText, filterLabel, lineText, linesSummary, type OrderLine } from "../../src/client/shop/orders.ts";
 
-describe("addOptionValues: the sizes or colours an owner types", () => {
+describe("addOptionValues: the sizes or colors an owner types", () => {
   it("adds one value, or several separated by commas, trimmed, in order", () => {
     expect(addOptionValues([], "6")).toEqual({ values: ["6"], problems: [], added: ["6"] });
     expect(addOptionValues(["6"], " 7 ,8,  9  ")).toEqual({ values: ["6", "7", "8", "9"], problems: [], added: ["7", "8", "9"] });
@@ -62,7 +62,7 @@ describe("addedText", () => {
 
 describe("combinations and syncVariants: one row for every combination of choices", () => {
   const size: ProductOptionDraft = { name: "Size", values: ["6", "7"] };
-  const colour: ProductOptionDraft = { name: "Colour", values: ["Red", "Blue"] };
+  const color: ProductOptionDraft = { name: "Color", values: ["Red", "Blue"] };
 
   it("has no rows without values", () => {
     expect(combinations([])).toEqual([]);
@@ -71,8 +71,8 @@ describe("combinations and syncVariants: one row for every combination of choice
 
   it("lists every combination in typed order, skipping an option with no values", () => {
     expect(combinations([size])).toEqual([["6"], ["7"]]);
-    expect(combinations([size, colour])).toEqual([["6", "Red"], ["6", "Blue"], ["7", "Red"], ["7", "Blue"]]);
-    expect(combinations([{ name: "Size", values: [] }, colour])).toEqual([["Red"], ["Blue"]]);
+    expect(combinations([size, color])).toEqual([["6", "Red"], ["6", "Blue"], ["7", "Red"], ["7", "Blue"]]);
+    expect(combinations([{ name: "Size", values: [] }, color])).toEqual([["Red"], ["Blue"]]);
   });
 
   const row = (values: string[], more: Partial<VariantDraft> = {}): VariantDraft => ({ id: null, values, offered: true, priceText: "", compareAtText: "", soldOut: false, ...more });
@@ -82,21 +82,21 @@ describe("combinations and syncVariants: one row for every combination of choice
     expect(syncVariants([{ name: "Size", values: ["7", "6", "8"] }], before)).toEqual([before[1], before[0], row(["8"])]);
   });
 
-  it("starts fresh rows when a second option is added (a size alone is not a size and colour)", () => {
+  it("starts fresh rows when a second option is added (a size alone is not a size and color)", () => {
     const before = [row(["6"], { id: "v6", priceText: "8.50", soldOut: true })];
-    expect(syncVariants([{ name: "Size", values: ["6"] }, { name: "Colour", values: ["Red"] }], before)).toEqual([row(["6", "Red"])]);
+    expect(syncVariants([{ name: "Size", values: ["6"] }, { name: "Color", values: ["Red"] }], before)).toEqual([row(["6", "Red"])]);
   });
 
   it("counts only offered rows against the limit of 20", () => {
     const rows = Array.from({ length: 21 }, (_, i) => row([String(i)]));
-    expect(variantsProblem(rows)).toBe("21 choices are offered; a product can have up to 20. Untick the ones the shop doesn't sell, or remove some sizes or colours.");
+    expect(variantsProblem(rows)).toBe("21 choices are offered; a product can have up to 20. Uncheck the ones the shop doesn't sell, or remove some sizes or colors.");
     expect(variantsProblem(rows.map((r, i) => (i === 0 ? { ...r, offered: false } : r)))).toBeNull();
   });
 
   it("names a combination with its option names", () => {
-    expect(choiceName([size, colour], ["7", "Red"])).toBe("Size 7, Colour Red");
+    expect(choiceName([size, color], ["7", "Red"])).toBe("Size 7, Color Red");
     expect(choiceName([{ name: "  ", values: ["S"] }], ["S"])).toBe("Option S");
-    expect(choiceName([{ name: "Size", values: [] }, colour], ["Red"])).toBe("Colour Red");
+    expect(choiceName([{ name: "Size", values: [] }, color], ["Red"])).toBe("Color Red");
   });
 });
 
@@ -217,7 +217,7 @@ describe("productErrors: each product field's own check (NEW texts)", () => {
   });
 
   it("wants each list named, once", () => {
-    expect(errors({ options: [{ name: "", values: ["6"] }] }, ["options", 0, "name"])).toEqual(["Name this list, like Size or Colour."]);
+    expect(errors({ options: [{ name: "", values: ["6"] }] }, ["options", 0, "name"])).toEqual(["Name this list, like Size or Color."]);
     expect(errors({ options: [{ name: "", values: [] }] }, ["options", 0, "name"])).toEqual([]);
     expect(errors({ options: [{ name: "Size", values: ["6"] }, { name: " size ", values: ["Red"] }] }, ["options", 1, "name"])).toEqual(["Each list needs its own name."]);
   });

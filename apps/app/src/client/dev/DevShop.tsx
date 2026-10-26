@@ -17,7 +17,7 @@ const VIEWS = [
   ["products-empty", "Products: none yet"],
   ["products-loading", "Products: loading"],
   ["products-error", "Products: could not load"],
-  ["product", "A product with sizes and colours"],
+  ["product", "A product with sizes and colors"],
   ["product-new", "A new product, with every check showing"],
   ["settings", "Shop settings"],
   ["orders", "Orders"],
@@ -30,14 +30,14 @@ const photo = (name: string) => `${location.origin}/landing/${name}`;
 const T = Date.parse("2026-10-15T14:14:00");
 
 const PRODUCTS: ProductSummary[] = [
-  { id: "p1", name: "Mom Flipflop", photoUrl: photo("modern-desktop.webp"), prices: [990, 990, 1190], choicesText: "Sizes 6–11 · Black, Coral", soldOut: false, soldOutChoices: ["Size 8, Colour Coral"] },
+  { id: "p1", name: "Mom Flipflop", photoUrl: photo("modern-desktop.webp"), prices: [990, 990, 1190], choicesText: "Sizes 6–11 · Black, Coral", soldOut: false, soldOutChoices: ["Size 8, Color Coral"] },
   { id: "p2", name: "Hip Hop Flip Flopp 🩴 extra soft summer edition with a long name that wraps onto a second line", photoUrl: null, prices: [750], choicesText: null, soldOut: false, soldOutChoices: [] },
   { id: "p3", name: "Beach Tote", photoUrl: photo("classic-desktop.webp"), prices: [2400], choicesText: null, soldOut: true, soldOutChoices: [] },
 ];
 
 const OPTIONS = [
   { name: "Size", values: ["6", "7", "8", "9", "10", "11"] },
-  { name: "Colour", values: ["Black", "Coral"] },
+  { name: "Color", values: ["Black", "Coral"] },
 ];
 const FULL_PRODUCT: ProductDraft = {
   name: "Mom Flipflop",
@@ -139,7 +139,7 @@ export function DevShop() {
         ) : null}
         {view === "settings" ? (
           <div className="card">
-            <ShopSettings settings={settings} onChange={setSettings} errors={(path) => (path[0] === "fulfilment" && settings.fulfilment.length === 0 ? ["Tick at least one way buyers get their orders."] : [])} />
+            <ShopSettings settings={settings} onChange={setSettings} errors={(path) => (path[0] === "fulfilment" && settings.fulfilment.length === 0 ? ["Check at least one way buyers get their orders."] : [])} />
           </div>
         ) : null}
         {view === "orders" || view === "orders-empty" ? (

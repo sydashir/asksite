@@ -71,7 +71,7 @@ export function ProductList(props: Props) {
       {props.state === "ready" && props.products.length === 0 ? (
         <div className="empty-state mt-4">
           <p className="font-semibold text-ink">No products yet</p>
-          <p className="mt-1 text-slate-700">A name and a price are enough to start. Photos, sizes and colours can come later.</p>
+          <p className="mt-1 text-slate-700">A name and a price are enough to start. Photos, sizes and colors can come later.</p>
           <div className="mt-5">{add}</div>
         </div>
       ) : null}

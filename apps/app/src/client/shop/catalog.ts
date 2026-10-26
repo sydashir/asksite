@@ -1,5 +1,5 @@
 // The product screens' own rules, kept out of the components so they are tested on their own: the typed lists of sizes or
-// colours, one row for every combination of them (which ones are sold, at what price), the product's link, and the words a
+// colors, one row for every combination of them (which ones are sold, at what price), the product's link, and the words a
 // product's state is shown in.
 
 // TEMPORARY: the shop contract's limits and fulfilment list (§2.3, §2.4) until lane A's contract commit exports them from
@@ -16,7 +16,7 @@ export interface ProductOptionDraft {
 }
 
 /**
- * One combination of choices ("Size 7", "Size 7, Colour Red"). Only offered rows become the product's variants (the contract's
+ * One combination of choices ("Size 7", "Size 7, Color Red"). Only offered rows become the product's variants (the contract's
  * explicit list: a combination that is not offered cannot be bought). An empty price means the product's price. `id` is null
  * until the container gives a new row its id.
  */
@@ -118,10 +118,10 @@ export function syncVariants(options: readonly ProductOptionDraft[], variants: r
 /** The rows' problem, if more combinations are offered than a product may have. */
 export function variantsProblem(variants: readonly VariantDraft[], max: number = PRODUCT_LIMITS.variants): string | null {
   const offered = variants.filter((v) => v.offered).length;
-  return offered > max ? `${offered} choices are offered; a product can have up to ${max}. Untick the ones the shop doesn't sell, or remove some sizes or colours.` : null;
+  return offered > max ? `${offered} choices are offered; a product can have up to ${max}. Uncheck the ones the shop doesn't sell, or remove some sizes or colors.` : null;
 }
 
-/** How a combination is named on screen and to screen readers: "Size 7", "Size 7, Colour Red". */
+/** How a combination is named on screen and to screen readers: "Size 7", "Size 7, Color Red". */
 export function choiceName(options: readonly ProductOptionDraft[], values: readonly string[]): string {
   const named = options.filter((option) => option.values.length > 0);
   return values.map((value, i) => `${named[i]?.name.trim() || "Option"} ${value}`).join(", ");
@@ -161,7 +161,7 @@ export interface StatusWord {
   tone: "brand" | "neutral";
 }
 
-/** The product's state in words (never colour alone): sold out, partly sold out, or on sale. */
+/** The product's state in words (never color alone): sold out, partly sold out, or on sale. */
 export function productStatus(product: Pick<ProductSummary, "soldOut" | "soldOutChoices">): StatusWord[] {
   if (product.soldOut) return [{ text: "Sold out", tone: "neutral" }];
   const partly = product.soldOutChoices.length;

@@ -27,7 +27,7 @@ interface Props {
 const id = (path: ProductPath) => fieldId(["product", ...path]);
 
 /**
- * One product: its name and link, price and optional "was" price, photos, description, sizes and colours with a price and a
+ * One product: its name and link, price and optional "was" price, photos, description, sizes and colors with a price and a
  * sold-out mark for each combination, and the most one buyer can order. Every number is kept as typed; the container parses
  * it (parseUsdCents) and sends the errors back through `errors`.
  */
@@ -186,16 +186,16 @@ export function ProductForm(props: Props) {
       />
 
       <fieldset className="mt-6 min-w-0">
-        <legend className="font-medium text-ink">Sizes and colours</legend>
+        <legend className="font-medium text-ink">Sizes and colors</legend>
         <p className="mt-1 text-sm text-slate-600">
-          Up to {PRODUCT_LIMITS.options} lists, like Size and Colour, with up to {PRODUCT_LIMITS.optionValues} choices each.
+          Up to {PRODUCT_LIMITS.options} lists, like Size and Color, with up to {PRODUCT_LIMITS.optionValues} choices each.
         </p>
         {product.options.map((option, i) => (
           <div key={i} className="option-box">
             <TextInput
               id={id(["options", i, "name"])}
               label={`Name of list ${i + 1}`}
-              hint="For example Size or Colour."
+              hint="For example Size or Color."
               value={option.name}
               max={20}
               readOnly={readOnly}
@@ -220,9 +220,9 @@ export function ProductForm(props: Props) {
             type="button"
             className="btn-secondary mt-4"
             aria-disabled={readOnly}
-            onClick={() => (readOnly ? undefined : setOptions([...product.options, { name: product.options.length === 0 ? "Size" : "Colour", values: [] }]))}
+            onClick={() => (readOnly ? undefined : setOptions([...product.options, { name: product.options.length === 0 ? "Size" : "Color", values: [] }]))}
           >
-            {product.options.length === 0 ? "Add sizes or colours" : "Add another list, like Colour"}
+            {product.options.length === 0 ? "Add sizes or colors" : "Add another list, like Color"}
           </button>
         ) : null}
 
@@ -232,7 +232,7 @@ export function ProductForm(props: Props) {
               What buyers can choose
             </h3>
             <p id="choices-hint" className="mt-1 text-sm text-slate-600">
-              Untick a choice the shop doesn't sell. Leave a price empty to use {baseText}.
+              Uncheck a choice the shop doesn't sell. Leave a price empty to use {baseText}.
             </p>
             {rowsProblem !== null ? <p className="mt-1 text-sm font-medium text-red-700">{rowsProblem}</p> : null}
             <div className="table-scroll mt-3" role="region" aria-labelledby="choices-title" tabIndex={0}>

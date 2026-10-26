@@ -13,7 +13,7 @@ interface Props {
 }
 
 /**
- * One list of choices (sizes, colours) as chips. Type one and press Enter or "Add", or several at once with commas
+ * One list of choices (sizes, colors) as chips. Type one and press Enter or "Add", or several at once with commas
  * ("6, 7, 8"). Each chip has its own remove button, named with the value ("Remove Size 7"). What was added, and anything left
  * out, is said in a status line under the field.
  */

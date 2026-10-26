@@ -43,7 +43,7 @@ export function productErrors(product: ProductDraft, path: ProductPath): string[
       const option = product.options[index];
       if (option === undefined) return [];
       const name = option.name.trim().toLowerCase();
-      if (name === "") return option.values.length > 0 ? ["Name this list, like Size or Colour."] : [];
+      if (name === "") return option.values.length > 0 ? ["Name this list, like Size or Color."] : [];
       return product.options.some((o, i) => i < index && o.name.trim().toLowerCase() === name) ? ["Each list needs its own name."] : [];
     }
     case "variants": {
