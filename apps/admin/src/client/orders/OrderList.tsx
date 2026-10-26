@@ -7,7 +7,6 @@ import { emailLine, orderSiteLabel, STATUS_WORD } from "./words.ts";
 
 interface Props {
   orders: readonly OrderListItem[];
-  spamView: boolean;
   emptyText: string;
   /** Each order is a link to its own page; `onOpen` keeps the navigation in the app (onLinkClick). */
   hrefFor: (id: string) => string;
@@ -46,7 +45,7 @@ export function OrderList(props: Props) {
             <a ref={order.id === props.focusId ? focusRow : undefined} href={props.hrefFor(order.id)} onClick={props.onOpen} className="order-row">
               <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
                 <span className={order.status === "new" ? "pill-brand" : "pill"}>{STATUS_WORD[order.status]}</span>
-                {props.spamView ? <span className="pill">Spam</span> : null}
+                {order.spam ? <span className="pill">Spam</span> : null}
                 <span className="font-semibold text-ink">Order #{order.number}</span>
                 <span className="text-slate-700 [overflow-wrap:anywhere]">{order.name}</span>
                 <span className="money ml-auto">{formatUsd(order.subtotalCents, "exact")}</span>

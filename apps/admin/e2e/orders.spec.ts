@@ -37,15 +37,26 @@ async function seedOrders(request: APIRequestContext, siteId: string, orders: Se
   return ((await res.json()) as { ids: string[] }).ids;
 }
 
-/** A site with one order, its list filtered to that site. */
+/**
+ * A site for these tests, taken out of the review queue at once (rejected through the real admin API): the queue lists only the 50
+ * oldest waiting sites, so sites left waiting here would push other specs' sites off it (admin.spec, keyboard.spec).
+ */
+async function orderSite(request: APIRequestContext) {
+  const site = await pendingSite(request);
+  const res = await request.post(`${ADMIN}/api/admin/versions/${site.versionId}/reject`, { data: { note: "Orders test site, not for review." }, headers: { Origin: ADMIN } });
+  expect(res.ok()).toBe(true);
+  return site;
+}
+
+/** A site with one order. */
 async function siteWithOrder(page: Page, order: Partial<SeedOrder> = {}) {
-  const site = await pendingSite(page.request);
+  const site = await orderSite(page.request);
   const [orderId] = await seedOrders(page.request, site.siteId, [{ number: 1001, ...order }]);
   return { ...site, orderId: orderId! };
 }
 
 test("the list shows a site's orders newest first, with spam apart, and pages older orders", async ({ page }) => {
-  const site = await pendingSite(page.request);
+  const site = await orderSite(page.request);
   const base = Date.now() - 10_000_000;
   const many: SeedOrder[] = Array.from({ length: 52 }, (_, i) => ({ number: 1001 + i, createdAt: base + i * 1000, name: `Buyer ${i + 1}` }));
   await seedOrders(page.request, site.siteId, [...many, { number: 2001, createdAt: base + 999_999, name: "Junk Buyer", spam: true }]);
@@ -76,7 +87,7 @@ test("the list shows a site's orders newest first, with spam apart, and pages ol
 });
 
 test("an empty site says so, and a bad filter in the address shows all orders", async ({ page }) => {
-  const site = await pendingSite(page.request);
+  const site = await orderSite(page.request);
   await page.goto(`/orders?site=${site.siteId}`);
   await expect(page.getByText("No orders for this site yet.")).toBeVisible();
   await page.goto("/orders?site=nope&spam=maybe");
@@ -121,19 +132,22 @@ test("an order shows its lines, subtotal, how the buyer gets it, and the buyer's
 test("Cancel asks first and can be backed out of; then it cancels, and the page says so", async ({ page }) => {
   const site = await siteWithOrder(page);
   await page.goto(`/orders/${site.orderId}`);
-  await page.getByRole("button", { name: "Cancel this order" }).click();
+  // Opened from the keyboard, so focus is on the button before the dialog (a click does not focus a button in WebKit on macOS).
+  const cancel = page.getByRole("button", { name: "Cancel this order" });
+  await cancel.focus();
+  await page.keyboard.press("Enter");
   const dialog = page.getByRole("dialog", { name: "Cancel order #1001?" });
   await expect(dialog).toBeVisible();
   await expect(dialog.getByRole("button", { name: "Keep it" })).toBeFocused();
   await page.keyboard.press("Escape");
   await expect(dialog).toBeHidden();
-  await expect(page.getByRole("button", { name: "Cancel this order" })).toBeFocused();
+  await expect(cancel).toBeFocused();
 
   await page.getByRole("button", { name: "Cancel this order" }).click();
   await dialog.getByRole("button", { name: "Cancel the order" }).click();
-  await expect(page.getByRole("status").filter({ hasText: "Order cancelled." })).toBeFocused();
-  await expect(page.locator(".pill", { hasText: "Cancelled" })).toBeVisible();
-  await expect(page.getByText(/^Cancelled by .+ on .+\.$/)).toBeVisible();
+  await expect(page.getByRole("status").filter({ hasText: "Order canceled." })).toBeFocused();
+  await expect(page.locator(".pill", { hasText: "Canceled" })).toBeVisible();
+  await expect(page.getByText(/^Canceled by .+ on .+\.$/)).toBeVisible();
   await expect(page.getByRole("button", { name: "Cancel this order" })).toHaveCount(0);
 });
 
@@ -144,12 +158,37 @@ test("a cancel made in another tab first: this tab's cancel gets the 409, reload
   await other.goto(`/orders/${site.orderId}`);
   await other.getByRole("button", { name: "Cancel this order" }).click();
   await other.getByRole("dialog").getByRole("button", { name: "Cancel the order" }).click();
-  await expect(other.getByText("Order cancelled.")).toBeVisible();
+  await expect(other.getByText("Order canceled.")).toBeVisible();
 
   await page.getByRole("button", { name: "Cancel this order" }).click();
   await page.getByRole("dialog").getByRole("button", { name: "Cancel the order" }).click();
   await expect(page.getByRole("status").filter({ hasText: "This order changed while you were looking. It now shows its latest state." })).toBeFocused();
-  await expect(page.locator(".pill", { hasText: "Cancelled" })).toBeVisible();
+  await expect(page.locator(".pill", { hasText: "Canceled" })).toBeVisible();
+});
+
+test("a cancel with no clear answer never claims either way: committed-but-lost shows the new state, a server error the old", async ({ page }) => {
+  const UNSURE = "We couldn't tell whether that worked. Reload to see the latest state.";
+  const site = await siteWithOrder(page);
+  await page.goto(`/orders/${site.orderId}`);
+  // The server cancels the order, but the answer never reaches the page.
+  await page.route("**/api/admin/orders/*/cancel", async (route) => {
+    await route.fetch();
+    await route.abort();
+  });
+  await page.getByRole("button", { name: "Cancel this order" }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "Cancel the order" }).click();
+  await expect(page.getByRole("status").filter({ hasText: UNSURE })).toBeFocused();
+  await expect(page.locator(".pill", { hasText: "Canceled" })).toBeVisible();
+  await page.unroute("**/api/admin/orders/*/cancel");
+
+  // A server error before anything changed: the same honest line, and the order is still as it was.
+  const other = await siteWithOrder(page);
+  await page.goto(`/orders/${other.orderId}`);
+  await page.route("**/api/admin/orders/*/spam", (route) => route.fulfill({ status: 500, json: { error: { code: "internal", message: "Something went wrong." } } }));
+  await page.getByRole("button", { name: "Mark as spam" }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "Mark as spam" }).click();
+  await expect(page.getByRole("status").filter({ hasText: UNSURE })).toBeFocused();
+  await expect(page.getByRole("button", { name: "Mark as spam" })).toBeVisible();
 });
 
 test("Mark as spam moves the order to the Spam list", async ({ page }) => {
@@ -186,7 +225,8 @@ test("a site's shop card: pause asks first, resume does not, and a pause made in
   await expect(card.getByRole("status").filter({ hasText: "Orders paused for this site." })).toBeFocused();
   await expect(card).toContainText(/Paused by .+ on /);
   await card.getByRole("button", { name: "Resume this site's orders" }).click();
-  await expect(card.getByRole("status").filter({ hasText: "This site takes orders again." })).toBeVisible();
+  // The test site has no confirmed order address, so Resume says it still can't take orders (never "takes orders again").
+  await expect(card.getByRole("status").filter({ hasText: "This site's own pause is off, but it can't take orders until its order address is confirmed." })).toBeVisible();
 
   const other = await context.newPage();
   await other.goto(`/sites/${site.siteId}`);
@@ -204,20 +244,35 @@ test("a site's shop card: pause asks first, resume does not, and a pause made in
   await expect(page).toHaveURL(new RegExp(`/orders\\?site=${site.siteId}$`));
 });
 
-test("pause all orders and take them again, with the every-shop state shown once it is known", async ({ page }) => {
-  const site = await siteWithOrder(page);
-  await page.goto(`/orders?site=${site.siteId}`);
-  await expect(page.getByText("All shops can take orders.")).toBeVisible();
-  try {
-    await page.getByRole("button", { name: "Pause all orders" }).click();
-    await page.getByRole("dialog", { name: "Pause orders on every shop?" }).getByRole("button", { name: "Pause all orders" }).click();
-    await expect(page.getByRole("status").filter({ hasText: "Orders paused on every shop." })).toBeFocused();
-    await expect(page.getByText("Orders are paused on every shop.")).toBeVisible();
-  } finally {
-    await page.request.post(`${ADMIN}/api/admin/orders/resume-all`, { headers: { Origin: ADMIN } });
-  }
-  await page.reload();
-  await expect(page.getByText("All shops can take orders.")).toBeVisible();
+test.describe("the every-shop switch", () => {
+  // It flips a setting every shop shares: one project only, never beside a copy of itself, and always switched back.
+  test.describe.configure({ mode: "serial" });
+  test.beforeEach(({}, info) => test.skip(info.project.name !== "chromium-1280", "flips a setting every shop shares: chromium-1280 only"));
+  test.afterEach(async ({ request }) => {
+    // A safety net if the UI restore below did not run; the test itself switches back through the page.
+    await request.post(`${ADMIN}/api/admin/orders/resume-all`, { headers: { Origin: ADMIN } });
+  });
+
+  test("pause all orders and take them again, with the every-shop state shown once it is known", async ({ page }) => {
+    const site = await siteWithOrder(page);
+    await page.goto(`/orders?site=${site.siteId}`);
+    await expect(page.getByText("All shops can take orders.")).toBeVisible();
+    const card = page.getByRole("region", { name: "Shop" });
+    await expect(card).toContainText("Taking orders");
+    try {
+      await page.getByRole("button", { name: "Pause all orders" }).click();
+      await page.getByRole("dialog", { name: "Pause orders on every shop?" }).getByRole("button", { name: "Pause all orders" }).click();
+      await expect(page.getByRole("status").filter({ hasText: "Orders paused on every shop." })).toBeFocused();
+      await expect(page.getByText("Orders are paused on every shop.")).toBeVisible();
+      // The Shop card on the same page reads the new state too.
+      await expect(card).toContainText("Paused for every shop");
+    } finally {
+      await page.getByRole("button", { name: "Take orders on every shop" }).click();
+      await page.getByRole("dialog", { name: "Take orders again on every shop?" }).getByRole("button", { name: "Take orders again" }).click();
+    }
+    await expect(page.getByRole("status").filter({ hasText: "Every shop that is not paused on its own takes orders again." })).toBeFocused();
+    await expect(card).toContainText("Taking orders");
+  });
 });
 
 test("keyboard: an order opens from the list with Enter", async ({ page }) => {

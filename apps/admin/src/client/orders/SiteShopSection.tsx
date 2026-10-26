@@ -5,9 +5,10 @@ import { onLinkClick } from "../../../../app/src/client/hooks/use-route.ts";
 import { api } from "../../../../app/src/client/lib/api.ts";
 import { useResource } from "../hooks.ts";
 import { ShopStatusCard } from "./ShopStatusCard.tsx";
-import { ordersPath, SHOP_CHANGED_ELSEWHERE, UNSURE } from "./words.ts";
+import { ordersPath, resumedText, SHOP_CHANGED_ELSEWHERE, UNSURE } from "./words.ts";
 
-type Message = { tone: "success" | "error"; text: string };
+/** The last action's result. "resumed" is worded from the status read back after it (resumedText), so it is always true. */
+type Result = { kind: "paused" } | { kind: "resumed" } | { kind: "error"; text: string };
 
 /**
  * Loads a site's shop status and runs its pause and resume. A 409 means someone else changed it first: the card reloads and says
@@ -16,7 +17,7 @@ type Message = { tone: "success" | "error"; text: string };
  */
 export function SiteShopSection(props: { siteId: string; siteName: string; showOrdersLink: boolean; onStatus?: (status: SiteShopStatus) => void }) {
   const { load, reload } = useResource<SiteShopStatus>(`/api/admin/sites/${props.siteId}/shop`);
-  const [message, setMessage] = useState<Message | null>(null);
+  const [result, setResult] = useState<Result | null>(null);
   const [busy, setBusy] = useState(false);
   const acting = useRef(false);
   const messageRef = useRef<HTMLDivElement>(null);
@@ -32,10 +33,10 @@ export function SiteShopSection(props: { siteId: string; siteName: string; showO
     try {
       const res = await api<{ ordersPaused: boolean }>("POST", `/api/admin/sites/${props.siteId}/orders/${paused ? "pause" : "resume"}`, {});
       await reload();
-      if (res.ok) setMessage({ tone: "success", text: paused ? "Orders paused for this site." : "This site takes orders again." });
-      else if (res.status === 409) setMessage({ tone: "error", text: SHOP_CHANGED_ELSEWHERE });
-      else if (res.status === 0 || res.status >= 500) setMessage({ tone: "error", text: UNSURE });
-      else setMessage({ tone: "error", text: res.error.message });
+      if (res.ok) setResult({ kind: paused ? "paused" : "resumed" });
+      else if (res.status === 409) setResult({ kind: "error", text: SHOP_CHANGED_ELSEWHERE });
+      else if (res.status === 0 || res.status >= 500) setResult({ kind: "error", text: UNSURE });
+      else setResult({ kind: "error", text: res.error.message });
       requestAnimationFrame(() => messageRef.current?.focus());
     } finally {
       acting.current = false;
@@ -68,7 +69,15 @@ export function SiteShopSection(props: { siteId: string; siteName: string; showO
       ordersHref={props.showOrdersLink ? ordersPath({ siteId: props.siteId, spam: false }) : null}
       onLink={onLinkClick}
       busy={busy}
-      message={message !== null ? <Notice tone={message.tone}>{message.text}</Notice> : null}
+      message={
+        result === null ? null : result.kind === "error" ? (
+          <Notice tone="error">{result.text}</Notice>
+        ) : result.kind === "paused" ? (
+          <Notice tone="success">Orders paused for this site.</Notice>
+        ) : (
+          <Notice tone={load.data.ordersPausedAt === null && !load.data.allOrdersPaused && load.data.orderEmailConfirmedAt !== null ? "success" : "warning"}>{resumedText(load.data)}</Notice>
+        )
+      }
       messageRef={messageRef}
       onPause={() => void setPaused(true)}
       onResume={() => void setPaused(false)}

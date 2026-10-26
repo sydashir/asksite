@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type MouseEvent } from "react";
 import type { FlushResult } from "../lib/autosave.ts";
+import { inAppPath } from "../lib/in-app-path.ts";
 import { matchRoute, type Route } from "../lib/route.ts";
 import { PRESS_AGAIN, SAVING } from "../lib/save-message.ts";
 import { sameIncident, type StopCause } from "../lib/stop-cause.ts";
@@ -162,8 +163,7 @@ export function onLinkClick(event: MouseEvent<HTMLAnchorElement>): void {
   if (!plainClick(event)) return;
   event.preventDefault();
   const url = new URL(event.currentTarget.href);
-  // The whole address after the host: the path, the query (the admin's orders filters live there) and the hash.
-  const go = () => navigate(`${url.pathname}${url.search}${url.hash}`);
+  const go = () => navigate(inAppPath(url));
   const guard = leaveGuard;
   if (guard === null) go();
   else
@@ -183,6 +183,6 @@ export function linkAfter(save: () => Promise<FlushResult>, onUnsaved: (result: 
     if (!plainClick(event)) return;
     event.preventDefault();
     const url = new URL(event.currentTarget.href);
-    void save().then((saved) => (saved === true ? navigate(`${url.pathname}${url.search}${url.hash}`) : onUnsaved(saved)));
+    void save().then((saved) => (saved === true ? navigate(inAppPath(url)) : onUnsaved(saved)));
   };
 }

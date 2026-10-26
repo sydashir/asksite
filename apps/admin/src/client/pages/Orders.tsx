@@ -61,15 +61,25 @@ export function Orders({ search }: { search: string }) {
   const [allPaused, setAllPaused] = useState<boolean | null>(null);
   const [message, setMessage] = useState<{ tone: "success" | "error"; text: string } | null>(null);
   const messageRef = useRef<HTMLDivElement>(null);
+  /** Where focus goes after "Try again": the list area (the button it came from is gone by then). */
+  const resultsRef = useRef<HTMLDivElement>(null);
   const older = useRef(false);
+  /** Bumped by every new load: an answer for an older tag (a filter changed, or a newer load started) is dropped, never shown. */
+  const generation = useRef(0);
+  /** Remounts the Shop card after the every-shop switch, so its "All shops" line reads the new state. */
+  const [shopRefresh, setShopRefresh] = useState(0);
 
   useEffect(() => rememberOrdersSearch(ordersPath({ siteId, spam }).slice("/orders".length)), [siteId, spam]);
 
   const load = useCallback(async () => {
+    const tag = ++generation.current;
+    older.current = false;
+    setLoadingOlder(false);
     setList({ state: "loading" });
     setOlderError(null);
     setFocusId(null);
     const res = await api<{ orders: OrderListItem[]; nextBefore: number | null }>("GET", ordersRequest({ siteId, spam }, null));
+    if (tag !== generation.current) return;
     setList(res.ok ? { state: "ready", orders: res.data.orders, next: res.data.nextBefore } : { state: "error", message: res.error.message });
   }, [siteId, spam]);
 
@@ -79,10 +89,13 @@ export function Orders({ search }: { search: string }) {
 
   async function loadOlder() {
     if (list.state !== "ready" || list.next === null || older.current) return;
+    const tag = generation.current;
     older.current = true;
     setLoadingOlder(true);
     setOlderError(null);
     const res = await api<{ orders: OrderListItem[]; nextBefore: number | null }>("GET", ordersRequest({ siteId, spam }, list.next));
+    // A filter changed (or the list reloaded) while this page was on its way: it belongs to the old list, so it is dropped.
+    if (tag !== generation.current) return;
     older.current = false;
     setLoadingOlder(false);
     if (!res.ok) {
@@ -91,7 +104,7 @@ export function Orders({ search }: { search: string }) {
     }
     const listed = new Set(list.orders.map((o) => o.id));
     const fresh = res.data.orders.filter((o) => !listed.has(o.id));
-    setList({ state: "ready", orders: [...list.orders, ...fresh], next: res.data.nextBefore });
+    setList((prev) => (prev.state === "ready" ? { state: "ready", orders: [...prev.orders, ...fresh], next: res.data.nextBefore } : prev));
     // The button goes with the last page: focus moves to the first new row instead of dropping to the page.
     if (res.data.nextBefore === null && fresh[0] !== undefined) setFocusId(fresh[0].id);
   }
@@ -103,6 +116,7 @@ export function Orders({ search }: { search: string }) {
     const res = await api<{ allOrdersPaused: boolean }>("POST", `/api/admin/orders/${paused ? "pause-all" : "resume-all"}`, {});
     if (res.ok) {
       setAllPaused(res.data.allOrdersPaused);
+      setShopRefresh((n) => n + 1);
       setMessage({ tone: "success", text: res.data.allOrdersPaused ? "Orders paused on every shop." : "Every shop that is not paused on its own takes orders again." });
     } else setMessage({ tone: "error", text: res.status === 0 || res.status >= 500 ? UNSURE : res.error.message });
     requestAnimationFrame(() => messageRef.current?.focus());
@@ -147,40 +161,45 @@ export function Orders({ search }: { search: string }) {
 
       {siteId !== null ? (
         <div className="mt-6">
-          <SiteShopSection key={siteId} siteId={siteId} siteName={chosen?.slug ?? chosen?.businessName ?? "this site"} showOrdersLink={false} onStatus={onSiteStatus} />
+          <SiteShopSection key={`${siteId}-${shopRefresh}`} siteId={siteId} siteName={chosen?.slug ?? chosen?.businessName ?? "this site"} showOrdersLink={false} onStatus={onSiteStatus} />
         </div>
       ) : null}
 
-      {list.state === "loading" ? (
-        <p role="status" className="loading mt-6">
-          <span className="spinner" aria-hidden="true" />
-          Loading orders…
-        </p>
-      ) : null}
-      {list.state === "error" ? (
-        <div role="alert">
-          <Notice tone="error">
-            We couldn't load the orders. {list.message}
-            <button type="button" className="btn-secondary mt-3 flex" onClick={() => void load()}>
-              Try again
-            </button>
-          </Notice>
-        </div>
-      ) : null}
-      {list.state === "ready" ? (
-        <OrderList
-          orders={list.orders}
-          spamView={spam}
-          emptyText={emptyOrdersText(filters)}
-          hrefFor={(id) => `/orders/${id}`}
-          onOpen={onLinkClick}
-          hasMore={list.next !== null}
-          loadingOlder={loadingOlder}
-          olderError={olderError}
-          onLoadOlder={() => void loadOlder()}
-          focusId={focusId}
-        />
-      ) : null}
+      <div ref={resultsRef} tabIndex={-1}>
+        {list.state === "loading" ? (
+          <p role="status" className="loading mt-6">
+            <span className="spinner" aria-hidden="true" />
+            Loading orders…
+          </p>
+        ) : null}
+        {list.state === "error" ? (
+          <div role="alert">
+            <Notice tone="error">
+              We couldn't load the orders. {list.message}
+              <button
+                type="button"
+                className="btn-secondary mt-3 flex"
+                onClick={() => void load().then(() => requestAnimationFrame(() => resultsRef.current?.focus()))}
+              >
+                Try again
+              </button>
+            </Notice>
+          </div>
+        ) : null}
+        {list.state === "ready" ? (
+          <OrderList
+            orders={list.orders}
+            emptyText={emptyOrdersText(filters)}
+            hrefFor={(id) => `/orders/${id}`}
+            onOpen={onLinkClick}
+            hasMore={list.next !== null}
+            loadingOlder={loadingOlder}
+            olderError={olderError}
+            onLoadOlder={() => void loadOlder()}
+            focusId={focusId}
+          />
+        ) : null}
+      </div>
     </section>
   );
 }
