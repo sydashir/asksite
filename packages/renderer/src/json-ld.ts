@@ -1,5 +1,7 @@
 import { serviceAreaScopeOf, type FaqItem, type Facts, type Trade } from "@asksite/site-schema";
 import { SafeHtml } from "./html.ts";
+import { isBuyable, priceRangeCents, productPhotoUrl, variantLabel, variantPriceCents, type Product } from "./shop/model.ts";
+import { CURRENCY, jsonLdPrice } from "./shop/money.ts";
 
 // JSON has no "\x3C" escape, so "<", ">" and "&" become \u003c, \u003e and \u0026: the output
 // can never contain "</script" or "<!--" (WHATWG "Restrictions for contents of script elements").
@@ -95,6 +97,63 @@ export function faqPageJsonLd(items: readonly FaqItem[]): Record<string, unknown
       "@type": "Question",
       name: item.question,
       acceptedAnswer: { "@type": "Answer", text: item.answer },
+    })),
+  };
+}
+
+/**
+ * A shop business's schema.org type (trade "shop" in phase 2; PROVISIONAL: the shop render's shopFirst flag until then):
+ * a Store, "A retail good store" and a LocalBusiness (https://schema.org/Store), when the business gives a street
+ * address; else an OnlineStore, "An eCommerce site" (https://schema.org/OnlineStore: Organization > OnlineBusiness),
+ * which is not a Place, so it carries no opening hours. Everything else is localBusinessJsonLd's, from the facts only.
+ */
+export function shopBusinessJsonLd(facts: Facts, url: string): Record<string, unknown> {
+  const business = localBusinessJsonLd(facts, url);
+  if (facts.location.streetAddress) return { ...business, "@type": "Store" };
+  const { openingHoursSpecification: _hours, ...online } = business;
+  return { ...online, "@type": "OnlineStore" };
+}
+
+// Option names that map to a schema.org property Google reads on a variant (developers.google.com/search/docs/
+// appearance/structured-data/product-variants, variesBy: color, size, …). Others are left out of variesBy.
+const VARIES_BY: Readonly<Record<string, "size" | "color">> = { size: "size", colour: "color", color: "color" };
+
+const availability = (buyable: boolean) => (buyable ? "https://schema.org/InStock" : "https://schema.org/SoldOut");
+
+const offer = (cents: number, buyable: boolean): Record<string, unknown> => ({ "@type": "Offer", price: jsonLdPrice(cents), priceCurrency: CURRENCY, availability: availability(buyable) });
+
+/**
+ * A product page's JSON-LD (contract §4; Google product snippets, developers.google.com/search/docs/appearance/
+ * structured-data/product-snippet): a Product with one Offer (price as jsonLdPrice text, "USD", InStock or SoldOut), or,
+ * when its variants' prices differ, a ProductGroup with one Product per listed variant in hasVariant (productGroupID =
+ * the product id, sku = the variant id, size/color from the option names that map). Names, description and photos are
+ * the client's own; no former price (a "Was" is shown on the page only). `url` is the product page's own address.
+ */
+export function productJsonLd(product: Product, url: string, mediaBase: string): Record<string, unknown> {
+  const images = (product.photos ?? []).map((photo) => productPhotoUrl(mediaBase, photo));
+  const common = {
+    "@context": "https://schema.org",
+    name: product.name,
+    url,
+    ...(product.description !== undefined ? { description: product.description } : {}),
+    ...(images.length > 0 ? { image: images } : {}),
+  };
+  const variants = product.variants ?? [];
+  const { low, high } = priceRangeCents(product);
+  if (variants.length === 0 || low === high) return { ...common, "@type": "Product", offers: offer(low, isBuyable(product)) };
+  const options = product.options ?? [];
+  const mapped = options.map((o) => VARIES_BY[o.name.trim().toLowerCase()]);
+  return {
+    ...common,
+    "@type": "ProductGroup",
+    productGroupID: product.id,
+    ...(mapped.some((m) => m !== undefined) ? { variesBy: mapped.flatMap((m) => (m === undefined ? [] : [`https://schema.org/${m}`])) } : {}),
+    hasVariant: variants.map((v) => ({
+      "@type": "Product",
+      name: `${product.name} – ${variantLabel(product, v)}`,
+      sku: v.id,
+      ...Object.fromEntries(mapped.flatMap((m, i) => (m === undefined || v.values[i] === undefined ? [] : [[m, v.values[i]]]))),
+      offers: offer(variantPriceCents(product, v), product.soldOut !== true && v.soldOut !== true),
     })),
   };
 }
