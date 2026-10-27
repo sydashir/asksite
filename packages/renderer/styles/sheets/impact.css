@@ -6,6 +6,8 @@
 @import "../shared.css";
 @source "../../src/render.ts";
 @source "../../src/designs/impact";
+/* The shop blocks are in this design's own shop sheet (impact-shop.css), inlined only on shop pages: never here. */
+@source not "../../src/designs/impact/shop.ts";
 @source not "../../src/designs/impact/NOTICES.md";
 
 /*! Archivo Condensed ExtraBold (Archivo, wdth 75, wght 800), Copyright 2020 The Archivo Project Authors

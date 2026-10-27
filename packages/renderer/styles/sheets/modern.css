@@ -7,6 +7,8 @@
 @import "../shared.css";
 @source "../../src/render.ts";
 @source "../../src/designs/modern";
+/* The shop blocks are in this design's own shop sheet (modern-shop.css), inlined only on shop pages: never here. */
+@source not "../../src/designs/modern/shop.ts";
 
 @layer components {
   /* ---------- tokens and base ---------- */

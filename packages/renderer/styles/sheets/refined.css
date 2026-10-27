@@ -7,6 +7,8 @@
 @import "../shared.css";
 @source "../../src/render.ts";
 @source "../../src/designs/refined";
+/* The shop blocks are in this design's own shop sheet (refined-shop.css), inlined only on shop pages: never here. */
+@source not "../../src/designs/refined/shop.ts";
 /* The tokens file holds CSS values, not class names ("uppercase", "italic" would add unused utilities). */
 @source not "../../src/designs/refined/tokens.ts";
 
