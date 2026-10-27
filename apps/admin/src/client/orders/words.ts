@@ -92,11 +92,32 @@ export function emptyOrdersText(filters: OrdersFilters): string {
 /** A list row's one-line summary for screen readers and the visible meta line. */
 export const orderSiteLabel = (order: Pick<OrderListItem, "slug">): string => order.slug ?? "(no web address)";
 
-/** The shop card's lines, in words. */
-export function shopLines(status: SiteShopStatus, time: (ms: number) => string): { orders: string; allShops: string; address: string; counts: string } {
+/**
+ * Why a shop cannot take orders right now, or null when it can. The checks are the sites Worker's own insert guard
+ * (apps/sites/src/order-sql.ts): the site is live and not taken down, its orders are not paused, orders are not paused on every
+ * shop, and its order address is confirmed. `live` comes from the site row (null when the row is not known): an unknown state
+ * is never reported as able to take orders.
+ */
+export function orderBlocker(status: SiteShopStatus, live: boolean | null): string | null {
+  if (live === false) return "the site is not live";
+  if (status.ordersPausedAt !== null) return "orders are paused for this site";
+  if (status.allOrdersPaused) return "orders are paused on every shop";
+  if (status.orderEmailConfirmedAt === null) return status.orderEmail === null ? "it has no order address yet" : "its order address is not confirmed yet";
+  if (live === null) return "the site's state could not be read";
+  return null;
+}
+
+/** The shop card's lines, in words. Only "takesOrders" says whether orders are possible; the other lines describe one setting each. */
+export function shopLines(
+  status: SiteShopStatus,
+  live: boolean | null,
+  time: (ms: number) => string,
+): { takesOrders: string; orders: string; allShops: string; address: string; counts: string } {
+  const why = orderBlocker(status, live);
   return {
-    orders: status.ordersPausedAt === null ? "Open" : `Paused by ${staffName(status.ordersPausedBy ?? "")} on ${time(status.ordersPausedAt)}`,
-    allShops: status.allOrdersPaused ? "Paused for every shop" : "Taking orders",
+    takesOrders: why === null ? "Yes" : `No: ${why}`,
+    orders: status.ordersPausedAt === null ? "Not paused" : `Paused by ${staffName(status.ordersPausedBy ?? "")} on ${time(status.ordersPausedAt)}`,
+    allShops: status.allOrdersPaused ? "Paused for every shop" : "Not paused",
     address:
       status.orderEmail === null
         ? "None yet. Orders can't be placed."
@@ -107,16 +128,17 @@ export function shopLines(status: SiteShopStatus, time: (ms: number) => string):
   };
 }
 
-/**
- * What Resume says, from the status read back after it: the site's own pause is off, but it takes orders only when every shop is
- * open and its order address is confirmed (the sites Worker's insert guard), so the line never promises orders it cannot take.
- */
-export function resumedText(status: SiteShopStatus): string {
+/** What Resume says, from the status read back after it: "takes orders again" only when the insert guard would let an order in. */
+export function resumedText(status: SiteShopStatus, live: boolean | null): string {
   if (status.ordersPausedAt !== null) return "Orders are still paused for this site.";
-  if (status.allOrdersPaused) return "This site's own pause is off, but orders are paused on every shop.";
-  if (status.orderEmailConfirmedAt === null) return "This site's own pause is off, but it can't take orders until its order address is confirmed.";
-  return "This site takes orders again.";
+  const why = orderBlocker(status, live);
+  return why === null ? "This site takes orders again." : `This site's own pause is off, but it can't take orders: ${why}.`;
 }
+
+/** The every-shop switch's words: they describe the switch only, never promise that any shop takes orders. */
+export const ALL_PAUSED_TEXT = "Orders are paused on every shop.";
+export const ALL_NOT_PAUSED_TEXT = "Orders are not paused on every shop.";
+export const ALL_RESUMED_TEXT = "The every-shop pause is off. Shops paused on their own stay paused.";
 
 /** The 409 line shown after the page reloaded the state it changed. */
 export const CHANGED_ELSEWHERE = "This order changed while you were looking. It now shows its latest state.";

@@ -8,6 +8,7 @@ import {
   ordersPath,
   ordersRequest,
   readOrdersFilters,
+  orderBlocker,
   resumedText,
   shopLines,
   STATUS_WORD,
@@ -99,19 +100,52 @@ describe("shopLines: a site's shop state in words", () => {
     orderEmailConfirmedBy: null, orderCount: 0, ordersToday: 0,
   };
 
-  it("open, taking orders, no address", () => {
-    expect(shopLines(base, time)).toEqual({ orders: "Open", allShops: "Taking orders", address: "None yet. Orders can't be placed.", counts: "0 in all · 0 today (UTC)" });
+  it("not paused anywhere, no address: says it takes no orders, and why", () => {
+    expect(shopLines(base, true, time)).toEqual({
+      takesOrders: "No: it has no order address yet",
+      orders: "Not paused",
+      allShops: "Not paused",
+      address: "None yet. Orders can't be placed.",
+      counts: "0 in all · 0 today (UTC)",
+    });
   });
 
   it("paused here and everywhere, address waiting, then confirmed", () => {
     const paused = { ...base, ordersPausedAt: 7, ordersPausedBy: "admin:a@b.co", allOrdersPaused: true, orderEmail: "orders@shop.example", orderCount: 12, ordersToday: 3 };
-    expect(shopLines(paused, time)).toEqual({
+    expect(shopLines(paused, true, time)).toEqual({
+      takesOrders: "No: orders are paused for this site",
       orders: "Paused by a@b.co on t7",
       allShops: "Paused for every shop",
       address: "orders@shop.example: not confirmed yet. Orders can't be placed until it is.",
       counts: "12 in all · 3 today (UTC)",
     });
-    expect(shopLines({ ...paused, orderEmailConfirmedAt: 9, orderEmailConfirmedBy: "admin:c@d.co" }, time).address).toBe("orders@shop.example: confirmed t9 by c@d.co");
+    expect(shopLines({ ...paused, orderEmailConfirmedAt: 9, orderEmailConfirmedBy: "admin:c@d.co" }, true, time).address).toBe("orders@shop.example: confirmed t9 by c@d.co");
+  });
+
+  it("says Yes only when every condition of the insert guard holds", () => {
+    const ready = { ...base, orderEmail: "orders@shop.example", orderEmailRev: 1, orderEmailConfirmedAt: 5, orderEmailConfirmedBy: "admin:a@b.co" };
+    expect(shopLines(ready, true, time).takesOrders).toBe("Yes");
+    expect(shopLines(ready, false, time).takesOrders).toBe("No: the site is not live");
+    expect(shopLines(ready, null, time).takesOrders).toBe("No: the site's state could not be read");
+  });
+});
+
+describe("orderBlocker: the sites Worker's insert guard, in its own order", () => {
+  const ready: SiteShopStatus = {
+    ordersPausedAt: null, ordersPausedBy: null, allOrdersPaused: false, orderEmail: "orders@shop.example", orderEmailRev: 1, orderEmailConfirmedAt: 5,
+    orderEmailConfirmedBy: "admin:a@b.co", orderCount: 0, ordersToday: 0,
+  };
+  it.each([
+    [ready, true, null],
+    [ready, false, "the site is not live"],
+    [{ ...ready, ordersPausedAt: 9 }, false, "the site is not live"],
+    [{ ...ready, ordersPausedAt: 9 }, true, "orders are paused for this site"],
+    [{ ...ready, allOrdersPaused: true }, true, "orders are paused on every shop"],
+    [{ ...ready, orderEmailConfirmedAt: null }, true, "its order address is not confirmed yet"],
+    [{ ...ready, orderEmail: null, orderEmailConfirmedAt: null }, true, "it has no order address yet"],
+    [ready, null, "the site's state could not be read"],
+  ] as const)("%#", (status, live, why) => {
+    expect(orderBlocker(status, live)).toBe(why);
   });
 });
 
@@ -127,12 +161,14 @@ describe("resumedText: Resume never promises orders the site cannot take", () =>
     orderEmailConfirmedBy: "admin:a@b.co", orderCount: 0, ordersToday: 0,
   };
   it.each([
-    [open, "This site takes orders again."],
-    [{ ...open, allOrdersPaused: true }, "This site's own pause is off, but orders are paused on every shop."],
-    [{ ...open, orderEmailConfirmedAt: null }, "This site's own pause is off, but it can't take orders until its order address is confirmed."],
-    [{ ...open, orderEmail: null, orderEmailConfirmedAt: null }, "This site's own pause is off, but it can't take orders until its order address is confirmed."],
-    [{ ...open, ordersPausedAt: 9 }, "Orders are still paused for this site."],
-  ])("%#", (status, text) => {
-    expect(resumedText(status)).toBe(text);
+    [open, true, "This site takes orders again."],
+    [open, false, "This site's own pause is off, but it can't take orders: the site is not live."],
+    [open, null, "This site's own pause is off, but it can't take orders: the site's state could not be read."],
+    [{ ...open, allOrdersPaused: true }, true, "This site's own pause is off, but it can't take orders: orders are paused on every shop."],
+    [{ ...open, orderEmailConfirmedAt: null }, true, "This site's own pause is off, but it can't take orders: its order address is not confirmed yet."],
+    [{ ...open, orderEmail: null, orderEmailConfirmedAt: null }, true, "This site's own pause is off, but it can't take orders: it has no order address yet."],
+    [{ ...open, ordersPausedAt: 9 }, true, "Orders are still paused for this site."],
+  ] as const)("%#", (status, live, text) => {
+    expect(resumedText(status, live)).toBe(text);
   });
 });

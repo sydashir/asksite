@@ -6,6 +6,8 @@ import { shopLines } from "./words.ts";
 
 interface Props {
   status: SiteShopStatus;
+  /** The site is live and not taken down (from its row; null when unknown): part of whether it takes orders. */
+  live: boolean | null;
   /** How the site is named in the pause dialog (its web address, or its business name). */
   siteName: string;
   /** "See this site's orders" (the site page shows it; the Orders list, already filtered, does not). */
@@ -25,7 +27,7 @@ interface Props {
  */
 export function ShopStatusCard({ status, ...props }: Props) {
   const [confirming, setConfirming] = useState(false);
-  const lines = shopLines(status, when);
+  const lines = shopLines(status, props.live, when);
   const paused = status.ordersPausedAt !== null;
   return (
     <section className="card" aria-labelledby="shop-title">
@@ -36,6 +38,8 @@ export function ShopStatusCard({ status, ...props }: Props) {
         {props.message}
       </div>
       <dl className="mt-3 grid grid-cols-1 gap-x-4 gap-y-1 sm:grid-cols-[9rem_1fr]">
+        <dt className="text-slate-600">Takes orders</dt>
+        <dd className="font-medium text-ink [overflow-wrap:anywhere]">{lines.takesOrders}</dd>
         <dt className="text-slate-600">This site</dt>
         <dd className="[overflow-wrap:anywhere]">{lines.orders}</dd>
         <dt className="text-slate-600">All shops</dt>

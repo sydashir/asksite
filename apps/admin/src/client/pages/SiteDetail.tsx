@@ -280,7 +280,7 @@ function SiteScreen({ data, reload }: { data: SiteDetailData; reload: () => Prom
           </div>
         </section>
 
-        <SiteShopSection siteId={site.id} siteName={site.slug ?? site.businessName ?? "this site"} showOrdersLink />
+        <SiteShopSection siteId={site.id} siteName={site.slug ?? site.businessName ?? "this site"} live={site.live && !site.takenDown} showOrdersLink />
 
         <section className="card" aria-labelledby="versions-title">
           <h2 id="versions-title" className="section-title">

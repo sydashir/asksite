@@ -5,7 +5,7 @@ import { onLinkClick } from "../../../../app/src/client/hooks/use-route.ts";
 import { api } from "../../../../app/src/client/lib/api.ts";
 import { useResource } from "../hooks.ts";
 import { ShopStatusCard } from "./ShopStatusCard.tsx";
-import { ordersPath, resumedText, SHOP_CHANGED_ELSEWHERE, UNSURE } from "./words.ts";
+import { orderBlocker, ordersPath, resumedText, SHOP_CHANGED_ELSEWHERE, UNSURE } from "./words.ts";
 
 /** The last action's result. "resumed" is worded from the status read back after it (resumedText), so it is always true. */
 type Result = { kind: "paused" } | { kind: "resumed" } | { kind: "error"; text: string };
@@ -15,7 +15,7 @@ type Result = { kind: "paused" } | { kind: "resumed" } | { kind: "error"; text: 
  * so. No answer, or a server error, may still have changed it: the card reloads and says it could not tell. `onStatus` passes the
  * loaded status up (the Orders page reads the every-shop pause from it).
  */
-export function SiteShopSection(props: { siteId: string; siteName: string; showOrdersLink: boolean; onStatus?: (status: SiteShopStatus) => void }) {
+export function SiteShopSection(props: { siteId: string; siteName: string; live: boolean | null; showOrdersLink: boolean; onStatus?: (status: SiteShopStatus) => void }) {
   const { load, reload } = useResource<SiteShopStatus>(`/api/admin/sites/${props.siteId}/shop`);
   const [result, setResult] = useState<Result | null>(null);
   const [busy, setBusy] = useState(false);
@@ -65,6 +65,7 @@ export function SiteShopSection(props: { siteId: string; siteName: string; showO
   return (
     <ShopStatusCard
       status={load.data}
+      live={props.live}
       siteName={props.siteName}
       ordersHref={props.showOrdersLink ? ordersPath({ siteId: props.siteId, spam: false }) : null}
       onLink={onLinkClick}
@@ -75,7 +76,7 @@ export function SiteShopSection(props: { siteId: string; siteName: string; showO
         ) : result.kind === "paused" ? (
           <Notice tone="success">Orders paused for this site.</Notice>
         ) : (
-          <Notice tone={load.data.ordersPausedAt === null && !load.data.allOrdersPaused && load.data.orderEmailConfirmedAt !== null ? "success" : "warning"}>{resumedText(load.data)}</Notice>
+          <Notice tone={orderBlocker(load.data, props.live) === null ? "success" : "warning"}>{resumedText(load.data, props.live)}</Notice>
         )
       }
       messageRef={messageRef}

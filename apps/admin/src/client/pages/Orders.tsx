@@ -10,7 +10,7 @@ import { useResource } from "../hooks.ts";
 import { rememberOrdersSearch } from "../orders/back.ts";
 import { OrderList } from "../orders/OrderList.tsx";
 import { SiteShopSection } from "../orders/SiteShopSection.tsx";
-import { emptyOrdersText, ordersPath, ordersRequest, readOrdersFilters, UNSURE, type OrdersFilters } from "../orders/words.ts";
+import { ALL_NOT_PAUSED_TEXT, ALL_PAUSED_TEXT, ALL_RESUMED_TEXT, emptyOrdersText, ordersPath, ordersRequest, readOrdersFilters, UNSURE, type OrdersFilters } from "../orders/words.ts";
 
 type ListState = { state: "loading" } | { state: "error"; message: string } | { state: "ready"; orders: OrderListItem[]; next: number | null };
 
@@ -19,7 +19,7 @@ function AllOrdersSwitch({ allPaused, onChange }: { allPaused: boolean | null; o
   const [confirming, setConfirming] = useState<boolean | null>(null);
   return (
     <div className="flex flex-wrap items-center gap-3">
-      {allPaused !== null ? <p className="text-slate-700">{allPaused ? "Orders are paused on every shop." : "All shops can take orders."}</p> : null}
+      {allPaused !== null ? <p className="text-slate-700">{allPaused ? ALL_PAUSED_TEXT : ALL_NOT_PAUSED_TEXT}</p> : null}
       {allPaused !== true ? (
         <button type="button" className="btn-secondary" onClick={() => setConfirming(true)}>
           Pause all orders
@@ -42,7 +42,7 @@ function AllOrdersSwitch({ allPaused, onChange }: { allPaused: boolean | null; o
         }}
         onCancel={() => setConfirming(null)}
       >
-        <p>{confirming === true ? "Buyers on every shop see that ordering is paused." : "Every shop that is not paused on its own takes orders again."}</p>
+        <p>{confirming === true ? "Buyers on every shop see that ordering is paused." : "Shops paused on their own stay paused."}</p>
       </ConfirmDialog>
     </div>
   );
@@ -117,7 +117,7 @@ export function Orders({ search }: { search: string }) {
     if (res.ok) {
       setAllPaused(res.data.allOrdersPaused);
       setShopRefresh((n) => n + 1);
-      setMessage({ tone: "success", text: res.data.allOrdersPaused ? "Orders paused on every shop." : "Every shop that is not paused on its own takes orders again." });
+      setMessage({ tone: "success", text: res.data.allOrdersPaused ? "Orders paused on every shop." : ALL_RESUMED_TEXT });
     } else setMessage({ tone: "error", text: res.status === 0 || res.status >= 500 ? UNSURE : res.error.message });
     requestAnimationFrame(() => messageRef.current?.focus());
   }
@@ -161,7 +161,7 @@ export function Orders({ search }: { search: string }) {
 
       {siteId !== null ? (
         <div className="mt-6">
-          <SiteShopSection key={`${siteId}-${shopRefresh}`} siteId={siteId} siteName={chosen?.slug ?? chosen?.businessName ?? "this site"} showOrdersLink={false} onStatus={onSiteStatus} />
+          <SiteShopSection key={`${siteId}-${shopRefresh}`} siteId={siteId} siteName={chosen?.slug ?? chosen?.businessName ?? "this site"} live={chosen === undefined ? null : chosen.live && !chosen.takenDown} showOrdersLink={false} onStatus={onSiteStatus} />
         </div>
       ) : null}
 
