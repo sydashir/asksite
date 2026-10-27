@@ -33,9 +33,10 @@ CREATE TABLE orders (
 CREATE INDEX orders_site ON orders(site_id, created_at);
 CREATE INDEX orders_network ON orders(net_hash, site_id, created_at);
 CREATE INDEX orders_cart ON orders(site_id, cart_id, created_at);
--- The order-email count reads only the orders whose email was tried. SQLite uses a partial index only when the query's
--- WHERE implies the index's, so the count copies these terms exactly (as 0007 does for leads).
-CREATE INDEX orders_emailed ON orders(created_at) WHERE spam = 0 AND email_status IN ('pending', 'sent', 'failed') AND email_error IS NOT 'daily_cap';
+-- The order-email count reads only the orders whose email was tried, by email state alone: spam found at insert is stored
+-- 'skipped' (never tried), and an order staff mark as spam after its email went out still used its slot. SQLite uses a
+-- partial index only when the query's WHERE implies the index's, so the count copies these terms exactly (as 0007 does).
+CREATE INDEX orders_emailed ON orders(created_at) WHERE email_status IN ('pending', 'sent', 'failed') AND email_error IS NOT 'daily_cap';
 
 -- Staff's per-site pause of orders (abuse without a takedown). NULL = open.
 ALTER TABLE sites ADD COLUMN orders_paused_at INTEGER;

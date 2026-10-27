@@ -11,7 +11,7 @@ export interface OwnerDeletionCounts {
   attempts: number;
   /** Every site of the owner this run or an earlier one knew, sorted. */
   siteIds: string[];
-  rows: { sites: number; site_versions: number; generations: number; uploads: number; leads: number; invites: number; sessions: number; login_tokens: number; dev_outbox: number; owners: 1 };
+  rows: { sites: number; site_versions: number; generations: number; uploads: number; leads: number; orders: number; invites: number; sessions: number; login_tokens: number; dev_outbox: number; owners: 1 };
   /** LIVE counts page objects only (R2's delete does not say whether a pointer existed). */
   objects: { work: number; live: number; media: number };
   auditRedacted: number;
@@ -30,9 +30,24 @@ interface OwnerRow {
   disabled_at: number | null;
 }
 
-/** The sites table's bulk children of one site, child-first (no ON DELETE anywhere; site_versions go before generations). */
-const SITE_CHILDREN = ["leads", "uploads", "site_versions", "invites", "generations"] as const;
+/**
+ * The sites table's bulk children of one site, child-first (no ON DELETE anywhere; site_versions go before generations).
+ * orders (0012) hold buyers' names, emails, phones and addresses: they go with their site (moderator review I1, 2026-10-26).
+ */
+const SITE_CHILDREN = ["orders", "leads", "uploads", "site_versions", "invites", "generations"] as const;
 type SiteChild = (typeof SITE_CHILDREN)[number];
+
+/**
+ * Every table deleteOwner deletes from: the site children, the sites rows, the owner-level rows of the final batch and the
+ * owner. owner-deletion-coverage.workerd.test.ts fails when a table that names a site or an owner is in neither this list
+ * nor OWNER_DELETION_KEEPS, so a new table cannot be forgotten again.
+ */
+export const OWNER_DELETION_TABLES: readonly string[] = [...SITE_CHILDREN, "sites", "sessions", "login_tokens", "owners"];
+
+/** Tables that name a site or an owner and are kept on purpose, each with its reason. */
+export const OWNER_DELETION_KEEPS: Readonly<Record<string, string>> = {
+  audit_log: "The append-only record of what staff and the system did; deletion redacts its free-text reasons and adds owner.deleted (counts only).",
+};
 
 /**
  * The audit rows the closure redacts: this owner's owner.disabled rows and the site.taken_down rows of its sites, only
@@ -125,7 +140,7 @@ async function deleteUnderLeases(
   if (intent.meta.changes !== 1) return { outcome: "not_disabled" };
 
   const objects = { work: 0, live: 0, media: 0 };
-  const removed: Record<SiteChild, number> = { leads: 0, uploads: 0, site_versions: 0, invites: 0, generations: 0 };
+  const removed: Record<SiteChild, number> = { orders: 0, leads: 0, uploads: 0, site_versions: 0, invites: 0, generations: 0 };
 
   // Phase 3a: stop serving and empty WORK, per site.
   for (const siteId of presentIds) {
@@ -172,6 +187,7 @@ async function deleteUnderLeases(
   const left = await db
     .prepare(
       `SELECT (SELECT COUNT(*) FROM leads WHERE site_id IN (SELECT value FROM json_each(?1))) AS leads,
+              (SELECT COUNT(*) FROM orders WHERE site_id IN (SELECT value FROM json_each(?1))) AS orders,
               (SELECT COUNT(*) FROM uploads WHERE site_id IN (SELECT value FROM json_each(?1))) AS uploads,
               (SELECT COUNT(*) FROM site_versions WHERE site_id IN (SELECT value FROM json_each(?1))) AS site_versions,
               (SELECT COUNT(*) FROM invites WHERE site_id IN (SELECT value FROM json_each(?1)) OR owner_id = ?2 OR email = ?3) AS invites,
@@ -183,7 +199,7 @@ async function deleteUnderLeases(
               (SELECT COUNT(*) FROM audit_log WHERE ${redactionWhere("?5", "?4", "?2")}) AS redacted`,
     )
     .bind(JSON.stringify(presentIds), ownerId, email, JSON.stringify(allSiteIds), REDACTED_REASON)
-    .first<Record<"leads" | "uploads" | "site_versions" | "invites" | "generations" | "sites" | "sessions" | "login_tokens" | "dev_outbox" | "redacted", number>>();
+    .first<Record<"leads" | "orders" | "uploads" | "site_versions" | "invites" | "generations" | "sites" | "sessions" | "login_tokens" | "dev_outbox" | "redacted", number>>();
   if (left === null) throw new Error("owner_delete_count_missing");
   const counts: OwnerDeletionCounts = {
     attempts,
@@ -194,6 +210,7 @@ async function deleteUnderLeases(
       generations: removed.generations + left.generations,
       uploads: removed.uploads + left.uploads,
       leads: removed.leads + left.leads,
+      orders: removed.orders + left.orders,
       invites: removed.invites + left.invites,
       sessions: left.sessions,
       login_tokens: left.login_tokens,

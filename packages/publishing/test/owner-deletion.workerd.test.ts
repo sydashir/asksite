@@ -43,6 +43,7 @@ async function expectTargetGone(t: ClosingOwner, versionIds: string[]) {
   await zero("SELECT COUNT(*) AS n FROM owners WHERE id = ? OR email = ?", t.ownerId, t.email);
   await zero("SELECT COUNT(*) AS n FROM sites WHERE owner_id = ? OR id IN (SELECT value FROM json_each(?))", t.ownerId, ids);
   await zero("SELECT COUNT(*) AS n FROM leads WHERE site_id IN (SELECT value FROM json_each(?))", ids);
+  await zero("SELECT COUNT(*) AS n FROM orders WHERE site_id IN (SELECT value FROM json_each(?))", ids);
   await zero("SELECT COUNT(*) AS n FROM uploads WHERE site_id IN (SELECT value FROM json_each(?))", ids);
   await zero("SELECT COUNT(*) AS n FROM site_versions WHERE site_id IN (SELECT value FROM json_each(?))", ids);
   await zero("SELECT COUNT(*) AS n FROM generations WHERE owner_id = ? OR site_id IN (SELECT value FROM json_each(?))", t.ownerId, ids);
@@ -137,7 +138,7 @@ describe("deleteOwner", () => {
     expect(counts).toEqual({
       attempts: 1,
       siteIds: target.siteIds,
-      rows: { sites: e.sites, site_versions: e.site_versions, generations: e.generations, uploads: e.uploads, leads: e.leads, invites: e.invites, sessions: e.sessions, login_tokens: e.login_tokens, dev_outbox: e.dev_outbox, owners: 1 },
+      rows: { sites: e.sites, site_versions: e.site_versions, generations: e.generations, uploads: e.uploads, leads: e.leads, orders: e.orders, invites: e.invites, sessions: e.sessions, login_tokens: e.login_tokens, dev_outbox: e.dev_outbox, owners: 1 },
       objects: { work: e.work, live: e.live, media: e.media },
       auditRedacted: 3, // the seed's takedown row, its repeat row and the disable row; the deletion's own takedown rows are written redacted
     });

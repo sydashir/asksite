@@ -1,6 +1,6 @@
 import { newId } from "@asksite/core";
 import { describe, expect, it } from "vitest";
-import { json, useAdminHarness } from "../support/harness.ts";
+import { accessToken, json, useAdminHarness } from "../support/harness.ts";
 
 // The staff orders API (pages lane proposal 1.8, 1.9; strict tier: customer data). Staff (Access + the allowlist, as
 // every admin route) list every site's orders, open one, cancel it or mark it as spam, and pause a site's orders or all
@@ -53,6 +53,28 @@ describe("GET /api/admin/orders", () => {
     expect(second.orders.map((o) => o.createdAt)).toEqual([10_000]);
   });
 
+  it("keeps orders of one millisecond on one page: never splits a millisecond across pages (the leads rule)", async () => {
+    const site = await h.pendingSite();
+    const ids = [];
+    for (let i = 0; i < 3; i++) ids.push(await seedOrder(site.siteId, { number: 1001 + i, createdAt: 77_000 }));
+    const first = await json<{ orders: Array<{ id: string }>; nextBefore: number | null }>(await h.call("GET", `/api/admin/orders?siteId=${site.siteId}&limit=2`));
+    expect(first.orders.map((o) => o.id).sort()).toEqual([...ids].sort());
+    expect(first.nextBefore).toBe(77_000);
+    const second = await json<{ orders: unknown[]; nextBefore: number | null }>(await h.call("GET", `/api/admin/orders?siteId=${site.siteId}&limit=2&before=77000`));
+    expect(second).toEqual({ orders: [], nextBefore: null, allOrdersPaused: expect.any(Boolean) });
+  });
+
+  it("says whether all orders are paused, so the list can show the global pause", async () => {
+    expect(await json(await h.call("GET", "/api/admin/orders"))).toMatchObject({ allOrdersPaused: false });
+    expect((await h.call("POST", "/api/admin/orders/pause-all")).status).toBe(200);
+    try {
+      expect(await json(await h.call("GET", "/api/admin/orders"))).toMatchObject({ allOrdersPaused: true });
+    } finally {
+      await h.call("POST", "/api/admin/orders/resume-all");
+    }
+    expect(await json(await h.call("GET", "/api/admin/orders"))).toMatchObject({ allOrdersPaused: false });
+  });
+
   it("refuses a bad query, and needs Access like every admin route", async () => {
     expect((await h.call("GET", "/api/admin/orders?siteId=nope")).status).toBe(400);
     expect((await h.call("GET", "/api/admin/orders?limit=500")).status).toBe(400);
@@ -96,6 +118,15 @@ describe("cancel and mark as spam", () => {
     expect((await audits("order.marked_spam")).filter((a) => String(a["detail_json"]).includes(id))).toHaveLength(1);
   });
 
+  it("marking a cancelled order as spam keeps the cancel's who and when (the audit log records both)", async () => {
+    const site = await h.pendingSite();
+    const id = await seedOrder(site.siteId);
+    expect((await h.call("POST", `/api/admin/orders/${id}/cancel`)).status).toBe(200);
+    const cancelled = await json<{ statusAt: number; statusBy: string }>(await h.call("GET", `/api/admin/orders/${id}`));
+    expect((await h.call("POST", `/api/admin/orders/${id}/spam`, { token: await accessToken({ email: "second@example.com" }) })).status).toBe(200);
+    expect(await json(await h.call("GET", `/api/admin/orders/${id}`))).toMatchObject({ status: "cancelled", spam: true, statusAt: cancelled.statusAt, statusBy: "admin:admin@example.com" });
+  });
+
   it("answers 404 for an unknown order, and refuses a post from another origin", async () => {
     expect((await h.call("POST", `/api/admin/orders/${newId()}/cancel`)).status).toBe(404);
     const site = await h.pendingSite();
@@ -121,7 +152,7 @@ describe("pausing orders", () => {
 
   it("pauses and resumes all orders with the setting the sites Worker reads (orders_paused = '1')", async () => {
     const site = await h.pendingSite();
-    const setting = async () => (await (await h.db()).prepare("SELECT value FROM settings WHERE key = 'orders_paused'").first<{ value: string }>())?.value ?? null;
+    const setting = async () => (await (await h.db()).prepare("SELECT value FROM settings WHERE key = 'orders_paused'").bind().first<{ value: string }>())?.value ?? null;
     expect((await h.call("POST", "/api/admin/orders/pause-all")).status).toBe(200);
     expect(await setting()).toBe("1");
     expect(await json(await h.call("GET", `/api/admin/sites/${site.siteId}/shop`))).toMatchObject({ allOrdersPaused: true });

@@ -1,4 +1,4 @@
-export type EmailTag = "lead" | "magic_link" | "invite" | "review_result" | "site_notice" | "admin_alert" | "signup_invite"; // site_notice: takedown message to the owner
+export type EmailTag = "lead" | "magic_link" | "invite" | "review_result" | "site_notice" | "admin_alert" | "signup_invite" | "order" | "order_email_code"; // site_notice: takedown message to the owner; order: a shop order to the client; order_email_code: the code that confirms the client's order address
 
 export interface OutgoingEmail {
   to: string;

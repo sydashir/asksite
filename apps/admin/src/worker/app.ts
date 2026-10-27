@@ -3,6 +3,7 @@ import { Hono, type MiddlewareHandler } from "hono";
 import { adminAccess, type AccessKeys } from "./access.ts";
 import type { AdminDeps } from "./deps.ts";
 import { inviteRoutes } from "./routes/invites.ts";
+import { orderEmailRoutes } from "./routes/order-email.ts";
 import { orderRoutes } from "./routes/orders.ts";
 import { reviewRoutes } from "./routes/reviews.ts";
 import { settingsRoutes } from "./routes/settings.ts";
@@ -51,6 +52,7 @@ export function createAdminApp(deps: AdminDeps, keys: AccessKeys): Hono<AdminEnv
   app.route("/api/admin", signInRoutes(deps));
   app.route("/api/admin", settingsRoutes(deps));
   app.route("/api/admin", orderRoutes());
+  app.route("/api/admin", orderEmailRoutes(deps));
   app.notFound(handleNotFound);
   app.onError(handleError);
   return app;

@@ -247,7 +247,7 @@ describe("deletionResultText", () => {
   const counts = (over: Record<string, number> = {}, attempts = 1) => ({
     attempts,
     siteIds: [],
-    rows: { sites: 2, site_versions: 5, generations: 4, uploads: 1, leads: 3, invites: 0, sessions: 0, login_tokens: 0, dev_outbox: 0, owners: 1 as const, ...over },
+    rows: { sites: 2, site_versions: 5, generations: 4, uploads: 1, leads: 3, orders: 0, invites: 0, sessions: 0, login_tokens: 0, dev_outbox: 0, owners: 1 as const, ...over },
     objects: { work: 0, live: 0, media: 0 },
     auditRedacted: 0,
   });

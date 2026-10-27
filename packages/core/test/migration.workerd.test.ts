@@ -447,7 +447,7 @@ describe("0012_orders.sql", () => {
     expect(await columns("orders_cart")).toEqual(["site_id", "cart_id", "created_at"]);
     const row = await db.prepare("SELECT sql FROM sqlite_master WHERE type = 'index' AND name = 'orders_emailed'").all<{ sql: string }>();
     expect(row.results.map((r) => r.sql)).toEqual([
-      "CREATE INDEX orders_emailed ON orders(created_at) WHERE spam = 0 AND email_status IN ('pending', 'sent', 'failed') AND email_error IS NOT 'daily_cap'",
+      "CREATE INDEX orders_emailed ON orders(created_at) WHERE email_status IN ('pending', 'sent', 'failed') AND email_error IS NOT 'daily_cap'",
     ]);
   });
 

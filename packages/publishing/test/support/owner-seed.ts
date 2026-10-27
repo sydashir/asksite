@@ -32,7 +32,7 @@ export interface ClosingOwner {
   /** Every site of the owner, sorted (extras of the control are added here too). */
   siteIds: string[];
   /** The owner.deleted counts this seed must give on a first run. */
-  expected: { sites: number; site_versions: number; generations: number; uploads: number; leads: number; invites: number; sessions: number; login_tokens: number; dev_outbox: number; work: number; live: number; media: number };
+  expected: { sites: number; site_versions: number; generations: number; uploads: number; leads: number; orders: number; invites: number; sessions: number; login_tokens: number; dev_outbox: number; work: number; live: number; media: number };
 }
 
 const sha = (n: number) => n.toString(16).padStart(64, "0");
@@ -48,11 +48,17 @@ async function addGenerations(db: D1Database, ownerId: string, siteId: string): 
   return ids;
 }
 
-/** 3 uploads (the 3rd soft-deleted) with their MEDIA objects, and 3 leads (the 3rd spam). */
+/** 3 uploads (the 3rd soft-deleted) with their MEDIA objects, 3 leads (the 3rd spam) and 2 shop orders (buyer data, 0012). */
 async function addMediaAndLeads(env: PublishEnv, siteId: string): Promise<{ uploadIds: string[]; leadIds: string[] }> {
   const uploadIds = [newId(), newId(), newId()];
   const leadIds = [newId(), newId(), newId()];
   await env.DB.batch([
+    ...[1001, 1002].map((number) =>
+      env.DB.prepare(
+        `INSERT INTO orders (id, site_id, number, version_id, created_at, name, phone, email, fulfilment, address_json, items_json, subtotal_cents, cart_id, cart_hash, email_status, ip_hash, net_hash)
+         VALUES (?, ?, ?, ?, 1, ?, '+15125550100', ?, 'delivery', '{"line1":"1 Buyer St","city":"Austin","state":"TX","zip":"78701"}', '[]', 500, ?, 'h', 'sent', 'i', 'n')`,
+      ).bind(newId(), siteId, number, newId(), `Buyer ${number}`, `buyer${number}@example.net`, newId()),
+    ),
     ...uploadIds.map((id, i) =>
       env.DB.prepare("INSERT INTO uploads (id, site_id, width, height, bytes, created_at, deleted_at) VALUES (?, ?, 100, 100, 10, 1, ?)").bind(id, siteId, i === 2 ? 5 : null),
     ),
@@ -148,7 +154,7 @@ export async function seedClosingOwner(env: PublishEnv, label: string): Promise<
     b: { siteId: bId, slug: bNew, oldSlug: bOld, orphanKey, orphanVersionId: vB, versionIds: [vB], ...bMedia, generationIds: bGenerations },
     siteIds: [aId, bId].sort(),
     // WORK: 4 versions x 5 pages. LIVE: v1's 5 pages (takedown) + the orphan (sweep). MEDIA: 3 + 3 (takedown purge).
-    expected: { sites: 2, site_versions: 4, generations: 4, uploads: 6, leads: 6, invites: 3, sessions: 2, login_tokens: 2, dev_outbox: 1, work: 20, live: 6, media: 6 },
+    expected: { sites: 2, site_versions: 4, generations: 4, uploads: 6, leads: 6, orders: 4, invites: 3, sessions: 2, login_tokens: 2, dev_outbox: 1, work: 20, live: 6, media: 6 },
   };
 }
 
