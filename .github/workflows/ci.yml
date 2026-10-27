@@ -1,11 +1,12 @@
-# Every push and pull request, as four parallel jobs, each under its own 30-minute limit (A16's
+# Every push and pull request, as five parallel jobs, each under its own 30-minute limit (A16's
 # per-page browser matrix took one combined job past 30 minutes): `check` = typecheck plus unit and
 # integration tests (workerd through wrangler's test harness, no Cloudflare account); `e2e` = Plan 1's
 # browser tests without its macOS-only screenshots, in 2 shards; `sites` = the vitest "browser" project (tests that
 # launch Chromium or WebKit from vitest, *.browser.test.ts; check has no browsers) and the sites Worker's browser tests
-# over https. `apps` = the owner and admin apps' browser tests. Third-party actions are pinned to commit SHAs.
+# over https. `apps` = the owner and admin apps' browser tests. `journey` = the whole product in one local runtime
+# (owner, admin and shop journeys). Third-party actions are pinned to commit SHAs.
 # Fonts: in the Playwright image fontconfig resolves sans-serif, serif and system-ui to a CJK font (WenQuanYi Zen Hei),
-# which WebKit then draws every design's generic stack in; no visitor sees that. The e2e, sites and apps jobs point
+# which WebKit then draws every design's generic stack in; no visitor sees that. The e2e, sites, apps and journey jobs point
 # FONTCONFIG_FILE at .github/fontconfig/fonts.conf so the generic families resolve to Liberation Sans, Serif and Mono
 # (Arial, Times and Courier metrics) in both engines, and a guard step fails if the image ever changes that.
 name: ci
@@ -229,3 +230,49 @@ jobs:
       - run: pnpm --filter @asksite/app test:e2e
       - run: pnpm --filter @asksite/admin test:e2e
       - run: pnpm --filter @asksite/app check:floor
+
+  # The whole product in ONE local Workers runtime on port 8789 (apps/app/e2e-journey/server.ts: sites, app, admin and
+  # generator, the log mailer and the fake model; it refuses to start when a model or mail key is set): the owner's and the
+  # admin's journeys and the shop journey (apps/app/e2e-journey/*.spec.ts). Its own job: the apps job already takes about
+  # 19 of its 30 minutes. One worker, as test:journey sets: the kill-switch test turns the AI off for every owner while it
+  # runs. Same image, user, fonts and fixed hosts as the apps job.
+  journey:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    container:
+      image: mcr.microsoft.com/playwright:v1.63.0-noble@sha256:eff16c30e6f3f4af0a03fa4b706120d5e9b0891c344a27d64559aff5900a4a27
+      options: >-
+        --user 1001
+        --ipc=host
+        --init
+        --add-host app.localhost:127.0.0.1
+        --add-host admin.localhost:127.0.0.1
+        --add-host media.localhost:127.0.0.1
+        --add-host mail.localhost:127.0.0.1
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # Generic fonts resolve to Liberation (Arial and Times metrics), not the image's CJK fallback (see the header).
+      - run: echo "FONTCONFIG_FILE=$GITHUB_WORKSPACE/.github/fontconfig/fonts.conf" >> "$GITHUB_ENV"
+      # Fails if the image ever stops resolving sans-serif and serif to Liberation.
+      - run: |
+          fc-match -f '%{family}\n' 'sans-serif:lang=en' | grep -qx 'Liberation Sans' && fc-match -f '%{family}\n' 'serif:lang=en' | grep -qx 'Liberation Serif'
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0 (reads packageManager from package.json)
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build:css
+      - run: |
+          getent hosts app.localhost
+          getent hosts admin.localhost
+      # Customer sites are <slug>.localhost with a new slug each run, so --add-host cannot list them. Chromium resolves any
+      # *.localhost to loopback by itself; WebKit and Node's request client ask the system resolver. This step only reports
+      # whether the image resolves an unknown *.localhost name, so a failure in the customer-page steps is explained at once.
+      - run: |
+          if getent hosts journey-probe.localhost; then echo "an unknown *.localhost name resolves"; else echo "::warning::this image does not resolve unknown *.localhost names: WebKit and Node requests to customer pages (<slug>.localhost) will fail"; fi
+      - run: pnpm --filter @asksite/app test:journey
