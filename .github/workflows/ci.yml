@@ -230,6 +230,17 @@ jobs:
       - run: pnpm --filter @asksite/app test:e2e
       - run: pnpm --filter @asksite/admin test:e2e
       - run: pnpm --filter @asksite/app check:floor
+      # On a failure only: Playwright's error-context pages (the failed step, its call log and the page as an accessibility
+      # snapshot), so a CI-only flake can be read afterwards. Markdown files only, never traces (traces can hold cookies).
+      - if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: apps-error-context
+          path: |
+            apps/app/test-results/**/*.md
+            apps/admin/test-results/**/*.md
+          if-no-files-found: ignore
+          retention-days: 7
 
   # The whole product in ONE local Workers runtime on port 8789 (apps/app/e2e-journey/server.ts: sites, app, admin and
   # generator, the log mailer and the fake model; it refuses to start when a model or mail key is set): the owner's and the
@@ -276,3 +287,13 @@ jobs:
       - run: |
           if getent hosts journey-probe.localhost; then echo "an unknown *.localhost name resolves"; else echo "::warning::this image does not resolve unknown *.localhost names: WebKit and Node requests to customer pages (<slug>.localhost) will fail"; fi
       - run: pnpm --filter @asksite/app test:journey
+      # On a failure only: Playwright's error-context pages (the failed step, its call log and the page as an accessibility
+      # snapshot), so a CI-only flake can be read afterwards. Markdown files only, never traces (traces can hold cookies).
+      - if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: journey-error-context
+          path: |
+            apps/app/test-results/**/*.md
+          if-no-files-found: ignore
+          retention-days: 7
