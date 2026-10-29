@@ -27,13 +27,13 @@ function AllOrdersSwitch({ allPaused, onChange }: { allPaused: boolean | null; o
       ) : null}
       {allPaused !== false ? (
         <button type="button" className="btn-secondary" onClick={() => setConfirming(false)}>
-          Take orders on every shop
+          Turn off the every-shop pause
         </button>
       ) : null}
       <ConfirmDialog
         open={confirming !== null}
-        title={confirming === true ? "Pause orders on every shop?" : "Take orders again on every shop?"}
-        confirmLabel={confirming === true ? "Pause all orders" : "Take orders again"}
+        title={confirming === true ? "Pause orders on every shop?" : "Turn off the every-shop pause?"}
+        confirmLabel={confirming === true ? "Pause all orders" : "Turn it off"}
         danger={confirming === true}
         onConfirm={() => {
           const paused = confirming === true;
@@ -71,7 +71,8 @@ export function Orders({ search }: { search: string }) {
 
   useEffect(() => rememberOrdersSearch(ordersPath({ siteId, spam }).slice("/orders".length)), [siteId, spam]);
 
-  const load = useCallback(async () => {
+  /** Loads the first page; true when its answer was shown (false when a newer load took over). */
+  const load = useCallback(async (): Promise<boolean> => {
     const tag = ++generation.current;
     older.current = false;
     setLoadingOlder(false);
@@ -79,8 +80,9 @@ export function Orders({ search }: { search: string }) {
     setOlderError(null);
     setFocusId(null);
     const res = await api<{ orders: OrderListItem[]; nextBefore: number | null }>("GET", ordersRequest({ siteId, spam }, null));
-    if (tag !== generation.current) return;
+    if (tag !== generation.current) return false;
     setList(res.ok ? { state: "ready", orders: res.data.orders, next: res.data.nextBefore } : { state: "error", message: res.error.message });
+    return true;
   }, [siteId, spam]);
 
   useEffect(() => {
@@ -118,7 +120,12 @@ export function Orders({ search }: { search: string }) {
       setAllPaused(res.data.allOrdersPaused);
       setShopRefresh((n) => n + 1);
       setMessage({ tone: "success", text: res.data.allOrdersPaused ? "Orders paused on every shop." : ALL_RESUMED_TEXT });
-    } else setMessage({ tone: "error", text: res.status === 0 || res.status >= 500 ? UNSURE : res.error.message });
+    } else if (res.status === 0 || res.status >= 500) {
+      // The switch may or may not have changed: the page stops claiming either state and re-reads the Shop card.
+      setAllPaused(null);
+      setShopRefresh((n) => n + 1);
+      setMessage({ tone: "error", text: UNSURE });
+    } else setMessage({ tone: "error", text: res.error.message });
     requestAnimationFrame(() => messageRef.current?.focus());
   }
 
@@ -179,7 +186,7 @@ export function Orders({ search }: { search: string }) {
               <button
                 type="button"
                 className="btn-secondary mt-3 flex"
-                onClick={() => void load().then(() => requestAnimationFrame(() => resultsRef.current?.focus()))}
+                onClick={() => void load().then((shown) => (shown ? requestAnimationFrame(() => resultsRef.current?.focus()) : undefined))}
               >
                 Try again
               </button>

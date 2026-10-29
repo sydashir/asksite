@@ -7,8 +7,8 @@ import { useResource } from "../hooks.ts";
 import { ShopStatusCard } from "./ShopStatusCard.tsx";
 import { orderBlocker, ordersPath, resumedText, SHOP_CHANGED_ELSEWHERE, UNSURE } from "./words.ts";
 
-/** The last action's result. "resumed" is worded from the status read back after it (resumedText), so it is always true. */
-type Result = { kind: "paused" } | { kind: "resumed" } | { kind: "error"; text: string };
+/** The last action's result, worded once from the status read back right after it, so it never rewrites itself later. */
+type Result = { tone: "success" | "warning" | "error"; text: string };
 
 /**
  * Loads a site's shop status and runs its pause and resume. A 409 means someone else changed it first: the card reloads and says
@@ -21,6 +21,9 @@ export function SiteShopSection(props: { siteId: string; siteName: string; live:
   const [busy, setBusy] = useState(false);
   const acting = useRef(false);
   const messageRef = useRef<HTMLDivElement>(null);
+  /** Wraps whatever the section shows, so focus has a place to land after "Try again" (the button it came from may be gone). */
+  const areaRef = useRef<HTMLDivElement>(null);
+  const [retrying, setRetrying] = useState(false);
   const { onStatus } = props;
   useEffect(() => {
     if (load.state === "ready") onStatus?.(load.data);
@@ -32,11 +35,14 @@ export function SiteShopSection(props: { siteId: string; siteName: string; live:
     setBusy(true);
     try {
       const res = await api<{ ordersPaused: boolean }>("POST", `/api/admin/sites/${props.siteId}/orders/${paused ? "pause" : "resume"}`, {});
-      await reload();
-      if (res.ok) setResult({ kind: paused ? "paused" : "resumed" });
-      else if (res.status === 409) setResult({ kind: "error", text: SHOP_CHANGED_ELSEWHERE });
-      else if (res.status === 0 || res.status >= 500) setResult({ kind: "error", text: UNSURE });
-      else setResult({ kind: "error", text: res.error.message });
+      const fresh = await reload();
+      if (res.ok && paused) setResult({ tone: "success", text: "Orders paused for this site." });
+      else if (res.ok) {
+        const can = fresh !== null && orderBlocker(fresh, props.live) === null;
+        setResult({ tone: can ? "success" : "warning", text: fresh === null ? "This site's own pause is off." : resumedText(fresh, props.live) });
+      } else if (res.status === 409) setResult({ tone: "error", text: SHOP_CHANGED_ELSEWHERE });
+      else if (res.status === 0 || res.status >= 500) setResult({ tone: "error", text: UNSURE });
+      else setResult({ tone: "error", text: res.error.message });
       requestAnimationFrame(() => messageRef.current?.focus());
     } finally {
       acting.current = false;
@@ -44,44 +50,46 @@ export function SiteShopSection(props: { siteId: string; siteName: string; live:
     }
   }
 
-  if (load.state === "loading")
-    return (
-      <p role="status" className="loading mt-4">
-        <span className="spinner" aria-hidden="true" />
-        Loading the shop…
-      </p>
-    );
-  if (load.state === "error")
-    return (
-      <div role="alert">
-        <Notice tone="error">
-          {load.error.message}
-          <button type="button" className="btn-secondary mt-3 flex" onClick={() => void reload()}>
-            Try again
-          </button>
-        </Notice>
-      </div>
-    );
+  async function retry() {
+    if (retrying) return;
+    setRetrying(true);
+    await reload();
+    setRetrying(false);
+    requestAnimationFrame(() => areaRef.current?.focus());
+  }
+
   return (
-    <ShopStatusCard
-      status={load.data}
-      live={props.live}
-      siteName={props.siteName}
-      ordersHref={props.showOrdersLink ? ordersPath({ siteId: props.siteId, spam: false }) : null}
-      onLink={onLinkClick}
-      busy={busy}
-      message={
-        result === null ? null : result.kind === "error" ? (
-          <Notice tone="error">{result.text}</Notice>
-        ) : result.kind === "paused" ? (
-          <Notice tone="success">Orders paused for this site.</Notice>
-        ) : (
-          <Notice tone={orderBlocker(load.data, props.live) === null ? "success" : "warning"}>{resumedText(load.data, props.live)}</Notice>
-        )
-      }
-      messageRef={messageRef}
-      onPause={() => void setPaused(true)}
-      onResume={() => void setPaused(false)}
-    />
+    <div ref={areaRef} tabIndex={-1}>
+      {load.state === "loading" ? (
+        <p role="status" className="loading mt-4">
+          <span className="spinner" aria-hidden="true" />
+          Loading the shop…
+        </p>
+      ) : null}
+      {load.state === "error" ? (
+        <div role="alert">
+          <Notice tone="error">
+            We couldn't load the shop. {load.error.message}
+            <button type="button" className="btn-secondary mt-3 flex" aria-disabled={retrying} onClick={() => void retry()}>
+              {retrying ? "Trying again…" : "Try again"}
+            </button>
+          </Notice>
+        </div>
+      ) : null}
+      {load.state === "ready" ? (
+        <ShopStatusCard
+          status={load.data}
+          live={props.live}
+          siteName={props.siteName}
+          ordersHref={props.showOrdersLink ? ordersPath({ siteId: props.siteId, spam: false }) : null}
+          onLink={onLinkClick}
+          busy={busy}
+          message={result === null ? null : <Notice tone={result.tone}>{result.text}</Notice>}
+          messageRef={messageRef}
+          onPause={() => void setPaused(true)}
+          onResume={() => void setPaused(false)}
+        />
+      ) : null}
+    </div>
   );
 }

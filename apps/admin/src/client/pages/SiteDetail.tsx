@@ -41,7 +41,7 @@ export function SiteDetail({ siteId }: { siteId: string }) {
   return <SiteScreen data={load.data} reload={reload} />;
 }
 
-function SiteScreen({ data, reload }: { data: SiteDetailData; reload: () => Promise<void> }) {
+function SiteScreen({ data, reload }: { data: SiteDetailData; reload: () => Promise<unknown> }) {
   const { site, takenDownAt, restoredAt } = data;
   const heading = usePageHeading<HTMLHeadingElement>(site.businessName ?? site.slug ?? "Site", "Admin");
   const [message, setMessage] = useState<Message | null>(null);

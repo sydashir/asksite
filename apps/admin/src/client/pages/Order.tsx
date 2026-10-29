@@ -53,7 +53,7 @@ function OrderLoadError({ code, message, retry }: { code: string; message: strin
   );
 }
 
-function OrderScreen({ order, reload }: { order: OrderDetailView; reload: () => Promise<void> }) {
+function OrderScreen({ order, reload }: { order: OrderDetailView; reload: () => Promise<unknown> }) {
   const heading = usePageHeading<HTMLHeadingElement>(`Order #${order.number}`, "Admin");
   const [message, setMessage] = useState<Message | null>(null);
   const [busy, setBusy] = useState(false);

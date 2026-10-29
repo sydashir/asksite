@@ -1,6 +1,9 @@
 import type { SiteShopStatus } from "@asksite/core";
 import { describe, expect, it } from "vitest";
 import {
+  ALL_NOT_PAUSED_TEXT,
+  ALL_PAUSED_TEXT,
+  ALL_RESUMED_TEXT,
   addressLines,
   buyerMailto,
   emailLine,
@@ -144,6 +147,10 @@ describe("orderBlocker: the sites Worker's insert guard, in its own order", () =
     [{ ...ready, orderEmailConfirmedAt: null }, true, "its order address is not confirmed yet"],
     [{ ...ready, orderEmail: null, orderEmailConfirmedAt: null }, true, "it has no order address yet"],
     [ready, null, "the site's state could not be read"],
+    // The per-site daily cap (ORDER_LIMITS.perSitePerDay, the UTC day): the guard's last site-level check.
+    [{ ...ready, ordersToday: 49 }, true, null],
+    [{ ...ready, ordersToday: 50 }, true, "it reached today's limit of 50 orders (it resets at 00:00 UTC)"],
+    [{ ...ready, ordersToday: 50, orderEmailConfirmedAt: null }, true, "its order address is not confirmed yet"],
   ] as const)("%#", (status, live, why) => {
     expect(orderBlocker(status, live)).toBe(why);
   });
@@ -170,5 +177,14 @@ describe("resumedText: Resume never promises orders the site cannot take", () =>
     [{ ...open, ordersPausedAt: 9 }, true, "Orders are still paused for this site."],
   ] as const)("%#", (status, live, text) => {
     expect(resumedText(status, live)).toBe(text);
+  });
+});
+
+describe("the every-shop switch's words describe the switch, never promise orders", () => {
+  it("names the switch's state only", () => {
+    expect(ALL_PAUSED_TEXT).toBe("The every-shop pause is on: no shop takes orders.");
+    expect(ALL_NOT_PAUSED_TEXT).toBe("The every-shop pause is off.");
+    expect(ALL_RESUMED_TEXT).toBe("The every-shop pause is off. Shops paused on their own stay paused.");
+    for (const text of [ALL_NOT_PAUSED_TEXT, ALL_RESUMED_TEXT]) expect(text).not.toMatch(/takes? orders|can take/);
   });
 });

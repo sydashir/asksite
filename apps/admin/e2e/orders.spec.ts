@@ -246,7 +246,7 @@ test("a site's shop card: pause asks first, resume does not, and a pause made in
   await expect(page).toHaveURL(new RegExp(`/orders\\?site=${site.siteId}$`));
 });
 
-test("the every-shop switch: pause and take orders again, with the state shown once known (mocked answers: no real global flip)", async ({ page }) => {
+test("the every-shop switch: pause and turn the pause off, with the state shown once known (mocked answers: no real global flip)", async ({ page }) => {
   // The real setting is shared by every shop and every test running beside this one, so this test never changes it: the
   // switch's answers and the shop status are mocked here, and pages' workerd tests cover the real API.
   let paused = false;
@@ -265,7 +265,7 @@ test("the every-shop switch: pause and take orders again, with the state shown o
 
   const site = await siteWithOrder(page);
   await page.goto(`/orders?site=${site.siteId}`);
-  await expect(page.getByText("Orders are not paused on every shop.")).toBeVisible();
+  await expect(page.getByText("The every-shop pause is off.", { exact: true })).toBeVisible();
   const card = page.getByRole("region", { name: "Shop" });
   await expect(card).toContainText("All shops");
   await expect(card).not.toContainText("Paused for every shop");
@@ -273,14 +273,90 @@ test("the every-shop switch: pause and take orders again, with the state shown o
   await page.getByRole("button", { name: "Pause all orders" }).click();
   await page.getByRole("dialog", { name: "Pause orders on every shop?" }).getByRole("button", { name: "Pause all orders" }).click();
   await expect(page.getByRole("status").filter({ hasText: "Orders paused on every shop." })).toBeFocused();
-  await expect(page.getByText("Orders are paused on every shop.")).toBeVisible();
+  await expect(page.getByText("The every-shop pause is on: no shop takes orders.")).toBeVisible();
   // The Shop card on the same page reads the new state too.
   await expect(card).toContainText("Paused for every shop");
 
-  await page.getByRole("button", { name: "Take orders on every shop" }).click();
-  await page.getByRole("dialog", { name: "Take orders again on every shop?" }).getByRole("button", { name: "Take orders again" }).click();
+  await page.getByRole("button", { name: "Turn off the every-shop pause" }).click();
+  await page.getByRole("dialog", { name: "Turn off the every-shop pause?" }).getByRole("button", { name: "Turn it off" }).click();
   await expect(page.getByRole("status").filter({ hasText: "The every-shop pause is off. Shops paused on their own stay paused." })).toBeFocused();
   await expect(card).not.toContainText("Paused for every shop");
+  // The header shows the new state and offers pausing again (and no longer the turn-off button).
+  await expect(page.getByText("The every-shop pause is off.", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Pause all orders" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Turn off the every-shop pause" })).toHaveCount(0);
+});
+
+test("the every-shop switch with no clear answer: the page stops claiming either state and re-reads the card", async ({ page }) => {
+  await page.route("**/api/admin/orders/pause-all", (route) => route.fulfill({ status: 500, json: { error: { code: "internal", message: "Something went wrong." } } }));
+  const site = await siteWithOrder(page);
+  await page.goto(`/orders?site=${site.siteId}`);
+  await expect(page.getByText("The every-shop pause is off.", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Pause all orders" }).click();
+  await page.getByRole("dialog", { name: "Pause orders on every shop?" }).getByRole("button", { name: "Pause all orders" }).click();
+  await expect(page.getByRole("status").filter({ hasText: "We couldn't tell whether that worked. Reload to see the latest state." })).toBeFocused();
+  // The card re-read the real state (nothing changed: the mocked 500 never reached the server), and the header offers both ways.
+  await expect(page.getByRole("region", { name: "Shop" })).not.toContainText("Paused for every shop");
+  await expect(page.getByText("The every-shop pause is off.", { exact: true })).toBeVisible();
+});
+
+test("a site pause with no clear answer says so, and the card shows what really happened", async ({ page }) => {
+  const site = await siteWithOrder(page);
+  await page.goto(`/sites/${site.siteId}`);
+  const card = page.getByRole("region", { name: "Shop" });
+  // The server pauses the site, but the answer never reaches the page.
+  await page.route("**/api/admin/sites/*/orders/pause", async (route) => {
+    await route.fetch();
+    await route.abort();
+  });
+  await card.getByRole("button", { name: "Pause this site's orders" }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "Pause orders" }).click();
+  await expect(card.getByRole("status").filter({ hasText: "We couldn't tell whether that worked. Reload to see the latest state." })).toBeFocused();
+  await expect(card).toContainText(/Paused by .+ on /);
+  await expect(card.getByRole("button", { name: "Resume this site's orders" })).toBeVisible();
+});
+
+test("Try again: the list and the Shop card each recover from a failed load and keep keyboard focus on the page", async ({ page }) => {
+  const site = await siteWithOrder(page);
+  let ordersFailures = 1;
+  await page.route("**/api/admin/orders?*", (route) => (ordersFailures-- > 0 ? route.fulfill({ status: 500, json: { error: { code: "internal", message: "Something went wrong." } } }) : route.continue()));
+  let shopFailures = 1;
+  await page.route("**/api/admin/sites/*/shop", (route) => (shopFailures-- > 0 ? route.fulfill({ status: 500, json: { error: { code: "internal", message: "Something went wrong." } } }) : route.continue()));
+  await page.goto(`/orders?site=${site.siteId}`);
+
+  const listRetry = page.getByRole("alert").filter({ hasText: "We couldn't load the orders." }).getByRole("button", { name: "Try again" });
+  await listRetry.focus();
+  await page.keyboard.press("Enter");
+  await expect(page.locator(".order-row")).toHaveCount(1);
+  await expect.poll(() => page.evaluate(() => document.activeElement?.tagName ?? "")).not.toBe("BODY");
+
+  const shopRetry = page.getByRole("alert").filter({ hasText: "We couldn't load the shop." }).getByRole("button", { name: "Try again" });
+  await shopRetry.focus();
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("region", { name: "Shop" })).toContainText("Takes orders");
+  await expect.poll(() => page.evaluate(() => document.activeElement?.tagName ?? "")).not.toBe("BODY");
+});
+
+test("a late answer for the old filter never shows under the new one", async ({ page }) => {
+  const site = await siteWithOrder(page, { name: "Real Buyer" });
+  await seedOrders(page.request, site.siteId, [{ number: 1002, name: "Junk Buyer", spam: true }]);
+  // The first list request (Orders) is held back; the Spam request that follows answers at once.
+  let held = true;
+  await page.route("**/api/admin/orders?*", async (route) => {
+    if (held && route.request().url().includes("spam=0")) {
+      held = false;
+      await new Promise((resolve) => setTimeout(resolve, 2500));
+    }
+    await route.continue();
+  });
+  await page.goto(`/orders?site=${site.siteId}`);
+  await page.getByRole("group", { name: "Show" }).getByRole("button", { name: "Spam" }).click();
+  await expect(page.locator(".order-row")).toHaveCount(1);
+  await expect(page.locator(".order-row").first()).toContainText("Junk Buyer");
+  // The held Orders answer arrives now; it must be dropped.
+  await page.waitForTimeout(3000);
+  await expect(page.locator(".order-row")).toHaveCount(1);
+  await expect(page.getByText("Real Buyer")).toHaveCount(0);
 });
 
 test("keyboard: an order opens from the list with Enter", async ({ page }) => {

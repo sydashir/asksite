@@ -1,4 +1,4 @@
-import { isId, type OrderDetail, type OrderEmailStatus, type OrderFulfilment, type OrderListItem, type OrderStatus, type SiteShopStatus } from "@asksite/core";
+import { isId, ORDER_LIMITS, type OrderDetail, type OrderEmailStatus, type OrderFulfilment, type OrderListItem, type OrderStatus, type SiteShopStatus } from "@asksite/core";
 
 // The staff orders screens' words and small rules (admin-orders-plan.md), kept out of the components so they are tested on
 // their own. Every amount comes from the order the server stored; nothing here adds up money.
@@ -93,16 +93,18 @@ export function emptyOrdersText(filters: OrdersFilters): string {
 export const orderSiteLabel = (order: Pick<OrderListItem, "slug">): string => order.slug ?? "(no web address)";
 
 /**
- * Why a shop cannot take orders right now, or null when it can. The checks are the sites Worker's own insert guard
+ * Why a shop cannot take orders right now, or null when it can. The checks are the sites Worker's own insert guard, in its order
  * (apps/sites/src/order-sql.ts): the site is live and not taken down, its orders are not paused, orders are not paused on every
- * shop, and its order address is confirmed. `live` comes from the site row (null when the row is not known): an unknown state
- * is never reported as able to take orders.
+ * shop, its order address is confirmed, and it has not reached its daily order limit (ORDER_LIMITS.perSitePerDay, counted over
+ * the UTC day, as ordersToday is). `live` comes from the site row (null when the row is not known): an unknown state is never
+ * reported as able to take orders. Per-buyer limits (one network's daily orders, the burst limit) are not the shop's state.
  */
 export function orderBlocker(status: SiteShopStatus, live: boolean | null): string | null {
   if (live === false) return "the site is not live";
   if (status.ordersPausedAt !== null) return "orders are paused for this site";
   if (status.allOrdersPaused) return "orders are paused on every shop";
   if (status.orderEmailConfirmedAt === null) return status.orderEmail === null ? "it has no order address yet" : "its order address is not confirmed yet";
+  if (status.ordersToday >= ORDER_LIMITS.perSitePerDay) return `it reached today's limit of ${ORDER_LIMITS.perSitePerDay} orders (it resets at 00:00 UTC)`;
   if (live === null) return "the site's state could not be read";
   return null;
 }
@@ -136,8 +138,8 @@ export function resumedText(status: SiteShopStatus, live: boolean | null): strin
 }
 
 /** The every-shop switch's words: they describe the switch only, never promise that any shop takes orders. */
-export const ALL_PAUSED_TEXT = "Orders are paused on every shop.";
-export const ALL_NOT_PAUSED_TEXT = "Orders are not paused on every shop.";
+export const ALL_PAUSED_TEXT = "The every-shop pause is on: no shop takes orders.";
+export const ALL_NOT_PAUSED_TEXT = "The every-shop pause is off.";
 export const ALL_RESUMED_TEXT = "The every-shop pause is off. Shops paused on their own stay paused.";
 
 /** The 409 line shown after the page reloaded the state it changed. */
