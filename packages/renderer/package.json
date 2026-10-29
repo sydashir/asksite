@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./cart-markup": "./src/shop/cart-markup.ts"
   },
   "scripts": {
     "build:css": "node scripts/build-css.ts"
