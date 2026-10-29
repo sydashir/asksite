@@ -3,6 +3,8 @@
 // `@asksite/renderer`'s build:css. Output: src/generated.ts (gitignored).
 // A design uses its own sheet when packages/renderer/styles/sheets/<id>.css exists, otherwise the
 // baseline sheet (A12). Identical sheets are written once, so designs that share a sheet share one object.
+// Every design also has a shop sheet, styles/sheets/<id>-shop.css (option (a)): DESIGN_SHOP_CSS, which render inlines
+// only on the pages that draw shop parts.
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { DESIGN_IDS } from "@asksite/site-schema";
@@ -21,6 +23,18 @@ const designs = DESIGN_IDS.map((id) => {
   return { id, name: shared.name };
 });
 
+// The shop sheets: one per design, no fallback (a design without one fails the build).
+const shops = DESIGN_IDS.map((id) => {
+  const file = new URL(`out/${id}-shop.css`, styles);
+  if (!existsSync(file)) throw new Error(`${file.pathname} is missing; every design needs styles/sheets/${id}-shop.css`);
+  const css = readFileSync(file, "utf8");
+  if (css.length === 0) throw new Error(`${file.pathname} is empty; run the renderer build:css first`);
+  const sha256 = createHash("sha256").update(css, "utf8").digest("hex");
+  const shared = consts.get(sha256) ?? { name: `${id.toUpperCase()}_SHOP`, css };
+  consts.set(sha256, shared);
+  return { id, name: shared.name };
+});
+
 const type = "{ readonly css: string; readonly sha256: string }";
 writeFileSync(
   new URL("../src/generated.ts", import.meta.url),
@@ -28,10 +42,12 @@ writeFileSync(
     `import type { DesignId } from "@asksite/site-schema";\n\n` +
     [...consts].map(([sha256, { name, css }]) => `const ${name}: ${type} = Object.freeze({ css: ${JSON.stringify(css)}, sha256: ${JSON.stringify(sha256)} });\n`).join("") +
     `\nexport const DESIGN_CSS: Readonly<Record<DesignId, ${type}>> = Object.freeze({ ${designs.map(({ id, name }) => `${id}: ${name}`).join(", ")} });\n\n` +
+    `export const DESIGN_SHOP_CSS: Readonly<Record<DesignId, ${type}>> = Object.freeze({ ${shops.map(({ id, name }) => `${id}: ${name}`).join(", ")} });\n\n` +
     `/** @deprecated Use DESIGN_CSS. The impact sheet, kept until Plans 2B, 3 and 4 have merged (A12-R). */\n` +
     `export const SITE_CSS: string = DESIGN_CSS.impact.css;\n` +
     `/** @deprecated Use DESIGN_CSS. The impact sheet's SHA-256, kept until Plans 2B, 3 and 4 have merged (A12-R). */\n` +
     `export const SITE_CSS_SHA256: string = DESIGN_CSS.impact.sha256;\n`,
 );
 for (const { id, name } of designs) console.log(`wrote DESIGN_CSS.${id} (${name})`);
+for (const { id, name } of shops) console.log(`wrote DESIGN_SHOP_CSS.${id} (${name})`);
 console.log(`wrote packages/site-css/src/generated.ts (${consts.size} distinct sheet${consts.size === 1 ? "" : "s"})`);

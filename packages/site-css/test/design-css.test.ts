@@ -3,8 +3,8 @@ import { sha256Hex } from "@asksite/core";
 import { gzipSync } from "node:zlib";
 import { DESIGN_IDS, type DesignId } from "@asksite/site-schema";
 import { describe, expect, it } from "vitest";
-import { DESIGN_CSS, SITE_CSS, SITE_CSS_SHA256 } from "../src/index.ts";
-import { FOCUS_OUTSIDE_RULE, SHEET_BUDGET, sheetProblems, sourceProblems } from "./support/sheet-rules.ts";
+import { DESIGN_CSS, DESIGN_SHOP_CSS, SITE_CSS, SITE_CSS_SHA256 } from "../src/index.ts";
+import { FOCUS_OUTSIDE_RULE, SHEET_BUDGET, SHOP_SHEET_BUDGET, sheetProblems, shopSheetProblems, shopSourceProblems, sourceProblems } from "./support/sheet-rules.ts";
 
 const STYLES = new URL("../../renderer/styles/", import.meta.url);
 const SHEETS = readdirSync(new URL("sheets/", STYLES)).filter((file) => file.endsWith(".css"));
@@ -29,8 +29,8 @@ describe("DESIGN_CSS (A12)", () => {
     expect(DESIGN_CSS[id].sha256).toBe(read(`../sheets/${id}.sha256`, import.meta.url).trim());
   });
 
-  it("has exactly one lock per design", () => {
-    expect(readdirSync(new URL("../sheets/", import.meta.url)).sort()).toEqual(DESIGN_IDS.map((id) => `${id}.sha256`).sort());
+  it("has exactly one lock per design and one per design's shop sheet", () => {
+    expect(readdirSync(new URL("../sheets/", import.meta.url)).sort()).toEqual(DESIGN_IDS.flatMap((id) => [`${id}.sha256`, `${id}-shop.sha256`]).sort());
   });
 
   it.each(DESIGN_IDS)("%s: inlines safely, fetches nothing, keeps the focus-outside rule and fits the budget", (id) => {
@@ -65,14 +65,52 @@ describe("DESIGN_CSS (A12)", () => {
 });
 
 describe("the Tailwind inputs, styles/sheets/*.css (A12)", () => {
-  it("are the baseline plus only design ids", () => {
-    const allowed = new Set(["baseline.css", ...DESIGN_IDS.map((id) => `${id}.css`)]);
+  const SHOP_SHEETS = DESIGN_IDS.map((id) => `${id}-shop.css`);
+
+  it("are the baseline, design ids and one shop sheet per design", () => {
+    const allowed = new Set(["baseline.css", ...DESIGN_IDS.map((id) => `${id}.css`), ...SHOP_SHEETS]);
     expect(SHEETS).toContain("baseline.css");
+    expect(SHEETS).toEqual(expect.arrayContaining(SHOP_SHEETS));
     expect(SHEETS.filter((file) => !allowed.has(file))).toEqual([]);
   });
 
-  it.each(SHEETS)("%s scans only render.ts, the shared modules and its own design folder", (file) => {
+  it.each(SHEETS.filter((file) => !SHOP_SHEETS.includes(file)))("%s scans only render.ts, the shared modules and its own design folder, never its shop.ts", (file) => {
     expect(sourceProblems(file.replace(/\.css$/, ""), read(`sheets/${file}`, STYLES))).toEqual([]);
+  });
+
+  it.each(DESIGN_IDS)("%s-shop.css imports theme and utilities without Preflight and scans only the design's shop.ts", (id) => {
+    expect(shopSourceProblems(id, read(`sheets/${id}-shop.css`, STYLES))).toEqual([]);
+  });
+});
+
+describe("DESIGN_SHOP_CSS (option (a): each design's shop sheet, inlined only on shop pages)", () => {
+  it("has a shop sheet for every design and nothing else", () => {
+    expect(Object.keys(DESIGN_SHOP_CSS)).toEqual([...DESIGN_IDS]);
+  });
+
+  it.each(DESIGN_IDS)("%s: is its own compiled shop sheet, with core's SHA-256", async (id) => {
+    expect(DESIGN_SHOP_CSS[id].css).toBe(read(`out/${id}-shop.css`, STYLES));
+    expect(DESIGN_SHOP_CSS[id].css).toContain("tailwindcss v4.3.3");
+    expect(DESIGN_SHOP_CSS[id].sha256).toBe(await sha256Hex(DESIGN_SHOP_CSS[id].css));
+  });
+
+  it.each(DESIGN_IDS)("%s: equals its lock in packages/site-css/sheets/<id>-shop.sha256", (id) => {
+    expect(DESIGN_SHOP_CSS[id].sha256).toBe(read(`../sheets/${id}-shop.sha256`, import.meta.url).trim());
+  });
+
+  it.each(DESIGN_IDS)("%s: inlines safely, fetches nothing, carries no Preflight and fits the shop budget", (id) => {
+    expect(shopSheetProblems(DESIGN_SHOP_CSS[id].css, id)).toEqual([]);
+    // Preflight's first rule; a second copy after the base sheet would override the design's own @layer base rules.
+    expect(DESIGN_SHOP_CSS[id].css).not.toMatch(/box-sizing:border-box/);
+  });
+
+  it("has one shop budget row per design: 16,384 B raw / 4,096 B gzip-9 (ADDENDUM 3, provisional)", () => {
+    expect(SHOP_SHEET_BUDGET).toEqual({ impact: { raw: 16384, gzip: 4096 }, refined: { raw: 16384, gzip: 4096 }, modern: { raw: 16384, gzip: 4096 } });
+  });
+
+  it("is frozen", () => {
+    expect(Object.isFrozen(DESIGN_SHOP_CSS)).toBe(true);
+    for (const id of DESIGN_IDS) expect(Object.isFrozen(DESIGN_SHOP_CSS[id])).toBe(true);
   });
 });
 
@@ -117,12 +155,18 @@ describe("the sheet checks can fail (RED proof)", () => {
   });
 
   it("catch a Tailwind input that scans another design, or everything", () => {
-    const design = '@import "tailwindcss" source(none);\n@import "../shared.css";\n@source "../../src/render.ts";\n@source "../../src/designs/modern";\n';
+    const design = '@import "tailwindcss" source(none);\n@import "../shared.css";\n@source "../../src/render.ts";\n@source "../../src/designs/modern";\n@source not "../../src/designs/modern/shop.ts";\n';
     expect(sourceProblems("modern", design)).toEqual([]);
     expect(sourceProblems("modern", `${design}@source "../../src/designs/impact";\n`)).toEqual(["scans ../../src/designs/impact"]);
     expect(sourceProblems("modern", `${design}@source "../../src";\n`)).toEqual(["scans ../../src"]);
     expect(sourceProblems("modern", `${design}@source "../../src/designs";\n`)).toEqual(["scans ../../src/designs"]);
-    expect(sourceProblems("impact", design)).toEqual(["missing @source ../../src/designs/impact", "scans ../../src/designs/modern"]);
+    expect(sourceProblems("impact", design)).toEqual([
+      "missing @source ../../src/designs/impact",
+      "missing @source not ../../src/designs/impact/shop.ts",
+      "scans ../../src/designs/modern",
+      "scans not ../../src/designs/modern/shop.ts",
+    ]);
+    expect(sourceProblems("modern", design.replace('@source not "../../src/designs/modern/shop.ts";\n', ""))).toEqual(["missing @source not ../../src/designs/modern/shop.ts"]);
     expect(sourceProblems("baseline", '@import "tailwindcss" source(none);\n@import "../shared.css";\n@source "../../src";\n')).toEqual([
       "missing @source not ../../src/designs",
     ]);
@@ -131,7 +175,7 @@ describe("the sheet checks can fail (RED proof)", () => {
 
   // A12-0 round-2 rulings: each @source path is normalised (Tailwind resolves it relative to the sheet),
   // and anything outside the design's own folder and the shared modules is refused, however it is written.
-  const modern = '@import "tailwindcss" source(none);\n@import "../shared.css";\n@source "../../src/render.ts";\n@source "../../src/designs/modern";\n';
+  const modern = '@import "tailwindcss" source(none);\n@import "../shared.css";\n@source "../../src/render.ts";\n@source "../../src/designs/modern";\n@source not "../../src/designs/modern/shop.ts";\n';
 
   it.each([
     ['@source "../../src/";', "scans ../../src/"],
@@ -181,5 +225,57 @@ describe("the sheet checks can fail (RED proof)", () => {
       '@source "../../src/sections";\n@source "../../src/baseline.ts";\n@source "../../src/ui.ts";\n@source "../../src/./icons.ts";\n' +
       '@source "../../src/designs/modern/";\n@source not "../../src/designs/modern/draft.ts";\n/* @source "../../src"; Tailwind reads no directive in a comment */\n';
     expect(sourceProblems("modern", `${modern}${shared}`)).toEqual([]);
+  });
+});
+
+describe("the shop sheet checks can fail (RED proof)", () => {
+  const good = "/*! tailwindcss v4.3.3 */.shop-card{display:grid}";
+  const input = '@layer theme, base, components, utilities;\n@import "tailwindcss/theme.css" layer(theme);\n@import "tailwindcss/utilities.css" layer(utilities) source(none);\n@import "../shared.css";\n@source "../../src/designs/modern/shop.ts";\n';
+
+  it("pass a good sheet and a good input", () => {
+    expect(shopSheetProblems(good, "modern")).toEqual([]);
+    expect(shopSourceProblems("modern", input)).toEqual([]);
+  });
+
+  it.each([
+    ["</style", `${good}</style><script>`],
+    ["url(", `${good}.a{background:url(x.png)}`],
+    ["@import", `@import "x.css";${good}`],
+    ["image-set(", `${good}.a{background:image-set("x.png" 1x)}`],
+    ["@font-face", `${good}@font-face{font-family:x}`],
+  ])("catch %s", (problem, css) => {
+    expect(shopSheetProblems(css, "modern")).toEqual([problem]);
+  });
+
+  it("catch a shop sheet over the raw and the gzip budget, and one over gzip only", () => {
+    const noise = Array.from({ length: 3000 }, (_, i) => `.c${(i * 7919) % 100_003}{order:${i}}`).join("");
+    expect(shopSheetProblems(good + noise, "impact").map((p) => p.replace(/^\d+/, "N"))).toEqual(["N B raw > 16384", "N B gzip > 4096"]);
+    let seed = 11;
+    const next = () => (seed = (seed * 1103515245 + 12345) % 2 ** 31);
+    let css = good;
+    while (gzipSync(css, { level: 9 }).length <= 4096) css += `.c${next().toString(36)}{order:${next() % 1000}}`;
+    expect(Buffer.byteLength(css)).toBeLessThanOrEqual(16384);
+    expect(shopSheetProblems(css, "refined").map((p) => p.replace(/^\d+/, "N"))).toEqual(["N B gzip > 4096"]);
+  });
+
+  it.each([
+    ['@import "tailwindcss" source(none);', ['imports @import "tailwindcss" source(none);']],
+    ['@import "tailwindcss/preflight.css" layer(base);', ['imports @import "tailwindcss/preflight.css" layer(base);']],
+    ['@source "../../src/designs/modern";', ["scans ../../src/designs/modern"]],
+    ['@source "../../src/designs/impact/shop.ts";', ["scans ../../src/designs/impact/shop.ts"]],
+    ['@source "../../src/render.ts";', ["scans ../../src/render.ts"]],
+    ['@source "../../src/shop";', ["scans ../../src/shop"]],
+    ['@source "../../src/designs/*/shop.ts";', ["glob ../../src/designs/*/shop.ts"]],
+  ])("catch an input with %s", (line, problems) => {
+    expect(shopSourceProblems("modern", `${input}${line}\n`)).toEqual(problems);
+  });
+
+  it("catch a missing shop.ts source, automatic scanning left on and a missing import", () => {
+    expect(shopSourceProblems("modern", input.replace('@source "../../src/designs/modern/shop.ts";\n', ""))).toEqual(["missing @source ../../src/designs/modern/shop.ts"]);
+    expect(shopSourceProblems("modern", input.replace(" source(none)", ""))).toEqual([
+      'missing @import "tailwindcss/utilities.css" layer(utilities) source(none);',
+      'imports @import "tailwindcss/utilities.css" layer(utilities);',
+    ]);
+    expect(shopSourceProblems("modern", input.replace('@import "../shared.css";\n', ""))).toEqual(['missing @import "../shared.css";']);
   });
 });

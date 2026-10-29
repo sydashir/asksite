@@ -26,6 +26,15 @@ export const SHEET_BUDGET: Readonly<Record<DesignId, SheetBudget>> = {
   modern: { raw: 40 * 1024, gzip: 9 * 1024 },
 };
 
+// The budget of each design's SHOP sheet (styles/sheets/<id>-shop.css): PROVISIONAL 16,384 B raw / 4,096 B gzip-9 per
+// design under Node 24.21.0 (moderator, shop build ADDENDUM 3, 2026-10-15). A shop page inlines it after the base
+// sheet, so it adds to that page only; no font of its own.
+export const SHOP_SHEET_BUDGET: Readonly<Record<DesignId, Omit<SheetBudget, "font">>> = {
+  impact: { raw: 16 * 1024, gzip: 4 * 1024 },
+  refined: { raw: 16 * 1024, gzip: 4 * 1024 },
+  modern: { raw: 16 * 1024, gzip: 4 * 1024 },
+};
+
 // The compiled focus-outside variant (styles/shared.css): the call bar stops sticking while keyboard focus
 // is outside it, so it never hides the focused element (WCAG 2.4.11). Every design needs it.
 export const FOCUS_OUTSIDE_RULE = String.raw`html:has(:focus-visible:not(aside *)) .focus-outside\:static{position:static}`;
@@ -62,6 +71,29 @@ export function sheetProblems(css: string, design: DesignId): string[] {
   return problems;
 }
 
+/**
+ * What is wrong with a compiled SHOP sheet: the same no-fetch, no-</style> rules as sheetProblems (no font at all), and
+ * its own budget row. No focus-outside rule is needed: the base sheet before it on the page carries that.
+ */
+export function shopSheetProblems(css: string, design: DesignId): string[] {
+  const budget = SHOP_SHEET_BUDGET[design];
+  const problems: string[] = [];
+  if (/<\/style/i.test(css)) problems.push("</style");
+  for (const [label, pattern] of [
+    ["url(", /url\(/i],
+    ["@import", /@import/i],
+    ["image-set(", /image-set\(/i],
+    ["@font-face", /@font-face/i],
+  ] as const) {
+    if (pattern.test(css)) problems.push(label);
+  }
+  const raw = Buffer.byteLength(css, "utf8");
+  if (raw > budget.raw) problems.push(`${raw} B raw > ${budget.raw}`);
+  const gzip = gzipSync(css, { level: 9 }).length;
+  if (gzip > budget.gzip) problems.push(`${gzip} B gzip > ${budget.gzip}`);
+  return problems;
+}
+
 // The only imports a Tailwind input may have: Tailwind with automatic scanning off, and the shared tokens.
 const IMPORTS: readonly string[] = ['@import "tailwindcss" source(none);', '@import "../shared.css";'];
 
@@ -76,16 +108,8 @@ const isShared = (path: string) => path.startsWith("src/") && path !== "src/desi
 
 const shown = (path: string) => (path.startsWith("not ") ? `not ../../${path.slice(4)}` : `../../${path}`);
 
-/**
- * What is wrong with a Tailwind input, packages/renderer/styles/sheets/<name>.css (A12 addendum; A12-0
- * round-2 rulings). Each one turns off automatic scanning and imports the shared tokens, and nothing else:
- * no other @import, @reference, @config or @plugin. Each @source is the house form, `@source ["not"]
- * "<path>";` with double quotes and no glob, and its path is normalised before it is judged. The baseline
- * scans src but not src/designs, and nothing more; a design scans render.ts and its own folder, and may
- * add the shared modules (src/ outside src/designs). So no design's classes ever reach another design's
- * sheet. Directives inside comments are ignored, as Tailwind ignores them.
- */
-export function sourceProblems(name: string, source: string): string[] {
+/** The directives of a Tailwind input (comments dropped), its @source paths read and normalised, and what is unreadable. */
+function directivesOf(source: string, imports: readonly string[]): { statements: string[]; found: Array<{ written: string; path: string }>; wrong: string[] } {
   // Comments go (Tailwind reads no directive in one); a "/*" inside a quoted path is not a comment.
   const css = source.replace(/("[^"]*"|'[^']*')|\/\*[\s\S]*?\*\//g, (_, quoted: string | undefined) => quoted ?? "");
   const statements = [...css.matchAll(/@(?:import|reference|config|plugin|source)\b[^;]*;?/g)].map((m) => m[0].replace(/\s+/g, " ").trim());
@@ -93,7 +117,7 @@ export function sourceProblems(name: string, source: string): string[] {
   const wrong: string[] = [];
   for (const statement of statements) {
     if (!statement.startsWith("@source")) {
-      if (!IMPORTS.includes(statement)) wrong.push(`imports ${statement}`);
+      if (!imports.includes(statement)) wrong.push(`imports ${statement}`);
       continue;
     }
     const match = /^@source (not )?"([^"]*)";$/.exec(statement);
@@ -105,8 +129,22 @@ export function sourceProblems(name: string, source: string): string[] {
     if (/[*?{}[\]\\!]/.test(path)) wrong.push(`glob ${not}${path}`);
     else found.push({ written: `${not}${path}`, path: `${not}${inPackage(path)}` });
   }
+  return { statements, found, wrong };
+}
 
-  const own = name === "baseline" ? ["src", "not src/designs"] : ["src/render.ts", `src/designs/${name}`];
+/**
+ * What is wrong with a Tailwind input, packages/renderer/styles/sheets/<name>.css (A12 addendum; A12-0
+ * round-2 rulings). Each one turns off automatic scanning and imports the shared tokens, and nothing else:
+ * no other @import, @reference, @config or @plugin. Each @source is the house form, `@source ["not"]
+ * "<path>";` with double quotes and no glob, and its path is normalised before it is judged. The baseline
+ * scans src but not src/designs, and nothing more; a design scans render.ts and its own folder but never its own shop.ts
+ * (that feeds only its shop sheet, option (a)), and may add the shared modules (src/ outside src/designs). So no design's classes ever reach another design's
+ * sheet. Directives inside comments are ignored, as Tailwind ignores them.
+ */
+export function sourceProblems(name: string, source: string): string[] {
+  const { statements, found, wrong } = directivesOf(source, IMPORTS);
+  // A design's own shop.ts feeds only its shop sheet, so the base sheet must leave it out (option (a)).
+  const own = name === "baseline" ? ["src", "not src/designs"] : ["src/render.ts", `src/designs/${name}`, `not src/designs/${name}/shop.ts`];
   // Judged in lower case: this Mac's APFS volume is case-insensitive, so "src/Designs/impact" scans
   // src/designs/impact here (A12-0 round-4 rulings, M1). Each required path must still be written exactly,
   // as a case-sensitive Linux build reads it.
@@ -121,5 +159,25 @@ export function sourceProblems(name: string, source: string): string[] {
     ...own.filter((path) => !found.some((f) => f.path === path)).map((path) => `missing @source ${shown(path)}`),
     ...wrong,
     ...found.filter((f) => !allowed(f.path)).map((f) => `scans ${f.written}`),
+  ];
+}
+
+// A shop sheet's only imports: Tailwind's theme and utilities WITHOUT Preflight (the base sheet before it has
+// Preflight; a second copy would override the design's own @layer base rules; tailwindcss.com/docs/preflight), with
+// automatic scanning off on the utilities import, and the shared tokens.
+const SHOP_IMPORTS: readonly string[] = ['@import "tailwindcss/theme.css" layer(theme);', '@import "tailwindcss/utilities.css" layer(utilities) source(none);', '@import "../shared.css";'];
+
+/**
+ * What is wrong with a shop sheet's Tailwind input, packages/renderer/styles/sheets/<design>-shop.css: exactly the
+ * shop imports, and exactly one @source, the design's own shop.ts, so only the shop's classes reach it.
+ */
+export function shopSourceProblems(design: string, source: string): string[] {
+  const { statements, found, wrong } = directivesOf(source, SHOP_IMPORTS);
+  const own = `src/designs/${design}/shop.ts`;
+  return [
+    ...SHOP_IMPORTS.filter((line) => !statements.includes(line)).map((line) => `missing ${line}`),
+    ...(found.some((f) => f.path === own) ? [] : [`missing @source ${shown(own)}`]),
+    ...wrong,
+    ...found.filter((f) => f.path !== own).map((f) => `scans ${f.written}`),
   ];
 }
