@@ -2137,9 +2137,11 @@
       grid-template-rows: auto;
       grid-template-areas: "body specs";
     }
+    /* The story alone: its one area named, else .about-body's grid-area: body lands in an implicit column. */
     .about--solo {
       grid-template-columns: minmax(0, 1fr);
       grid-template-rows: auto;
+      grid-template-areas: "body";
     }
     .about-media {
       grid-area: media;
