@@ -399,6 +399,7 @@ describe("constants", () => {
       // the shop's staff actions (phase 2, pages lane), appended last
       "order.cancelled", "order.marked_spam", "order.email_resent", "site.orders_paused", "site.orders_resumed",
       "orders.paused_all", "orders.resumed_all", "site.order_email_set", "site.order_email_code_sent", "site.order_email_confirmed",
+      "site.order_email_code_rejected",
     ]);
   });
 });

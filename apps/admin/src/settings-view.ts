@@ -50,7 +50,7 @@ export interface TakedownView {
 export interface OwnerDeletionCounts {
   attempts: number;
   siteIds: string[];
-  rows: { sites: number; site_versions: number; generations: number; uploads: number; leads: number; invites: number; sessions: number; login_tokens: number; dev_outbox: number; owners: 1 };
+  rows: { sites: number; site_versions: number; generations: number; uploads: number; leads: number; orders: number; invites: number; sessions: number; login_tokens: number; dev_outbox: number; owners: 1 };
   objects: { work: number; live: number; media: number };
   auditRedacted: number;
 }

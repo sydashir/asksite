@@ -52,8 +52,9 @@ export type InsertOrderResult =
   | { outcome: Stored | "duplicate"; orderId: string; number: number }
   | { outcome: Refused };
 
-// The order-email count copies orders_emailed's WHERE exactly (0012_orders.sql), so SQLite can use that partial index.
-const TRIED = "spam = 0 AND email_status IN ('pending', 'sent', 'failed') AND email_error IS NOT 'daily_cap'";
+// The order-email count copies orders_emailed's WHERE exactly (0012_orders.sql), so SQLite can use that partial index. By
+// email state alone: an order staff mark as spam after its email went out still used its slot (review, 2026-10-26).
+const TRIED = "email_status IN ('pending', 'sent', 'failed') AND email_error IS NOT 'daily_cap'";
 
 export const ORDER_INSERT_SQL = `
 INSERT INTO orders (id, site_id, number, version_id, created_at, name, phone, email, fulfilment, address_json, note, items_json,

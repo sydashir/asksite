@@ -77,7 +77,8 @@ export function orderRoutes(): Hono<AdminEnv> {
         page = [...page.filter((o) => o.created_at !== edge), ...tied.results];
       }
     }
-    return c.json({ orders: page.map(toListItem), nextBefore });
+    const paused = await c.env.DB.prepare("SELECT EXISTS (SELECT 1 FROM settings WHERE key = 'orders_paused' AND value = '1') AS paused").first<{ paused: number }>();
+    return c.json({ orders: page.map(toListItem), nextBefore, allOrdersPaused: paused?.paused === 1 });
   });
 
   orders.get("/orders/:orderId", async (c) => {
@@ -108,7 +109,7 @@ export function orderRoutes(): Hono<AdminEnv> {
     const order = await db.prepare("SELECT site_id, number FROM orders WHERE id = ?").bind(orderId).first<{ site_id: string; number: number }>();
     if (order === null) throw new ApiError("not_found", "No such order");
     const [changed] = await db.batch([
-      db.prepare(`UPDATE orders SET ${change.set} WHERE id = ? AND ${change.when}`).bind(now, actor, orderId),
+      db.prepare(`UPDATE orders SET ${change.set} WHERE id = ? AND ${change.when}`).bind(...(change.set.includes("?") ? [now, actor] : []), orderId),
       auditIfChanged(db, { at: now, actor, action: change.action, siteId: order.site_id, detail: { orderId, number: order.number } }),
     ]);
     if (changed?.meta.changes !== 1) throw new ApiError("conflict", "This order has changed. Reload it and try again.");
@@ -120,7 +121,8 @@ export function orderRoutes(): Hono<AdminEnv> {
   });
 
   orders.post("/orders/:orderId/spam", async (c) => {
-    await changeOrder(c, c.req.param("orderId"), { set: "spam = 1, status_at = ?, status_by = ?", when: "spam = 0", action: "order.marked_spam" });
+    // status_at/status_by belong to the cancel; the audit row records who marked it as spam, and when.
+    await changeOrder(c, c.req.param("orderId"), { set: "spam = 1", when: "spam = 0", action: "order.marked_spam" });
     return c.json({ spam: true });
   });
 

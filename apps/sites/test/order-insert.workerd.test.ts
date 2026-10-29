@@ -132,9 +132,11 @@ describe("insertOrder: refusals (nothing stored)", () => {
     try {
       expect(await insertOrder(db, order(other))).toEqual({ outcome: "paused" });
     } finally {
-      await tools.DB.prepare("DELETE FROM settings WHERE key = 'orders_paused'").run();
+      // Resumed as staff resume it (admin's resume-all keeps the row with value '0').
+      await tools.DB.prepare("UPDATE settings SET value = '0' WHERE key = 'orders_paused'").run();
     }
     expect((await insertOrder(db, order(other))).outcome).toBe("pending");
+    await tools.DB.prepare("DELETE FROM settings WHERE key = 'orders_paused'").run();
   });
 
   it("refuses a site with no confirmed client order address: no_address (nobody would receive the order)", async () => {
@@ -168,8 +170,10 @@ describe("insertOrder: daily caps (UTC day)", () => {
   it(`allows ${ORDER_LIMITS.perSitePerDay} orders a day per site (spam included), then site_daily_cap; yesterday's do not count`, async () => {
     const site = await shopSite();
     await fill(site.siteId, 3, { createdAt: NOON - DAY_MS });
-    await fill(site.siteId, ORDER_LIMITS.perSitePerDay - 1, {});
+    await fill(site.siteId, ORDER_LIMITS.perSitePerDay - 2, { status: "skipped" });
     await fill(site.siteId, 1, { spam: 1, status: "skipped" });
+    // 49 today (spam included) and 3 yesterday: the 50th is stored only because yesterday's do not count.
+    expect(isStored(await insertOrder(db, order(site)))).toBe(true);
     expect(await insertOrder(db, order(site))).toEqual({ outcome: "site_daily_cap" });
   });
 
@@ -201,6 +205,33 @@ describe("insertOrder: the order-email budgets", () => {
     await fill(site.siteId, 4, { createdAt: NOON - DAY_MS });
     await fill(site.siteId, ORDER_LIMITS.emailsPerSitePerDay - 1, { status: "pending" });
     expect((await insertOrder(db, order(site))).outcome).toBe("pending");
+  });
+
+  it("counts toward the global budget only today's tried emails: not yesterday's, not skipped, held or capped; an emailed order marked spam later still counts", async () => {
+    const day = NOON + 40 * DAY_MS;
+    const busy = await Promise.all(Array.from({ length: 4 }, () => shopSite()));
+    // Today: 19 tried emails across sites, 3 of them later marked spam by staff (still tried: the email went out).
+    await fill(busy[0]!.siteId, 5, { createdAt: day, status: "sent" });
+    await fill(busy[1]!.siteId, 5, { createdAt: day, status: "sent" });
+    await fill(busy[2]!.siteId, 5, { createdAt: day, status: "failed" });
+    await fill(busy[3]!.siteId, 1, { createdAt: day, status: "pending" });
+    await fill(busy[3]!.siteId, 3, { createdAt: day, status: "sent", spam: 1 });
+    // Not tried, or not today: never counted.
+    await fill(busy[3]!.siteId, 5, { createdAt: day - DAY_MS, status: "sent" });
+    await fill(busy[3]!.siteId, 2, { createdAt: day, status: "skipped", spam: 1 });
+    await fill(busy[3]!.siteId, 2, { createdAt: day, status: "held" });
+    await fill(busy[3]!.siteId, 2, { createdAt: day, status: "failed", error: "daily_cap" });
+    const nineteenth = await shopSite();
+    const first = order(nineteenth, { now: day, emailsPerDay: EMAILS_PER_DAY });
+    expect(await insertOrder(db, first)).toMatchObject({ outcome: "pending" });
+    const twentieth = await shopSite();
+    expect(await insertOrder(db, order(twentieth, { now: day, emailsPerDay: EMAILS_PER_DAY }))).toMatchObject({ outcome: "failed" });
+  });
+
+  it("an emailed order marked spam later still uses its site's email slot", async () => {
+    const site = await shopSite();
+    await fill(site.siteId, ORDER_LIMITS.emailsPerSitePerDay, { status: "sent", spam: 1 });
+    expect(await insertOrder(db, order(site))).toMatchObject({ outcome: "failed" });
   });
 
   it("stops order emails for all sites once the day's global budget is used; the order is still stored", async () => {
